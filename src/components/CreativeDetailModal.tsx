@@ -14,9 +14,11 @@ import { CreativeIterationAnalysis } from "@/components/creative-detail/Creative
 import { CreativeNotes } from "@/components/creative-detail/CreativeNotes";
 import { TrendSection } from "@/components/creative-detail/TrendSection";
 import { GradeBadge } from "@/components/creatives/GradeBadge";
+import { ScoreCircle } from "@/components/creatives/ScoreCircle";
 import type { WoWTrend } from "@/hooks/useWoWTrends";
 import type { GradeInfo } from "@/lib/creativeGrading";
 import type { FatigueResult } from "@/lib/fatigueScore";
+import type { CreativeScore } from "@/lib/creativeScore";
 
 interface CreativeDetailModalProps {
   creative: any;
@@ -25,6 +27,7 @@ interface CreativeDetailModalProps {
   wowTrends?: Map<string, WoWTrend>;
   gradeMap?: Map<string, GradeInfo>;
   fatigueMap?: Map<string, FatigueResult>;
+  scoreMap?: Map<string, CreativeScore>;
 }
 
 function MetaPreviewEmbed({ url, fallbackUrl }: { url: string; fallbackUrl?: string | null }) {
@@ -190,11 +193,12 @@ function MediaPreview({ creative }: { creative: any }) {
   );
 }
 
-export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModalProps>(function CreativeDetailModal({ creative, open, onClose, wowTrends, gradeMap, fatigueMap }, ref) {
+export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModalProps>(function CreativeDetailModal({ creative, open, onClose, wowTrends, gradeMap, fatigueMap, scoreMap }, ref) {
   const creatorId = creative?.creator_id;
   const { data: creator } = useCreator(creatorId || undefined);
   if (!creative) return null;
   const fatigue = fatigueMap?.get(creative.ad_id);
+  const creativeScore = scoreMap?.get(creative.ad_id);
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -215,6 +219,33 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
         <MediaPreview creative={creative} />
 
         <CreativeMetrics creative={creative} />
+
+        {/* Creative Score */}
+        {creativeScore && (
+          <div className="space-y-2 px-1">
+            <div className="flex items-center gap-3">
+              <ScoreCircle score={creativeScore.score} tier={creativeScore.tier} size="md" />
+              <span className="font-heading text-[16px] text-foreground">Creative Score: {creativeScore.score}/100</span>
+            </div>
+            <div className="w-full h-2.5 bg-muted rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${creativeScore.tier === "green" ? "bg-success" : creativeScore.tier === "amber" ? "bg-amber-500" : "bg-destructive"}`}
+                style={{ width: `${creativeScore.score}%` }}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-[12px] font-body mt-1">
+              <ScoreRow label="ROAS" value={creativeScore.breakdown.roas} max={35} />
+              <ScoreRow label="CTR" value={creativeScore.breakdown.ctr} max={20} />
+              <ScoreRow label="Hook Rate" value={creativeScore.breakdown.hookRate} max={15} />
+              <ScoreRow label="CPA Efficiency" value={creativeScore.breakdown.cpaEfficiency} max={10} />
+              <ScoreRow label="Momentum" value={creativeScore.breakdown.momentum} max={10} />
+              {creativeScore.breakdown.fatiguePenalty < 0 && (
+                <ScoreRow label="Fatigue Penalty" value={creativeScore.breakdown.fatiguePenalty} max={0} negative />
+              )}
+            </div>
+          </div>
+        )}
+
         {gradeMap?.get(creative.ad_id) && (
           <div className="flex items-center gap-2 px-1">
             <GradeBadge grade={gradeMap.get(creative.ad_id)!.grade} />
@@ -283,3 +314,14 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
     </Dialog>
   );
 });
+
+function ScoreRow({ label, value, max, negative }: { label: string; value: number; max: number; negative?: boolean }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={`font-data font-medium tabular-nums ${negative ? "text-destructive" : "text-foreground"}`}>
+        {value > 0 ? "+" : ""}{value} / {max}
+      </span>
+    </div>
+  );
+}
