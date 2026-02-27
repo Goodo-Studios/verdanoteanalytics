@@ -2,6 +2,8 @@ import { ReactNode, useState } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { AIChatWidget } from "@/components/AIChatWidget";
 import { NotificationCenter } from "@/components/NotificationCenter";
+import { OnboardingWizard } from "@/components/OnboardingWizard";
+import { useFirstLogin } from "@/hooks/useFirstLogin";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
@@ -12,6 +14,7 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { showOnboarding, openTour, closeTour } = useFirstLogin();
 
   return (
     <div className="flex min-h-screen w-full bg-background">
@@ -23,14 +26,14 @@ export function AppLayout({ children }: AppLayoutProps) {
         />
       )}
 
-      {/* Sidebar — always visible on md+, slide-in on mobile */}
+      {/* Sidebar */}
       <div
         className={`
           fixed inset-y-0 left-0 z-50 transition-transform duration-200 md:translate-x-0
           ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
         `}
       >
-        <AppSidebar onNavigate={() => setMobileOpen(false)} />
+        <AppSidebar onNavigate={() => setMobileOpen(false)} onTakeTour={openTour} />
       </div>
 
       {/* Main content */}
@@ -57,6 +60,9 @@ export function AppLayout({ children }: AppLayoutProps) {
         </div>
       </main>
       <AIChatWidget />
+
+      {/* Onboarding wizard */}
+      <OnboardingWizard open={showOnboarding} onClose={closeTour} />
     </div>
   );
 }
