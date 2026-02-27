@@ -72,35 +72,52 @@ serve(withApiAuth(async (req, { userId, permissions }) => {
     if (resource === "metrics" && req.method === "GET") {
       const accountId = url.searchParams.get("account_id");
 
-      let query = supabase
-        .from("creatives")
-        .select("spend, roas, ctr, cpa, impressions, clicks, purchases, purchase_value");
+      // Use server-side aggregation via RPC to handle accounts with 10k+ creatives
+      // without hitting the 1000-row REST limit
+      const { data, error } = await supabase.rpc("get_account_metrics", {
+        p_account_id: accountId || null,
+      });
 
-      if (accountId) query = query.eq("account_id", accountId);
+      if (error) {
+        // Fallback: paginate manually if RPC doesn't exist yet
+        let allRows: any[] = [];
+        let from = 0;
+        const pageSize = 1000;
+        while (true) {
+          let q = supabase
+            .from("creatives")
+            .select("spend, impressions, clicks, purchases, purchase_value")
+            .range(from, from + pageSize - 1);
+          if (accountId) q = q.eq("account_id", accountId);
+          const { data: page, error: pageErr } = await q;
+          if (pageErr || !page || page.length === 0) break;
+          allRows = allRows.concat(page);
+          if (page.length < pageSize) break;
+          from += pageSize;
+        }
 
-      const { data, error } = await query;
-      if (error) throw error;
+        const total_spend = allRows.reduce((s, c) => s + (c.spend || 0), 0);
+        const total_purchase_value = allRows.reduce((s, c) => s + (c.purchase_value || 0), 0);
+        const total_impressions = allRows.reduce((s, c) => s + (c.impressions || 0), 0);
+        const total_clicks = allRows.reduce((s, c) => s + (c.clicks || 0), 0);
+        const total_purchases = allRows.reduce((s, c) => s + (c.purchases || 0), 0);
 
-      const rows = data || [];
-      const total_spend = rows.reduce((s, c) => s + (c.spend || 0), 0);
-      const total_purchase_value = rows.reduce((s, c) => s + (c.purchase_value || 0), 0);
-      const total_impressions = rows.reduce((s, c) => s + (c.impressions || 0), 0);
-      const total_clicks = rows.reduce((s, c) => s + (c.clicks || 0), 0);
-      const total_purchases = rows.reduce((s, c) => s + (c.purchases || 0), 0);
+        return new Response(JSON.stringify({
+          data: {
+            total_creatives: allRows.length,
+            total_spend: Math.round(total_spend * 100) / 100,
+            total_purchase_value: Math.round(total_purchase_value * 100) / 100,
+            total_impressions,
+            total_clicks,
+            total_purchases,
+            blended_roas: total_spend > 0 ? Math.round((total_purchase_value / total_spend) * 100) / 100 : 0,
+            avg_ctr: total_impressions > 0 ? Math.round((total_clicks / total_impressions) * 10000) / 100 : 0,
+            avg_cpa: total_purchases > 0 ? Math.round((total_spend / total_purchases) * 100) / 100 : 0,
+          },
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
 
-      return new Response(JSON.stringify({
-        data: {
-          total_creatives: rows.length,
-          total_spend,
-          total_purchase_value,
-          total_impressions,
-          total_clicks,
-          total_purchases,
-          blended_roas: total_spend > 0 ? total_purchase_value / total_spend : 0,
-          avg_ctr: total_impressions > 0 ? (total_clicks / total_impressions) * 100 : 0,
-          avg_cpa: total_purchases > 0 ? total_spend / total_purchases : 0,
-        },
-      }), {
+      return new Response(JSON.stringify({ data }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
