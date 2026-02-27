@@ -324,6 +324,7 @@ export type Database = {
           notes: string | null
           person: string | null
           preview_url: string | null
+          prior_roas: number | null
           product: string | null
           purchase_value: number | null
           purchases: number | null
@@ -370,6 +371,7 @@ export type Database = {
           notes?: string | null
           person?: string | null
           preview_url?: string | null
+          prior_roas?: number | null
           product?: string | null
           purchase_value?: number | null
           purchases?: number | null
@@ -416,6 +418,7 @@ export type Database = {
           notes?: string | null
           person?: string | null
           preview_url?: string | null
+          prior_roas?: number | null
           product?: string | null
           purchase_value?: number | null
           purchases?: number | null
@@ -940,6 +943,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      snapshot_prior_roas: { Args: { _account_id: string }; Returns: number }
       trigger_media_refresh: { Args: never; Returns: undefined }
     }
     Enums: {

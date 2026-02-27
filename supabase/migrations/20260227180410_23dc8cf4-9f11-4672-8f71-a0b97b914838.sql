@@ -1,0 +1,1 @@
+ALTER TABLE public.creatives ADD COLUMN IF NOT EXISTS prior_roas numeric NULL;

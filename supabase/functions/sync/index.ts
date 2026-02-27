@@ -524,6 +524,73 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         await saveState(2, { insights_cursor: nextUrl, insights_count: insightsCount });
       } else {
         console.log(`Phase 2 complete: ${insightsCount} insights`);
+
+        // ── Threshold check + Slack notification ──────────────────────────
+        try {
+          const slackUrl = Deno.env.get("SLACK_WEBHOOK_URL");
+          if (slackUrl) {
+            const spendThreshold = account.iteration_spend_threshold || 50;
+            const scaleThreshold = account.scale_threshold || 2.0;
+            const killThreshold = account.kill_threshold || 1.0;
+
+            // Fetch creatives with meaningful spend for this account
+            const { data: candidates } = await supabase
+              .from("creatives")
+              .select("ad_id, ad_name, roas, prior_roas, spend")
+              .eq("account_id", accountId)
+              .gt("spend", spendThreshold);
+
+            const newWinners: { ad_name: string; roas: number; spend: number }[] = [];
+            const newConcerns: { ad_name: string; roas: number; prior_roas: number }[] = [];
+
+            for (const c of (candidates || [])) {
+              const roas = Number(c.roas) || 0;
+              const priorRoas = c.prior_roas != null ? Number(c.prior_roas) : null;
+
+              // NEW WINNER: now above scale, wasn't before (or first sync)
+              if (roas >= scaleThreshold && (priorRoas === null || priorRoas < scaleThreshold)) {
+                newWinners.push({ ad_name: c.ad_name, roas, spend: Number(c.spend) || 0 });
+              }
+              // NEW CONCERN: now below kill, was above before
+              if (roas < killThreshold && priorRoas !== null && priorRoas >= killThreshold) {
+                newConcerns.push({ ad_name: c.ad_name, roas, prior_roas: priorRoas });
+              }
+            }
+
+            if (newWinners.length > 0 || newConcerns.length > 0) {
+              const blocks: string[] = [];
+
+              if (newWinners.length > 0) {
+                blocks.push(`*🟢 New winners — ${account.name}*`);
+                for (const w of newWinners.slice(0, 10)) {
+                  blocks.push(`• ${w.ad_name} — ${w.roas.toFixed(2)}x ROAS, $${w.spend.toLocaleString("en-US", { maximumFractionDigits: 0 })} spend`);
+                }
+                if (newWinners.length > 10) blocks.push(`  _…and ${newWinners.length - 10} more_`);
+              }
+
+              if (newConcerns.length > 0) {
+                if (blocks.length > 0) blocks.push("");
+                blocks.push(`*🔴 New concerns — ${account.name}*`);
+                for (const c of newConcerns.slice(0, 10)) {
+                  blocks.push(`• ${c.ad_name} — ${c.roas.toFixed(2)}x ROAS (was ${c.prior_roas.toFixed(2)}x)`);
+                }
+                if (newConcerns.length > 10) blocks.push(`  _…and ${newConcerns.length - 10} more_`);
+              }
+
+              const text = blocks.join("\n");
+              console.log(`Sending Slack alert: ${newWinners.length} winners, ${newConcerns.length} concerns`);
+
+              await fetch(slackUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text }),
+              });
+            }
+          }
+        } catch (slackErr) {
+          console.error("Slack notification error (non-fatal):", slackErr);
+        }
+
         await saveState(3, { insights_cursor: null, insights_count: insightsCount });
       }
       return;
@@ -680,6 +747,15 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         creative_count: totalResult.count || 0, untagged_count: untaggedResult.count || 0,
         last_synced_at: new Date().toISOString(),
       }).eq("id", accountId);
+
+      // Snapshot current ROAS → prior_roas for next sync's threshold comparison
+      try {
+        const { data: snapCount, error: snapErr } = await supabase.rpc("snapshot_prior_roas", { _account_id: accountId });
+        if (snapErr) throw snapErr;
+        console.log(`  Snapshotted prior_roas for ${snapCount} creatives`);
+      } catch (priorErr) {
+        console.error("prior_roas snapshot error (non-fatal):", priorErr);
+      }
 
       const finalStatus = (JSON.parse(syncLog.api_errors || "[]")).length > 0 ? "completed_with_errors" : "completed";
       await saveState(5, {}, finalStatus);
