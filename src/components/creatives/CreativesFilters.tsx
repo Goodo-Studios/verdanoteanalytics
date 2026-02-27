@@ -16,11 +16,14 @@ interface CreativesFiltersProps {
   groupBy: string;
   setGroupBy: (v: string) => void;
   viewMode: "table" | "card";
+  momentumFilter?: string;
+  onMomentumChange?: (v: string) => void;
 }
 
 export function CreativesFilters({
   dateFrom, dateTo, onDateChange,
   filters, updateFilter, filterOptions, groupBy, setGroupBy, viewMode,
+  momentumFilter, onMomentumChange,
 }: CreativesFiltersProps) {
   return (
     <>
@@ -55,6 +58,20 @@ export function CreativesFilters({
                 <SelectItem value="untagged">Untagged</SelectItem>
               </SelectContent>
             </Select>
+            {onMomentumChange && (
+              <Select value={momentumFilter || "__all__"} onValueChange={onMomentumChange}>
+                <SelectTrigger className={`w-40 h-8 font-body text-[12px] font-medium bg-background rounded-[6px] border ${momentumFilter && momentumFilter !== "__all__" ? "border-verdant text-forest bg-sage-light" : "border-border-light text-slate"}`}>
+                  <SelectValue placeholder="Momentum" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All momentum</SelectItem>
+                  <SelectItem value="gaining">Gaining momentum</SelectItem>
+                  <SelectItem value="steady">Holding steady</SelectItem>
+                  <SelectItem value="losing">Losing momentum</SelectItem>
+                  <SelectItem value="fading">Fading fast</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
           </>
         )}
         {viewMode === "table" && (

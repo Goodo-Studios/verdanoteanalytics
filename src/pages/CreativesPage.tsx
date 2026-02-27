@@ -27,6 +27,7 @@ import { useCreativesPageState } from "@/hooks/useCreativesPageState";
 import { useAuth } from "@/contexts/AuthContext";
 import { SyncStatusBanner } from "@/components/SyncStatusBanner";
 import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
+import { useWoWTrends } from "@/hooks/useWoWTrends";
 
 const CreativesPage = () => {
   const { isClient } = useAuth();
@@ -42,6 +43,9 @@ const CreativesPage = () => {
 
   // View mode: ads vs concepts
   const [conceptView, setConceptView] = useState(false);
+
+  // Momentum filter
+  const [momentumFilter, setMomentumFilter] = useState("__all__");
 
   // Compare mode
   const [compareMode, setCompareMode] = useState(false);
@@ -75,6 +79,7 @@ const CreativesPage = () => {
   const totalCreatives = creativesResult?.total || 0;
   const totalPages = Math.ceil(totalCreatives / CREATIVES_PAGE_SIZE);
   const { data: filterOptions } = useCreativeFilters();
+  const { data: wowTrends } = useWoWTrends(selectedAccountId);
   const syncMut = useSync();
   const isSyncing = useIsSyncing();
 
@@ -91,7 +96,21 @@ const CreativesPage = () => {
   }, [creatives]);
 
   const sortedCreatives = useMemo(() => {
-    const list = [...creatives].map((c: any) => ({ ...c, _cpmr: (Number(c.cpm) || 0) * (Number(c.frequency) || 0) }));
+    let list = [...creatives].map((c: any) => ({ ...c, _cpmr: (Number(c.cpm) || 0) * (Number(c.frequency) || 0) }));
+
+    // Apply momentum filter
+    if (momentumFilter !== "__all__" && wowTrends) {
+      list = list.filter((c: any) => {
+        const trend = wowTrends.get(c.ad_id);
+        if (!trend || trend.direction === "insufficient") return false;
+        if (momentumFilter === "gaining") return trend.direction === "up";
+        if (momentumFilter === "steady") return trend.direction === "flat";
+        if (momentumFilter === "losing") return trend.direction === "down" && trend.pctChange >= -30;
+        if (momentumFilter === "fading") return trend.direction === "down" && trend.pctChange < -30;
+        return true;
+      });
+    }
+
     if (!sort.key || !sort.direction) return list;
     const field = SORT_FIELD_MAP[sort.key] || sort.key;
     const dir = sort.direction === "asc" ? 1 : -1;
@@ -103,7 +122,7 @@ const CreativesPage = () => {
       if (typeof va === "number" || !isNaN(Number(va))) return (Number(va) - Number(vb)) * dir;
       return String(va).localeCompare(String(vb)) * dir;
     });
-  }, [creatives, sort]);
+  }, [creatives, sort, momentumFilter, wowTrends]);
 
   const groupedData = useMemo(() => {
     if (groupBy === "__none__" || !sortedCreatives?.length) return null;
@@ -214,6 +233,7 @@ const CreativesPage = () => {
         dateFrom={dateFrom} dateTo={dateTo} onDateChange={(from, to) => { setDateFrom(from); setDateTo(to); }}
         filters={filters} updateFilter={updateFilter} filterOptions={filterOptions}
         groupBy={groupBy} setGroupBy={setGroupBy} viewMode={viewMode}
+        momentumFilter={momentumFilter} onMomentumChange={setMomentumFilter}
       />
 
       {isLoading ? (
@@ -235,6 +255,7 @@ const CreativesPage = () => {
           onSelect={(c: any) => compareMode ? toggleCompareId(c.ad_id) : setSelectedCreativeId(c.ad_id)}
           compareMode={compareMode}
           compareIds={compareIds}
+          wowTrends={wowTrends}
         />
       ) : (
         <CreativesCardGrid
@@ -242,11 +263,12 @@ const CreativesPage = () => {
           onSelect={(c: any) => compareMode ? toggleCompareId(c.ad_id) : setSelectedCreativeId(c.ad_id)}
           compareMode={compareMode}
           compareIds={compareIds}
+          wowTrends={wowTrends}
         />
       )}
 
       <CreativesPagination page={page} totalPages={totalPages} totalItems={totalCreatives} pageSize={CREATIVES_PAGE_SIZE} onPageChange={setPage} />
-      <CreativeDetailModal creative={creatives.find((c: any) => c.ad_id === selectedCreativeId) || null} open={!!selectedCreativeId} onClose={() => setSelectedCreativeId(null)} />
+      <CreativeDetailModal creative={creatives.find((c: any) => c.ad_id === selectedCreativeId) || null} open={!!selectedCreativeId} onClose={() => setSelectedCreativeId(null)} wowTrends={wowTrends} />
     </AppLayout>
   );
 };

@@ -5,12 +5,15 @@ import { useState } from "react";
 import { fmt } from "./constants";
 import { cn } from "@/lib/utils";
 import { useCachedMedia } from "@/hooks/useCachedMedia";
+import { RoasTrendArrow } from "./RoasTrendArrow";
+import type { WoWTrend } from "@/hooks/useWoWTrends";
 
 interface CreativesCardGridProps {
   creatives: any[];
   onSelect: (creative: any) => void;
   compareMode?: boolean;
   compareIds?: Set<string>;
+  wowTrends?: Map<string, WoWTrend>;
 }
 
 function CardThumbnail({ src, alt }: { src: string; alt: string }) {
@@ -42,7 +45,7 @@ function roasColor(roas: number | null | undefined): string {
   return "text-charcoal";
 }
 
-export function CreativesCardGrid({ creatives, onSelect, compareMode = false, compareIds = new Set() }: CreativesCardGridProps) {
+export function CreativesCardGrid({ creatives, onSelect, compareMode = false, compareIds = new Set(), wowTrends }: CreativesCardGridProps) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {creatives.map((c: any) => {
@@ -98,7 +101,10 @@ export function CreativesCardGrid({ creatives, onSelect, compareMode = false, co
             <div className="border-t border-border-light grid grid-cols-3 gap-1 text-center py-2 px-3">
               <div>
                 <div className="font-label text-[9px] uppercase tracking-[0.06em] text-sage font-medium">ROAS</div>
-                <div className={`font-data text-[14px] font-semibold tabular-nums ${roasColor(c.roas)}`}>{fmt(c.roas, "", "x")}</div>
+                <div className={`font-data text-[14px] font-semibold tabular-nums ${roasColor(c.roas)} flex items-center justify-center gap-0.5`}>
+                  {fmt(c.roas, "", "x")}
+                  <RoasTrendArrow trend={wowTrends?.get(c.ad_id)} />
+                </div>
               </div>
               <div>
                 <div className="font-label text-[9px] uppercase tracking-[0.06em] text-sage font-medium">CPA</div>
