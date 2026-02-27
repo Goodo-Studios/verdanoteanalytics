@@ -10,6 +10,8 @@ import { CreativesGroupTable } from "@/components/creatives/CreativesGroupTable"
 import { ConceptsGrid } from "@/components/creatives/ConceptsGrid";
 import { CreativesFilters } from "@/components/creatives/CreativesFilters";
 import { CreativesPagination } from "@/components/creatives/CreativesPagination";
+import { BulkActionBar } from "@/components/creatives/BulkActionBar";
+import { BulkTagModal } from "@/components/creatives/BulkTagModal";
 import { TABLE_COLUMNS, SORT_FIELD_MAP } from "@/components/creatives/constants";
 import { ColumnPicker } from "@/components/ColumnPicker";
 import { SaveViewButton } from "@/components/SaveViewButton";
@@ -23,7 +25,7 @@ import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { useCreatives, CREATIVES_PAGE_SIZE, useCreativeFilters } from "@/hooks/useCreatives";
 import { useSync } from "@/hooks/useSyncApi";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
-import { exportCreativesCSV } from "@/lib/csv";
+import { downloadCSV, exportCreativesCSV } from "@/lib/csv";
 import { useCreativesPageState } from "@/hooks/useCreativesPageState";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAccountContext } from "@/contexts/AccountContext";
@@ -84,6 +86,10 @@ const CreativesPage = () => {
     setCompareMode(false);
     setCompareIds(new Set());
   }, []);
+
+  // Bulk selection
+  const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkTagOpen, setBulkTagOpen] = useState(false);
 
   const { data: creativesResult, isLoading } = useCreatives(allFilters, page);
   const creatives = creativesResult?.data || [];
@@ -163,6 +169,44 @@ const CreativesPage = () => {
       return String(va).localeCompare(String(vb)) * dir;
     });
   }, [creatives, sort, momentumFilter, wowTrends, gradeMap, fatigueFilter, fatigueMap]);
+
+  const toggleBulkId = useCallback((adId: string) => {
+    setBulkSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(adId)) next.delete(adId); else next.add(adId);
+      return next;
+    });
+  }, []);
+
+  const toggleBulkAll = useCallback(() => {
+    setBulkSelectedIds(prev => {
+      const allIds = sortedCreatives.map((c: any) => c.ad_id);
+      const allSelected = allIds.every(id => prev.has(id));
+      return allSelected ? new Set<string>() : new Set(allIds);
+    });
+  }, [sortedCreatives]);
+
+  const exportBulkCSV = useCallback(() => {
+    const selected = sortedCreatives.filter((c: any) => bulkSelectedIds.has(c.ad_id));
+    const headers = [
+      "Ad Name", "Account", "ROAS", "Spend", "CPA", "Purchases", "CTR",
+      "Hook Rate", "Campaign", "Ad Set", "Status", "Grade", "Tags",
+    ];
+    const rows = selected.map((c: any) => {
+      const gi = gradeMap.get(c.ad_id);
+      return [
+        c.ad_name || "", c.account_id || "",
+        String(c.roas || 0), String(c.spend || 0), String(c.cpa || 0),
+        String(c.purchases || 0), String(c.ctr || 0),
+        String(c.thumb_stop_rate || 0),
+        c.campaign_name || "", c.adset_name || "",
+        c.ad_status || "", gi?.grade || "—",
+        [c.ad_type, c.person, c.style, c.hook].filter(Boolean).join(", ") || "—",
+      ];
+    });
+    downloadCSV("creatives-bulk-export.csv", headers, rows);
+  }, [sortedCreatives, bulkSelectedIds, gradeMap]);
+
 
   const groupedData = useMemo(() => {
     if (groupBy === "__none__" || !sortedCreatives?.length) return null;
@@ -336,6 +380,9 @@ const CreativesPage = () => {
           compareIds={compareIds}
           wowTrends={wowTrends}
           gradeMap={gradeMap}
+          bulkSelectedIds={bulkSelectedIds}
+          onBulkToggle={toggleBulkId}
+          onBulkToggleAll={toggleBulkAll}
         />
       ) : (
         <CreativesCardGrid
@@ -351,6 +398,17 @@ const CreativesPage = () => {
 
       <CreativesPagination page={page} totalPages={totalPages} totalItems={totalCreatives} pageSize={CREATIVES_PAGE_SIZE} onPageChange={setPage} />
       <CreativeDetailModal creative={creatives.find((c: any) => c.ad_id === selectedCreativeId) || null} open={!!selectedCreativeId} onClose={() => setSelectedCreativeId(null)} wowTrends={wowTrends} gradeMap={gradeMap} fatigueMap={fatigueMap} />
+      <BulkActionBar
+        count={bulkSelectedIds.size}
+        onTag={() => setBulkTagOpen(true)}
+        onExport={exportBulkCSV}
+        onClear={() => setBulkSelectedIds(new Set())}
+      />
+      <BulkTagModal
+        open={bulkTagOpen}
+        onClose={() => { setBulkTagOpen(false); setBulkSelectedIds(new Set()); }}
+        adIds={[...bulkSelectedIds]}
+      />
     </AppLayout>
   );
 };

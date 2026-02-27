@@ -27,6 +27,9 @@ interface CreativesTableProps {
   compareIds?: Set<string>;
   wowTrends?: Map<string, WoWTrend>;
   gradeMap?: Map<string, GradeInfo>;
+  bulkSelectedIds?: Set<string>;
+  onBulkToggle?: (adId: string) => void;
+  onBulkToggleAll?: () => void;
 }
 
 const TAG_SELECT_FIELDS: Record<string, "ad_type" | "person" | "style" | "hook"> = {
@@ -95,7 +98,10 @@ function renderCell(c: any, key: string, wowTrends?: Map<string, WoWTrend>, grad
 export function CreativesTable({
   creatives, visibleCols, columnOrder, sort, onSort, onReorder, onSelect,
   compareMode = false, compareIds = new Set(), wowTrends, gradeMap,
+  bulkSelectedIds, onBulkToggle, onBulkToggleAll,
 }: CreativesTableProps) {
+  const bulkMode = !!bulkSelectedIds && !!onBulkToggle;
+  const allSelected = bulkMode && creatives.length > 0 && creatives.every((c: any) => bulkSelectedIds!.has(c.ad_id));
   const [dragSourceKey, setDragSourceKey] = useState<string | null>(null);
   const [dragTargetKey, setDragTargetKey] = useState<string | null>(null);
 
@@ -138,7 +144,16 @@ export function CreativesTable({
     <div className="glass-panel overflow-hidden">
       <Table>
         <TableHeader>
-          <TableRow className="bg-cream-dark">
+         <TableRow className="bg-cream-dark">
+            {bulkMode && !compareMode && (
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={allSelected}
+                  onCheckedChange={() => onBulkToggleAll?.()}
+                  className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                />
+              </TableHead>
+            )}
             {compareMode && <TableHead className="w-10" />}
             {columnOrder.filter(k => visibleCols.has(k)).map(renderHead)}
           </TableRow>
@@ -147,16 +162,27 @@ export function CreativesTable({
           {creatives.map((c: any) => {
             const isSelected = compareIds.has(c.ad_id);
             const isDisabled = compareMode && !isSelected && compareIds.size >= 3;
+            const isBulkSelected = bulkMode && bulkSelectedIds!.has(c.ad_id);
             return (
               <TableRow
                 key={c.ad_id}
                 className={cn(
                   "cursor-pointer hover:bg-accent/50 border-b border-border-light",
                   compareMode && isSelected && "bg-sage-light/50 border-l-[3px] border-l-verdant",
-                  isDisabled && "opacity-50 cursor-not-allowed"
+                  isDisabled && "opacity-50 cursor-not-allowed",
+                  isBulkSelected && "bg-accent/30"
                 )}
                 onClick={() => !isDisabled && onSelect(c)}
               >
+                {bulkMode && !compareMode && (
+                  <TableCell className="w-10 pr-0" onClick={(e) => e.stopPropagation()}>
+                    <Checkbox
+                      checked={isBulkSelected}
+                      onCheckedChange={() => onBulkToggle!(c.ad_id)}
+                      className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                    />
+                  </TableCell>
+                )}
                 {compareMode && (
                   <TableCell className="w-10 pr-0" onClick={(e) => e.stopPropagation()}>
                     <Checkbox
