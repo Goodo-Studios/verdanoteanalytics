@@ -98,6 +98,9 @@ serve(async (req) => {
       if (body.winner_kpi_threshold !== undefined) updateFields.winner_kpi_threshold = body.winner_kpi_threshold;
       if (body.scale_threshold !== undefined) updateFields.scale_threshold = body.scale_threshold;
       if (body.kill_threshold !== undefined) updateFields.kill_threshold = body.kill_threshold;
+      if (body.target_roas !== undefined) updateFields.target_roas = body.target_roas;
+      if (body.target_cpa !== undefined) updateFields.target_cpa = body.target_cpa;
+      if (body.target_monthly_spend !== undefined) updateFields.target_monthly_spend = body.target_monthly_spend;
 
       const { data, error } = await supabase
         .from("ad_accounts")

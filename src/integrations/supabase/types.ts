@@ -36,6 +36,9 @@ export type Database = {
           report_schedule: string
           scale_threshold: number
           secondary_kpis: string | null
+          target_cpa: number | null
+          target_monthly_spend: number | null
+          target_roas: number | null
           untagged_count: number
           updated_at: string
           winner_kpi: string
@@ -64,6 +67,9 @@ export type Database = {
           report_schedule?: string
           scale_threshold?: number
           secondary_kpis?: string | null
+          target_cpa?: number | null
+          target_monthly_spend?: number | null
+          target_roas?: number | null
           untagged_count?: number
           updated_at?: string
           winner_kpi?: string
@@ -92,6 +98,9 @@ export type Database = {
           report_schedule?: string
           scale_threshold?: number
           secondary_kpis?: string | null
+          target_cpa?: number | null
+          target_monthly_spend?: number | null
+          target_roas?: number | null
           untagged_count?: number
           updated_at?: string
           winner_kpi?: string

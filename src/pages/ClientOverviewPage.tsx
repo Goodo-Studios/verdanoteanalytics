@@ -1,4 +1,5 @@
 import { AppLayout } from "@/components/AppLayout";
+import { GoalsBar } from "@/components/GoalsBar";
 import { useOverviewPageState } from "@/hooks/useOverviewPageState";
 import { usePerformanceStory } from "@/hooks/usePerformanceStory";
 import { useDailyTrends } from "@/hooks/useDailyTrends";
@@ -160,6 +161,11 @@ const ClientOverviewPage = () => {
               <p className="font-data text-[36px] font-semibold text-charcoal tabular-nums">{fmtN(totalPurchases)}</p>
             </div>
           </div>
+        )}
+
+        {/* Goals Bar */}
+        {!isLoading && selectedAccount && (
+          <GoalsBar account={selectedAccount} metrics={metrics} />
         )}
 
         {/* Performance Story */}

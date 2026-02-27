@@ -34,6 +34,12 @@ interface SyncSettingsSectionProps {
   onApplyToAll: () => void;
   saving: boolean;
   showApplyAll: boolean;
+  targetRoas: string;
+  setTargetRoas: (v: string) => void;
+  targetCpa: string;
+  setTargetCpa: (v: string) => void;
+  targetMonthlySpend: string;
+  setTargetMonthlySpend: (v: string) => void;
 }
 
 const KPI_OPTIONS = [
@@ -57,6 +63,8 @@ export function SyncSettingsSection({
   scaleThreshold, setScaleThreshold, killThreshold, setKillThreshold,
   syncCooldownMinutes, setSyncCooldownMinutes, onSaveCooldown,
   onSave, onApplyToAll, saving, showApplyAll,
+  targetRoas, setTargetRoas, targetCpa, setTargetCpa,
+  targetMonthlySpend, setTargetMonthlySpend,
 }: SyncSettingsSectionProps) {
   const kpiLabel = KPI_OPTIONS.find(k => k.value === winnerKpi)?.label || winnerKpi;
   const isGte = winnerKpiDirection !== "lte";
@@ -192,6 +200,27 @@ export function SyncSettingsSection({
             <p className="font-body text-[12px] text-sage">
               {ksIsGte ? `${ksKpiLabel} < this → Kill` : `${ksKpiLabel} > this → Kill`}
             </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t border-border pt-4 space-y-3">
+        <div>
+          <h3 className="font-heading text-[20px] text-forest">Performance Goals</h3>
+          <p className="font-body text-[13px] text-slate mt-0.5">Set targets to track progress on the overview page. Leave blank to hide.</p>
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+          <div className="space-y-2">
+            <Label className="font-body text-[14px] font-medium text-charcoal">Target ROAS</Label>
+            <Input type="number" value={targetRoas} onChange={(e) => setTargetRoas(e.target.value)} step="0.1" min="0" placeholder="e.g. 2.5" className="bg-background font-data text-[15px] font-medium text-charcoal" />
+          </div>
+          <div className="space-y-2">
+            <Label className="font-body text-[14px] font-medium text-charcoal">Target CPA ($)</Label>
+            <Input type="number" value={targetCpa} onChange={(e) => setTargetCpa(e.target.value)} step="1" min="0" placeholder="e.g. 40" className="bg-background font-data text-[15px] font-medium text-charcoal" />
+          </div>
+          <div className="space-y-2">
+            <Label className="font-body text-[14px] font-medium text-charcoal">Target Monthly Spend ($)</Label>
+            <Input type="number" value={targetMonthlySpend} onChange={(e) => setTargetMonthlySpend(e.target.value)} step="100" min="0" placeholder="e.g. 50000" className="bg-background font-data text-[15px] font-medium text-charcoal" />
           </div>
         </div>
       </div>

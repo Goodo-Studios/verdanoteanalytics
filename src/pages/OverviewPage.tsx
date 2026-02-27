@@ -1,5 +1,6 @@
 import { AppLayout } from "@/components/AppLayout";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
+import { GoalsBar } from "@/components/GoalsBar";
 import { MetricCard } from "@/components/MetricCard";
 import { Button } from "@/components/ui/button";
 import { useOverviewPageState } from "@/hooks/useOverviewPageState";
@@ -87,6 +88,11 @@ const OverviewPage = () => {
             <MetricCard label="Win Rate" value={fmtPct(metrics.winRate)} className="flex-1" />
             <MetricCard label="Blended CTR" value={fmtPct(metrics.avgCtr)} trend={hasPrevPeriod ? delta(metrics.avgCtr, prevMetrics?.avgCtr) : undefined} className="flex-1" />
           </div>
+        )}
+
+        {/* Goals Bar */}
+        {!isLoading && selectedAccount && (
+          <GoalsBar account={selectedAccount} metrics={metrics} />
         )}
 
         {/* Section 3: Insight Cards */}
