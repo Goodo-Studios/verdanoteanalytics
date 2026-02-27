@@ -5,7 +5,8 @@ import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle } from "lucide-react";
+import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, Users } from "lucide-react";
+import { useCreator } from "@/hooks/useCreatorsApi";
 import { useState, forwardRef } from "react";
 import { CreativeMetrics } from "@/components/creative-detail/CreativeMetrics";
 import { CreativeTagEditor } from "@/components/creative-detail/CreativeTagEditor";
@@ -190,6 +191,8 @@ function MediaPreview({ creative }: { creative: any }) {
 }
 
 export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModalProps>(function CreativeDetailModal({ creative, open, onClose, wowTrends, gradeMap, fatigueMap }, ref) {
+  const creatorId = creative?.creator_id;
+  const { data: creator } = useCreator(creatorId || undefined);
   if (!creative) return null;
   const fatigue = fatigueMap?.get(creative.ad_id);
 
@@ -258,6 +261,14 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
         {/* Context */}
         <div className="space-y-1.5">
           <p className="font-body text-[13px]"><span className="font-semibold text-charcoal">Ad Name:</span> <span className="font-normal text-slate break-all">{creative.ad_name}</span></p>
+          {creator && (
+            <p className="font-body text-[13px] flex items-center gap-1.5">
+              <span className="font-semibold text-charcoal">Creator:</span>
+              <a href="/creators" className="inline-flex items-center gap-1 text-primary hover:underline font-normal">
+                <Users className="h-3 w-3" />{creator.name}
+              </a>
+            </p>
+          )}
           <p className="font-body text-[13px]"><span className="font-semibold text-charcoal">Campaign:</span> <span className="font-normal text-slate break-all">{creative.campaign_name || "—"}</span></p>
           <p className="font-body text-[13px]"><span className="font-semibold text-charcoal">Ad Set:</span> <span className="font-normal text-slate break-all">{creative.adset_name || "—"}</span></p>
         </div>

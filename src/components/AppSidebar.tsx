@@ -11,6 +11,7 @@ import {
   Tags,
   Eye,
   Sparkles,
+  Users,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
@@ -29,6 +30,7 @@ import { Badge } from "@/components/ui/badge";
 const baseNavItems = [
   { title: "Overview", url: "/", icon: LayoutGrid },
   { title: "Creatives", url: "/creatives", icon: Zap },
+  { title: "Creators", url: "/creators", icon: Users },
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Tagging", url: "/tagging", icon: Tags },
   { title: "Reports", url: "/reports", icon: FileText },
