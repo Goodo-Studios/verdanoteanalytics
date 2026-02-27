@@ -15,6 +15,7 @@ import AnalyticsPage from "./pages/AnalyticsPage";
 import ComparePage from "./pages/ComparePage";
 import TaggingPage from "./pages/TaggingPage";
 import CreatorsPage from "./pages/CreatorsPage";
+import TestsPage from "./pages/TestsPage";
 import WhitelistingPage from "./pages/WhitelistingPage";
 import ReportsPage from "./pages/ReportsPage";
 import ClientReportsPage from "./pages/ClientReportsPage";
@@ -60,6 +61,7 @@ function ProtectedRoutes() {
         <Route path="/analytics" element={isEditor ? <Navigate to="/" replace /> : <AnalyticsPage />} />
         <Route path="/tagging" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <TaggingPage />} />
         <Route path="/creators" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <CreatorsPage />} />
+        <Route path="/tests" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <TestsPage />} />
         <Route path="/whitelisting" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <WhitelistingPage />} />
         <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : isEditor ? <ClientReportsPage /> : <ReportsPage />} />
         <Route path="/reports/:id" element={<ReportDetailPage />} />

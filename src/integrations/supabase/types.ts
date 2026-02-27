@@ -953,6 +953,88 @@ export type Database = {
         }
         Relationships: []
       }
+      split_test_variants: {
+        Row: {
+          ad_id: string
+          id: string
+          label: string
+          test_id: string
+        }
+        Insert: {
+          ad_id: string
+          id?: string
+          label: string
+          test_id: string
+        }
+        Update: {
+          ad_id?: string
+          id?: string
+          label?: string
+          test_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "split_test_variants_test_id_fkey"
+            columns: ["test_id"]
+            isOneToOne: false
+            referencedRelation: "split_tests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      split_tests: {
+        Row: {
+          account_id: string
+          created_at: string | null
+          end_date: string | null
+          hypothesis: string | null
+          id: string
+          minimum_spend: number | null
+          name: string
+          notes: string | null
+          start_date: string | null
+          status: string | null
+          variable_tested: string | null
+          winner_ad_id: string | null
+        }
+        Insert: {
+          account_id: string
+          created_at?: string | null
+          end_date?: string | null
+          hypothesis?: string | null
+          id?: string
+          minimum_spend?: number | null
+          name: string
+          notes?: string | null
+          start_date?: string | null
+          status?: string | null
+          variable_tested?: string | null
+          winner_ad_id?: string | null
+        }
+        Update: {
+          account_id?: string
+          created_at?: string | null
+          end_date?: string | null
+          hypothesis?: string | null
+          id?: string
+          minimum_spend?: number | null
+          name?: string
+          notes?: string | null
+          start_date?: string | null
+          status?: string | null
+          variable_tested?: string | null
+          winner_ad_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "split_tests_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "ad_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sync_logs: {
         Row: {
           account_id: string
