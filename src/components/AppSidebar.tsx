@@ -169,18 +169,7 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
           </button>
         </div>
       )}
-      {onTakeTour && (
-        <div className="px-3 pb-1">
-          <button
-            onClick={onTakeTour}
-            className="flex items-center gap-3 rounded-md px-3 py-2 font-body text-[13px] text-sage hover:text-forest hover:bg-accent w-full text-left transition-colors"
-          >
-            <HelpCircle className="h-4 w-4 flex-shrink-0" />
-            Take the tour
-          </button>
-        </div>
-      )}
-      <div className="px-5 pb-4 pt-1 flex items-center justify-between">
+      <div className="px-5 pb-2 pt-1 flex items-center justify-between">
         <div className="min-w-0">
           <p className="font-body text-[11px] text-sage truncate">{user?.email}</p>
         </div>
@@ -194,6 +183,17 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
           <LogOut className="h-3.5 w-3.5" />
         </Button>
       </div>
+      {onTakeTour && (
+        <div className="px-3 pb-4">
+          <button
+            onClick={onTakeTour}
+            className="flex items-center gap-3 rounded-md px-3 py-2 font-body text-[12px] text-sage hover:text-forest hover:bg-accent w-full text-left transition-colors"
+          >
+            <HelpCircle className="h-3.5 w-3.5 flex-shrink-0" />
+            Take the tour
+          </button>
+        </div>
+      )}
     </aside>
   );
 }
