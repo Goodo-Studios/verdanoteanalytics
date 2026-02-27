@@ -14,9 +14,13 @@ import { ScaleTab } from "@/components/analytics/ScaleTab";
 import { KillTab } from "@/components/analytics/KillTab";
 import { IterationsTab } from "@/components/analytics/IterationsTab";
 import { TagInsightsTab } from "@/components/analytics/TagInsightsTab";
+import { BenchmarksTab } from "@/components/analytics/BenchmarksTab";
 import { useAnalyticsPageState } from "@/hooks/useAnalyticsPageState";
+import { useAuth } from "@/contexts/AuthContext";
 
 const AnalyticsPage = () => {
+  const { isBuilder, isEmployee } = useAuth();
+  const canBenchmark = isBuilder || isEmployee;
   const [searchParams] = useSearchParams();
   const defaultSlice = searchParams.get("slice") || "ad_type";
   const {
@@ -59,9 +63,9 @@ const AnalyticsPage = () => {
       />
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="bg-transparent border-b border-border-light rounded-none p-0 h-auto gap-0">
-          {["trends", "winrate", "scale", "kill", "iterations", "taginsights"].map((tab) => {
-            const labels: Record<string, string> = { winrate: "Win Rate", taginsights: "Tag Insights" };
+        <TabsList className="bg-transparent border-b border-border-light rounded-none p-0 h-auto gap-0 flex-wrap">
+          {["trends", "winrate", "scale", "kill", "iterations", "taginsights", ...(canBenchmark ? ["benchmarks"] : [])].map((tab) => {
+            const labels: Record<string, string> = { winrate: "Win Rate", taginsights: "Tag Insights", benchmarks: "Benchmarks" };
             return (
               <TabsTrigger
                 key={tab}
@@ -98,6 +102,11 @@ const AnalyticsPage = () => {
             winnerKpiThreshold={parseFloat(selectedAccount?.winner_kpi_threshold || "0") || roasThreshold}
           />
         </TabsContent>
+        {canBenchmark && (
+          <TabsContent value="benchmarks" className="space-y-4">
+            <BenchmarksTab />
+          </TabsContent>
+        )}
       </Tabs>
 
       <CreativeDetailModal creative={selectedCreative} open={!!selectedCreative} onClose={() => setSelectedCreative(null)} />
