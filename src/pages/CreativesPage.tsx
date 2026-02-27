@@ -20,6 +20,8 @@ import { SaveViewButton } from "@/components/SaveViewButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RefreshCw, LayoutGrid, List, Loader2, Download, Search, X, Columns, Layers, Bookmark, CalendarDays, SlidersHorizontal } from "lucide-react";
+import { AnomalyBadge } from "@/components/creatives/AnomalyBadge";
+import { useAnomalyDetection } from "@/hooks/useAnomalyDetection";
 import { useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
@@ -118,6 +120,9 @@ const CreativesPage = () => {
   // Compute creative scores
   const scaleThreshold = selectedAccountData?.scale_threshold ?? 2.0;
   const scoreMap = useMemo(() => computeScoreMap(creatives, scaleThreshold, wowTrends, fatigueMap), [creatives, scaleThreshold, wowTrends, fatigueMap]);
+
+  // Anomaly detection
+  const { anomalies, anomalySet } = useAnomalyDetection(creatives, selectedAccountId);
 
   const avgMetrics = useMemo(() => {
     if (creatives.length === 0) return { roas: "—", cpa: "—", totalSpend: "—" };
@@ -253,6 +258,7 @@ const CreativesPage = () => {
         description="View and manage your ad creatives with performance data and tags."
         actions={
           <div className="flex items-center gap-2">
+            <AnomalyBadge anomalies={anomalies} onViewCreative={(adId) => setSelectedCreativeId(adId)} />
             <div className="flex border border-border rounded-md">
               <Button variant={!conceptView ? "secondary" : "ghost"} size="sm" className="rounded-r-none px-2.5 gap-1.5" onClick={() => setConceptView(false)}><List className="h-3.5 w-3.5" />Ads</Button>
               <Button variant={conceptView ? "secondary" : "ghost"} size="sm" className="rounded-l-none px-2.5 gap-1.5" onClick={() => setConceptView(true)}><Layers className="h-3.5 w-3.5" />Concepts</Button>
@@ -434,6 +440,7 @@ const CreativesPage = () => {
           gradeMap={gradeMap}
           fatigueMap={fatigueMap}
           scoreMap={scoreMap}
+          anomalySet={anomalySet}
         />
       )}
 
