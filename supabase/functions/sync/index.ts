@@ -271,10 +271,13 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
 
   try {
     // ═══════════════════════════════════════════════════════════════════
-    // PHASE 1: Fetch ads metadata — LIGHTWEIGHT (no media fields)
-    //   Always runs to discover new ads. Only fetches essential fields:
-    //   id, name, status, campaign name, adset name.
-    //   Media (thumbnails, videos) are handled by refresh-thumbnails.
+    // PHASE 1: Fetch ads metadata — CAMPAIGN-BY-CAMPAIGN (large account safe)
+    //   For large accounts (NDC has 18k+ ads), fetching all ads in one
+    //   account-level sweep causes Meta to error mid-stream. Instead:
+    //   1. Fetch all campaigns first (lightweight, rarely errors)
+    //   2. For each campaign, fetch its ads — errors only lose one campaign
+    //   3. Resume from exactly where we left off (campaign index + cursor)
+    //   Small accounts fall through to the flat sweep as before.
     // ═══════════════════════════════════════════════════════════════════
     if (phase === 1) {
       // Get manual/csv-tagged ad IDs to preserve their tags (only update metadata)
@@ -282,15 +285,147 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         .eq("account_id", accountId).in("tag_source", ["manual", "csv"]);
       const taggedAdIds = new Set((taggedAds || []).map((a: any) => a.ad_id));
 
-      const cursor = state.ads_cursor || null;
       let fetchedCount = state.creatives_fetched || 0;
 
-      // STRIPPED DOWN: Only essential fields — no creative{}, no preview_shareable_link
-      // Filter: only fetch ads that have been delivered (have impressions)
+      // Helper: upsert a batch of ads to the DB
+      const upsertAds = async (ads: any[]) => {
+        const upsertBatch: any[] = [];
+        const metadataBatch: { ad_id: string; data: any }[] = [];
+        for (const ad of ads) {
+          const metadata = {
+            ad_name: ad.name,
+            ad_status: ad.status || "UNKNOWN",
+            campaign_name: ad.campaign?.name || null,
+            adset_name: ad.adset?.name || null,
+          };
+          if (taggedAdIds.has(ad.id)) {
+            metadataBatch.push({ ad_id: ad.id, data: metadata });
+          } else {
+            upsertBatch.push({
+              ad_id: ad.id,
+              account_id: accountId,
+              unique_code: ad.name.split("_")[0],
+              ...metadata,
+            });
+          }
+        }
+        if (upsertBatch.length > 0) {
+          const { error } = await supabase.from("creatives").upsert(upsertBatch, { onConflict: "ad_id" });
+          if (error) console.error("Phase 1 upsert error:", error.message);
+        }
+        if (metadataBatch.length > 0) {
+          const rpcPayload = metadataBatch.map(({ ad_id, data }) => ({ ad_id, ...data }));
+          const { error } = await supabase.rpc("bulk_update_creative_metadata", { payload: JSON.stringify(rpcPayload) });
+          if (error) console.error("Phase 1 metadata RPC error:", error.message);
+        }
+      };
+
       const deliveredFilter = encodeURIComponent(JSON.stringify([
         { field: "impressions", operator: "GREATER_THAN", value: "0" }
       ]));
-      let nextUrl = cursor || (
+
+      // ── Large account path: campaign-by-campaign ─────────────────────
+      if (isLargeAccount) {
+        // Step 1: fetch all campaigns (or resume from saved list)
+        let campaigns: { id: string; name: string }[] = state.campaigns || [];
+
+        if (campaigns.length === 0) {
+          console.log("Phase 1 (large): fetching campaign list...");
+          let campUrl: string | null =
+            `https://graph.facebook.com/${META_API_VERSION}/${accountId}/campaigns?` +
+            `fields=id,name&limit=200&access_token=${encodeURIComponent(metaToken)}`;
+          while (campUrl && !isTimedOut()) {
+            const result = await metaFetch(campUrl, ctx);
+            if (result.error) {
+              console.error("Failed to fetch campaigns — will retry next continue");
+              await saveState(1, { campaigns: [], creatives_fetched: fetchedCount });
+              return;
+            }
+            campaigns.push(...(result.data || []).map((c: any) => ({ id: c.id, name: c.name })));
+            campUrl = result.next;
+            if (campUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
+          }
+          console.log(`  Found ${campaigns.length} campaigns`);
+        }
+
+        // Step 2: iterate campaigns, resuming from saved index
+        let campIdx = state.campaign_index || 0;
+        let campCursor: string | null = state.campaign_cursor || null;
+
+        while (campIdx < campaigns.length && !isTimedOut()) {
+          await heartbeat();
+          const campaign = campaigns[campIdx];
+
+          // Check cancellation per campaign
+          const { data: sc } = await supabase.from("sync_logs").select("status").eq("id", syncLog.id).single();
+          if (sc?.status === "cancelled") return;
+
+          // Fetch ads for this campaign
+          let nextUrl: string | null = campCursor || (
+            `https://graph.facebook.com/${META_API_VERSION}/${campaign.id}/ads?` +
+            `fields=id,name,status,campaign{name},adset{name}` +
+            `&filtering=${deliveredFilter}` +
+            `&limit=200&access_token=${encodeURIComponent(metaToken)}`
+          );
+          campCursor = null; // reset for next campaign
+
+          let campFetched = 0;
+          let campError = false;
+
+          while (nextUrl && !isTimedOut()) {
+            const result = await metaFetch(nextUrl, ctx);
+            if (result.error) {
+              // Error on this campaign — log it, skip to next campaign
+              // (don't abort the whole phase — other campaigns are independent)
+              ctx.apiErrors.push({
+                timestamp: new Date().toISOString(),
+                message: `Ad fetch failed for campaign ${campaign.id} (${campaign.name}) — skipping`,
+              });
+              console.warn(`  Campaign ${campaign.name} errored — skipping`);
+              campError = true;
+              break;
+            }
+            if (result.data && result.data.length > 0) {
+              await upsertAds(result.data);
+              campFetched += result.data.length;
+              fetchedCount += result.data.length;
+            }
+            nextUrl = result.next;
+            if (nextUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
+          }
+
+          if (nextUrl && isTimedOut()) {
+            // Timed out mid-campaign — save cursor and resume this campaign next invocation
+            console.log(`Phase 1 paused mid-campaign ${campIdx + 1}/${campaigns.length} at ${fetchedCount} total ads`);
+            await saveState(1, {
+              campaigns,
+              campaign_index: campIdx,
+              campaign_cursor: nextUrl,
+              creatives_fetched: fetchedCount,
+            });
+            return;
+          }
+
+          if (!campError) {
+            console.log(`  Campaign ${campIdx + 1}/${campaigns.length} (${campaign.name}): ${campFetched} ads`);
+          }
+
+          campIdx++;
+        }
+
+        if (campIdx >= campaigns.length) {
+          console.log(`Phase 1 complete (campaign-by-campaign): ${fetchedCount} ads across ${campaigns.length} campaigns`);
+          await saveState(2, { campaigns: null, campaign_index: null, campaign_cursor: null, ads_cursor: null, creatives_fetched: fetchedCount });
+        } else {
+          // Timed out between campaigns
+          console.log(`Phase 1 paused between campaigns at index ${campIdx}`);
+          await saveState(1, { campaigns, campaign_index: campIdx, campaign_cursor: null, creatives_fetched: fetchedCount });
+        }
+        return;
+      }
+
+      // ── Standard path: flat account-level sweep (small accounts) ─────
+      let nextUrl: string | null = state.ads_cursor || (
         `https://graph.facebook.com/${META_API_VERSION}/${accountId}/ads?` +
         `fields=id,name,status,campaign{name},adset{name}` +
         `&filtering=${deliveredFilter}` +
@@ -306,43 +441,8 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           phase1HasError = true;
           break;
         }
-        if (result.data) {
-          const upsertBatch: any[] = [];
-          const metadataBatch: { ad_id: string; data: any }[] = [];
-
-          for (const ad of result.data) {
-            const metadata = {
-              ad_name: ad.name,
-              ad_status: ad.status || "UNKNOWN",
-              campaign_name: ad.campaign?.name || null,
-              adset_name: ad.adset?.name || null,
-            };
-
-            if (taggedAdIds.has(ad.id)) {
-              // For tagged ads, only update metadata — batch them
-              metadataBatch.push({ ad_id: ad.id, data: metadata });
-            } else {
-              upsertBatch.push({
-                ad_id: ad.id,
-                account_id: accountId,
-                unique_code: ad.name.split("_")[0],
-                ...metadata,
-              });
-            }
-          }
-
-          if (upsertBatch.length > 0) {
-            const { error } = await supabase.from("creatives").upsert(upsertBatch, { onConflict: "ad_id" });
-            if (error) console.error("Phase 1 upsert error:", error.message);
-          }
-
-          // Bulk metadata update for tagged ads via single RPC call
-          if (metadataBatch.length > 0) {
-            const rpcPayload = metadataBatch.map(({ ad_id, data }) => ({ ad_id, ...data }));
-            const { error } = await supabase.rpc("bulk_update_creative_metadata", { payload: JSON.stringify(rpcPayload) });
-            if (error) console.error("Phase 1 metadata RPC error:", error.message);
-          }
-
+        if (result.data && result.data.length > 0) {
+          await upsertAds(result.data);
           fetchedCount += result.data.length;
           console.log(`  Ads fetched & upserted: ${fetchedCount}`);
         }
@@ -351,13 +451,9 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       }
 
       if (nextUrl && isTimedOut()) {
-        // Timed out mid-page — resume from cursor next invocation
         console.log(`Phase 1 paused at ${fetchedCount} ads — will resume`);
         await saveState(1, { ads_cursor: nextUrl, creatives_fetched: fetchedCount });
       } else if (phase1HasError) {
-        // Mid-fetch error (e.g. Meta returned unknown error on a page).
-        // Save cursor if we have one so the next continue picks up where we left off.
-        // If no cursor (error on first page), restart from the beginning.
         const resumeCursor = nextUrl || null;
         console.log(`Phase 1 hit an error at ${fetchedCount} ads — will retry from ${resumeCursor ? "cursor" : "start"} next continue`);
         await saveState(1, { ads_cursor: resumeCursor, creatives_fetched: fetchedCount });
