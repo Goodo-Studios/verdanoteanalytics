@@ -14,6 +14,7 @@ import ClientCreativesPage from "./pages/ClientCreativesPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
 import ComparePage from "./pages/ComparePage";
 import TaggingPage from "./pages/TaggingPage";
+import CreatorsPage from "./pages/CreatorsPage";
 import ReportsPage from "./pages/ReportsPage";
 import ClientReportsPage from "./pages/ClientReportsPage";
 import ReportDetailPage from "./pages/ReportDetailPage";
@@ -55,6 +56,7 @@ function ProtectedRoutes() {
         <Route path="/creatives/compare" element={isEditor ? <Navigate to="/" replace /> : <ComparePage />} />
         <Route path="/analytics" element={isEditor ? <Navigate to="/" replace /> : <AnalyticsPage />} />
         <Route path="/tagging" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <TaggingPage />} />
+        <Route path="/creators" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <CreatorsPage />} />
         <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : isEditor ? <ClientReportsPage /> : <ReportsPage />} />
         <Route path="/reports/:id" element={<ReportDetailPage />} />
         <Route path="/settings" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <SettingsPage />} />

@@ -325,6 +325,7 @@ export type Database = {
           cpc: number | null
           cpm: number | null
           created_at: string
+          creator_id: string | null
           ctr: number | null
           frequency: number | null
           hold_rate: number | null
@@ -372,6 +373,7 @@ export type Database = {
           cpc?: number | null
           cpm?: number | null
           created_at?: string
+          creator_id?: string | null
           ctr?: number | null
           frequency?: number | null
           hold_rate?: number | null
@@ -419,6 +421,7 @@ export type Database = {
           cpc?: number | null
           cpm?: number | null
           created_at?: string
+          creator_id?: string | null
           ctr?: number | null
           frequency?: number | null
           hold_rate?: number | null
@@ -448,6 +451,51 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "creatives_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "ad_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creatives_creator_id_fkey"
+            columns: ["creator_id"]
+            isOneToOne: false
+            referencedRelation: "creators"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creators: {
+        Row: {
+          account_id: string
+          created_at: string | null
+          handle: string | null
+          id: string
+          name: string
+          notes: string | null
+          type: string | null
+        }
+        Insert: {
+          account_id: string
+          created_at?: string | null
+          handle?: string | null
+          id?: string
+          name: string
+          notes?: string | null
+          type?: string | null
+        }
+        Update: {
+          account_id?: string
+          created_at?: string | null
+          handle?: string | null
+          id?: string
+          name?: string
+          notes?: string | null
+          type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creators_account_id_fkey"
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "ad_accounts"
