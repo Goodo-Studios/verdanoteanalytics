@@ -15,6 +15,7 @@ import { KillTab } from "@/components/analytics/KillTab";
 import { IterationsTab } from "@/components/analytics/IterationsTab";
 import { TagInsightsTab } from "@/components/analytics/TagInsightsTab";
 import { BenchmarksTab } from "@/components/analytics/BenchmarksTab";
+import { VideoTab } from "@/components/analytics/VideoTab";
 import { useAnalyticsPageState } from "@/hooks/useAnalyticsPageState";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -64,8 +65,8 @@ const AnalyticsPage = () => {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="bg-transparent border-b border-border-light rounded-none p-0 h-auto gap-0 flex-wrap">
-          {["trends", "winrate", "scale", "kill", "iterations", "taginsights", ...(canBenchmark ? ["benchmarks"] : [])].map((tab) => {
-            const labels: Record<string, string> = { winrate: "Win Rate", taginsights: "Tag Insights", benchmarks: "Benchmarks" };
+          {["trends", "winrate", "scale", "kill", "iterations", "taginsights", ...(canBenchmark ? ["video", "benchmarks"] : [])].map((tab) => {
+            const labels: Record<string, string> = { winrate: "Win Rate", taginsights: "Tag Insights", video: "Video", benchmarks: "Benchmarks" };
             return (
               <TabsTrigger
                 key={tab}
@@ -102,6 +103,11 @@ const AnalyticsPage = () => {
             winnerKpiThreshold={parseFloat(selectedAccount?.winner_kpi_threshold || "0") || roasThreshold}
           />
         </TabsContent>
+        {canBenchmark && (
+          <TabsContent value="video" className="space-y-4">
+            <VideoTab creatives={creatives} killThreshold={killScaleConfig.killAt} onCreativeClick={setSelectedCreative} />
+          </TabsContent>
+        )}
         {canBenchmark && (
           <TabsContent value="benchmarks" className="space-y-4">
             <BenchmarksTab />
