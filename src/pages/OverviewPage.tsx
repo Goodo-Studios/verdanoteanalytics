@@ -2,9 +2,12 @@ import { AppLayout } from "@/components/AppLayout";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { GoalsBar } from "@/components/GoalsBar";
 import { MetricCard } from "@/components/MetricCard";
+import { AccountHealthScore } from "@/components/AccountHealthScore";
 import { Button } from "@/components/ui/button";
 import { useOverviewPageState } from "@/hooks/useOverviewPageState";
 import { useSync } from "@/hooks/useSyncApi";
+import { useAuth } from "@/contexts/AuthContext";
+import { useWoWTrends } from "@/hooks/useWoWTrends";
 import { useNavigate } from "react-router-dom";
 import { TrendingUp, Eye, XCircle, ArrowRight, RefreshCw } from "lucide-react";
 import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
@@ -35,6 +38,7 @@ function deltaInverse(cur: number, prev: number | undefined): { value: number; p
 const OverviewPage = () => {
   const navigate = useNavigate();
   const sync = useSync();
+  const { isBuilder, isEmployee } = useAuth();
   const {
     accountName, lastSyncedAgo,
     dateFrom, dateTo, setDateFrom, setDateTo,
@@ -46,6 +50,10 @@ const OverviewPage = () => {
     recentDiagnostics, taggingProgress,
     spendThreshold,
   } = useOverviewPageState();
+
+  const isSingleAccount = selectedAccountId && selectedAccountId !== "all";
+  const showHealthScore = isSingleAccount && (isBuilder || isEmployee) && !isLoading && creatives.length > 0;
+  const { data: wowTrends } = useWoWTrends(isSingleAccount ? selectedAccountId : undefined);
 
   const subtitle = [
     dateFrom && dateTo ? `${dateFrom} → ${dateTo}` : "All time",
@@ -62,17 +70,28 @@ const OverviewPage = () => {
             <h1 className="font-heading text-[32px] text-forest">{accountName}</h1>
             <p className="font-body text-[13px] text-slate font-light mt-1">{subtitle}</p>
           </div>
-          <div className="flex items-center gap-2">
-            <DateRangeFilter dateFrom={dateFrom} dateTo={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
-            <Button
-              size="sm"
-              className="bg-verdant hover:bg-verdant/90 text-white font-body text-[13px] font-medium"
-              onClick={() => sync.mutate({ account_id: selectedAccountId && selectedAccountId !== "all" ? selectedAccountId : undefined })}
-              disabled={sync.isPending}
-            >
-              <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", sync.isPending && "animate-spin")} />
-              Sync
-            </Button>
+          <div className="flex items-center gap-4">
+            {showHealthScore && (
+              <AccountHealthScore
+                creatives={creatives}
+                metrics={metrics}
+                targetRoas={selectedAccount?.target_roas}
+                scaleThreshold={killScaleConfig.scaleAt}
+                wowTrends={wowTrends}
+              />
+            )}
+            <div className="flex items-center gap-2">
+              <DateRangeFilter dateFrom={dateFrom} dateTo={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
+              <Button
+                size="sm"
+                className="bg-verdant hover:bg-verdant/90 text-white font-body text-[13px] font-medium"
+                onClick={() => sync.mutate({ account_id: selectedAccountId && selectedAccountId !== "all" ? selectedAccountId : undefined })}
+                disabled={sync.isPending}
+              >
+                <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", sync.isPending && "animate-spin")} />
+                Sync
+              </Button>
+            </div>
           </div>
         </div>
 
