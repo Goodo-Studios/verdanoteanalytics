@@ -350,15 +350,17 @@ serve(async (req) => {
     const slowPathThumbs = missingThumbs || [];
     const allThumbWork = [...fastPathThumbs, ...slowPathThumbs].slice(0, MAX_TOTAL);
 
-    // Videos: skip items already marked as "no-video"
+    // Videos: include null AND no-video sentinel rows (sentinels get a fresh attempt every refresh)
     let missingVideosQuery = supabase
       .from("creatives")
       .select("ad_id, account_id")
-      .is("video_url", null)
+      .or(`video_url.is.null,video_url.eq.${NO_VIDEO_SENTINEL}`)
       .gt("video_views", 0)
       .gt("impressions", 0);
     if (accountFilter) missingVideosQuery = missingVideosQuery.eq("account_id", accountFilter);
-    const { data: missingVideos } = await missingVideosQuery.limit(2000);
+    const { data: missingVideos } = await missingVideosQuery
+      .order("spend", { ascending: false, nullsFirst: false })
+      .limit(2000);
 
     let uncachedVideosQuery = supabase
       .from("creatives")
