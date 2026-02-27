@@ -486,30 +486,54 @@ export type Database = {
       creators: {
         Row: {
           account_id: string
+          contract_end: string | null
+          contract_start: string | null
           created_at: string | null
+          deal_type: string | null
           handle: string | null
           id: string
           name: string
           notes: string | null
+          platform: string | null
+          rate: string | null
           type: string | null
+          wl_page_id: string | null
+          wl_page_name: string | null
+          wl_status: string | null
         }
         Insert: {
           account_id: string
+          contract_end?: string | null
+          contract_start?: string | null
           created_at?: string | null
+          deal_type?: string | null
           handle?: string | null
           id?: string
           name: string
           notes?: string | null
+          platform?: string | null
+          rate?: string | null
           type?: string | null
+          wl_page_id?: string | null
+          wl_page_name?: string | null
+          wl_status?: string | null
         }
         Update: {
           account_id?: string
+          contract_end?: string | null
+          contract_start?: string | null
           created_at?: string | null
+          deal_type?: string | null
           handle?: string | null
           id?: string
           name?: string
           notes?: string | null
+          platform?: string | null
+          rate?: string | null
           type?: string | null
+          wl_page_id?: string | null
+          wl_page_name?: string | null
+          wl_status?: string | null
         }
         Relationships: [
           {
