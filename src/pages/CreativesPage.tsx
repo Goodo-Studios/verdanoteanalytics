@@ -10,6 +10,7 @@ import { CreativesGroupTable } from "@/components/creatives/CreativesGroupTable"
 import { ConceptsGrid } from "@/components/creatives/ConceptsGrid";
 import { CreativesFilters } from "@/components/creatives/CreativesFilters";
 import { CreativesPagination } from "@/components/creatives/CreativesPagination";
+import { AdvancedFiltersPanel, applyAdvancedFilters, countActiveConditions } from "@/components/creatives/AdvancedFiltersPanel";
 import { BulkActionBar } from "@/components/creatives/BulkActionBar";
 import { BulkTagModal } from "@/components/creatives/BulkTagModal";
 import { AddToReportModal } from "@/components/creatives/AddToReportModal";
@@ -18,7 +19,7 @@ import { ColumnPicker } from "@/components/ColumnPicker";
 import { SaveViewButton } from "@/components/SaveViewButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { RefreshCw, LayoutGrid, List, Loader2, Download, Search, X, Columns, Layers, Bookmark, CalendarDays } from "lucide-react";
+import { RefreshCw, LayoutGrid, List, Loader2, Download, Search, X, Columns, Layers, Bookmark, CalendarDays, SlidersHorizontal } from "lucide-react";
 import { useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
@@ -50,10 +51,12 @@ const CreativesPage = () => {
     selectedCreativeId, setSelectedCreativeId, groupBy, setGroupBy,
     sort, handleSort, page, setPage, searchInput, setSearchInput, search,
     selectedAccountId, allFilters,
+    advancedConditions, setAdvancedConditions,
   } = state;
 
   // View mode: ads vs concepts
   const [conceptView, setConceptView] = useState(false);
+  const [advFiltersOpen, setAdvFiltersOpen] = useState(false);
 
   // Momentum filter
   const [momentumFilter, setMomentumFilter] = useState("__all__");
@@ -150,6 +153,9 @@ const CreativesPage = () => {
       });
     }
 
+    // Apply advanced filters
+    list = applyAdvancedFilters(list, advancedConditions, gradeMap, fatigueMap, wowTrends);
+
     if (!sort.key || !sort.direction) return list;
     const field = SORT_FIELD_MAP[sort.key] || sort.key;
     const dir = sort.direction === "asc" ? 1 : -1;
@@ -171,7 +177,7 @@ const CreativesPage = () => {
       if (typeof va === "number" || !isNaN(Number(va))) return (Number(va) - Number(vb)) * dir;
       return String(va).localeCompare(String(vb)) * dir;
     });
-  }, [creatives, sort, momentumFilter, wowTrends, gradeMap, fatigueFilter, fatigueMap]);
+  }, [creatives, sort, momentumFilter, wowTrends, gradeMap, fatigueFilter, fatigueMap, advancedConditions]);
 
   const toggleBulkId = useCallback((adId: string) => {
     setBulkSelectedIds(prev => {
@@ -338,14 +344,30 @@ const CreativesPage = () => {
         </div>
       )}
 
-      <div className="relative mb-3 max-w-sm">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-        <Input placeholder="Search by ad name, code, or campaign…" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} className="h-8 font-body text-[13px] pl-8 pr-8 placeholder:text-sage" />
-        {searchInput && (
-          <button onClick={() => setSearchInput("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-            <X className="h-3.5 w-3.5" />
-          </button>
-        )}
+      <div className="flex items-center gap-2 mb-3">
+        <div className="relative max-w-sm flex-1">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input placeholder="Search by ad name, code, or campaign…" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} className="h-8 font-body text-[13px] pl-8 pr-8 placeholder:text-sage" />
+          {searchInput && (
+            <button onClick={() => setSearchInput("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+        <Button
+          size="sm"
+          variant={advancedConditions.length > 0 ? "secondary" : "outline"}
+          onClick={() => setAdvFiltersOpen(true)}
+          className="gap-1.5 font-body text-[12px]"
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+          Filters
+          {countActiveConditions(advancedConditions) > 0 && (
+            <span className="ml-0.5 inline-flex items-center justify-center h-4 min-w-[16px] rounded-full bg-primary text-primary-foreground font-data text-[10px] font-bold px-1">
+              {countActiveConditions(advancedConditions)}
+            </span>
+          )}
+        </Button>
       </div>
 
       <CreativesFilters
@@ -423,6 +445,12 @@ const CreativesPage = () => {
           />
         </>
       )}
+      <AdvancedFiltersPanel
+        open={advFiltersOpen}
+        onClose={() => setAdvFiltersOpen(false)}
+        conditions={advancedConditions}
+        onChange={setAdvancedConditions}
+      />
     </AppLayout>
   );
 };
