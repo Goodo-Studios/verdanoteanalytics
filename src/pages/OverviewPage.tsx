@@ -65,12 +65,12 @@ const OverviewPage = () => {
     <AppLayout>
       <div className="space-y-8">
         {/* Section 1: Header */}
-        <div className="flex items-start justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
           <div>
-            <h1 className="font-heading text-[32px] text-forest">{accountName}</h1>
-            <p className="font-body text-[13px] text-slate font-light mt-1">{subtitle}</p>
+            <h1 className="font-heading text-[24px] sm:text-[32px] text-forest">{accountName}</h1>
+            <p className="font-body text-[12px] sm:text-[13px] text-slate font-light mt-1">{subtitle}</p>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
             {showHealthScore && (
               <AccountHealthScore
                 creatives={creatives}
@@ -99,13 +99,13 @@ const OverviewPage = () => {
         {isLoading ? (
           <MetricCardSkeletonRow />
         ) : (
-          <div className="flex items-stretch divide-x divide-border-light">
-            <MetricCard label="Total Spend" value={fmt$(metrics.totalSpend)} trend={hasPrevPeriod ? delta(metrics.totalSpend, prevMetrics?.totalSpend) : undefined} className="flex-1" />
-            <MetricCard label="Active Creatives" value={fmtN(metrics.activeCount)} trend={hasPrevPeriod ? delta(metrics.activeCount, prevMetrics?.activeCount) : undefined} className="flex-1" />
-            <MetricCard label="Avg CPA" value={fmt$(metrics.avgCpa)} trend={hasPrevPeriod ? deltaInverse(metrics.avgCpa, prevMetrics?.avgCpa) : undefined} className="flex-1" />
-            <MetricCard label="Avg ROAS" value={`${metrics.avgRoas.toFixed(2)}x`} trend={hasPrevPeriod ? delta(metrics.avgRoas, prevMetrics?.avgRoas) : undefined} className="flex-1" />
-            <MetricCard label="Win Rate" value={fmtPct(metrics.winRate)} className="flex-1" />
-            <MetricCard label="Blended CTR" value={fmtPct(metrics.avgCtr)} trend={hasPrevPeriod ? delta(metrics.avgCtr, prevMetrics?.avgCtr) : undefined} className="flex-1" />
+          <div className="grid grid-cols-2 gap-px bg-border-light sm:grid-cols-3 md:flex md:items-stretch md:divide-x md:divide-border-light md:gap-0 md:bg-transparent">
+            <MetricCard label="Total Spend" value={fmt$(metrics.totalSpend)} trend={hasPrevPeriod ? delta(metrics.totalSpend, prevMetrics?.totalSpend) : undefined} className="bg-background flex-1" />
+            <MetricCard label="Active Creatives" value={fmtN(metrics.activeCount)} trend={hasPrevPeriod ? delta(metrics.activeCount, prevMetrics?.activeCount) : undefined} className="bg-background flex-1" />
+            <MetricCard label="Avg CPA" value={fmt$(metrics.avgCpa)} trend={hasPrevPeriod ? deltaInverse(metrics.avgCpa, prevMetrics?.avgCpa) : undefined} className="bg-background flex-1" />
+            <MetricCard label="Avg ROAS" value={`${metrics.avgRoas.toFixed(2)}x`} trend={hasPrevPeriod ? delta(metrics.avgRoas, prevMetrics?.avgRoas) : undefined} className="bg-background flex-1" />
+            <MetricCard label="Win Rate" value={fmtPct(metrics.winRate)} className="bg-background flex-1" />
+            <MetricCard label="Blended CTR" value={fmtPct(metrics.avgCtr)} trend={hasPrevPeriod ? delta(metrics.avgCtr, prevMetrics?.avgCtr) : undefined} className="bg-background flex-1" />
           </div>
         )}
 

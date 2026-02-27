@@ -84,6 +84,15 @@ export const NUMERIC_COLS = new Set([
   "hook_rate", "hold_rate", "video_avg_play_time", "adds_to_cart", "cost_per_atc",
 ]);
 
+/** Columns hidden on mobile (< 640px) to keep table scannable. Keep: creative, roas, spend */
+export const MOBILE_HIDDEN_COLS = new Set([
+  "cpa", "cpm", "cpc", "frequency", "cpmr", "ctr", "hook_rate", "hold_rate",
+  "impressions", "clicks", "purchases", "purchase_value", "video_views",
+  "video_avg_play_time", "adds_to_cart", "cost_per_atc", "grade",
+  "tags", "type", "person", "style", "hook", "product", "theme",
+  "campaign", "adset", "ad_status", "result_type",
+]);
+
 export const fmt = (v: number | null | undefined, prefix = "", suffix = "", decimals = 2) => {
   if (v === null || v === undefined) return "—";
   const n = Number(v);
