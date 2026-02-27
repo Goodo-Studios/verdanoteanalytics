@@ -1125,16 +1125,19 @@ export type Database = {
       user_preferences: {
         Row: {
           dashboard_layout: Json | null
+          first_login: boolean
           updated_at: string | null
           user_id: string
         }
         Insert: {
           dashboard_layout?: Json | null
+          first_login?: boolean
           updated_at?: string | null
           user_id: string
         }
         Update: {
           dashboard_layout?: Json | null
+          first_login?: boolean
           updated_at?: string | null
           user_id?: string
         }
