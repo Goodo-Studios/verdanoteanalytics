@@ -10,6 +10,8 @@ import { LayoutGrid } from "lucide-react";
 import { HEAD_LABELS, NUMERIC_COLS, fmt, CELL_CONFIG } from "./constants";
 import { useCachedMedia } from "@/hooks/useCachedMedia";
 import { cn } from "@/lib/utils";
+import { RoasTrendArrow } from "./RoasTrendArrow";
+import type { WoWTrend } from "@/hooks/useWoWTrends";
 
 interface CreativesTableProps {
   creatives: any[];
@@ -21,6 +23,7 @@ interface CreativesTableProps {
   onSelect: (creative: any) => void;
   compareMode?: boolean;
   compareIds?: Set<string>;
+  wowTrends?: Map<string, WoWTrend>;
 }
 
 const TAG_SELECT_FIELDS: Record<string, "ad_type" | "person" | "style" | "hook"> = {
@@ -52,7 +55,7 @@ function CreativeCell({ c }: { c: any }) {
   );
 }
 
-function renderCell(c: any, key: string) {
+function renderCell(c: any, key: string, wowTrends?: Map<string, WoWTrend>) {
   // Special cells
   if (key === "creative") return <TableCell key={key}><CreativeCell c={c} /></TableCell>;
   if (key === "tags") return <TableCell key={key}><TagSourceBadge source={c.tag_source} /></TableCell>;
@@ -66,9 +69,13 @@ function renderCell(c: any, key: string) {
   if (cfg) {
     const value = c[cfg.field];
     if (cfg.format) {
+      const isRoas = cfg.field === "roas";
       return (
         <TableCell key={key} className="text-right font-data text-[13px] font-medium text-charcoal tabular-nums">
-          {fmt(value, cfg.format.prefix, cfg.format.suffix, cfg.format.decimals)}
+          <span className="inline-flex items-center gap-0.5 justify-end">
+            {fmt(value, cfg.format.prefix, cfg.format.suffix, cfg.format.decimals)}
+            {isRoas && <RoasTrendArrow trend={wowTrends?.get(c.ad_id)} />}
+          </span>
         </TableCell>
       );
     }
@@ -80,7 +87,7 @@ function renderCell(c: any, key: string) {
 
 export function CreativesTable({
   creatives, visibleCols, columnOrder, sort, onSort, onReorder, onSelect,
-  compareMode = false, compareIds = new Set(),
+  compareMode = false, compareIds = new Set(), wowTrends,
 }: CreativesTableProps) {
   const [dragSourceKey, setDragSourceKey] = useState<string | null>(null);
   const [dragTargetKey, setDragTargetKey] = useState<string | null>(null);
@@ -153,7 +160,7 @@ export function CreativesTable({
                     />
                   </TableCell>
                 )}
-                {columnOrder.filter(k => visibleCols.has(k)).map(key => renderCell(c, key))}
+                {columnOrder.filter(k => visibleCols.has(k)).map(key => renderCell(c, key, wowTrends))}
               </TableRow>
             );
           })}

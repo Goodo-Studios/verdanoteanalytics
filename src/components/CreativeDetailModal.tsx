@@ -11,11 +11,14 @@ import { CreativeMetrics } from "@/components/creative-detail/CreativeMetrics";
 import { CreativeTagEditor } from "@/components/creative-detail/CreativeTagEditor";
 import { CreativeIterationAnalysis } from "@/components/creative-detail/CreativeIterationAnalysis";
 import { CreativeNotes } from "@/components/creative-detail/CreativeNotes";
+import { TrendSection } from "@/components/creative-detail/TrendSection";
+import type { WoWTrend } from "@/hooks/useWoWTrends";
 
 interface CreativeDetailModalProps {
   creative: any;
   open: boolean;
   onClose: () => void;
+  wowTrends?: Map<string, WoWTrend>;
 }
 
 function MetaPreviewEmbed({ url, fallbackUrl }: { url: string; fallbackUrl?: string | null }) {
@@ -181,7 +184,7 @@ function MediaPreview({ creative }: { creative: any }) {
   );
 }
 
-export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModalProps>(function CreativeDetailModal({ creative, open, onClose }, ref) {
+export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModalProps>(function CreativeDetailModal({ creative, open, onClose, wowTrends }, ref) {
   if (!creative) return null;
 
   return (
@@ -203,6 +206,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
         <MediaPreview creative={creative} />
 
         <CreativeMetrics creative={creative} />
+        <TrendSection trend={wowTrends?.get(creative.ad_id)} />
 
         {/* Context */}
         <div className="space-y-1.5">
