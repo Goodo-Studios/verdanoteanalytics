@@ -3,6 +3,7 @@ import { type ColumnDef } from "@/components/ColumnPicker";
 export const TABLE_COLUMNS: ColumnDef[] = [
   // Core
   { key: "creative", label: "Creative", defaultVisible: true, group: "Core" },
+  { key: "grade", label: "Grade", defaultVisible: false, group: "Core" },
   { key: "ad_status", label: "Delivery Status", defaultVisible: false, group: "Core" },
   { key: "result_type", label: "Result Type", defaultVisible: false, group: "Core" },
   // Tags
@@ -60,10 +61,11 @@ export const SORT_FIELD_MAP: Record<string, string> = {
   adds_to_cart: "adds_to_cart", cost_per_atc: "cost_per_add_to_cart",
   result_type: "result_type", cpmr: "_cpmr",
   campaign: "campaign_name", adset: "adset_name", ad_status: "ad_status",
+  grade: "_grade",
 };
 
 export const HEAD_LABELS: Record<string, string> = {
-  creative: "Creative", ad_status: "Status", result_type: "Result Type",
+  creative: "Creative", grade: "Grade", ad_status: "Status", result_type: "Result Type",
   type: "Type", person: "Person", style: "Style", hook: "Hook",
   product: "Product", theme: "Theme", tags: "Tags",
   spend: "Spent", roas: "ROAS", cpa: "Cost/Result", cpm: "CPM",

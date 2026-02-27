@@ -3,17 +3,28 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { ConceptGroup } from "@/lib/conceptGrouping";
 import { cn } from "@/lib/utils";
 import { ImageIcon } from "lucide-react";
+import { GradeBadge } from "./GradeBadge";
+import { gradeOrder, type GradeInfo } from "@/lib/creativeGrading";
 
 interface ConceptCardProps {
   concept: ConceptGroup;
+  gradeMap?: Map<string, GradeInfo>;
 }
 
-export function ConceptCard({ concept }: ConceptCardProps) {
+export function ConceptCard({ concept, gradeMap }: ConceptCardProps) {
   const [expanded, setExpanded] = useState(false);
   const { name, iterations, totalSpend, totalPurchases, blendedRoas, best, worst } = concept;
 
   const sortedIterations = [...iterations].sort((a, b) => (Number(b.roas) || 0) - (Number(a.roas) || 0));
   const thumbs = iterations.filter(c => c.thumbnail_url || c.video_url).slice(0, 4);
+
+  // Best grade across iterations
+  const bestGrade = gradeMap ? iterations.reduce<GradeInfo | null>((best, c) => {
+    const g = gradeMap.get(c.ad_id);
+    if (!g) return best;
+    if (!best || gradeOrder(g.grade) < gradeOrder(best.grade)) return g;
+    return best;
+  }, null) : null;
 
   return (
     <div className="rounded-card border border-border-light bg-card shadow-card transition-shadow duration-200 hover:shadow-card-hover">
@@ -35,7 +46,10 @@ export function ConceptCard({ concept }: ConceptCardProps) {
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
-            <h3 className="font-heading text-[15px] text-foreground truncate">{name}</h3>
+            <div className="flex items-center gap-2 min-w-0">
+              <h3 className="font-heading text-[15px] text-foreground truncate">{name}</h3>
+              {bestGrade && <GradeBadge grade={bestGrade.grade} />}
+            </div>
             <div className="flex items-center gap-1 text-muted-foreground shrink-0">
               {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
             </div>
