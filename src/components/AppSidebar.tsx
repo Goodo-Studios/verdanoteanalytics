@@ -17,6 +17,7 @@ import {
   FlaskConical,
   FileEdit,
   CalendarDays,
+  Radar,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
@@ -43,6 +44,7 @@ const baseNavItems = [
   { title: "Reports", url: "/reports", icon: FileText },
   { title: "Briefs", url: "/briefs", icon: FileEdit },
   { title: "Calendar", url: "/calendar", icon: CalendarDays },
+  { title: "Competitors", url: "/competitors", icon: Radar },
   { title: "Saved Views", url: "/saved-views", icon: Bookmark },
   { title: "AI Analyst", url: "/ai-chat", icon: Sparkles },
 ];
