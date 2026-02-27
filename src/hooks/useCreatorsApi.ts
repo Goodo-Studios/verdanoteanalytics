@@ -10,6 +10,14 @@ export interface Creator {
   type: string;
   notes: string | null;
   created_at: string;
+  deal_type: string | null;
+  rate: string | null;
+  platform: string | null;
+  contract_start: string | null;
+  contract_end: string | null;
+  wl_status: string;
+  wl_page_name: string | null;
+  wl_page_id: string | null;
 }
 
 export function useCreators(accountId?: string) {
@@ -48,18 +56,20 @@ export function useUpsertCreator() {
   return useMutationWithToast({
     mutationFn: async (creator: Partial<Creator> & { account_id: string; name: string }) => {
       if (creator.id) {
+        const { name, handle, type, notes, deal_type, rate, platform, contract_start, contract_end, wl_status, wl_page_name, wl_page_id } = creator;
         const { data, error } = await supabase
           .from("creators" as any)
-          .update({ name: creator.name, handle: creator.handle, type: creator.type, notes: creator.notes } as any)
+          .update({ name, handle, type, notes, deal_type, rate, platform, contract_start, contract_end, wl_status, wl_page_name, wl_page_id } as any)
           .eq("id", creator.id)
           .select()
           .single();
         if (error) throw error;
         return data;
       } else {
+        const { account_id, name, handle, type, notes, deal_type, rate, platform, contract_start, contract_end, wl_status, wl_page_name, wl_page_id } = creator;
         const { data, error } = await supabase
           .from("creators" as any)
-          .insert({ account_id: creator.account_id, name: creator.name, handle: creator.handle, type: creator.type, notes: creator.notes } as any)
+          .insert({ account_id, name, handle, type, notes, deal_type, rate, platform, contract_start, contract_end, wl_status, wl_page_name, wl_page_id } as any)
           .select()
           .single();
         if (error) throw error;
