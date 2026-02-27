@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { SyncStatusBanner } from "@/components/SyncStatusBanner";
 import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
@@ -8,12 +9,17 @@ import { SyncSettingsSection } from "@/components/settings/SyncSettingsSection";
 import { SyncHistorySection } from "@/components/settings/SyncHistorySection";
 import { RenameAccountModal } from "@/components/settings/RenameAccountModal";
 import { CsvUploadModal } from "@/components/settings/CsvUploadModal";
+import { AIBriefModal } from "@/components/settings/AIBriefModal";
 import { useSettingsPageState } from "@/hooks/useSettingsPageState";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
+import { useAuth } from "@/contexts/AuthContext";
 
 const SettingsPage = () => {
   const s = useSettingsPageState();
   const isSyncing = useIsSyncing();
+  const { isBuilder, isEmployee } = useAuth();
+  const canBrief = isBuilder || isEmployee;
+  const [showBriefModal, setShowBriefModal] = useState(false);
 
   if (!s.account) {
     if (s.accounts.length > 0) {
@@ -72,6 +78,8 @@ const SettingsPage = () => {
           onToggle={(checked) => s.toggleAccount.mutate({ id: s.account!.id, is_active: checked })}
           onRefreshMedia={() => s.refreshMedia.mutate({ account_id: s.account!.id })}
           refreshMediaPending={s.refreshMedia.isPending}
+          onAIBrief={() => setShowBriefModal(true)}
+          showAIBrief={canBrief}
         />
 
 
@@ -111,6 +119,12 @@ const SettingsPage = () => {
         onFileChange={s.handleCsvUpload}
         onConfirm={s.handleConfirmCsvUpload}
         isPending={s.uploadMappings.isPending}
+      />
+
+      <AIBriefModal
+        open={showBriefModal}
+        onClose={() => setShowBriefModal(false)}
+        account={s.account}
       />
     </AppLayout>
   );
