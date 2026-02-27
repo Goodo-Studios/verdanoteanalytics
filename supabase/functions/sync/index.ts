@@ -61,8 +61,10 @@ async function metaFetch(
           }
           return { data: null, next: null, error: true, rateLimited: false };
         }
-        console.error("Meta API error:", JSON.stringify(json.error));
-        ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: json.error.message || "Unknown Meta error" });
+        // Log full error details for debugging (especially useful for NDC "unknown error")
+        const fullErrMsg = `Meta API error — code: ${json.error.code ?? "?"}, subcode: ${json.error.error_subcode ?? "?"}, type: ${json.error.type ?? "?"}, msg: ${json.error.message ?? "?"}`;
+        console.error(fullErrMsg, JSON.stringify(json.error));
+        ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: fullErrMsg });
         return { data: null, next: null, error: true, rateLimited: isRateLimitError };
       }
 
