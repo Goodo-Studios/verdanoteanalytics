@@ -6,7 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Loader2, RefreshCw, Clock, Upload, Pencil, Image, Sparkles } from "lucide-react";
+import { Loader2, RefreshCw, Clock, Upload, Pencil, Image, Sparkles, CalendarDays } from "lucide-react";
 
 interface AccountOverviewSectionProps {
   account: any;
@@ -19,10 +19,12 @@ interface AccountOverviewSectionProps {
   refreshMediaPending?: boolean;
   onAIBrief?: () => void;
   showAIBrief?: boolean;
+  onWeeklyRetro?: () => void;
+  showWeeklyRetro?: boolean;
 }
 
 export function AccountOverviewSection({
-  account, onRename, onSync, syncPending, onUploadCsv, onToggle, onRefreshMedia, refreshMediaPending, onAIBrief, showAIBrief,
+  account, onRename, onSync, syncPending, onUploadCsv, onToggle, onRefreshMedia, refreshMediaPending, onAIBrief, showAIBrief, onWeeklyRetro, showWeeklyRetro,
 }: AccountOverviewSectionProps) {
   const formatDate = (d: string | null) => {
     if (!d) return "Never";
@@ -59,6 +61,12 @@ export function AccountOverviewSection({
             <Button size="sm" variant="secondary" onClick={onAIBrief}>
               <Sparkles className="h-3.5 w-3.5 mr-1.5" />
               AI Brief
+            </Button>
+          )}
+          {showWeeklyRetro && onWeeklyRetro && (
+            <Button size="sm" variant="secondary" onClick={onWeeklyRetro}>
+              <CalendarDays className="h-3.5 w-3.5 mr-1.5" />
+              Weekly Retro
             </Button>
           )}
         </div>

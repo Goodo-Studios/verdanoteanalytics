@@ -10,6 +10,7 @@ import { SyncHistorySection } from "@/components/settings/SyncHistorySection";
 import { RenameAccountModal } from "@/components/settings/RenameAccountModal";
 import { CsvUploadModal } from "@/components/settings/CsvUploadModal";
 import { AIBriefModal } from "@/components/settings/AIBriefModal";
+import { WeeklyRetroModal } from "@/components/settings/WeeklyRetroModal";
 import { useSettingsPageState } from "@/hooks/useSettingsPageState";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,6 +21,7 @@ const SettingsPage = () => {
   const { isBuilder, isEmployee } = useAuth();
   const canBrief = isBuilder || isEmployee;
   const [showBriefModal, setShowBriefModal] = useState(false);
+  const [showRetroModal, setShowRetroModal] = useState(false);
 
   if (!s.account) {
     if (s.accounts.length > 0) {
@@ -80,6 +82,8 @@ const SettingsPage = () => {
           refreshMediaPending={s.refreshMedia.isPending}
           onAIBrief={() => setShowBriefModal(true)}
           showAIBrief={canBrief}
+          onWeeklyRetro={() => setShowRetroModal(true)}
+          showWeeklyRetro={canBrief}
         />
 
 
@@ -124,6 +128,12 @@ const SettingsPage = () => {
       <AIBriefModal
         open={showBriefModal}
         onClose={() => setShowBriefModal(false)}
+        account={s.account}
+      />
+
+      <WeeklyRetroModal
+        open={showRetroModal}
+        onClose={() => setShowRetroModal(false)}
         account={s.account}
       />
     </AppLayout>
