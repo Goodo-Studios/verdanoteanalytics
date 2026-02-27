@@ -241,6 +241,89 @@ export type Database = {
         }
         Relationships: []
       }
+      brief_templates: {
+        Row: {
+          account_id: string | null
+          created_at: string | null
+          created_by: string | null
+          format: string | null
+          id: string
+          name: string
+          sections: Json | null
+        }
+        Insert: {
+          account_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          format?: string | null
+          id?: string
+          name: string
+          sections?: Json | null
+        }
+        Update: {
+          account_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          format?: string | null
+          id?: string
+          name?: string
+          sections?: Json | null
+        }
+        Relationships: []
+      }
+      briefs: {
+        Row: {
+          account_id: string
+          assignee_name: string | null
+          content: Json | null
+          created_at: string | null
+          created_by: string | null
+          due_date: string | null
+          id: string
+          name: string
+          reference_ad_ids: string[] | null
+          share_token: string | null
+          status: string
+          template_id: string | null
+        }
+        Insert: {
+          account_id: string
+          assignee_name?: string | null
+          content?: Json | null
+          created_at?: string | null
+          created_by?: string | null
+          due_date?: string | null
+          id?: string
+          name: string
+          reference_ad_ids?: string[] | null
+          share_token?: string | null
+          status?: string
+          template_id?: string | null
+        }
+        Update: {
+          account_id?: string
+          assignee_name?: string | null
+          content?: Json | null
+          created_at?: string | null
+          created_by?: string | null
+          due_date?: string | null
+          id?: string
+          name?: string
+          reference_ad_ids?: string[] | null
+          share_token?: string | null
+          status?: string
+          template_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "briefs_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "brief_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       creative_daily_metrics: {
         Row: {
           account_id: string

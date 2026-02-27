@@ -5,7 +5,8 @@ import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, Users } from "lucide-react";
+import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, Users, FileEdit } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useCreator } from "@/hooks/useCreatorsApi";
 import { useState, forwardRef } from "react";
 import { CreativeMetrics } from "@/components/creative-detail/CreativeMetrics";
@@ -19,6 +20,8 @@ import type { WoWTrend } from "@/hooks/useWoWTrends";
 import type { GradeInfo } from "@/lib/creativeGrading";
 import type { FatigueResult } from "@/lib/fatigueScore";
 import type { CreativeScore } from "@/lib/creativeScore";
+import { useAuth } from "@/contexts/AuthContext";
+import { useCreateBrief } from "@/hooks/useBriefsApi";
 
 interface CreativeDetailModalProps {
   creative: any;
@@ -196,9 +199,35 @@ function MediaPreview({ creative }: { creative: any }) {
 export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModalProps>(function CreativeDetailModal({ creative, open, onClose, wowTrends, gradeMap, fatigueMap, scoreMap }, ref) {
   const creatorId = creative?.creator_id;
   const { data: creator } = useCreator(creatorId || undefined);
+  const { isBuilder, isEmployee, user } = useAuth();
+  const navigate = useNavigate();
+  const createBrief = useCreateBrief();
   if (!creative) return null;
   const fatigue = fatigueMap?.get(creative.ad_id);
   const creativeScore = scoreMap?.get(creative.ad_id);
+
+  const handleCreateBrief = () => {
+    createBrief.mutate(
+      {
+        account_id: creative.account_id,
+        name: `Brief from ${creative.unique_code || creative.ad_name}`,
+        status: "draft",
+        reference_ad_ids: [creative.ad_id],
+        content: {
+          concept_name: creative.unique_code || "",
+          objective: "",
+          hook: creative.hook || "",
+          key_message: "",
+          cta: "",
+          format_specs: creative.ad_type ? `Format: ${creative.ad_type}` : "",
+          dos: "",
+          donts: "",
+        },
+        created_by: user?.id,
+      } as any,
+      { onSuccess: () => { onClose(); navigate("/briefs"); } },
+    );
+  };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -303,6 +332,20 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
           <p className="font-body text-[13px]"><span className="font-semibold text-charcoal">Campaign:</span> <span className="font-normal text-slate break-all">{creative.campaign_name || "—"}</span></p>
           <p className="font-body text-[13px]"><span className="font-semibold text-charcoal">Ad Set:</span> <span className="font-normal text-slate break-all">{creative.adset_name || "—"}</span></p>
         </div>
+
+        {/* Create Brief from This */}
+        {(isBuilder || isEmployee) && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 font-body text-[12px]"
+            onClick={handleCreateBrief}
+            disabled={createBrief.isPending}
+          >
+            <FileEdit className="h-3.5 w-3.5" />
+            Create Brief from This
+          </Button>
+        )}
 
         <Separator />
         <CreativeNotes creative={creative} />

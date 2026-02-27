@@ -30,6 +30,8 @@ import LoginPage from "./pages/LoginPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import UpdatePasswordPage from "./pages/UpdatePasswordPage";
 import AIChatPage from "./pages/AIChatPage";
+import BriefsPage from "./pages/BriefsPage";
+import PublicBriefPage from "./pages/PublicBriefPage";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
@@ -69,6 +71,7 @@ function ProtectedRoutes() {
         <Route path="/settings" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <SettingsPage />} />
         <Route path="/user-settings" element={<UserSettingsPage />} />
         <Route path="/saved-views" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <SavedViewsPage />} />
+        <Route path="/briefs" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <BriefsPage />} />
         <Route path="/ai-chat" element={<AIChatPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
@@ -91,6 +94,7 @@ const App = () => {
                 <Route path="/reset-password" element={<ResetPasswordPage />} />
                 <Route path="/update-password" element={<UpdatePasswordPage />} />
                 <Route path="/public/reports/:id" element={<PublicReportPage />} />
+                <Route path="/briefs/share/:token" element={<PublicBriefPage />} />
                 <Route path="/portfolio/:slug" element={<PortfolioPage />} />
                 <Route path="/*" element={<ProtectedRoutes />} />
               </Routes>
