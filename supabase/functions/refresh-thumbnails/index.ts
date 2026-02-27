@@ -321,10 +321,8 @@ serve(async (req) => {
       .single();
     const logId = logRow?.id;
 
-    // Phase 1: Discover work — only items that haven't been cached or marked as failed
-    // Thumbnails: find creatives where thumbnail_url is NULL (never fetched)
-    // OR not yet cached to storage AND not marked as "no-thumbnail" sentinel
-    // FAST PATH: thumbnails that already have a CDN URL — just download & cache (no Meta API needed)
+    // Phase 1: Discover work
+    // FAST PATH: thumbnails with a real CDN URL not yet cached to storage
     let uncachedThumbsQuery = supabase
       .from("creatives")
       .select("ad_id, account_id, thumbnail_url")
@@ -337,14 +335,16 @@ serve(async (req) => {
       .order("spend", { ascending: false, nullsFirst: false })
       .limit(MAX_TOTAL);
 
-    // SLOW PATH: thumbnails with NULL URL — need Meta API discovery
+    // SLOW PATH: NULL thumbnails + no-thumbnail sentinels — both need Meta API re-discovery
     let missingThumbsQuery = supabase
       .from("creatives")
       .select("ad_id, account_id, thumbnail_url")
-      .is("thumbnail_url", null)
+      .or("thumbnail_url.is.null,thumbnail_url.eq.no-thumbnail")
       .gt("impressions", 0);
     if (accountFilter) missingThumbsQuery = missingThumbsQuery.eq("account_id", accountFilter);
-    const { data: missingThumbs } = await missingThumbsQuery.limit(MAX_TOTAL);
+    const { data: missingThumbs } = await missingThumbsQuery
+      .order("spend", { ascending: false, nullsFirst: false })
+      .limit(MAX_TOTAL);
 
     const fastPathThumbs = uncachedThumbs || [];
     const slowPathThumbs = missingThumbs || [];
