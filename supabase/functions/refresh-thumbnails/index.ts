@@ -354,7 +354,7 @@ serve(async (req) => {
     let missingVideosQuery = supabase
       .from("creatives")
       .select("ad_id, account_id")
-      .or(`video_url.is.null,video_url.eq.${NO_VIDEO_SENTINEL}`)
+      .or("video_url.is.null,video_url.eq.no-video")
       .gt("video_views", 0)
       .gt("impressions", 0);
     if (accountFilter) missingVideosQuery = missingVideosQuery.eq("account_id", accountFilter);
@@ -398,8 +398,10 @@ serve(async (req) => {
       });
     }
 
+    console.log(`Discovery: fastThumbs=${fastPathThumbs.length} slowThumbs=${slowPathThumbs.length} missingVideos=${noVideos.length} uncachedVideos=${videos.length} previews=${previews.length} account=${accountFilter || "all"}`);
+
     if (thumbsTotal === 0 && videosTotal === 0) {
-      console.log("All media already cached.");
+      console.log("All media already cached — nothing to do.");
       if (logId) {
         await updateLog(supabase, logId, {
           status: "completed",
