@@ -29,7 +29,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { FileText, Plus, Trash2, Loader2, Eye, Download, CalendarClock, Send, CalendarIcon, Link2, Files } from "lucide-react";
+import { FileText, Plus, Trash2, Loader2, Eye, Download, CalendarClock, Send, CalendarIcon, Link2, Files, Layers } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { format, subDays } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -43,6 +43,7 @@ import { exportReportCSV } from "@/lib/csv";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { MonthlyRollupModal } from "@/components/reports/MonthlyRollupModal";
+import { PortfolioReportModal } from "@/components/reports/PortfolioReportModal";
 
 const CADENCES = [
   { key: "weekly", label: "Weekly", defaultDays: 7, description: "Runs every Monday" },
@@ -55,6 +56,7 @@ const ReportsPage = () => {
   const [showGenerate, setShowGenerate] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [showRollup, setShowRollup] = useState(false);
+  const [showPortfolio, setShowPortfolio] = useState(false);
   const [reportName, setReportName] = useState("");
   const [accountId, setAccountId] = useState("");
   const [dateStart, setDateStart] = useState<Date>(subDays(new Date(), 7));
@@ -145,6 +147,12 @@ const ReportsPage = () => {
                 Monthly Rollup
               </Button>
             )}
+            {!isClient && (
+              <Button size="sm" variant="secondary" onClick={() => setShowPortfolio(true)}>
+                <Layers className="h-3.5 w-3.5 mr-1.5" />
+                Portfolio Report
+              </Button>
+            )}
             <Button size="sm" className="bg-verdant text-white hover:bg-verdant/90" onClick={() => setShowGenerate(true)}>
               <Plus className="h-3.5 w-3.5 mr-1.5" />
               Generate Report
@@ -184,7 +192,12 @@ const ReportsPage = () => {
               {reports.map((r: any) => (
                 <TableRow key={r.id} className="cursor-pointer hover:bg-accent/50" onClick={() => navigate(`/reports/${r.id}`)}>
                   <TableCell>
-                    <div className="font-body text-[13px] font-semibold text-charcoal">{r.report_name}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-body text-[13px] font-semibold text-charcoal">{r.report_name}</span>
+                      {r.report_type === "portfolio" && (
+                        <Badge variant="secondary" className="text-[9px] px-1.5 py-0">Portfolio</Badge>
+                      )}
+                    </div>
                     <div className="font-data text-[11px] text-slate">{r.date_range_days ? `${r.date_range_days} days` : "—"}</div>
                   </TableCell>
                   <TableCell className="font-data text-[13px] text-slate">{new Date(r.created_at).toLocaleDateString()}</TableCell>
@@ -374,6 +387,7 @@ const ReportsPage = () => {
 
       {/* Monthly Rollup Modal */}
       <MonthlyRollupModal open={showRollup} onOpenChange={setShowRollup} accounts={accounts || []} />
+      <PortfolioReportModal open={showPortfolio} onOpenChange={setShowPortfolio} accounts={accounts || []} />
     </AppLayout>
   );
 };

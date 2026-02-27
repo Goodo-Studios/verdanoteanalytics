@@ -894,7 +894,9 @@ export type Database = {
           id: string
           is_public: boolean
           iteration_suggestions: string | null
+          portfolio_account_ids: string[] | null
           report_name: string
+          report_type: string
           sections: Json | null
           tags_csv_count: number | null
           tags_manual_count: number | null
@@ -929,7 +931,9 @@ export type Database = {
           id?: string
           is_public?: boolean
           iteration_suggestions?: string | null
+          portfolio_account_ids?: string[] | null
           report_name: string
+          report_type?: string
           sections?: Json | null
           tags_csv_count?: number | null
           tags_manual_count?: number | null
@@ -964,7 +968,9 @@ export type Database = {
           id?: string
           is_public?: boolean
           iteration_suggestions?: string | null
+          portfolio_account_ids?: string[] | null
           report_name?: string
+          report_type?: string
           sections?: Json | null
           tags_csv_count?: number | null
           tags_manual_count?: number | null

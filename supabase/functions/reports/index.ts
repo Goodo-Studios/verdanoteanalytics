@@ -331,6 +331,172 @@ serve(async (req) => {
       return new Response(JSON.stringify(data), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // POST /reports/portfolio — generate a portfolio report spanning multiple accounts
+    if (req.method === "POST" && path === "portfolio") {
+      if (userRole.role !== "builder" && userRole.role !== "employee") {
+        return new Response(JSON.stringify({ error: "Builder or employee role required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const body = await req.json();
+      const { account_ids, date_start, date_end, report_name } = body;
+      const dateStart = date_start;
+      const dateEnd = date_end;
+      const days = Math.ceil((new Date(dateEnd).getTime() - new Date(dateStart).getTime()) / 86400000) + 1;
+
+      // Get account details
+      const { data: accts } = await supabase.from("ad_accounts").select("id, name, target_roas, target_cpa").in("id", account_ids);
+      const acctMap: Record<string, any> = {};
+      for (const a of accts || []) acctMap[a.id] = a;
+
+      // Aggregate data per account
+      const accountData: Record<string, any> = {};
+      let allCreatives: any[] = [];
+
+      for (const accountId of account_ids) {
+        const list = await aggregateDailyMetrics(supabase, accountId, dateStart, dateEnd);
+        const totalSpend = list.reduce((s: number, c: any) => s + Number(c.spend || 0), 0);
+        const totalPurchases = list.reduce((s: number, c: any) => s + Number(c.purchases || 0), 0);
+        const totalPurchaseValue = list.reduce((s: number, c: any) => s + Number(c.purchase_value || 0), 0);
+        const avgField = (field: string) => list.length === 0 ? 0 : list.reduce((s: number, c: any) => s + Number(c[field] || 0), 0) / list.length;
+        const winners = list.filter((c: any) => Number(c.roas || 0) > 1);
+        const winRate = list.length > 0 ? (winners.length / list.length) * 100 : 0;
+        const blendedRoas = totalSpend > 0 ? totalPurchaseValue / totalSpend : 0;
+        const avgCpa = totalPurchases > 0 ? totalSpend / totalPurchases : 0;
+
+        // Get top creative for this account
+        const sorted = [...list].sort((a: any, b: any) => Number(b.roas || 0) - Number(a.roas || 0));
+        const topCreative = sorted.length > 0 ? sorted[0] : null;
+
+        accountData[accountId] = {
+          name: acctMap[accountId]?.name || accountId,
+          spend: totalSpend,
+          roas: blendedRoas,
+          cpa: avgCpa,
+          purchases: totalPurchases,
+          win_rate: winRate,
+          creative_count: list.length,
+          top_creative: topCreative ? {
+            ad_id: topCreative.ad_id,
+            ad_name: topCreative.ad_name || topCreative.ad_id,
+            roas: Number(topCreative.roas || 0),
+            spend: Number(topCreative.spend || 0),
+            thumbnail_url: topCreative.thumbnail_url || null,
+          } : null,
+        };
+
+        // Add all creatives with account info for cross-account winners
+        for (const c of list) {
+          allCreatives.push({ ...c, _account_name: acctMap[accountId]?.name || accountId });
+        }
+      }
+
+      // Portfolio totals
+      const portfolioSpend = Object.values(accountData).reduce((s: number, a: any) => s + a.spend, 0);
+      const portfolioPurchaseValue = allCreatives.reduce((s: number, c: any) => s + Number(c.purchase_value || 0), 0);
+      const portfolioRoas = portfolioSpend > 0 ? portfolioPurchaseValue / portfolioSpend : 0;
+      const portfolioPurchases = Object.values(accountData).reduce((s: number, a: any) => s + a.purchases, 0);
+      const portfolioCpa = portfolioPurchases > 0 ? portfolioSpend / portfolioPurchases : 0;
+      const portfolioCreativeCount = allCreatives.length;
+
+      // Top 3 winners across all accounts (minimum $100 spend)
+      const portfolioWinners = allCreatives
+        .filter((c: any) => Number(c.spend || 0) >= 100)
+        .sort((a: any, b: any) => Number(b.roas || 0) - Number(a.roas || 0))
+        .slice(0, 3)
+        .map((c: any) => ({
+          ad_id: c.ad_id,
+          ad_name: c.ad_name || c.ad_id,
+          account_name: c._account_name,
+          roas: Math.round(Number(c.roas || 0) * 1000) / 1000,
+          spend: Math.round(Number(c.spend || 0) * 100) / 100,
+          thumbnail_url: c.thumbnail_url || null,
+        }));
+
+      // AI insights
+      let aiInsights: string[] = [];
+      if (LOVABLE_API_KEY && allCreatives.length > 0) {
+        try {
+          const accountSummaries = Object.entries(accountData).map(([id, d]: [string, any]) =>
+            `${d.name}: $${d.spend.toFixed(0)} spend, ${d.roas.toFixed(2)}x ROAS, ${d.win_rate.toFixed(0)}% win rate, ${d.creative_count} creatives`
+          ).join("\n");
+
+          const aiResp = await fetch(AI_GATEWAY, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "google/gemini-2.5-flash-lite",
+              messages: [
+                { role: "system", content: "You are a creative performance analyst reviewing a multi-account portfolio. Return exactly 3-5 bullet points as a JSON array of strings. Each bullet is a plain-English cross-account insight or recommendation. Focus on patterns across accounts, format comparisons, and strategic recommendations. No markdown." },
+                { role: "user", content: `Portfolio: ${account_ids.length} accounts. Period: ${dateStart} to ${dateEnd}. Total spend: $${portfolioSpend.toFixed(0)}. Blended ROAS: ${portfolioRoas.toFixed(2)}x. Total creatives: ${portfolioCreativeCount}.\n\nAccount breakdown:\n${accountSummaries}\n\nTop winners: ${JSON.stringify(portfolioWinners)}` },
+              ],
+              tools: [{
+                type: "function",
+                function: {
+                  name: "return_insights",
+                  description: "Return 3-5 portfolio-level insight bullets",
+                  parameters: {
+                    type: "object",
+                    properties: { insights: { type: "array", items: { type: "string" } } },
+                    required: ["insights"],
+                    additionalProperties: false,
+                  },
+                },
+              }],
+              tool_choice: { type: "function", function: { name: "return_insights" } },
+            }),
+          });
+          if (aiResp.ok) {
+            const aiData = await aiResp.json();
+            const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
+            if (toolCall?.function?.arguments) {
+              const parsed = JSON.parse(toolCall.function.arguments);
+              aiInsights = parsed.insights || [];
+            }
+          }
+        } catch (aiErr) {
+          console.error("Portfolio AI insights error:", aiErr);
+        }
+      }
+
+      // Build portfolio data blob stored in sections
+      const portfolioData = {
+        account_summaries: Object.entries(accountData).map(([id, d]: [string, any]) => ({
+          account_id: id,
+          ...d,
+        })),
+        portfolio_winners: portfolioWinners,
+        ai_insights: aiInsights,
+        date_start: dateStart,
+        date_end: dateEnd,
+      };
+
+      const finalName = report_name || `Goodo Studios Portfolio Performance Report`;
+
+      const report = {
+        report_name: finalName,
+        account_id: account_ids[0], // primary account for RLS
+        is_public: true,
+        report_type: "portfolio",
+        portfolio_account_ids: account_ids,
+        creative_count: portfolioCreativeCount,
+        total_spend: Math.round(portfolioSpend * 100) / 100,
+        blended_roas: Math.round(portfolioRoas * 100) / 100,
+        average_cpa: Math.round(portfolioCpa * 100) / 100,
+        average_ctr: 0,
+        win_rate: 0,
+        top_performers: JSON.stringify(portfolioWinners),
+        date_range_start: dateStart,
+        date_range_end: dateEnd,
+        date_range_days: days,
+        sections: [portfolioData], // Store portfolio data in sections
+      };
+
+      const { data: savedReport, error: insertErr } = await supabase.from("reports").insert(report).select().single();
+      if (insertErr) throw insertErr;
+
+      return new Response(JSON.stringify(savedReport), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // POST /reports/rollup — generate reports for multiple accounts
     if (req.method === "POST" && path === "rollup") {
       // Builder-only check
