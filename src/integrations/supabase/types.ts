@@ -1058,6 +1058,63 @@ export type Database = {
         }
         Relationships: []
       }
+      whitelisting_deals: {
+        Row: {
+          access_expires_at: string | null
+          access_granted_at: string | null
+          account_id: string
+          created_at: string | null
+          creator_id: string | null
+          creator_name: string
+          id: string
+          notes: string | null
+          platform: string | null
+          spend_to_date: number | null
+          status: string | null
+        }
+        Insert: {
+          access_expires_at?: string | null
+          access_granted_at?: string | null
+          account_id: string
+          created_at?: string | null
+          creator_id?: string | null
+          creator_name: string
+          id?: string
+          notes?: string | null
+          platform?: string | null
+          spend_to_date?: number | null
+          status?: string | null
+        }
+        Update: {
+          access_expires_at?: string | null
+          access_granted_at?: string | null
+          account_id?: string
+          created_at?: string | null
+          creator_id?: string | null
+          creator_name?: string
+          id?: string
+          notes?: string | null
+          platform?: string | null
+          spend_to_date?: number | null
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whitelisting_deals_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "ad_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whitelisting_deals_creator_id_fkey"
+            columns: ["creator_id"]
+            isOneToOne: false
+            referencedRelation: "creators"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
