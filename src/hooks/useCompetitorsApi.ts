@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useMutationWithToast } from "./useMutationWithToast";
 import { useAccountContext } from "@/contexts/AccountContext";
@@ -51,5 +51,43 @@ export function usePageSearch(query: string) {
     queryFn: () => apiFetch("competitor-ads", `page-search?q=${encodeURIComponent(query)}`),
     enabled: query.length >= 3,
     staleTime: 10 * 60 * 1000,
+  });
+}
+
+export function useSaveAd() {
+  return useMutationWithToast({
+    mutationFn: (data: {
+      competitor_id: string;
+      ad_archive_id: string;
+      ad_creative_body?: string;
+      thumbnail_url?: string;
+      video_url?: string;
+      started_running?: string;
+      is_active?: boolean;
+      platforms?: string[];
+    }) => apiFetch("competitor-ads", "save-ad", { method: "POST", body: JSON.stringify(data) }),
+    invalidateKeys: [["competitors"], ["ad-library"], ["saved-ads"]],
+    successMessage: "Ad saved to swipe file",
+    errorMessage: "Failed to save ad",
+  });
+}
+
+export function useDeleteSavedAd() {
+  return useMutationWithToast({
+    mutationFn: (id: string) => apiFetch("competitor-ads", `${id}?type=saved-ad`, { method: "DELETE" }),
+    invalidateKeys: [["competitors"], ["saved-ads"]],
+    successMessage: "Ad removed from swipe file",
+    errorMessage: "Failed to remove ad",
+  });
+}
+
+export function useSavedAds(competitorId: string | null) {
+  return useQuery({
+    queryKey: ["saved-ads", competitorId],
+    queryFn: () => {
+      const qs = competitorId ? `?competitor_id=${competitorId}` : "";
+      return apiFetch("competitor-ads", `saved${qs}`);
+    },
+    enabled: !!competitorId,
   });
 }

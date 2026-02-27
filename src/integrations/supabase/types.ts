@@ -324,6 +324,53 @@ export type Database = {
           },
         ]
       }
+      competitor_ads: {
+        Row: {
+          ad_archive_id: string | null
+          ad_creative_body: string | null
+          competitor_id: string | null
+          id: string
+          is_active: boolean | null
+          platforms: string[] | null
+          saved_at: string | null
+          started_running: string | null
+          thumbnail_url: string | null
+          video_url: string | null
+        }
+        Insert: {
+          ad_archive_id?: string | null
+          ad_creative_body?: string | null
+          competitor_id?: string | null
+          id?: string
+          is_active?: boolean | null
+          platforms?: string[] | null
+          saved_at?: string | null
+          started_running?: string | null
+          thumbnail_url?: string | null
+          video_url?: string | null
+        }
+        Update: {
+          ad_archive_id?: string | null
+          ad_creative_body?: string | null
+          competitor_id?: string | null
+          id?: string
+          is_active?: boolean | null
+          platforms?: string[] | null
+          saved_at?: string | null
+          started_running?: string | null
+          thumbnail_url?: string | null
+          video_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "competitor_ads_competitor_id_fkey"
+            columns: ["competitor_id"]
+            isOneToOne: false
+            referencedRelation: "competitors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       competitors: {
         Row: {
           account_id: string
