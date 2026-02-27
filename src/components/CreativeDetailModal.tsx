@@ -15,6 +15,7 @@ import { TrendSection } from "@/components/creative-detail/TrendSection";
 import { GradeBadge } from "@/components/creatives/GradeBadge";
 import type { WoWTrend } from "@/hooks/useWoWTrends";
 import type { GradeInfo } from "@/lib/creativeGrading";
+import type { FatigueResult } from "@/lib/fatigueScore";
 
 interface CreativeDetailModalProps {
   creative: any;
@@ -22,6 +23,7 @@ interface CreativeDetailModalProps {
   onClose: () => void;
   wowTrends?: Map<string, WoWTrend>;
   gradeMap?: Map<string, GradeInfo>;
+  fatigueMap?: Map<string, FatigueResult>;
 }
 
 function MetaPreviewEmbed({ url, fallbackUrl }: { url: string; fallbackUrl?: string | null }) {
@@ -187,8 +189,9 @@ function MediaPreview({ creative }: { creative: any }) {
   );
 }
 
-export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModalProps>(function CreativeDetailModal({ creative, open, onClose, wowTrends, gradeMap }, ref) {
+export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModalProps>(function CreativeDetailModal({ creative, open, onClose, wowTrends, gradeMap, fatigueMap }, ref) {
   if (!creative) return null;
+  const fatigue = fatigueMap?.get(creative.ad_id);
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -218,6 +221,39 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
           </div>
         )}
         <TrendSection trend={wowTrends?.get(creative.ad_id)} />
+
+        {/* Fatigue section */}
+        {fatigue && fatigue.level !== "ok" && (
+          <div className="space-y-2 px-1">
+            <div className="flex items-center gap-2">
+              <span className="font-label text-[11px] font-semibold uppercase tracking-wider text-charcoal">
+                {fatigue.level === "high" ? "🔥" : "⚠️"} Fatigue Score
+              </span>
+              <span className={`font-data text-[13px] font-bold tabular-nums ${fatigue.level === "high" ? "text-red-600" : "text-amber-600"}`}>
+                {fatigue.score}/100
+              </span>
+            </div>
+            <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${fatigue.level === "high" ? "bg-red-500" : "bg-amber-400"}`}
+                style={{ width: `${fatigue.score}%` }}
+              />
+            </div>
+            {fatigue.explanation && (
+              <p className="font-body text-[12px] text-slate leading-relaxed">{fatigue.explanation}</p>
+            )}
+            {fatigue.reasons.length > 0 && (
+              <ul className="space-y-0.5">
+                {fatigue.reasons.map((r, i) => (
+                  <li key={i} className="font-body text-[11px] text-sage flex items-center gap-1.5">
+                    <span className="w-1 h-1 rounded-full bg-sage flex-shrink-0" />
+                    {r}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
         {/* Context */}
         <div className="space-y-1.5">
