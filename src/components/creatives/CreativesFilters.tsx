@@ -18,12 +18,15 @@ interface CreativesFiltersProps {
   viewMode: "table" | "card" | "timeline";
   momentumFilter?: string;
   onMomentumChange?: (v: string) => void;
+  fatigueFilter?: string;
+  onFatigueChange?: (v: string) => void;
 }
 
 export function CreativesFilters({
   dateFrom, dateTo, onDateChange,
   filters, updateFilter, filterOptions, groupBy, setGroupBy, viewMode,
   momentumFilter, onMomentumChange,
+  fatigueFilter, onFatigueChange,
 }: CreativesFiltersProps) {
   return (
     <>
@@ -69,6 +72,19 @@ export function CreativesFilters({
                   <SelectItem value="steady">Holding steady</SelectItem>
                   <SelectItem value="losing">Losing momentum</SelectItem>
                   <SelectItem value="fading">Fading fast</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+            {onFatigueChange && (
+              <Select value={fatigueFilter || "__all__"} onValueChange={onFatigueChange}>
+                <SelectTrigger className={`w-36 h-8 font-body text-[12px] font-medium bg-background rounded-[6px] border ${fatigueFilter && fatigueFilter !== "__all__" ? "border-verdant text-forest bg-sage-light" : "border-border-light text-slate"}`}>
+                  <SelectValue placeholder="Fatigue" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All fatigue</SelectItem>
+                  <SelectItem value="high">🔥 High Fatigue</SelectItem>
+                  <SelectItem value="warning">⚠️ Fatiguing</SelectItem>
+                  <SelectItem value="ok">Healthy</SelectItem>
                 </SelectContent>
               </Select>
             )}

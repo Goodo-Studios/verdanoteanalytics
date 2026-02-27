@@ -31,6 +31,7 @@ import { SyncStatusBanner } from "@/components/SyncStatusBanner";
 import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
 import { useWoWTrends } from "@/hooks/useWoWTrends";
 import { gradeCreatives, gradeOrder } from "@/lib/creativeGrading";
+import { computeFatigueMap } from "@/lib/fatigueScore";
 import { usePinnedViews } from "@/hooks/useSavedViews";
 import type { GradeInfo } from "@/lib/creativeGrading";
 
@@ -53,6 +54,9 @@ const CreativesPage = () => {
 
   // Momentum filter
   const [momentumFilter, setMomentumFilter] = useState("__all__");
+
+  // Fatigue filter
+  const [fatigueFilter, setFatigueFilter] = useState("__all__");
 
   // Compare mode
   const [compareMode, setCompareMode] = useState(false);
@@ -95,6 +99,9 @@ const CreativesPage = () => {
   const killThreshold = selectedAccountData?.kill_threshold ?? 1.0;
   const gradeMap = useMemo(() => gradeCreatives(creatives, killThreshold), [creatives, killThreshold]);
 
+  // Compute fatigue scores
+  const fatigueMap = useMemo(() => computeFatigueMap(creatives, wowTrends), [creatives, wowTrends]);
+
   const avgMetrics = useMemo(() => {
     if (creatives.length === 0) return { roas: "—", cpa: "—", totalSpend: "—" };
     const withSpend = creatives.filter((c: any) => c.spend > 0);
@@ -123,6 +130,17 @@ const CreativesPage = () => {
       });
     }
 
+    // Apply fatigue filter
+    if (fatigueFilter !== "__all__") {
+      list = list.filter((c: any) => {
+        const f = fatigueMap.get(c.ad_id);
+        if (fatigueFilter === "high") return f?.level === "high";
+        if (fatigueFilter === "warning") return f?.level === "warning";
+        if (fatigueFilter === "ok") return !f || f.level === "ok";
+        return true;
+      });
+    }
+
     if (!sort.key || !sort.direction) return list;
     const field = SORT_FIELD_MAP[sort.key] || sort.key;
     const dir = sort.direction === "asc" ? 1 : -1;
@@ -144,7 +162,7 @@ const CreativesPage = () => {
       if (typeof va === "number" || !isNaN(Number(va))) return (Number(va) - Number(vb)) * dir;
       return String(va).localeCompare(String(vb)) * dir;
     });
-  }, [creatives, sort, momentumFilter, wowTrends, gradeMap]);
+  }, [creatives, sort, momentumFilter, wowTrends, gradeMap, fatigueFilter, fatigueMap]);
 
   const groupedData = useMemo(() => {
     if (groupBy === "__none__" || !sortedCreatives?.length) return null;
@@ -288,6 +306,7 @@ const CreativesPage = () => {
         filters={filters} updateFilter={updateFilter} filterOptions={filterOptions}
         groupBy={groupBy} setGroupBy={setGroupBy} viewMode={viewMode}
         momentumFilter={momentumFilter} onMomentumChange={setMomentumFilter}
+        fatigueFilter={fatigueFilter} onFatigueChange={setFatigueFilter}
       />
 
       {isLoading ? (
@@ -326,11 +345,12 @@ const CreativesPage = () => {
           compareIds={compareIds}
           wowTrends={wowTrends}
           gradeMap={gradeMap}
+          fatigueMap={fatigueMap}
         />
       )}
 
       <CreativesPagination page={page} totalPages={totalPages} totalItems={totalCreatives} pageSize={CREATIVES_PAGE_SIZE} onPageChange={setPage} />
-      <CreativeDetailModal creative={creatives.find((c: any) => c.ad_id === selectedCreativeId) || null} open={!!selectedCreativeId} onClose={() => setSelectedCreativeId(null)} wowTrends={wowTrends} gradeMap={gradeMap} />
+      <CreativeDetailModal creative={creatives.find((c: any) => c.ad_id === selectedCreativeId) || null} open={!!selectedCreativeId} onClose={() => setSelectedCreativeId(null)} wowTrends={wowTrends} gradeMap={gradeMap} fatigueMap={fatigueMap} />
     </AppLayout>
   );
 };

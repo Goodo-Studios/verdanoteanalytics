@@ -9,6 +9,7 @@ import { RoasTrendArrow } from "./RoasTrendArrow";
 import { GradeBadge } from "./GradeBadge";
 import type { WoWTrend } from "@/hooks/useWoWTrends";
 import type { GradeInfo } from "@/lib/creativeGrading";
+import type { FatigueResult } from "@/lib/fatigueScore";
 
 interface CreativesCardGridProps {
   creatives: any[];
@@ -17,6 +18,7 @@ interface CreativesCardGridProps {
   compareIds?: Set<string>;
   wowTrends?: Map<string, WoWTrend>;
   gradeMap?: Map<string, GradeInfo>;
+  fatigueMap?: Map<string, FatigueResult>;
 }
 
 function CardThumbnail({ src, alt }: { src: string; alt: string }) {
@@ -48,7 +50,7 @@ function roasColor(roas: number | null | undefined): string {
   return "text-charcoal";
 }
 
-export function CreativesCardGrid({ creatives, onSelect, compareMode = false, compareIds = new Set(), wowTrends, gradeMap }: CreativesCardGridProps) {
+export function CreativesCardGrid({ creatives, onSelect, compareMode = false, compareIds = new Set(), wowTrends, gradeMap, fatigueMap }: CreativesCardGridProps) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {creatives.map((c: any) => {
@@ -106,7 +108,7 @@ export function CreativesCardGrid({ creatives, onSelect, compareMode = false, co
             </div>
 
             {/* Metrics row */}
-            <div className="border-t border-border-light grid grid-cols-3 gap-1 text-center py-2 px-3">
+            <div className="border-t border-border-light grid grid-cols-3 gap-1 text-center py-2 px-3 relative">
               <div>
                 <div className="font-label text-[9px] uppercase tracking-[0.06em] text-sage font-medium">ROAS</div>
                 <div className={`font-data text-[14px] font-semibold tabular-nums ${roasColor(c.roas)} flex items-center justify-center gap-0.5`}>
@@ -122,6 +124,17 @@ export function CreativesCardGrid({ creatives, onSelect, compareMode = false, co
                 <div className="font-label text-[9px] uppercase tracking-[0.06em] text-sage font-medium">Spend</div>
                 <div className="font-data text-[14px] font-semibold text-charcoal tabular-nums">{fmt(c.spend, "$")}</div>
               </div>
+              {/* Fatigue badge */}
+              {fatigueMap?.get(c.ad_id)?.level === "high" && (
+                <div className="absolute bottom-1.5 right-2">
+                  <span className="font-label text-[9px] font-semibold text-red-600">🔥 High Fatigue</span>
+                </div>
+              )}
+              {fatigueMap?.get(c.ad_id)?.level === "warning" && (
+                <div className="absolute bottom-1.5 right-2">
+                  <span className="font-label text-[9px] font-semibold text-amber-600">⚠️ Fatiguing</span>
+                </div>
+              )}
             </div>
           </div>
         );
