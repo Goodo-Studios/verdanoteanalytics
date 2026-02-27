@@ -12,13 +12,16 @@ import { CreativeTagEditor } from "@/components/creative-detail/CreativeTagEdito
 import { CreativeIterationAnalysis } from "@/components/creative-detail/CreativeIterationAnalysis";
 import { CreativeNotes } from "@/components/creative-detail/CreativeNotes";
 import { TrendSection } from "@/components/creative-detail/TrendSection";
+import { GradeBadge } from "@/components/creatives/GradeBadge";
 import type { WoWTrend } from "@/hooks/useWoWTrends";
+import type { GradeInfo } from "@/lib/creativeGrading";
 
 interface CreativeDetailModalProps {
   creative: any;
   open: boolean;
   onClose: () => void;
   wowTrends?: Map<string, WoWTrend>;
+  gradeMap?: Map<string, GradeInfo>;
 }
 
 function MetaPreviewEmbed({ url, fallbackUrl }: { url: string; fallbackUrl?: string | null }) {
@@ -184,7 +187,7 @@ function MediaPreview({ creative }: { creative: any }) {
   );
 }
 
-export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModalProps>(function CreativeDetailModal({ creative, open, onClose, wowTrends }, ref) {
+export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModalProps>(function CreativeDetailModal({ creative, open, onClose, wowTrends, gradeMap }, ref) {
   if (!creative) return null;
 
   return (
@@ -206,6 +209,14 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
         <MediaPreview creative={creative} />
 
         <CreativeMetrics creative={creative} />
+        {gradeMap?.get(creative.ad_id) && (
+          <div className="flex items-center gap-2 px-1">
+            <GradeBadge grade={gradeMap.get(creative.ad_id)!.grade} />
+            <span className="font-body text-[12px] text-slate">
+              This creative ranks in the top {100 - gradeMap.get(creative.ad_id)!.roasPercentile}% for ROAS in this account.
+            </span>
+          </div>
+        )}
         <TrendSection trend={wowTrends?.get(creative.ad_id)} />
 
         {/* Context */}

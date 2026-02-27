@@ -6,7 +6,9 @@ import { fmt } from "./constants";
 import { cn } from "@/lib/utils";
 import { useCachedMedia } from "@/hooks/useCachedMedia";
 import { RoasTrendArrow } from "./RoasTrendArrow";
+import { GradeBadge } from "./GradeBadge";
 import type { WoWTrend } from "@/hooks/useWoWTrends";
+import type { GradeInfo } from "@/lib/creativeGrading";
 
 interface CreativesCardGridProps {
   creatives: any[];
@@ -14,6 +16,7 @@ interface CreativesCardGridProps {
   compareMode?: boolean;
   compareIds?: Set<string>;
   wowTrends?: Map<string, WoWTrend>;
+  gradeMap?: Map<string, GradeInfo>;
 }
 
 function CardThumbnail({ src, alt }: { src: string; alt: string }) {
@@ -45,7 +48,7 @@ function roasColor(roas: number | null | undefined): string {
   return "text-charcoal";
 }
 
-export function CreativesCardGrid({ creatives, onSelect, compareMode = false, compareIds = new Set(), wowTrends }: CreativesCardGridProps) {
+export function CreativesCardGrid({ creatives, onSelect, compareMode = false, compareIds = new Set(), wowTrends, gradeMap }: CreativesCardGridProps) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {creatives.map((c: any) => {
@@ -84,6 +87,11 @@ export function CreativesCardGrid({ creatives, onSelect, compareMode = false, co
                 <div className="absolute top-1.5 left-1.5 bg-charcoal/80 rounded-[3px] px-1.5 py-0.5 flex items-center gap-0.5">
                   <Video className="h-3 w-3 text-white" />
                   <span className="font-label text-[9px] font-semibold uppercase tracking-wide text-white">Video</span>
+                </div>
+              )}
+              {gradeMap?.get(c.ad_id) && (
+                <div className="absolute top-1.5 right-1.5">
+                  <GradeBadge grade={gradeMap.get(c.ad_id)!.grade} />
                 </div>
               )}
             </div>

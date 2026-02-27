@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { GradeBadge } from "./GradeBadge";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -12,6 +13,7 @@ import { useCachedMedia } from "@/hooks/useCachedMedia";
 import { cn } from "@/lib/utils";
 import { RoasTrendArrow } from "./RoasTrendArrow";
 import type { WoWTrend } from "@/hooks/useWoWTrends";
+import type { GradeInfo } from "@/lib/creativeGrading";
 
 interface CreativesTableProps {
   creatives: any[];
@@ -24,6 +26,7 @@ interface CreativesTableProps {
   compareMode?: boolean;
   compareIds?: Set<string>;
   wowTrends?: Map<string, WoWTrend>;
+  gradeMap?: Map<string, GradeInfo>;
 }
 
 const TAG_SELECT_FIELDS: Record<string, "ad_type" | "person" | "style" | "hook"> = {
@@ -55,9 +58,13 @@ function CreativeCell({ c }: { c: any }) {
   );
 }
 
-function renderCell(c: any, key: string, wowTrends?: Map<string, WoWTrend>) {
+function renderCell(c: any, key: string, wowTrends?: Map<string, WoWTrend>, gradeMap?: Map<string, GradeInfo>) {
   // Special cells
   if (key === "creative") return <TableCell key={key}><CreativeCell c={c} /></TableCell>;
+  if (key === "grade") {
+    const gi = gradeMap?.get(c.ad_id);
+    return <TableCell key={key} className="text-center">{gi ? <GradeBadge grade={gi.grade} /> : <span className="text-muted-foreground text-xs">—</span>}</TableCell>;
+  }
   if (key === "tags") return <TableCell key={key}><TagSourceBadge source={c.tag_source} /></TableCell>;
   if (key in TAG_SELECT_FIELDS) {
     const field = TAG_SELECT_FIELDS[key];
@@ -87,7 +94,7 @@ function renderCell(c: any, key: string, wowTrends?: Map<string, WoWTrend>) {
 
 export function CreativesTable({
   creatives, visibleCols, columnOrder, sort, onSort, onReorder, onSelect,
-  compareMode = false, compareIds = new Set(), wowTrends,
+  compareMode = false, compareIds = new Set(), wowTrends, gradeMap,
 }: CreativesTableProps) {
   const [dragSourceKey, setDragSourceKey] = useState<string | null>(null);
   const [dragTargetKey, setDragTargetKey] = useState<string | null>(null);
@@ -160,7 +167,7 @@ export function CreativesTable({
                     />
                   </TableCell>
                 )}
-                {columnOrder.filter(k => visibleCols.has(k)).map(key => renderCell(c, key, wowTrends))}
+                {columnOrder.filter(k => visibleCols.has(k)).map(key => renderCell(c, key, wowTrends, gradeMap))}
               </TableRow>
             );
           })}

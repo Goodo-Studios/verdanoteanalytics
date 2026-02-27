@@ -28,6 +28,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { SyncStatusBanner } from "@/components/SyncStatusBanner";
 import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
 import { useWoWTrends } from "@/hooks/useWoWTrends";
+import { gradeCreatives, gradeOrder } from "@/lib/creativeGrading";
+import type { GradeInfo } from "@/lib/creativeGrading";
 
 const CreativesPage = () => {
   const { isClient } = useAuth();
@@ -83,6 +85,11 @@ const CreativesPage = () => {
   const syncMut = useSync();
   const isSyncing = useIsSyncing();
 
+  // Compute grades from current page data
+  const selectedAccountData = (creativesResult as any)?.accountSettings;
+  const killThreshold = selectedAccountData?.kill_threshold ?? 1.0;
+  const gradeMap = useMemo(() => gradeCreatives(creatives, killThreshold), [creatives, killThreshold]);
+
   const avgMetrics = useMemo(() => {
     if (creatives.length === 0) return { roas: "—", cpa: "—", totalSpend: "—" };
     const withSpend = creatives.filter((c: any) => c.spend > 0);
@@ -114,6 +121,16 @@ const CreativesPage = () => {
     if (!sort.key || !sort.direction) return list;
     const field = SORT_FIELD_MAP[sort.key] || sort.key;
     const dir = sort.direction === "asc" ? 1 : -1;
+
+    // Special handling for grade sort
+    if (sort.key === "grade") {
+      return list.sort((a: any, b: any) => {
+        const ga = gradeMap.get(a.ad_id);
+        const gb = gradeMap.get(b.ad_id);
+        return (gradeOrder(ga?.grade ?? "F") - gradeOrder(gb?.grade ?? "F")) * dir;
+      });
+    }
+
     return list.sort((a: any, b: any) => {
       const va = a[field], vb = b[field];
       if (va == null && vb == null) return 0;
@@ -122,7 +139,7 @@ const CreativesPage = () => {
       if (typeof va === "number" || !isNaN(Number(va))) return (Number(va) - Number(vb)) * dir;
       return String(va).localeCompare(String(vb)) * dir;
     });
-  }, [creatives, sort, momentumFilter, wowTrends]);
+  }, [creatives, sort, momentumFilter, wowTrends, gradeMap]);
 
   const groupedData = useMemo(() => {
     if (groupBy === "__none__" || !sortedCreatives?.length) return null;
@@ -245,7 +262,7 @@ const CreativesPage = () => {
           <p className="font-body text-[14px] text-slate max-w-md">Add a Meta ad account in the Accounts tab and sync to pull in your creatives.</p>
         </div>
       ) : conceptView ? (
-        <ConceptsGrid creatives={sortedCreatives} />
+        <ConceptsGrid creatives={sortedCreatives} gradeMap={gradeMap} />
       ) : groupBy !== "__none__" && groupedData ? (
         <CreativesGroupTable groupBy={groupBy} data={groupedData} />
       ) : viewMode === "table" ? (
@@ -256,6 +273,7 @@ const CreativesPage = () => {
           compareMode={compareMode}
           compareIds={compareIds}
           wowTrends={wowTrends}
+          gradeMap={gradeMap}
         />
       ) : (
         <CreativesCardGrid
@@ -264,11 +282,12 @@ const CreativesPage = () => {
           compareMode={compareMode}
           compareIds={compareIds}
           wowTrends={wowTrends}
+          gradeMap={gradeMap}
         />
       )}
 
       <CreativesPagination page={page} totalPages={totalPages} totalItems={totalCreatives} pageSize={CREATIVES_PAGE_SIZE} onPageChange={setPage} />
-      <CreativeDetailModal creative={creatives.find((c: any) => c.ad_id === selectedCreativeId) || null} open={!!selectedCreativeId} onClose={() => setSelectedCreativeId(null)} wowTrends={wowTrends} />
+      <CreativeDetailModal creative={creatives.find((c: any) => c.ad_id === selectedCreativeId) || null} open={!!selectedCreativeId} onClose={() => setSelectedCreativeId(null)} wowTrends={wowTrends} gradeMap={gradeMap} />
     </AppLayout>
   );
 };
