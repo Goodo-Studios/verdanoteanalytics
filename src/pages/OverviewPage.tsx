@@ -8,27 +8,29 @@ import { useOverviewPageState } from "@/hooks/useOverviewPageState";
 import { useSync } from "@/hooks/useSyncApi";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWoWTrends } from "@/hooks/useWoWTrends";
-import { useDashboardLayout, type DashboardSection } from "@/hooks/useDashboardLayout";
+import { useDashboardLayout, type DashboardSection, type SectionSize } from "@/hooks/useDashboardLayout";
+import { EditableSectionWrapper } from "@/components/overview/EditableSectionWrapper";
+import { AddSectionPanel } from "@/components/overview/AddSectionPanel";
+import { TopCreativesSection } from "@/components/overview/TopCreativesSection";
+import { TrendChartSection } from "@/components/overview/TrendChartSection";
+import { RecentTestsSection } from "@/components/overview/RecentTestsSection";
+import { TagPerformanceSection } from "@/components/overview/TagPerformanceSection";
+import { QuickActionsSection } from "@/components/overview/QuickActionsSection";
 import { useNavigate } from "react-router-dom";
 import {
-  TrendingUp, Eye, EyeOff, XCircle, ArrowRight, RefreshCw,
-  Pencil, GripVertical, ChevronUp, ChevronDown, RotateCcw, Check,
+  TrendingUp, Eye, XCircle, ArrowRight, RefreshCw,
+  Pencil, RotateCcw, Check, Plus,
 } from "lucide-react";
 import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
 import { DIAGNOSTIC_META } from "@/lib/iterationDiagnostics";
 import { cn } from "@/lib/utils";
-import { ReactNode } from "react";
 
 function fmt$(n: number) {
   if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`;
   return `$${n.toFixed(2)}`;
 }
-function fmtN(n: number) {
-  return n.toLocaleString();
-}
-function fmtPct(n: number) {
-  return `${n.toFixed(1)}%`;
-}
+function fmtN(n: number) { return n.toLocaleString(); }
+function fmtPct(n: number) { return `${n.toFixed(1)}%`; }
 function delta(cur: number, prev: number | undefined): { value: number; positive: boolean } | undefined {
   if (prev == null || prev === 0) return undefined;
   const pct = ((cur - prev) / Math.abs(prev)) * 100;
@@ -40,81 +42,15 @@ function deltaInverse(cur: number, prev: number | undefined): { value: number; p
   return { ...d, positive: !d.positive };
 }
 
-// ── Edit mode section wrapper ──────────────────────
-function EditableSectionWrapper({
-  section,
-  index,
-  total,
-  editing,
-  onToggle,
-  onMove,
-  children,
-}: {
-  section: DashboardSection;
-  index: number;
-  total: number;
-  editing: boolean;
-  onToggle: (id: string) => void;
-  onMove: (id: string, dir: "up" | "down") => void;
-  children: ReactNode;
-}) {
-  if (!editing) return <>{children}</>;
-
-  return (
-    <div className={cn(
-      "relative rounded-lg border-2 border-dashed transition-all",
-      section.visible
-        ? "border-verdant/40 bg-verdant/[0.02]"
-        : "border-border-light bg-muted/30 opacity-60",
-    )}>
-      {/* Edit toolbar */}
-      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-muted/50 rounded-t-lg border-b border-border-light">
-        <GripVertical className="h-3.5 w-3.5 text-muted-foreground cursor-grab" />
-        <span className="font-label text-[11px] uppercase tracking-wider text-muted-foreground font-semibold flex-1">
-          {section.label}
-        </span>
-        <div className="flex items-center gap-0.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={() => onMove(section.id, "up")}
-            disabled={index === 0}
-          >
-            <ChevronUp className="h-3 w-3" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={() => onMove(section.id, "down")}
-            disabled={index === total - 1}
-          >
-            <ChevronDown className="h-3 w-3" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn("h-6 w-6", !section.visible && "text-muted-foreground")}
-            onClick={() => onToggle(section.id)}
-          >
-            {section.visible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
-          </Button>
-        </div>
-      </div>
-      {section.visible && <div className="p-0">{children}</div>}
-      {!section.visible && (
-        <div className="py-6 text-center">
-          <p className="font-body text-[12px] text-muted-foreground">
-            {section.label} — hidden
-          </p>
-        </div>
-      )}
-    </div>
-  );
+/** Map section size to grid column span class */
+function sizeClass(size: SectionSize) {
+  switch (size) {
+    case "sm": return "md:col-span-3";
+    case "md": return "md:col-span-6";
+    case "lg": return "md:col-span-12";
+  }
 }
 
-// ── Main Page ──────────────────────
 const OverviewPage = () => {
   const navigate = useNavigate();
   const sync = useSync();
@@ -133,8 +69,8 @@ const OverviewPage = () => {
   } = useOverviewPageState();
 
   const {
-    sections, editing, setEditing,
-    toggleVisibility, moveSection, resetLayout, visibleSections,
+    sections, editing, setEditing, addPanelOpen, setAddPanelOpen,
+    toggleVisibility, moveSection, resizeSection, addSection, removeSection, resetLayout, visibleSections, availableSections,
   } = useDashboardLayout();
 
   const isSingleAccount = selectedAccountId && selectedAccountId !== "all";
@@ -147,13 +83,10 @@ const OverviewPage = () => {
     `${fmtN(creatives.length)} creatives`,
   ].filter(Boolean).join(" · ");
 
-  // Section content renderer
   const renderSection = (sectionId: string) => {
     switch (sectionId) {
       case "metrics":
-        return isLoading ? (
-          <MetricCardSkeletonRow />
-        ) : (
+        return isLoading ? <MetricCardSkeletonRow /> : (
           <div className="grid grid-cols-2 gap-px bg-border-light sm:grid-cols-3 md:flex md:items-stretch md:divide-x md:divide-border-light md:gap-0 md:bg-transparent">
             <MetricCard label="Total Spend" value={fmt$(metrics.totalSpend)} trend={hasPrevPeriod ? delta(metrics.totalSpend, prevMetrics?.totalSpend) : undefined} className="bg-background flex-1" />
             <MetricCard label="Active Creatives" value={fmtN(metrics.activeCount)} trend={hasPrevPeriod ? delta(metrics.activeCount, prevMetrics?.activeCount) : undefined} className="bg-background flex-1" />
@@ -163,67 +96,29 @@ const OverviewPage = () => {
             <MetricCard label="Blended CTR" value={fmtPct(metrics.avgCtr)} trend={hasPrevPeriod ? delta(metrics.avgCtr, prevMetrics?.avgCtr) : undefined} className="bg-background flex-1" />
           </div>
         );
-
       case "goals":
-        return !isLoading && selectedAccount ? (
-          <GoalsBar account={selectedAccount} metrics={metrics} />
-        ) : null;
-
+        return !isLoading && selectedAccount ? <GoalsBar account={selectedAccount} metrics={metrics} /> : null;
       case "insights":
         return !isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white border border-border-light rounded-[8px] p-5">
               <h2 className="font-heading text-[18px] text-forest mb-4">Top Performer</h2>
-              {topPerformer ? (
-                <CreativeInsightCard creative={topPerformer} variant="top" spendThreshold={spendThreshold} />
-              ) : (
-                <p className="font-body text-[13px] text-sage">No qualifying creatives found.</p>
-              )}
+              {topPerformer ? <CreativeInsightCard creative={topPerformer} variant="top" spendThreshold={spendThreshold} /> : <p className="font-body text-[13px] text-sage">No qualifying creatives found.</p>}
             </div>
             <div className="bg-white border border-border-light rounded-[8px] p-5">
               <h2 className="font-heading text-[18px] text-forest mb-4">Biggest Concern</h2>
-              {biggestConcern ? (
-                <CreativeInsightCard creative={biggestConcern} variant="concern" spendThreshold={spendThreshold} />
-              ) : (
-                <p className="font-body text-[13px] text-sage">No underperforming creatives — all ROAS ≥ 1.0.</p>
-              )}
+              {biggestConcern ? <CreativeInsightCard creative={biggestConcern} variant="concern" spendThreshold={spendThreshold} /> : <p className="font-body text-[13px] text-sage">No underperforming creatives — all ROAS ≥ 1.0.</p>}
             </div>
           </div>
         ) : null;
-
       case "killscale":
         return !isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <ActionCard
-              icon={<TrendingUp className="h-5 w-5 text-verdant" />}
-              count={scale.length}
-              countColor="text-verdant"
-              label="SCALE CANDIDATES"
-              subtitle={`ROAS ≥ ${killScaleConfig.scaleAt} · Increase spend`}
-              bgTint="bg-sage-light/30"
-              onClick={() => navigate("/analytics?tab=scale")}
-            />
-            <ActionCard
-              icon={<Eye className="h-5 w-5 text-gold" />}
-              count={watch.length}
-              countColor="text-gold"
-              label="WATCH"
-              subtitle="Between thresholds · Monitor closely"
-              bgTint="bg-gold-light/30"
-              onClick={() => navigate("/analytics?tab=winrate")}
-            />
-            <ActionCard
-              icon={<XCircle className="h-5 w-5 text-red-700" />}
-              count={kill.length}
-              countColor="text-red-700"
-              label="KILL CANDIDATES"
-              subtitle={`ROAS < ${killScaleConfig.killAt} · Turn off`}
-              bgTint="bg-red-50/30"
-              onClick={() => navigate("/analytics?tab=kill")}
-            />
+            <ActionCard icon={<TrendingUp className="h-5 w-5 text-verdant" />} count={scale.length} countColor="text-verdant" label="SCALE CANDIDATES" subtitle={`ROAS ≥ ${killScaleConfig.scaleAt} · Increase spend`} bgTint="bg-sage-light/30" onClick={() => navigate("/analytics?tab=scale")} />
+            <ActionCard icon={<Eye className="h-5 w-5 text-gold" />} count={watch.length} countColor="text-gold" label="WATCH" subtitle="Between thresholds · Monitor closely" bgTint="bg-gold-light/30" onClick={() => navigate("/analytics?tab=winrate")} />
+            <ActionCard icon={<XCircle className="h-5 w-5 text-destructive" />} count={kill.length} countColor="text-destructive" label="KILL CANDIDATES" subtitle={`ROAS < ${killScaleConfig.killAt} · Turn off`} bgTint="bg-destructive/5" onClick={() => navigate("/analytics?tab=kill")} />
           </div>
         ) : null;
-
       case "activity":
         return !isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -247,63 +142,53 @@ const OverviewPage = () => {
                       </div>
                     );
                   })}
-                  <button
-                    onClick={() => navigate("/analytics?tab=iterations")}
-                    className="font-body text-[13px] font-medium text-verdant hover:underline flex items-center gap-1 mt-1"
-                  >
+                  <button onClick={() => navigate("/analytics?tab=iterations")} className="font-body text-[13px] font-medium text-verdant hover:underline flex items-center gap-1 mt-1">
                     View all <ArrowRight className="h-3 w-3" />
                   </button>
                 </div>
               )}
             </div>
-
             <div className="bg-white border border-border-light rounded-[8px] p-5">
               <h2 className="font-heading text-[18px] text-forest mb-4">Tagging Progress</h2>
               <div className="space-y-3">
                 <div className="h-2 rounded-full bg-cream-dark overflow-hidden">
-                  <div
-                    className="h-full bg-verdant rounded-full transition-progress"
-                    style={{ width: `${taggingProgress.pct}%` }}
-                  />
+                  <div className="h-full bg-verdant rounded-full transition-progress" style={{ width: `${taggingProgress.pct}%` }} />
                 </div>
-                <p className="font-data text-[13px] text-charcoal tabular-nums">
-                  {fmtN(taggingProgress.tagged)} tagged · {fmtN(taggingProgress.untagged)} untagged
-                </p>
-                <button
-                  onClick={() => navigate("/tagging")}
-                  className="font-body text-[13px] font-medium text-verdant hover:underline flex items-center gap-1"
-                >
+                <p className="font-data text-[13px] text-charcoal tabular-nums">{fmtN(taggingProgress.tagged)} tagged · {fmtN(taggingProgress.untagged)} untagged</p>
+                <button onClick={() => navigate("/tagging")} className="font-body text-[13px] font-medium text-verdant hover:underline flex items-center gap-1">
                   Start tagging <ArrowRight className="h-3 w-3" />
                 </button>
               </div>
             </div>
           </div>
         ) : null;
-
+      case "topCreatives":
+        return !isLoading ? <TopCreativesSection creatives={creatives} /> : null;
+      case "trendChart":
+        return <TrendChartSection accountId={isSingleAccount ? selectedAccountId : undefined} />;
+      case "recentTests":
+        return <RecentTestsSection accountId={isSingleAccount ? selectedAccountId : undefined} />;
+      case "tagPerformance":
+        return !isLoading ? <TagPerformanceSection creatives={creatives} /> : null;
+      case "quickActions":
+        return <QuickActionsSection accountId={isSingleAccount ? selectedAccountId : undefined} />;
       default:
         return null;
     }
   };
 
-  // Determine which sections to iterate over
   const displaySections = editing ? sections : visibleSections;
 
   return (
     <AppLayout>
       <div className="space-y-8">
-        {/* Header — always shown, not reorderable */}
+        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
               <h1 className="font-heading text-[24px] sm:text-[32px] text-forest">{accountName}</h1>
               {canEdit && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn("h-7 w-7", editing && "bg-verdant/10 text-verdant")}
-                  onClick={() => setEditing(!editing)}
-                  title={editing ? "Done editing" : "Edit dashboard layout"}
-                >
+                <Button variant="ghost" size="icon" className={cn("h-7 w-7", editing && "bg-verdant/10 text-verdant")} onClick={() => setEditing(!editing)} title={editing ? "Done editing" : "Edit dashboard layout"}>
                   {editing ? <Check className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
                 </Button>
               )}
@@ -312,22 +197,11 @@ const OverviewPage = () => {
           </div>
           <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
             {showHealthScore && (
-              <AccountHealthScore
-                creatives={creatives}
-                metrics={metrics}
-                targetRoas={selectedAccount?.target_roas}
-                scaleThreshold={killScaleConfig.scaleAt}
-                wowTrends={wowTrends}
-              />
+              <AccountHealthScore creatives={creatives} metrics={metrics} targetRoas={selectedAccount?.target_roas} scaleThreshold={killScaleConfig.scaleAt} wowTrends={wowTrends} />
             )}
             <div className="flex items-center gap-2">
               <DateRangeFilter dateFrom={dateFrom} dateTo={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
-              <Button
-                size="sm"
-                className="bg-verdant hover:bg-verdant/90 text-white font-body text-[13px] font-medium"
-                onClick={() => sync.mutate({ account_id: selectedAccountId && selectedAccountId !== "all" ? selectedAccountId : undefined })}
-                disabled={sync.isPending}
-              >
+              <Button size="sm" className="bg-verdant hover:bg-verdant/90 text-white font-body text-[13px] font-medium" onClick={() => sync.mutate({ account_id: selectedAccountId && selectedAccountId !== "all" ? selectedAccountId : undefined })} disabled={sync.isPending}>
                 <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", sync.isPending && "animate-spin")} />
                 Sync
               </Button>
@@ -340,45 +214,47 @@ const OverviewPage = () => {
           <div className="flex items-center gap-3 p-3 rounded-card border border-verdant/30 bg-verdant/5">
             <Pencil className="h-4 w-4 text-verdant shrink-0" />
             <p className="font-body text-[13px] text-foreground flex-1">
-              Drag sections to reorder. Toggle visibility with the eye icon.
+              Reorder, resize (¼ / ½ / full), hide/show, or add new sections.
             </p>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 text-[11px] text-muted-foreground hover:text-foreground gap-1"
-              onClick={resetLayout}
-            >
+            <Button variant="outline" size="sm" className="h-7 text-[11px] gap-1" onClick={() => setAddPanelOpen(!addPanelOpen)}>
+              <Plus className="h-3 w-3" />Add Section
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7 text-[11px] text-muted-foreground hover:text-foreground gap-1" onClick={resetLayout}>
               <RotateCcw className="h-3 w-3" />Reset
             </Button>
-            <Button
-              size="sm"
-              className="h-7 bg-verdant text-white hover:bg-verdant/90 text-[11px]"
-              onClick={() => setEditing(false)}
-            >
+            <Button size="sm" className="h-7 bg-verdant text-white hover:bg-verdant/90 text-[11px]" onClick={() => setEditing(false)}>
               <Check className="h-3 w-3 mr-1" />Done
             </Button>
           </div>
         )}
 
-        {/* Sections */}
-        {displaySections.map((section, index) => {
-          const content = renderSection(section.id);
-          if (!content && !editing) return null;
+        {/* Add Section Panel */}
+        {editing && <AddSectionPanel sections={availableSections} onAdd={addSection} open={addPanelOpen} onClose={() => setAddPanelOpen(false)} />}
 
-          return (
-            <EditableSectionWrapper
-              key={section.id}
-              section={section}
-              index={index}
-              total={displaySections.length}
-              editing={editing}
-              onToggle={toggleVisibility}
-              onMove={moveSection}
-            >
-              {content}
-            </EditableSectionWrapper>
-          );
-        })}
+        {/* Sections with 12-col grid for sizing */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+          {displaySections.map((section, index) => {
+            const content = renderSection(section.id);
+            if (!content && !editing) return null;
+
+            return (
+              <div key={section.id} className={sizeClass(section.size)}>
+                <EditableSectionWrapper
+                  section={section}
+                  index={index}
+                  total={displaySections.length}
+                  editing={editing}
+                  onToggle={toggleVisibility}
+                  onMove={moveSection}
+                  onResize={resizeSection}
+                  onRemove={removeSection}
+                >
+                  {content}
+                </EditableSectionWrapper>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </AppLayout>
   );
@@ -391,50 +267,32 @@ function CreativeInsightCard({ creative, variant, spendThreshold }: { creative: 
   const cpa = Number(creative.cpa) || 0;
   const ctr = Number(creative.ctr) || 0;
   const spend = Number(creative.spend) || 0;
-
-  const roasColor = variant === "top" ? "text-verdant" : "text-red-700";
-
+  const roasColor = variant === "top" ? "text-verdant" : "text-destructive";
   const tags = [creative.ad_type, creative.hook, creative.person].filter(Boolean);
   const estimatedLoss = variant === "concern" && roas < 1 ? spend * (1 - roas) : 0;
 
   return (
     <div className="flex gap-4">
-      {creative.thumbnail_url && (
-        <img
-          src={creative.thumbnail_url}
-          alt=""
-          className="h-20 w-20 rounded-[4px] object-cover flex-shrink-0"
-        />
-      )}
+      {creative.thumbnail_url && <img src={creative.thumbnail_url} alt="" className="h-20 w-20 rounded-[4px] object-cover flex-shrink-0" />}
       <div className="min-w-0 flex-1 space-y-2">
         <p className="font-body text-[14px] font-semibold text-charcoal truncate">{creative.ad_name}</p>
-
         <div className="flex items-center gap-4">
           <MiniMetric label="ROAS" value={`${roas.toFixed(2)}x`} valueClass={roasColor} />
           <MiniMetric label="CTR" value={`${ctr.toFixed(2)}%`} />
           <MiniMetric label="CPA" value={fmt$(cpa)} />
           <MiniMetric label="Spend" value={fmt$(spend)} />
         </div>
-
         {tags.length > 0 && (
           <div className="flex flex-wrap gap-1">
-            {tags.map((tag) => (
-              <span key={tag} className="font-label text-[9px] font-medium uppercase tracking-wide bg-sage-light text-forest px-1.5 py-0.5 rounded-[3px]">{tag}</span>
-            ))}
+            {tags.map((tag) => <span key={tag} className="font-label text-[9px] font-medium uppercase tracking-wide bg-sage-light text-forest px-1.5 py-0.5 rounded-[3px]">{tag}</span>)}
           </div>
         )}
-
-        {creative.notes && (
-          <p className="font-body text-[12px] text-slate italic truncate">{creative.notes}</p>
-        )}
-
+        {creative.notes && <p className="font-body text-[12px] text-slate italic truncate">{creative.notes}</p>}
         {variant === "concern" && estimatedLoss > 0 && (
-          <div className="space-y-0.5">
-            <p className="font-body text-[12px] text-slate">
-              Spending {fmt$(spend)} at {roas.toFixed(1)}x ROAS — losing approximately{" "}
-              <span className="font-data text-[14px] font-semibold text-red-700">{fmt$(estimatedLoss)}</span>
-            </p>
-          </div>
+          <p className="font-body text-[12px] text-slate">
+            Spending {fmt$(spend)} at {roas.toFixed(1)}x ROAS — losing approximately{" "}
+            <span className="font-data text-[14px] font-semibold text-destructive">{fmt$(estimatedLoss)}</span>
+          </p>
         )}
       </div>
     </div>
@@ -451,22 +309,10 @@ function MiniMetric({ label, value, valueClass }: { label: string; value: string
 }
 
 function ActionCard({ icon, count, countColor, label, subtitle, bgTint, onClick }: {
-  icon: React.ReactNode;
-  count: number;
-  countColor: string;
-  label: string;
-  subtitle: string;
-  bgTint: string;
-  onClick: () => void;
+  icon: React.ReactNode; count: number; countColor: string; label: string; subtitle: string; bgTint: string; onClick: () => void;
 }) {
   return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "border border-border-light rounded-[8px] p-5 text-left transition-hover hover:shadow-card-hover cursor-pointer",
-        bgTint
-      )}
-    >
+    <button onClick={onClick} className={cn("border border-border-light rounded-[8px] p-5 text-left transition-hover hover:shadow-card-hover cursor-pointer", bgTint)}>
       <div className="flex items-center gap-3 mb-2">
         {icon}
         <span className={cn("font-data text-[28px] font-semibold tabular-nums", countColor)}>{count}</span>
