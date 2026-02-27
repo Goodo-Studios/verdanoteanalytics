@@ -8,11 +8,16 @@ import { useOverviewPageState } from "@/hooks/useOverviewPageState";
 import { useSync } from "@/hooks/useSyncApi";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWoWTrends } from "@/hooks/useWoWTrends";
+import { useDashboardLayout, type DashboardSection } from "@/hooks/useDashboardLayout";
 import { useNavigate } from "react-router-dom";
-import { TrendingUp, Eye, XCircle, ArrowRight, RefreshCw } from "lucide-react";
+import {
+  TrendingUp, Eye, EyeOff, XCircle, ArrowRight, RefreshCw,
+  Pencil, GripVertical, ChevronUp, ChevronDown, RotateCcw, Check,
+} from "lucide-react";
 import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
 import { DIAGNOSTIC_META } from "@/lib/iterationDiagnostics";
 import { cn } from "@/lib/utils";
+import { ReactNode } from "react";
 
 function fmt$(n: number) {
   if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`;
@@ -32,13 +37,89 @@ function delta(cur: number, prev: number | undefined): { value: number; positive
 function deltaInverse(cur: number, prev: number | undefined): { value: number; positive: boolean } | undefined {
   const d = delta(cur, prev);
   if (!d) return undefined;
-  return { ...d, positive: !d.positive }; // lower CPA = positive
+  return { ...d, positive: !d.positive };
 }
 
+// ── Edit mode section wrapper ──────────────────────
+function EditableSectionWrapper({
+  section,
+  index,
+  total,
+  editing,
+  onToggle,
+  onMove,
+  children,
+}: {
+  section: DashboardSection;
+  index: number;
+  total: number;
+  editing: boolean;
+  onToggle: (id: string) => void;
+  onMove: (id: string, dir: "up" | "down") => void;
+  children: ReactNode;
+}) {
+  if (!editing) return <>{children}</>;
+
+  return (
+    <div className={cn(
+      "relative rounded-lg border-2 border-dashed transition-all",
+      section.visible
+        ? "border-verdant/40 bg-verdant/[0.02]"
+        : "border-border-light bg-muted/30 opacity-60",
+    )}>
+      {/* Edit toolbar */}
+      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-muted/50 rounded-t-lg border-b border-border-light">
+        <GripVertical className="h-3.5 w-3.5 text-muted-foreground cursor-grab" />
+        <span className="font-label text-[11px] uppercase tracking-wider text-muted-foreground font-semibold flex-1">
+          {section.label}
+        </span>
+        <div className="flex items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => onMove(section.id, "up")}
+            disabled={index === 0}
+          >
+            <ChevronUp className="h-3 w-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => onMove(section.id, "down")}
+            disabled={index === total - 1}
+          >
+            <ChevronDown className="h-3 w-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn("h-6 w-6", !section.visible && "text-muted-foreground")}
+            onClick={() => onToggle(section.id)}
+          >
+            {section.visible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+          </Button>
+        </div>
+      </div>
+      {section.visible && <div className="p-0">{children}</div>}
+      {!section.visible && (
+        <div className="py-6 text-center">
+          <p className="font-body text-[12px] text-muted-foreground">
+            {section.label} — hidden
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main Page ──────────────────────
 const OverviewPage = () => {
   const navigate = useNavigate();
   const sync = useSync();
   const { isBuilder, isEmployee } = useAuth();
+  const canEdit = isBuilder || isEmployee;
   const {
     accountName, lastSyncedAgo,
     dateFrom, dateTo, setDateFrom, setDateTo,
@@ -51,8 +132,13 @@ const OverviewPage = () => {
     spendThreshold,
   } = useOverviewPageState();
 
+  const {
+    sections, editing, setEditing,
+    toggleVisibility, moveSection, resetLayout, visibleSections,
+  } = useDashboardLayout();
+
   const isSingleAccount = selectedAccountId && selectedAccountId !== "all";
-  const showHealthScore = isSingleAccount && (isBuilder || isEmployee) && !isLoading && creatives.length > 0;
+  const showHealthScore = isSingleAccount && canEdit && !isLoading && creatives.length > 0;
   const { data: wowTrends } = useWoWTrends(isSingleAccount ? selectedAccountId : undefined);
 
   const subtitle = [
@@ -61,42 +147,11 @@ const OverviewPage = () => {
     `${fmtN(creatives.length)} creatives`,
   ].filter(Boolean).join(" · ");
 
-  return (
-    <AppLayout>
-      <div className="space-y-8">
-        {/* Section 1: Header */}
-        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-          <div>
-            <h1 className="font-heading text-[24px] sm:text-[32px] text-forest">{accountName}</h1>
-            <p className="font-body text-[12px] sm:text-[13px] text-slate font-light mt-1">{subtitle}</p>
-          </div>
-          <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
-            {showHealthScore && (
-              <AccountHealthScore
-                creatives={creatives}
-                metrics={metrics}
-                targetRoas={selectedAccount?.target_roas}
-                scaleThreshold={killScaleConfig.scaleAt}
-                wowTrends={wowTrends}
-              />
-            )}
-            <div className="flex items-center gap-2">
-              <DateRangeFilter dateFrom={dateFrom} dateTo={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
-              <Button
-                size="sm"
-                className="bg-verdant hover:bg-verdant/90 text-white font-body text-[13px] font-medium"
-                onClick={() => sync.mutate({ account_id: selectedAccountId && selectedAccountId !== "all" ? selectedAccountId : undefined })}
-                disabled={sync.isPending}
-              >
-                <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", sync.isPending && "animate-spin")} />
-                Sync
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        {/* Section 2: Metrics Row */}
-        {isLoading ? (
+  // Section content renderer
+  const renderSection = (sectionId: string) => {
+    switch (sectionId) {
+      case "metrics":
+        return isLoading ? (
           <MetricCardSkeletonRow />
         ) : (
           <div className="grid grid-cols-2 gap-px bg-border-light sm:grid-cols-3 md:flex md:items-stretch md:divide-x md:divide-border-light md:gap-0 md:bg-transparent">
@@ -107,17 +162,16 @@ const OverviewPage = () => {
             <MetricCard label="Win Rate" value={fmtPct(metrics.winRate)} className="bg-background flex-1" />
             <MetricCard label="Blended CTR" value={fmtPct(metrics.avgCtr)} trend={hasPrevPeriod ? delta(metrics.avgCtr, prevMetrics?.avgCtr) : undefined} className="bg-background flex-1" />
           </div>
-        )}
+        );
 
-        {/* Goals Bar */}
-        {!isLoading && selectedAccount && (
+      case "goals":
+        return !isLoading && selectedAccount ? (
           <GoalsBar account={selectedAccount} metrics={metrics} />
-        )}
+        ) : null;
 
-        {/* Section 3: Insight Cards */}
-        {!isLoading && (
+      case "insights":
+        return !isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Top Performer */}
             <div className="bg-white border border-border-light rounded-[8px] p-5">
               <h2 className="font-heading text-[18px] text-forest mb-4">Top Performer</h2>
               {topPerformer ? (
@@ -126,7 +180,6 @@ const OverviewPage = () => {
                 <p className="font-body text-[13px] text-sage">No qualifying creatives found.</p>
               )}
             </div>
-            {/* Biggest Concern */}
             <div className="bg-white border border-border-light rounded-[8px] p-5">
               <h2 className="font-heading text-[18px] text-forest mb-4">Biggest Concern</h2>
               {biggestConcern ? (
@@ -136,10 +189,10 @@ const OverviewPage = () => {
               )}
             </div>
           </div>
-        )}
+        ) : null;
 
-        {/* Section 4: Scale / Watch / Kill */}
-        {!isLoading && (
+      case "killscale":
+        return !isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <ActionCard
               icon={<TrendingUp className="h-5 w-5 text-verdant" />}
@@ -169,12 +222,11 @@ const OverviewPage = () => {
               onClick={() => navigate("/analytics?tab=kill")}
             />
           </div>
-        )}
+        ) : null;
 
-        {/* Section 5: Recent Activity */}
-        {!isLoading && (
+      case "activity":
+        return !isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Recent Iterations */}
             <div className="bg-white border border-border-light rounded-[8px] p-5">
               <h2 className="font-heading text-[18px] text-forest mb-4">Recent Iterations</h2>
               {recentDiagnostics.length === 0 ? (
@@ -205,7 +257,6 @@ const OverviewPage = () => {
               )}
             </div>
 
-            {/* Tagging Progress */}
             <div className="bg-white border border-border-light rounded-[8px] p-5">
               <h2 className="font-heading text-[18px] text-forest mb-4">Tagging Progress</h2>
               <div className="space-y-3">
@@ -227,7 +278,107 @@ const OverviewPage = () => {
               </div>
             </div>
           </div>
+        ) : null;
+
+      default:
+        return null;
+    }
+  };
+
+  // Determine which sections to iterate over
+  const displaySections = editing ? sections : visibleSections;
+
+  return (
+    <AppLayout>
+      <div className="space-y-8">
+        {/* Header — always shown, not reorderable */}
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="font-heading text-[24px] sm:text-[32px] text-forest">{accountName}</h1>
+              {canEdit && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn("h-7 w-7", editing && "bg-verdant/10 text-verdant")}
+                  onClick={() => setEditing(!editing)}
+                  title={editing ? "Done editing" : "Edit dashboard layout"}
+                >
+                  {editing ? <Check className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+                </Button>
+              )}
+            </div>
+            <p className="font-body text-[12px] sm:text-[13px] text-slate font-light mt-1">{subtitle}</p>
+          </div>
+          <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
+            {showHealthScore && (
+              <AccountHealthScore
+                creatives={creatives}
+                metrics={metrics}
+                targetRoas={selectedAccount?.target_roas}
+                scaleThreshold={killScaleConfig.scaleAt}
+                wowTrends={wowTrends}
+              />
+            )}
+            <div className="flex items-center gap-2">
+              <DateRangeFilter dateFrom={dateFrom} dateTo={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
+              <Button
+                size="sm"
+                className="bg-verdant hover:bg-verdant/90 text-white font-body text-[13px] font-medium"
+                onClick={() => sync.mutate({ account_id: selectedAccountId && selectedAccountId !== "all" ? selectedAccountId : undefined })}
+                disabled={sync.isPending}
+              >
+                <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", sync.isPending && "animate-spin")} />
+                Sync
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Edit mode banner */}
+        {editing && (
+          <div className="flex items-center gap-3 p-3 rounded-card border border-verdant/30 bg-verdant/5">
+            <Pencil className="h-4 w-4 text-verdant shrink-0" />
+            <p className="font-body text-[13px] text-foreground flex-1">
+              Drag sections to reorder. Toggle visibility with the eye icon.
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-[11px] text-muted-foreground hover:text-foreground gap-1"
+              onClick={resetLayout}
+            >
+              <RotateCcw className="h-3 w-3" />Reset
+            </Button>
+            <Button
+              size="sm"
+              className="h-7 bg-verdant text-white hover:bg-verdant/90 text-[11px]"
+              onClick={() => setEditing(false)}
+            >
+              <Check className="h-3 w-3 mr-1" />Done
+            </Button>
+          </div>
         )}
+
+        {/* Sections */}
+        {displaySections.map((section, index) => {
+          const content = renderSection(section.id);
+          if (!content && !editing) return null;
+
+          return (
+            <EditableSectionWrapper
+              key={section.id}
+              section={section}
+              index={index}
+              total={displaySections.length}
+              editing={editing}
+              onToggle={toggleVisibility}
+              onMove={moveSection}
+            >
+              {content}
+            </EditableSectionWrapper>
+          );
+        })}
       </div>
     </AppLayout>
   );
