@@ -1122,6 +1122,24 @@ export type Database = {
         }
         Relationships: []
       }
+      user_preferences: {
+        Row: {
+          dashboard_layout: Json | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          dashboard_layout?: Json | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          dashboard_layout?: Json | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           id: string
