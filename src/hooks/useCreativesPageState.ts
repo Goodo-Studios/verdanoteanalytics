@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { TABLE_COLUMNS, SORT_FIELD_MAP } from "@/components/creatives/constants";
 import { type SortConfig } from "@/components/SortableTableHead";
 import { useAccountContext } from "@/contexts/AccountContext";
+import { type AdvancedConditions, deserializeConditions, serializeConditions } from "@/components/creatives/AdvancedFiltersPanel";
 
 export function useCreativesPageState() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -52,6 +53,11 @@ export function useCreativesPageState() {
   const [search, setSearch] = useState(() => searchParams.get("q") || "");
   const searchTimeout = useRef<ReturnType<typeof setTimeout>>();
 
+  // Advanced filters
+  const [advancedConditions, setAdvancedConditions] = useState<AdvancedConditions>(() =>
+    deserializeConditions(searchParams.get("adv") || "")
+  );
+
   // Debounced search
   useEffect(() => {
     clearTimeout(searchTimeout.current);
@@ -67,8 +73,10 @@ export function useCreativesPageState() {
     if (dateTo) params.set("to", dateTo);
     if (groupBy !== "__none__") params.set("group", groupBy);
     if (Object.keys(filters).length > 0) params.set("filters", JSON.stringify(filters));
+    const advSerialized = serializeConditions(advancedConditions);
+    if (advSerialized) params.set("adv", advSerialized);
     setSearchParams(params, { replace: true });
-  }, [search, dateFrom, dateTo, groupBy, filters, setSearchParams]);
+  }, [search, dateFrom, dateTo, groupBy, filters, advancedConditions, setSearchParams]);
 
   const updateFilter = useCallback((key: string, val: string) => {
     setPage(0);
@@ -104,5 +112,6 @@ export function useCreativesPageState() {
     searchInput, setSearchInput, search,
     selectedAccountId,
     allFilters,
+    advancedConditions, setAdvancedConditions,
   };
 }
