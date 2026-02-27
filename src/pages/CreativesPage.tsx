@@ -12,6 +12,7 @@ import { CreativesFilters } from "@/components/creatives/CreativesFilters";
 import { CreativesPagination } from "@/components/creatives/CreativesPagination";
 import { BulkActionBar } from "@/components/creatives/BulkActionBar";
 import { BulkTagModal } from "@/components/creatives/BulkTagModal";
+import { AddToReportModal } from "@/components/creatives/AddToReportModal";
 import { TABLE_COLUMNS, SORT_FIELD_MAP } from "@/components/creatives/constants";
 import { ColumnPicker } from "@/components/ColumnPicker";
 import { SaveViewButton } from "@/components/SaveViewButton";
@@ -38,7 +39,7 @@ import { usePinnedViews } from "@/hooks/useSavedViews";
 import type { GradeInfo } from "@/lib/creativeGrading";
 
 const CreativesPage = () => {
-  const { isClient } = useAuth();
+  const { isClient, isBuilder, isEmployee } = useAuth();
   const { setSelectedAccountId } = useAccountContext();
   const navigate = useNavigate();
   const { data: pinnedViews = [] } = usePinnedViews();
@@ -90,6 +91,8 @@ const CreativesPage = () => {
   // Bulk selection
   const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
   const [bulkTagOpen, setBulkTagOpen] = useState(false);
+  const [addToReportOpen, setAddToReportOpen] = useState(false);
+  const canBulkAction = isBuilder || isEmployee;
 
   const { data: creativesResult, isLoading } = useCreatives(allFilters, page);
   const creatives = creativesResult?.data || [];
@@ -380,9 +383,9 @@ const CreativesPage = () => {
           compareIds={compareIds}
           wowTrends={wowTrends}
           gradeMap={gradeMap}
-          bulkSelectedIds={bulkSelectedIds}
-          onBulkToggle={toggleBulkId}
-          onBulkToggleAll={toggleBulkAll}
+          bulkSelectedIds={canBulkAction ? bulkSelectedIds : undefined}
+          onBulkToggle={canBulkAction ? toggleBulkId : undefined}
+          onBulkToggleAll={canBulkAction ? toggleBulkAll : undefined}
         />
       ) : (
         <CreativesCardGrid
@@ -398,17 +401,28 @@ const CreativesPage = () => {
 
       <CreativesPagination page={page} totalPages={totalPages} totalItems={totalCreatives} pageSize={CREATIVES_PAGE_SIZE} onPageChange={setPage} />
       <CreativeDetailModal creative={creatives.find((c: any) => c.ad_id === selectedCreativeId) || null} open={!!selectedCreativeId} onClose={() => setSelectedCreativeId(null)} wowTrends={wowTrends} gradeMap={gradeMap} fatigueMap={fatigueMap} />
-      <BulkActionBar
-        count={bulkSelectedIds.size}
-        onTag={() => setBulkTagOpen(true)}
-        onExport={exportBulkCSV}
-        onClear={() => setBulkSelectedIds(new Set())}
-      />
-      <BulkTagModal
-        open={bulkTagOpen}
-        onClose={() => { setBulkTagOpen(false); setBulkSelectedIds(new Set()); }}
-        adIds={[...bulkSelectedIds]}
-      />
+      {canBulkAction && (
+        <>
+          <BulkActionBar
+            count={bulkSelectedIds.size}
+            onTag={() => setBulkTagOpen(true)}
+            onExport={exportBulkCSV}
+            onAddToReport={() => setAddToReportOpen(true)}
+            onClear={() => setBulkSelectedIds(new Set())}
+          />
+          <BulkTagModal
+            open={bulkTagOpen}
+            onClose={() => { setBulkTagOpen(false); setBulkSelectedIds(new Set()); }}
+            adIds={[...bulkSelectedIds]}
+          />
+          <AddToReportModal
+            open={addToReportOpen}
+            onClose={() => { setAddToReportOpen(false); setBulkSelectedIds(new Set()); }}
+            adIds={[...bulkSelectedIds]}
+            creatives={sortedCreatives}
+          />
+        </>
+      )}
     </AppLayout>
   );
 };
