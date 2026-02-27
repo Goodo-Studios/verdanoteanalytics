@@ -940,6 +940,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      trigger_media_refresh: { Args: never; Returns: undefined }
     }
     Enums: {
       app_role: "builder" | "employee" | "client"
