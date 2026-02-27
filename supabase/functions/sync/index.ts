@@ -297,11 +297,13 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         `&limit=200&access_token=${encodeURIComponent(metaToken)}`
       );
 
+      let phase1HasError = false;
       while (nextUrl && !isTimedOut()) {
         await heartbeat();
         const result = await metaFetch(nextUrl, ctx);
         if (result.error) {
-          ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: "Ad fetch failed" });
+          ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: "Ad fetch failed, unknown error" });
+          phase1HasError = true;
           break;
         }
         if (result.data) {
@@ -349,8 +351,16 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       }
 
       if (nextUrl && isTimedOut()) {
+        // Timed out mid-page — resume from cursor next invocation
         console.log(`Phase 1 paused at ${fetchedCount} ads — will resume`);
         await saveState(1, { ads_cursor: nextUrl, creatives_fetched: fetchedCount });
+      } else if (phase1HasError) {
+        // Mid-fetch error (e.g. Meta returned unknown error on a page).
+        // Save cursor if we have one so the next continue picks up where we left off.
+        // If no cursor (error on first page), restart from the beginning.
+        const resumeCursor = nextUrl || null;
+        console.log(`Phase 1 hit an error at ${fetchedCount} ads — will retry from ${resumeCursor ? "cursor" : "start"} next continue`);
+        await saveState(1, { ads_cursor: resumeCursor, creatives_fetched: fetchedCount });
       } else {
         console.log(`Phase 1 complete: ${fetchedCount} ads`);
         await saveState(2, { ads_cursor: null, creatives_fetched: fetchedCount });
@@ -496,27 +506,20 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           const result = await metaFetch(nextUrl, ctx);
           if (result.error) { nextUrl = null; break; }
           if (result.data && result.data.length > 0) {
-            // Build rows directly — use account-level valid ad cache to avoid per-page lookups
-            if (!state._validAdCache || !(state._validAdCache instanceof Set)) {
-              // Load all valid ad_ids for this account once (cached in state)
-              // On resume, state._validAdCache may be a plain array from JSON serialization
-              const validAdIds = new Set<string>(Array.isArray(state._validAdCache) ? state._validAdCache : []);
-              let offset = 0;
-              const FETCH_SIZE = 5000;
-              while (true) {
-                const { data: existing } = await supabase.from("creatives")
-                  .select("ad_id").eq("account_id", accountId)
-                  .range(offset, offset + FETCH_SIZE - 1);
-                if (!existing || existing.length === 0) break;
-                existing.forEach((e: any) => validAdIds.add(e.ad_id));
-                if (existing.length < FETCH_SIZE) break;
-                offset += FETCH_SIZE;
-              }
-              state._validAdCache = validAdIds;
-            }
+            // For large accounts (NDC has 18k+ creatives), loading all ad_ids into memory
+            // is slow and the Set can't survive JSON serialization across resumes.
+            // Instead: cross-check the batch of ad_ids from Meta against the DB directly.
+            // This is a small IN query (≤500 ids) — fast and correct on any account size.
+            const batchAdIds = result.data.map((row: any) => row.ad_id);
+            const { data: existingAds } = await supabase
+              .from("creatives")
+              .select("ad_id")
+              .eq("account_id", accountId)
+              .in("ad_id", batchAdIds);
+            const validAdIds = new Set<string>((existingAds || []).map((e: any) => e.ad_id));
 
             const rows = result.data
-              .filter((row: any) => state._validAdCache.has(row.ad_id))
+              .filter((row: any) => validAdIds.has(row.ad_id))
               .map((row: any) => ({
                 ad_id: row.ad_id,
                 account_id: accountId,
@@ -526,9 +529,12 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             // Upsert in one call (up to 500 rows, matching Meta page size)
             if (rows.length > 0) {
               const { error } = await supabase.from("creative_daily_metrics").upsert(rows, { onConflict: "ad_id,date" });
-              if (error) console.error("Daily upsert error:", error.message);
+              if (error) {
+                console.error("Daily upsert error:", error.message);
+                ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Daily upsert failed: ${error.message}` });
+              }
             }
-            console.log(`    Upserted ${rows.length} daily rows (filtered from ${result.data.length})`);
+            console.log(`    Upserted ${rows.length} daily rows (filtered from ${result.data.length}, ${batchAdIds.length - validAdIds.size} not in DB)`);
           }
           nextUrl = result.next;
           if (nextUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
