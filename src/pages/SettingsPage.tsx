@@ -12,6 +12,7 @@ import { CsvUploadModal } from "@/components/settings/CsvUploadModal";
 import { AIBriefModal } from "@/components/settings/AIBriefModal";
 import { WeeklyRetroModal } from "@/components/settings/WeeklyRetroModal";
 import { DataHealthSection } from "@/components/settings/DataHealthSection";
+import { PortfolioSettingsSection } from "@/components/settings/PortfolioSettingsSection";
 import { useSettingsPageState } from "@/hooks/useSettingsPageState";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
@@ -114,6 +115,8 @@ const SettingsPage = () => {
         />
 
         <SyncHistorySection accountId={s.account.id} />
+
+        {isBuilder && <PortfolioSettingsSection account={s.account} />}
       </div>
 
       <RenameAccountModal

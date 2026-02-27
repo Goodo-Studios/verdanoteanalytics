@@ -19,6 +19,7 @@ import ReportsPage from "./pages/ReportsPage";
 import ClientReportsPage from "./pages/ClientReportsPage";
 import ReportDetailPage from "./pages/ReportDetailPage";
 import PublicReportPage from "./pages/PublicReportPage";
+import PortfolioPage from "./pages/PortfolioPage";
 import SettingsPage from "./pages/SettingsPage";
 import UserSettingsPage from "./pages/UserSettingsPage";
 import SavedViewsPage from "./pages/SavedViewsPage";
@@ -84,6 +85,7 @@ const App = () => {
                 <Route path="/reset-password" element={<ResetPasswordPage />} />
                 <Route path="/update-password" element={<UpdatePasswordPage />} />
                 <Route path="/public/reports/:id" element={<PublicReportPage />} />
+                <Route path="/portfolio/:slug" element={<PortfolioPage />} />
                 <Route path="/*" element={<ProtectedRoutes />} />
               </Routes>
             </BrowserRouter>

@@ -31,7 +31,13 @@ export type Database = {
           kill_threshold: number
           last_scheduled_report_at: string | null
           last_synced_at: string | null
+          logo_url: string | null
           name: string
+          portfolio_cta_url: string | null
+          portfolio_enabled: boolean
+          portfolio_headline: string | null
+          portfolio_results: string[] | null
+          portfolio_slug: string | null
           primary_kpi: string | null
           report_schedule: string
           scale_threshold: number
@@ -62,7 +68,13 @@ export type Database = {
           kill_threshold?: number
           last_scheduled_report_at?: string | null
           last_synced_at?: string | null
+          logo_url?: string | null
           name: string
+          portfolio_cta_url?: string | null
+          portfolio_enabled?: boolean
+          portfolio_headline?: string | null
+          portfolio_results?: string[] | null
+          portfolio_slug?: string | null
           primary_kpi?: string | null
           report_schedule?: string
           scale_threshold?: number
@@ -93,7 +105,13 @@ export type Database = {
           kill_threshold?: number
           last_scheduled_report_at?: string | null
           last_synced_at?: string | null
+          logo_url?: string | null
           name?: string
+          portfolio_cta_url?: string | null
+          portfolio_enabled?: boolean
+          portfolio_headline?: string | null
+          portfolio_results?: string[] | null
+          portfolio_slug?: string | null
           primary_kpi?: string | null
           report_schedule?: string
           scale_threshold?: number
