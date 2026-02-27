@@ -3,6 +3,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import EditorOverviewPage from "./pages/EditorOverviewPage";
 import { AccountProvider } from "@/contexts/AccountContext";
 import { ClientPreviewContext, useClientPreviewMode } from "@/hooks/useClientPreviewMode";
 import { ClientPreviewBanner } from "@/components/ClientPreviewBanner";
@@ -31,7 +32,7 @@ import { useClientPreview } from "@/hooks/useClientPreviewMode";
 const queryClient = new QueryClient();
 
 function ProtectedRoutes() {
-  const { user, isLoading, isClient } = useAuth();
+  const { user, isLoading, isClient, isEditor } = useAuth();
   const { isClientPreview } = useClientPreview();
   const effectiveClient = isClient || isClientPreview;
 
@@ -49,16 +50,16 @@ function ProtectedRoutes() {
     <AccountProvider>
       <ClientPreviewBanner />
       <Routes>
-        <Route path="/" element={<OverviewPage />} />
-        <Route path="/creatives" element={<CreativesPage />} />
-        <Route path="/creatives/compare" element={<ComparePage />} />
-        <Route path="/analytics" element={<AnalyticsPage />} />
-        <Route path="/tagging" element={effectiveClient ? <Navigate to="/" replace /> : <TaggingPage />} />
-        <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : <ReportsPage />} />
+        <Route path="/" element={isEditor ? <EditorOverviewPage /> : <OverviewPage />} />
+        <Route path="/creatives" element={isEditor ? <ClientCreativesPage /> : <CreativesPage />} />
+        <Route path="/creatives/compare" element={isEditor ? <Navigate to="/" replace /> : <ComparePage />} />
+        <Route path="/analytics" element={isEditor ? <Navigate to="/" replace /> : <AnalyticsPage />} />
+        <Route path="/tagging" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <TaggingPage />} />
+        <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : isEditor ? <ClientReportsPage /> : <ReportsPage />} />
         <Route path="/reports/:id" element={<ReportDetailPage />} />
-        <Route path="/settings" element={effectiveClient ? <Navigate to="/" replace /> : <SettingsPage />} />
+        <Route path="/settings" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <SettingsPage />} />
         <Route path="/user-settings" element={<UserSettingsPage />} />
-        <Route path="/saved-views" element={effectiveClient ? <Navigate to="/" replace /> : <SavedViewsPage />} />
+        <Route path="/saved-views" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <SavedViewsPage />} />
         <Route path="/ai-chat" element={<AIChatPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>

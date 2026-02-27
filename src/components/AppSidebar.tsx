@@ -44,19 +44,32 @@ const clientNavItems = [
   { title: "AI Analyst", url: "/ai-chat", icon: Sparkles },
 ];
 
+const editorNavItems = [
+  { title: "Overview", url: "/", icon: LayoutGrid },
+  { title: "Creatives", url: "/creatives", icon: Zap },
+  { title: "Reports", url: "/reports", icon: FileText },
+  { title: "AI Analyst", url: "/ai-chat", icon: Sparkles },
+];
+
 export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { accounts, selectedAccountId, setSelectedAccountId, isLoading } = useAccountContext();
-  const { role, isClient, isBuilder, isEmployee, user, signOut } = useAuth();
+  const { role, isClient, isBuilder, isEmployee, isEditor, user, signOut } = useAuth();
   const { isClientPreview, toggleClientPreview } = useClientPreview();
 
   const effectiveClient = isClient || isClientPreview;
 
   const showSwitcher = !effectiveClient || accounts.length > 1;
-  const showSettings = !effectiveClient;
-  const navItems = effectiveClient ? clientNavItems : baseNavItems;
+  const showSettings = !effectiveClient && !isEditor;
+  const navItems = effectiveClient
+    ? clientNavItems
+    : isEditor
+    ? editorNavItems
+    : baseNavItems;
 
   const roleBadgeClass = role === "client"
     ? "font-label text-[9px] uppercase tracking-[0.1em] font-semibold bg-gold-light text-[#92730F] capitalize h-4 px-1.5 border-0"
+    : role === "editor"
+    ? "font-label text-[9px] uppercase tracking-[0.1em] font-semibold bg-blue-50 text-blue-600 capitalize h-4 px-1.5 border-0"
     : "font-label text-[9px] uppercase tracking-[0.1em] text-sage capitalize h-4 px-1.5 border-border/50";
 
   return (
@@ -70,7 +83,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
       <div className="px-3 pt-4 pb-2 space-y-2">
         <div className="flex items-center justify-between px-2">
           <p className="font-label text-[9px] uppercase tracking-[0.1em] text-sage">Account</p>
-          {!effectiveClient && (
+          {(!effectiveClient || isEditor) && (
             <Badge variant="outline" className={roleBadgeClass}>{role}</Badge>
           )}
         </div>
@@ -80,7 +93,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
               <SelectValue placeholder="Select account" />
             </SelectTrigger>
             <SelectContent className="bg-white border border-border-light rounded-[8px] shadow-modal">
-              {!effectiveClient && <SelectItem value="all" className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">All Accounts</SelectItem>}
+              {!effectiveClient && !isEditor && <SelectItem value="all" className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">All Accounts</SelectItem>}
               {[...accounts].sort((a: any, b: any) => a.name.localeCompare(b.name)).map((acc: any) => (
                 <SelectItem key={acc.id} value={acc.id} className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">
                   {acc.name}
@@ -89,7 +102,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
             </SelectContent>
           </Select>
         )}
-        {effectiveClient && accounts.length === 1 && (
+        {effectiveClient && !isEditor && accounts.length === 1 && (
           <p className="font-body text-[13px] font-medium text-charcoal px-2 truncate">{accounts[0].name}</p>
         )}
       </div>
@@ -124,7 +137,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
 
       {/* Footer */}
       <div className="mx-5 border-t border-input" />
-      {!effectiveClient && (
+      {!effectiveClient && !isEditor && (
         <div className="px-3 pt-3 pb-1">
           <NavLink
             to="/user-settings"
@@ -138,7 +151,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       )}
       {/* Client Preview toggle for builders */}
-      {(isBuilder || isEmployee) && !isClient && (
+      {(isBuilder || isEmployee) && !isClient && !isEditor && (
         <div className="px-3 pb-1">
           <button
             onClick={toggleClientPreview}
