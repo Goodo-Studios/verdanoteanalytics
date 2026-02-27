@@ -29,7 +29,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { FileText, Plus, Trash2, Loader2, Eye, Download, CalendarClock, Send, CalendarIcon, Link2 } from "lucide-react";
+import { FileText, Plus, Trash2, Loader2, Eye, Download, CalendarClock, Send, CalendarIcon, Link2, Files } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { format, subDays } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -42,6 +42,7 @@ import { useAccounts } from "@/hooks/useAccountsApi";
 import { exportReportCSV } from "@/lib/csv";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAccountContext } from "@/contexts/AccountContext";
+import { MonthlyRollupModal } from "@/components/reports/MonthlyRollupModal";
 
 const CADENCES = [
   { key: "weekly", label: "Weekly", defaultDays: 7, description: "Runs every Monday" },
@@ -49,10 +50,11 @@ const CADENCES = [
 ] as const;
 
 const ReportsPage = () => {
-  const { isClient } = useAuth();
+  const { isClient, isBuilder } = useAuth();
   const { selectedAccountId } = useAccountContext();
   const [showGenerate, setShowGenerate] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
+  const [showRollup, setShowRollup] = useState(false);
   const [reportName, setReportName] = useState("");
   const [accountId, setAccountId] = useState("");
   const [dateStart, setDateStart] = useState<Date>(subDays(new Date(), 7));
@@ -137,6 +139,12 @@ const ReportsPage = () => {
               <CalendarClock className="h-3.5 w-3.5 mr-1.5" />
               Schedules
             </Button>
+            {isBuilder && (
+              <Button size="sm" variant="secondary" onClick={() => setShowRollup(true)}>
+                <Files className="h-3.5 w-3.5 mr-1.5" />
+                Monthly Rollup
+              </Button>
+            )}
             <Button size="sm" className="bg-verdant text-white hover:bg-verdant/90" onClick={() => setShowGenerate(true)}>
               <Plus className="h-3.5 w-3.5 mr-1.5" />
               Generate Report
@@ -363,6 +371,9 @@ const ReportsPage = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Monthly Rollup Modal */}
+      <MonthlyRollupModal open={showRollup} onOpenChange={setShowRollup} accounts={accounts || []} />
     </AppLayout>
   );
 };

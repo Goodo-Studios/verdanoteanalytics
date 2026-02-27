@@ -1,6 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+const AI_GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
@@ -326,6 +329,193 @@ serve(async (req) => {
       if (error) throw error;
 
       return new Response(JSON.stringify(data), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // POST /reports/rollup — generate reports for multiple accounts
+    if (req.method === "POST" && path === "rollup") {
+      // Builder-only check
+      if (userRole.role !== "builder") {
+        return new Response(JSON.stringify({ error: "Builder role required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const body = await req.json();
+      const { account_ids, date_start, date_end, auto_share } = body;
+
+      const dateStart = date_start;
+      const dateEnd = date_end;
+      const days = Math.ceil((new Date(dateEnd).getTime() - new Date(dateStart).getTime()) / 86400000) + 1;
+
+      // Get month name for report naming
+      const monthDate = new Date(dateStart);
+      const monthName = monthDate.toLocaleString("en-US", { month: "long" });
+      const year = monthDate.getFullYear();
+
+      // Get account details
+      const { data: accts } = await supabase.from("ad_accounts").select("id, name").in("id", account_ids);
+      const acctMap: Record<string, string> = {};
+      for (const a of accts || []) acctMap[a.id] = a.name;
+
+      const results: any[] = [];
+
+      for (const accountId of account_ids) {
+        const accountName = acctMap[accountId] || accountId;
+        try {
+          const list = await aggregateDailyMetrics(supabase, accountId, dateStart, dateEnd);
+
+          const totalSpend = list.reduce((s: number, c: any) => s + Number(c.spend || 0), 0);
+          const avgField = (field: string) => {
+            if (list.length === 0) return 0;
+            return list.reduce((s: number, c: any) => s + Number(c[field] || 0), 0) / list.length;
+          };
+          const winners = list.filter((c: any) => Number(c.roas || 0) > 1);
+          const winRate = list.length > 0 ? (winners.length / list.length) * 100 : 0;
+
+          const tagCounts = { parsed: 0, csv_match: 0, manual: 0, untagged: 0 };
+          list.forEach((c: any) => {
+            const src = c.tag_source || "untagged";
+            if (src in tagCounts) tagCounts[src as keyof typeof tagCounts]++;
+          });
+
+          const sorted = [...list].sort((a: any, b: any) => Number(b.spend || 0) - Number(a.spend || 0));
+          const mapPerformer = (c: any) => ({
+            ad_id: c.ad_id, ad_name: c.ad_name || c.ad_id, unique_code: c.unique_code,
+            roas: Math.round(Number(c.roas || 0) * 1000) / 1000,
+            cpa: Math.round(Number(c.cpa || 0) * 100) / 100,
+            spend: Math.round(Number(c.spend || 0) * 100) / 100,
+            ctr: Math.round(Number(c.ctr || 0) * 1000) / 1000,
+          });
+
+          const { counts: diagCounts, suggestions: diagSuggestions } = computeDiagnostics(list);
+
+          // Generate AI performance highlights
+          let aiHighlights: string[] = [];
+          if (LOVABLE_API_KEY && list.length > 0) {
+            try {
+              const top10 = sorted.slice(0, 10).map(c => ({
+                name: c.ad_name, roas: Number(c.roas || 0).toFixed(2), spend: Number(c.spend || 0).toFixed(0),
+                cpa: Number(c.cpa || 0).toFixed(2), ctr: Number(c.ctr || 0).toFixed(2),
+              }));
+              const aiResp = await fetch(AI_GATEWAY, {
+                method: "POST",
+                headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  model: "google/gemini-2.5-flash-lite",
+                  messages: [
+                    { role: "system", content: "You are a creative performance analyst. Return exactly 3-5 bullet points as a JSON array of strings. Each bullet is a plain-English performance highlight. No markdown." },
+                    { role: "user", content: `Account: ${accountName}. Period: ${monthName} ${year}. Total spend: $${totalSpend.toFixed(0)}. Blended ROAS: ${avgField("roas").toFixed(2)}x. Win rate: ${winRate.toFixed(0)}%. Creatives: ${list.length}. Top performers: ${JSON.stringify(top10)}` },
+                  ],
+                  tools: [{
+                    type: "function",
+                    function: {
+                      name: "return_highlights",
+                      description: "Return 3-5 performance highlight bullets",
+                      parameters: {
+                        type: "object",
+                        properties: { highlights: { type: "array", items: { type: "string" } } },
+                        required: ["highlights"],
+                        additionalProperties: false,
+                      },
+                    },
+                  }],
+                  tool_choice: { type: "function", function: { name: "return_highlights" } },
+                }),
+              });
+              if (aiResp.ok) {
+                const aiData = await aiResp.json();
+                const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
+                if (toolCall?.function?.arguments) {
+                  const parsed = JSON.parse(toolCall.function.arguments);
+                  aiHighlights = parsed.highlights || [];
+                }
+              }
+            } catch (aiErr) {
+              console.error("AI highlights error for", accountId, aiErr);
+            }
+          }
+
+          // Build auto-layout sections
+          const sections = [
+            { id: crypto.randomUUID(), type: "text", config: { content: `## ${accountName} — ${monthName} ${year} Performance Report\n\n${aiHighlights.length > 0 ? aiHighlights.map(h => `- ${h}`).join("\n") : ""}` } },
+            { id: crypto.randomUUID(), type: "metric_summary", config: {} },
+            { id: crypto.randomUUID(), type: "top_creatives", config: { count: 6, sortBy: "spend" } },
+            { id: crypto.randomUUID(), type: "chart", config: { metric: "spend" } },
+            { id: crypto.randomUUID(), type: "chart", config: { metric: "roas" } },
+            { id: crypto.randomUUID(), type: "tag_breakdown", config: { tagField: "hook" } },
+          ];
+
+          const reportName = `${accountName} — ${monthName} ${year} Performance Report`;
+
+          const report = {
+            report_name: reportName,
+            account_id: accountId,
+            is_public: !!auto_share,
+            creative_count: list.length,
+            total_spend: Math.round(totalSpend * 100) / 100,
+            blended_roas: Math.round(avgField("roas") * 100) / 100,
+            average_cpa: Math.round(avgField("cpa") * 100) / 100,
+            average_ctr: Math.round(avgField("ctr") * 100) / 100,
+            win_rate: Math.round(winRate * 100) / 100,
+            tags_parsed_count: tagCounts.parsed,
+            tags_csv_count: tagCounts.csv_match,
+            tags_manual_count: tagCounts.manual,
+            tags_untagged_count: tagCounts.untagged,
+            top_performers: JSON.stringify(sorted.slice(0, 10).map(mapPerformer)),
+            date_range_start: dateStart,
+            date_range_end: dateEnd,
+            date_range_days: days,
+            iteration_suggestions: JSON.stringify(diagSuggestions),
+            sections,
+            ...diagCounts,
+          };
+
+          const { data: savedReport, error: insertErr } = await supabase.from("reports").insert(report).select().single();
+          if (insertErr) throw insertErr;
+
+          let sharedCount = 0;
+          // Auto-share: create notifications for client users linked to this account
+          if (auto_share && savedReport) {
+            const { data: linkedUsers } = await supabase
+              .from("user_accounts")
+              .select("user_id")
+              .eq("account_id", accountId);
+
+            if (linkedUsers && linkedUsers.length > 0) {
+              // Check which of these are clients
+              const { data: clientRoles } = await supabase
+                .from("user_roles")
+                .select("user_id")
+                .eq("role", "client")
+                .in("user_id", linkedUsers.map((u: any) => u.user_id));
+
+              const clientUserIds = (clientRoles || []).map((r: any) => r.user_id);
+
+              if (clientUserIds.length > 0) {
+                const notifications = clientUserIds.map((uid: string) => ({
+                  user_id: uid,
+                  account_id: accountId,
+                  title: `New Report: ${reportName}`,
+                  body: `Your ${monthName} ${year} performance report is ready. View it in Reports.`,
+                  type: "report",
+                }));
+                await supabase.from("notifications").insert(notifications);
+                sharedCount = clientUserIds.length;
+              }
+            }
+          }
+
+          results.push({ account_id: accountId, account_name: accountName, report_id: savedReport.id, shared_count: sharedCount, success: true });
+        } catch (err) {
+          console.error(`Rollup error for ${accountId}:`, err);
+          results.push({ account_id: accountId, account_name: accountName, success: false, error: String(err) });
+        }
+      }
+
+      return new Response(JSON.stringify({
+        total: results.length,
+        success_count: results.filter(r => r.success).length,
+        shared_count: results.reduce((s, r) => s + (r.shared_count || 0), 0),
+        results,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // POST /reports/slack/:id
