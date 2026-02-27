@@ -788,6 +788,7 @@ export type Database = {
           is_public: boolean
           iteration_suggestions: string | null
           report_name: string
+          sections: Json | null
           tags_csv_count: number | null
           tags_manual_count: number | null
           tags_parsed_count: number | null
@@ -822,6 +823,7 @@ export type Database = {
           is_public?: boolean
           iteration_suggestions?: string | null
           report_name: string
+          sections?: Json | null
           tags_csv_count?: number | null
           tags_manual_count?: number | null
           tags_parsed_count?: number | null
@@ -856,6 +858,7 @@ export type Database = {
           is_public?: boolean
           iteration_suggestions?: string | null
           report_name?: string
+          sections?: Json | null
           tags_csv_count?: number | null
           tags_manual_count?: number | null
           tags_parsed_count?: number | null
