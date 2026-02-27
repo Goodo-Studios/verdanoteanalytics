@@ -556,6 +556,39 @@ export type Database = {
           },
         ]
       }
+      notifications: {
+        Row: {
+          account_id: string | null
+          body: string | null
+          created_at: string | null
+          id: string
+          read: boolean | null
+          title: string
+          type: string | null
+          user_id: string
+        }
+        Insert: {
+          account_id?: string | null
+          body?: string | null
+          created_at?: string | null
+          id?: string
+          read?: boolean | null
+          title: string
+          type?: string | null
+          user_id: string
+        }
+        Update: {
+          account_id?: string | null
+          body?: string | null
+          created_at?: string | null
+          id?: string
+          read?: boolean | null
+          title?: string
+          type?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       performance_stories: {
         Row: {
           account_id: string

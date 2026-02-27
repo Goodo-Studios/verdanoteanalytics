@@ -803,6 +803,80 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         console.error("prior_roas snapshot error (non-fatal):", priorErr);
       }
 
+      // ── Generate notifications for winners, concerns, and sync complete ──
+      try {
+        // Get all users linked to this account
+        const { data: userLinks } = await supabase.from("user_accounts").select("user_id").eq("account_id", accountId);
+        const userIds = (userLinks || []).map((l: any) => l.user_id);
+
+        if (userIds.length > 0) {
+          const notifications: any[] = [];
+
+          // Detect winners (creatives that crossed scale threshold)
+          const scaleThreshold = account.scale_threshold || 2.0;
+          const { data: winners } = await supabase
+            .from("creatives")
+            .select("ad_id, ad_name, roas, prior_roas")
+            .eq("account_id", accountId)
+            .gte("roas", scaleThreshold)
+            .not("prior_roas", "is", null);
+
+          for (const w of (winners || [])) {
+            if ((w.prior_roas || 0) < scaleThreshold) {
+              // Newly crossed the threshold
+              for (const uid of userIds) {
+                notifications.push({
+                  user_id: uid, account_id: accountId, type: "winner",
+                  title: `🏆 New winner: ${w.ad_name}`,
+                  body: `ROAS hit ${Number(w.roas).toFixed(1)}x, crossing the ${scaleThreshold}x scale threshold.`,
+                });
+              }
+            }
+          }
+
+          // Detect concerns (creatives that dropped below kill threshold)
+          const killThreshold = account.kill_threshold || 1.0;
+          const { data: concerns } = await supabase
+            .from("creatives")
+            .select("ad_id, ad_name, roas, prior_roas")
+            .eq("account_id", accountId)
+            .lt("roas", killThreshold)
+            .gt("spend", 0)
+            .not("prior_roas", "is", null);
+
+          for (const c of (concerns || [])) {
+            if ((c.prior_roas || 0) >= killThreshold) {
+              // Newly dropped below threshold
+              for (const uid of userIds) {
+                notifications.push({
+                  user_id: uid, account_id: accountId, type: "concern",
+                  title: `⚠️ Underperformer: ${c.ad_name}`,
+                  body: `ROAS dropped to ${Number(c.roas).toFixed(1)}x, below the ${killThreshold}x kill threshold.`,
+                });
+              }
+            }
+          }
+
+          // Sync complete notification
+          for (const uid of userIds) {
+            notifications.push({
+              user_id: uid, account_id: accountId, type: "sync",
+              title: `Sync complete: ${account.name}`,
+              body: `${totalResult.count || 0} creatives synced.`,
+            });
+          }
+
+          // Batch insert (limit to 50 to avoid huge inserts)
+          if (notifications.length > 0) {
+            const batch = notifications.slice(0, 50);
+            await supabase.from("notifications").insert(batch);
+            console.log(`  Created ${batch.length} notifications`);
+          }
+        }
+      } catch (notifErr) {
+        console.error("Notification creation error (non-fatal):", notifErr);
+      }
+
       const finalStatus = (JSON.parse(syncLog.api_errors || "[]")).length > 0 ? "completed_with_errors" : "completed";
       await saveState(5, {}, finalStatus);
       console.log(`\n✅ Sync complete for ${account.name}: ${finalStatus}`);
