@@ -3,7 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { useWoWTrends } from "@/hooks/useWoWTrends";
+import { useMtdSpend } from "@/hooks/useMtdSpend";
 import { computeFatigueMap } from "@/lib/fatigueScore";
+import { getPacingStatus } from "@/components/overview/SpendPacingWidget";
 import { cn } from "@/lib/utils";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -142,11 +144,28 @@ export function BenchmarksTab() {
   // Fetch ALL creatives across all accounts
   const { data: allCreatives = [], isLoading } = useAllCreatives({});
   const { data: wowTrends } = useWoWTrends(undefined);
+  const { data: allMtdSpend = 0 } = useMtdSpend(undefined);
 
   const benchmarks = useMemo(
     () => computeAccountBenchmarks(accounts, allCreatives, wowTrends),
     [accounts, allCreatives, wowTrends]
   );
+
+  // Compute per-account MTD spend from current month creatives
+  const mtdSpendByAccount = useMemo(() => {
+    const now = new Date();
+    const firstOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+    const map = new Map<string, number>();
+    // We don't have daily metrics here, so approximate from creatives' spend
+    // This is a rough approximation; for exact values we'd need daily metrics
+    for (const c of allCreatives) {
+      const spend = Number(c.spend) || 0;
+      if (spend > 0) {
+        map.set(c.account_id, (map.get(c.account_id) || 0) + spend);
+      }
+    }
+    return map;
+  }, [allCreatives]);
 
   // Portfolio averages
   const portfolio = useMemo(() => {
@@ -233,6 +252,7 @@ export function BenchmarksTab() {
               <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">Avg CPA</TableHead>
               <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right hidden sm:table-cell">Active Creatives</TableHead>
               <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">Health Score</TableHead>
+              <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right hidden sm:table-cell">Pacing</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -261,6 +281,16 @@ export function BenchmarksTab() {
                 <TableCell className={cn("text-right font-data text-[13px] font-semibold tabular-nums", cellColor(b.healthScore, columnExtremes!.bestHealth, portfolio?.healthScore))}>
                   {b.healthScore}
                 </TableCell>
+                <TableCell className="text-right font-data text-[13px] tabular-nums hidden sm:table-cell">
+                  {(() => {
+                    const acct = accounts.find((a: any) => a.id === b.id);
+                    const mtd = mtdSpendByAccount.get(b.id) || 0;
+                    const pacing = acct ? getPacingStatus(acct, mtd) : null;
+                    if (!pacing) return <span className="text-muted-foreground">—</span>;
+                    const color = pacing.status === "green" ? "text-primary" : pacing.status === "amber" ? "text-warning" : "text-destructive";
+                    return <span className={cn("font-semibold", color)}>{pacing.label}</span>;
+                  })()}
+                </TableCell>
               </TableRow>
             ))}
             {/* Portfolio average row */}
@@ -273,6 +303,7 @@ export function BenchmarksTab() {
                 <TableCell className="text-right font-data text-[13px] tabular-nums text-foreground">{fmt$(portfolio.avgCpa)}</TableCell>
                 <TableCell className="text-right font-data text-[13px] tabular-nums text-muted-foreground hidden sm:table-cell">—</TableCell>
                 <TableCell className="text-right font-data text-[13px] tabular-nums text-foreground">{portfolio.healthScore}</TableCell>
+                <TableCell className="text-right font-data text-[13px] tabular-nums text-muted-foreground hidden sm:table-cell">—</TableCell>
               </TableRow>
             )}
           </TableBody>
