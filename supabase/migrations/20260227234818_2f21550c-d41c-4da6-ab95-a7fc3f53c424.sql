@@ -1,0 +1,1 @@
+ALTER TABLE public.creatives ADD COLUMN IF NOT EXISTS scheduled_launch_date date;

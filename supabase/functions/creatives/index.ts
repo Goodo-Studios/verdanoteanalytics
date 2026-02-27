@@ -301,7 +301,7 @@ serve(async (req) => {
     // PUT /creatives/:id — update tags
     if (req.method === "PUT" && path) {
       const body = await req.json();
-      const { ad_type, person, style, product, hook, theme, tag_source, notes } = body;
+      const { ad_type, person, style, product, hook, theme, tag_source, notes, scheduled_launch_date } = body;
 
       const update: Record<string, any> = {};
       if (ad_type !== undefined) update.ad_type = ad_type;
@@ -311,6 +311,7 @@ serve(async (req) => {
       if (hook !== undefined) update.hook = hook;
       if (theme !== undefined) update.theme = theme;
       if (notes !== undefined) update.notes = notes;
+      if (scheduled_launch_date !== undefined) update.scheduled_launch_date = scheduled_launch_date;
 
       if (tag_source === "untagged") {
         // Reset to auto — re-run tagging
