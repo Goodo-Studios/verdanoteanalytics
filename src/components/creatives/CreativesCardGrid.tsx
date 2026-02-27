@@ -7,9 +7,11 @@ import { cn } from "@/lib/utils";
 import { useCachedMedia } from "@/hooks/useCachedMedia";
 import { RoasTrendArrow } from "./RoasTrendArrow";
 import { GradeBadge } from "./GradeBadge";
+import { ScoreCircle } from "./ScoreCircle";
 import type { WoWTrend } from "@/hooks/useWoWTrends";
 import type { GradeInfo } from "@/lib/creativeGrading";
 import type { FatigueResult } from "@/lib/fatigueScore";
+import type { CreativeScore } from "@/lib/creativeScore";
 
 interface CreativesCardGridProps {
   creatives: any[];
@@ -19,6 +21,7 @@ interface CreativesCardGridProps {
   wowTrends?: Map<string, WoWTrend>;
   gradeMap?: Map<string, GradeInfo>;
   fatigueMap?: Map<string, FatigueResult>;
+  scoreMap?: Map<string, CreativeScore>;
 }
 
 function CardThumbnail({ src, alt }: { src: string; alt: string }) {
@@ -50,7 +53,7 @@ function roasColor(roas: number | null | undefined): string {
   return "text-charcoal";
 }
 
-export function CreativesCardGrid({ creatives, onSelect, compareMode = false, compareIds = new Set(), wowTrends, gradeMap, fatigueMap }: CreativesCardGridProps) {
+export function CreativesCardGrid({ creatives, onSelect, compareMode = false, compareIds = new Set(), wowTrends, gradeMap, fatigueMap, scoreMap }: CreativesCardGridProps) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {creatives.map((c: any) => {
@@ -133,6 +136,12 @@ export function CreativesCardGrid({ creatives, onSelect, compareMode = false, co
               {fatigueMap?.get(c.ad_id)?.level === "warning" && (
                 <div className="absolute bottom-1.5 right-2">
                   <span className="font-label text-[9px] font-semibold text-amber-600">⚠️ Fatiguing</span>
+                </div>
+              )}
+              {/* Score circle */}
+              {scoreMap?.get(c.ad_id) && (
+                <div className="absolute bottom-1.5 left-2">
+                  <ScoreCircle score={scoreMap.get(c.ad_id)!.score} tier={scoreMap.get(c.ad_id)!.tier} />
                 </div>
               )}
             </div>

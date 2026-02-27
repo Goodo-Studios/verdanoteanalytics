@@ -4,6 +4,7 @@ export const TABLE_COLUMNS: ColumnDef[] = [
   // Core
   { key: "creative", label: "Creative", defaultVisible: true, group: "Core" },
   { key: "grade", label: "Grade", defaultVisible: false, group: "Core" },
+  { key: "score", label: "Score", defaultVisible: false, group: "Core" },
   { key: "ad_status", label: "Delivery Status", defaultVisible: false, group: "Core" },
   { key: "result_type", label: "Result Type", defaultVisible: false, group: "Core" },
   // Tags
@@ -62,10 +63,11 @@ export const SORT_FIELD_MAP: Record<string, string> = {
   result_type: "result_type", cpmr: "_cpmr",
   campaign: "campaign_name", adset: "adset_name", ad_status: "ad_status",
   grade: "_grade",
+  score: "_score",
 };
 
 export const HEAD_LABELS: Record<string, string> = {
-  creative: "Creative", grade: "Grade", ad_status: "Status", result_type: "Result Type",
+  creative: "Creative", grade: "Grade", score: "Score", ad_status: "Status", result_type: "Result Type",
   type: "Type", person: "Person", style: "Style", hook: "Hook",
   product: "Product", theme: "Theme", tags: "Tags",
   spend: "Spent", roas: "ROAS", cpa: "Cost/Result", cpm: "CPM",
@@ -79,7 +81,7 @@ export const HEAD_LABELS: Record<string, string> = {
 };
 
 export const NUMERIC_COLS = new Set([
-  "spend", "roas", "cpa", "ctr", "impressions", "clicks", "purchases",
+  "spend", "roas", "cpa", "ctr", "impressions", "clicks", "purchases", "score",
   "purchase_value", "cpm", "cpc", "frequency", "cpmr", "video_views",
   "hook_rate", "hold_rate", "video_avg_play_time", "adds_to_cart", "cost_per_atc",
 ]);
@@ -87,7 +89,7 @@ export const NUMERIC_COLS = new Set([
 /** Columns hidden on mobile (< 640px) to keep table scannable. Keep: creative, roas, spend */
 export const MOBILE_HIDDEN_COLS = new Set([
   "cpa", "cpm", "cpc", "frequency", "cpmr", "ctr", "hook_rate", "hold_rate",
-  "impressions", "clicks", "purchases", "purchase_value", "video_views",
+  "impressions", "clicks", "purchases", "purchase_value", "video_views", "score",
   "video_avg_play_time", "adds_to_cart", "cost_per_atc", "grade",
   "tags", "type", "person", "style", "hook", "product", "theme",
   "campaign", "adset", "ad_status", "result_type",

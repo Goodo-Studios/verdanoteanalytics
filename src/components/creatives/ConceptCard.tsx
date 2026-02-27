@@ -4,14 +4,17 @@ import { ConceptGroup } from "@/lib/conceptGrouping";
 import { cn } from "@/lib/utils";
 import { ImageIcon } from "lucide-react";
 import { GradeBadge } from "./GradeBadge";
+import { ScoreCircle } from "./ScoreCircle";
 import { gradeOrder, type GradeInfo } from "@/lib/creativeGrading";
+import type { CreativeScore } from "@/lib/creativeScore";
 
 interface ConceptCardProps {
   concept: ConceptGroup;
   gradeMap?: Map<string, GradeInfo>;
+  scoreMap?: Map<string, CreativeScore>;
 }
 
-export function ConceptCard({ concept, gradeMap }: ConceptCardProps) {
+export function ConceptCard({ concept, gradeMap, scoreMap }: ConceptCardProps) {
   const [expanded, setExpanded] = useState(false);
   const { name, iterations, totalSpend, totalPurchases, blendedRoas, best, worst } = concept;
 
@@ -23,6 +26,14 @@ export function ConceptCard({ concept, gradeMap }: ConceptCardProps) {
     const g = gradeMap.get(c.ad_id);
     if (!g) return best;
     if (!best || gradeOrder(g.grade) < gradeOrder(best.grade)) return g;
+    return best;
+  }, null) : null;
+
+  // Best score across iterations
+  const bestScore = scoreMap ? iterations.reduce<CreativeScore | null>((best, c) => {
+    const s = scoreMap.get(c.ad_id);
+    if (!s) return best;
+    if (!best || s.score > best.score) return s;
     return best;
   }, null) : null;
 
@@ -49,6 +60,7 @@ export function ConceptCard({ concept, gradeMap }: ConceptCardProps) {
             <div className="flex items-center gap-2 min-w-0">
               <h3 className="font-heading text-[15px] text-foreground truncate">{name}</h3>
               {bestGrade && <GradeBadge grade={bestGrade.grade} />}
+              {bestScore && <ScoreCircle score={bestScore.score} tier={bestScore.tier} />}
             </div>
             <div className="flex items-center gap-1 text-muted-foreground shrink-0">
               {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}

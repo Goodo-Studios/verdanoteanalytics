@@ -36,6 +36,7 @@ import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
 import { useWoWTrends } from "@/hooks/useWoWTrends";
 import { gradeCreatives, gradeOrder } from "@/lib/creativeGrading";
 import { computeFatigueMap } from "@/lib/fatigueScore";
+import { computeScoreMap } from "@/lib/creativeScore";
 import { usePinnedViews } from "@/hooks/useSavedViews";
 import type { GradeInfo } from "@/lib/creativeGrading";
 
@@ -114,6 +115,10 @@ const CreativesPage = () => {
   // Compute fatigue scores
   const fatigueMap = useMemo(() => computeFatigueMap(creatives, wowTrends), [creatives, wowTrends]);
 
+  // Compute creative scores
+  const scaleThreshold = selectedAccountData?.scale_threshold ?? 2.0;
+  const scoreMap = useMemo(() => computeScoreMap(creatives, scaleThreshold, wowTrends, fatigueMap), [creatives, scaleThreshold, wowTrends, fatigueMap]);
+
   const avgMetrics = useMemo(() => {
     if (creatives.length === 0) return { roas: "—", cpa: "—", totalSpend: "—" };
     const withSpend = creatives.filter((c: any) => c.spend > 0);
@@ -169,6 +174,15 @@ const CreativesPage = () => {
       });
     }
 
+    // Special handling for score sort
+    if (sort.key === "score") {
+      return list.sort((a: any, b: any) => {
+        const sa = scoreMap.get(a.ad_id)?.score ?? 0;
+        const sb = scoreMap.get(b.ad_id)?.score ?? 0;
+        return (sa - sb) * dir;
+      });
+    }
+
     return list.sort((a: any, b: any) => {
       const va = a[field], vb = b[field];
       if (va == null && vb == null) return 0;
@@ -177,7 +191,7 @@ const CreativesPage = () => {
       if (typeof va === "number" || !isNaN(Number(va))) return (Number(va) - Number(vb)) * dir;
       return String(va).localeCompare(String(vb)) * dir;
     });
-  }, [creatives, sort, momentumFilter, wowTrends, gradeMap, fatigueFilter, fatigueMap, advancedConditions]);
+  }, [creatives, sort, momentumFilter, wowTrends, gradeMap, fatigueFilter, fatigueMap, advancedConditions, scoreMap]);
 
   const toggleBulkId = useCallback((adId: string) => {
     setBulkSelectedIds(prev => {
@@ -387,7 +401,7 @@ const CreativesPage = () => {
           <p className="font-body text-[14px] text-slate max-w-md">Add a Meta ad account in the Accounts tab and sync to pull in your creatives.</p>
         </div>
       ) : conceptView ? (
-        <ConceptsGrid creatives={sortedCreatives} gradeMap={gradeMap} />
+        <ConceptsGrid creatives={sortedCreatives} gradeMap={gradeMap} scoreMap={scoreMap} />
       ) : groupBy !== "__none__" && groupedData ? (
         <CreativesGroupTable groupBy={groupBy} data={groupedData} />
       ) : viewMode === "timeline" && selectedAccountId && selectedAccountId !== "all" ? (
@@ -405,6 +419,7 @@ const CreativesPage = () => {
           compareIds={compareIds}
           wowTrends={wowTrends}
           gradeMap={gradeMap}
+          scoreMap={scoreMap}
           bulkSelectedIds={canBulkAction ? bulkSelectedIds : undefined}
           onBulkToggle={canBulkAction ? toggleBulkId : undefined}
           onBulkToggleAll={canBulkAction ? toggleBulkAll : undefined}
@@ -418,11 +433,12 @@ const CreativesPage = () => {
           wowTrends={wowTrends}
           gradeMap={gradeMap}
           fatigueMap={fatigueMap}
+          scoreMap={scoreMap}
         />
       )}
 
       <CreativesPagination page={page} totalPages={totalPages} totalItems={totalCreatives} pageSize={CREATIVES_PAGE_SIZE} onPageChange={setPage} />
-      <CreativeDetailModal creative={creatives.find((c: any) => c.ad_id === selectedCreativeId) || null} open={!!selectedCreativeId} onClose={() => setSelectedCreativeId(null)} wowTrends={wowTrends} gradeMap={gradeMap} fatigueMap={fatigueMap} />
+      <CreativeDetailModal creative={creatives.find((c: any) => c.ad_id === selectedCreativeId) || null} open={!!selectedCreativeId} onClose={() => setSelectedCreativeId(null)} wowTrends={wowTrends} gradeMap={gradeMap} fatigueMap={fatigueMap} scoreMap={scoreMap} />
       {canBulkAction && (
         <>
           <BulkActionBar
