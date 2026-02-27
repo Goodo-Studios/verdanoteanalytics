@@ -809,7 +809,9 @@ export type Database = {
           created_at: string
           description: string | null
           id: string
+          is_shared: boolean | null
           name: string
+          pinned: boolean | null
           sort_order: number
           updated_at: string
           user_id: string
@@ -819,7 +821,9 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
+          is_shared?: boolean | null
           name: string
+          pinned?: boolean | null
           sort_order?: number
           updated_at?: string
           user_id: string
@@ -829,7 +833,9 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
+          is_shared?: boolean | null
           name?: string
+          pinned?: boolean | null
           sort_order?: number
           updated_at?: string
           user_id?: string

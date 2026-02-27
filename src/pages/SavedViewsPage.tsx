@@ -27,15 +27,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Label } from "@/components/ui/label";
-import { Bookmark, Plus, Trash2, ExternalLink, Loader2, Pencil, Copy, GripVertical } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Bookmark, Plus, Trash2, ExternalLink, Loader2, Pencil, Copy, GripVertical, Users, Pin } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useToggleShared, useTogglePinned } from "@/hooks/useSavedViews";
 import { toast } from "sonner";
 
 interface ViewConfig {
@@ -54,10 +61,13 @@ interface ViewConfig {
 
 interface SavedView {
   id: string;
+  user_id: string;
   name: string;
   description: string | null;
   config: ViewConfig;
   sort_order: number;
+  is_shared: boolean;
+  pinned: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -84,12 +94,16 @@ const SLICE_OPTIONS = [
 ];
 
 const SavedViewsPage = () => {
-  const { user } = useAuth();
+  const { user, isBuilder, isEmployee } = useAuth();
   const { accounts, setSelectedAccountId } = useAccountContext();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  const toggleShared = useToggleShared();
+  const togglePinned = useTogglePinned();
+  const canShare = isBuilder || isEmployee;
 
   // Form state
   const [name, setName] = useState("");
@@ -101,7 +115,7 @@ const SavedViewsPage = () => {
   const [sliceBy, setSliceBy] = useState("ad_type");
   const [groupBy, setGroupBy] = useState("");
 
-  const { data: views = [], isLoading } = useQuery({
+  const { data: allViews = [], isLoading } = useQuery({
     queryKey: ["saved-views"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -113,6 +127,36 @@ const SavedViewsPage = () => {
     },
     enabled: !!user,
   });
+
+  // Fetch owner profiles for shared views
+  const sharedViewUserIds = useMemo(() => {
+    return [...new Set(allViews.filter(v => v.user_id !== user?.id).map(v => v.user_id))];
+  }, [allViews, user]);
+
+  const { data: ownerProfiles = [] } = useQuery({
+    queryKey: ["owner-profiles", sharedViewUserIds],
+    queryFn: async () => {
+      if (sharedViewUserIds.length === 0) return [];
+      const { data } = await supabase
+        .from("profiles")
+        .select("user_id, display_name, email")
+        .in("user_id", sharedViewUserIds);
+      return data || [];
+    },
+    enabled: sharedViewUserIds.length > 0,
+  });
+
+  const getOwnerName = (userId: string) => {
+    const profile = ownerProfiles.find((p: any) => p.user_id === userId);
+    return profile?.display_name || profile?.email?.split("@")[0] || "Team member";
+  };
+
+  // Split into own views and shared views
+  const myViews = useMemo(() => allViews.filter(v => v.user_id === user?.id), [allViews, user]);
+  const sharedViews = useMemo(() => allViews.filter(v => v.user_id !== user?.id && v.is_shared), [allViews, user]);
+
+  // Count pinned
+  const pinnedCount = useMemo(() => myViews.filter(v => v.pinned).length, [myViews]);
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -257,14 +301,14 @@ const SavedViewsPage = () => {
       setOverIdx(null);
       return;
     }
-    const reordered = [...views];
+    const reordered = [...myViews];
     const [moved] = reordered.splice(dragIdx, 1);
     reordered.splice(targetIdx, 0, moved);
     const newOrder = reordered.map((v, i) => ({ id: v.id, sort_order: i }));
     reorderMutation.mutate(newOrder);
     setDragIdx(null);
     setOverIdx(null);
-  }, [dragIdx, views, reorderMutation]);
+  }, [dragIdx, myViews, reorderMutation]);
 
   const handleDragEnd = useCallback(() => {
     setDragIdx(null);
@@ -318,7 +362,7 @@ const SavedViewsPage = () => {
       </div>
 
       <div className="flex items-center justify-between mb-6">
-        <p className="font-data text-[14px] font-medium text-sage">{views.length} saved view{views.length !== 1 ? "s" : ""}</p>
+        <p className="font-data text-[14px] font-medium text-sage">{myViews.length} saved view{myViews.length !== 1 ? "s" : ""}</p>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button size="sm" className="gap-1.5 bg-verdant text-white hover:bg-verdant/90">
@@ -431,85 +475,160 @@ const SavedViewsPage = () => {
         <div className="flex items-center justify-center py-20">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
-      ) : views.length === 0 ? (
-        <div className="glass-panel flex flex-col items-center justify-center py-16 text-center">
-          <Bookmark className="h-10 w-10 text-sage mb-3" />
-          <h3 className="font-heading text-[20px] text-forest mb-1">No saved views yet</h3>
-          <p className="font-body text-[14px] text-slate max-w-[400px]">Create views to quickly jump between different analysis configurations across Creatives and Analytics.</p>
-        </div>
       ) : (
-        <div className="divide-y divide-border-light">
-          {views.map((view, idx) => (
-            <div
-              key={view.id}
-              draggable
-              onDragStart={() => handleDragStart(idx)}
-              onDragOver={(e) => handleDragOver(e, idx)}
-              onDrop={() => handleDrop(idx)}
-              onDragEnd={handleDragEnd}
-              className={`py-4 px-1 flex items-center justify-between group ${
-                dragIdx === idx ? "opacity-50" : ""
-              } ${overIdx === idx && dragIdx !== idx ? "border-t-2 border-primary" : ""}`}
-            >
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <GripVertical className="h-4 w-4 text-muted-foreground/50 cursor-grab flex-shrink-0 hover:text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className="font-body text-[15px] font-semibold text-charcoal truncate cursor-pointer hover:underline" onDoubleClick={() => startEditing(view)}>{view.name}</span>
-                    <span className="font-label text-[10px] font-medium tracking-wide bg-sage-light text-forest rounded-[4px] px-2 py-0.5 flex-shrink-0">{getPageLabel(view.config.page)}</span>
-                    {view.config.account_id && (
-                      <span className="font-label text-[10px] font-medium tracking-wide bg-sage-light text-forest rounded-[4px] px-2 py-0.5 flex-shrink-0">
-                        {view.config.apply_account ? "→ " : ""}{getAccountName(view.config.account_id)}
-                      </span>
-                    )}
-                    {view.config.analytics_tab && (
-                      <span className="font-label text-[10px] font-medium tracking-wide bg-sage-light text-forest rounded-[4px] px-2 py-0.5 flex-shrink-0 capitalize">{view.config.analytics_tab}</span>
-                    )}
-                    {view.config.slice_by && (
-                      <span className="font-label text-[10px] font-medium tracking-wide bg-sage-light text-forest rounded-[4px] px-2 py-0.5 flex-shrink-0">Slice: {view.config.slice_by}</span>
-                    )}
-                    {view.config.group_by && (
-                      <span className="font-label text-[10px] font-medium tracking-wide bg-sage-light text-forest rounded-[4px] px-2 py-0.5 flex-shrink-0">Group: {view.config.group_by}</span>
-                    )}
-                  </div>
-                  {view.description && (
-                    <p className="font-body text-[12px] text-sage ml-5.5 truncate">{view.description}</p>
-                  )}
-                </div>
+        <>
+          {/* Shared with me section */}
+          {sharedViews.length > 0 && (
+            <div className="mb-8">
+              <div className="flex items-center gap-2 mb-3">
+                <Users className="h-4 w-4 text-sage" />
+                <h2 className="font-heading text-[18px] text-forest">Shared with me</h2>
+                <Badge variant="secondary" className="font-label text-[10px]">{sharedViews.length}</Badge>
               </div>
-              <div className="flex items-center gap-1.5 ml-4">
-                <button className="font-body text-[13px] font-medium text-verdant hover:underline px-2 py-1" onClick={() => applyView(view)}>
-                  Open
-                </button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-                  onClick={() => startEditing(view)}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-                  onClick={() => duplicateMutation.mutate(view)}
-                  disabled={duplicateMutation.isPending}
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                  onClick={() => setDeleteId(view.id)}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+              <div className="divide-y divide-border-light border border-border-light rounded-lg overflow-hidden">
+                {sharedViews.map((view) => (
+                  <div key={view.id} className="py-3 px-4 flex items-center justify-between group bg-sage-light/30">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                        <span className="font-body text-[15px] font-semibold text-charcoal truncate">{view.name}</span>
+                        <span className="font-label text-[10px] font-medium tracking-wide bg-sage-light text-forest rounded-[4px] px-2 py-0.5 flex-shrink-0">{getPageLabel(view.config.page)}</span>
+                        <span className="font-label text-[10px] text-sage">by {getOwnerName(view.user_id)}</span>
+                      </div>
+                      {view.description && (
+                        <p className="font-body text-[12px] text-sage truncate">{view.description}</p>
+                      )}
+                    </div>
+                    <button className="font-body text-[13px] font-medium text-verdant hover:underline px-2 py-1 ml-4" onClick={() => applyView(view)}>
+                      Open
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
-          ))}
-        </div>
+          )}
+
+          {/* My views */}
+          {myViews.length === 0 ? (
+            <div className="glass-panel flex flex-col items-center justify-center py-16 text-center">
+              <Bookmark className="h-10 w-10 text-sage mb-3" />
+              <h3 className="font-heading text-[20px] text-forest mb-1">No saved views yet</h3>
+              <p className="font-body text-[14px] text-slate max-w-[400px]">Create views to quickly jump between different analysis configurations across Creatives and Analytics.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border-light">
+              {myViews.map((view, idx) => (
+                <div
+                  key={view.id}
+                  draggable
+                  onDragStart={() => handleDragStart(idx)}
+                  onDragOver={(e) => handleDragOver(e, idx)}
+                  onDrop={() => handleDrop(idx)}
+                  onDragEnd={handleDragEnd}
+                  className={`py-4 px-1 flex items-center justify-between group ${
+                    dragIdx === idx ? "opacity-50" : ""
+                  } ${overIdx === idx && dragIdx !== idx ? "border-t-2 border-primary" : ""}`}
+                >
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <GripVertical className="h-4 w-4 text-muted-foreground/50 cursor-grab flex-shrink-0 hover:text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className="font-body text-[15px] font-semibold text-charcoal truncate cursor-pointer hover:underline" onDoubleClick={() => startEditing(view)}>{view.name}</span>
+                        <span className="font-label text-[10px] font-medium tracking-wide bg-sage-light text-forest rounded-[4px] px-2 py-0.5 flex-shrink-0">{getPageLabel(view.config.page)}</span>
+                        {view.config.account_id && (
+                          <span className="font-label text-[10px] font-medium tracking-wide bg-sage-light text-forest rounded-[4px] px-2 py-0.5 flex-shrink-0">
+                            {view.config.apply_account ? "→ " : ""}{getAccountName(view.config.account_id)}
+                          </span>
+                        )}
+                        {view.config.analytics_tab && (
+                          <span className="font-label text-[10px] font-medium tracking-wide bg-sage-light text-forest rounded-[4px] px-2 py-0.5 flex-shrink-0 capitalize">{view.config.analytics_tab}</span>
+                        )}
+                        {view.config.slice_by && (
+                          <span className="font-label text-[10px] font-medium tracking-wide bg-sage-light text-forest rounded-[4px] px-2 py-0.5 flex-shrink-0">Slice: {view.config.slice_by}</span>
+                        )}
+                        {view.config.group_by && (
+                          <span className="font-label text-[10px] font-medium tracking-wide bg-sage-light text-forest rounded-[4px] px-2 py-0.5 flex-shrink-0">Group: {view.config.group_by}</span>
+                        )}
+                        {view.is_shared && (
+                          <span className="font-label text-[10px] font-medium tracking-wide bg-verdant/10 text-verdant rounded-[4px] px-2 py-0.5 flex-shrink-0">Shared</span>
+                        )}
+                        {view.pinned && (
+                          <span className="font-label text-[10px] font-medium tracking-wide bg-gold/15 text-gold rounded-[4px] px-2 py-0.5 flex-shrink-0">Pinned</span>
+                        )}
+                      </div>
+                      {view.description && (
+                        <p className="font-body text-[12px] text-sage ml-5.5 truncate">{view.description}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 ml-4">
+                    <button className="font-body text-[13px] font-medium text-verdant hover:underline px-2 py-1" onClick={() => applyView(view)}>
+                      Open
+                    </button>
+                    {canShare && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className={`h-8 w-8 p-0 transition-opacity ${view.is_shared ? "text-verdant opacity-100" : "text-muted-foreground opacity-0 group-hover:opacity-100"}`}
+                            onClick={() => toggleShared.mutate({ id: view.id, is_shared: !view.is_shared })}
+                          >
+                            <Users className="h-3.5 w-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent className="text-xs">{view.is_shared ? "Unshare" : "Share with team"}</TooltipContent>
+                      </Tooltip>
+                    )}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={`h-8 w-8 p-0 transition-opacity ${view.pinned ? "text-gold opacity-100" : "text-muted-foreground opacity-0 group-hover:opacity-100"}`}
+                          onClick={() => {
+                            if (!view.pinned && pinnedCount >= 3) {
+                              toast.error("Maximum 3 pinned views");
+                              return;
+                            }
+                            togglePinned.mutate({ id: view.id, pinned: !view.pinned });
+                          }}
+                        >
+                          <Pin className="h-3.5 w-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent className="text-xs">{view.pinned ? "Unpin" : "Pin to Creatives"}</TooltipContent>
+                    </Tooltip>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => startEditing(view)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => duplicateMutation.mutate(view)}
+                      disabled={duplicateMutation.isPending}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => setDeleteId(view.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {/* Edit Modal */}
