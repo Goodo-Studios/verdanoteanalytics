@@ -737,6 +737,52 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     if (phase === 5 || phase === 6) {
       console.log("Phase 5: Finalizing...");
 
+      // ── Auto-tag untagged creatives from ad names ──
+      try {
+        const FORMAT_PATTERNS: [RegExp, string][] = [
+          [/\bugc\b/i, "UGC"], [/\bgfx\b|graphic/i, "Graphic"],
+          [/\bstatic\b|\bimg\b|\bimage\b/i, "Static Image"], [/\bvid\b|\bvideo\b/i, "Video"],
+          [/carousel/i, "Carousel"], [/\bdpa\b/i, "DPA"],
+        ];
+        const HOOK_PATTERNS: [RegExp, string][] = [
+          [/testimonial|review/i, "Testimonial"], [/unboxing/i, "Unboxing"],
+          [/comparison|\bvs\b|competitor/i, "Competitor Comparison"],
+          [/problem|pain/i, "Problem/Solution"], [/educational|\bedu\b|how\s*to/i, "Educational"],
+          [/founder|behind/i, "Founder Story"],
+        ];
+        const ANGLE_PATTERNS: [RegExp, string][] = [
+          [/sale|discount|%|\boff\b/i, "Offer/Discount"], [/\bfree\b/i, "Free Gift/Trial"],
+          [/too expensive|objection/i, "Objection Handling"],
+          [/social proof|reviews/i, "Social Proof"], [/benefit|results/i, "Benefits"],
+        ];
+
+        const { data: untagged } = await supabase
+          .from("creatives")
+          .select("ad_id, ad_name")
+          .eq("account_id", accountId)
+          .eq("tag_source", "untagged");
+
+        let autoTagged = 0;
+        for (const c of (untagged || [])) {
+          const tags: Record<string, string | null> = { ad_type: null, hook: null, theme: null };
+          for (const [re, val] of FORMAT_PATTERNS) { if (re.test(c.ad_name)) { tags.ad_type = val; break; } }
+          for (const [re, val] of HOOK_PATTERNS) { if (re.test(c.ad_name)) { tags.hook = val; break; } }
+          if (!tags.hook && /\bugc\b/i.test(c.ad_name)) tags.hook = "Social Proof";
+          for (const [re, val] of ANGLE_PATTERNS) { if (re.test(c.ad_name)) { tags.theme = val; break; } }
+          if (tags.ad_type || tags.hook || tags.theme) {
+            const update: Record<string, any> = { tag_source: "inferred" };
+            if (tags.ad_type) update.ad_type = tags.ad_type;
+            if (tags.hook) update.hook = tags.hook;
+            if (tags.theme) update.theme = tags.theme;
+            await supabase.from("creatives").update(update).eq("ad_id", c.ad_id);
+            autoTagged++;
+          }
+        }
+        if (autoTagged > 0) console.log(`  Auto-tagged ${autoTagged} creatives from ad names`);
+      } catch (autoErr) {
+        console.error("Auto-tag error (non-fatal):", autoErr);
+      }
+
       // Run both counts in parallel
       const [totalResult, untaggedResult] = await Promise.all([
         supabase.from("creatives").select("*", { count: "exact", head: true }).eq("account_id", accountId),

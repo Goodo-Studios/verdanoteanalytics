@@ -6,15 +6,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { CsvUploadModal } from "@/components/settings/CsvUploadModal";
 import { useAccountContext } from "@/contexts/AccountContext";
-import { useCreatives, useUpdateCreative, CREATIVES_PAGE_SIZE } from "@/hooks/useCreatives";
+import { useAuth } from "@/contexts/AuthContext";
+import { useCreatives, useUpdateCreative, CREATIVES_PAGE_SIZE, useAutoTagPreview, useAutoTagApply } from "@/hooks/useCreatives";
 import { useUploadMappings } from "@/hooks/useAccountsApi";
 import { TAG_OPTIONS_MAP } from "@/lib/tagOptions";
 import { toast } from "sonner";
 import {
-  Search, ChevronLeft, ChevronRight, Filter, Upload, LayoutGrid, Loader2, Save, X, Plus,
+  Search, ChevronLeft, ChevronRight, Filter, Upload, LayoutGrid, Loader2, Save, X, Plus, Wand2,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 
@@ -65,6 +67,7 @@ function EditableTagCell({
 
 const TaggingPage = () => {
   const { selectedAccountId, accounts } = useAccountContext();
+  const { isBuilder, isEmployee } = useAuth();
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState<string>("untagged");
@@ -75,6 +78,13 @@ const TaggingPage = () => {
   const [csvPreview, setCsvPreview] = useState<any[]>([]);
   const [csvMappings, setCsvMappings] = useState<any[]>([]);
   const uploadMappings = useUploadMappings();
+
+  // Auto-tag state
+  const [showAutoTagModal, setShowAutoTagModal] = useState(false);
+  const [autoTagPreviewData, setAutoTagPreviewData] = useState<any>(null);
+  const autoTagPreview = useAutoTagPreview();
+  const autoTagApply = useAutoTagApply();
+  const canAutoTag = (isBuilder || isEmployee) && selectedAccountId && selectedAccountId !== "all";
 
   // Build filters
   const filters: Record<string, string> = {};
@@ -170,7 +180,8 @@ const TaggingPage = () => {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <div className="flex items-center justify-between gap-4 flex-wrap">
-          <TabsList className="bg-transparent border-b border-border-light rounded-none p-0 h-auto gap-0">
+          <div className="flex items-center gap-4">
+            <TabsList className="bg-transparent border-b border-border-light rounded-none p-0 h-auto gap-0">
             <TabsTrigger
               value="manual"
               className="font-body text-[14px] font-medium text-slate data-[state=active]:text-forest data-[state=active]:font-semibold data-[state=active]:border-b-2 data-[state=active]:border-verdant data-[state=active]:shadow-none rounded-none px-4 py-2.5 bg-transparent"
@@ -183,8 +194,24 @@ const TaggingPage = () => {
             >
               CSV Upload
             </TabsTrigger>
-          </TabsList>
-
+            </TabsList>
+            {canAutoTag && activeTab === "manual" && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 font-body text-[13px]"
+                disabled={autoTagPreview.isPending}
+                onClick={async () => {
+                  const result = await autoTagPreview.mutateAsync(selectedAccountId!);
+                  setAutoTagPreviewData(result);
+                  setShowAutoTagModal(true);
+                }}
+              >
+                {autoTagPreview.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+                Auto-tag
+              </Button>
+            )}
+          </div>
           {activeTab === "manual" && dirtyIds.length > 0 && (
             <div className="flex items-center gap-2">
               <Badge variant="secondary" className="font-label text-[10px]">{dirtyIds.length} unsaved</Badge>
@@ -222,6 +249,7 @@ const TaggingPage = () => {
                 <SelectItem value="untagged" className="font-body text-[13px]">Untagged</SelectItem>
                 <SelectItem value="manual" className="font-body text-[13px]">Manual</SelectItem>
                 <SelectItem value="csv_match" className="font-body text-[13px]">CSV Match</SelectItem>
+                <SelectItem value="inferred" className="font-body text-[13px]">Inferred</SelectItem>
                 <SelectItem value="parsed" className="font-body text-[13px]">Parsed</SelectItem>
               </SelectContent>
             </Select>
@@ -350,6 +378,65 @@ const TaggingPage = () => {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Auto-tag preview modal */}
+      <Dialog open={showAutoTagModal} onOpenChange={setShowAutoTagModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-heading text-[20px] text-forest">Auto-tag Preview</DialogTitle>
+          </DialogHeader>
+          {autoTagPreviewData && (
+            <div className="space-y-4">
+              <p className="font-body text-[13px] text-slate">
+                Will auto-tag <span className="font-semibold text-charcoal">{autoTagPreviewData.count}</span> of{" "}
+                <span className="font-semibold text-charcoal">{autoTagPreviewData.total_untagged}</span> untagged creatives.
+              </p>
+              {autoTagPreviewData.count === 0 ? (
+                <p className="font-body text-[13px] text-sage">No ad names matched any known patterns.</p>
+              ) : (
+                <div className="border border-border rounded-lg overflow-auto max-h-60">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="font-label text-[10px] uppercase">Ad ID</TableHead>
+                        <TableHead className="font-label text-[10px] uppercase">Type</TableHead>
+                        <TableHead className="font-label text-[10px] uppercase">Hook</TableHead>
+                        <TableHead className="font-label text-[10px] uppercase">Angle</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(autoTagPreviewData.preview || []).map((p: any) => (
+                        <TableRow key={p.ad_id}>
+                          <TableCell className="font-body text-[11px] text-charcoal truncate max-w-[120px]">{p.ad_id}</TableCell>
+                          <TableCell className="font-body text-[11px]">{p.ad_type || "—"}</TableCell>
+                          <TableCell className="font-body text-[11px]">{p.hook || "—"}</TableCell>
+                          <TableCell className="font-body text-[11px]">{p.theme || "—"}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setShowAutoTagModal(false)}>Cancel</Button>
+            <Button
+              size="sm"
+              disabled={!autoTagPreviewData?.count || autoTagApply.isPending}
+              onClick={async () => {
+                await autoTagApply.mutateAsync(selectedAccountId!);
+                setShowAutoTagModal(false);
+                setAutoTagPreviewData(null);
+              }}
+              className="bg-verdant text-white hover:bg-verdant-light"
+            >
+              {autoTagApply.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Wand2 className="h-3 w-3 mr-1" />}
+              Apply {autoTagPreviewData?.count || 0} Tags
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <CsvUploadModal
         open={showCsvModal}
