@@ -45,6 +45,24 @@ export function useBulkUntag() {
   });
 }
 
+export function useAutoTagPreview() {
+  return useMutationWithToast({
+    mutationFn: (accountId: string) =>
+      apiFetch("creatives", "auto-tag", { method: "POST", body: JSON.stringify({ account_id: accountId, dry_run: true }) }),
+    errorMessage: "Failed to preview auto-tags",
+  });
+}
+
+export function useAutoTagApply() {
+  return useMutationWithToast({
+    mutationFn: (accountId: string) =>
+      apiFetch("creatives", "auto-tag", { method: "POST", body: JSON.stringify({ account_id: accountId }) }),
+    invalidateKeys: [["creatives"], ["accounts"]],
+    successMessage: (data: any) => `Auto-tagged ${data.applied} creatives`,
+    errorMessage: "Failed to apply auto-tags",
+  });
+}
+
 export function useAnalyzeCreative() {
   return useMutationWithToast({
     mutationFn: (adId: string) =>

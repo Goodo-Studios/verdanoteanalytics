@@ -378,6 +378,82 @@ serve(async (req) => {
       return new Response(JSON.stringify({ success: true, count: ad_ids.length }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // POST /creatives/auto-tag — infer tags from ad names for untagged creatives
+    if (req.method === "POST" && path === "auto-tag") {
+      const { account_id, dry_run } = await req.json();
+      if (!account_id) {
+        return new Response(JSON.stringify({ error: "account_id required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Fetch untagged creatives (tag_source = 'untagged')
+      const { data: untagged, error: fetchErr } = await supabase
+        .from("creatives")
+        .select("ad_id, ad_name")
+        .eq("account_id", account_id)
+        .eq("tag_source", "untagged");
+      if (fetchErr) throw fetchErr;
+
+      // Auto-tag inference patterns
+      const FORMAT_PATTERNS: [RegExp, string][] = [
+        [/\bugc\b/i, "UGC"], [/\bgfx\b|graphic/i, "Graphic"],
+        [/\bstatic\b|\bimg\b|\bimage\b/i, "Static Image"], [/\bvid\b|\bvideo\b/i, "Video"],
+        [/carousel/i, "Carousel"], [/\bdpa\b/i, "DPA"],
+      ];
+      const HOOK_PATTERNS: [RegExp, string][] = [
+        [/testimonial|review/i, "Testimonial"], [/unboxing/i, "Unboxing"],
+        [/comparison|\bvs\b|competitor/i, "Competitor Comparison"],
+        [/problem|pain/i, "Problem/Solution"], [/educational|\bedu\b|how\s*to/i, "Educational"],
+        [/founder|behind/i, "Founder Story"],
+      ];
+      const ANGLE_PATTERNS: [RegExp, string][] = [
+        [/sale|discount|%|\boff\b/i, "Offer/Discount"], [/\bfree\b/i, "Free Gift/Trial"],
+        [/too expensive|objection/i, "Objection Handling"],
+        [/social proof|reviews/i, "Social Proof"], [/benefit|results/i, "Benefits"],
+      ];
+
+      function inferFromName(name: string) {
+        const tags: Record<string, string | null> = { ad_type: null, hook: null, theme: null };
+        for (const [re, val] of FORMAT_PATTERNS) { if (re.test(name)) { tags.ad_type = val; break; } }
+        for (const [re, val] of HOOK_PATTERNS) { if (re.test(name)) { tags.hook = val; break; } }
+        if (!tags.hook && /\bugc\b/i.test(name)) tags.hook = "Social Proof";
+        for (const [re, val] of ANGLE_PATTERNS) { if (re.test(name)) { tags.theme = val; break; } }
+        return tags;
+      }
+
+      const taggable: { ad_id: string; tags: Record<string, string | null> }[] = [];
+      for (const c of (untagged || [])) {
+        const tags = inferFromName(c.ad_name);
+        if (tags.ad_type || tags.hook || tags.theme) {
+          taggable.push({ ad_id: c.ad_id, tags });
+        }
+      }
+
+      if (dry_run) {
+        return new Response(JSON.stringify({ count: taggable.length, total_untagged: (untagged || []).length, preview: taggable.slice(0, 20).map(t => ({ ad_id: t.ad_id, ...t.tags })) }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Apply tags
+      let applied = 0;
+      for (const item of taggable) {
+        const update: Record<string, any> = { tag_source: "inferred" };
+        if (item.tags.ad_type) update.ad_type = item.tags.ad_type;
+        if (item.tags.hook) update.hook = item.tags.hook;
+        if (item.tags.theme) update.theme = item.tags.theme;
+        const { error: upErr } = await supabase.from("creatives").update(update).eq("ad_id", item.ad_id);
+        if (!upErr) applied++;
+      }
+
+      // Update untagged count
+      const { count } = await supabase.from("creatives").select("*", { count: "exact", head: true }).eq("account_id", account_id).eq("tag_source", "untagged");
+      await supabase.from("ad_accounts").update({ untagged_count: count || 0 }).eq("id", account_id);
+
+      return new Response(JSON.stringify({ success: true, applied, total_untagged: (untagged || []).length }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
     console.error("Creatives error:", e);
