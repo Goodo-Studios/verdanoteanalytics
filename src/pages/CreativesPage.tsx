@@ -5,6 +5,7 @@ import { CreativeDetailModal } from "@/components/CreativeDetailModal";
 import { OnboardingBanner } from "@/components/OnboardingBanner";
 import { CreativesTable } from "@/components/creatives/CreativesTable";
 import { CreativesCardGrid } from "@/components/creatives/CreativesCardGrid";
+import { CreativesTimeline } from "@/components/creatives/CreativesTimeline";
 import { CreativesGroupTable } from "@/components/creatives/CreativesGroupTable";
 import { ConceptsGrid } from "@/components/creatives/ConceptsGrid";
 import { CreativesFilters } from "@/components/creatives/CreativesFilters";
@@ -14,7 +15,7 @@ import { ColumnPicker } from "@/components/ColumnPicker";
 import { SaveViewButton } from "@/components/SaveViewButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { RefreshCw, LayoutGrid, List, Loader2, Download, Search, X, Columns, Layers, Bookmark } from "lucide-react";
+import { RefreshCw, LayoutGrid, List, Loader2, Download, Search, X, Columns, Layers, Bookmark, CalendarDays } from "lucide-react";
 import { useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
@@ -174,7 +175,10 @@ const CreativesPage = () => {
             {!conceptView && (
               <div className="flex border border-border rounded-md">
                 <Button variant={viewMode === "card" ? "secondary" : "ghost"} size="sm" className="rounded-r-none px-2.5" onClick={() => setViewMode("card")}><LayoutGrid className="h-3.5 w-3.5" /></Button>
-                <Button variant={viewMode === "table" ? "secondary" : "ghost"} size="sm" className="rounded-l-none px-2.5" onClick={() => setViewMode("table")}><List className="h-3.5 w-3.5" /></Button>
+                <Button variant={viewMode === "table" ? "secondary" : "ghost"} size="sm" className="px-2.5 rounded-none border-x border-border" onClick={() => setViewMode("table")}><List className="h-3.5 w-3.5" /></Button>
+                {selectedAccountId && selectedAccountId !== "all" && (
+                  <Button variant={viewMode === "timeline" ? "secondary" : "ghost"} size="sm" className="rounded-l-none px-2.5" onClick={() => setViewMode("timeline")}><CalendarDays className="h-3.5 w-3.5" /></Button>
+                )}
               </div>
             )}
             <Button
@@ -298,6 +302,12 @@ const CreativesPage = () => {
         <ConceptsGrid creatives={sortedCreatives} gradeMap={gradeMap} />
       ) : groupBy !== "__none__" && groupedData ? (
         <CreativesGroupTable groupBy={groupBy} data={groupedData} />
+      ) : viewMode === "timeline" && selectedAccountId && selectedAccountId !== "all" ? (
+        <CreativesTimeline
+          creatives={sortedCreatives}
+          gradeMap={gradeMap}
+          onSelect={(c: any) => setSelectedCreativeId(c.ad_id)}
+        />
       ) : viewMode === "table" ? (
         <CreativesTable
           creatives={sortedCreatives} visibleCols={visibleCols} columnOrder={columnOrder}
