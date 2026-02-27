@@ -6,6 +6,7 @@ import { OnboardingBanner } from "@/components/OnboardingBanner";
 import { CreativesTable } from "@/components/creatives/CreativesTable";
 import { CreativesCardGrid } from "@/components/creatives/CreativesCardGrid";
 import { CreativesGroupTable } from "@/components/creatives/CreativesGroupTable";
+import { ConceptsGrid } from "@/components/creatives/ConceptsGrid";
 import { CreativesFilters } from "@/components/creatives/CreativesFilters";
 import { CreativesPagination } from "@/components/creatives/CreativesPagination";
 import { TABLE_COLUMNS, SORT_FIELD_MAP } from "@/components/creatives/constants";
@@ -13,7 +14,7 @@ import { ColumnPicker } from "@/components/ColumnPicker";
 import { SaveViewButton } from "@/components/SaveViewButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { RefreshCw, LayoutGrid, List, Loader2, Download, Search, X, Columns } from "lucide-react";
+import { RefreshCw, LayoutGrid, List, Loader2, Download, Search, X, Columns, Layers } from "lucide-react";
 import { useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
@@ -38,6 +39,9 @@ const CreativesPage = () => {
     sort, handleSort, page, setPage, searchInput, setSearchInput, search,
     selectedAccountId, allFilters,
   } = state;
+
+  // View mode: ads vs concepts
+  const [conceptView, setConceptView] = useState(false);
 
   // Compare mode
   const [compareMode, setCompareMode] = useState(false);
@@ -124,9 +128,15 @@ const CreativesPage = () => {
         actions={
           <div className="flex items-center gap-2">
             <div className="flex border border-border rounded-md">
-              <Button variant={viewMode === "card" ? "secondary" : "ghost"} size="sm" className="rounded-r-none px-2.5" onClick={() => setViewMode("card")}><LayoutGrid className="h-3.5 w-3.5" /></Button>
-              <Button variant={viewMode === "table" ? "secondary" : "ghost"} size="sm" className="rounded-l-none px-2.5" onClick={() => setViewMode("table")}><List className="h-3.5 w-3.5" /></Button>
+              <Button variant={!conceptView ? "secondary" : "ghost"} size="sm" className="rounded-r-none px-2.5 gap-1.5" onClick={() => setConceptView(false)}><List className="h-3.5 w-3.5" />Ads</Button>
+              <Button variant={conceptView ? "secondary" : "ghost"} size="sm" className="rounded-l-none px-2.5 gap-1.5" onClick={() => setConceptView(true)}><Layers className="h-3.5 w-3.5" />Concepts</Button>
             </div>
+            {!conceptView && (
+              <div className="flex border border-border rounded-md">
+                <Button variant={viewMode === "card" ? "secondary" : "ghost"} size="sm" className="rounded-r-none px-2.5" onClick={() => setViewMode("card")}><LayoutGrid className="h-3.5 w-3.5" /></Button>
+                <Button variant={viewMode === "table" ? "secondary" : "ghost"} size="sm" className="rounded-l-none px-2.5" onClick={() => setViewMode("table")}><List className="h-3.5 w-3.5" /></Button>
+              </div>
+            )}
             <Button
               size="sm"
               variant={compareMode ? "default" : "outline"}
@@ -214,6 +224,8 @@ const CreativesPage = () => {
           <h3 className="font-heading text-[20px] text-forest mb-1">No creatives yet</h3>
           <p className="font-body text-[14px] text-slate max-w-md">Add a Meta ad account in the Accounts tab and sync to pull in your creatives.</p>
         </div>
+      ) : conceptView ? (
+        <ConceptsGrid creatives={sortedCreatives} />
       ) : groupBy !== "__none__" && groupedData ? (
         <CreativesGroupTable groupBy={groupBy} data={groupedData} />
       ) : viewMode === "table" ? (
