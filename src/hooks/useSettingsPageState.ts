@@ -53,7 +53,9 @@ export function useSettingsPageState() {
   const [creativePrompt, setCreativePrompt] = useState("");
   const [insightsPrompt, setInsightsPrompt] = useState("");
   const [initialized, setInitialized] = useState<string | null>(null);
-
+  const [targetRoas, setTargetRoas] = useState("");
+  const [targetCpa, setTargetCpa] = useState("");
+  const [targetMonthlySpend, setTargetMonthlySpend] = useState("");
   // Global cooldown setting (from settings table, not per-account)
   const [syncCooldownMinutes, setSyncCooldownMinutes] = useState(() => {
     if (!globalSettings) return "0";
@@ -78,6 +80,9 @@ export function useSettingsPageState() {
     setCompanyPdfUrl((account as any).company_pdf_url || null);
     setCreativePrompt((account as any).creative_analysis_prompt || DEFAULT_CREATIVE_PROMPT);
     setInsightsPrompt((account as any).insights_prompt || DEFAULT_INSIGHTS_PROMPT);
+    setTargetRoas((account as any).target_roas != null ? String((account as any).target_roas) : "");
+    setTargetCpa((account as any).target_cpa != null ? String((account as any).target_cpa) : "");
+    setTargetMonthlySpend((account as any).target_monthly_spend != null ? String((account as any).target_monthly_spend) : "");
     setInitialized(account.id);
   }
 
@@ -103,8 +108,11 @@ export function useSettingsPageState() {
       secondary_kpis: secondaryKpis || null,
       creative_analysis_prompt: creativePrompt === DEFAULT_CREATIVE_PROMPT ? null : creativePrompt || null,
       insights_prompt: insightsPrompt === DEFAULT_INSIGHTS_PROMPT ? null : insightsPrompt || null,
+      target_roas: targetRoas ? parseFloat(targetRoas) : null,
+      target_cpa: targetCpa ? parseFloat(targetCpa) : null,
+      target_monthly_spend: targetMonthlySpend ? parseFloat(targetMonthlySpend) : null,
     });
-  }, [account, dateRange, roasThreshold, spendThreshold, winnerKpi, winnerKpiDirection, winnerKpiThreshold, scaleThreshold, killThreshold, killScaleKpi, killScaleKpiDirection, primaryKpi, secondaryKpis, creativePrompt, insightsPrompt, updateAccountSettings]);
+  }, [account, dateRange, roasThreshold, spendThreshold, winnerKpi, winnerKpiDirection, winnerKpiThreshold, scaleThreshold, killThreshold, killScaleKpi, killScaleKpiDirection, primaryKpi, secondaryKpis, creativePrompt, insightsPrompt, targetRoas, targetCpa, targetMonthlySpend, updateAccountSettings]);
 
   const handleApplyToAll = useCallback(() => {
     (accounts || []).forEach((acc: any) => {
@@ -191,6 +199,7 @@ export function useSettingsPageState() {
     companyPdfUrl, setCompanyPdfUrl,
     creativePrompt, setCreativePrompt, insightsPrompt, setInsightsPrompt,
     syncCooldownMinutes, setSyncCooldownMinutes,
+    targetRoas, setTargetRoas, targetCpa, setTargetCpa, targetMonthlySpend, setTargetMonthlySpend,
     // Handlers
     handleSave, handleApplyToAll, handleSaveCooldown,
     applyingPrompts, applyProgress, handleApplyPromptsToAll,

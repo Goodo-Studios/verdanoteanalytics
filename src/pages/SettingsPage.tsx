@@ -108,6 +108,9 @@ const SettingsPage = () => {
           onSaveCooldown={s.handleSaveCooldown}
           onSave={s.handleSave} onApplyToAll={s.handleApplyToAll}
           saving={s.updateAccountSettings.isPending} showApplyAll={s.accounts.length > 1}
+          targetRoas={s.targetRoas} setTargetRoas={s.setTargetRoas}
+          targetCpa={s.targetCpa} setTargetCpa={s.setTargetCpa}
+          targetMonthlySpend={s.targetMonthlySpend} setTargetMonthlySpend={s.setTargetMonthlySpend}
         />
 
         <SyncHistorySection accountId={s.account.id} />
