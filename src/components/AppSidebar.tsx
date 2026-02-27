@@ -12,7 +12,7 @@ import {
   Eye,
   Sparkles,
   Users,
-  Handshake,
+  Share2,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
@@ -32,7 +32,7 @@ const baseNavItems = [
   { title: "Overview", url: "/", icon: LayoutGrid },
   { title: "Creatives", url: "/creatives", icon: Zap },
   { title: "Creators", url: "/creators", icon: Users },
-  { title: "Whitelisting", url: "/whitelisting", icon: Handshake },
+  { title: "Whitelisting", url: "/whitelisting", icon: Share2 },
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Tagging", url: "/tagging", icon: Tags },
   { title: "Reports", url: "/reports", icon: FileText },
