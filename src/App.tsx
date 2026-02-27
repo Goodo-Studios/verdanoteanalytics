@@ -18,6 +18,7 @@ import CreatorsPage from "./pages/CreatorsPage";
 import ReportsPage from "./pages/ReportsPage";
 import ClientReportsPage from "./pages/ClientReportsPage";
 import ReportDetailPage from "./pages/ReportDetailPage";
+import ReportBuilderPage from "./pages/ReportBuilderPage";
 import PublicReportPage from "./pages/PublicReportPage";
 import PortfolioPage from "./pages/PortfolioPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -60,6 +61,7 @@ function ProtectedRoutes() {
         <Route path="/creators" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <CreatorsPage />} />
         <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : isEditor ? <ClientReportsPage /> : <ReportsPage />} />
         <Route path="/reports/:id" element={<ReportDetailPage />} />
+        <Route path="/reports/:id/build" element={<ReportBuilderPage />} />
         <Route path="/settings" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <SettingsPage />} />
         <Route path="/user-settings" element={<UserSettingsPage />} />
         <Route path="/saved-views" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <SavedViewsPage />} />
