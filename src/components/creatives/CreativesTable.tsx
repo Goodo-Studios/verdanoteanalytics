@@ -8,7 +8,7 @@ import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { InlineTagSelect } from "@/components/InlineTagSelect";
 import { Checkbox } from "@/components/ui/checkbox";
 import { LayoutGrid } from "lucide-react";
-import { HEAD_LABELS, NUMERIC_COLS, fmt, CELL_CONFIG } from "./constants";
+import { HEAD_LABELS, NUMERIC_COLS, fmt, CELL_CONFIG, MOBILE_HIDDEN_COLS } from "./constants";
 import { useCachedMedia } from "@/hooks/useCachedMedia";
 import { cn } from "@/lib/utils";
 import { RoasTrendArrow } from "./RoasTrendArrow";
@@ -62,16 +62,17 @@ function CreativeCell({ c }: { c: any }) {
 }
 
 function renderCell(c: any, key: string, wowTrends?: Map<string, WoWTrend>, gradeMap?: Map<string, GradeInfo>) {
+  const mobileHide = MOBILE_HIDDEN_COLS.has(key) ? "hidden sm:table-cell" : "";
   // Special cells
   if (key === "creative") return <TableCell key={key}><CreativeCell c={c} /></TableCell>;
   if (key === "grade") {
     const gi = gradeMap?.get(c.ad_id);
-    return <TableCell key={key} className="text-center">{gi ? <GradeBadge grade={gi.grade} /> : <span className="text-muted-foreground text-xs">—</span>}</TableCell>;
+    return <TableCell key={key} className={`text-center ${mobileHide}`}>{gi ? <GradeBadge grade={gi.grade} /> : <span className="text-muted-foreground text-xs">—</span>}</TableCell>;
   }
-  if (key === "tags") return <TableCell key={key}><TagSourceBadge source={c.tag_source} /></TableCell>;
+  if (key === "tags") return <TableCell key={key} className={mobileHide}><TagSourceBadge source={c.tag_source} /></TableCell>;
   if (key in TAG_SELECT_FIELDS) {
     const field = TAG_SELECT_FIELDS[key];
-    return <TableCell key={key}><InlineTagSelect adId={c.ad_id} field={field} currentValue={c[field]} /></TableCell>;
+    return <TableCell key={key} className={mobileHide}><InlineTagSelect adId={c.ad_id} field={field} currentValue={c[field]} /></TableCell>;
   }
 
   // Data-driven cells from config
@@ -81,7 +82,7 @@ function renderCell(c: any, key: string, wowTrends?: Map<string, WoWTrend>, grad
     if (cfg.format) {
       const isRoas = cfg.field === "roas";
       return (
-        <TableCell key={key} className="text-right font-data text-[13px] font-medium text-charcoal tabular-nums">
+        <TableCell key={key} className={`text-right font-data text-[13px] font-medium text-charcoal tabular-nums ${mobileHide}`}>
           <span className="inline-flex items-center gap-0.5 justify-end">
             {fmt(value, cfg.format.prefix, cfg.format.suffix, cfg.format.decimals)}
             {isRoas && <RoasTrendArrow trend={wowTrends?.get(c.ad_id)} />}
@@ -89,7 +90,7 @@ function renderCell(c: any, key: string, wowTrends?: Map<string, WoWTrend>, grad
         </TableCell>
       );
     }
-    return <TableCell key={key} className={`text-xs ${cfg.truncate ? "truncate max-w-[150px]" : ""}`}>{value || "—"}</TableCell>;
+    return <TableCell key={key} className={`text-xs ${cfg.truncate ? "truncate max-w-[150px]" : ""} ${mobileHide}`}>{value || "—"}</TableCell>;
   }
 
   return null;
@@ -122,7 +123,8 @@ export function CreativesTable({
 
   const renderHead = (key: string) => {
     if (!visibleCols.has(key)) return null;
-    if (key === "tags") return <TableHead key={key} className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold">Tags</TableHead>;
+    const mobileHide = MOBILE_HIDDEN_COLS.has(key) ? "hidden sm:table-cell" : "";
+    if (key === "tags") return <TableHead key={key} className={`font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold ${mobileHide}`}>Tags</TableHead>;
     return (
       <SortableTableHead
         key={key}
@@ -130,7 +132,7 @@ export function CreativesTable({
         sortKey={key}
         currentSort={sort}
         onSort={onSort}
-        className={NUMERIC_COLS.has(key) ? "text-right" : ""}
+        className={`${NUMERIC_COLS.has(key) ? "text-right" : ""} ${mobileHide}`}
         draggable
         onDragStart={setDragSourceKey}
         onDragOver={(_e: React.DragEvent, k: string) => setDragTargetKey(k)}
@@ -141,8 +143,8 @@ export function CreativesTable({
   };
 
   return (
-    <div className="glass-panel overflow-hidden">
-      <Table>
+    <div className="glass-panel overflow-x-auto -mx-4 sm:mx-0">
+      <Table className="min-w-[700px]">
         <TableHeader>
          <TableRow className="bg-cream-dark">
             {bulkMode && !compareMode && (
