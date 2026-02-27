@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { SectionRenderer } from "@/components/reports/SectionRenderer";
 import { ReportSection } from "@/lib/reportSections";
+import { PortfolioReportView } from "@/components/reports/PortfolioReportView";
 
 function usePublicReport(id: string | undefined) {
   return useQuery({
@@ -106,8 +107,10 @@ const PublicReportPage = () => {
           </p>
         </div>
 
-        {/* Section-based or legacy content */}
-        {report.sections && Array.isArray(report.sections) && report.sections.length > 0 ? (
+        {/* Portfolio or section-based or legacy content */}
+        {(report as any).report_type === "portfolio" ? (
+          <PortfolioReportView report={report} />
+        ) : report.sections && Array.isArray(report.sections) && report.sections.length > 0 ? (
           <div className="space-y-6">
             {(report.sections as unknown as ReportSection[]).map((section: ReportSection) => (
               <SectionRenderer key={section.id} section={section} report={report} />

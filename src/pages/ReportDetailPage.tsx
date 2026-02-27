@@ -9,6 +9,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useMemo, useState } from "react";
 import { SectionRenderer } from "@/components/reports/SectionRenderer";
 import { legacySectionsFromReport, ReportSection } from "@/lib/reportSections";
+import { PortfolioReportView } from "@/components/reports/PortfolioReportView";
 import { CreativeDetailModal } from "@/components/CreativeDetailModal";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -90,6 +91,7 @@ const ReportDetailPage = () => {
   }
 
   const prev = previousReport;
+  const isPortfolio = report.report_type === "portfolio";
   const hasSections = report.sections && Array.isArray(report.sections) && report.sections.length > 0;
   const topPerformers = (() => { try { return JSON.parse(report.top_performers || "[]"); } catch { return []; } })();
   const iterationSuggestions = (() => { try { return JSON.parse(report.iteration_suggestions || "[]"); } catch { return []; } })();
@@ -155,8 +157,10 @@ const ReportDetailPage = () => {
           </p>
         )}
 
-        {/* Section-based content (if sections exist) */}
-        {hasSections ? (
+        {/* Portfolio report view */}
+        {isPortfolio ? (
+          <PortfolioReportView report={report} />
+        ) : hasSections ? (
           <div className="space-y-6">
             {(report.sections as ReportSection[]).map((section: ReportSection) => (
               <SectionRenderer key={section.id} section={section} report={report} />
