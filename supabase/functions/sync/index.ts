@@ -44,19 +44,25 @@ async function metaFetch(
           continue;
         }
         if (json.error.message?.includes("reduce the amount of data")) {
-          console.log("Meta asked to reduce data volume");
-          ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: "Reduce data request" });
-          const reducedUrl = url.replace(/limit=\d+/, (match) => {
-            const currentLimit = parseInt(match.split("=")[1]);
-            const newLimit = Math.max(10, Math.floor(currentLimit / 2));
-            return `limit=${newLimit}`;
-          });
-          if (reducedUrl !== url) {
+          // Meta wants smaller pages — retry with progressively halved limits until we get data or hit minimum
+          console.log("Meta asked to reduce data volume — retrying with smaller page size");
+          ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: "Reduce data request — retrying with smaller page" });
+          let currentLimit = parseInt((url.match(/limit=(\d+)/) || [])[1] || "200");
+          let reducedUrl = url;
+          for (let attempt = 0; attempt < 4; attempt++) {
+            currentLimit = Math.max(10, Math.floor(currentLimit / 2));
+            reducedUrl = url.replace(/limit=\d+/, `limit=${currentLimit}`);
+            console.log(`  Reduce attempt ${attempt + 1}: limit=${currentLimit}`);
             ctx.metaApiCalls++;
+            await new Promise(r => setTimeout(r, 500));
             const retryResp = await fetch(reducedUrl);
             const retryJson = await retryResp.json();
             if (!retryJson.error) {
               return { data: retryJson.data || [], next: retryJson.paging?.next || null, error: false, rateLimited: false };
+            }
+            if (!retryJson.error?.message?.includes("reduce the amount of data")) {
+              // Different error — stop retrying
+              break;
             }
           }
           return { data: null, next: null, error: true, rateLimited: false };
