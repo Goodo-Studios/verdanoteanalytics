@@ -324,6 +324,36 @@ export type Database = {
           },
         ]
       }
+      competitors: {
+        Row: {
+          account_id: string
+          brand_name: string
+          created_at: string | null
+          facebook_page_id: string | null
+          facebook_page_name: string | null
+          id: string
+          notes: string | null
+        }
+        Insert: {
+          account_id: string
+          brand_name: string
+          created_at?: string | null
+          facebook_page_id?: string | null
+          facebook_page_name?: string | null
+          id?: string
+          notes?: string | null
+        }
+        Update: {
+          account_id?: string
+          brand_name?: string
+          created_at?: string | null
+          facebook_page_id?: string | null
+          facebook_page_name?: string | null
+          id?: string
+          notes?: string | null
+        }
+        Relationships: []
+      }
       creative_daily_metrics: {
         Row: {
           account_id: string
