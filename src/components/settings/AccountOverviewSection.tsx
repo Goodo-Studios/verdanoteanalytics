@@ -6,7 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Loader2, RefreshCw, Clock, Upload, Pencil, Image } from "lucide-react";
+import { Loader2, RefreshCw, Clock, Upload, Pencil, Image, Sparkles } from "lucide-react";
 
 interface AccountOverviewSectionProps {
   account: any;
@@ -17,10 +17,12 @@ interface AccountOverviewSectionProps {
   onToggle: (checked: boolean) => void;
   onRefreshMedia?: () => void;
   refreshMediaPending?: boolean;
+  onAIBrief?: () => void;
+  showAIBrief?: boolean;
 }
 
 export function AccountOverviewSection({
-  account, onRename, onSync, syncPending, onUploadCsv, onToggle, onRefreshMedia, refreshMediaPending,
+  account, onRename, onSync, syncPending, onUploadCsv, onToggle, onRefreshMedia, refreshMediaPending, onAIBrief, showAIBrief,
 }: AccountOverviewSectionProps) {
   const formatDate = (d: string | null) => {
     if (!d) return "Never";
@@ -51,6 +53,12 @@ export function AccountOverviewSection({
             <Button size="sm" variant="secondary" onClick={onRefreshMedia} disabled={refreshMediaPending}>
               {refreshMediaPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Image className="h-3.5 w-3.5 mr-1.5" />}
               Refresh Media
+            </Button>
+          )}
+          {showAIBrief && onAIBrief && (
+            <Button size="sm" variant="secondary" onClick={onAIBrief}>
+              <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+              AI Brief
             </Button>
           )}
         </div>
