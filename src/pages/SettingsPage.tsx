@@ -11,6 +11,7 @@ import { RenameAccountModal } from "@/components/settings/RenameAccountModal";
 import { CsvUploadModal } from "@/components/settings/CsvUploadModal";
 import { AIBriefModal } from "@/components/settings/AIBriefModal";
 import { WeeklyRetroModal } from "@/components/settings/WeeklyRetroModal";
+import { DataHealthSection } from "@/components/settings/DataHealthSection";
 import { useSettingsPageState } from "@/hooks/useSettingsPageState";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
@@ -44,6 +45,11 @@ const SettingsPage = () => {
               </div>
             </div>
           </div>
+          {isBuilder && (
+            <div className="max-w-4xl mt-8">
+              <DataHealthSection />
+            </div>
+          )}
         </AppLayout>
       );
     }
