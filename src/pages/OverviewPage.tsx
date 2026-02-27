@@ -1,6 +1,8 @@
 import { AppLayout } from "@/components/AppLayout";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { GoalsBar } from "@/components/GoalsBar";
+import { SpendPacingWidget } from "@/components/overview/SpendPacingWidget";
+import { useMtdSpend } from "@/hooks/useMtdSpend";
 import { MetricCard } from "@/components/MetricCard";
 import { AccountHealthScore } from "@/components/AccountHealthScore";
 import { Button } from "@/components/ui/button";
@@ -76,6 +78,7 @@ const OverviewPage = () => {
   const isSingleAccount = selectedAccountId && selectedAccountId !== "all";
   const showHealthScore = isSingleAccount && canEdit && !isLoading && creatives.length > 0;
   const { data: wowTrends } = useWoWTrends(isSingleAccount ? selectedAccountId : undefined);
+  const { data: mtdSpend = 0 } = useMtdSpend(isSingleAccount ? selectedAccountId : undefined);
 
   const subtitle = [
     dateFrom && dateTo ? `${dateFrom} → ${dateTo}` : "All time",
@@ -97,7 +100,12 @@ const OverviewPage = () => {
           </div>
         );
       case "goals":
-        return !isLoading && selectedAccount ? <GoalsBar account={selectedAccount} metrics={metrics} /> : null;
+        return !isLoading && selectedAccount ? (
+          <div className="space-y-4">
+            <GoalsBar account={selectedAccount} metrics={metrics} />
+            <SpendPacingWidget account={selectedAccount} mtdSpend={mtdSpend} />
+          </div>
+        ) : null;
       case "insights":
         return !isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -1,5 +1,7 @@
 import { AppLayout } from "@/components/AppLayout";
 import { GoalsBar } from "@/components/GoalsBar";
+import { SpendPacingWidget } from "@/components/overview/SpendPacingWidget";
+import { useMtdSpend } from "@/hooks/useMtdSpend";
 import { useOverviewPageState } from "@/hooks/useOverviewPageState";
 import { usePerformanceStory } from "@/hooks/usePerformanceStory";
 import { useDailyTrends } from "@/hooks/useDailyTrends";
@@ -79,6 +81,9 @@ const ClientOverviewPage = () => {
     selectedAccountId && selectedAccountId !== "all" ? selectedAccountId : undefined
   );
   const { data: dailyTrends } = useDailyTrends(
+    selectedAccountId && selectedAccountId !== "all" ? selectedAccountId : undefined
+  );
+  const { data: mtdSpend = 0 } = useMtdSpend(
     selectedAccountId && selectedAccountId !== "all" ? selectedAccountId : undefined
   );
 
@@ -214,9 +219,12 @@ const ClientOverviewPage = () => {
           </div>
         )}
 
-        {/* Goals Bar */}
+        {/* Goals Bar & Pacing */}
         {!isLoading && selectedAccount && (
-          <GoalsBar account={selectedAccount} metrics={metrics} />
+          <div className="space-y-4">
+            <GoalsBar account={selectedAccount} metrics={metrics} />
+            <SpendPacingWidget account={selectedAccount} mtdSpend={mtdSpend} />
+          </div>
         )}
 
         {/* 2. INSIGHTS FEED — client only */}
