@@ -441,6 +441,7 @@ export type Database = {
           purchases: number | null
           result_type: string | null
           roas: number | null
+          scheduled_launch_date: string | null
           spend: number | null
           style: string | null
           tag_source: string
@@ -489,6 +490,7 @@ export type Database = {
           purchases?: number | null
           result_type?: string | null
           roas?: number | null
+          scheduled_launch_date?: string | null
           spend?: number | null
           style?: string | null
           tag_source?: string
@@ -537,6 +539,7 @@ export type Database = {
           purchases?: number | null
           result_type?: string | null
           roas?: number | null
+          scheduled_launch_date?: string | null
           spend?: number | null
           style?: string | null
           tag_source?: string
