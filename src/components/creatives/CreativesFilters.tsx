@@ -15,7 +15,7 @@ interface CreativesFiltersProps {
   filterOptions: any;
   groupBy: string;
   setGroupBy: (v: string) => void;
-  viewMode: "table" | "card";
+  viewMode: "table" | "card" | "timeline";
   momentumFilter?: string;
   onMomentumChange?: (v: string) => void;
 }

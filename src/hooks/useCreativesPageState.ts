@@ -8,7 +8,7 @@ export function useCreativesPageState() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { selectedAccountId } = useAccountContext();
 
-  const [viewMode, setViewMode] = useState<"table" | "card">("table");
+  const [viewMode, setViewMode] = useState<"table" | "card" | "timeline">("table");
 
   const [visibleCols, setVisibleCols] = useState<Set<string>>(() => {
     const saved = localStorage.getItem("creatives_visible_columns");
