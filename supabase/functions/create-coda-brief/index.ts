@@ -69,7 +69,7 @@ Deno.serve(async (req) => {
           rows: [
             {
               cells: [
-                { column: "Task Name", value: task_name || "" },
+                { column: "Task", value: task_name || "" },
                 { column: "Connected Project", value: account_name },
                 { column: "Account ID", value: account_id },
                 { column: "Creative ID", value: creative_id || "" },
@@ -77,7 +77,7 @@ Deno.serve(async (req) => {
                 { column: "Ad Type", value: creativeAdType },
                 { column: "ROAS", value: creativeRoas },
                 { column: "Spend", value: creativeSpend },
-                { column: "Brief Note", value: brief_note || "" },
+                { column: "Brief", value: brief_note || "" },
                 { column: "Created By", value: user_id || "" },
                 { column: "Created At", value: new Date().toISOString() },
               ],
