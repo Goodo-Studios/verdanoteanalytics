@@ -19,7 +19,7 @@ import { ClientInsightsFeed } from "@/components/client/ClientInsightsFeed";
 import { GlossaryTooltip } from "@/components/client/GlossaryTooltip";
 import { NextStepsPanel } from "@/components/client/NextStepsPanel";
 import { DownloadReportButton } from "@/components/client/DownloadReportButton";
-import { ContentPipeline } from "@/components/client/ContentPipeline";
+
 
 // ── Helpers ──
 
@@ -325,10 +325,6 @@ const ClientOverviewPage = () => {
           </div>
         )}
 
-        {/* Content Pipeline — client only */}
-        {isClientView && selectedAccountId && selectedAccountId !== "all" && !isLoading && (
-          <ContentPipeline accountId={selectedAccountId} />
-        )}
 
         {/* 5. NEXT STEPS — client only */}
         {isClientView && !isLoading && (
