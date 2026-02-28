@@ -1,0 +1,1 @@
+ALTER TABLE public.account_context ADD COLUMN IF NOT EXISTS onboarding_checklist jsonb DEFAULT '[]'::jsonb;
