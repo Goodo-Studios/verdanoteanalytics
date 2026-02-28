@@ -21,8 +21,6 @@ import { SaveViewButton } from "@/components/SaveViewButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RefreshCw, LayoutGrid, List, Loader2, Download, Search, X, Columns, Layers, Bookmark, CalendarDays, SlidersHorizontal } from "lucide-react";
-import { AnomalyBadge } from "@/components/creatives/AnomalyBadge";
-import { useAnomalyDetection } from "@/hooks/useAnomalyDetection";
 import { useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
@@ -125,8 +123,6 @@ const CreativesPage = () => {
   // Compute fatigue scores
   const fatigueMap = useMemo(() => computeFatigueMap(creatives, wowTrends), [creatives, wowTrends]);
 
-  // Anomaly detection
-  const { anomalies, anomalySet } = useAnomalyDetection(creatives, selectedAccountId);
   const { hoveredCards, setHoveredCard } = useCardPresence(selectedAccountId);
 
   // Fetch daily metrics for fatigue forecast filter (only when filter active)
@@ -304,7 +300,7 @@ const CreativesPage = () => {
         description="View and manage your ad creatives with performance data and tags."
         actions={
           <div className="flex items-center gap-2">
-            <AnomalyBadge anomalies={anomalies} onViewCreative={(adId) => setSelectedCreativeId(adId)} />
+            
             <div className="flex border border-border rounded-md">
               <Button variant={!conceptView ? "secondary" : "ghost"} size="sm" className="rounded-r-none px-2.5 gap-1.5" onClick={() => setConceptView(false)}><List className="h-3.5 w-3.5" />Ads</Button>
               <Button variant={conceptView ? "secondary" : "ghost"} size="sm" className="rounded-l-none px-2.5 gap-1.5" onClick={() => setConceptView(true)}><Layers className="h-3.5 w-3.5" />Concepts</Button>
@@ -488,7 +484,7 @@ const CreativesPage = () => {
           wowTrends={wowTrends}
           gradeMap={gradeMap}
           fatigueMap={fatigueMap}
-          anomalySet={anomalySet}
+          
           hoveredCards={hoveredCards}
           onCardHover={setHoveredCard}
         />

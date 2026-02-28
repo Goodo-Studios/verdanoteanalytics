@@ -5,7 +5,7 @@ import { GoalsBar } from "@/components/GoalsBar";
 import { SpendPacingWidget } from "@/components/overview/SpendPacingWidget";
 import { useMtdSpend } from "@/hooks/useMtdSpend";
 import { MetricCard } from "@/components/MetricCard";
-import { AccountHealthScore } from "@/components/AccountHealthScore";
+
 import { Button } from "@/components/ui/button";
 import { useOverviewPageState } from "@/hooks/useOverviewPageState";
 import { useSync } from "@/hooks/useSyncApi";
@@ -82,7 +82,7 @@ const OverviewPage = () => {
   } = useDashboardLayout();
 
   const isSingleAccount = selectedAccountId && selectedAccountId !== "all";
-  const showHealthScore = isSingleAccount && canEdit && !isLoading && creatives.length > 0;
+  
   const { data: wowTrends } = useWoWTrends(isSingleAccount ? selectedAccountId : undefined);
   const { data: mtdSpend = 0 } = useMtdSpend(isSingleAccount ? selectedAccountId : undefined);
 
@@ -233,9 +233,6 @@ const OverviewPage = () => {
             <p className="font-body text-[12px] sm:text-[13px] text-slate font-light mt-1">{subtitle}</p>
           </div>
           <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
-            {showHealthScore && (
-              <AccountHealthScore creatives={creatives} metrics={metrics} targetRoas={selectedAccount?.target_roas} scaleThreshold={killScaleConfig.scaleAt} wowTrends={wowTrends} />
-            )}
             <div className="flex items-center gap-2">
               <DateRangeFilter dateFrom={dateFrom} dateTo={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
               <Button size="sm" className="bg-verdant hover:bg-verdant/90 text-white font-body text-[13px] font-medium" onClick={() => sync.mutate({ account_id: selectedAccountId && selectedAccountId !== "all" ? selectedAccountId : undefined })} disabled={sync.isPending}>

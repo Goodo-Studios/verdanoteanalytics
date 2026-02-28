@@ -30,12 +30,9 @@ import ResetPasswordPage from "./pages/ResetPasswordPage";
 import UpdatePasswordPage from "./pages/UpdatePasswordPage";
 import AIChatPage from "./pages/AIChatPage";
 
-import CompetitorsPage from "./pages/CompetitorsPage";
 import BriefsPage from "./pages/BriefsPage";
 import PublicBriefPage from "./pages/PublicBriefPage";
-import LeaderboardPage from "./pages/LeaderboardPage";
 
-import HooksPage from "./pages/HooksPage";
 import AgencyDashboardPage from "./pages/AgencyDashboardPage";
 
 import NotFound from "./pages/NotFound";
@@ -82,10 +79,7 @@ function ProtectedRoutes() {
         
         <Route path="/briefs" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <BriefsPage />} />
         
-        <Route path="/competitors" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <CompetitorsPage />} />
-        <Route path="/leaderboard" element={effectiveClient ? <Navigate to="/" replace /> : <LeaderboardPage />} />
         
-        <Route path="/hooks" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <HooksPage />} />
         <Route path="/ai-chat" element={<AIChatPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>

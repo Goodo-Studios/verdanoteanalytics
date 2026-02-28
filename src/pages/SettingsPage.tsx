@@ -15,7 +15,7 @@ import { WeeklyRetroModal } from "@/components/settings/WeeklyRetroModal";
 import { DataHealthSection } from "@/components/settings/DataHealthSection";
 import { DataExportSection } from "@/components/settings/DataExportSection";
 
-import { ClientHealthSection } from "@/components/settings/ClientHealthSection";
+
 import { ApiKeysSection } from "@/components/settings/ApiKeysSection";
 
 
@@ -178,7 +178,7 @@ const SettingsPage = () => {
           />
           <SyncHistorySection accountId={s.account.id} />
           {(isBuilder || isEmployee) && <AttributionSection account={s.account} />}
-          {(isBuilder || isEmployee) && <ClientHealthSection account={s.account} />}
+          
         </div>
       ) : activeTab === "naming" ? (
         <NamingConventionSection />
