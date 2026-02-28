@@ -1,14 +1,18 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, useCallback } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { AIChatWidget } from "@/components/AIChatWidget";
 import { NotificationCenter } from "@/components/NotificationCenter";
 import { PresenceAvatars } from "@/components/PresenceAvatars";
 import { OnboardingWizard } from "@/components/OnboardingWizard";
 import { CommandBar, CommandBarTrigger } from "@/components/CommandBar";
+import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
 import { useFirstLogin } from "@/hooks/useFirstLogin";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useAccountContext } from "@/contexts/AccountContext";
 import { Button } from "@/components/ui/button";
-import { Menu, Sun, Moon } from "lucide-react";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { Menu, Sun, Moon, Keyboard } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 
 interface AppLayoutProps {
@@ -17,8 +21,30 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const { showOnboarding, openTour, closeTour } = useFirstLogin();
   const { theme, toggleTheme } = useTheme();
+  const { accounts, selectedAccountId, setSelectedAccountId } = useAccountContext();
+
+  const handleAccountPrev = useCallback(() => {
+    if (!accounts.length) return;
+    const idx = accounts.findIndex((a: any) => a.id === selectedAccountId);
+    const prev = idx <= 0 ? accounts.length - 1 : idx - 1;
+    setSelectedAccountId(accounts[prev].id);
+  }, [accounts, selectedAccountId, setSelectedAccountId]);
+
+  const handleAccountNext = useCallback(() => {
+    if (!accounts.length) return;
+    const idx = accounts.findIndex((a: any) => a.id === selectedAccountId);
+    const next = idx >= accounts.length - 1 ? 0 : idx + 1;
+    setSelectedAccountId(accounts[next].id);
+  }, [accounts, selectedAccountId, setSelectedAccountId]);
+
+  useKeyboardShortcuts({
+    onOpenShortcutsModal: () => setShortcutsOpen(true),
+    onAccountPrev: handleAccountPrev,
+    onAccountNext: handleAccountNext,
+  });
 
   return (
     <div className="flex min-h-screen w-full bg-background">
@@ -60,6 +86,22 @@ export function AppLayout({ children }: AppLayoutProps) {
           <div className="flex items-center gap-2">
             <PresenceAvatars />
             <CommandBarTrigger />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setShortcutsOpen(true)}
+                  aria-label="Keyboard shortcuts"
+                >
+                  <Keyboard className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                Shortcuts <kbd className="ml-1 text-[10px] font-mono bg-muted px-1 rounded">?</kbd>
+              </TooltipContent>
+            </Tooltip>
             <NotificationCenter />
             <Button
               variant="ghost"
@@ -82,6 +124,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       </main>
       <AIChatWidget />
       <CommandBar />
+      <KeyboardShortcutsModal open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
 
       {/* Onboarding wizard */}
       <OnboardingWizard open={showOnboarding} onClose={closeTour} />
