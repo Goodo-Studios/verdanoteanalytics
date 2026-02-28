@@ -40,6 +40,7 @@ import PublicMoodboardPage from "./pages/PublicMoodboardPage";
 import LeaderboardPage from "./pages/LeaderboardPage";
 import ChangelogPage from "./pages/ChangelogPage";
 import HooksPage from "./pages/HooksPage";
+import AgencyDashboardPage from "./pages/AgencyDashboardPage";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
@@ -47,9 +48,12 @@ import { useClientPreview } from "@/hooks/useClientPreviewMode";
 const queryClient = new QueryClient();
 
 function ProtectedRoutes() {
-  const { user, isLoading, isClient, isEditor } = useAuth();
+  const { user, isLoading, isClient, isEditor, isBuilder } = useAuth();
   const { isClientPreview } = useClientPreview();
   const effectiveClient = isClient || isClientPreview;
+
+  // Check if builder prefers agency dashboard as home
+  const agencyHome = isBuilder && localStorage.getItem("verdanote_agency_default_home") === "true";
 
   if (isLoading) {
     return (
@@ -65,7 +69,8 @@ function ProtectedRoutes() {
     <AccountProvider>
       <ClientPreviewBanner />
       <Routes>
-        <Route path="/" element={isEditor ? <EditorOverviewPage /> : <OverviewPage />} />
+        <Route path="/" element={isEditor ? <EditorOverviewPage /> : agencyHome ? <AgencyDashboardPage /> : <OverviewPage />} />
+        <Route path="/agency" element={isBuilder ? <AgencyDashboardPage /> : <Navigate to="/" replace />} />
         <Route path="/creatives" element={isEditor ? <ClientCreativesPage /> : <CreativesPage />} />
         <Route path="/creatives/compare" element={isEditor ? <Navigate to="/" replace /> : <ComparePage />} />
         <Route path="/analytics" element={isEditor ? <Navigate to="/" replace /> : <AnalyticsPage />} />

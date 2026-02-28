@@ -1,9 +1,10 @@
+import { useState, useEffect } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { SyncStatusBanner } from "@/components/SyncStatusBanner";
 import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
 import { PageHeader } from "@/components/PageHeader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, User, Shield, Mail } from "lucide-react";
+import { Loader2, User, Shield, Mail, Building2 } from "lucide-react";
 import { EmailDigestSection } from "@/components/user-settings/EmailDigestSection";
 import { ProfileInfoSection } from "@/components/user-settings/ProfileInfoSection";
 import { ChangePasswordSection } from "@/components/user-settings/ChangePasswordSection";
@@ -79,6 +80,7 @@ const UserSettingsPage = () => {
               savingPassword={s.savingPassword}
               onChangePassword={s.handleChangePassword}
             />
+            {s.isBuilder && <AgencyHomeToggle />}
             <div className="border-t border-border pt-8">
               <EmailDigestSection />
             </div>
@@ -154,5 +156,36 @@ const UserSettingsPage = () => {
     </AppLayout>
   );
 };
+
+function AgencyHomeToggle() {
+  const [enabled, setEnabled] = useState(() => localStorage.getItem("verdanote_agency_default_home") === "true");
+
+  const toggle = () => {
+    const next = !enabled;
+    setEnabled(next);
+    localStorage.setItem("verdanote_agency_default_home", String(next));
+  };
+
+  // Import Switch dynamically to keep imports clean
+  return (
+    <div className="border-t border-border pt-8">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Building2 className="h-4 w-4 text-muted-foreground" />
+          <div>
+            <p className="font-body text-[14px] font-medium text-foreground">Agency Dashboard as Home</p>
+            <p className="font-body text-[12px] text-muted-foreground">Use the agency view as your default landing page</p>
+          </div>
+        </div>
+        <button
+          onClick={toggle}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${enabled ? "bg-primary" : "bg-muted"}`}
+        >
+          <span className={`inline-block h-4 w-4 rounded-full bg-card shadow transition-transform ${enabled ? "translate-x-6" : "translate-x-1"}`} />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default UserSettingsPage;

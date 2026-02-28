@@ -22,6 +22,7 @@ import {
   GalleryHorizontalEnd,
   Trophy,
   GitCommitHorizontal,
+  Building2,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
@@ -40,6 +41,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
 const baseNavItems = [
+  { title: "Agency", url: "/agency", icon: Building2, builderOnly: true },
   { title: "Overview", url: "/", icon: LayoutGrid },
   { title: "Creatives", url: "/creatives", icon: Zap },
   { title: "Creators", url: "/creators", icon: Users },
@@ -104,7 +106,7 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
     ? clientNavItems
     : isEditor
     ? editorNavItems
-    : baseNavItems;
+    : baseNavItems.filter(item => !(item as any).builderOnly || isBuilder);
 
   const roleBadgeClass = role === "client"
     ? "font-label text-[9px] uppercase tracking-[0.1em] font-semibold bg-gold-light text-[#92730F] capitalize h-4 px-1.5 border-0"
