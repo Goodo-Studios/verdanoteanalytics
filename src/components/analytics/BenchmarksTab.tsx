@@ -1,11 +1,11 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAccountContext } from "@/contexts/AccountContext";
-import { computeClientHealth, getHealthTier, getHealthLabel, getHealthColor } from "@/hooks/useClientHealthScore";
+
 import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { useWoWTrends } from "@/hooks/useWoWTrends";
 import { useMtdSpend } from "@/hooks/useMtdSpend";
-import { computeFatigueMap } from "@/lib/fatigueScore";
+
 import { getPacingStatus } from "@/components/overview/SpendPacingWidget";
 import { cn } from "@/lib/utils";
 import {
@@ -21,11 +21,8 @@ interface AccountBenchmark {
   winRate: number;
   avgCpa: number;
   activeCreatives: number;
-  healthScore: number;
   topTag: string;
   wowRoasChange: number;
-  clientHealth: number;
-  clientHealthTier: "green" | "amber" | "red";
 }
 
 function computeAccountBenchmarks(
@@ -51,8 +48,8 @@ function computeAccountBenchmarks(
           id: account.id,
           name: account.name,
           avgRoas: 0, avgCtr: 0, winRate: 0, avgCpa: 0,
-          activeCreatives: 0, healthScore: 0, topTag: "—",
-          wowRoasChange: 0, clientHealth: 0, clientHealthTier: "red" as const,
+          activeCreatives: 0, topTag: "—",
+          wowRoasChange: 0,
         };
       }
 
@@ -70,36 +67,8 @@ function computeAccountBenchmarks(
       const winners = active.filter((c: any) => (Number(c.roas) || 0) >= scaleThreshold);
       const winRate = (winners.length / active.length) * 100;
 
-      // Health score (simplified inline computation)
-      const fatigueMap = computeFatigueMap(active, allWowTrends);
-      let highFatigue = 0;
-      for (const [, f] of fatigueMap) if (f.level === "high") highFatigue++;
-      const fatiguePct = highFatigue / active.length;
 
-      const winRatePts = Math.min(30, (winRate / 100) * 60);
-      const targetRoas = parseFloat(account.target_roas || "0");
-      const roasPts = targetRoas > 0 ? Math.min(20, (avgRoas / targetRoas) * 20) : Math.min(20, avgRoas * 5);
-      const fatiguePts = Math.max(0, 20 * (1 - fatiguePct * 2));
 
-      // Momentum from top spenders
-      let momentumPts = 7.5;
-      if (allWowTrends && allWowTrends.size > 0) {
-        const top10 = [...active].sort((a: any, b: any) => (Number(b.spend) || 0) - (Number(a.spend) || 0)).slice(0, 10);
-        let posCount = 0;
-        for (const c of top10) {
-          const t = allWowTrends.get(c.ad_id);
-          if (t && t.direction === "up") posCount++;
-        }
-        momentumPts = Math.min(15, (posCount / Math.max(top10.length, 1)) * 30);
-      }
-
-      // Diversity
-      const topPerformers = active.filter((c: any) => (Number(c.roas) || 0) >= scaleThreshold);
-      const formats = new Set(topPerformers.map((c: any) => c.ad_type).filter(Boolean));
-      const hooks = new Set(topPerformers.map((c: any) => c.hook).filter(Boolean));
-      const diversityPts = Math.min(15, (formats.size + hooks.size) * 2.5);
-
-      const healthScore = Math.round(Math.min(100, winRatePts + roasPts + fatiguePts + momentumPts + diversityPts));
 
       // Top tag (most common ad_type among winners)
       const tagCounts = new Map<string, number>();
@@ -125,18 +94,12 @@ function computeAccountBenchmarks(
         wowRoasChange = count > 0 ? totalPct / count : 0;
       }
 
-      // Client Health Score
-      const clientBreakdown = computeClientHealth(account, active, allWowTrends);
-      const clientHealthTier = getHealthTier(clientBreakdown.total);
-
       return {
         id: account.id,
         name: account.name,
         avgRoas, avgCtr, winRate, avgCpa,
         activeCreatives: active.length,
-        healthScore, topTag, wowRoasChange,
-        clientHealth: clientBreakdown.total,
-        clientHealthTier,
+        topTag, wowRoasChange,
       };
     })
     .filter((b) => b.activeCreatives > 0);
@@ -186,7 +149,7 @@ export function BenchmarksTab() {
       avgCtr: avg(b => b.avgCtr),
       winRate: avg(b => b.winRate),
       avgCpa: avg(b => b.avgCpa),
-      healthScore: Math.round(avg(b => b.healthScore)),
+      
     };
   }, [benchmarks]);
 
@@ -197,11 +160,11 @@ export function BenchmarksTab() {
     const bestRoas = best(b => b.avgRoas);
     const bestCtr = best(b => b.avgCtr);
     const bestWin = best(b => b.winRate);
-    const bestHealth = best(b => b.healthScore);
+    
     // For CPA, lower is better
     const bestCpa = Math.min(...benchmarks.map(b => b.avgCpa).filter(v => v > 0));
     const bestActive = best(b => b.activeCreatives);
-    return { bestRoas, bestCtr, bestWin, bestCpa, bestHealth, bestActive };
+    return { bestRoas, bestCtr, bestWin, bestCpa, bestActive };
   }, [benchmarks]);
 
   // Insight cards
@@ -209,7 +172,7 @@ export function BenchmarksTab() {
     if (benchmarks.length === 0) return null;
     const bestAccount = [...benchmarks].sort((a, b) => b.avgRoas - a.avgRoas)[0];
     const mostImproved = [...benchmarks].sort((a, b) => b.wowRoasChange - a.wowRoasChange)[0];
-    const needsAttention = [...benchmarks].sort((a, b) => a.healthScore - b.healthScore)[0];
+    const needsAttention = [...benchmarks].sort((a, b) => a.winRate - b.winRate)[0];
     return { bestAccount, mostImproved, needsAttention };
   }, [benchmarks]);
 
@@ -260,8 +223,6 @@ export function BenchmarksTab() {
               <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">Win Rate</TableHead>
               <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">Avg CPA</TableHead>
               <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right hidden sm:table-cell">Active Creatives</TableHead>
-              <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">Health Score</TableHead>
-              <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right hidden sm:table-cell">Client Health</TableHead>
               <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right hidden sm:table-cell">Pacing</TableHead>
             </TableRow>
           </TableHeader>
@@ -288,15 +249,6 @@ export function BenchmarksTab() {
                 <TableCell className={cn("text-right font-data text-[13px] tabular-nums hidden sm:table-cell", cellColor(b.activeCreatives, columnExtremes!.bestActive, undefined))}>
                   {b.activeCreatives}
                 </TableCell>
-                <TableCell className={cn("text-right font-data text-[13px] font-semibold tabular-nums", cellColor(b.healthScore, columnExtremes!.bestHealth, portfolio?.healthScore))}>
-                  {b.healthScore}
-                </TableCell>
-                <TableCell className="text-right font-data text-[13px] tabular-nums hidden sm:table-cell">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className={cn("h-2 w-2 rounded-full", getHealthColor(b.clientHealthTier))} />
-                    {b.clientHealth}
-                  </span>
-                </TableCell>
                 <TableCell className="text-right font-data text-[13px] tabular-nums hidden sm:table-cell">
                   {(() => {
                     const acct = accounts.find((a: any) => a.id === b.id);
@@ -318,10 +270,6 @@ export function BenchmarksTab() {
                 <TableCell className="text-right font-data text-[13px] tabular-nums text-foreground">{portfolio.winRate.toFixed(0)}%</TableCell>
                 <TableCell className="text-right font-data text-[13px] tabular-nums text-foreground">{fmt$(portfolio.avgCpa)}</TableCell>
                 <TableCell className="text-right font-data text-[13px] tabular-nums text-muted-foreground hidden sm:table-cell">—</TableCell>
-                <TableCell className="text-right font-data text-[13px] tabular-nums text-foreground">{portfolio.healthScore}</TableCell>
-                <TableCell className="text-right font-data text-[13px] tabular-nums text-foreground hidden sm:table-cell">
-                  {Math.round(benchmarks.reduce((s, b) => s + b.clientHealth, 0) / benchmarks.length)}
-                </TableCell>
                 <TableCell className="text-right font-data text-[13px] tabular-nums text-muted-foreground hidden sm:table-cell">—</TableCell>
               </TableRow>
             )}
@@ -351,8 +299,8 @@ export function BenchmarksTab() {
               icon={<AlertTriangle className="h-5 w-5 text-destructive" />}
               title="Needs Attention"
               accountName={insights.needsAttention.name}
-              detail={`Health Score: ${insights.needsAttention.healthScore}/100`}
-              subDetail={insights.needsAttention.healthScore < 50 ? "Below critical threshold" : "Lowest in portfolio"}
+              detail={`Win Rate: ${insights.needsAttention.winRate.toFixed(0)}%`}
+              subDetail={insights.needsAttention.winRate < 20 ? "Below critical threshold" : "Lowest in portfolio"}
             />
           </div>
         </div>

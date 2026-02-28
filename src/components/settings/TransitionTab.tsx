@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select";
 import { Plus, Save, Clock, Rocket, AlertTriangle } from "lucide-react";
 import { format, differenceInDays } from "date-fns";
-import { useClientHealthScore } from "@/hooks/useClientHealthScore";
+
 import { useCreatives } from "@/hooks/useCreatives";
 
 /* ── Types ─────────────────────────────────── */
@@ -97,18 +97,13 @@ function useTransitionLog(accountId: string) {
 }
 
 function useAtRiskSignals(account: any) {
-  const healthScore = useClientHealthScore(account);
+  
   const { data: creativesResult } = useCreatives(account?.id ? { account_id: account.id } : {});
   const creatives = Array.isArray(creativesResult) ? creativesResult : (creativesResult?.data ?? []);
 
   return useMemo(() => {
     const signals: string[] = [];
     const now = new Date();
-
-    // Client health score < 40
-    if (healthScore.total > 0 && healthScore.total < 40) {
-      signals.push(`Client health score is ${healthScore.total}/100`);
-    }
 
     // No new creatives in 30+ days
     if (creatives.length > 0) {
@@ -148,7 +143,7 @@ function useAtRiskSignals(account: any) {
     }
 
     return signals;
-  }, [account, creatives, healthScore]);
+  }, [account, creatives]);
 }
 
 /* ── Component ─────────────────────────────── */

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+
 import {
   Building2, Zap, FileEdit, RefreshCw, TrendingUp, TrendingDown,
   AlertTriangle, Trophy, ExternalLink,
@@ -13,8 +13,6 @@ import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { useWoWTrends } from "@/hooks/useWoWTrends";
 import { useMtdSpend } from "@/hooks/useMtdSpend";
 import { useSync } from "@/hooks/useSyncApi";
-import { computeClientHealth, getHealthTier, getHealthColor, getHealthLabel } from "@/hooks/useClientHealthScore";
-import { useAnomalyDetection } from "@/hooks/useAnomalyDetection";
 import { computeFatigue } from "@/lib/fatigueScore";
 import { computeSetupProgress, useOnboardingChecklist } from "@/components/settings/AccountSetupChecklist";
 import { cn } from "@/lib/utils";
@@ -102,17 +100,6 @@ export default function AgencyDashboardPage() {
 
   const creativesArr = Array.isArray(allCreatives) ? allCreatives : [];
 
-  // Compute health per account
-  const accountHealthMap = useMemo(() => {
-    const map = new Map<string, { health: ReturnType<typeof computeClientHealth>; tier: string }>();
-    for (const acc of accounts) {
-      const accCreatives = creativesArr.filter((c: any) => c.account_id === acc.id);
-      const health = computeClientHealth(acc, accCreatives, wowTrends, perAccountSpend.get(acc.id));
-      const tier = getHealthTier(health.total);
-      map.set(acc.id, { health, tier });
-    }
-    return map;
-  }, [accounts, creativesArr, wowTrends, perAccountSpend]);
 
   // Portfolio metrics
   const portfolioMetrics = useMemo(() => {
@@ -122,28 +109,21 @@ export default function AgencyDashboardPage() {
     const portfolioRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
     const aboveScale = activeCreatives.filter((c: any) => (Number(c.roas) || 0) >= 2.0).length;
     const winRate = activeCreatives.length > 0 ? aboveScale / activeCreatives.length : 0;
-    const needsAttention = [...accountHealthMap.values()].filter(h => h.health.total < 50).length;
 
     return {
       mtdSpend: portfolioMtdSpend,
       portfolioRoas,
       activeCreatives: activeCreatives.length,
       winRate,
-      needsAttention,
     };
-  }, [creativesArr, portfolioMtdSpend, accountHealthMap]);
+  }, [creativesArr, portfolioMtdSpend]);
 
   // Sort accounts: needs attention first, then by MTD spend descending
   const sortedAccounts = useMemo(() => {
     return [...accounts].sort((a, b) => {
-      const ha = accountHealthMap.get(a.id)?.health.total ?? 100;
-      const hb = accountHealthMap.get(b.id)?.health.total ?? 100;
-      const aNeedsAttention = ha < 50 ? 0 : 1;
-      const bNeedsAttention = hb < 50 ? 0 : 1;
-      if (aNeedsAttention !== bNeedsAttention) return aNeedsAttention - bNeedsAttention;
       return (perAccountSpend.get(b.id) || 0) - (perAccountSpend.get(a.id) || 0);
     });
-  }, [accounts, accountHealthMap, perAccountSpend]);
+  }, [accounts, perAccountSpend]);
 
   // Top 5 creatives across all accounts by ROAS
   const topWinners = useMemo(() => {
@@ -153,15 +133,8 @@ export default function AgencyDashboardPage() {
       .slice(0, 5);
   }, [creativesArr]);
 
-  // Alerts: anomalies, high fatigue, etc.
-  const anomalyResult = useAnomalyDetection(creativesArr);
-  const anomalyList = Array.isArray(anomalyResult) ? anomalyResult : (anomalyResult as any)?.anomalies || [];
   const alerts = useMemo(() => {
     const items: { id: string; label: string; detail: string; type: string }[] = [];
-
-    for (const a of anomalyList.slice(0, 3)) {
-      items.push({ id: `anomaly-${a.adId}`, label: a.metric, detail: a.message || `${a.direction} anomaly`, type: "anomaly" });
-    }
 
     // High fatigue
     for (const c of creativesArr.filter((c: any) => (Number(c.spend) || 0) > 100).slice(0, 50)) {
@@ -172,7 +145,7 @@ export default function AgencyDashboardPage() {
     }
 
     return items.slice(0, 5);
-  }, [creativesArr, anomalyList]);
+  }, [creativesArr]);
 
   const getAccountName = (accountId: string) => accounts.find((a: any) => a.id === accountId)?.name || accountId;
 
@@ -186,16 +159,11 @@ export default function AgencyDashboardPage() {
         </div>
 
         {/* ROW 1 — Agency Health Bar */}
-        <div className="grid grid-cols-5 gap-px bg-border-light rounded-card overflow-hidden shadow-card">
+        <div className="grid grid-cols-4 gap-px bg-border-light rounded-card overflow-hidden shadow-card">
           <HealthMetric label="Portfolio Spend (MTD)" value={fmt$(portfolioMetrics.mtdSpend)} />
           <HealthMetric label="Portfolio ROAS" value={portfolioMetrics.portfolioRoas.toFixed(2) + "x"} />
           <HealthMetric label="Active Creatives" value={String(portfolioMetrics.activeCreatives)} />
           <HealthMetric label="Win Rate" value={(portfolioMetrics.winRate * 100).toFixed(0) + "%"} />
-          <HealthMetric
-            label="Needs Attention"
-            value={String(portfolioMetrics.needsAttention)}
-            alert={portfolioMetrics.needsAttention > 0}
-          />
         </div>
 
         {/* ROW 2 — Account Cards */}
@@ -203,9 +171,6 @@ export default function AgencyDashboardPage() {
           <h2 className="font-label text-[10px] uppercase tracking-[0.12em] text-muted-foreground mb-3">Accounts</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {sortedAccounts.map((acc: any) => {
-              const healthInfo = accountHealthMap.get(acc.id);
-              const tier = healthInfo?.tier || "green";
-              const healthScore = healthInfo?.health.total ?? 0;
               const mtd = perAccountSpend.get(acc.id) || 0;
               const prior = priorMonthSpend.get(acc.id) || 0;
               const spendDelta = prior > 0 ? (mtd - prior) / prior : 0;
@@ -222,10 +187,8 @@ export default function AgencyDashboardPage() {
 
               return (
                 <Card key={acc.id} className="p-4 space-y-3 hover:shadow-card-hover transition-shadow">
-                  {/* Account name + health dot + setup badge */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className={cn("h-2.5 w-2.5 rounded-full flex-shrink-0", getHealthColor(tier as any))} />
                       <h3 className="font-body text-[14px] font-semibold text-foreground truncate">{acc.name}</h3>
                       {setupProgress.pct < 100 && (
                         <span className="font-data text-[10px] tabular-nums text-warning bg-warning/10 px-1.5 py-0.5 rounded-sm shrink-0">
@@ -233,9 +196,6 @@ export default function AgencyDashboardPage() {
                         </span>
                       )}
                     </div>
-                    <Badge variant="outline" className="font-data text-[10px] tabular-nums shrink-0">
-                      {healthScore}/100
-                    </Badge>
                   </div>
 
                   {/* Metrics row */}
@@ -393,7 +353,7 @@ export default function AgencyDashboardPage() {
           <div className="grid grid-cols-3 gap-4">
             <PipelineColumn label="Proposals" count={0} value={0} />
             <PipelineColumn label="Active" count={accounts.length} value={portfolioMetrics.mtdSpend} />
-            <PipelineColumn label="At Risk" count={portfolioMetrics.needsAttention} value={0} />
+            <PipelineColumn label="At Risk" count={0} value={0} />
           </div>
           <p className="font-body text-[10px] text-muted-foreground mt-3">Connect Attio for live pipeline data.</p>
         </Card>
