@@ -16,8 +16,6 @@ import AnalyticsPage from "./pages/AnalyticsPage";
 import ComparePage from "./pages/ComparePage";
 import TaggingPage from "./pages/TaggingPage";
 import CreatorsPage from "./pages/CreatorsPage";
-import TestsPage from "./pages/TestsPage";
-import WhitelistingPage from "./pages/WhitelistingPage";
 import ReportsPage from "./pages/ReportsPage";
 import ClientReportsPage from "./pages/ClientReportsPage";
 import ReportDetailPage from "./pages/ReportDetailPage";
@@ -31,18 +29,15 @@ import LoginPage from "./pages/LoginPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import UpdatePasswordPage from "./pages/UpdatePasswordPage";
 import AIChatPage from "./pages/AIChatPage";
-import CalendarPage from "./pages/CalendarPage";
+
 import CompetitorsPage from "./pages/CompetitorsPage";
 import BriefsPage from "./pages/BriefsPage";
 import PublicBriefPage from "./pages/PublicBriefPage";
-import MoodboardsPage from "./pages/MoodboardsPage";
-import MoodboardDetailPage from "./pages/MoodboardDetailPage";
-import PublicMoodboardPage from "./pages/PublicMoodboardPage";
 import LeaderboardPage from "./pages/LeaderboardPage";
 import ChangelogPage from "./pages/ChangelogPage";
 import HooksPage from "./pages/HooksPage";
 import AgencyDashboardPage from "./pages/AgencyDashboardPage";
-import SegmentsPage from "./pages/SegmentsPage";
+
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
@@ -78,20 +73,16 @@ function ProtectedRoutes() {
         <Route path="/analytics" element={isEditor ? <Navigate to="/" replace /> : <AnalyticsPage />} />
         <Route path="/tagging" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <TaggingPage />} />
         <Route path="/creators" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <CreatorsPage />} />
-        <Route path="/tests" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <TestsPage />} />
-        <Route path="/whitelisting" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <WhitelistingPage />} />
         <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : isEditor ? <ClientReportsPage /> : <ReportsPage />} />
         <Route path="/reports/:id" element={<ReportDetailPage />} />
         <Route path="/reports/:id/build" element={<ReportBuilderPage />} />
         <Route path="/settings" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <SettingsPage />} />
         <Route path="/user-settings" element={<UserSettingsPage />} />
         <Route path="/saved-views" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <SavedViewsPage />} />
-        <Route path="/segments" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <SegmentsPage />} />
+        
         <Route path="/briefs" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <BriefsPage />} />
-        <Route path="/calendar" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <CalendarPage />} />
+        
         <Route path="/competitors" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <CompetitorsPage />} />
-        <Route path="/moodboards" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <MoodboardsPage />} />
-        <Route path="/moodboards/:id" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <MoodboardDetailPage />} />
         <Route path="/leaderboard" element={effectiveClient ? <Navigate to="/" replace /> : <LeaderboardPage />} />
         <Route path="/changelog" element={<ChangelogPage />} />
         <Route path="/hooks" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <HooksPage />} />
@@ -119,7 +110,7 @@ const App = () => {
                   <Route path="/update-password" element={<UpdatePasswordPage />} />
                   <Route path="/public/reports/:id" element={<PublicReportPage />} />
                   <Route path="/briefs/share/:token" element={<PublicBriefPage />} />
-                  <Route path="/moodboards/share/:token" element={<PublicMoodboardPage />} />
+                  
                   <Route path="/portfolio/:slug" element={<PortfolioPage />} />
                   <Route path="/*" element={<ProtectedRoutes />} />
                 </Routes>

@@ -14,16 +14,11 @@ import {
   Eye,
   Sparkles,
   Users,
-  Share2,
-  FlaskConical,
   FileEdit,
-  CalendarDays,
   Radar,
-  GalleryHorizontalEnd,
   Trophy,
   GitCommitHorizontal,
   Building2,
-  CircleDot,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
@@ -46,20 +41,15 @@ const baseNavItems = [
   { title: "Overview", url: "/", icon: LayoutGrid },
   { title: "Creatives", url: "/creatives", icon: Zap },
   { title: "Creators", url: "/creators", icon: Users },
-  { title: "Tests", url: "/tests", icon: FlaskConical },
-  { title: "Whitelisting", url: "/whitelisting", icon: Share2 },
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Tagging", url: "/tagging", icon: Tags },
   { title: "Reports", url: "/reports", icon: FileText },
   { title: "Briefs", url: "/briefs", icon: FileEdit },
-  { title: "Calendar", url: "/calendar", icon: CalendarDays },
   { title: "Competitors", url: "/competitors", icon: Radar },
-  { title: "Mood Boards", url: "/moodboards", icon: GalleryHorizontalEnd },
   { title: "Leaderboard", url: "/leaderboard", icon: Trophy },
   { title: "Changelog", url: "/changelog", icon: GitCommitHorizontal },
   { title: "Hook Library", url: "/hooks", icon: Zap },
   { title: "Saved Views", url: "/saved-views", icon: Bookmark },
-  { title: "Segments", url: "/segments", icon: CircleDot },
   { title: "AI Analyst", url: "/ai-chat", icon: Sparkles },
 ];
 
