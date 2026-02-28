@@ -3,10 +3,8 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { TagSourceBadge } from "@/components/TagSourceBadge";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, FileEdit, BookOpen, Sparkles, MessageSquare, GitBranch } from "lucide-react";
+import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, FileEdit, Sparkles, MessageSquare, GitBranch } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState, forwardRef } from "react";
 
@@ -18,19 +16,19 @@ import { CreativeIterationAnalysis } from "@/components/creative-detail/Creative
 
 import { TrendSection } from "@/components/creative-detail/TrendSection";
 import { PredictionSection } from "@/components/creative-detail/PredictionSection";
-import { CreativeChangelog } from "@/components/creative-detail/CreativeChangelog";
+
 import { CreativeAIAnalysis } from "@/components/creative-detail/CreativeAIAnalysis";
 import { CreativeComments } from "@/components/creative-detail/CreativeComments";
 import { CreativeVersions } from "@/components/creative-detail/CreativeVersions";
 import { GradeBadge } from "@/components/creatives/GradeBadge";
-import { FatigueForecastSection } from "@/components/creative-detail/FatigueForecastSection";
+
 import type { WoWTrend } from "@/hooks/useWoWTrends";
 import type { GradeInfo } from "@/lib/creativeGrading";
 import type { FatigueResult } from "@/lib/fatigueScore";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCreateBrief } from "@/hooks/useBriefsApi";
 
-import { HookBrowserModal } from "@/components/hooks/HookBrowserModal";
+
 
 interface CreativeDetailModalProps {
   creative: any;
@@ -207,7 +205,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
   const canEdit = isBuilder || isEmployee;
   const navigate = useNavigate();
   const createBrief = useCreateBrief();
-  const [hookBrowserOpen, setHookBrowserOpen] = useState(false);
+  
   
   const queryClient = useQueryClient();
   const { data: briefs } = useBriefs(creative?.account_id);
@@ -323,14 +321,6 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
               </div>
             )}
 
-            {/* Fatigue Forecast */}
-            {canEdit && creative.spend > 0 && (
-              <FatigueForecastSection
-                adId={creative.ad_id}
-                adName={creative.ad_name}
-                accountId={creative.account_id}
-              />
-            )}
 
             {/* Performance Prediction (builder/employee only) */}
             {canEdit && creative.spend > 0 && (
@@ -362,20 +352,9 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
                   <FileEdit className="h-3.5 w-3.5" />
                   Create Brief from This
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5 font-body text-[12px]"
-                  onClick={() => setHookBrowserOpen(true)}
-                >
-                  <BookOpen className="h-3.5 w-3.5" />
-                  Browse Hooks
-                </Button>
               </div>
             )}
 
-            <CreativeChangelog adId={creative.ad_id} accountId={creative.account_id} />
-            <Separator />
             <CreativeTagEditor creative={creative} />
           </TabsContent>
 
@@ -394,7 +373,6 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
           </TabsContent>
         </Tabs>
       </DialogContent>
-      <HookBrowserModal open={hookBrowserOpen} onClose={() => setHookBrowserOpen(false)} />
     </Dialog>
   );
 });
