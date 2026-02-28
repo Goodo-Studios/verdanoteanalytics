@@ -15,6 +15,7 @@ import { CreativeIterationAnalysis } from "@/components/creative-detail/Creative
 import { CreativeNotes } from "@/components/creative-detail/CreativeNotes";
 import { TrendSection } from "@/components/creative-detail/TrendSection";
 import { PredictionSection } from "@/components/creative-detail/PredictionSection";
+import { CreativeChangelog } from "@/components/creative-detail/CreativeChangelog";
 import { GradeBadge } from "@/components/creatives/GradeBadge";
 import { ScoreCircle } from "@/components/creatives/ScoreCircle";
 import type { WoWTrend } from "@/hooks/useWoWTrends";
@@ -369,6 +370,8 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
 
         <Separator />
         <CreativeNotes creative={creative} />
+        <Separator />
+        <CreativeChangelog adId={creative.ad_id} accountId={creative.account_id} />
         <Separator />
         <CreativeTagEditor creative={creative} />
         <Separator />

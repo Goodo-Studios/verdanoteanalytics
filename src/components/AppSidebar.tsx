@@ -20,6 +20,7 @@ import {
   Radar,
   GalleryHorizontalEnd,
   Trophy,
+  GitCommitHorizontal,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
@@ -49,6 +50,7 @@ const baseNavItems = [
   { title: "Competitors", url: "/competitors", icon: Radar },
   { title: "Mood Boards", url: "/moodboards", icon: GalleryHorizontalEnd },
   { title: "Leaderboard", url: "/leaderboard", icon: Trophy },
+  { title: "Changelog", url: "/changelog", icon: GitCommitHorizontal },
   { title: "Saved Views", url: "/saved-views", icon: Bookmark },
   { title: "AI Analyst", url: "/ai-chat", icon: Sparkles },
 ];

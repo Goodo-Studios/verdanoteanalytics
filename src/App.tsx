@@ -38,6 +38,7 @@ import MoodboardsPage from "./pages/MoodboardsPage";
 import MoodboardDetailPage from "./pages/MoodboardDetailPage";
 import PublicMoodboardPage from "./pages/PublicMoodboardPage";
 import LeaderboardPage from "./pages/LeaderboardPage";
+import ChangelogPage from "./pages/ChangelogPage";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
@@ -83,6 +84,7 @@ function ProtectedRoutes() {
         <Route path="/moodboards" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <MoodboardsPage />} />
         <Route path="/moodboards/:id" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <MoodboardDetailPage />} />
         <Route path="/leaderboard" element={effectiveClient ? <Navigate to="/" replace /> : <LeaderboardPage />} />
+        <Route path="/changelog" element={<ChangelogPage />} />
         <Route path="/ai-chat" element={<AIChatPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>

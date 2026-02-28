@@ -963,6 +963,69 @@ export type Database = {
         }
         Relationships: []
       }
+      performance_changelog: {
+        Row: {
+          account_id: string
+          ad_id: string | null
+          change_type: string
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          id: string
+          metric_name: string | null
+          new_value: number | null
+          old_value: number | null
+          pct_change: number | null
+          severity: string
+          title: string
+        }
+        Insert: {
+          account_id: string
+          ad_id?: string | null
+          change_type: string
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          metric_name?: string | null
+          new_value?: number | null
+          old_value?: number | null
+          pct_change?: number | null
+          severity?: string
+          title: string
+        }
+        Update: {
+          account_id?: string
+          ad_id?: string | null
+          change_type?: string
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          metric_name?: string | null
+          new_value?: number | null
+          old_value?: number | null
+          pct_change?: number | null
+          severity?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "performance_changelog_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "ad_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "performance_changelog_ad_id_fkey"
+            columns: ["ad_id"]
+            isOneToOne: false
+            referencedRelation: "creatives"
+            referencedColumns: ["ad_id"]
+          },
+        ]
+      }
       performance_stories: {
         Row: {
           account_id: string
