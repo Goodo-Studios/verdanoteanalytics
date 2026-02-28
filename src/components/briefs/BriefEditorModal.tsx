@@ -14,6 +14,7 @@ import { Copy, ExternalLink, Save, ChevronDown, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState as useReactState } from "react";
 import { HookBrowserModal } from "@/components/hooks/HookBrowserModal";
+import { NamingValidator } from "@/components/briefs/NamingValidator";
 
 const STATUS_OPTIONS = [
   { value: "draft", label: "Draft", color: "bg-muted text-muted-foreground" },
@@ -204,6 +205,9 @@ export function BriefEditorModal({ brief, open, onClose, onStatusChange, onCopyS
                   placeholder={section.placeholder}
                   className="font-body text-[13px] h-9"
                 />
+              )}
+              {section.key === "concept_name" && content[section.key] && (
+                <NamingValidator value={content[section.key] || ""} />
               )}
             </div>
           ))}
