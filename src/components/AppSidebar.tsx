@@ -97,7 +97,13 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
 
   const showSwitcher = !effectiveClient || accounts.length > 1;
   const showSettings = !effectiveClient && !isEditor;
-  const navItems = effectiveClient
+  const agencyNavItems = [
+    { title: "Overview", url: "/agency", icon: LayoutGrid },
+  ];
+
+  const navItems = isAgencyView
+    ? agencyNavItems
+    : effectiveClient
     ? clientNavItems
     : isEditor
     ? editorNavItems
