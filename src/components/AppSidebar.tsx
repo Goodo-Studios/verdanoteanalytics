@@ -54,6 +54,7 @@ const baseNavItems = [
   { title: "Mood Boards", url: "/moodboards", icon: GalleryHorizontalEnd },
   { title: "Leaderboard", url: "/leaderboard", icon: Trophy },
   { title: "Changelog", url: "/changelog", icon: GitCommitHorizontal },
+  { title: "Hook Library", url: "/hooks", icon: Zap },
   { title: "Saved Views", url: "/saved-views", icon: Bookmark },
   { title: "AI Analyst", url: "/ai-chat", icon: Sparkles },
 ];

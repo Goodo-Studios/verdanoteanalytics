@@ -755,6 +755,45 @@ export type Database = {
           },
         ]
       }
+      hooks: {
+        Row: {
+          account_id: string | null
+          avg_hook_rate: number | null
+          category: string
+          created_at: string | null
+          created_by: string | null
+          hook_text: string
+          id: string
+          source_ad_id: string | null
+          tags: string[] | null
+          usage_count: number | null
+        }
+        Insert: {
+          account_id?: string | null
+          avg_hook_rate?: number | null
+          category: string
+          created_at?: string | null
+          created_by?: string | null
+          hook_text: string
+          id?: string
+          source_ad_id?: string | null
+          tags?: string[] | null
+          usage_count?: number | null
+        }
+        Update: {
+          account_id?: string | null
+          avg_hook_rate?: number | null
+          category?: string
+          created_at?: string | null
+          created_by?: string | null
+          hook_text?: string
+          id?: string
+          source_ad_id?: string | null
+          tags?: string[] | null
+          usage_count?: number | null
+        }
+        Relationships: []
+      }
       media_refresh_logs: {
         Row: {
           account_id: string
