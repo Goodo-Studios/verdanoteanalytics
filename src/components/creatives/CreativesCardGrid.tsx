@@ -118,6 +118,11 @@ export function CreativesCardGrid({ creatives, onSelect, compareMode = false, co
                   </div>
                 )}
                 {c.platform && c.platform !== "meta" && <PlatformBadge platform={c.platform} />}
+                {(c.version || 1) >= 3 && (
+                  <div className="bg-primary/90 rounded-[3px] px-1.5 py-0.5">
+                    <span className="font-label text-[9px] font-semibold text-primary-foreground">v{c.version}</span>
+                  </div>
+                )}
               </div>
               {gradeMap?.get(c.ad_id) && (
                 <div className="absolute top-1.5 right-1.5">

@@ -682,6 +682,7 @@ export type Database = {
           hook: string | null
           impressions: number | null
           notes: string | null
+          parent_ad_id: string | null
           person: string | null
           platform: string
           preview_url: string | null
@@ -700,6 +701,7 @@ export type Database = {
           thumbnail_url: string | null
           unique_code: string | null
           updated_at: string
+          version: number | null
           video_avg_play_time: number | null
           video_url: string | null
           video_views: number | null
@@ -732,6 +734,7 @@ export type Database = {
           hook?: string | null
           impressions?: number | null
           notes?: string | null
+          parent_ad_id?: string | null
           person?: string | null
           platform?: string
           preview_url?: string | null
@@ -750,6 +753,7 @@ export type Database = {
           thumbnail_url?: string | null
           unique_code?: string | null
           updated_at?: string
+          version?: number | null
           video_avg_play_time?: number | null
           video_url?: string | null
           video_views?: number | null
@@ -782,6 +786,7 @@ export type Database = {
           hook?: string | null
           impressions?: number | null
           notes?: string | null
+          parent_ad_id?: string | null
           person?: string | null
           platform?: string
           preview_url?: string | null
@@ -800,6 +805,7 @@ export type Database = {
           thumbnail_url?: string | null
           unique_code?: string | null
           updated_at?: string
+          version?: number | null
           video_avg_play_time?: number | null
           video_url?: string | null
           video_views?: number | null

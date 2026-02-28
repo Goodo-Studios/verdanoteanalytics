@@ -6,7 +6,7 @@ import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, Users, FileEdit, BookOpen, Sparkles, PenTool, MessageSquare } from "lucide-react";
+import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, Users, FileEdit, BookOpen, Sparkles, PenTool, MessageSquare, GitBranch } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useCreator } from "@/hooks/useCreatorsApi";
 import { useState, forwardRef } from "react";
@@ -23,6 +23,7 @@ import { PredictionSection } from "@/components/creative-detail/PredictionSectio
 import { CreativeChangelog } from "@/components/creative-detail/CreativeChangelog";
 import { CreativeAIAnalysis } from "@/components/creative-detail/CreativeAIAnalysis";
 import { CreativeComments } from "@/components/creative-detail/CreativeComments";
+import { CreativeVersions } from "@/components/creative-detail/CreativeVersions";
 import { GradeBadge } from "@/components/creatives/GradeBadge";
 import { ScoreCircle } from "@/components/creatives/ScoreCircle";
 import type { WoWTrend } from "@/hooks/useWoWTrends";
@@ -306,6 +307,10 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
               <MessageSquare className="h-3.5 w-3.5" />
               Comments
             </TabsTrigger>
+            <TabsTrigger value="versions" className="flex-1 gap-1.5">
+              <GitBranch className="h-3.5 w-3.5" />
+              Versions
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="details" className="space-y-4 mt-4">
@@ -457,6 +462,10 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
 
           <TabsContent value="comments" className="mt-4">
             <CreativeComments adId={creative.ad_id} accountId={creative.account_id} />
+          </TabsContent>
+
+          <TabsContent value="versions" className="mt-4">
+            <CreativeVersions creative={creative} onCreativeClick={(c) => { onClose(); /* parent will re-open with new creative */ }} />
           </TabsContent>
         </Tabs>
       </DialogContent>
