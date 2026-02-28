@@ -119,6 +119,52 @@ export function CreativeComments({ adId, accountId }: CreativeCommentsProps) {
     return member?.name || "User";
   };
 
+  // Send notifications to @mentioned, previous commenters, and assigned creator
+  const sendCommentNotifications = async (body: string, mentions: string[]) => {
+    if (!user) return;
+    const recipientIds = new Set<string>();
+
+    // 1. @mentioned users
+    mentions.forEach((id) => recipientIds.add(id));
+
+    // 2. Previous commenters on this creative (excluding current user)
+    const existingCommenters = comments
+      .map((c) => c.user_id)
+      .filter((id) => id !== user.id);
+    existingCommenters.forEach((id) => recipientIds.add(id));
+
+    // 3. Assigned creator (if linked)
+    try {
+      const { data: creative } = await supabase
+        .from("creatives")
+        .select("creator_id")
+        .eq("ad_id", adId)
+        .maybeSingle();
+      if (creative?.creator_id) {
+        // creator_id is a UUID referencing creators table, not auth user
+        // We skip this — creators aren't auth users
+      }
+    } catch { /* ignore */ }
+
+    // Remove self
+    recipientIds.delete(user.id);
+
+    if (recipientIds.size === 0) return;
+
+    const userName = user.email?.split("@")[0] || "Someone";
+    const preview = body.length > 80 ? body.slice(0, 80) + "…" : body;
+
+    const notifications = [...recipientIds].map((recipientId) => ({
+      user_id: recipientId,
+      account_id: accountId,
+      title: `${userName} commented on a creative`,
+      body: preview,
+      type: "comment",
+    }));
+
+    await supabase.from("notifications").insert(notifications as any);
+  };
+
   const handleSubmit = async (parentId?: string) => {
     const body = parentId ? replyText.trim() : newComment.trim();
     if (!body || !user) return;
@@ -145,6 +191,10 @@ export function CreativeComments({ adId, accountId }: CreativeCommentsProps) {
         mentions,
       } as any);
       if (error) throw error;
+
+      // Fire-and-forget notifications
+      sendCommentNotifications(body, mentions);
+
       if (parentId) {
         setReplyText("");
         setReplyTo(null);

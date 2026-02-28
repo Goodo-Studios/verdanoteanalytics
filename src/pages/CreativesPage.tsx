@@ -43,6 +43,7 @@ import { computeScoreMap, type ScoringConfig, DEFAULT_SCORING_CONFIG } from "@/l
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
 import { usePinnedViews } from "@/hooks/useSavedViews";
+import { useCardPresence } from "@/hooks/useCardPresence";
 import type { GradeInfo } from "@/lib/creativeGrading";
 
 const CreativesPage = () => {
@@ -144,6 +145,7 @@ const CreativesPage = () => {
 
   // Anomaly detection
   const { anomalies, anomalySet } = useAnomalyDetection(creatives, selectedAccountId);
+  const { hoveredCards, setHoveredCard } = useCardPresence(selectedAccountId);
 
   const avgMetrics = useMemo(() => {
     if (creatives.length === 0) return { roas: "—", cpa: "—", totalSpend: "—" };
@@ -469,6 +471,8 @@ const CreativesPage = () => {
           fatigueMap={fatigueMap}
           scoreMap={scoreMap}
           anomalySet={anomalySet}
+          hoveredCards={hoveredCards}
+          onCardHover={setHoveredCard}
         />
       )}
 
