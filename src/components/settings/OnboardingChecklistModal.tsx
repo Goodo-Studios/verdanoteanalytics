@@ -24,7 +24,11 @@ export function OnboardingChecklistModal({ open, onClose, account, onSwitchTab }
             Complete these steps to get the most out of your account setup.
           </DialogDescription>
         </DialogHeader>
-        <AccountSetupChecklist account={account} onSwitchTab={(tab) => { onSwitchTab?.(tab); onClose(); }} />
+        <AccountSetupChecklist
+          account={account}
+          onSwitchTab={(tab) => { onSwitchTab?.(tab); onClose(); }}
+          onAllComplete={onClose}
+        />
       </DialogContent>
     </Dialog>
   );
