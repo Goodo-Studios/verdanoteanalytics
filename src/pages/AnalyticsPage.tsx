@@ -17,6 +17,7 @@ import { TagInsightsTab } from "@/components/analytics/TagInsightsTab";
 import { BenchmarksTab } from "@/components/analytics/BenchmarksTab";
 import { VideoTab } from "@/components/analytics/VideoTab";
 import { CrossPlatformTab } from "@/components/analytics/CrossPlatformTab";
+import { CreativeDnaTab } from "@/components/analytics/CreativeDnaTab";
 import { useAnalyticsPageState } from "@/hooks/useAnalyticsPageState";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -66,8 +67,8 @@ const AnalyticsPage = () => {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="bg-transparent border-b border-border-light rounded-none p-0 h-auto gap-0 flex-wrap">
-          {["trends", "winrate", "scale", "kill", "iterations", "taginsights", ...(canBenchmark ? ["video", "benchmarks", "crossplatform"] : [])].map((tab) => {
-            const labels: Record<string, string> = { winrate: "Win Rate", taginsights: "Tag Insights", video: "Video", benchmarks: "Benchmarks", crossplatform: "Cross-Platform" };
+          {["trends", "winrate", "scale", "kill", "iterations", "taginsights", "dna", ...(canBenchmark ? ["video", "benchmarks", "crossplatform"] : [])].map((tab) => {
+            const labels: Record<string, string> = { winrate: "Win Rate", taginsights: "Tag Insights", dna: "Creative DNA", video: "Video", benchmarks: "Benchmarks", crossplatform: "Cross-Platform" };
             return (
               <TabsTrigger
                 key={tab}
@@ -102,6 +103,16 @@ const AnalyticsPage = () => {
             winnerKpi={selectedAccount?.winner_kpi}
             winnerKpiDirection={selectedAccount?.winner_kpi_direction}
             winnerKpiThreshold={parseFloat(selectedAccount?.winner_kpi_threshold || "0") || roasThreshold}
+          />
+        </TabsContent>
+        <TabsContent value="dna" className="space-y-4">
+          <CreativeDnaTab
+            creatives={creatives}
+            scaleThreshold={killScaleConfig.scaleAt}
+            spendThreshold={spendThreshold}
+            accountName={selectedAccount?.name}
+            killScaleKpi={killScaleConfig.winnerKpi}
+            killScaleKpiDirection={killScaleConfig.winnerKpiDirection}
           />
         </TabsContent>
         {canBenchmark && (
