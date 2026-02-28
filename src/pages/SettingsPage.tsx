@@ -17,7 +17,7 @@ import { DataExportSection } from "@/components/settings/DataExportSection";
 
 import { ClientHealthSection } from "@/components/settings/ClientHealthSection";
 import { ApiKeysSection } from "@/components/settings/ApiKeysSection";
-import { TikTokConnectionSection } from "@/components/settings/TikTokConnectionSection";
+
 import { ScoringCalibrationSection } from "@/components/settings/ScoringCalibrationSection";
 import { AttributionSection } from "@/components/settings/AttributionSection";
 import { AccountSetupChecklist, useAccountNeedsOnboarding } from "@/components/settings/AccountSetupChecklist";
@@ -177,19 +177,6 @@ const SettingsPage = () => {
             isSyncing={s.sync.isPending || isSyncing}
           />
           <SyncHistorySection accountId={s.account.id} />
-          <TikTokConnectionSection
-            account={s.account}
-            tiktokAdvertiserId={s.tiktokAdvertiserId}
-            setTiktokAdvertiserId={s.setTiktokAdvertiserId}
-            tiktokAccessToken={s.tiktokAccessToken}
-            setTiktokAccessToken={s.setTiktokAccessToken}
-            onSave={() => s.updateAccountSettings.mutate({
-              id: s.account!.id,
-              tiktok_advertiser_id: s.tiktokAdvertiserId || null,
-              tiktok_access_token: s.tiktokAccessToken || null,
-            })}
-            saving={s.updateAccountSettings.isPending}
-          />
           {(isBuilder || isEmployee) && <AttributionSection account={s.account} />}
           {(isBuilder || isEmployee) && <ClientHealthSection account={s.account} />}
         </div>

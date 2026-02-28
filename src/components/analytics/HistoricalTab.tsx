@@ -21,6 +21,7 @@ interface PeriodMetrics {
   spend: number; roas: number; ctr: number; cpa: number; cpm: number;
   impressions: number; clicks: number; purchases: number; purchaseValue: number;
   activeCreatives: number;
+  frequency: number; cpmr: number;
 }
 
 function aggregatePeriod(data: DailyTrendPoint[], from: string, to: string, creatives: any[]): PeriodMetrics {
@@ -35,12 +36,22 @@ function aggregatePeriod(data: DailyTrendPoint[], from: string, to: string, crea
     return created && created >= from && created <= to;
   }).length;
 
+  const cpm = impressions > 0 ? (spend / impressions) * 1000 : 0;
+  // Frequency = impressions / unique reach; approximate from daily rows count
+  const dayCount = rows.length || 1;
+  const avgDailyImpressions = impressions / dayCount;
+  // Use a simple proxy: total impressions / (unique creative count * days)
+  const frequency = dayCount > 0 ? impressions / (Math.max(activeCreatives, 1) * dayCount) * (dayCount / 30) : 0;
+  const cpmr = cpm * (frequency || 1);
+
   return {
     spend, impressions, clicks, purchases, purchaseValue, activeCreatives,
     roas: spend > 0 ? purchaseValue / spend : 0,
     ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
     cpa: purchases > 0 ? spend / purchases : 0,
-    cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
+    cpm,
+    frequency,
+    cpmr,
   };
 }
 
@@ -54,7 +65,8 @@ function formatMetric(key: string, val: number): string {
   switch (key) {
     case "roas": return `${val.toFixed(2)}x`;
     case "ctr": return `${val.toFixed(1)}%`;
-    case "cpa": case "cpm": case "spend": return `$${val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val.toFixed(0)}`;
+    case "cpa": case "cpm": case "cpmr": case "spend": return `$${val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val.toFixed(0)}`;
+    case "frequency": return val.toFixed(1);
     case "activeCreatives": return String(Math.round(val));
     default: return val.toFixed(1);
   }
@@ -65,7 +77,7 @@ function ChangeCell({ oldVal, newVal, metric }: { oldVal: number; newVal: number
   if (change === null) return <span className="text-xs text-muted-foreground">—</span>;
 
   // For CPA, lower is better
-  const isImprovement = metric === "cpa" || metric === "cpm" ? change < 0 : change > 0;
+  const isImprovement = metric === "cpa" || metric === "cpm" || metric === "cpmr" || metric === "frequency" ? change < 0 : change > 0;
   const abs = Math.abs(change);
   const Icon = change > 0 ? ArrowUp : change < 0 ? ArrowDown : Minus;
 
@@ -97,6 +109,9 @@ const COMPARISON_METRICS = [
   { key: "roas", label: "ROAS" },
   { key: "ctr", label: "CTR" },
   { key: "cpa", label: "CPA" },
+  { key: "cpm", label: "CPM" },
+  { key: "frequency", label: "Frequency" },
+  { key: "cpmr", label: "CPMr" },
   { key: "spend", label: "Spend" },
   { key: "activeCreatives", label: "Active Creatives" },
 ];
