@@ -14,6 +14,47 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_context: {
+        Row: {
+          account_id: string
+          audience_notes: string | null
+          brand_brief: string | null
+          competitor_notes: string | null
+          creative_rules: Json | null
+          offer_history: Json | null
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          account_id: string
+          audience_notes?: string | null
+          brand_brief?: string | null
+          competitor_notes?: string | null
+          creative_rules?: Json | null
+          offer_history?: Json | null
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          account_id?: string
+          audience_notes?: string | null
+          brand_brief?: string | null
+          competitor_notes?: string | null
+          creative_rules?: Json | null
+          offer_history?: Json | null
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_context_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: true
+            referencedRelation: "ad_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ad_accounts: {
         Row: {
           company_description: string | null
