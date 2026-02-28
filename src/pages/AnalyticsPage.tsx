@@ -18,7 +18,7 @@ import { TagInsightsTab } from "@/components/analytics/TagInsightsTab";
 import { VideoTab } from "@/components/analytics/VideoTab";
 
 import { CreativeDnaTab } from "@/components/analytics/CreativeDnaTab";
-import { AgingTab } from "@/components/analytics/AgingTab";
+
 import { HistoricalTab } from "@/components/analytics/HistoricalTab";
 import { MatrixTab } from "@/components/analytics/MatrixTab";
 import { useAnalyticsPageState } from "@/hooks/useAnalyticsPageState";
@@ -70,8 +70,8 @@ const AnalyticsPage = () => {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="bg-transparent border-b border-border-light rounded-none p-0 h-auto gap-0 flex-wrap">
-          {["trends", "winrate", "scale", "kill", "iterations", "taginsights", "dna", "aging", ...(canBenchmark ? ["matrix", "historical", "video"] : [])].map((tab) => {
-            const labels: Record<string, string> = { winrate: "Win Rate", taginsights: "Tag Insights", dna: "Creative DNA", aging: "Aging", matrix: "Matrix", historical: "Historical", video: "Video" };
+          {["trends", "winrate", "scale", "kill", "iterations", "taginsights", "dna", ...(canBenchmark ? ["matrix", "historical", "video"] : [])].map((tab) => {
+            const labels: Record<string, string> = { winrate: "Win Rate", taginsights: "Tag Insights", dna: "Creative DNA", matrix: "Matrix", historical: "Historical", video: "Video" };
             return (
               <TabsTrigger
                 key={tab}
@@ -116,15 +116,6 @@ const AnalyticsPage = () => {
             accountName={selectedAccount?.name}
             killScaleKpi={killScaleConfig.winnerKpi}
             killScaleKpiDirection={killScaleConfig.winnerKpiDirection}
-          />
-        </TabsContent>
-        <TabsContent value="aging" className="space-y-4">
-          <AgingTab
-            creatives={creatives}
-            scaleThreshold={killScaleConfig.scaleAt}
-            killThreshold={killScaleConfig.killAt}
-            spendThreshold={spendThreshold}
-            onCreativeClick={setSelectedCreative}
           />
         </TabsContent>
         <TabsContent value="matrix" className="space-y-4">
