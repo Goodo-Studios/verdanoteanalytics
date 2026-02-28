@@ -18,12 +18,13 @@ import { PortfolioSettingsSection } from "@/components/settings/PortfolioSetting
 import { ClientHealthSection } from "@/components/settings/ClientHealthSection";
 import { ApiKeysSection } from "@/components/settings/ApiKeysSection";
 import { TikTokConnectionSection } from "@/components/settings/TikTokConnectionSection";
+import { ScoringCalibrationSection } from "@/components/settings/ScoringCalibrationSection";
 import { useSettingsPageState } from "@/hooks/useSettingsPageState";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 
-type SettingsTab = "account" | "context" | "export" | "api";
+type SettingsTab = "account" | "context" | "scoring" | "export" | "api";
 
 const SettingsPage = () => {
   const s = useSettingsPageState();
@@ -46,6 +47,7 @@ const SettingsPage = () => {
             <div className="flex gap-1 mb-6 border-b border-border-light">
              <TabButton active={activeTab === "account"} onClick={() => setActiveTab("account")}>Account</TabButton>
               <TabButton active={activeTab === "context"} onClick={() => setActiveTab("context")}>Account Context</TabButton>
+              <TabButton active={activeTab === "scoring"} onClick={() => setActiveTab("scoring")}>Scoring</TabButton>
               <TabButton active={activeTab === "export"} onClick={() => setActiveTab("export")}>Export</TabButton>
               <TabButton active={activeTab === "api"} onClick={() => setActiveTab("api")}>API Access</TabButton>
             </div>
@@ -113,6 +115,7 @@ const SettingsPage = () => {
         <div className="flex gap-1 mb-6 border-b border-border-light">
           <TabButton active={activeTab === "account"} onClick={() => setActiveTab("account")}>Account</TabButton>
           <TabButton active={activeTab === "context"} onClick={() => setActiveTab("context")}>Account Context</TabButton>
+          <TabButton active={activeTab === "scoring"} onClick={() => setActiveTab("scoring")}>Scoring</TabButton>
           <TabButton active={activeTab === "export"} onClick={() => setActiveTab("export")}>Export</TabButton>
           <TabButton active={activeTab === "api"} onClick={() => setActiveTab("api")}>API Access</TabButton>
         </div>
@@ -184,6 +187,8 @@ const SettingsPage = () => {
         </div>
       ) : activeTab === "context" ? (
         <AccountContextSection account={s.account} />
+      ) : activeTab === "scoring" ? (
+        <ScoringCalibrationSection account={s.account} />
       ) : activeTab === "api" ? (
         <div className="max-w-2xl">
           <ApiKeysSection />
