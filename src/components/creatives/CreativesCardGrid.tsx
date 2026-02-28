@@ -13,6 +13,7 @@ import type { WoWTrend } from "@/hooks/useWoWTrends";
 import type { GradeInfo } from "@/lib/creativeGrading";
 import type { FatigueResult } from "@/lib/fatigueScore";
 import type { CreativeScore } from "@/lib/creativeScore";
+import type { CardPresenceUser } from "@/hooks/useCardPresence";
 
 interface CreativesCardGridProps {
   creatives: any[];
@@ -24,6 +25,8 @@ interface CreativesCardGridProps {
   fatigueMap?: Map<string, FatigueResult>;
   scoreMap?: Map<string, CreativeScore>;
   anomalySet?: Set<string>;
+  hoveredCards?: Map<string, CardPresenceUser[]>;
+  onCardHover?: (adId: string | null) => void;
 }
 
 function CardThumbnail({ src, alt }: { src: string; alt: string }) {
@@ -55,22 +58,39 @@ function roasColor(roas: number | null | undefined): string {
   return "text-charcoal";
 }
 
-export function CreativesCardGrid({ creatives, onSelect, compareMode = false, compareIds = new Set(), wowTrends, gradeMap, fatigueMap, scoreMap, anomalySet }: CreativesCardGridProps) {
+export function CreativesCardGrid({ creatives, onSelect, compareMode = false, compareIds = new Set(), wowTrends, gradeMap, fatigueMap, scoreMap, anomalySet, hoveredCards, onCardHover }: CreativesCardGridProps) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {creatives.map((c: any) => {
         const isSelected = compareIds.has(c.ad_id);
         const isDisabled = compareMode && !isSelected && compareIds.size >= 3;
+        const viewers = hoveredCards?.get(c.ad_id);
         return (
           <div
             key={c.ad_id}
             className={cn(
-              "bg-white border rounded-card shadow-card cursor-pointer transition-[box-shadow] duration-150 ease hover:shadow-card-hover relative",
+              "bg-white border rounded-card shadow-card cursor-pointer transition-[box-shadow,ring] duration-150 ease hover:shadow-card-hover relative",
               compareMode && isSelected ? "border-verdant border-2" : "border-border-light",
-              isDisabled && "opacity-50 cursor-not-allowed"
+              isDisabled && "opacity-50 cursor-not-allowed",
+              viewers && viewers.length > 0 && "ring-2 ring-primary/40",
             )}
             onClick={() => !isDisabled && onSelect(c)}
+            onMouseEnter={() => onCardHover?.(c.ad_id)}
+            onMouseLeave={() => onCardHover?.(null)}
           >
+            {/* Viewer name label */}
+            {viewers && viewers.length > 0 && (
+              <div className="absolute -top-2.5 left-3 z-20 flex items-center gap-1">
+                {viewers.slice(0, 2).map((v) => (
+                  <span
+                    key={v.user_id}
+                    className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground font-label text-[9px] font-semibold shadow-sm"
+                  >
+                    {v.name}
+                  </span>
+                ))}
+              </div>
+            )}
             {/* Compare checkbox */}
             {compareMode && (
               <div className="absolute top-2 right-2 z-10" onClick={(e) => e.stopPropagation()}>
