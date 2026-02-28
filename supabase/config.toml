@@ -56,3 +56,6 @@ verify_jwt = false
 
 [functions.create-coda-brief]
 verify_jwt = false
+
+[functions.sync-coda-tasks]
+verify_jwt = false

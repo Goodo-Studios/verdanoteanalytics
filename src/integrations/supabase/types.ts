@@ -549,6 +549,66 @@ export type Database = {
           },
         ]
       }
+      coda_tasks: {
+        Row: {
+          account_id: string | null
+          account_name: string | null
+          ad_type: string | null
+          brief: string | null
+          coda_created_at: string | null
+          coda_row_id: string | null
+          created_at: string | null
+          created_by: string | null
+          creative_id: string | null
+          creative_name: string | null
+          id: string
+          roas: string | null
+          spend: string | null
+          status: string | null
+          synced_at: string | null
+          task_name: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          account_name?: string | null
+          ad_type?: string | null
+          brief?: string | null
+          coda_created_at?: string | null
+          coda_row_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          creative_id?: string | null
+          creative_name?: string | null
+          id?: string
+          roas?: string | null
+          spend?: string | null
+          status?: string | null
+          synced_at?: string | null
+          task_name?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          account_name?: string | null
+          ad_type?: string | null
+          brief?: string | null
+          coda_created_at?: string | null
+          coda_row_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          creative_id?: string | null
+          creative_name?: string | null
+          id?: string
+          roas?: string | null
+          spend?: string | null
+          status?: string | null
+          synced_at?: string | null
+          task_name?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       competitor_ads: {
         Row: {
           ad_archive_id: string | null
