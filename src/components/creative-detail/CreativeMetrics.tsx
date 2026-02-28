@@ -43,14 +43,11 @@ export function CreativeMetrics({ creative }: CreativeMetricsProps) {
     },
     {
       title: "Engagement",
-      cols: 7,
+      cols: 4,
       metrics: [
         { label: "Unique CTR", value: fmtVal(creative.ctr, "", "%") },
         { label: "Hook Rate", value: fmtVal(creative.thumb_stop_rate, "", "%") },
         { label: "Hold Rate", value: fmtVal(creative.hold_rate, "", "%") },
-        { label: "Impressions", value: fmtInt(creative.impressions) },
-        { label: "Clicks", value: fmtInt(creative.clicks) },
-        { label: "Video Views", value: fmtInt(creative.video_views) },
         { label: "Avg Play Time", value: fmtVal(creative.video_avg_play_time, "", "s") },
       ],
     },
