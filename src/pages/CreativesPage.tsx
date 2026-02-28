@@ -40,6 +40,7 @@ import { useWoWTrends } from "@/hooks/useWoWTrends";
 import { gradeCreatives, gradeOrder } from "@/lib/creativeGrading";
 import { computeFatigueMap } from "@/lib/fatigueScore";
 import { computeScoreMap, type ScoringConfig, DEFAULT_SCORING_CONFIG } from "@/lib/creativeScore";
+import { isForecastedToFatigue } from "@/lib/fatigueForecast";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
 import { usePinnedViews } from "@/hooks/useSavedViews";
@@ -147,6 +148,38 @@ const CreativesPage = () => {
   const { anomalies, anomalySet } = useAnomalyDetection(creatives, selectedAccountId);
   const { hoveredCards, setHoveredCard } = useCardPresence(selectedAccountId);
 
+  // Fetch daily metrics for fatigue forecast filter (only when filter active)
+  const { data: dailyMetricsMap } = useQuery({
+    queryKey: ["daily-metrics-forecast", selectedAccountId, fatigueFilter],
+    queryFn: async () => {
+      const today = new Date();
+      const from = new Date(today);
+      from.setDate(from.getDate() - 14);
+      const fromStr = from.toISOString().split("T")[0];
+
+      const query = supabase
+        .from("creative_daily_metrics")
+        .select("ad_id, date, spend, frequency, ctr, roas")
+        .gte("date", fromStr);
+
+      if (selectedAccountId && selectedAccountId !== "all") {
+        query.eq("account_id", selectedAccountId);
+      }
+
+      const { data } = await query;
+      if (!data) return new Map<string, any[]>();
+
+      const map = new Map<string, any[]>();
+      for (const row of data) {
+        if (!map.has(row.ad_id)) map.set(row.ad_id, []);
+        map.get(row.ad_id)!.push(row);
+      }
+      return map;
+    },
+    enabled: fatigueFilter === "forecast",
+    staleTime: 5 * 60 * 1000,
+  });
+
   const avgMetrics = useMemo(() => {
     if (creatives.length === 0) return { roas: "—", cpa: "—", totalSpend: "—" };
     const withSpend = creatives.filter((c: any) => c.spend > 0);
@@ -182,13 +215,23 @@ const CreativesPage = () => {
 
     // Apply fatigue filter
     if (fatigueFilter !== "__all__") {
-      list = list.filter((c: any) => {
-        const f = fatigueMap.get(c.ad_id);
-        if (fatigueFilter === "high") return f?.level === "high";
-        if (fatigueFilter === "warning") return f?.level === "warning";
-        if (fatigueFilter === "ok") return !f || f.level === "ok";
-        return true;
-      });
+      if (fatigueFilter === "forecast") {
+        // Show creatives forecasted to hit warning within 7 days
+        if (dailyMetricsMap) {
+          list = list.filter((c: any) => {
+            const rows = dailyMetricsMap.get(c.ad_id);
+            return rows ? isForecastedToFatigue(rows, 7) : false;
+          });
+        }
+      } else {
+        list = list.filter((c: any) => {
+          const f = fatigueMap.get(c.ad_id);
+          if (fatigueFilter === "high") return f?.level === "high";
+          if (fatigueFilter === "warning") return f?.level === "warning";
+          if (fatigueFilter === "ok") return !f || f.level === "ok";
+          return true;
+        });
+      }
     }
 
     // Apply advanced filters
@@ -224,7 +267,7 @@ const CreativesPage = () => {
       if (typeof va === "number" || !isNaN(Number(va))) return (Number(va) - Number(vb)) * dir;
       return String(va).localeCompare(String(vb)) * dir;
     });
-  }, [creatives, sort, momentumFilter, wowTrends, gradeMap, fatigueFilter, fatigueMap, advancedConditions, scoreMap, platformFilter]);
+  }, [creatives, sort, momentumFilter, wowTrends, gradeMap, fatigueFilter, fatigueMap, advancedConditions, scoreMap, platformFilter, dailyMetricsMap]);
 
   const toggleBulkId = useCallback((adId: string) => {
     setBulkSelectedIds(prev => {
