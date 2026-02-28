@@ -517,6 +517,56 @@ export type Database = {
         }
         Relationships: []
       }
+      creative_comments: {
+        Row: {
+          account_id: string
+          ad_id: string
+          body: string
+          created_at: string | null
+          id: string
+          is_resolved: boolean | null
+          mentions: string[] | null
+          parent_id: string | null
+          reactions: Json | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          ad_id: string
+          body: string
+          created_at?: string | null
+          id?: string
+          is_resolved?: boolean | null
+          mentions?: string[] | null
+          parent_id?: string | null
+          reactions?: Json | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          ad_id?: string
+          body?: string
+          created_at?: string | null
+          id?: string
+          is_resolved?: boolean | null
+          mentions?: string[] | null
+          parent_id?: string | null
+          reactions?: Json | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_comments_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "creative_comments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       creative_daily_metrics: {
         Row: {
           account_id: string
