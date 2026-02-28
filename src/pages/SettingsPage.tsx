@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
+import { AccountContextSection } from "@/components/settings/AccountContextSection";
 import { SyncStatusBanner } from "@/components/SyncStatusBanner";
 import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
 import { PageHeader } from "@/components/PageHeader";
@@ -18,7 +19,7 @@ import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 
-type SettingsTab = "account" | "export";
+type SettingsTab = "account" | "context" | "export";
 
 const SettingsPage = () => {
   const s = useSettingsPageState();
@@ -39,7 +40,8 @@ const SettingsPage = () => {
           {/* Tab bar for builder */}
           {isBuilder && (
             <div className="flex gap-1 mb-6 border-b border-border-light">
-              <TabButton active={activeTab === "account"} onClick={() => setActiveTab("account")}>Account</TabButton>
+             <TabButton active={activeTab === "account"} onClick={() => setActiveTab("account")}>Account</TabButton>
+              <TabButton active={activeTab === "context"} onClick={() => setActiveTab("context")}>Account Context</TabButton>
               <TabButton active={activeTab === "export"} onClick={() => setActiveTab("export")}>Export</TabButton>
             </div>
           )}
@@ -101,6 +103,7 @@ const SettingsPage = () => {
       {isBuilder && (
         <div className="flex gap-1 mb-6 border-b border-border-light">
           <TabButton active={activeTab === "account"} onClick={() => setActiveTab("account")}>Account</TabButton>
+          <TabButton active={activeTab === "context"} onClick={() => setActiveTab("context")}>Account Context</TabButton>
           <TabButton active={activeTab === "export"} onClick={() => setActiveTab("export")}>Export</TabButton>
         </div>
       )}
@@ -146,6 +149,8 @@ const SettingsPage = () => {
           <SyncHistorySection accountId={s.account.id} />
           {isBuilder && <PortfolioSettingsSection account={s.account} />}
         </div>
+      ) : activeTab === "context" ? (
+        <AccountContextSection account={s.account} />
       ) : (
         <div className="max-w-3xl">
           <DataExportSection />
