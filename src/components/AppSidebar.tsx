@@ -43,7 +43,7 @@ const baseNavItems = [
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Tagging", url: "/tagging", icon: Tags },
   { title: "Reports", url: "/reports", icon: FileText },
-  { title: "Briefs", url: "/briefs", icon: FileEdit },
+  
   { title: "Competitors", url: "/competitors", icon: Radar },
   { title: "Leaderboard", url: "/leaderboard", icon: Trophy },
   
