@@ -18,7 +18,7 @@ import {
   FileEdit,
   Radar,
   Trophy,
-  GitCommitHorizontal,
+  
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
@@ -46,7 +46,7 @@ const baseNavItems = [
   { title: "Briefs", url: "/briefs", icon: FileEdit },
   { title: "Competitors", url: "/competitors", icon: Radar },
   { title: "Leaderboard", url: "/leaderboard", icon: Trophy },
-  { title: "Changelog", url: "/changelog", icon: GitCommitHorizontal },
+  
   { title: "Hook Library", url: "/hooks", icon: Zap },
   { title: "Saved Views", url: "/saved-views", icon: Bookmark },
   { title: "AI Analyst", url: "/ai-chat", icon: Sparkles },
