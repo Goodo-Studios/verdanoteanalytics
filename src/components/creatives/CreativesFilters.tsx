@@ -21,6 +21,8 @@ interface CreativesFiltersProps {
   onMomentumChange?: (v: string) => void;
   fatigueFilter?: string;
   onFatigueChange?: (v: string) => void;
+  platformFilter?: string;
+  onPlatformChange?: (v: string) => void;
 }
 
 export function CreativesFilters({
@@ -28,15 +30,29 @@ export function CreativesFilters({
   filters, updateFilter, filterOptions, groupBy, setGroupBy, viewMode,
   momentumFilter, onMomentumChange,
   fatigueFilter, onFatigueChange,
+  platformFilter, onPlatformChange,
 }: CreativesFiltersProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const activeCount = Object.entries(filters).filter(([, v]) => v && v !== "__all__").length
     + (momentumFilter && momentumFilter !== "__all__" ? 1 : 0)
-    + (fatigueFilter && fatigueFilter !== "__all__" ? 1 : 0);
+    + (fatigueFilter && fatigueFilter !== "__all__" ? 1 : 0)
+    + (platformFilter && platformFilter !== "__all__" ? 1 : 0);
 
   const filterControls = (
     <>
+      {onPlatformChange && (
+        <Select value={platformFilter || "__all__"} onValueChange={onPlatformChange}>
+          <SelectTrigger className={`w-full sm:w-28 h-8 font-body text-[12px] font-medium bg-background rounded-[6px] border ${platformFilter && platformFilter !== "__all__" ? "border-verdant text-forest bg-sage-light" : "border-border-light text-slate"}`}>
+            <SelectValue placeholder="Platform" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All platforms</SelectItem>
+            <SelectItem value="meta">Meta</SelectItem>
+            <SelectItem value="tiktok">TikTok</SelectItem>
+          </SelectContent>
+        </Select>
+      )}
       {filterOptions && (
         <>
           {(["ad_type", "person", "style", "hook"] as const).map((field) => (
