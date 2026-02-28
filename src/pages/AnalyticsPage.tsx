@@ -14,9 +14,9 @@ import { ScaleTab } from "@/components/analytics/ScaleTab";
 import { KillTab } from "@/components/analytics/KillTab";
 import { IterationsTab } from "@/components/analytics/IterationsTab";
 import { TagInsightsTab } from "@/components/analytics/TagInsightsTab";
-import { BenchmarksTab } from "@/components/analytics/BenchmarksTab";
+
 import { VideoTab } from "@/components/analytics/VideoTab";
-import { CrossPlatformTab } from "@/components/analytics/CrossPlatformTab";
+
 import { CreativeDnaTab } from "@/components/analytics/CreativeDnaTab";
 import { AgingTab } from "@/components/analytics/AgingTab";
 import { HistoricalTab } from "@/components/analytics/HistoricalTab";
@@ -70,8 +70,8 @@ const AnalyticsPage = () => {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="bg-transparent border-b border-border-light rounded-none p-0 h-auto gap-0 flex-wrap">
-          {["trends", "winrate", "scale", "kill", "iterations", "taginsights", "dna", "aging", ...(canBenchmark ? ["matrix", "historical", "video", "benchmarks", "crossplatform"] : [])].map((tab) => {
-            const labels: Record<string, string> = { winrate: "Win Rate", taginsights: "Tag Insights", dna: "Creative DNA", aging: "Aging", matrix: "Matrix", historical: "Historical", video: "Video", benchmarks: "Benchmarks", crossplatform: "Cross-Platform" };
+          {["trends", "winrate", "scale", "kill", "iterations", "taginsights", "dna", "aging", ...(canBenchmark ? ["matrix", "historical", "video"] : [])].map((tab) => {
+            const labels: Record<string, string> = { winrate: "Win Rate", taginsights: "Tag Insights", dna: "Creative DNA", aging: "Aging", matrix: "Matrix", historical: "Historical", video: "Video" };
             return (
               <TabsTrigger
                 key={tab}
@@ -136,16 +136,6 @@ const AnalyticsPage = () => {
         {canBenchmark && (
           <TabsContent value="video" className="space-y-4">
             <VideoTab creatives={creatives} killThreshold={killScaleConfig.killAt} onCreativeClick={setSelectedCreative} />
-          </TabsContent>
-        )}
-        {canBenchmark && (
-          <TabsContent value="benchmarks" className="space-y-4">
-            <BenchmarksTab />
-          </TabsContent>
-        )}
-        {canBenchmark && (
-          <TabsContent value="crossplatform" className="space-y-4">
-            <CrossPlatformTab creatives={creatives} trendData={filteredTrendData} onCreativeClick={setSelectedCreative} />
           </TabsContent>
         )}
       </Tabs>

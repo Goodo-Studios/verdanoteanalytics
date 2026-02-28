@@ -48,7 +48,8 @@ export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: Vi
         const rawHookRate = Number(c.thumb_stop_rate) || 0;
         // thumb_stop_rate is stored as a percentage (e.g. 31.5 = 31.5%), convert to 0-1 ratio
         const hookRate = rawHookRate > 0 ? rawHookRate / 100 : (impressions > 0 ? views / impressions : 0);
-        const viewToClick = views > 0 ? clicks / views : 0;
+        const ctr = Number(c.ctr) || 0;
+        const viewToClick = ctr > 0 ? ctr / 100 : (impressions > 0 ? clicks / impressions : 0);
         // thruplay ≈ hold_rate * video_views (reverse-engineered)
         const thruplay = holdRate * views;
         const costPerThruplay = thruplay > 0 ? spend / thruplay : 0;
@@ -127,11 +128,11 @@ export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: Vi
   const maxSpend = Math.max(...videoCreatives.map(c => c.spend_val), 1);
   const bubbleScale = (spend: number) => Math.max(4, Math.sqrt(spend / maxSpend) * 28);
 
-  // Quadrant labels
+  // Quadrant labels — X = Hold Rate, Y = Hook Rate
   const quadrants = [
     { label: "Hooks & Holds", x: PAD.left + plotW * 0.75, y: PAD.top + plotH * 0.15, className: "text-primary" },
-    { label: "Holds, doesn't hook", x: PAD.left + plotW * 0.25, y: PAD.top + plotH * 0.15, className: "text-warning" },
-    { label: "Hooks, doesn't hold", x: PAD.left + plotW * 0.75, y: PAD.top + plotH * 0.85, className: "text-warning" },
+    { label: "Hooks, doesn't hold", x: PAD.left + plotW * 0.25, y: PAD.top + plotH * 0.15, className: "text-warning" },
+    { label: "Holds, doesn't hook", x: PAD.left + plotW * 0.75, y: PAD.top + plotH * 0.85, className: "text-warning" },
     { label: "Losing them", x: PAD.left + plotW * 0.25, y: PAD.top + plotH * 0.85, className: "text-destructive" },
   ];
 
@@ -187,10 +188,10 @@ export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: Vi
 
               {/* Axis labels */}
               <text x={PAD.left + plotW / 2} y={SCATTER_H - 6} textAnchor="middle" className="text-[10px] font-label fill-muted-foreground">
-                Hook Rate →
+                Hold Rate →
               </text>
               <text x={14} y={PAD.top + plotH / 2} textAnchor="middle" className="text-[10px] font-label fill-muted-foreground" transform={`rotate(-90, 14, ${PAD.top + plotH / 2})`}>
-                Hold Rate →
+                Hook Rate →
               </text>
 
               {/* Tick marks */}
@@ -211,8 +212,8 @@ export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: Vi
 
               {/* Bubbles */}
               {videoCreatives.map(c => {
-                const cx = PAD.left + Math.min(c.hook_rate, 1) * plotW;
-                const cy = PAD.top + plotH - Math.min(c.hold_rate_val, 1) * plotH;
+                const cx = PAD.left + Math.min(c.hold_rate_val, 1) * plotW;
+                const cy = PAD.top + plotH - Math.min(c.hook_rate, 1) * plotH;
                 const r = bubbleScale(c.spend_val);
                 const isHovered = hoveredBubble === c.ad_id;
                 return (
