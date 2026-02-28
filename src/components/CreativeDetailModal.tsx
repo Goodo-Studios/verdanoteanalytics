@@ -24,12 +24,9 @@ import { CreativeComments } from "@/components/creative-detail/CreativeComments"
 import { CreativeVersions } from "@/components/creative-detail/CreativeVersions";
 import { GradeBadge } from "@/components/creatives/GradeBadge";
 import { FatigueForecastSection } from "@/components/creative-detail/FatigueForecastSection";
-import { ScoreCircle } from "@/components/creatives/ScoreCircle";
-import { ScoreHistoryChart } from "@/components/creative-detail/ScoreHistoryChart";
 import type { WoWTrend } from "@/hooks/useWoWTrends";
 import type { GradeInfo } from "@/lib/creativeGrading";
 import type { FatigueResult } from "@/lib/fatigueScore";
-import type { CreativeScore } from "@/lib/creativeScore";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCreateBrief } from "@/hooks/useBriefsApi";
 
@@ -42,7 +39,6 @@ interface CreativeDetailModalProps {
   wowTrends?: Map<string, WoWTrend>;
   gradeMap?: Map<string, GradeInfo>;
   fatigueMap?: Map<string, FatigueResult>;
-  scoreMap?: Map<string, CreativeScore>;
 }
 
 function MetaPreviewEmbed({ url, fallbackUrl }: { url: string; fallbackUrl?: string | null }) {
@@ -90,7 +86,6 @@ function MediaPreview({ creative }: { creative: any }) {
   const isVideoAdWithoutSource = creative.video_url === "no-video" && (creative.video_views > 0);
   const facebookAdUrl = creative.preview_url || (creative.ad_id ? `https://www.facebook.com/ads/library/?id=${creative.ad_id}` : null);
 
-  // Video playback with error fallback to iframe embed
   if (hasVideo && showVideo) {
     if (videoError) {
       if (creative.preview_url) {
@@ -135,7 +130,6 @@ function MediaPreview({ creative }: { creative: any }) {
     );
   }
 
-  // For "no-video" ads that have a preview URL, embed the Meta preview directly
   if (isVideoAdWithoutSource && creative.preview_url) {
     return (
       <div className="relative group">
@@ -208,7 +202,7 @@ function MediaPreview({ creative }: { creative: any }) {
   );
 }
 
-export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModalProps>(function CreativeDetailModal({ creative, open, onClose, wowTrends, gradeMap, fatigueMap, scoreMap }, ref) {
+export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModalProps>(function CreativeDetailModal({ creative, open, onClose, wowTrends, gradeMap, fatigueMap }, ref) {
   const { isBuilder, isEmployee, user } = useAuth();
   const canEdit = isBuilder || isEmployee;
   const navigate = useNavigate();
@@ -219,7 +213,6 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
   const { data: briefs } = useBriefs(creative?.account_id);
   if (!creative) return null;
   const fatigue = fatigueMap?.get(creative.ad_id);
-  const creativeScore = scoreMap?.get(creative.ad_id);
 
   const handleCreateBrief = () => {
     createBrief.mutate(
@@ -271,8 +264,6 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
                 AI Analysis
               </TabsTrigger>
             )}
-
-
             <TabsTrigger value="comments" className="flex-1 gap-1.5">
               <MessageSquare className="h-3.5 w-3.5" />
               Comments
@@ -286,33 +277,8 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
           <TabsContent value="details" className="space-y-4 mt-4">
             <CreativeMetrics creative={creative} />
 
-            {/* Creative Score */}
-            {creativeScore && (
-              <div className="space-y-2 px-1">
-                <div className="flex items-center gap-3">
-                  <ScoreCircle score={creativeScore.score} tier={creativeScore.tier} size="md" />
-                  <span className="font-heading text-[16px] text-foreground">Creative Score: {creativeScore.score}/100</span>
-                </div>
-                <div className="w-full h-2.5 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${creativeScore.tier === "green" ? "bg-success" : creativeScore.tier === "amber" ? "bg-amber-500" : "bg-destructive"}`}
-                    style={{ width: `${creativeScore.score}%` }}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-[12px] font-body mt-1">
-                  <ScoreRow label="ROAS" value={creativeScore.breakdown.roas} max={35} />
-                  <ScoreRow label="CTR" value={creativeScore.breakdown.ctr} max={20} />
-                  <ScoreRow label="Hook Rate" value={creativeScore.breakdown.hookRate} max={15} />
-                  <ScoreRow label="CPA Efficiency" value={creativeScore.breakdown.cpaEfficiency} max={10} />
-                  <ScoreRow label="Momentum" value={creativeScore.breakdown.momentum} max={10} />
-                  {creativeScore.breakdown.fatiguePenalty < 0 && (
-                    <ScoreRow label="Fatigue Penalty" value={creativeScore.breakdown.fatiguePenalty} max={0} negative />
-                  )}
-                </div>
-                {/* Score History Chart */}
-                <ScoreHistoryChart adId={creative.ad_id} />
-              </div>
-            )}
+            {/* Iteration Analysis - right after metrics */}
+            <CreativeIterationAnalysis creative={creative} />
 
             {gradeMap?.get(creative.ad_id) && (
               <div className="flex items-center gap-2 px-1">
@@ -379,8 +345,6 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
             {/* Context */}
             <div className="space-y-1.5">
               <p className="font-body text-[13px]"><span className="font-semibold text-foreground">Ad Name:</span> <span className="font-normal text-muted-foreground break-all">{creative.ad_name}</span></p>
-
-
               <p className="font-body text-[13px]"><span className="font-semibold text-foreground">Campaign:</span> <span className="font-normal text-muted-foreground break-all">{creative.campaign_name || "—"}</span></p>
               <p className="font-body text-[13px]"><span className="font-semibold text-foreground">Ad Set:</span> <span className="font-normal text-muted-foreground break-all">{creative.adset_name || "—"}</span></p>
             </div>
@@ -407,18 +371,12 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
                   <BookOpen className="h-3.5 w-3.5" />
                   Browse Hooks
                 </Button>
-
-
               </div>
             )}
-
-
 
             <CreativeChangelog adId={creative.ad_id} accountId={creative.account_id} />
             <Separator />
             <CreativeTagEditor creative={creative} />
-            <Separator />
-            <CreativeIterationAnalysis creative={creative} />
           </TabsContent>
 
           {canEdit && (
@@ -427,15 +385,12 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
             </TabsContent>
           )}
 
-
-
-
           <TabsContent value="comments" className="mt-4">
             <CreativeComments adId={creative.ad_id} accountId={creative.account_id} />
           </TabsContent>
 
           <TabsContent value="versions" className="mt-4">
-            <CreativeVersions creative={creative} onCreativeClick={(c) => { onClose(); /* parent will re-open with new creative */ }} />
+            <CreativeVersions creative={creative} onCreativeClick={(c) => { onClose(); }} />
           </TabsContent>
         </Tabs>
       </DialogContent>
@@ -443,14 +398,3 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
     </Dialog>
   );
 });
-
-function ScoreRow({ label, value, max, negative }: { label: string; value: number; max: number; negative?: boolean }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={`font-data font-medium tabular-nums ${negative ? "text-destructive" : "text-foreground"}`}>
-        {value > 0 ? "+" : ""}{value} / {max}
-      </span>
-    </div>
-  );
-}
