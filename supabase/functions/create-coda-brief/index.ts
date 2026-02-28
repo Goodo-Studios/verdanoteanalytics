@@ -72,6 +72,7 @@ Deno.serve(async (req) => {
                 { column: "Task", value: task_name || "" },
                 { column: "Connected Project", value: account_name },
                 { column: "Brief", value: brief_note || "" },
+                { column: "Stage", value: "Brief Creation" },
               ],
             },
           ],
