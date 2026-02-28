@@ -57,6 +57,8 @@ export type Database = {
       }
       ad_accounts: {
         Row: {
+          client_responsiveness: string | null
+          client_start_date: string | null
           company_description: string | null
           company_pdf_url: string | null
           created_at: string
@@ -94,6 +96,8 @@ export type Database = {
           winner_roas_threshold: number
         }
         Insert: {
+          client_responsiveness?: string | null
+          client_start_date?: string | null
           company_description?: string | null
           company_pdf_url?: string | null
           created_at?: string
@@ -131,6 +135,8 @@ export type Database = {
           winner_roas_threshold?: number
         }
         Update: {
+          client_responsiveness?: string | null
+          client_start_date?: string | null
           company_description?: string | null
           company_pdf_url?: string | null
           created_at?: string
