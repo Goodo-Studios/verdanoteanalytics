@@ -57,11 +57,15 @@ Deno.serve(async (req) => {
       const vals = row.values || {};
       const codaRowId = row.id;
 
-      const record = {
+      const record: Record<string, any> = {
         coda_row_id: codaRowId,
         account_name: vals["Connected Project"] || null,
         task_name: vals["Task"] || null,
         brief: vals["Brief"] || null,
+        stage: vals["Stage"] || null,
+        due_date: vals["Due Date"] || null,
+        content_type: vals["Content Type"] || null,
+        coda_url: row.browserLink || null,
         synced_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };

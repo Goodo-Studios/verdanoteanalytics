@@ -557,13 +557,17 @@ export type Database = {
           brief: string | null
           coda_created_at: string | null
           coda_row_id: string | null
+          coda_url: string | null
+          content_type: string | null
           created_at: string | null
           created_by: string | null
           creative_id: string | null
           creative_name: string | null
+          due_date: string | null
           id: string
           roas: string | null
           spend: string | null
+          stage: string | null
           status: string | null
           synced_at: string | null
           task_name: string | null
@@ -576,13 +580,17 @@ export type Database = {
           brief?: string | null
           coda_created_at?: string | null
           coda_row_id?: string | null
+          coda_url?: string | null
+          content_type?: string | null
           created_at?: string | null
           created_by?: string | null
           creative_id?: string | null
           creative_name?: string | null
+          due_date?: string | null
           id?: string
           roas?: string | null
           spend?: string | null
+          stage?: string | null
           status?: string | null
           synced_at?: string | null
           task_name?: string | null
@@ -595,13 +603,17 @@ export type Database = {
           brief?: string | null
           coda_created_at?: string | null
           coda_row_id?: string | null
+          coda_url?: string | null
+          content_type?: string | null
           created_at?: string | null
           created_by?: string | null
           creative_id?: string | null
           creative_name?: string | null
+          due_date?: string | null
           id?: string
           roas?: string | null
           spend?: string | null
+          stage?: string | null
           status?: string | null
           synced_at?: string | null
           task_name?: string | null
