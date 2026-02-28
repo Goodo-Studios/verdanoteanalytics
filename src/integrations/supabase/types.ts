@@ -273,6 +273,36 @@ export type Database = {
           },
         ]
       }
+      annotations: {
+        Row: {
+          account_id: string
+          ad_id: string
+          created_at: string | null
+          created_by: string
+          id: string
+          image_path: string
+          note: string | null
+        }
+        Insert: {
+          account_id: string
+          ad_id: string
+          created_at?: string | null
+          created_by: string
+          id?: string
+          image_path: string
+          note?: string | null
+        }
+        Update: {
+          account_id?: string
+          ad_id?: string
+          created_at?: string | null
+          created_by?: string
+          id?: string
+          image_path?: string
+          note?: string | null
+        }
+        Relationships: []
+      }
       api_keys: {
         Row: {
           created_at: string | null

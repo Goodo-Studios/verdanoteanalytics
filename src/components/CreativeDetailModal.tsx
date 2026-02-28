@@ -6,10 +6,14 @@ import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, Users, FileEdit, BookOpen, Sparkles } from "lucide-react";
+import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, Users, FileEdit, BookOpen, Sparkles, PenTool } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useCreator } from "@/hooks/useCreatorsApi";
 import { useState, forwardRef } from "react";
+import { AnnotationCanvas } from "@/components/creative-detail/AnnotationCanvas";
+import { AnnotationGallery } from "@/components/creative-detail/AnnotationGallery";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useBriefs } from "@/hooks/useBriefsApi";
 import { CreativeMetrics } from "@/components/creative-detail/CreativeMetrics";
 import { CreativeTagEditor } from "@/components/creative-detail/CreativeTagEditor";
 import { CreativeIterationAnalysis } from "@/components/creative-detail/CreativeIterationAnalysis";
@@ -210,6 +214,9 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
   const navigate = useNavigate();
   const createBrief = useCreateBrief();
   const [hookBrowserOpen, setHookBrowserOpen] = useState(false);
+  const [annotateMode, setAnnotateMode] = useState(false);
+  const queryClient = useQueryClient();
+  const { data: briefs } = useBriefs(creative?.account_id);
   if (!creative) return null;
   const fatigue = fatigueMap?.get(creative.ad_id);
   const creativeScore = scoreMap?.get(creative.ad_id);
@@ -252,8 +259,34 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
           </DialogTitle>
         </DialogHeader>
 
-        {/* Media preview */}
-        <MediaPreview creative={creative} />
+        {/* Annotate button + Media preview */}
+        {annotateMode && creative.thumbnail_url ? (
+          <AnnotationCanvas
+            imageUrl={creative.thumbnail_url}
+            adId={creative.ad_id}
+            accountId={creative.account_id}
+            onClose={() => setAnnotateMode(false)}
+            onSaved={() => {
+              queryClient.invalidateQueries({ queryKey: ["annotations", creative.ad_id] });
+              setAnnotateMode(false);
+            }}
+            briefs={briefs}
+          />
+        ) : (
+          <div className="relative">
+            <MediaPreview creative={creative} />
+            {canEdit && creative.thumbnail_url && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="absolute top-2 left-2 gap-1.5 font-body text-[11px] shadow-sm"
+                onClick={() => setAnnotateMode(true)}
+              >
+                <PenTool className="h-3.5 w-3.5" /> Annotate
+              </Button>
+            )}
+          </div>
+        )}
 
         <Tabs defaultValue="details" className="w-full">
           <TabsList className="w-full">
@@ -264,6 +297,10 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
                 AI Analysis
               </TabsTrigger>
             )}
+            <TabsTrigger value="annotations" className="flex-1 gap-1.5">
+              <PenTool className="h-3.5 w-3.5" />
+              Annotations
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="details" className="space-y-4 mt-4">
@@ -408,6 +445,10 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
               <CreativeAIAnalysis creative={creative} />
             </TabsContent>
           )}
+
+          <TabsContent value="annotations" className="mt-4">
+            <AnnotationGallery adId={creative.ad_id} />
+          </TabsContent>
         </Tabs>
       </DialogContent>
       <HookBrowserModal open={hookBrowserOpen} onClose={() => setHookBrowserOpen(false)} />
