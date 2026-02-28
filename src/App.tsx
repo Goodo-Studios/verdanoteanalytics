@@ -3,6 +3,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import EditorOverviewPage from "./pages/EditorOverviewPage";
 import { AccountProvider } from "@/contexts/AccountContext";
 import { ClientPreviewContext, useClientPreviewMode } from "@/hooks/useClientPreviewMode";
@@ -105,27 +106,29 @@ const App = () => {
   const clientPreview = useClientPreviewMode();
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <ClientPreviewContext.Provider value={clientPreview}>
-          <TooltipProvider>
-            <Sonner />
-            <BrowserRouter>
-              <Routes>
-                <Route path="/login" element={<LoginPage />} />
-                <Route path="/reset-password" element={<ResetPasswordPage />} />
-                <Route path="/update-password" element={<UpdatePasswordPage />} />
-                <Route path="/public/reports/:id" element={<PublicReportPage />} />
-                <Route path="/briefs/share/:token" element={<PublicBriefPage />} />
-                <Route path="/moodboards/share/:token" element={<PublicMoodboardPage />} />
-                <Route path="/portfolio/:slug" element={<PortfolioPage />} />
-                <Route path="/*" element={<ProtectedRoutes />} />
-              </Routes>
-            </BrowserRouter>
-          </TooltipProvider>
-        </ClientPreviewContext.Provider>
-      </AuthProvider>
-    </QueryClientProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <ClientPreviewContext.Provider value={clientPreview}>
+            <TooltipProvider>
+              <Sonner />
+              <BrowserRouter>
+                <Routes>
+                  <Route path="/login" element={<LoginPage />} />
+                  <Route path="/reset-password" element={<ResetPasswordPage />} />
+                  <Route path="/update-password" element={<UpdatePasswordPage />} />
+                  <Route path="/public/reports/:id" element={<PublicReportPage />} />
+                  <Route path="/briefs/share/:token" element={<PublicBriefPage />} />
+                  <Route path="/moodboards/share/:token" element={<PublicMoodboardPage />} />
+                  <Route path="/portfolio/:slug" element={<PortfolioPage />} />
+                  <Route path="/*" element={<ProtectedRoutes />} />
+                </Routes>
+              </BrowserRouter>
+            </TooltipProvider>
+          </ClientPreviewContext.Provider>
+        </AuthProvider>
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 };
 
