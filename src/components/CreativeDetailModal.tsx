@@ -25,6 +25,7 @@ import { CreativeAIAnalysis } from "@/components/creative-detail/CreativeAIAnaly
 import { CreativeComments } from "@/components/creative-detail/CreativeComments";
 import { CreativeVersions } from "@/components/creative-detail/CreativeVersions";
 import { GradeBadge } from "@/components/creatives/GradeBadge";
+import { FatigueForecastSection } from "@/components/creative-detail/FatigueForecastSection";
 import { ScoreCircle } from "@/components/creatives/ScoreCircle";
 import type { WoWTrend } from "@/hooks/useWoWTrends";
 import type { GradeInfo } from "@/lib/creativeGrading";
@@ -383,6 +384,15 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
                   </ul>
                 )}
               </div>
+            )}
+
+            {/* Fatigue Forecast */}
+            {canEdit && creative.spend > 0 && (
+              <FatigueForecastSection
+                adId={creative.ad_id}
+                adName={creative.ad_name}
+                accountId={creative.account_id}
+              />
             )}
 
             {/* Performance Prediction (builder/employee only) */}

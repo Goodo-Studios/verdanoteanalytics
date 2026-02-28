@@ -101,6 +101,7 @@ export function CreativesFilters({
                 <SelectItem value="__all__">All fatigue</SelectItem>
                 <SelectItem value="high">🔥 High Fatigue</SelectItem>
                 <SelectItem value="warning">⚠️ Fatiguing</SelectItem>
+                <SelectItem value="forecast">📈 Fatigue soon (7d)</SelectItem>
                 <SelectItem value="ok">Healthy</SelectItem>
               </SelectContent>
             </Select>
