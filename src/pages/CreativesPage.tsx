@@ -45,6 +45,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
 import { usePinnedViews } from "@/hooks/useSavedViews";
 import { useCardPresence } from "@/hooks/useCardPresence";
+import { useScoreHistoryBatch } from "@/hooks/useScoreHistory";
 import type { GradeInfo } from "@/lib/creativeGrading";
 
 const CreativesPage = () => {
@@ -147,6 +148,10 @@ const CreativesPage = () => {
   // Anomaly detection
   const { anomalies, anomalySet } = useAnomalyDetection(creatives, selectedAccountId);
   const { hoveredCards, setHoveredCard } = useCardPresence(selectedAccountId);
+
+  // Score history for sparklines
+  const creativeAdIds = useMemo(() => creatives.map((c: any) => c.ad_id), [creatives]);
+  const { data: scoreHistoryMap } = useScoreHistoryBatch(creativeAdIds);
 
   // Fetch daily metrics for fatigue forecast filter (only when filter active)
   const { data: dailyMetricsMap } = useQuery({
@@ -504,6 +509,7 @@ const CreativesPage = () => {
           bulkSelectedIds={canBulkAction ? bulkSelectedIds : undefined}
           onBulkToggle={canBulkAction ? toggleBulkId : undefined}
           onBulkToggleAll={canBulkAction ? toggleBulkAll : undefined}
+          scoreHistoryMap={scoreHistoryMap}
         />
       ) : (
         <CreativesCardGrid
