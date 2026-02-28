@@ -1683,6 +1683,7 @@ export type Database = {
       }
       user_preferences: {
         Row: {
+          alerts_config: Json | null
           dashboard_layout: Json | null
           digest_accounts: string[] | null
           digest_day: string | null
@@ -1693,6 +1694,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          alerts_config?: Json | null
           dashboard_layout?: Json | null
           digest_accounts?: string[] | null
           digest_day?: string | null
@@ -1703,6 +1705,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          alerts_config?: Json | null
           dashboard_layout?: Json | null
           digest_accounts?: string[] | null
           digest_day?: string | null
