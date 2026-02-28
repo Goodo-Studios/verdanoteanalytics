@@ -10,6 +10,8 @@ const STAGE_CONFIG: Record<string, { color: string; bg: string; label: string }>
   Complete: { color: "text-muted-foreground", bg: "bg-muted-foreground", label: "Complete" },
 };
 
+const DEFAULT_STAGE_CONFIG = { color: "text-muted-foreground", bg: "bg-muted-foreground", label: "Other" };
+
 function dueDateLabel(dueDateStr: string | null): { text: string; urgent: boolean } | null {
   if (!dueDateStr) return null;
   const due = parseISO(dueDateStr);
@@ -26,7 +28,7 @@ function dueDateLabel(dueDateStr: string | null): { text: string; urgent: boolea
 
 function TaskRow({ task }: { task: CodaTask }) {
   const stage = task.stage || "Planning";
-  const config = STAGE_CONFIG[stage] || STAGE_CONFIG.Planning;
+  const config = STAGE_CONFIG[stage] || DEFAULT_STAGE_CONFIG;
   const isComplete = stage === "Complete";
   const dueInfo = !isComplete ? dueDateLabel(task.due_date) : null;
 
