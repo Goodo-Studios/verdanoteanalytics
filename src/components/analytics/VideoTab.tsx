@@ -42,8 +42,12 @@ export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: Vi
         const impressions = Number(c.impressions) || 0;
         const clicks = Number(c.clicks) || 0;
         const spend = Number(c.spend) || 0;
-        const holdRate = Number(c.hold_rate) || 0;
-        const hookRate = Number(c.thumb_stop_rate) || (impressions > 0 ? views / impressions : 0);
+        const holdRateRaw = Number(c.hold_rate) || 0;
+        // hold_rate is stored as a percentage (e.g. 45.2 = 45.2%), convert to 0-1 ratio
+        const holdRate = holdRateRaw / 100;
+        const rawHookRate = Number(c.thumb_stop_rate) || 0;
+        // thumb_stop_rate is stored as a percentage (e.g. 31.5 = 31.5%), convert to 0-1 ratio
+        const hookRate = rawHookRate > 0 ? rawHookRate / 100 : (impressions > 0 ? views / impressions : 0);
         const viewToClick = views > 0 ? clicks / views : 0;
         // thruplay ≈ hold_rate * video_views (reverse-engineered)
         const thruplay = holdRate * views;
