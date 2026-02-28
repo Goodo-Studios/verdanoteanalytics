@@ -23,6 +23,7 @@ import type { FatigueResult } from "@/lib/fatigueScore";
 import type { CreativeScore } from "@/lib/creativeScore";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCreateBrief } from "@/hooks/useBriefsApi";
+import { SaveToMoodboardMenu } from "@/components/moodboards/SaveToMoodboardMenu";
 
 interface CreativeDetailModalProps {
   creative: any;
@@ -347,16 +348,23 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
 
         {/* Create Brief from This */}
         {(isBuilder || isEmployee) && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 font-body text-[12px]"
-            onClick={handleCreateBrief}
-            disabled={createBrief.isPending}
-          >
-            <FileEdit className="h-3.5 w-3.5" />
-            Create Brief from This
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 font-body text-[12px]"
+              onClick={handleCreateBrief}
+              disabled={createBrief.isPending}
+            >
+              <FileEdit className="h-3.5 w-3.5" />
+              Create Brief from This
+            </Button>
+            <SaveToMoodboardMenu
+              adId={creative.ad_id}
+              thumbnailUrl={creative.thumbnail_url}
+              caption={creative.ad_name}
+            />
+          </div>
         )}
 
         <Separator />
