@@ -22,6 +22,7 @@ import { QuickActionsSection } from "@/components/overview/QuickActionsSection";
 import { RecommendedActionsSection } from "@/components/overview/RecommendedActionsSection";
 import { RecentChangesSection } from "@/components/overview/RecentChangesSection";
 import { computeFatigueMap } from "@/lib/fatigueScore";
+import { InsightCardsStrip } from "@/components/overview/InsightCardsStrip";
 import { useNavigate } from "react-router-dom";
 import {
   TrendingUp, Eye, XCircle, ArrowRight, RefreshCw,
@@ -100,14 +101,29 @@ const OverviewPage = () => {
     switch (sectionId) {
       case "metrics":
         return isLoading ? <MetricCardSkeletonRow /> : (
-          <div className="grid grid-cols-2 gap-px bg-border-light sm:grid-cols-3 md:flex md:items-stretch md:divide-x md:divide-border-light md:gap-0 md:bg-transparent">
-            <MetricCard label="Total Spend" value={fmt$(metrics.totalSpend)} trend={hasPrevPeriod ? delta(metrics.totalSpend, prevMetrics?.totalSpend) : undefined} className="bg-background flex-1" />
-            <MetricCard label="Active Creatives" value={fmtN(metrics.activeCount)} trend={hasPrevPeriod ? delta(metrics.activeCount, prevMetrics?.activeCount) : undefined} className="bg-background flex-1" />
-            <MetricCard label="Avg CPA" value={fmt$(metrics.avgCpa)} trend={hasPrevPeriod ? deltaInverse(metrics.avgCpa, prevMetrics?.avgCpa) : undefined} className="bg-background flex-1" />
-            <MetricCard label="Avg ROAS" value={`${metrics.avgRoas.toFixed(2)}x`} trend={hasPrevPeriod ? delta(metrics.avgRoas, prevMetrics?.avgRoas) : undefined} className="bg-background flex-1" badge={<AttributionBadge account={selectedAccount} currentRoas={metrics.avgRoas} />} />
-            <MetricCard label="Win Rate" value={fmtPct(metrics.winRate)} className="bg-background flex-1" />
-            <MetricCard label="Blended CTR" value={fmtPct(metrics.avgCtr)} trend={hasPrevPeriod ? delta(metrics.avgCtr, prevMetrics?.avgCtr) : undefined} className="bg-background flex-1" />
-          </div>
+          <>
+            <div className="grid grid-cols-2 gap-px bg-border-light sm:grid-cols-3 md:flex md:items-stretch md:divide-x md:divide-border-light md:gap-0 md:bg-transparent">
+              <MetricCard label="Total Spend" value={fmt$(metrics.totalSpend)} trend={hasPrevPeriod ? delta(metrics.totalSpend, prevMetrics?.totalSpend) : undefined} className="bg-background flex-1" />
+              <MetricCard label="Active Creatives" value={fmtN(metrics.activeCount)} trend={hasPrevPeriod ? delta(metrics.activeCount, prevMetrics?.activeCount) : undefined} className="bg-background flex-1" />
+              <MetricCard label="Avg CPA" value={fmt$(metrics.avgCpa)} trend={hasPrevPeriod ? deltaInverse(metrics.avgCpa, prevMetrics?.avgCpa) : undefined} className="bg-background flex-1" />
+              <MetricCard label="Avg ROAS" value={`${metrics.avgRoas.toFixed(2)}x`} trend={hasPrevPeriod ? delta(metrics.avgRoas, prevMetrics?.avgRoas) : undefined} className="bg-background flex-1" badge={<AttributionBadge account={selectedAccount} currentRoas={metrics.avgRoas} />} />
+              <MetricCard label="Win Rate" value={fmtPct(metrics.winRate)} className="bg-background flex-1" />
+              <MetricCard label="Blended CTR" value={fmtPct(metrics.avgCtr)} trend={hasPrevPeriod ? delta(metrics.avgCtr, prevMetrics?.avgCtr) : undefined} className="bg-background flex-1" />
+            </div>
+            {canEdit && creatives.length > 0 && (
+              <div className="mt-6">
+                <InsightCardsStrip
+                  creatives={creatives}
+                  metrics={metrics}
+                  prevMetrics={hasPrevPeriod ? prevMetrics : null}
+                  fatigueMap={fatigueMap}
+                  wowTrends={wowTrends}
+                  scaleThreshold={killScaleConfig.scaleAt}
+                  spendThreshold={spendThreshold}
+                />
+              </div>
+            )}
+          </>
         );
       case "goals":
         return !isLoading && selectedAccount ? (
