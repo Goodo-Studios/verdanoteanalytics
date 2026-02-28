@@ -22,6 +22,7 @@ export type Database = {
           competitor_notes: string | null
           creative_rules: Json | null
           offer_history: Json | null
+          scoring_config: Json | null
           updated_at: string | null
           updated_by: string | null
         }
@@ -32,6 +33,7 @@ export type Database = {
           competitor_notes?: string | null
           creative_rules?: Json | null
           offer_history?: Json | null
+          scoring_config?: Json | null
           updated_at?: string | null
           updated_by?: string | null
         }
@@ -42,6 +44,7 @@ export type Database = {
           competitor_notes?: string | null
           creative_rules?: Json | null
           offer_history?: Json | null
+          scoring_config?: Json | null
           updated_at?: string | null
           updated_by?: string | null
         }

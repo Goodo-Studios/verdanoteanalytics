@@ -39,7 +39,9 @@ import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
 import { useWoWTrends } from "@/hooks/useWoWTrends";
 import { gradeCreatives, gradeOrder } from "@/lib/creativeGrading";
 import { computeFatigueMap } from "@/lib/fatigueScore";
-import { computeScoreMap } from "@/lib/creativeScore";
+import { computeScoreMap, type ScoringConfig, DEFAULT_SCORING_CONFIG } from "@/lib/creativeScore";
+import { supabase } from "@/integrations/supabase/client";
+import { useQuery } from "@tanstack/react-query";
 import { usePinnedViews } from "@/hooks/useSavedViews";
 import type { GradeInfo } from "@/lib/creativeGrading";
 
@@ -121,9 +123,24 @@ const CreativesPage = () => {
   // Compute fatigue scores
   const fatigueMap = useMemo(() => computeFatigueMap(creatives, wowTrends), [creatives, wowTrends]);
 
+  // Fetch scoring config for this account
+  const { data: scoringConfig } = useQuery({
+    queryKey: ["scoring-config", selectedAccountId],
+    queryFn: async () => {
+      if (!selectedAccountId || selectedAccountId === "all") return DEFAULT_SCORING_CONFIG;
+      const { data } = await supabase
+        .from("account_context")
+        .select("scoring_config")
+        .eq("account_id", selectedAccountId)
+        .maybeSingle();
+      return (data?.scoring_config as unknown as ScoringConfig) || DEFAULT_SCORING_CONFIG;
+    },
+    enabled: !!selectedAccountId,
+  });
+
   // Compute creative scores
   const scaleThreshold = selectedAccountData?.scale_threshold ?? 2.0;
-  const scoreMap = useMemo(() => computeScoreMap(creatives, scaleThreshold, wowTrends, fatigueMap), [creatives, scaleThreshold, wowTrends, fatigueMap]);
+  const scoreMap = useMemo(() => computeScoreMap(creatives, scaleThreshold, wowTrends, fatigueMap, scoringConfig), [creatives, scaleThreshold, wowTrends, fatigueMap, scoringConfig]);
 
   // Anomaly detection
   const { anomalies, anomalySet } = useAnomalyDetection(creatives, selectedAccountId);
