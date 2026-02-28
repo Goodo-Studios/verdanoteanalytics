@@ -29,7 +29,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { FileText, Plus, Trash2, Loader2, Eye, Download, CalendarClock, Send, CalendarIcon, Link2, Files, Layers } from "lucide-react";
+import { FileText, Plus, Trash2, Loader2, Eye, Download, CalendarClock, Send, CalendarIcon, Link2, Files, Layers, BookTemplate } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ReportTemplatesTab } from "@/components/reports/ReportTemplatesTab";
+import { TemplateChooserDialog } from "@/components/reports/TemplateChooserDialog";
+import { ReportSection } from "@/lib/reportSections";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { format, subDays } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -57,10 +61,12 @@ const ReportsPage = () => {
   const [showSchedule, setShowSchedule] = useState(false);
   const [showRollup, setShowRollup] = useState(false);
   const [showPortfolio, setShowPortfolio] = useState(false);
+  const [showTemplateChooser, setShowTemplateChooser] = useState(false);
   const [reportName, setReportName] = useState("");
   const [accountId, setAccountId] = useState("");
   const [dateStart, setDateStart] = useState<Date>(subDays(new Date(), 7));
   const [dateEnd, setDateEnd] = useState<Date>(new Date());
+  const [activeTab, setActiveTab] = useState("reports");
   const navigate = useNavigate();
 
   const { data: rawReports, isLoading } = useReports();
@@ -117,8 +123,28 @@ const ReportsPage = () => {
         date_start: format(dateStart, "yyyy-MM-dd"),
         date_end: format(dateEnd, "yyyy-MM-dd"),
       },
-      { onSuccess: () => { setShowGenerate(false); setReportName(""); setAccountId(""); setDateStart(subDays(new Date(), 7)); setDateEnd(new Date()); } }
+      {
+        onSuccess: (data: any) => {
+          setShowGenerate(false);
+          setReportName("");
+          setAccountId("");
+          setDateStart(subDays(new Date(), 7));
+          setDateEnd(new Date());
+          if (pendingTemplateSections && data?.id) {
+            navigate(`/reports/${data.id}/build`, { state: { templateSections: pendingTemplateSections } });
+            setPendingTemplateSections(null);
+          }
+        },
+      }
     );
+  };
+
+  const [pendingTemplateSections, setPendingTemplateSections] = useState<ReportSection[] | null>(null);
+
+  const handleTemplateSelected = (sections: ReportSection[]) => {
+    setPendingTemplateSections(sections.length > 0 ? sections : null);
+    setShowTemplateChooser(false);
+    setShowGenerate(true);
   };
 
   const fmt = (v: number | null, prefix = "", suffix = "") => {
@@ -153,7 +179,7 @@ const ReportsPage = () => {
                 Portfolio Report
               </Button>
             )}
-            <Button size="sm" className="bg-verdant text-white hover:bg-verdant/90" onClick={() => setShowGenerate(true)}>
+            <Button size="sm" className="bg-verdant text-white hover:bg-verdant/90" onClick={() => setShowTemplateChooser(true)}>
               <Plus className="h-3.5 w-3.5 mr-1.5" />
               Generate Report
             </Button>
@@ -161,83 +187,99 @@ const ReportsPage = () => {
         )}
       </div>
 
-      {isLoading ? (
-        <TableSkeleton rows={5} cols={8} />
-      ) : !reports?.length ? (
-        <div className="glass-panel flex flex-col items-center justify-center py-20 text-center">
-          <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-4">
-            <FileText className="h-6 w-6 text-sage" />
+      {(() => {
+        const reportsContent = isLoading ? (
+          <TableSkeleton rows={5} cols={8} />
+        ) : !reports?.length ? (
+          <div className="glass-panel flex flex-col items-center justify-center py-20 text-center">
+            <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-4">
+              <FileText className="h-6 w-6 text-sage" />
+            </div>
+            <h3 className="font-heading text-[20px] text-forest mb-1">No reports yet</h3>
+            <p className="font-body text-[14px] text-slate max-w-[400px]">
+              Generate a snapshot report to capture your current creative performance metrics.
+            </p>
           </div>
-          <h3 className="font-heading text-[20px] text-forest mb-1">No reports yet</h3>
-          <p className="font-body text-[14px] text-slate max-w-[400px]">
-            Generate a snapshot report to capture your current creative performance metrics.
-          </p>
-        </div>
-      ) : (
-        <div className="glass-panel overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-cream-dark">
-                <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold">Report</TableHead>
-                <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold">Date</TableHead>
-                <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">Creatives</TableHead>
-                <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">Spend</TableHead>
-                <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">ROAS</TableHead>
-                <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">Win Rate</TableHead>
-                <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">CPA</TableHead>
-                <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {reports.map((r: any) => (
-                <TableRow key={r.id} className="cursor-pointer hover:bg-accent/50" onClick={() => navigate(`/reports/${r.id}`)}>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <span className="font-body text-[13px] font-semibold text-charcoal">{r.report_name}</span>
-                      {r.report_type === "portfolio" && (
-                        <Badge variant="secondary" className="text-[9px] px-1.5 py-0">Portfolio</Badge>
-                      )}
-                    </div>
-                    <div className="font-data text-[11px] text-slate">{r.date_range_days ? `${r.date_range_days} days` : "—"}</div>
-                  </TableCell>
-                  <TableCell className="font-data text-[13px] text-slate">{new Date(r.created_at).toLocaleDateString()}</TableCell>
-                  <TableCell className="font-data text-[13px] text-right tabular-nums">{r.creative_count}</TableCell>
-                  <TableCell className="font-data text-[13px] text-right tabular-nums">{fmt(r.total_spend, "$")}</TableCell>
-                  <TableCell className="font-data text-[13px] text-right tabular-nums">{fmt(r.blended_roas, "", "x")}</TableCell>
-                  <TableCell className="font-data text-[13px] text-right tabular-nums">{fmt(r.win_rate, "", "%")}</TableCell>
-                  <TableCell className="font-data text-[13px] text-right tabular-nums">{fmt(r.average_cpa, "$")}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      {!isClient && (
-                        <Button variant="ghost" size="sm" className="h-7 px-2" title="Copy public link" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`${window.location.origin}/public/reports/${r.id}`); import("sonner").then(m => m.toast.success("Public link copied!")); }}>
-                          <Link2 className="h-3 w-3" />
-                        </Button>
-                      )}
-                      {!isClient && (
-                        <Button variant="ghost" size="sm" className="h-7 px-2" title="Send to Slack" onClick={(e) => { e.stopPropagation(); slackMut.mutate(r.id); }} disabled={slackMut.isPending}>
-                          <Send className="h-3 w-3" />
-                        </Button>
-                      )}
-                      <Button variant="ghost" size="sm" className="h-7 px-2" onClick={(e) => { e.stopPropagation(); exportReportCSV(r); }}>
-                        <Download className="h-3 w-3" />
-                      </Button>
-                      <Button variant="ghost" size="sm" className="h-7 px-2" onClick={(e) => { e.stopPropagation(); navigate(`/reports/${r.id}`); }}>
-                        <Eye className="h-3 w-3" />
-                      </Button>
-                      {!isClient && (
-                        <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive" onClick={(e) => { e.stopPropagation(); deleteMut.mutate(r.id); }} disabled={deleteMut.isPending}>
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
+        ) : (
+          <div className="glass-panel overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-cream-dark">
+                  <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold">Report</TableHead>
+                  <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold">Date</TableHead>
+                  <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">Creatives</TableHead>
+                  <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">Spend</TableHead>
+                  <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">ROAS</TableHead>
+                  <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">Win Rate</TableHead>
+                  <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">CPA</TableHead>
+                  <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold"></TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+              </TableHeader>
+              <TableBody>
+                {reports.map((r: any) => (
+                  <TableRow key={r.id} className="cursor-pointer hover:bg-accent/50" onClick={() => navigate(`/reports/${r.id}`)}>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <span className="font-body text-[13px] font-semibold text-charcoal">{r.report_name}</span>
+                        {r.report_type === "portfolio" && (
+                          <Badge variant="secondary" className="text-[9px] px-1.5 py-0">Portfolio</Badge>
+                        )}
+                      </div>
+                      <div className="font-data text-[11px] text-slate">{r.date_range_days ? `${r.date_range_days} days` : "—"}</div>
+                    </TableCell>
+                    <TableCell className="font-data text-[13px] text-slate">{new Date(r.created_at).toLocaleDateString()}</TableCell>
+                    <TableCell className="font-data text-[13px] text-right tabular-nums">{r.creative_count}</TableCell>
+                    <TableCell className="font-data text-[13px] text-right tabular-nums">{fmt(r.total_spend, "$")}</TableCell>
+                    <TableCell className="font-data text-[13px] text-right tabular-nums">{fmt(r.blended_roas, "", "x")}</TableCell>
+                    <TableCell className="font-data text-[13px] text-right tabular-nums">{fmt(r.win_rate, "", "%")}</TableCell>
+                    <TableCell className="font-data text-[13px] text-right tabular-nums">{fmt(r.average_cpa, "$")}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        {!isClient && (
+                          <Button variant="ghost" size="sm" className="h-7 px-2" title="Copy public link" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`${window.location.origin}/public/reports/${r.id}`); import("sonner").then(m => m.toast.success("Public link copied!")); }}>
+                            <Link2 className="h-3 w-3" />
+                          </Button>
+                        )}
+                        {!isClient && (
+                          <Button variant="ghost" size="sm" className="h-7 px-2" title="Send to Slack" onClick={(e) => { e.stopPropagation(); slackMut.mutate(r.id); }} disabled={slackMut.isPending}>
+                            <Send className="h-3 w-3" />
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="sm" className="h-7 px-2" onClick={(e) => { e.stopPropagation(); exportReportCSV(r); }}>
+                          <Download className="h-3 w-3" />
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-7 px-2" onClick={(e) => { e.stopPropagation(); navigate(`/reports/${r.id}`); }}>
+                          <Eye className="h-3 w-3" />
+                        </Button>
+                        {!isClient && (
+                          <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive" onClick={(e) => { e.stopPropagation(); deleteMut.mutate(r.id); }} disabled={deleteMut.isPending}>
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        );
 
+        if (isBuilder) {
+          return (
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList className="mb-4">
+                <TabsTrigger value="reports" className="font-body text-[13px]">Reports</TabsTrigger>
+                <TabsTrigger value="templates" className="font-body text-[13px]">Templates</TabsTrigger>
+              </TabsList>
+              <TabsContent value="reports">{reportsContent}</TabsContent>
+              <TabsContent value="templates"><ReportTemplatesTab /></TabsContent>
+            </Tabs>
+          );
+        }
+
+        return reportsContent;
+      })()}
       {/* Generate Dialog */}
       <Dialog open={showGenerate} onOpenChange={setShowGenerate}>
         <DialogContent className="max-w-md bg-white rounded-[8px] shadow-modal p-7">
@@ -388,6 +430,7 @@ const ReportsPage = () => {
       {/* Monthly Rollup Modal */}
       <MonthlyRollupModal open={showRollup} onOpenChange={setShowRollup} accounts={accounts || []} />
       <PortfolioReportModal open={showPortfolio} onOpenChange={setShowPortfolio} accounts={accounts || []} />
+      <TemplateChooserDialog open={showTemplateChooser} onOpenChange={setShowTemplateChooser} onSelect={handleTemplateSelected} />
     </AppLayout>
   );
 };

@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { SectionRenderer } from "@/components/reports/SectionRenderer";
+import { SaveAsTemplateDialog } from "@/components/reports/SaveAsTemplateDialog";
 import {
   ReportSection,
   SectionType,
@@ -11,10 +12,10 @@ import {
   createSection,
   legacySectionsFromReport,
 } from "@/lib/reportSections";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useReports, useUpdateReportSections } from "@/hooks/useReportsApi";
-import { ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, Save, Loader2, Eye, Pencil } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, Save, Loader2, Eye, Pencil, BookmarkPlus } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +26,7 @@ import {
 const ReportBuilderPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { data: reports, isLoading } = useReports();
   const updateSections = useUpdateReportSections();
 
@@ -34,18 +36,23 @@ const ReportBuilderPage = () => {
   const [reportName, setReportName] = useState("");
   const [previewMode, setPreviewMode] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [showSaveAsTemplate, setShowSaveAsTemplate] = useState(false);
 
   useEffect(() => {
     if (report && !initialized) {
       setReportName(report.report_name || "");
-      if (report.sections && Array.isArray(report.sections) && report.sections.length > 0) {
+      // Check if template sections were passed via navigation state
+      const templateSections = (location.state as any)?.templateSections;
+      if (templateSections && Array.isArray(templateSections) && templateSections.length > 0) {
+        setSections(templateSections as ReportSection[]);
+      } else if (report.sections && Array.isArray(report.sections) && report.sections.length > 0) {
         setSections(report.sections as ReportSection[]);
       } else {
         setSections(legacySectionsFromReport(report));
       }
       setInitialized(true);
     }
-  }, [report, initialized]);
+  }, [report, initialized, location.state]);
 
   const addSection = useCallback((type: SectionType) => {
     setSections((prev) => [...prev, createSection(type)]);
@@ -136,6 +143,16 @@ const ReportBuilderPage = () => {
               {previewMode ? <Pencil className="h-3.5 w-3.5 mr-1.5" /> : <Eye className="h-3.5 w-3.5 mr-1.5" />}
               {previewMode ? "Edit" : "Preview"}
             </Button>
+            {sections.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowSaveAsTemplate(true)}
+              >
+                <BookmarkPlus className="h-3.5 w-3.5 mr-1.5" />
+                Save as Template
+              </Button>
+            )}
             <Button
               size="sm"
               className="bg-verdant text-white hover:bg-verdant/90"
@@ -233,6 +250,7 @@ const ReportBuilderPage = () => {
           </div>
         )}
       </div>
+      <SaveAsTemplateDialog open={showSaveAsTemplate} onOpenChange={setShowSaveAsTemplate} sections={sections} />
     </AppLayout>
   );
 };
