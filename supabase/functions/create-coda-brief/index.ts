@@ -20,7 +20,7 @@ Deno.serve(async (req) => {
       throw new Error("CODA_API_KEY is not configured");
     }
 
-    const { creative_id, account_id, account_name, brief_note, user_id } =
+    const { creative_id, account_id, account_name, task_name, brief_note, user_id } =
       await req.json();
 
     if (!account_id || !account_name) {
@@ -69,6 +69,7 @@ Deno.serve(async (req) => {
           rows: [
             {
               cells: [
+                { column: "Task Name", value: task_name || "" },
                 { column: "Connected Project", value: account_name },
                 { column: "Account ID", value: account_id },
                 { column: "Creative ID", value: creative_id || "" },
