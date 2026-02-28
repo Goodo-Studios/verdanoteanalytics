@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-api-key",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-api-key, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
@@ -37,7 +37,7 @@ export async function validateApiKey(key: string) {
     return { valid: false as const, error: "API key expired" };
   }
 
-  // Fire-and-forget
+  // Fire-and-forget update last_used_at
   supabase
     .from("api_keys")
     .update({ last_used_at: new Date().toISOString() })
@@ -48,6 +48,7 @@ export async function validateApiKey(key: string) {
     valid: true as const,
     userId: apiKey.user_id as string,
     permissions: apiKey.permissions as string[],
+    keyId: apiKey.id as string,
   };
 }
 
@@ -58,7 +59,7 @@ function extractApiKey(req: Request): string | null {
 }
 
 export function withApiAuth(
-  handler: (req: Request, ctx: { userId: string; permissions: string[] }) => Promise<Response>
+  handler: (req: Request, ctx: { userId: string; permissions: string[]; keyId: string }) => Promise<Response>
 ) {
   return async (req: Request): Promise<Response> => {
     if (req.method === "OPTIONS") {
@@ -81,7 +82,7 @@ export function withApiAuth(
       );
     }
 
-    return handler(req, { userId: validation.userId, permissions: validation.permissions });
+    return handler(req, { userId: validation.userId, permissions: validation.permissions, keyId: validation.keyId });
   };
 }
 

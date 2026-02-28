@@ -2,10 +2,34 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { withApiAuth, corsHeaders } from "../_shared/api-auth.ts";
 
-serve(withApiAuth(async (req, { userId, permissions }) => {
+// Simple in-memory rate limiter: 100 req/min per key prefix
+const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT = 100;
+const WINDOW_MS = 60_000;
+
+function checkRateLimit(keyId: string): boolean {
+  const now = Date.now();
+  const bucket = rateBuckets.get(keyId);
+  if (!bucket || now > bucket.resetAt) {
+    rateBuckets.set(keyId, { count: 1, resetAt: now + WINDOW_MS });
+    return true;
+  }
+  bucket.count++;
+  return bucket.count <= RATE_LIMIT;
+}
+
+serve(withApiAuth(async (req, { userId, permissions, keyId }) => {
+  // Rate limit
+  if (!checkRateLimit(keyId)) {
+    return new Response(
+      JSON.stringify({ error: "Rate limit exceeded (100 req/min)" }),
+      { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } }
+    );
+  }
+
   if (!permissions.includes("read")) {
     return new Response(
-      JSON.stringify({ error: "Insufficient permissions" }),
+      JSON.stringify({ error: "Insufficient permissions — key requires 'read' scope" }),
       { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
@@ -52,6 +76,8 @@ serve(withApiAuth(async (req, { userId, permissions }) => {
       const accountId = url.searchParams.get("account_id");
       const limit = Math.min(parseInt(url.searchParams.get("limit") || "100"), 500);
       const offset = parseInt(url.searchParams.get("offset") || "0");
+      const minRoas = url.searchParams.get("min_roas");
+      const status = url.searchParams.get("status");
 
       let query = supabase
         .from("creatives")
@@ -60,6 +86,8 @@ serve(withApiAuth(async (req, { userId, permissions }) => {
         .range(offset, offset + limit - 1);
 
       if (accountId) query = query.eq("account_id", accountId);
+      if (minRoas) query = query.gte("roas", parseFloat(minRoas));
+      if (status) query = query.eq("ad_status", status);
 
       const { data, error, count } = await query;
       if (error) throw error;
@@ -72,8 +100,6 @@ serve(withApiAuth(async (req, { userId, permissions }) => {
     if (resource === "metrics" && req.method === "GET") {
       const accountId = url.searchParams.get("account_id");
 
-      // Use server-side aggregation via RPC to handle accounts with 10k+ creatives
-      // without hitting the 1000-row REST limit
       const { data, error } = await supabase.rpc("get_account_metrics", {
         p_account_id: accountId || null,
       });
@@ -122,7 +148,102 @@ serve(withApiAuth(async (req, { userId, permissions }) => {
       });
     }
 
-    return new Response(JSON.stringify({ error: "Not found" }), {
+    // GET /api/summary
+    if (resource === "summary" && req.method === "GET") {
+      const accountId = url.searchParams.get("account_id");
+      if (!accountId) {
+        return new Response(JSON.stringify({ error: "account_id is required" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Fetch account info
+      const { data: account, error: accErr } = await supabase
+        .from("ad_accounts")
+        .select("id, name, creative_count, untagged_count, last_synced_at, is_active, target_roas, target_cpa, target_monthly_spend, primary_kpi, secondary_kpis")
+        .eq("id", accountId)
+        .single();
+
+      if (accErr) throw accErr;
+
+      // Aggregate metrics via pagination
+      let allRows: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data: page, error: pageErr } = await supabase
+          .from("creatives")
+          .select("spend, roas, cpa, ctr, impressions, clicks, purchases, purchase_value, ad_status")
+          .eq("account_id", accountId)
+          .range(from, from + pageSize - 1);
+        if (pageErr || !page || page.length === 0) break;
+        allRows = allRows.concat(page);
+        if (page.length < pageSize) break;
+        from += pageSize;
+      }
+
+      const total_spend = allRows.reduce((s, c) => s + (c.spend || 0), 0);
+      const total_revenue = allRows.reduce((s, c) => s + (c.purchase_value || 0), 0);
+      const total_impressions = allRows.reduce((s, c) => s + (c.impressions || 0), 0);
+      const total_clicks = allRows.reduce((s, c) => s + (c.clicks || 0), 0);
+      const total_purchases = allRows.reduce((s, c) => s + (c.purchases || 0), 0);
+      const active = allRows.filter(c => c.ad_status === "ACTIVE").length;
+
+      return new Response(JSON.stringify({
+        data: {
+          account,
+          metrics: {
+            total_creatives: allRows.length,
+            active_creatives: active,
+            total_spend: Math.round(total_spend * 100) / 100,
+            total_revenue: Math.round(total_revenue * 100) / 100,
+            blended_roas: total_spend > 0 ? Math.round((total_revenue / total_spend) * 100) / 100 : 0,
+            avg_ctr: total_impressions > 0 ? Math.round((total_clicks / total_impressions) * 10000) / 100 : 0,
+            avg_cpa: total_purchases > 0 ? Math.round((total_spend / total_purchases) * 100) / 100 : 0,
+            total_impressions,
+            total_clicks,
+            total_purchases,
+          },
+        },
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // POST /api/sync (requires 'sync' scope)
+    if (resource === "sync" && req.method === "POST") {
+      if (!permissions.includes("sync")) {
+        return new Response(
+          JSON.stringify({ error: "Insufficient permissions — key requires 'sync' scope" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const body = await req.json().catch(() => ({}));
+      const accountId = body.account_id;
+      if (!accountId) {
+        return new Response(JSON.stringify({ error: "account_id is required" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Trigger sync via the existing sync edge function
+      const syncUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync`;
+      const resp = await fetch(syncUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_ANON_KEY")}`,
+        },
+        body: JSON.stringify({ account_id: accountId, sync_type: "api" }),
+      });
+      const result = await resp.json();
+
+      return new Response(JSON.stringify({ data: result }), {
+        status: resp.ok ? 200 : 502,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ error: "Not found", available_endpoints: ["/accounts", "/creatives", "/creatives/:id", "/metrics", "/summary", "/sync"] }), {
       status: 404,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

@@ -10,6 +10,7 @@ export interface ApiKey {
   last_used_at: string | null;
   is_active: boolean;
   created_at: string;
+  expires_at: string | null;
 }
 
 export function useApiKeys() {
@@ -18,10 +19,10 @@ export function useApiKeys() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("api_keys")
-        .select("id, name, key_prefix, permissions, last_used_at, is_active, created_at")
+        .select("id, name, key_prefix, permissions, last_used_at, is_active, created_at, expires_at")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return data || [];
+      return (data || []) as unknown as ApiKey[];
     },
   });
 }
@@ -29,7 +30,7 @@ export function useApiKeys() {
 export function useCreateApiKey() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (name: string): Promise<string> => {
+    mutationFn: async ({ name, scopes }: { name: string; scopes: string[] }): Promise<string> => {
       // Generate a secure random key: vdn_ prefix + 24 random hex chars
       const randomBytes = new Uint8Array(12);
       crypto.getRandomValues(randomBytes);
@@ -41,6 +42,15 @@ export function useCreateApiKey() {
         api_key: apiKey,
       });
       if (error) throw error;
+
+      // Update permissions to the selected scopes
+      if (data && scopes.length > 0) {
+        await supabase
+          .from("api_keys")
+          .update({ permissions: scopes } as any)
+          .eq("id", data);
+      }
+
       return apiKey; // Return the plaintext key (only shown once)
     },
     onSuccess: () => {
