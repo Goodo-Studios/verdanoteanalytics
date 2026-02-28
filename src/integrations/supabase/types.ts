@@ -443,6 +443,109 @@ export type Database = {
           },
         ]
       }
+      client_timeline_events: {
+        Row: {
+          account_id: string
+          created_at: string
+          created_by: string | null
+          event_date: string
+          event_type: string
+          id: string
+          metadata: Json | null
+          notes: string | null
+          title: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          created_by?: string | null
+          event_date?: string
+          event_type: string
+          id?: string
+          metadata?: Json | null
+          notes?: string | null
+          title: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          created_by?: string | null
+          event_date?: string
+          event_type?: string
+          id?: string
+          metadata?: Json | null
+          notes?: string | null
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_timeline_events_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "ad_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_transitions: {
+        Row: {
+          account_added: boolean
+          account_id: string
+          brief_templates_setup: boolean
+          client_user_created: boolean
+          contract_signed_at: string | null
+          first_report_at: string | null
+          first_sync_completed: boolean
+          historical_data_notes: string | null
+          historical_data_reviewed: boolean
+          kickoff_call_at: string | null
+          meta_access_granted: boolean
+          thirty_day_checkin_at: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          account_added?: boolean
+          account_id: string
+          brief_templates_setup?: boolean
+          client_user_created?: boolean
+          contract_signed_at?: string | null
+          first_report_at?: string | null
+          first_sync_completed?: boolean
+          historical_data_notes?: string | null
+          historical_data_reviewed?: boolean
+          kickoff_call_at?: string | null
+          meta_access_granted?: boolean
+          thirty_day_checkin_at?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          account_added?: boolean
+          account_id?: string
+          brief_templates_setup?: boolean
+          client_user_created?: boolean
+          contract_signed_at?: string | null
+          first_report_at?: string | null
+          first_sync_completed?: boolean
+          historical_data_notes?: string | null
+          historical_data_reviewed?: boolean
+          kickoff_call_at?: string | null
+          meta_access_granted?: boolean
+          thirty_day_checkin_at?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_transitions_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: true
+            referencedRelation: "ad_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       competitor_ads: {
         Row: {
           ad_archive_id: string | null

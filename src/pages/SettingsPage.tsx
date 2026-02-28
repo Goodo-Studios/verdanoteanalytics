@@ -23,13 +23,14 @@ import { AttributionSection } from "@/components/settings/AttributionSection";
 import { AccountSetupChecklist, useAccountNeedsOnboarding } from "@/components/settings/AccountSetupChecklist";
 import { OnboardingChecklistModal } from "@/components/settings/OnboardingChecklistModal";
 import { WebhooksSection } from "@/components/settings/WebhooksSection";
+import { TransitionTab } from "@/components/settings/TransitionTab";
 import { NamingConventionSection } from "@/components/settings/NamingConventionSection";
 import { useSettingsPageState } from "@/hooks/useSettingsPageState";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 
-type SettingsTab = "setup" | "account" | "context" | "scoring" | "naming" | "export" | "api" | "webhooks";
+type SettingsTab = "setup" | "account" | "context" | "scoring" | "naming" | "export" | "api" | "webhooks" | "transition";
 
 const SettingsPage = () => {
   const s = useSettingsPageState();
@@ -64,6 +65,7 @@ const SettingsPage = () => {
       <TabButton active={activeTab === "export"} onClick={() => setActiveTab("export")}>Export</TabButton>
       <TabButton active={activeTab === "api"} onClick={() => setActiveTab("api")}>API Access</TabButton>
       {isBuilder && <TabButton active={activeTab === "webhooks"} onClick={() => setActiveTab("webhooks")}>Webhooks</TabButton>}
+      {isBuilder && <TabButton active={activeTab === "transition"} onClick={() => setActiveTab("transition")}>Transition</TabButton>}
     </div>
   );
 
@@ -202,6 +204,8 @@ const SettingsPage = () => {
         <div className="max-w-2xl"><ApiKeysSection /></div>
       ) : activeTab === "webhooks" ? (
         <WebhooksSection />
+      ) : activeTab === "transition" ? (
+        <TransitionTab account={s.account} />
       ) : (
         <div className="max-w-3xl"><DataExportSection /></div>
       )}
