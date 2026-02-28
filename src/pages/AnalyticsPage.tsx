@@ -69,7 +69,7 @@ const AnalyticsPage = () => {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="bg-transparent border-b border-border-light rounded-none p-0 h-auto gap-0 flex-wrap">
-          {["trends", "winrate", "scale", "kill", "iterations", "taginsights", "dna", "aging", "historical", ...(canBenchmark ? ["video", "benchmarks", "crossplatform"] : [])].map((tab) => {
+          {["trends", "winrate", "scale", "kill", "iterations", "taginsights", "dna", "aging", ...(canBenchmark ? ["historical", "video", "benchmarks", "crossplatform"] : [])].map((tab) => {
             const labels: Record<string, string> = { winrate: "Win Rate", taginsights: "Tag Insights", dna: "Creative DNA", aging: "Aging", historical: "Historical", video: "Video", benchmarks: "Benchmarks", crossplatform: "Cross-Platform" };
             return (
               <TabsTrigger
@@ -127,7 +127,7 @@ const AnalyticsPage = () => {
           />
         </TabsContent>
         <TabsContent value="historical" className="space-y-4">
-          <HistoricalTab trendData={filteredTrendData} creatives={creatives} onCreativeClick={setSelectedCreative} />
+          <HistoricalTab trendData={filteredTrendData} creatives={creatives} roasThreshold={roasThreshold} onCreativeClick={setSelectedCreative} />
         </TabsContent>
         {canBenchmark && (
           <TabsContent value="video" className="space-y-4">
