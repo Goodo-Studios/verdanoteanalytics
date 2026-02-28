@@ -23,6 +23,7 @@ import {
   Trophy,
   GitCommitHorizontal,
   Building2,
+  CircleDot,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
@@ -58,6 +59,7 @@ const baseNavItems = [
   { title: "Changelog", url: "/changelog", icon: GitCommitHorizontal },
   { title: "Hook Library", url: "/hooks", icon: Zap },
   { title: "Saved Views", url: "/saved-views", icon: Bookmark },
+  { title: "Segments", url: "/segments", icon: CircleDot },
   { title: "AI Analyst", url: "/ai-chat", icon: Sparkles },
 ];
 
