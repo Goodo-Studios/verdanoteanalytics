@@ -2,10 +2,12 @@ import { AppLayout } from "@/components/AppLayout";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Search, LayoutGrid, Video, Image as ImageIcon, Play, AlertCircle, TrendingUp, Award, Percent, Film } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Search, LayoutGrid, Video, Image as ImageIcon, Play, AlertCircle, TrendingUp, Award, Percent, Film, Trophy, ArrowRight } from "lucide-react";
 import { useState, useMemo, useCallback } from "react";
 import { useCreatives } from "@/hooks/useCreatives";
 import { useAccountContext } from "@/contexts/AccountContext";
+import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
 function fmt$(n: number) {
@@ -46,6 +48,7 @@ const EDITOR_METRICS = [
 
 const EditorOverviewPage = () => {
   const { selectedAccountId, selectedAccount } = useAccountContext();
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedCreative, setSelectedCreative] = useState<any>(null);
@@ -179,6 +182,51 @@ const EditorOverviewPage = () => {
                 <div className="h-2.5 w-32 bg-cream-dark rounded animate-pulse" />
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Leaderboard Preview */}
+        {!isLoading && (
+          <div className="bg-white border border-border-light rounded-[8px] p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Trophy className="h-4 w-4 text-amber-500" />
+                <h2 className="font-heading text-[16px] text-forest">Leaderboard — Your Top 3</h2>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="font-body text-[12px] text-sage hover:text-forest gap-1"
+                onClick={() => navigate("/leaderboard")}
+              >
+                View full leaderboard <ArrowRight className="h-3 w-3" />
+              </Button>
+            </div>
+            {filteredCreatives.slice(0, 3).map((c: any, idx: number) => {
+              const roas = Number(c.roas) || 0;
+              const spend = Number(c.spend) || 0;
+              const medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : "🥉";
+              return (
+                <div key={c.ad_id} className="flex items-center gap-3 py-2.5 border-b border-border-light last:border-0">
+                  <span className="text-[16px] w-6 text-center flex-shrink-0">{medal}</span>
+                  {c.thumbnail_url ? (
+                    <img src={c.thumbnail_url} alt="" className="h-9 w-9 rounded object-cover flex-shrink-0" />
+                  ) : (
+                    <div className="h-9 w-9 rounded bg-muted flex items-center justify-center flex-shrink-0">
+                      <Film className="h-4 w-4 text-muted-foreground/30" />
+                    </div>
+                  )}
+                  <p className="font-body text-[13px] font-medium text-charcoal truncate flex-1">{c.ad_name}</p>
+                  <p className={cn("font-data text-[15px] font-bold tabular-nums", roas >= 2 ? "text-verdant" : "text-charcoal")}>
+                    {roas.toFixed(2)}x
+                  </p>
+                  <p className="font-data text-[12px] text-muted-foreground tabular-nums w-16 text-right">{fmt$(spend)}</p>
+                </div>
+              );
+            })}
+            {filteredCreatives.length === 0 && (
+              <p className="font-body text-[13px] text-muted-foreground text-center py-4">No creatives with enough spend yet.</p>
+            )}
           </div>
         )}
 
