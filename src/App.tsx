@@ -34,7 +34,7 @@ import CompetitorsPage from "./pages/CompetitorsPage";
 import BriefsPage from "./pages/BriefsPage";
 import PublicBriefPage from "./pages/PublicBriefPage";
 import LeaderboardPage from "./pages/LeaderboardPage";
-import ChangelogPage from "./pages/ChangelogPage";
+
 import HooksPage from "./pages/HooksPage";
 import AgencyDashboardPage from "./pages/AgencyDashboardPage";
 
@@ -84,7 +84,7 @@ function ProtectedRoutes() {
         
         <Route path="/competitors" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <CompetitorsPage />} />
         <Route path="/leaderboard" element={effectiveClient ? <Navigate to="/" replace /> : <LeaderboardPage />} />
-        <Route path="/changelog" element={<ChangelogPage />} />
+        
         <Route path="/hooks" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <HooksPage />} />
         <Route path="/ai-chat" element={<AIChatPage />} />
         <Route path="*" element={<NotFound />} />
