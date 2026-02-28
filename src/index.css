@@ -297,3 +297,229 @@
     transition: width 500ms linear;
   }
 }
+
+/* ══════════════════════════════════════════════════
+   PRINT STYLESHEET — Report PDF Export
+   ══════════════════════════════════════════════════ */
+@media print {
+  /* ── Hide app chrome ── */
+  nav, aside, header,
+  [data-sidebar], [data-radix-popper-content-wrapper],
+  .no-print,
+  button:not(.print-keep),
+  .notification-bell,
+  [role="dialog"] {
+    display: none !important;
+  }
+
+  /* ── Reset layout ── */
+  body {
+    background: white !important;
+    color: #1a1a1a !important;
+    font-family: 'Outfit', -apple-system, sans-serif !important;
+    font-size: 11pt !important;
+    line-height: 1.5 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  main, [role="main"], .print-report-wrapper {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  /* ── Typography ── */
+  .print-heading {
+    font-family: Georgia, 'Libre Caslon Display', serif !important;
+    color: #0d3b25 !important;
+  }
+
+  /* ── Page setup ── */
+  @page {
+    size: A4;
+    margin: 20mm 18mm 25mm 18mm;
+
+    @bottom-center {
+      content: "Goodo Studios · Verdanote";
+      font-family: 'Outfit', sans-serif;
+      font-size: 8pt;
+      color: #999;
+    }
+  }
+
+  /* ── Page breaks ── */
+  .print-page-break {
+    page-break-before: always !important;
+    break-before: page !important;
+  }
+
+  .print-avoid-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* ── Cover page ── */
+  .print-cover {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    align-items: center !important;
+    min-height: 90vh !important;
+    text-align: center !important;
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  .print-cover h1 {
+    font-family: Georgia, 'Libre Caslon Display', serif !important;
+    font-size: 28pt !important;
+    color: #0d3b25 !important;
+    margin-bottom: 8pt !important;
+    line-height: 1.15 !important;
+  }
+
+  .print-cover .print-subtitle {
+    font-size: 14pt !important;
+    color: #555 !important;
+    margin-bottom: 6pt !important;
+  }
+
+  .print-cover .print-meta {
+    font-size: 10pt !important;
+    color: #888 !important;
+    margin-top: 24pt !important;
+  }
+
+  .print-cover img {
+    max-height: 80px !important;
+    margin-bottom: 24pt !important;
+  }
+
+  /* ── Executive summary metrics grid ── */
+  .print-metrics-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 16pt !important;
+    margin: 16pt 0 !important;
+  }
+
+  .print-metric-card {
+    border: 1px solid #ddd !important;
+    border-radius: 6px !important;
+    padding: 12pt 16pt !important;
+    text-align: center !important;
+    page-break-inside: avoid !important;
+  }
+
+  .print-metric-card .print-metric-label {
+    font-family: 'Outfit', sans-serif !important;
+    font-size: 8pt !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.08em !important;
+    color: #888 !important;
+    margin-bottom: 4pt !important;
+  }
+
+  .print-metric-card .print-metric-value {
+    font-family: Georgia, serif !important;
+    font-size: 22pt !important;
+    font-weight: 600 !important;
+    color: #1a1a1a !important;
+    line-height: 1.1 !important;
+  }
+
+  .print-metric-card .print-metric-delta {
+    font-size: 9pt !important;
+    margin-top: 4pt !important;
+  }
+
+  /* ── Creative grid ── */
+  .print-creatives-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 12pt !important;
+    margin: 12pt 0 !important;
+  }
+
+  .print-creative-cell {
+    border: 1px solid #e5e5e5 !important;
+    border-radius: 6px !important;
+    padding: 10pt !important;
+    page-break-inside: avoid !important;
+  }
+
+  .print-creative-cell img {
+    width: 100% !important;
+    max-height: 140px !important;
+    object-fit: cover !important;
+    border-radius: 4px !important;
+    margin-bottom: 6pt !important;
+  }
+
+  /* ── Tag breakdown table ── */
+  .print-tag-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 9pt !important;
+    margin: 12pt 0 !important;
+  }
+
+  .print-tag-table th {
+    background: #f5f5f5 !important;
+    -webkit-print-color-adjust: exact !important;
+    padding: 6pt 10pt !important;
+    text-align: left !important;
+    font-weight: 600 !important;
+    border-bottom: 2px solid #ddd !important;
+    font-size: 8pt !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.06em !important;
+  }
+
+  .print-tag-table td {
+    padding: 5pt 10pt !important;
+    border-bottom: 1px solid #eee !important;
+  }
+
+  /* ── Section headers ── */
+  .print-section-title {
+    font-family: Georgia, 'Libre Caslon Display', serif !important;
+    font-size: 16pt !important;
+    color: #0d3b25 !important;
+    margin-bottom: 8pt !important;
+    padding-bottom: 4pt !important;
+    border-bottom: 2px solid #0d3b25 !important;
+  }
+
+  /* ── Bullets / highlights ── */
+  .print-highlights ul {
+    padding-left: 16pt !important;
+  }
+
+  .print-highlights li {
+    font-size: 10pt !important;
+    margin-bottom: 4pt !important;
+    line-height: 1.5 !important;
+  }
+
+  /* ── Hide screen-only report elements ── */
+  .screen-only,
+  .screen-only-wrapper {
+    display: none !important;
+  }
+
+  /* ── Show print-only elements ── */
+  .print-only {
+    display: block !important;
+  }
+
+  /* ── Hide no-print elements ── */
+  .no-print {
+    display: none !important;
+  }
+}
