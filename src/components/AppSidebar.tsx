@@ -19,6 +19,7 @@ import {
   CalendarDays,
   Radar,
   GalleryHorizontalEnd,
+  Trophy,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
@@ -47,6 +48,7 @@ const baseNavItems = [
   { title: "Calendar", url: "/calendar", icon: CalendarDays },
   { title: "Competitors", url: "/competitors", icon: Radar },
   { title: "Mood Boards", url: "/moodboards", icon: GalleryHorizontalEnd },
+  { title: "Leaderboard", url: "/leaderboard", icon: Trophy },
   { title: "Saved Views", url: "/saved-views", icon: Bookmark },
   { title: "AI Analyst", url: "/ai-chat", icon: Sparkles },
 ];
@@ -62,6 +64,7 @@ const clientNavItems = [
 const editorNavItems = [
   { title: "Overview", url: "/", icon: LayoutGrid },
   { title: "Creatives", url: "/creatives", icon: Zap },
+  { title: "Leaderboard", url: "/leaderboard", icon: Trophy },
   { title: "Reports", url: "/reports", icon: FileText },
   { title: "AI Analyst", url: "/ai-chat", icon: Sparkles },
 ];
