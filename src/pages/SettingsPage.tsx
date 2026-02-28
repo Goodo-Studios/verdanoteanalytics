@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { AccountContextSection } from "@/components/settings/AccountContextSection";
 import { SyncStatusBanner } from "@/components/SyncStatusBanner";
@@ -20,12 +20,14 @@ import { ApiKeysSection } from "@/components/settings/ApiKeysSection";
 import { TikTokConnectionSection } from "@/components/settings/TikTokConnectionSection";
 import { ScoringCalibrationSection } from "@/components/settings/ScoringCalibrationSection";
 import { AttributionSection } from "@/components/settings/AttributionSection";
+import { AccountSetupChecklist, useAccountNeedsOnboarding } from "@/components/settings/AccountSetupChecklist";
+import { OnboardingChecklistModal } from "@/components/settings/OnboardingChecklistModal";
 import { useSettingsPageState } from "@/hooks/useSettingsPageState";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 
-type SettingsTab = "account" | "context" | "scoring" | "export" | "api";
+type SettingsTab = "setup" | "account" | "context" | "scoring" | "export" | "api";
 
 const SettingsPage = () => {
   const s = useSettingsPageState();
@@ -35,26 +37,40 @@ const SettingsPage = () => {
   const [showBriefModal, setShowBriefModal] = useState(false);
   const [showRetroModal, setShowRetroModal] = useState(false);
   const [activeTab, setActiveTab] = useState<SettingsTab>("account");
+  const [showOnboardingModal, setShowOnboardingModal] = useState(false);
 
-  // No account selected — show account picker or empty state
+  const needsOnboarding = useAccountNeedsOnboarding(s.account);
+
+  // Auto-show onboarding modal for new accounts
+  useEffect(() => {
+    if (needsOnboarding && s.account) {
+      const dismissKey = `onboarding_dismissed_${s.account.id}`;
+      if (!sessionStorage.getItem(dismissKey)) {
+        setShowOnboardingModal(true);
+        sessionStorage.setItem(dismissKey, "1");
+      }
+    }
+  }, [needsOnboarding, s.account]);
+
+  const tabBar = (
+    <div className="flex gap-1 mb-6 border-b border-border-light overflow-x-auto">
+      <TabButton active={activeTab === "setup"} onClick={() => setActiveTab("setup")}>Account Setup</TabButton>
+      <TabButton active={activeTab === "account"} onClick={() => setActiveTab("account")}>Account</TabButton>
+      <TabButton active={activeTab === "context"} onClick={() => setActiveTab("context")}>Account Context</TabButton>
+      <TabButton active={activeTab === "scoring"} onClick={() => setActiveTab("scoring")}>Scoring</TabButton>
+      <TabButton active={activeTab === "export"} onClick={() => setActiveTab("export")}>Export</TabButton>
+      <TabButton active={activeTab === "api"} onClick={() => setActiveTab("api")}>API Access</TabButton>
+    </div>
+  );
+
+  // No account selected
   if (!s.account) {
     if (s.accounts.length > 0) {
       return (
         <AppLayout>
           <PageHeader title="Account Settings" description="Select a specific ad account from the sidebar to view its settings." />
-
-          {/* Tab bar for builder */}
-          {isBuilder && (
-            <div className="flex gap-1 mb-6 border-b border-border-light">
-             <TabButton active={activeTab === "account"} onClick={() => setActiveTab("account")}>Account</TabButton>
-              <TabButton active={activeTab === "context"} onClick={() => setActiveTab("context")}>Account Context</TabButton>
-              <TabButton active={activeTab === "scoring"} onClick={() => setActiveTab("scoring")}>Scoring</TabButton>
-              <TabButton active={activeTab === "export"} onClick={() => setActiveTab("export")}>Export</TabButton>
-              <TabButton active={activeTab === "api"} onClick={() => setActiveTab("api")}>API Access</TabButton>
-            </div>
-          )}
-
-          {activeTab === "account" ? (
+          {isBuilder && tabBar}
+          {activeTab === "account" || activeTab === "setup" ? (
             <>
               <div className="max-w-2xl">
                 <div className="glass-panel p-6 space-y-4">
@@ -79,13 +95,9 @@ const SettingsPage = () => {
               )}
             </>
           ) : activeTab === "api" ? (
-            <div className="max-w-2xl">
-              <ApiKeysSection />
-            </div>
+            <div className="max-w-2xl"><ApiKeysSection /></div>
           ) : (
-            <div className="max-w-3xl">
-              <DataExportSection />
-            </div>
+            <div className="max-w-3xl"><DataExportSection /></div>
           )}
         </AppLayout>
       );
@@ -111,21 +123,14 @@ const SettingsPage = () => {
         </div>
       </div>
 
-      {/* Tab bar */}
-      {isBuilder && (
-        <div className="flex gap-1 mb-6 border-b border-border-light">
-          <TabButton active={activeTab === "account"} onClick={() => setActiveTab("account")}>Account</TabButton>
-          <TabButton active={activeTab === "context"} onClick={() => setActiveTab("context")}>Account Context</TabButton>
-          <TabButton active={activeTab === "scoring"} onClick={() => setActiveTab("scoring")}>Scoring</TabButton>
-          <TabButton active={activeTab === "export"} onClick={() => setActiveTab("export")}>Export</TabButton>
-          <TabButton active={activeTab === "api"} onClick={() => setActiveTab("api")}>API Access</TabButton>
-        </div>
-      )}
+      {(isBuilder || isEmployee) && tabBar}
 
       <SyncStatusBanner />
       <MediaRefreshBanner />
 
-      {activeTab === "account" ? (
+      {activeTab === "setup" ? (
+        <AccountSetupChecklist account={s.account} onSwitchTab={(tab) => setActiveTab(tab as SettingsTab)} />
+      ) : activeTab === "account" ? (
         <div className="max-w-2xl space-y-8">
           <AccountOverviewSection
             account={s.account}
@@ -162,11 +167,7 @@ const SettingsPage = () => {
           />
           <SyncScheduleSection
             accounts={s.accounts}
-            onSyncAll={() => {
-              s.accounts.forEach((acc: any) => {
-                s.sync.mutate({ account_id: acc.id });
-              });
-            }}
+            onSyncAll={() => { s.accounts.forEach((acc: any) => { s.sync.mutate({ account_id: acc.id }); }); }}
             isSyncing={s.sync.isPending || isSyncing}
           />
           <SyncHistorySection accountId={s.account.id} />
@@ -192,13 +193,9 @@ const SettingsPage = () => {
       ) : activeTab === "scoring" ? (
         <ScoringCalibrationSection account={s.account} />
       ) : activeTab === "api" ? (
-        <div className="max-w-2xl">
-          <ApiKeysSection />
-        </div>
+        <div className="max-w-2xl"><ApiKeysSection /></div>
       ) : (
-        <div className="max-w-3xl">
-          <DataExportSection />
-        </div>
+        <div className="max-w-3xl"><DataExportSection /></div>
       )}
 
       <RenameAccountModal
@@ -219,6 +216,12 @@ const SettingsPage = () => {
       />
       <AIBriefModal open={showBriefModal} onClose={() => setShowBriefModal(false)} account={s.account} />
       <WeeklyRetroModal open={showRetroModal} onClose={() => setShowRetroModal(false)} account={s.account} />
+      <OnboardingChecklistModal
+        open={showOnboardingModal}
+        onClose={() => setShowOnboardingModal(false)}
+        account={s.account}
+        onSwitchTab={(tab) => setActiveTab(tab as SettingsTab)}
+      />
     </AppLayout>
   );
 };
@@ -228,7 +231,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
     <button
       onClick={onClick}
       className={cn(
-        "font-body text-[13px] font-medium px-4 py-2.5 border-b-2 transition-colors -mb-px",
+        "font-body text-[13px] font-medium px-4 py-2.5 border-b-2 transition-colors -mb-px whitespace-nowrap",
         active
           ? "border-verdant text-forest"
           : "border-transparent text-muted-foreground hover:text-foreground hover:border-border-light",
