@@ -19,6 +19,7 @@ import { VideoTab } from "@/components/analytics/VideoTab";
 import { CrossPlatformTab } from "@/components/analytics/CrossPlatformTab";
 import { CreativeDnaTab } from "@/components/analytics/CreativeDnaTab";
 import { AgingTab } from "@/components/analytics/AgingTab";
+import { HistoricalTab } from "@/components/analytics/HistoricalTab";
 import { useAnalyticsPageState } from "@/hooks/useAnalyticsPageState";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -68,8 +69,8 @@ const AnalyticsPage = () => {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="bg-transparent border-b border-border-light rounded-none p-0 h-auto gap-0 flex-wrap">
-          {["trends", "winrate", "scale", "kill", "iterations", "taginsights", "dna", "aging", ...(canBenchmark ? ["video", "benchmarks", "crossplatform"] : [])].map((tab) => {
-            const labels: Record<string, string> = { winrate: "Win Rate", taginsights: "Tag Insights", dna: "Creative DNA", aging: "Aging", video: "Video", benchmarks: "Benchmarks", crossplatform: "Cross-Platform" };
+          {["trends", "winrate", "scale", "kill", "iterations", "taginsights", "dna", "aging", "historical", ...(canBenchmark ? ["video", "benchmarks", "crossplatform"] : [])].map((tab) => {
+            const labels: Record<string, string> = { winrate: "Win Rate", taginsights: "Tag Insights", dna: "Creative DNA", aging: "Aging", historical: "Historical", video: "Video", benchmarks: "Benchmarks", crossplatform: "Cross-Platform" };
             return (
               <TabsTrigger
                 key={tab}
@@ -124,6 +125,9 @@ const AnalyticsPage = () => {
             spendThreshold={spendThreshold}
             onCreativeClick={setSelectedCreative}
           />
+        </TabsContent>
+        <TabsContent value="historical" className="space-y-4">
+          <HistoricalTab trendData={filteredTrendData} creatives={creatives} onCreativeClick={setSelectedCreative} />
         </TabsContent>
         {canBenchmark && (
           <TabsContent value="video" className="space-y-4">
