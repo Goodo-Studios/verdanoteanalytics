@@ -39,7 +39,6 @@ const baseNavItems = [
   { title: "Reports", url: "/reports", icon: FileText },
   
   { title: "Saved Views", url: "/saved-views", icon: Bookmark },
-  { title: "Saved Views", url: "/saved-views", icon: Bookmark },
   { title: "AI Analyst", url: "/ai-chat", icon: Sparkles },
 ];
 
