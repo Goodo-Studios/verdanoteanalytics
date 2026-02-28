@@ -6,12 +6,10 @@ import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, Users, FileEdit, BookOpen, Sparkles, PenTool, MessageSquare, GitBranch } from "lucide-react";
+import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, FileEdit, BookOpen, Sparkles, MessageSquare, GitBranch } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useCreator } from "@/hooks/useCreatorsApi";
 import { useState, forwardRef } from "react";
-import { AnnotationCanvas } from "@/components/creative-detail/AnnotationCanvas";
-import { AnnotationGallery } from "@/components/creative-detail/AnnotationGallery";
+
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBriefs } from "@/hooks/useBriefsApi";
 import { CreativeMetrics } from "@/components/creative-detail/CreativeMetrics";
@@ -34,7 +32,7 @@ import type { FatigueResult } from "@/lib/fatigueScore";
 import type { CreativeScore } from "@/lib/creativeScore";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCreateBrief } from "@/hooks/useBriefsApi";
-import { SaveToMoodboardMenu } from "@/components/moodboards/SaveToMoodboardMenu";
+
 import { HookBrowserModal } from "@/components/hooks/HookBrowserModal";
 
 interface CreativeDetailModalProps {
@@ -211,14 +209,12 @@ function MediaPreview({ creative }: { creative: any }) {
 }
 
 export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModalProps>(function CreativeDetailModal({ creative, open, onClose, wowTrends, gradeMap, fatigueMap, scoreMap }, ref) {
-  const creatorId = creative?.creator_id;
-  const { data: creator } = useCreator(creatorId || undefined);
   const { isBuilder, isEmployee, user } = useAuth();
   const canEdit = isBuilder || isEmployee;
   const navigate = useNavigate();
   const createBrief = useCreateBrief();
   const [hookBrowserOpen, setHookBrowserOpen] = useState(false);
-  const [annotateMode, setAnnotateMode] = useState(false);
+  
   const queryClient = useQueryClient();
   const { data: briefs } = useBriefs(creative?.account_id);
   if (!creative) return null;
@@ -263,34 +259,8 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
           </DialogTitle>
         </DialogHeader>
 
-        {/* Annotate button + Media preview */}
-        {annotateMode && creative.thumbnail_url ? (
-          <AnnotationCanvas
-            imageUrl={creative.thumbnail_url}
-            adId={creative.ad_id}
-            accountId={creative.account_id}
-            onClose={() => setAnnotateMode(false)}
-            onSaved={() => {
-              queryClient.invalidateQueries({ queryKey: ["annotations", creative.ad_id] });
-              setAnnotateMode(false);
-            }}
-            briefs={briefs}
-          />
-        ) : (
-          <div className="relative">
-            <MediaPreview creative={creative} />
-            {canEdit && creative.thumbnail_url && (
-              <Button
-                size="sm"
-                variant="secondary"
-                className="absolute top-2 left-2 gap-1.5 font-body text-[11px] shadow-sm"
-                onClick={() => setAnnotateMode(true)}
-              >
-                <PenTool className="h-3.5 w-3.5" /> Annotate
-              </Button>
-            )}
-          </div>
-        )}
+        {/* Media preview */}
+        <MediaPreview creative={creative} />
 
         <Tabs defaultValue="details" className="w-full">
           <TabsList className="w-full">
@@ -301,10 +271,8 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
                 AI Analysis
               </TabsTrigger>
             )}
-            <TabsTrigger value="annotations" className="flex-1 gap-1.5">
-              <PenTool className="h-3.5 w-3.5" />
-              Annotations
-            </TabsTrigger>
+
+
             <TabsTrigger value="comments" className="flex-1 gap-1.5">
               <MessageSquare className="h-3.5 w-3.5" />
               Comments
@@ -411,14 +379,8 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
             {/* Context */}
             <div className="space-y-1.5">
               <p className="font-body text-[13px]"><span className="font-semibold text-foreground">Ad Name:</span> <span className="font-normal text-muted-foreground break-all">{creative.ad_name}</span></p>
-              {creator && (
-                <p className="font-body text-[13px] flex items-center gap-1.5">
-                  <span className="font-semibold text-foreground">Creator:</span>
-                  <a href="/creators" className="inline-flex items-center gap-1 text-primary hover:underline font-normal">
-                    <Users className="h-3 w-3" />{creator.name}
-                  </a>
-                </p>
-              )}
+
+
               <p className="font-body text-[13px]"><span className="font-semibold text-foreground">Campaign:</span> <span className="font-normal text-muted-foreground break-all">{creative.campaign_name || "—"}</span></p>
               <p className="font-body text-[13px]"><span className="font-semibold text-foreground">Ad Set:</span> <span className="font-normal text-muted-foreground break-all">{creative.adset_name || "—"}</span></p>
             </div>
@@ -445,11 +407,8 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
                   <BookOpen className="h-3.5 w-3.5" />
                   Browse Hooks
                 </Button>
-                <SaveToMoodboardMenu
-                  adId={creative.ad_id}
-                  thumbnailUrl={creative.thumbnail_url}
-                  caption={creative.ad_name}
-                />
+
+
               </div>
             )}
 
@@ -469,9 +428,8 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
             </TabsContent>
           )}
 
-          <TabsContent value="annotations" className="mt-4">
-            <AnnotationGallery adId={creative.ad_id} />
-          </TabsContent>
+
+
 
           <TabsContent value="comments" className="mt-4">
             <CreativeComments adId={creative.ad_id} accountId={creative.account_id} />

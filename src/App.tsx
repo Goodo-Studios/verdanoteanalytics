@@ -15,13 +15,13 @@ import ClientCreativesPage from "./pages/ClientCreativesPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
 import ComparePage from "./pages/ComparePage";
 import TaggingPage from "./pages/TaggingPage";
-import CreatorsPage from "./pages/CreatorsPage";
+
 import ReportsPage from "./pages/ReportsPage";
 import ClientReportsPage from "./pages/ClientReportsPage";
 import ReportDetailPage from "./pages/ReportDetailPage";
 import ReportBuilderPage from "./pages/ReportBuilderPage";
 import PublicReportPage from "./pages/PublicReportPage";
-import PortfolioPage from "./pages/PortfolioPage";
+
 import SettingsPage from "./pages/SettingsPage";
 import UserSettingsPage from "./pages/UserSettingsPage";
 import SavedViewsPage from "./pages/SavedViewsPage";
@@ -72,7 +72,7 @@ function ProtectedRoutes() {
         <Route path="/creatives/compare" element={isEditor ? <Navigate to="/" replace /> : <ComparePage />} />
         <Route path="/analytics" element={isEditor ? <Navigate to="/" replace /> : <AnalyticsPage />} />
         <Route path="/tagging" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <TaggingPage />} />
-        <Route path="/creators" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <CreatorsPage />} />
+        
         <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : isEditor ? <ClientReportsPage /> : <ReportsPage />} />
         <Route path="/reports/:id" element={<ReportDetailPage />} />
         <Route path="/reports/:id/build" element={<ReportBuilderPage />} />
@@ -111,7 +111,7 @@ const App = () => {
                   <Route path="/public/reports/:id" element={<PublicReportPage />} />
                   <Route path="/briefs/share/:token" element={<PublicBriefPage />} />
                   
-                  <Route path="/portfolio/:slug" element={<PortfolioPage />} />
+                  
                   <Route path="/*" element={<ProtectedRoutes />} />
                 </Routes>
               </BrowserRouter>

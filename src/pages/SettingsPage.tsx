@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { AppLayout } from "@/components/AppLayout";
-import { AccountContextSection } from "@/components/settings/AccountContextSection";
+
 import { SyncStatusBanner } from "@/components/SyncStatusBanner";
 import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
 import { PageHeader } from "@/components/PageHeader";
@@ -14,7 +14,7 @@ import { AIBriefModal } from "@/components/settings/AIBriefModal";
 import { WeeklyRetroModal } from "@/components/settings/WeeklyRetroModal";
 import { DataHealthSection } from "@/components/settings/DataHealthSection";
 import { DataExportSection } from "@/components/settings/DataExportSection";
-import { PortfolioSettingsSection } from "@/components/settings/PortfolioSettingsSection";
+
 import { ClientHealthSection } from "@/components/settings/ClientHealthSection";
 import { ApiKeysSection } from "@/components/settings/ApiKeysSection";
 import { TikTokConnectionSection } from "@/components/settings/TikTokConnectionSection";
@@ -22,7 +22,7 @@ import { ScoringCalibrationSection } from "@/components/settings/ScoringCalibrat
 import { AttributionSection } from "@/components/settings/AttributionSection";
 import { AccountSetupChecklist, useAccountNeedsOnboarding } from "@/components/settings/AccountSetupChecklist";
 import { OnboardingChecklistModal } from "@/components/settings/OnboardingChecklistModal";
-import { WebhooksSection } from "@/components/settings/WebhooksSection";
+
 import { TransitionTab } from "@/components/settings/TransitionTab";
 import { NamingConventionSection } from "@/components/settings/NamingConventionSection";
 import { useSettingsPageState } from "@/hooks/useSettingsPageState";
@@ -30,7 +30,7 @@ import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 
-type SettingsTab = "setup" | "account" | "context" | "scoring" | "naming" | "export" | "api" | "webhooks" | "transition";
+type SettingsTab = "setup" | "account" | "scoring" | "naming" | "export" | "api" | "transition";
 
 const SettingsPage = () => {
   const s = useSettingsPageState();
@@ -59,12 +59,12 @@ const SettingsPage = () => {
     <div className="flex gap-1 mb-6 border-b border-border-light overflow-x-auto">
       <TabButton active={activeTab === "setup"} onClick={() => setActiveTab("setup")}>Account Setup</TabButton>
       <TabButton active={activeTab === "account"} onClick={() => setActiveTab("account")}>Account</TabButton>
-      <TabButton active={activeTab === "context"} onClick={() => setActiveTab("context")}>Account Context</TabButton>
+      
       <TabButton active={activeTab === "scoring"} onClick={() => setActiveTab("scoring")}>Scoring</TabButton>
       {isBuilder && <TabButton active={activeTab === "naming"} onClick={() => setActiveTab("naming")}>Naming</TabButton>}
       <TabButton active={activeTab === "export"} onClick={() => setActiveTab("export")}>Export</TabButton>
       <TabButton active={activeTab === "api"} onClick={() => setActiveTab("api")}>API Access</TabButton>
-      {isBuilder && <TabButton active={activeTab === "webhooks"} onClick={() => setActiveTab("webhooks")}>Webhooks</TabButton>}
+      
       {isBuilder && <TabButton active={activeTab === "transition"} onClick={() => setActiveTab("transition")}>Transition</TabButton>}
     </div>
   );
@@ -192,18 +192,13 @@ const SettingsPage = () => {
           />
           {(isBuilder || isEmployee) && <AttributionSection account={s.account} />}
           {(isBuilder || isEmployee) && <ClientHealthSection account={s.account} />}
-          {isBuilder && <PortfolioSettingsSection account={s.account} />}
         </div>
-      ) : activeTab === "context" ? (
-        <AccountContextSection account={s.account} />
       ) : activeTab === "scoring" ? (
         <ScoringCalibrationSection account={s.account} />
       ) : activeTab === "naming" ? (
         <NamingConventionSection />
       ) : activeTab === "api" ? (
         <div className="max-w-2xl"><ApiKeysSection /></div>
-      ) : activeTab === "webhooks" ? (
-        <WebhooksSection />
       ) : activeTab === "transition" ? (
         <TransitionTab account={s.account} />
       ) : (
