@@ -10,8 +10,10 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useUpdateBrief, type Brief } from "@/hooks/useBriefsApi";
 import { useAllCreatives } from "@/hooks/useAllCreatives";
-import { Copy, ExternalLink, Save, ChevronDown } from "lucide-react";
+import { Copy, ExternalLink, Save, ChevronDown, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useState as useReactState } from "react";
+import { HookBrowserModal } from "@/components/hooks/HookBrowserModal";
 
 const STATUS_OPTIONS = [
   { value: "draft", label: "Draft", color: "bg-muted text-muted-foreground" },
@@ -49,7 +51,7 @@ export function BriefEditorModal({ brief, open, onClose, onStatusChange, onCopyS
   const [content, setContent] = useState<Record<string, any>>({});
   const [refAdIds, setRefAdIds] = useState<string[]>([]);
   const [dirty, setDirty] = useState(false);
-
+  const [hookBrowserOpen, setHookBrowserOpen] = useReactState(false);
   // Load reference creatives
   const { data: allCreatives = [] } = useAllCreatives({});
   const refCreatives = useMemo(
@@ -178,9 +180,16 @@ export function BriefEditorModal({ brief, open, onClose, onStatusChange, onCopyS
         <div className="px-6 pb-6 space-y-5">
           {SECTION_DEFS.map((section) => (
             <div key={section.key} className="space-y-1.5">
-              <Label className="font-label text-[10px] uppercase tracking-wider text-muted-foreground">
-                {section.label}
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label className="font-label text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {section.label}
+                </Label>
+                {section.key === "hook" && (
+                  <Button variant="ghost" size="sm" className="h-6 gap-1 font-body text-[10px] text-muted-foreground" onClick={() => setHookBrowserOpen(true)}>
+                    <BookOpen className="h-3 w-3" /> Browse Hooks
+                  </Button>
+                )}
+              </div>
               {section.type === "textarea" ? (
                 <Textarea
                   value={content[section.key] || ""}
@@ -200,6 +209,12 @@ export function BriefEditorModal({ brief, open, onClose, onStatusChange, onCopyS
           ))}
         </div>
       </DialogContent>
+
+      <HookBrowserModal
+        open={hookBrowserOpen}
+        onClose={() => setHookBrowserOpen(false)}
+        onSelect={(text) => { updateField("hook", text); setDirty(true); }}
+      />
     </Dialog>
   );
 }

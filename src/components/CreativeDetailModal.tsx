@@ -5,7 +5,7 @@ import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, Users, FileEdit } from "lucide-react";
+import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, Users, FileEdit, BookOpen } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useCreator } from "@/hooks/useCreatorsApi";
 import { useState, forwardRef } from "react";
@@ -25,6 +25,7 @@ import type { CreativeScore } from "@/lib/creativeScore";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCreateBrief } from "@/hooks/useBriefsApi";
 import { SaveToMoodboardMenu } from "@/components/moodboards/SaveToMoodboardMenu";
+import { HookBrowserModal } from "@/components/hooks/HookBrowserModal";
 
 interface CreativeDetailModalProps {
   creative: any;
@@ -206,6 +207,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
   const canEdit = isBuilder || isEmployee;
   const navigate = useNavigate();
   const createBrief = useCreateBrief();
+  const [hookBrowserOpen, setHookBrowserOpen] = useState(false);
   if (!creative) return null;
   const fatigue = fatigueMap?.get(creative.ad_id);
   const creativeScore = scoreMap?.get(creative.ad_id);
@@ -349,7 +351,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
 
         {/* Create Brief from This */}
         {(isBuilder || isEmployee) && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Button
               variant="outline"
               size="sm"
@@ -359,6 +361,15 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
             >
               <FileEdit className="h-3.5 w-3.5" />
               Create Brief from This
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 font-body text-[12px]"
+              onClick={() => setHookBrowserOpen(true)}
+            >
+              <BookOpen className="h-3.5 w-3.5" />
+              Browse Hooks
             </Button>
             <SaveToMoodboardMenu
               adId={creative.ad_id}
@@ -377,6 +388,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
         <Separator />
         <CreativeIterationAnalysis creative={creative} />
       </DialogContent>
+      <HookBrowserModal open={hookBrowserOpen} onClose={() => setHookBrowserOpen(false)} />
     </Dialog>
   );
 });
