@@ -6,11 +6,12 @@ interface MetricCardProps {
   value: string | number;
   icon?: ReactNode;
   trend?: { value: number; positive: boolean };
+  badge?: ReactNode;
   className?: string;
   index?: number;
 }
 
-export function MetricCard({ label, value, icon, trend, className }: MetricCardProps) {
+export function MetricCard({ label, value, icon, trend, badge, className }: MetricCardProps) {
   return (
     <div className={cn("py-3 px-4 space-y-1.5", className)}>
       <div className="flex items-center justify-between">
@@ -30,6 +31,7 @@ export function MetricCard({ label, value, icon, trend, className }: MetricCardP
           </span>
         )}
       </div>
+      {badge && <div className="mt-1">{badge}</div>}
     </div>
   );
 }
