@@ -205,11 +205,20 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
   const { selectedAccount } = useAccountContext();
   const canEdit = isBuilder || isEmployee;
   const [codaBriefOpen, setCodaBriefOpen] = useState(false);
+  const [briefTaskName, setBriefTaskName] = useState("");
   const [briefNote, setBriefNote] = useState("");
   const [pushing, setPushing] = useState(false);
 
   if (!creative) return null;
   const fatigue = fatigueMap?.get(creative.ad_id);
+
+  const creativeLink = creative ? `https://www.facebook.com/ads/library/?id=${creative.ad_id}` : "";
+
+  const handleOpenCodaBrief = () => {
+    setBriefTaskName("");
+    setBriefNote(`Reference creative: ${creative?.ad_name || creative?.ad_id}\n${creativeLink}\n\n`);
+    setCodaBriefOpen(true);
+  };
 
   const handlePushToCoda = async () => {
     setPushing(true);
@@ -219,6 +228,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
           creative_id: creative.ad_id,
           account_id: creative.account_id,
           account_name: selectedAccount?.name || "",
+          task_name: briefTaskName,
           brief_note: briefNote,
           user_id: user?.id,
         },
@@ -227,6 +237,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
       toast.success("Brief created in Coda");
       setCodaBriefOpen(false);
       setBriefNote("");
+      setBriefTaskName("");
     } catch (err: any) {
       toast.error(err?.message || "Failed to create brief in Coda");
     } finally {
@@ -345,7 +356,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
                   variant="outline"
                   size="sm"
                   className="gap-1.5 font-body text-[12px]"
-                  onClick={() => setCodaBriefOpen(true)}
+                  onClick={handleOpenCodaBrief}
                 >
                   <FileEdit className="h-3.5 w-3.5" />
                   Create brief in Coda
@@ -378,14 +389,26 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
           <DialogHeader>
             <DialogTitle className="font-label text-[14px] font-semibold text-foreground">Create Brief</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 mt-2">
-            <label className="font-body text-[12px] font-medium text-foreground">Brief note</label>
-            <Textarea
-              placeholder="e.g., Hook variation leaning into sleep anxiety"
-              value={briefNote}
-              onChange={(e) => setBriefNote(e.target.value)}
-              className="min-h-[100px] font-body text-[13px]"
-            />
+          <div className="space-y-4 mt-2">
+            <div className="space-y-1.5">
+              <label className="font-body text-[12px] font-medium text-foreground">Task name</label>
+              <input
+                type="text"
+                placeholder="e.g., Sleep anxiety hook variation"
+                value={briefTaskName}
+                onChange={(e) => setBriefTaskName(e.target.value)}
+                className="w-full h-9 px-3 rounded-md border border-input bg-background font-body text-[13px] focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="font-body text-[12px] font-medium text-foreground">Brief note</label>
+              <Textarea
+                placeholder="e.g., Hook variation leaning into sleep anxiety"
+                value={briefNote}
+                onChange={(e) => setBriefNote(e.target.value)}
+                className="min-h-[100px] font-body text-[13px]"
+              />
+            </div>
           </div>
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" size="sm" onClick={() => setCodaBriefOpen(false)} disabled={pushing}>
