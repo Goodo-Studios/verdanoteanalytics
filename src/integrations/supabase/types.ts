@@ -804,6 +804,7 @@ export type Database = {
           tag_source: string
           theme: string | null
           thumb_stop_rate: number | null
+          thumbnail_storage_path: string | null
           thumbnail_url: string | null
           unique_code: string | null
           updated_at: string
@@ -856,6 +857,7 @@ export type Database = {
           tag_source?: string
           theme?: string | null
           thumb_stop_rate?: number | null
+          thumbnail_storage_path?: string | null
           thumbnail_url?: string | null
           unique_code?: string | null
           updated_at?: string
@@ -908,6 +910,7 @@ export type Database = {
           tag_source?: string
           theme?: string | null
           thumb_stop_rate?: number | null
+          thumbnail_storage_path?: string | null
           thumbnail_url?: string | null
           unique_code?: string | null
           updated_at?: string

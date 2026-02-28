@@ -7,11 +7,10 @@ const corsHeaders = {
 };
 
 const META_ACCESS_TOKEN = Deno.env.get("META_ACCESS_TOKEN")!;
-const BATCH_SIZE = 20; // Process 20 in parallel per batch
-const TIME_BUDGET_MS = 115_000; // ~2 min wall-clock (with margin)
-const FETCH_TIMEOUT_MS = 8_000; // 8s timeout – fail fast
-const MAX_ITEMS = 1000; // Max items per invocation
-
+const BATCH_SIZE = 20;
+const TIME_BUDGET_MS = 115_000;
+const FETCH_TIMEOUT_MS = 8_000;
+const MAX_ITEMS = 1000;
 const NO_THUMB_SENTINEL = "no-thumbnail";
 
 async function fetchWithTimeout(url: string, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
@@ -26,24 +25,17 @@ async function fetchWithTimeout(url: string, timeoutMs = FETCH_TIMEOUT_MS): Prom
 
 /**
  * Try multiple Meta API strategies to discover an image URL for an ad.
- * Returns a CDN URL string or null if nothing found.
  */
 async function discoverImageUrl(adId: string, accountId: string): Promise<string | null> {
   try {
-    // Strategy 1: Get creative fields including image_hash and object_story_spec
     const res = await fetchWithTimeout(
       `https://graph.facebook.com/v22.0/${adId}?fields=creative{thumbnail_url,image_url,image_hash,object_story_spec}&access_token=${META_ACCESS_TOKEN}`
     );
-    if (!res.ok) {
-      console.log(`Meta API ${res.status} for ${adId}`);
-      await res.text(); // consume body
-      return null;
-    }
+    if (!res.ok) { await res.text(); return null; }
     const data = await res.json();
     const creative = data?.creative;
     if (!creative) return null;
 
-    // Strategy 1a: Resolve image_hash → full URL via adimages endpoint
     const imageHash =
       creative.image_hash ||
       creative.object_story_spec?.link_data?.image_hash ||
@@ -56,22 +48,14 @@ async function discoverImageUrl(adId: string, accountId: string): Promise<string
       if (imgRes.ok) {
         const imgData = await imgRes.json();
         const img = imgData?.data?.[0];
-        if (img?.url && img.url.length > 100) {
-          console.log(`image_hash resolved for ${adId}: ${img.original_width || "?"}px`);
-          return img.url;
-        }
-      } else {
-        await imgRes.text();
-      }
+        if (img?.url && img.url.length > 100) return img.url;
+      } else { await imgRes.text(); }
     }
 
-    // Strategy 1b: Video thumbnail via video_id
     const spec = creative.object_story_spec;
-    const videoId =
-      spec?.video_data?.video_id || spec?.template_data?.video_data?.video_id;
+    const videoId = spec?.video_data?.video_id || spec?.template_data?.video_data?.video_id;
 
     if (videoId) {
-      // Try thumbnails endpoint first (highest quality)
       const vidRes = await fetchWithTimeout(
         `https://graph.facebook.com/v22.0/${videoId}?fields=thumbnails{uri,width,height}&access_token=${META_ACCESS_TOKEN}`
       );
@@ -80,31 +64,19 @@ async function discoverImageUrl(adId: string, accountId: string): Promise<string
         const thumbs = vidData?.thumbnails?.data;
         if (thumbs?.length) {
           const best = thumbs.sort((a: any, b: any) => (b.width || 0) - (a.width || 0))[0];
-          if (best?.uri && (best.width || 0) >= 200) {
-            console.log(`Video thumbnail for ${adId}: ${best.width}x${best.height}`);
-            return best.uri;
-          }
+          if (best?.uri && (best.width || 0) >= 200) return best.uri;
         }
-      } else {
-        await vidRes.text();
-      }
+      } else { await vidRes.text(); }
 
-      // Fallback: video picture endpoint
       const picRes = await fetchWithTimeout(
         `https://graph.facebook.com/v22.0/${videoId}/picture?redirect=false&width=1080&height=1080&access_token=${META_ACCESS_TOKEN}`
       );
       if (picRes.ok) {
         const picData = await picRes.json();
-        if (picData?.data?.url) {
-          console.log(`Video picture fallback for ${adId}`);
-          return picData.data.url;
-        }
-      } else {
-        await picRes.text();
-      }
+        if (picData?.data?.url) return picData.data.url;
+      } else { await picRes.text(); }
     }
 
-    // Strategy 1c: effective_object_story_id → full_picture
     if (creative.id) {
       const creativeRes = await fetchWithTimeout(
         `https://graph.facebook.com/v22.0/${creative.id}?fields=effective_object_story_id,image_url&access_token=${META_ACCESS_TOKEN}`
@@ -117,26 +89,15 @@ async function discoverImageUrl(adId: string, accountId: string): Promise<string
           );
           if (postRes.ok) {
             const postData = await postRes.json();
-            if (postData.full_picture) {
-              console.log(`Post full_picture for ${adId}`);
-              return postData.full_picture;
-            }
-          } else {
-            await postRes.text();
-          }
+            if (postData.full_picture) return postData.full_picture;
+          } else { await postRes.text(); }
         }
-      } else {
-        await creativeRes.text();
-      }
+      } else { await creativeRes.text(); }
     }
 
-    // Strategy 1d: Direct fallback fields
     if (creative.image_url) return creative.image_url;
     if (spec) {
-      const imageUrl =
-        spec.link_data?.image_url ||
-        spec.photo_data?.url ||
-        spec.photo_data?.image_url;
+      const imageUrl = spec.link_data?.image_url || spec.photo_data?.url || spec.photo_data?.image_url;
       if (imageUrl) return imageUrl;
     }
     if (creative.thumbnail_url) return creative.thumbnail_url;
@@ -148,9 +109,45 @@ async function discoverImageUrl(adId: string, accountId: string): Promise<string
   }
 }
 
+/**
+ * Download an image and upload it to Supabase Storage (ad-thumbnails bucket).
+ */
+async function cacheToStorage(
+  supabase: any,
+  imageUrl: string,
+  accountId: string,
+  adId: string
+): Promise<string | null> {
+  try {
+    const res = await fetchWithTimeout(imageUrl, 12_000);
+    if (!res.ok) { await res.text(); return null; }
+
+    const contentType = res.headers.get("content-type") || "image/jpeg";
+    const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
+    const storagePath = `${accountId}/${adId}.${ext}`;
+
+    const blob = await res.blob();
+    const arrayBuffer = await blob.arrayBuffer();
+    const uint8 = new Uint8Array(arrayBuffer);
+
+    const { error: uploadError } = await supabase.storage
+      .from("ad-thumbnails")
+      .upload(storagePath, uint8, { contentType, upsert: true });
+
+    if (uploadError) {
+      console.error(`Storage upload error for ${adId}:`, uploadError.message);
+      return null;
+    }
+
+    return storagePath;
+  } catch (e) {
+    console.error(`Cache to storage error for ${adId}:`, e);
+    return null;
+  }
+}
+
 serve(async (req) => {
-  if (req.method === "OPTIONS")
-    return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -167,6 +164,9 @@ serve(async (req) => {
       } catch { /* no body */ }
     }
 
+    // Parse scope: "discover" (default) finds CDN URLs, "cache" stores to Storage
+    const scope = url.searchParams.get("scope") || "all";
+
     // Concurrency guard
     const { data: running } = await supabase
       .from("media_refresh_logs")
@@ -180,109 +180,18 @@ serve(async (req) => {
       );
     }
 
-    // Find null-thumbnail creatives (exclude sentinels)
-    let query = supabase
-      .from("creatives")
-      .select("ad_id, account_id")
-      .is("thumbnail_url", null)
-      .gt("impressions", 0);
-    if (accountFilter) query = query.eq("account_id", accountFilter);
-
-    // Prioritize creatives with spend > 0
-    const { data: withSpend } = await query
-      .gt("spend", 0)
-      .order("spend", { ascending: false })
-      .limit(MAX_ITEMS);
-
-    let items = withSpend || [];
-
-    // Fill remaining capacity with zero-spend creatives
-    if (items.length < MAX_ITEMS) {
-      const remaining = MAX_ITEMS - items.length;
-      let zeroQuery = supabase
-        .from("creatives")
-        .select("ad_id, account_id")
-        .is("thumbnail_url", null)
-        .gt("impressions", 0)
-        .or("spend.is.null,spend.eq.0");
-      if (accountFilter) zeroQuery = zeroQuery.eq("account_id", accountFilter);
-      const { data: zeroSpend } = await zeroQuery.limit(remaining);
-      if (zeroSpend) items = [...items, ...zeroSpend];
+    // ── Scope: discover — find CDN URLs for null-thumbnail creatives ──
+    if (scope === "discover" || scope === "all") {
+      await runDiscovery(supabase, accountFilter);
     }
 
-    if (items.length === 0) {
-      console.log("No null-thumbnail creatives to enrich.");
-      return new Response(
-        JSON.stringify({ enriched: 0, sentinel: 0, total: 0 }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    // ── Scope: cache — download CDN URLs to permanent storage ──
+    if (scope === "cache" || scope === "all") {
+      await runCaching(supabase, accountFilter);
     }
-
-    console.log(`Enriching ${items.length} null-thumbnail creatives (account: ${accountFilter || "all"})`);
-
-    const startTime = Date.now();
-    let enriched = 0;
-    let sentinel = 0;
-    let skippedBudget = 0;
-    const errors: string[] = [];
-
-    for (let i = 0; i < items.length; i += BATCH_SIZE) {
-      if (Date.now() - startTime > TIME_BUDGET_MS) {
-        skippedBudget = items.length - i;
-        console.log(`Budget exceeded at item ${i}. Skipping ${skippedBudget} remaining.`);
-        break;
-      }
-
-      const batch = items.slice(i, i + BATCH_SIZE);
-      const results = await Promise.allSettled(
-        batch.map(async (c) => {
-          const imageUrl = await discoverImageUrl(c.ad_id, c.account_id);
-          if (imageUrl) {
-            await supabase
-              .from("creatives")
-              .update({ thumbnail_url: imageUrl })
-              .eq("ad_id", c.ad_id);
-            return "enriched";
-          } else {
-            await supabase
-              .from("creatives")
-              .update({ thumbnail_url: NO_THUMB_SENTINEL })
-              .eq("ad_id", c.ad_id);
-            return "sentinel";
-          }
-        })
-      );
-      for (const r of results) {
-        if (r.status === "fulfilled") {
-          if (r.value === "enriched") enriched++;
-          else sentinel++;
-        } else {
-          const msg = `${r.reason}`;
-          console.log(`Error: ${msg}`);
-          errors.push(msg);
-        }
-      }
-
-      // Progress log every 50 items
-      if (i > 0 && i % 50 === 0) {
-        console.log(`Progress: ${enriched} enriched, ${sentinel} sentinel, ${i}/${items.length}`);
-      }
-    }
-
-    const duration = Date.now() - startTime;
-    console.log(
-      `Done in ${(duration / 1000).toFixed(1)}s: ${enriched} enriched, ${sentinel} sentinel, ${skippedBudget} skipped (budget)`
-    );
 
     return new Response(
-      JSON.stringify({
-        enriched,
-        sentinel,
-        skippedBudget,
-        total: items.length,
-        durationMs: duration,
-        errors: errors.slice(0, 10),
-      }),
+      JSON.stringify({ status: "completed", scope }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {
@@ -293,3 +202,144 @@ serve(async (req) => {
     );
   }
 });
+
+/**
+ * Phase 1: Discover CDN URLs for creatives with null thumbnail_url.
+ */
+async function runDiscovery(supabase: any, accountFilter: string | null) {
+  let query = supabase
+    .from("creatives")
+    .select("ad_id, account_id")
+    .is("thumbnail_url", null)
+    .gt("impressions", 0);
+  if (accountFilter) query = query.eq("account_id", accountFilter);
+
+  const { data: withSpend } = await query
+    .gt("spend", 0)
+    .order("spend", { ascending: false })
+    .limit(MAX_ITEMS);
+
+  let items = withSpend || [];
+
+  if (items.length < MAX_ITEMS) {
+    const remaining = MAX_ITEMS - items.length;
+    let zeroQuery = supabase
+      .from("creatives")
+      .select("ad_id, account_id")
+      .is("thumbnail_url", null)
+      .gt("impressions", 0)
+      .or("spend.is.null,spend.eq.0");
+    if (accountFilter) zeroQuery = zeroQuery.eq("account_id", accountFilter);
+    const { data: zeroSpend } = await zeroQuery.limit(remaining);
+    if (zeroSpend) items = [...items, ...zeroSpend];
+  }
+
+  if (items.length === 0) {
+    console.log("Discovery: No null-thumbnail creatives to enrich.");
+    return;
+  }
+
+  console.log(`Discovery: ${items.length} null-thumbnail creatives (account: ${accountFilter || "all"})`);
+
+  const startTime = Date.now();
+  let enriched = 0, sentinel = 0;
+
+  for (let i = 0; i < items.length; i += BATCH_SIZE) {
+    if (Date.now() - startTime > TIME_BUDGET_MS) {
+      console.log(`Discovery budget exceeded at item ${i}. Skipping rest.`);
+      break;
+    }
+
+    const batch = items.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map(async (c: any) => {
+        const imageUrl = await discoverImageUrl(c.ad_id, c.account_id);
+        if (imageUrl) {
+          await supabase.from("creatives").update({ thumbnail_url: imageUrl }).eq("ad_id", c.ad_id);
+          return "enriched";
+        } else {
+          await supabase.from("creatives").update({ thumbnail_url: NO_THUMB_SENTINEL }).eq("ad_id", c.ad_id);
+          return "sentinel";
+        }
+      })
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        if (r.value === "enriched") enriched++;
+        else sentinel++;
+      }
+    }
+
+    if (i > 0 && i % 50 === 0) {
+      console.log(`Discovery progress: ${enriched} enriched, ${sentinel} sentinel, ${i}/${items.length}`);
+    }
+  }
+
+  console.log(`Discovery done: ${enriched} enriched, ${sentinel} sentinel`);
+}
+
+/**
+ * Phase 2: Cache CDN thumbnail URLs to permanent Supabase Storage.
+ * Targets creatives that have a thumbnail_url but no thumbnail_storage_path.
+ */
+async function runCaching(supabase: any, accountFilter: string | null) {
+  let query = supabase
+    .from("creatives")
+    .select("ad_id, account_id, thumbnail_url")
+    .not("thumbnail_url", "is", null)
+    .neq("thumbnail_url", NO_THUMB_SENTINEL)
+    .is("thumbnail_storage_path", null)
+    .gt("impressions", 0);
+  if (accountFilter) query = query.eq("account_id", accountFilter);
+
+  const { data: items } = await query
+    .order("spend", { ascending: false })
+    .limit(500); // smaller batch — storage uploads are slower
+
+  if (!items?.length) {
+    console.log("Caching: No creatives need storage caching.");
+    return;
+  }
+
+  console.log(`Caching: ${items.length} creatives to store (account: ${accountFilter || "all"})`);
+
+  const startTime = Date.now();
+  const CACHE_BATCH = 10; // smaller parallel batch for storage uploads
+  let cached = 0, failed = 0;
+
+  for (let i = 0; i < items.length; i += CACHE_BATCH) {
+    if (Date.now() - startTime > TIME_BUDGET_MS) {
+      console.log(`Caching budget exceeded at item ${i}.`);
+      break;
+    }
+
+    const batch = items.slice(i, i + CACHE_BATCH);
+    const results = await Promise.allSettled(
+      batch.map(async (c: any) => {
+        const storagePath = await cacheToStorage(supabase, c.thumbnail_url, c.account_id, c.ad_id);
+        if (storagePath) {
+          await supabase.from("creatives")
+            .update({ thumbnail_storage_path: storagePath })
+            .eq("ad_id", c.ad_id);
+          return "cached";
+        }
+        return "failed";
+      })
+    );
+
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        if (r.value === "cached") cached++;
+        else failed++;
+      } else {
+        failed++;
+      }
+    }
+
+    if (i > 0 && i % 30 === 0) {
+      console.log(`Caching progress: ${cached} cached, ${failed} failed, ${i}/${items.length}`);
+    }
+  }
+
+  console.log(`Caching done: ${cached} cached, ${failed} failed`);
+}

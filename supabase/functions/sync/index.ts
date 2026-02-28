@@ -226,7 +226,19 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
   const phase = syncLog.current_phase || 1;
   const state = syncLog.sync_state || {};
   const syncType = syncLog.sync_type || "manual";
+  const syncScope = state.sync_scope || "full";
   const dateRangeDays = syncType === "initial" ? 90 : (account.date_range_days || 14);
+
+  // Determine which phases to run based on sync_scope
+  const scopePhases: Record<string, number[]> = {
+    full: [1, 2, 3, 4, 5],
+    metadata: [1, 5],
+    insights: [2, 3, 5],
+    daily: [4, 5],
+    lite: [1, 2, 3, 5],
+  };
+  const allowedPhases = scopePhases[syncScope] || scopePhases.full;
+
 
   // Adaptive settings for large accounts (>3k creatives) — gentler on Meta API
   const isLargeAccount = (account.creative_count || 0) > 3000;
@@ -276,6 +288,20 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       await promoteNextQueued(supabase);
     }
   };
+
+  // Check sync_scope — skip phases not in scope
+  if (!allowedPhases.includes(phase)) {
+    const nextAllowed = allowedPhases.find((p: number) => p > phase);
+    if (nextAllowed) {
+      console.log(`Scope "${syncScope}": skipping phase ${phase}, jumping to phase ${nextAllowed}`);
+      await saveState(nextAllowed, {});
+      return;
+    } else {
+      const finalStatus = (JSON.parse(syncLog.api_errors || "[]")).length > 0 ? "completed_with_errors" : "completed";
+      await saveState(5, {}, finalStatus);
+      return;
+    }
+  }
 
   try {
     // ═══════════════════════════════════════════════════════════════════
@@ -1189,7 +1215,13 @@ serve(async (req) => {
     // ─── POST /sync ────────────────────────────────────────────────────
     if (req.method === "POST" && !path) {
       const body = await req.json();
-      const { account_id, sync_type = "manual" } = body;
+      const { account_id, sync_type = "manual", sync_scope = "full" } = body;
+      // sync_scope controls which phases run:
+      //   "full"     = phases 1-5 (default)
+      //   "metadata" = phase 1 only (ads metadata)
+      //   "insights" = phases 2-3 (aggregated insights + cleanup)
+      //   "daily"    = phase 4 only (daily breakdowns)
+      //   "lite"     = phases 1-3 (skip daily breakdowns)
 
       // Check if requested accounts are already running/queued (allow queuing new ones)
       const { data: activeSyncs } = await supabase.from("sync_logs").select("id, account_id, status").in("status", ["running", "queued"]);
@@ -1233,7 +1265,7 @@ serve(async (req) => {
           account_id: account.id, sync_type,
           status: "queued",
           current_phase: 1,
-          sync_state: { last_activity: new Date().toISOString() },
+          sync_state: { last_activity: new Date().toISOString(), sync_scope },
           date_range_start: startDate.toISOString().split("T")[0],
           date_range_end: endDate.toISOString().split("T")[0],
         }).select().single();
