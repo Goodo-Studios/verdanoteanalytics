@@ -3,7 +3,7 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { AIChatWidget } from "@/components/AIChatWidget";
 import { NotificationCenter } from "@/components/NotificationCenter";
 import { OnboardingWizard } from "@/components/OnboardingWizard";
-import { GlobalSearch, GlobalSearchTrigger } from "@/components/GlobalSearch";
+import { CommandBar, CommandBarTrigger } from "@/components/CommandBar";
 import { useFirstLogin } from "@/hooks/useFirstLogin";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
@@ -55,7 +55,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* Spacer for desktop */}
           <div className="hidden md:block" />
           <div className="flex items-center gap-2">
-            <GlobalSearchTrigger />
+            <CommandBarTrigger />
             <NotificationCenter />
           </div>
         </div>
@@ -64,7 +64,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         </div>
       </main>
       <AIChatWidget />
-      <GlobalSearch />
+      <CommandBar />
 
       {/* Onboarding wizard */}
       <OnboardingWizard open={showOnboarding} onClose={closeTour} />
