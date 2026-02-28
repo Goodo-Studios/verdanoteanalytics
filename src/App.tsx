@@ -34,6 +34,9 @@ import CalendarPage from "./pages/CalendarPage";
 import CompetitorsPage from "./pages/CompetitorsPage";
 import BriefsPage from "./pages/BriefsPage";
 import PublicBriefPage from "./pages/PublicBriefPage";
+import MoodboardsPage from "./pages/MoodboardsPage";
+import MoodboardDetailPage from "./pages/MoodboardDetailPage";
+import PublicMoodboardPage from "./pages/PublicMoodboardPage";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
@@ -76,6 +79,8 @@ function ProtectedRoutes() {
         <Route path="/briefs" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <BriefsPage />} />
         <Route path="/calendar" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <CalendarPage />} />
         <Route path="/competitors" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <CompetitorsPage />} />
+        <Route path="/moodboards" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <MoodboardsPage />} />
+        <Route path="/moodboards/:id" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <MoodboardDetailPage />} />
         <Route path="/ai-chat" element={<AIChatPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
@@ -99,6 +104,7 @@ const App = () => {
                 <Route path="/update-password" element={<UpdatePasswordPage />} />
                 <Route path="/public/reports/:id" element={<PublicReportPage />} />
                 <Route path="/briefs/share/:token" element={<PublicBriefPage />} />
+                <Route path="/moodboards/share/:token" element={<PublicMoodboardPage />} />
                 <Route path="/portfolio/:slug" element={<PortfolioPage />} />
                 <Route path="/*" element={<ProtectedRoutes />} />
               </Routes>

@@ -759,6 +759,86 @@ export type Database = {
         }
         Relationships: []
       }
+      moodboard_items: {
+        Row: {
+          ad_id: string | null
+          caption: string | null
+          competitor_ad_id: string | null
+          created_at: string | null
+          id: string
+          moodboard_id: string
+          position: number | null
+          thumbnail_url: string | null
+          type: string
+          url: string | null
+        }
+        Insert: {
+          ad_id?: string | null
+          caption?: string | null
+          competitor_ad_id?: string | null
+          created_at?: string | null
+          id?: string
+          moodboard_id: string
+          position?: number | null
+          thumbnail_url?: string | null
+          type: string
+          url?: string | null
+        }
+        Update: {
+          ad_id?: string | null
+          caption?: string | null
+          competitor_ad_id?: string | null
+          created_at?: string | null
+          id?: string
+          moodboard_id?: string
+          position?: number | null
+          thumbnail_url?: string | null
+          type?: string
+          url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "moodboard_items_moodboard_id_fkey"
+            columns: ["moodboard_id"]
+            isOneToOne: false
+            referencedRelation: "moodboards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      moodboards: {
+        Row: {
+          account_id: string | null
+          created_at: string | null
+          created_by: string
+          description: string | null
+          id: string
+          is_shared: boolean | null
+          name: string
+          share_token: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          created_at?: string | null
+          created_by: string
+          description?: string | null
+          id?: string
+          is_shared?: boolean | null
+          name: string
+          share_token?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          created_at?: string | null
+          created_by?: string
+          description?: string | null
+          id?: string
+          is_shared?: boolean | null
+          name?: string
+          share_token?: string | null
+        }
+        Relationships: []
+      }
       name_mappings: {
         Row: {
           account_id: string
