@@ -11,7 +11,7 @@ import { ConceptsGrid } from "@/components/creatives/ConceptsGrid";
 import { CreativesFilters } from "@/components/creatives/CreativesFilters";
 import { CreativesPagination } from "@/components/creatives/CreativesPagination";
 import { AdvancedFiltersPanel, applyAdvancedFilters, countActiveConditions } from "@/components/creatives/AdvancedFiltersPanel";
-import { SegmentsDropdown } from "@/components/creatives/SegmentsDropdown";
+
 import { BulkActionBar } from "@/components/creatives/BulkActionBar";
 import { BulkTagModal } from "@/components/creatives/BulkTagModal";
 import { AddToReportModal } from "@/components/creatives/AddToReportModal";
@@ -466,7 +466,7 @@ const CreativesPage = () => {
             </span>
           )}
         </Button>
-        <SegmentsDropdown onApply={(conditions) => setAdvancedConditions(conditions)} />
+        
       </div>
 
       <CreativesFilters

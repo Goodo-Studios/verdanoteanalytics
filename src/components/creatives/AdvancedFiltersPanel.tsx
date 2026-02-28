@@ -9,7 +9,7 @@ import {
 import { X, Plus, Trash2 } from "lucide-react";
 import { TYPE_OPTIONS, HOOK_OPTIONS } from "@/lib/tagOptions";
 import type { Grade } from "@/lib/creativeGrading";
-import { SaveAsSegmentButton } from "@/components/creatives/SaveAsSegmentButton";
+
 
 /* ── types ─────────────────────────────────────────── */
 
@@ -139,7 +139,7 @@ export function AdvancedFiltersPanel({ open, onClose, conditions, onChange, acco
         <Button size="sm" variant="outline" onClick={addCondition} className="w-full gap-1.5 font-body text-[12px]">
           <Plus className="h-3.5 w-3.5" />Add condition
         </Button>
-        <SaveAsSegmentButton conditions={conditions} accountId={accountId} />
+        
       </div>
     </div>
   );
