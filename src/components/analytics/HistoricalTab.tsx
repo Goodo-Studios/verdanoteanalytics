@@ -11,6 +11,7 @@ import type { DailyTrendPoint } from "@/hooks/useDailyTrends";
 interface Props {
   trendData: DailyTrendPoint[] | undefined;
   creatives: any[];
+  roasThreshold: number;
   onCreativeClick?: (c: any) => void;
 }
 
@@ -104,7 +105,7 @@ const COMPARISON_METRICS = [
 
 type ViewMode = "period" | "yoy" | "rolling";
 
-export function HistoricalTab({ trendData, creatives, onCreativeClick }: Props) {
+export function HistoricalTab({ trendData, creatives, roasThreshold, onCreativeClick }: Props) {
   const [view, setView] = useState<ViewMode>("period");
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
 
@@ -173,7 +174,7 @@ export function HistoricalTab({ trendData, creatives, onCreativeClick }: Props) 
         const cd = c.created_at?.slice(0, 10);
         return cd && cd >= start && cd <= end;
       });
-      const winners = monthCreatives.filter((c) => (c.roas || 0) >= 2);
+      const winners = monthCreatives.filter((c) => (c.roas || 0) >= roasThreshold);
       const winRate = monthCreatives.length > 0 ? (winners.length / monthCreatives.length) * 100 : 0;
       months.push({ label: format(m, "MMM yyyy"), start, end, roas, spend, winRate, creativeCount: monthCreatives.length });
     }
