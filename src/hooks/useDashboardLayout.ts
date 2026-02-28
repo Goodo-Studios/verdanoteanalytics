@@ -25,6 +25,7 @@ export const SECTION_REGISTRY: Omit<DashboardSection, "visible" | "size">[] = [
   { id: "trendChart", label: "Trend Chart", description: "Daily metric trends over time" },
   { id: "recentTests", label: "Recent Tests", description: "Running & completed split tests" },
   { id: "tagPerformance", label: "Tag Performance", description: "Performance summary by creative tag" },
+  { id: "recentChanges", label: "Recent Changes", description: "Latest performance changelog entries" },
   { id: "quickActions", label: "Quick Actions", description: "New Report, Trigger Sync, Generate Brief" },
 ];
 

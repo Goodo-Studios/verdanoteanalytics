@@ -20,6 +20,7 @@ import { RecentTestsSection } from "@/components/overview/RecentTestsSection";
 import { TagPerformanceSection } from "@/components/overview/TagPerformanceSection";
 import { QuickActionsSection } from "@/components/overview/QuickActionsSection";
 import { RecommendedActionsSection } from "@/components/overview/RecommendedActionsSection";
+import { RecentChangesSection } from "@/components/overview/RecentChangesSection";
 import { computeFatigueMap } from "@/lib/fatigueScore";
 import { useNavigate } from "react-router-dom";
 import {
@@ -187,6 +188,8 @@ const OverviewPage = () => {
         return <RecentTestsSection accountId={isSingleAccount ? selectedAccountId : undefined} />;
       case "tagPerformance":
         return !isLoading ? <TagPerformanceSection creatives={creatives} /> : null;
+      case "recentChanges":
+        return <RecentChangesSection />;
       case "quickActions":
         return <QuickActionsSection accountId={isSingleAccount ? selectedAccountId : undefined} />;
       default:

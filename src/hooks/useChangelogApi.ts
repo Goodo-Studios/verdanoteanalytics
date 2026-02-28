@@ -7,16 +7,13 @@ export interface ChangelogEntry {
   id: string;
   account_id: string;
   ad_id: string | null;
-  change_type: string;
-  severity: string;
-  title: string;
-  description: string | null;
-  metric_name: string | null;
+  event_type: string;
+  description: string;
   old_value: number | null;
   new_value: number | null;
-  pct_change: number | null;
-  created_at: string;
+  metadata: Record<string, any>;
   created_by: string | null;
+  created_at: string;
 }
 
 export function useChangelog(accountId?: string, adId?: string) {
@@ -32,7 +29,7 @@ export function useChangelog(accountId?: string, adId?: string) {
       if (adId) query = query.eq("ad_id", adId);
       const { data, error } = await query;
       if (error) throw error;
-      return (data || []) as ChangelogEntry[];
+      return (data || []) as unknown as ChangelogEntry[];
     },
     staleTime: 60_000,
   });
@@ -45,18 +42,16 @@ export function useAddChangelogEntry() {
     mutationFn: async (entry: {
       account_id: string;
       ad_id?: string | null;
-      title: string;
-      description?: string;
-      change_type?: string;
-      severity?: string;
+      event_type: string;
+      description: string;
+      metadata?: Record<string, any>;
     }) => {
       const { error } = await supabase.from("performance_changelog").insert({
         account_id: entry.account_id,
         ad_id: entry.ad_id || null,
-        change_type: entry.change_type || "manual",
-        severity: entry.severity || "info",
-        title: entry.title,
-        description: entry.description || null,
+        event_type: entry.event_type,
+        description: entry.description,
+        metadata: entry.metadata || {},
         created_by: user?.id || null,
       });
       if (error) throw error;

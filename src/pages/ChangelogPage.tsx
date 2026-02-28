@@ -15,26 +15,20 @@ import {
 } from "@/components/ui/dialog";
 import {
   GitCommitHorizontal, Plus, Loader2, TrendingUp, TrendingDown,
-  AlertTriangle, Info, Trash2, Filter, Clock,
+  AlertTriangle, Info, Trash2, Filter, Clock, Zap, PauseCircle, TestTube, MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format, formatDistanceToNow, isToday, isYesterday, isThisWeek, parseISO } from "date-fns";
 
-const SEVERITY_CONFIG: Record<string, { icon: typeof Info; color: string; dotColor: string; label: string }> = {
-  positive: { icon: TrendingUp, color: "text-verdant", dotColor: "bg-verdant", label: "Positive" },
-  negative: { icon: TrendingDown, color: "text-destructive", dotColor: "bg-destructive", label: "Negative" },
-  critical: { icon: AlertTriangle, color: "text-destructive", dotColor: "bg-destructive", label: "Critical" },
-  info: { icon: Info, color: "text-muted-foreground", dotColor: "bg-muted-foreground", label: "Info" },
-};
-
-const TYPE_LABELS: Record<string, string> = {
-  roas_spike: "ROAS Spike",
-  roas_drop: "ROAS Drop",
-  spend_surge: "Spend Surge",
-  spend_cut: "Spend Cut",
-  status_change: "Status Change",
-  fatigue_alert: "Fatigue Alert",
-  manual: "Manual Note",
+const EVENT_CONFIG: Record<string, { icon: typeof Info; color: string; dotColor: string; label: string }> = {
+  roas_change: { icon: TrendingUp, color: "text-verdant", dotColor: "bg-verdant", label: "ROAS Change" },
+  spend_change: { icon: TrendingDown, color: "text-amber-600", dotColor: "bg-amber-500", label: "Spend Change" },
+  status_change: { icon: AlertTriangle, color: "text-destructive", dotColor: "bg-destructive", label: "Status Change" },
+  new_creative: { icon: Zap, color: "text-primary", dotColor: "bg-primary", label: "New Creative" },
+  creative_paused: { icon: PauseCircle, color: "text-muted-foreground", dotColor: "bg-muted-foreground", label: "Creative Paused" },
+  threshold_crossed: { icon: TrendingUp, color: "text-verdant", dotColor: "bg-verdant", label: "Threshold Crossed" },
+  test_result: { icon: TestTube, color: "text-primary", dotColor: "bg-primary", label: "Test Result" },
+  note_added: { icon: MessageSquare, color: "text-muted-foreground", dotColor: "bg-muted-foreground", label: "Note" },
 };
 
 function groupByDate(entries: ChangelogEntry[]): { label: string; entries: ChangelogEntry[] }[] {
@@ -58,17 +52,15 @@ export default function ChangelogPage() {
   const canAdd = isBuilder || isEmployee;
 
   const [typeFilter, setTypeFilter] = useState("all");
-  const [severityFilter, setSeverityFilter] = useState("all");
   const [showAddModal, setShowAddModal] = useState(false);
 
   const { data: entries = [], isLoading } = useChangelog(selectedAccountId || undefined);
 
   const filtered = useMemo(() => {
     let result = entries;
-    if (typeFilter !== "all") result = result.filter(e => e.change_type === typeFilter);
-    if (severityFilter !== "all") result = result.filter(e => e.severity === severityFilter);
+    if (typeFilter !== "all") result = result.filter(e => e.event_type === typeFilter);
     return result;
-  }, [entries, typeFilter, severityFilter]);
+  }, [entries, typeFilter]);
 
   const grouped = useMemo(() => groupByDate(filtered), [filtered]);
 
@@ -97,26 +89,14 @@ export default function ChangelogPage() {
         <div className="flex items-center gap-2">
           <Filter className="h-4 w-4 text-muted-foreground" />
           <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-[150px] h-8 font-body text-[12px]">
+            <SelectTrigger className="w-[170px] h-8 font-body text-[12px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Types</SelectItem>
-              {Object.entries(TYPE_LABELS).map(([k, v]) => (
-                <SelectItem key={k} value={k}>{v}</SelectItem>
+              {Object.entries(EVENT_CONFIG).map(([k, v]) => (
+                <SelectItem key={k} value={k}>{v.label}</SelectItem>
               ))}
-            </SelectContent>
-          </Select>
-          <Select value={severityFilter} onValueChange={setSeverityFilter}>
-            <SelectTrigger className="w-[130px] h-8 font-body text-[12px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Severity</SelectItem>
-              <SelectItem value="positive">Positive</SelectItem>
-              <SelectItem value="negative">Negative</SelectItem>
-              <SelectItem value="critical">Critical</SelectItem>
-              <SelectItem value="info">Info</SelectItem>
             </SelectContent>
           </Select>
           <span className="font-body text-[12px] text-muted-foreground ml-auto">
@@ -171,7 +151,7 @@ export default function ChangelogPage() {
 
 function ChangelogRow({ entry, canDelete, accounts }: { entry: ChangelogEntry; canDelete: boolean; accounts: any[] }) {
   const deleteEntry = useDeleteChangelogEntry();
-  const config = SEVERITY_CONFIG[entry.severity] || SEVERITY_CONFIG.info;
+  const config = EVENT_CONFIG[entry.event_type] || { icon: Info, color: "text-muted-foreground", dotColor: "bg-muted-foreground", label: entry.event_type };
   const Icon = config.icon;
   const acctName = accounts.find((a: any) => a.id === entry.account_id)?.name || entry.account_id;
 
@@ -184,9 +164,9 @@ function ChangelogRow({ entry, canDelete, accounts }: { entry: ChangelogEntry; c
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2 flex-wrap">
             <Icon className={cn("h-4 w-4 flex-shrink-0", config.color)} />
-            <span className="font-body text-[14px] font-semibold text-charcoal">{entry.title}</span>
+            <span className="font-body text-[14px] font-semibold text-charcoal">{entry.description}</span>
             <Badge variant="outline" className="font-label text-[9px] uppercase tracking-wider h-5">
-              {TYPE_LABELS[entry.change_type] || entry.change_type}
+              {config.label}
             </Badge>
             {entry.created_by === null && (
               <Badge variant="secondary" className="font-label text-[9px] uppercase tracking-wider h-5">Auto</Badge>
@@ -209,18 +189,8 @@ function ChangelogRow({ entry, canDelete, accounts }: { entry: ChangelogEntry; c
           </div>
         </div>
 
-        {entry.description && (
-          <p className="font-body text-[13px] text-slate leading-relaxed">{entry.description}</p>
-        )}
-
         <div className="flex items-center gap-3 text-[11px] font-body text-muted-foreground">
           <span>{acctName}</span>
-          {entry.metric_name && (
-            <>
-              <span>·</span>
-              <span>{entry.metric_name}</span>
-            </>
-          )}
           {entry.old_value != null && entry.new_value != null && (
             <>
               <span>·</span>
@@ -228,11 +198,6 @@ function ChangelogRow({ entry, canDelete, accounts }: { entry: ChangelogEntry; c
                 {entry.old_value.toFixed(2)} → {entry.new_value.toFixed(2)}
               </span>
             </>
-          )}
-          {entry.pct_change != null && (
-            <span className={cn("font-data font-medium tabular-nums", entry.pct_change >= 0 ? "text-verdant" : "text-destructive")}>
-              {entry.pct_change >= 0 ? "+" : ""}{entry.pct_change.toFixed(1)}%
-            </span>
           )}
         </div>
       </div>
@@ -247,19 +212,16 @@ function AddEntryModal({ open, onClose, accountId, accounts }: {
   accounts: any[];
 }) {
   const addEntry = useAddChangelogEntry();
-  const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [severity, setSeverity] = useState("info");
+  const [eventType, setEventType] = useState("note_added");
   const [acctId, setAcctId] = useState(accountId && accountId !== "all" ? accountId : accounts[0]?.id || "");
 
   const handleSubmit = async () => {
-    if (!title.trim() || !acctId) return;
+    if (!description.trim() || !acctId) return;
     await addEntry.mutateAsync({
       account_id: acctId,
-      title: title.trim(),
-      description: description.trim() || undefined,
-      change_type: "manual",
-      severity,
+      event_type: eventType,
+      description: description.trim(),
     });
     onClose();
   };
@@ -268,7 +230,7 @@ function AddEntryModal({ open, onClose, accountId, accounts }: {
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-md bg-white rounded-[8px] shadow-modal">
         <DialogHeader>
-          <DialogTitle className="font-heading text-[18px] text-forest">Add Changelog Entry</DialogTitle>
+          <DialogTitle className="font-heading text-[18px] text-forest">Log Changelog Entry</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div>
@@ -285,41 +247,33 @@ function AddEntryModal({ open, onClose, accountId, accounts }: {
             </Select>
           </div>
           <div>
-            <label className="font-label text-[11px] uppercase tracking-wider text-sage block mb-1">Title</label>
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Paused underperforming UGC batch"
-              className="font-body text-[13px]"
-            />
-          </div>
-          <div>
-            <label className="font-label text-[11px] uppercase tracking-wider text-sage block mb-1">Description (optional)</label>
-            <Textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Additional context about this change..."
-              rows={3}
-              className="font-body text-[13px] resize-y"
-            />
-          </div>
-          <div>
-            <label className="font-label text-[11px] uppercase tracking-wider text-sage block mb-1">Severity</label>
-            <Select value={severity} onValueChange={setSeverity}>
+            <label className="font-label text-[11px] uppercase tracking-wider text-sage block mb-1">Event Type</label>
+            <Select value={eventType} onValueChange={setEventType}>
               <SelectTrigger className="h-9 font-body text-[13px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="info">ℹ️ Info</SelectItem>
-                <SelectItem value="positive">✅ Positive</SelectItem>
-                <SelectItem value="negative">⚠️ Negative</SelectItem>
-                <SelectItem value="critical">🔴 Critical</SelectItem>
+                <SelectItem value="note_added">📝 Note Added</SelectItem>
+                <SelectItem value="status_change">⚡ Status Change</SelectItem>
+                <SelectItem value="roas_change">📈 ROAS Change</SelectItem>
+                <SelectItem value="spend_change">💰 Spend Change</SelectItem>
+                <SelectItem value="test_result">🧪 Test Result</SelectItem>
               </SelectContent>
             </Select>
           </div>
-          <Button onClick={handleSubmit} disabled={!title.trim() || addEntry.isPending} className="w-full">
+          <div>
+            <label className="font-label text-[11px] uppercase tracking-wider text-sage block mb-1">Description</label>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="What happened and why..."
+              rows={3}
+              className="font-body text-[13px] resize-y"
+            />
+          </div>
+          <Button onClick={handleSubmit} disabled={!description.trim() || addEntry.isPending} className="w-full">
             {addEntry.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-            Add Entry
+            Log Entry
           </Button>
         </div>
       </DialogContent>
