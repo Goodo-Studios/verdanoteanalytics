@@ -7,6 +7,7 @@ import {
   Terminal, ChevronRight, Hash,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -604,16 +605,23 @@ function FooterHint({ keys, label }: { keys: string[]; label: string }) {
 /** Trigger button for header */
 export function CommandBarTrigger() {
   return (
-    <button
-      onClick={() => {
-        document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
-      }}
-      className="flex items-center gap-2 h-8 px-3 rounded-lg border border-border-light bg-card hover:bg-accent/40 transition-colors text-muted-foreground"
-    >
-      <Search className="h-3.5 w-3.5" />
-      <span className="hidden sm:inline font-body text-[12px]">Search…</span>
-      <kbd className="hidden sm:inline-flex items-center gap-0.5 px-1 py-0.5 rounded border border-border-light bg-muted text-[9px] font-data">⌘K</kbd>
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={() => {
+            document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+          }}
+          className="flex items-center gap-2 h-8 px-3 rounded-lg border border-border-light bg-card hover:bg-accent/40 transition-colors text-muted-foreground"
+        >
+          <Search className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline font-body text-[12px]">Search…</span>
+          <kbd className="hidden sm:inline-flex items-center gap-0.5 px-1 py-0.5 rounded border border-border-light bg-muted text-[9px] font-data">⌘K</kbd>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        Command Bar <kbd className="ml-1 text-[10px] font-mono bg-muted px-1 rounded">⌘K</kbd>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

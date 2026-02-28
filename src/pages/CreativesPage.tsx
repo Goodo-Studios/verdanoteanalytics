@@ -393,13 +393,15 @@ const CreativesPage = () => {
       )}
 
       <div className="flex items-center gap-2 mb-3">
-        <div className="relative max-w-sm flex-1">
+        <div className="relative max-w-sm flex-1 group">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input placeholder="Search by ad name, code, or campaign…" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} className="h-8 font-body text-[13px] pl-8 pr-8 placeholder:text-sage" />
-          {searchInput && (
+          <Input id="creatives-search" placeholder="Search by ad name, code, or campaign…" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} className="h-8 font-body text-[13px] pl-8 pr-14 placeholder:text-sage" />
+          {searchInput ? (
             <button onClick={() => setSearchInput("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
               <X className="h-3.5 w-3.5" />
             </button>
+          ) : (
+            <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 hidden sm:inline-flex items-center px-1.5 py-0.5 rounded border border-border-light bg-muted text-[10px] font-mono text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">/</kbd>
           )}
         </div>
         <Button
