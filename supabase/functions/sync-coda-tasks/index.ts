@@ -60,17 +60,8 @@ Deno.serve(async (req) => {
       const record = {
         coda_row_id: codaRowId,
         account_name: vals["Connected Project"] || null,
-        account_id: vals["Account ID"] || null,
         task_name: vals["Task"] || null,
         brief: vals["Brief"] || null,
-        creative_id: vals["Creative ID"] || null,
-        creative_name: vals["Creative Name"] || null,
-        ad_type: vals["Ad Type"] || null,
-        roas: vals["ROAS"] || null,
-        spend: vals["Spend"] || null,
-        status: vals["Status"] || "pending",
-        created_by: null, // Coda stores user_id as string, skip FK
-        coda_created_at: vals["Created At"] || null,
         synced_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
