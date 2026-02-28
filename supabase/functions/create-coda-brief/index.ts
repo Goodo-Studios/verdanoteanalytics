@@ -69,7 +69,7 @@ Deno.serve(async (req) => {
           rows: [
             {
               cells: [
-                { column: "Account", value: account_name },
+                { column: "Connected Project", value: account_name },
                 { column: "Account ID", value: account_id },
                 { column: "Creative ID", value: creative_id || "" },
                 { column: "Creative Name", value: creativeName },
