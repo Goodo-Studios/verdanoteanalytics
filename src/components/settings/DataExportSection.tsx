@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccounts } from "@/hooks/useAccountsApi";
 import { useAllCreatives } from "@/hooks/useAllCreatives";
-import { useSplitTests, useSplitTestVariants } from "@/hooks/useSplitTestsApi";
+
 import { useAccountContext } from "@/contexts/AccountContext";
 import { downloadCSV } from "@/lib/csv";
 import { gradeCreatives } from "@/lib/creativeGrading";
@@ -45,7 +45,7 @@ export function DataExportSection() {
         <CreativePerformanceExport accounts={accounts} selectedAccountId={selectedAccountId} />
         <TagPerformanceExport accounts={accounts} selectedAccountId={selectedAccountId} />
         <ConceptPerformanceExport accounts={accounts} selectedAccountId={selectedAccountId} />
-        <SplitTestExport accounts={accounts} selectedAccountId={selectedAccountId} />
+        
         <AccountSummaryExport accounts={accounts} />
       </div>
     </div>
@@ -401,69 +401,8 @@ function ConceptPerformanceExport({ accounts, selectedAccountId }: { accounts: a
   );
 }
 
-/* ── 4. Split Test Results ─────────────────── */
 
-function SplitTestExport({ accounts, selectedAccountId }: { accounts: any[]; selectedAccountId: string | undefined }) {
-  const [accountFilter, setAccountFilter] = useState(selectedAccountId === "all" ? "all" : selectedAccountId || "all");
-  const [loading, setLoading] = useState(false);
 
-  const acctId = accountFilter !== "all" ? accountFilter : undefined;
-  const { data: tests = [] } = useSplitTests(acctId);
-  const testIds = tests.map((t) => t.id);
-  const { data: variants = [] } = useSplitTestVariants(testIds);
-
-  const handleExport = useCallback(() => {
-    setLoading(true);
-    setTimeout(() => {
-      try {
-        const completed = tests.filter((t) => t.status === "complete");
-        const rows = completed.map((t) => {
-          const tvs = variants.filter((v) => v.test_id === t.id);
-          return [
-            t.name,
-            t.variable_tested || "",
-            t.hypothesis || "",
-            t.start_date || "",
-            t.end_date || "",
-            String(t.minimum_spend),
-            t.status,
-            t.winner_ad_id || "",
-            tvs.map((v) => `${v.label}:${v.ad_id}`).join("; "),
-            t.notes || "",
-          ];
-        });
-        downloadCSV("split-test-results-export.csv", [
-          "name", "variable_tested", "hypothesis", "start_date", "end_date",
-          "minimum_spend", "status", "winner_ad_id", "variants", "notes",
-        ], rows);
-        toast.success(`Exported ${completed.length} test results`);
-      } catch (e: any) {
-        toast.error("Export failed", { description: e.message });
-      } finally {
-        setLoading(false);
-      }
-    }, 50);
-  }, [tests, variants]);
-
-  return (
-    <ExportCard
-      icon={<FlaskConical className="h-5 w-5 text-forest" />}
-      title="Split Test Results"
-      description="All completed split tests with winner and learnings."
-    >
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="space-y-1">
-          <label className="font-label text-[10px] uppercase tracking-wider text-muted-foreground">Account</label>
-          <AccountFilter accounts={accounts} value={accountFilter} onChange={setAccountFilter} />
-        </div>
-        <Button size="sm" className="bg-verdant hover:bg-verdant/90 text-white font-body text-[12px] gap-1.5" onClick={handleExport} disabled={loading || tests.length === 0}>
-          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-          Download CSV ({tests.filter((t) => t.status === "complete").length})
-        </Button>
-      </div>
-    </ExportCard>
-  );
-}
 
 /* ── 5. Account Summary ────────────────────── */
 

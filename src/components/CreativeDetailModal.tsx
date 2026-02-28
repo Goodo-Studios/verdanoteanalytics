@@ -15,7 +15,7 @@ import { useBriefs } from "@/hooks/useBriefsApi";
 import { CreativeMetrics } from "@/components/creative-detail/CreativeMetrics";
 import { CreativeTagEditor } from "@/components/creative-detail/CreativeTagEditor";
 import { CreativeIterationAnalysis } from "@/components/creative-detail/CreativeIterationAnalysis";
-import { CreativeNotes } from "@/components/creative-detail/CreativeNotes";
+
 import { TrendSection } from "@/components/creative-detail/TrendSection";
 import { PredictionSection } from "@/components/creative-detail/PredictionSection";
 import { CreativeChangelog } from "@/components/creative-detail/CreativeChangelog";
@@ -412,9 +412,8 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
               </div>
             )}
 
-            <Separator />
-            <CreativeNotes creative={creative} />
-            <Separator />
+
+
             <CreativeChangelog adId={creative.ad_id} accountId={creative.account_id} />
             <Separator />
             <CreativeTagEditor creative={creative} />
