@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { GoalsBar } from "@/components/GoalsBar";
@@ -18,6 +19,8 @@ import { TrendChartSection } from "@/components/overview/TrendChartSection";
 import { RecentTestsSection } from "@/components/overview/RecentTestsSection";
 import { TagPerformanceSection } from "@/components/overview/TagPerformanceSection";
 import { QuickActionsSection } from "@/components/overview/QuickActionsSection";
+import { RecommendedActionsSection } from "@/components/overview/RecommendedActionsSection";
+import { computeFatigueMap } from "@/lib/fatigueScore";
 import { useNavigate } from "react-router-dom";
 import {
   TrendingUp, Eye, XCircle, ArrowRight, RefreshCw,
@@ -80,6 +83,11 @@ const OverviewPage = () => {
   const { data: wowTrends } = useWoWTrends(isSingleAccount ? selectedAccountId : undefined);
   const { data: mtdSpend = 0 } = useMtdSpend(isSingleAccount ? selectedAccountId : undefined);
 
+  const fatigueMap = useMemo(
+    () => (!isLoading && creatives.length > 0 ? computeFatigueMap(creatives, wowTrends) : undefined),
+    [creatives, wowTrends, isLoading]
+  );
+
   const subtitle = [
     dateFrom && dateTo ? `${dateFrom} → ${dateTo}` : "All time",
     lastSyncedAgo ? `Synced ${lastSyncedAgo}` : null,
@@ -120,12 +128,13 @@ const OverviewPage = () => {
           </div>
         ) : null;
       case "killscale":
-        return !isLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <ActionCard icon={<TrendingUp className="h-5 w-5 text-verdant" />} count={scale.length} countColor="text-verdant" label="SCALE CANDIDATES" subtitle={`ROAS ≥ ${killScaleConfig.scaleAt} · Increase spend`} bgTint="bg-sage-light/30" onClick={() => navigate("/analytics?tab=scale")} />
-            <ActionCard icon={<Eye className="h-5 w-5 text-gold" />} count={watch.length} countColor="text-gold" label="WATCH" subtitle="Between thresholds · Monitor closely" bgTint="bg-gold-light/30" onClick={() => navigate("/analytics?tab=winrate")} />
-            <ActionCard icon={<XCircle className="h-5 w-5 text-destructive" />} count={kill.length} countColor="text-destructive" label="KILL CANDIDATES" subtitle={`ROAS < ${killScaleConfig.killAt} · Turn off`} bgTint="bg-destructive/5" onClick={() => navigate("/analytics?tab=kill")} />
-          </div>
+        return !isLoading && canEdit ? (
+          <RecommendedActionsSection
+            creatives={creatives}
+            wowTrends={wowTrends}
+            fatigueMap={fatigueMap}
+            killThreshold={killScaleConfig.killAt}
+          />
         ) : null;
       case "activity":
         return !isLoading ? (

@@ -14,6 +14,7 @@ import { CreativeTagEditor } from "@/components/creative-detail/CreativeTagEdito
 import { CreativeIterationAnalysis } from "@/components/creative-detail/CreativeIterationAnalysis";
 import { CreativeNotes } from "@/components/creative-detail/CreativeNotes";
 import { TrendSection } from "@/components/creative-detail/TrendSection";
+import { PredictionSection } from "@/components/creative-detail/PredictionSection";
 import { GradeBadge } from "@/components/creatives/GradeBadge";
 import { ScoreCircle } from "@/components/creatives/ScoreCircle";
 import type { WoWTrend } from "@/hooks/useWoWTrends";
@@ -200,6 +201,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
   const creatorId = creative?.creator_id;
   const { data: creator } = useCreator(creatorId || undefined);
   const { isBuilder, isEmployee, user } = useAuth();
+  const canEdit = isBuilder || isEmployee;
   const navigate = useNavigate();
   const createBrief = useCreateBrief();
   if (!creative) return null;
@@ -316,6 +318,16 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
               </ul>
             )}
           </div>
+        )}
+
+        {/* Performance Prediction (builder/employee only) */}
+        {canEdit && creative.spend > 0 && (
+          <PredictionSection
+            creative={creative}
+            wowTrend={wowTrends?.get(creative.ad_id)}
+            fatigue={fatigue}
+            killThreshold={1.0}
+          />
         )}
 
         {/* Context */}
