@@ -21,7 +21,7 @@ interface CreativesCardGridProps {
   wowTrends?: Map<string, WoWTrend>;
   gradeMap?: Map<string, GradeInfo>;
   fatigueMap?: Map<string, FatigueResult>;
-  anomalySet?: Set<string>;
+  
   hoveredCards?: Map<string, CardPresenceUser[]>;
   onCardHover?: (adId: string | null) => void;
 }
@@ -55,7 +55,7 @@ function roasColor(roas: number | null | undefined): string {
   return "text-charcoal";
 }
 
-export function CreativesCardGrid({ creatives, onSelect, compareMode = false, compareIds = new Set(), wowTrends, gradeMap, fatigueMap, anomalySet, hoveredCards, onCardHover }: CreativesCardGridProps) {
+export function CreativesCardGrid({ creatives, onSelect, compareMode = false, compareIds = new Set(), wowTrends, gradeMap, fatigueMap, hoveredCards, onCardHover }: CreativesCardGridProps) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {creatives.map((c: any) => {
@@ -132,9 +132,7 @@ export function CreativesCardGrid({ creatives, onSelect, compareMode = false, co
             <div className="px-3 pt-2.5 pb-2">
               <div className="flex items-center justify-between mb-0.5">
                 <div className="flex items-center gap-1 flex-1 min-w-0 mr-2">
-                  {anomalySet?.has(c.ad_id) && (
-                    <ZapIcon className="h-3 w-3 text-amber-500 shrink-0" />
-                  )}
+                  <p className="font-body text-[12px] font-medium text-charcoal truncate">{c.ad_name}</p>
                   <p className="font-body text-[12px] font-medium text-charcoal truncate">{c.ad_name}</p>
                 </div>
                 <TagSourceBadge source={c.tag_source} />
