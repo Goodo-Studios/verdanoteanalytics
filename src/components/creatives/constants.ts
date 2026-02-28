@@ -5,6 +5,7 @@ export const TABLE_COLUMNS: ColumnDef[] = [
   { key: "creative", label: "Creative", defaultVisible: true, group: "Core" },
   { key: "grade", label: "Grade", defaultVisible: false, group: "Core" },
   { key: "score", label: "Score", defaultVisible: false, group: "Core" },
+  { key: "score_trend", label: "Score Trend", defaultVisible: false, group: "Core" },
   { key: "ad_status", label: "Delivery Status", defaultVisible: false, group: "Core" },
   { key: "result_type", label: "Result Type", defaultVisible: false, group: "Core" },
   // Tags
@@ -64,10 +65,11 @@ export const SORT_FIELD_MAP: Record<string, string> = {
   campaign: "campaign_name", adset: "adset_name", ad_status: "ad_status",
   grade: "_grade",
   score: "_score",
+  score_trend: "_score_trend",
 };
 
 export const HEAD_LABELS: Record<string, string> = {
-  creative: "Creative", grade: "Grade", score: "Score", ad_status: "Status", result_type: "Result Type",
+  creative: "Creative", grade: "Grade", score: "Score", score_trend: "Trend", ad_status: "Status", result_type: "Result Type",
   type: "Type", person: "Person", style: "Style", hook: "Hook",
   product: "Product", theme: "Theme", tags: "Tags",
   spend: "Spent", roas: "ROAS", cpa: "Cost/Result", cpm: "CPM",
@@ -92,7 +94,7 @@ export const MOBILE_HIDDEN_COLS = new Set([
   "impressions", "clicks", "purchases", "purchase_value", "video_views", "score",
   "video_avg_play_time", "adds_to_cart", "cost_per_atc", "grade",
   "tags", "type", "person", "style", "hook", "product", "theme",
-  "campaign", "adset", "ad_status", "result_type",
+  "campaign", "adset", "ad_status", "result_type", "score_trend",
 ]);
 
 export const fmt = (v: number | null | undefined, prefix = "", suffix = "", decimals = 2) => {

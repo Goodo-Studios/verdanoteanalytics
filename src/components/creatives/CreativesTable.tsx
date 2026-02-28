@@ -13,6 +13,7 @@ import { useCachedMedia } from "@/hooks/useCachedMedia";
 import { cn } from "@/lib/utils";
 import { RoasTrendArrow } from "./RoasTrendArrow";
 import { ScoreCircle } from "./ScoreCircle";
+import { ScoreTrendSparkline } from "./ScoreTrendSparkline";
 import type { WoWTrend } from "@/hooks/useWoWTrends";
 import type { GradeInfo } from "@/lib/creativeGrading";
 import type { CreativeScore } from "@/lib/creativeScore";
@@ -33,6 +34,7 @@ interface CreativesTableProps {
   bulkSelectedIds?: Set<string>;
   onBulkToggle?: (adId: string) => void;
   onBulkToggleAll?: () => void;
+  scoreHistoryMap?: Map<string, { score: number; recorded_at: string }[]>;
 }
 
 const TAG_SELECT_FIELDS: Record<string, "ad_type" | "person" | "style" | "hook"> = {
@@ -64,7 +66,7 @@ function CreativeCell({ c }: { c: any }) {
   );
 }
 
-function renderCell(c: any, key: string, wowTrends?: Map<string, WoWTrend>, gradeMap?: Map<string, GradeInfo>, scoreMap?: Map<string, CreativeScore>) {
+function renderCell(c: any, key: string, wowTrends?: Map<string, WoWTrend>, gradeMap?: Map<string, GradeInfo>, scoreMap?: Map<string, CreativeScore>, scoreHistoryMap?: Map<string, { score: number; recorded_at: string }[]>) {
   const mobileHide = MOBILE_HIDDEN_COLS.has(key) ? "hidden sm:table-cell" : "";
   // Special cells
   if (key === "creative") return <TableCell key={key}><CreativeCell c={c} /></TableCell>;
@@ -75,6 +77,10 @@ function renderCell(c: any, key: string, wowTrends?: Map<string, WoWTrend>, grad
   if (key === "score") {
     const s = scoreMap?.get(c.ad_id);
     return <TableCell key={key} className={`text-center ${mobileHide}`}>{s ? <ScoreCircle score={s.score} tier={s.tier} /> : <span className="text-muted-foreground text-xs">—</span>}</TableCell>;
+  }
+  if (key === "score_trend") {
+    const points = scoreHistoryMap?.get(c.ad_id);
+    return <TableCell key={key} className={`text-center ${mobileHide}`}><ScoreTrendSparkline points={points} /></TableCell>;
   }
   if (key === "tags") return <TableCell key={key} className={mobileHide}><TagSourceBadge source={c.tag_source} /></TableCell>;
   if (key in TAG_SELECT_FIELDS) {
@@ -106,7 +112,7 @@ function renderCell(c: any, key: string, wowTrends?: Map<string, WoWTrend>, grad
 export function CreativesTable({
   creatives, visibleCols, columnOrder, sort, onSort, onReorder, onSelect,
   compareMode = false, compareIds = new Set(), wowTrends, gradeMap, scoreMap,
-  bulkSelectedIds, onBulkToggle, onBulkToggleAll,
+  bulkSelectedIds, onBulkToggle, onBulkToggleAll, scoreHistoryMap,
 }: CreativesTableProps) {
   const bulkMode = !!bulkSelectedIds && !!onBulkToggle;
   const allSelected = bulkMode && creatives.length > 0 && creatives.every((c: any) => bulkSelectedIds!.has(c.ad_id));
@@ -202,7 +208,7 @@ export function CreativesTable({
                     />
                   </TableCell>
                 )}
-                {columnOrder.filter(k => visibleCols.has(k)).map(key => renderCell(c, key, wowTrends, gradeMap, scoreMap))}
+                {columnOrder.filter(k => visibleCols.has(k)).map(key => renderCell(c, key, wowTrends, gradeMap, scoreMap, scoreHistoryMap))}
               </TableRow>
             );
           })}

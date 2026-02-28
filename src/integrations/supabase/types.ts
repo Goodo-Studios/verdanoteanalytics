@@ -1594,6 +1594,48 @@ export type Database = {
         }
         Relationships: []
       }
+      score_history: {
+        Row: {
+          account_id: string
+          ad_id: string
+          ctr_component: number | null
+          fatigue_component: number | null
+          hook_rate_component: number | null
+          id: string
+          momentum_component: number | null
+          recorded_at: string | null
+          roas_component: number | null
+          score: number
+          spend_efficiency_component: number | null
+        }
+        Insert: {
+          account_id: string
+          ad_id: string
+          ctr_component?: number | null
+          fatigue_component?: number | null
+          hook_rate_component?: number | null
+          id?: string
+          momentum_component?: number | null
+          recorded_at?: string | null
+          roas_component?: number | null
+          score: number
+          spend_efficiency_component?: number | null
+        }
+        Update: {
+          account_id?: string
+          ad_id?: string
+          ctr_component?: number | null
+          fatigue_component?: number | null
+          hook_rate_component?: number | null
+          id?: string
+          momentum_component?: number | null
+          recorded_at?: string | null
+          roas_component?: number | null
+          score?: number
+          spend_efficiency_component?: number | null
+        }
+        Relationships: []
+      }
       segments: {
         Row: {
           account_id: string | null

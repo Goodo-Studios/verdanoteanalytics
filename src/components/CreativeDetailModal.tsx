@@ -27,6 +27,7 @@ import { CreativeVersions } from "@/components/creative-detail/CreativeVersions"
 import { GradeBadge } from "@/components/creatives/GradeBadge";
 import { FatigueForecastSection } from "@/components/creative-detail/FatigueForecastSection";
 import { ScoreCircle } from "@/components/creatives/ScoreCircle";
+import { ScoreHistoryChart } from "@/components/creative-detail/ScoreHistoryChart";
 import type { WoWTrend } from "@/hooks/useWoWTrends";
 import type { GradeInfo } from "@/lib/creativeGrading";
 import type { FatigueResult } from "@/lib/fatigueScore";
@@ -340,6 +341,8 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
                     <ScoreRow label="Fatigue Penalty" value={creativeScore.breakdown.fatiguePenalty} max={0} negative />
                   )}
                 </div>
+                {/* Score History Chart */}
+                <ScoreHistoryChart adId={creative.ad_id} />
               </div>
             )}
 
