@@ -16,7 +16,7 @@ import { EditableSectionWrapper } from "@/components/overview/EditableSectionWra
 import { AddSectionPanel } from "@/components/overview/AddSectionPanel";
 import { TopCreativesSection } from "@/components/overview/TopCreativesSection";
 import { TrendChartSection } from "@/components/overview/TrendChartSection";
-import { RecentTestsSection } from "@/components/overview/RecentTestsSection";
+
 import { TagPerformanceSection } from "@/components/overview/TagPerformanceSection";
 import { QuickActionsSection } from "@/components/overview/QuickActionsSection";
 import { RecommendedActionsSection } from "@/components/overview/RecommendedActionsSection";
@@ -202,7 +202,7 @@ const OverviewPage = () => {
       case "trendChart":
         return <TrendChartSection accountId={isSingleAccount ? selectedAccountId : undefined} />;
       case "recentTests":
-        return <RecentTestsSection accountId={isSingleAccount ? selectedAccountId : undefined} />;
+        return null;
       case "tagPerformance":
         return !isLoading ? <TagPerformanceSection creatives={creatives} /> : null;
       case "recentChanges":

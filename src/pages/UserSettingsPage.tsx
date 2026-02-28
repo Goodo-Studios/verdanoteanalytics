@@ -5,7 +5,7 @@ import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
 import { PageHeader } from "@/components/PageHeader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, User, Shield, Mail, Building2, Bell } from "lucide-react";
-import { EmailDigestSection } from "@/components/user-settings/EmailDigestSection";
+
 import { ProfileInfoSection } from "@/components/user-settings/ProfileInfoSection";
 import { ChangePasswordSection } from "@/components/user-settings/ChangePasswordSection";
 import { RenameAccountModal } from "@/components/settings/RenameAccountModal";
@@ -85,9 +85,8 @@ const UserSettingsPage = () => {
               onChangePassword={s.handleChangePassword}
             />
             {s.isBuilder && <AgencyHomeToggle />}
-            <div className="border-t border-border pt-8">
-              <EmailDigestSection />
-            </div>
+
+
           </TabsContent>
 
           {/* Alerts Tab */}
