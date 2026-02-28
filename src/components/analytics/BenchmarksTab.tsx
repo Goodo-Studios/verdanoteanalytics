@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAccountContext } from "@/contexts/AccountContext";
+import { computeClientHealth, getHealthTier, getHealthLabel, getHealthColor } from "@/hooks/useClientHealthScore";
 import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { useWoWTrends } from "@/hooks/useWoWTrends";
 import { useMtdSpend } from "@/hooks/useMtdSpend";
@@ -23,6 +24,8 @@ interface AccountBenchmark {
   healthScore: number;
   topTag: string;
   wowRoasChange: number;
+  clientHealth: number;
+  clientHealthTier: "green" | "amber" | "red";
 }
 
 function computeAccountBenchmarks(
@@ -49,7 +52,7 @@ function computeAccountBenchmarks(
           name: account.name,
           avgRoas: 0, avgCtr: 0, winRate: 0, avgCpa: 0,
           activeCreatives: 0, healthScore: 0, topTag: "—",
-          wowRoasChange: 0,
+          wowRoasChange: 0, clientHealth: 0, clientHealthTier: "red" as const,
         };
       }
 
@@ -122,12 +125,18 @@ function computeAccountBenchmarks(
         wowRoasChange = count > 0 ? totalPct / count : 0;
       }
 
+      // Client Health Score
+      const clientBreakdown = computeClientHealth(account, active, allWowTrends);
+      const clientHealthTier = getHealthTier(clientBreakdown.total);
+
       return {
         id: account.id,
         name: account.name,
         avgRoas, avgCtr, winRate, avgCpa,
         activeCreatives: active.length,
         healthScore, topTag, wowRoasChange,
+        clientHealth: clientBreakdown.total,
+        clientHealthTier,
       };
     })
     .filter((b) => b.activeCreatives > 0);
@@ -252,6 +261,7 @@ export function BenchmarksTab() {
               <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">Avg CPA</TableHead>
               <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right hidden sm:table-cell">Active Creatives</TableHead>
               <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">Health Score</TableHead>
+              <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right hidden sm:table-cell">Client Health</TableHead>
               <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right hidden sm:table-cell">Pacing</TableHead>
             </TableRow>
           </TableHeader>
@@ -282,6 +292,12 @@ export function BenchmarksTab() {
                   {b.healthScore}
                 </TableCell>
                 <TableCell className="text-right font-data text-[13px] tabular-nums hidden sm:table-cell">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className={cn("h-2 w-2 rounded-full", getHealthColor(b.clientHealthTier))} />
+                    {b.clientHealth}
+                  </span>
+                </TableCell>
+                <TableCell className="text-right font-data text-[13px] tabular-nums hidden sm:table-cell">
                   {(() => {
                     const acct = accounts.find((a: any) => a.id === b.id);
                     const mtd = mtdSpendByAccount.get(b.id) || 0;
@@ -303,6 +319,9 @@ export function BenchmarksTab() {
                 <TableCell className="text-right font-data text-[13px] tabular-nums text-foreground">{fmt$(portfolio.avgCpa)}</TableCell>
                 <TableCell className="text-right font-data text-[13px] tabular-nums text-muted-foreground hidden sm:table-cell">—</TableCell>
                 <TableCell className="text-right font-data text-[13px] tabular-nums text-foreground">{portfolio.healthScore}</TableCell>
+                <TableCell className="text-right font-data text-[13px] tabular-nums text-foreground hidden sm:table-cell">
+                  {Math.round(benchmarks.reduce((s, b) => s + b.clientHealth, 0) / benchmarks.length)}
+                </TableCell>
                 <TableCell className="text-right font-data text-[13px] tabular-nums text-muted-foreground hidden sm:table-cell">—</TableCell>
               </TableRow>
             )}

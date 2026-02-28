@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { NavLink } from "@/components/NavLink";
 import { HelpCircle } from "lucide-react";
 import {
@@ -33,6 +34,8 @@ import {
 import { useAccountContext } from "@/contexts/AccountContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
+import { computeClientHealth, getHealthTier, getHealthColor } from "@/hooks/useClientHealthScore";
+import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -75,6 +78,22 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
   const { accounts, selectedAccountId, setSelectedAccountId, isLoading } = useAccountContext();
   const { role, isClient, isBuilder, isEmployee, isEditor, user, signOut } = useAuth();
   const { isClientPreview, toggleClientPreview } = useClientPreview();
+  const { data: allCreatives = [] } = useAllCreatives({});
+
+  // Compute health dots per account (builder/employee only)
+  const healthDots = useMemo(() => {
+    if (isClient || isEditor) return new Map<string, string>();
+    const map = new Map<string, string>();
+    const creativesArr = Array.isArray(allCreatives) ? allCreatives : [];
+    for (const acc of accounts) {
+      const accCreatives = creativesArr.filter((c: any) => c.account_id === acc.id);
+      if (accCreatives.length === 0) continue;
+      const breakdown = computeClientHealth(acc, accCreatives);
+      const tier = getHealthTier(breakdown.total);
+      map.set(acc.id, getHealthColor(tier));
+    }
+    return map;
+  }, [accounts, allCreatives, isClient, isEditor]);
 
   const effectiveClient = isClient || isClientPreview;
 
@@ -116,7 +135,10 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
               {!effectiveClient && !isEditor && <SelectItem value="all" className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">All Accounts</SelectItem>}
               {[...accounts].sort((a: any, b: any) => a.name.localeCompare(b.name)).map((acc: any) => (
                 <SelectItem key={acc.id} value={acc.id} className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">
-                  {acc.name}
+                  <span className="flex items-center gap-2">
+                    {healthDots.has(acc.id) && <span className={`inline-block h-2 w-2 rounded-full shrink-0 ${healthDots.get(acc.id)}`} />}
+                    {acc.name}
+                  </span>
                 </SelectItem>
               ))}
             </SelectContent>

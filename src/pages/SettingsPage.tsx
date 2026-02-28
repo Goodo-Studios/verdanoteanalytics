@@ -14,6 +14,7 @@ import { WeeklyRetroModal } from "@/components/settings/WeeklyRetroModal";
 import { DataHealthSection } from "@/components/settings/DataHealthSection";
 import { DataExportSection } from "@/components/settings/DataExportSection";
 import { PortfolioSettingsSection } from "@/components/settings/PortfolioSettingsSection";
+import { ClientHealthSection } from "@/components/settings/ClientHealthSection";
 import { useSettingsPageState } from "@/hooks/useSettingsPageState";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
@@ -147,6 +148,7 @@ const SettingsPage = () => {
             targetMonthlySpend={s.targetMonthlySpend} setTargetMonthlySpend={s.setTargetMonthlySpend}
           />
           <SyncHistorySection accountId={s.account.id} />
+          {(isBuilder || isEmployee) && <ClientHealthSection account={s.account} />}
           {isBuilder && <PortfolioSettingsSection account={s.account} />}
         </div>
       ) : activeTab === "context" ? (
