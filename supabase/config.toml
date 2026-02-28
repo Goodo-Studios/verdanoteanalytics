@@ -47,3 +47,6 @@ verify_jwt = false
 
 [functions.api-auth]
 verify_jwt = false
+
+[functions.scheduled-sync]
+verify_jwt = false

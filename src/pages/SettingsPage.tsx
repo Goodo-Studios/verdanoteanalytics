@@ -6,6 +6,7 @@ import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
 import { PageHeader } from "@/components/PageHeader";
 import { AccountOverviewSection } from "@/components/settings/AccountOverviewSection";
 import { SyncSettingsSection } from "@/components/settings/SyncSettingsSection";
+import { SyncScheduleSection } from "@/components/settings/SyncScheduleSection";
 import { SyncHistorySection } from "@/components/settings/SyncHistorySection";
 import { RenameAccountModal } from "@/components/settings/RenameAccountModal";
 import { CsvUploadModal } from "@/components/settings/CsvUploadModal";
@@ -146,6 +147,15 @@ const SettingsPage = () => {
             targetRoas={s.targetRoas} setTargetRoas={s.setTargetRoas}
             targetCpa={s.targetCpa} setTargetCpa={s.setTargetCpa}
             targetMonthlySpend={s.targetMonthlySpend} setTargetMonthlySpend={s.setTargetMonthlySpend}
+          />
+          <SyncScheduleSection
+            accounts={s.accounts}
+            onSyncAll={() => {
+              s.accounts.forEach((acc: any) => {
+                s.sync.mutate({ account_id: acc.id });
+              });
+            }}
+            isSyncing={s.sync.isPending || isSyncing}
           />
           <SyncHistorySection accountId={s.account.id} />
           {(isBuilder || isEmployee) && <ClientHealthSection account={s.account} />}
