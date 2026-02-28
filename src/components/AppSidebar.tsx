@@ -15,6 +15,7 @@ import {
   Eye,
   Sparkles,
   FileEdit,
+  ListChecks,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
@@ -46,6 +47,7 @@ const clientNavItems = [
   { title: "Overview", url: "/", icon: LayoutGrid },
   { title: "Creatives", url: "/creatives", icon: Zap },
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
+  { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
   { title: "Reports", url: "/reports", icon: FileText },
   { title: "AI Analyst", url: "/ai-chat", icon: Sparkles },
 ];

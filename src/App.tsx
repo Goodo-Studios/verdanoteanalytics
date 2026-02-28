@@ -34,6 +34,7 @@ import BriefsPage from "./pages/BriefsPage";
 import PublicBriefPage from "./pages/PublicBriefPage";
 
 import AgencyDashboardPage from "./pages/AgencyDashboardPage";
+import ContentPipelinePage from "./pages/ContentPipelinePage";
 
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
@@ -80,6 +81,7 @@ function ProtectedRoutes() {
         <Route path="/briefs" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <BriefsPage />} />
         
         
+        <Route path="/pipeline" element={<ContentPipelinePage />} />
         <Route path="/ai-chat" element={<AIChatPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
