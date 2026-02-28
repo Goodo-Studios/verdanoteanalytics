@@ -2,6 +2,7 @@ import { ReactNode, useState } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { AIChatWidget } from "@/components/AIChatWidget";
 import { NotificationCenter } from "@/components/NotificationCenter";
+import { PresenceAvatars } from "@/components/PresenceAvatars";
 import { OnboardingWizard } from "@/components/OnboardingWizard";
 import { CommandBar, CommandBarTrigger } from "@/components/CommandBar";
 import { useFirstLogin } from "@/hooks/useFirstLogin";
@@ -55,6 +56,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* Spacer for desktop */}
           <div className="hidden md:block" />
           <div className="flex items-center gap-2">
+            <PresenceAvatars />
             <CommandBarTrigger />
             <NotificationCenter />
           </div>

@@ -6,7 +6,7 @@ import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, Users, FileEdit, BookOpen, Sparkles, PenTool } from "lucide-react";
+import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, Users, FileEdit, BookOpen, Sparkles, PenTool, MessageSquare } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useCreator } from "@/hooks/useCreatorsApi";
 import { useState, forwardRef } from "react";
@@ -22,6 +22,7 @@ import { TrendSection } from "@/components/creative-detail/TrendSection";
 import { PredictionSection } from "@/components/creative-detail/PredictionSection";
 import { CreativeChangelog } from "@/components/creative-detail/CreativeChangelog";
 import { CreativeAIAnalysis } from "@/components/creative-detail/CreativeAIAnalysis";
+import { CreativeComments } from "@/components/creative-detail/CreativeComments";
 import { GradeBadge } from "@/components/creatives/GradeBadge";
 import { ScoreCircle } from "@/components/creatives/ScoreCircle";
 import type { WoWTrend } from "@/hooks/useWoWTrends";
@@ -301,6 +302,10 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
               <PenTool className="h-3.5 w-3.5" />
               Annotations
             </TabsTrigger>
+            <TabsTrigger value="comments" className="flex-1 gap-1.5">
+              <MessageSquare className="h-3.5 w-3.5" />
+              Comments
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="details" className="space-y-4 mt-4">
@@ -448,6 +453,10 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
 
           <TabsContent value="annotations" className="mt-4">
             <AnnotationGallery adId={creative.ad_id} />
+          </TabsContent>
+
+          <TabsContent value="comments" className="mt-4">
+            <CreativeComments adId={creative.ad_id} accountId={creative.account_id} />
           </TabsContent>
         </Tabs>
       </DialogContent>
