@@ -8,6 +8,7 @@ import { useCachedMedia } from "@/hooks/useCachedMedia";
 import { RoasTrendArrow } from "./RoasTrendArrow";
 import { GradeBadge } from "./GradeBadge";
 import { ScoreCircle } from "./ScoreCircle";
+import { PlatformBadge } from "./PlatformBadge";
 import type { WoWTrend } from "@/hooks/useWoWTrends";
 import type { GradeInfo } from "@/lib/creativeGrading";
 import type { FatigueResult } from "@/lib/fatigueScore";
@@ -89,12 +90,15 @@ export function CreativesCardGrid({ creatives, onSelect, compareMode = false, co
               ) : (
                 <LayoutGrid className="h-6 w-6 text-muted-foreground" />
               )}
-              {(c.video_views > 0 || (c.video_url && c.video_url !== "no-video")) && (
-                <div className="absolute top-1.5 left-1.5 bg-charcoal/80 rounded-[3px] px-1.5 py-0.5 flex items-center gap-0.5">
-                  <Video className="h-3 w-3 text-white" />
-                  <span className="font-label text-[9px] font-semibold uppercase tracking-wide text-white">Video</span>
-                </div>
-              )}
+              <div className="absolute top-1.5 left-1.5 flex items-center gap-1">
+                {(c.video_views > 0 || (c.video_url && c.video_url !== "no-video")) && (
+                  <div className="bg-charcoal/80 rounded-[3px] px-1.5 py-0.5 flex items-center gap-0.5">
+                    <Video className="h-3 w-3 text-white" />
+                    <span className="font-label text-[9px] font-semibold uppercase tracking-wide text-white">Video</span>
+                  </div>
+                )}
+                {c.platform && c.platform !== "meta" && <PlatformBadge platform={c.platform} />}
+              </div>
               {gradeMap?.get(c.ad_id) && (
                 <div className="absolute top-1.5 right-1.5">
                   <GradeBadge grade={gradeMap.get(c.ad_id)!.grade} />

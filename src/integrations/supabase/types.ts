@@ -92,6 +92,8 @@ export type Database = {
           target_cpa: number | null
           target_monthly_spend: number | null
           target_roas: number | null
+          tiktok_access_token: string | null
+          tiktok_advertiser_id: string | null
           untagged_count: number
           updated_at: string
           winner_kpi: string
@@ -135,6 +137,8 @@ export type Database = {
           target_cpa?: number | null
           target_monthly_spend?: number | null
           target_roas?: number | null
+          tiktok_access_token?: string | null
+          tiktok_advertiser_id?: string | null
           untagged_count?: number
           updated_at?: string
           winner_kpi?: string
@@ -178,6 +182,8 @@ export type Database = {
           target_cpa?: number | null
           target_monthly_spend?: number | null
           target_roas?: number | null
+          tiktok_access_token?: string | null
+          tiktok_advertiser_id?: string | null
           untagged_count?: number
           updated_at?: string
           winner_kpi?: string
@@ -479,6 +485,7 @@ export type Database = {
           frequency: number | null
           hold_rate: number | null
           impressions: number | null
+          platform: string
           purchase_value: number | null
           purchases: number | null
           roas: number | null
@@ -502,6 +509,7 @@ export type Database = {
           frequency?: number | null
           hold_rate?: number | null
           impressions?: number | null
+          platform?: string
           purchase_value?: number | null
           purchases?: number | null
           roas?: number | null
@@ -525,6 +533,7 @@ export type Database = {
           frequency?: number | null
           hold_rate?: number | null
           impressions?: number | null
+          platform?: string
           purchase_value?: number | null
           purchases?: number | null
           roas?: number | null
@@ -573,6 +582,7 @@ export type Database = {
           impressions: number | null
           notes: string | null
           person: string | null
+          platform: string
           preview_url: string | null
           prior_roas: number | null
           product: string | null
@@ -622,6 +632,7 @@ export type Database = {
           impressions?: number | null
           notes?: string | null
           person?: string | null
+          platform?: string
           preview_url?: string | null
           prior_roas?: number | null
           product?: string | null
@@ -671,6 +682,7 @@ export type Database = {
           impressions?: number | null
           notes?: string | null
           person?: string | null
+          platform?: string
           preview_url?: string | null
           prior_roas?: number | null
           product?: string | null

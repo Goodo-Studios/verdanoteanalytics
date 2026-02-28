@@ -56,6 +56,8 @@ export function useSettingsPageState() {
   const [targetRoas, setTargetRoas] = useState("");
   const [targetCpa, setTargetCpa] = useState("");
   const [targetMonthlySpend, setTargetMonthlySpend] = useState("");
+  const [tiktokAdvertiserId, setTiktokAdvertiserId] = useState("");
+  const [tiktokAccessToken, setTiktokAccessToken] = useState("");
   // Global cooldown setting (from settings table, not per-account)
   const [syncCooldownMinutes, setSyncCooldownMinutes] = useState(() => {
     if (!globalSettings) return "0";
@@ -83,6 +85,8 @@ export function useSettingsPageState() {
     setTargetRoas((account as any).target_roas != null ? String((account as any).target_roas) : "");
     setTargetCpa((account as any).target_cpa != null ? String((account as any).target_cpa) : "");
     setTargetMonthlySpend((account as any).target_monthly_spend != null ? String((account as any).target_monthly_spend) : "");
+    setTiktokAdvertiserId((account as any).tiktok_advertiser_id || "");
+    setTiktokAccessToken((account as any).tiktok_access_token || "");
     setInitialized(account.id);
   }
 
@@ -200,6 +204,7 @@ export function useSettingsPageState() {
     creativePrompt, setCreativePrompt, insightsPrompt, setInsightsPrompt,
     syncCooldownMinutes, setSyncCooldownMinutes,
     targetRoas, setTargetRoas, targetCpa, setTargetCpa, targetMonthlySpend, setTargetMonthlySpend,
+    tiktokAdvertiserId, setTiktokAdvertiserId, tiktokAccessToken, setTiktokAccessToken,
     // Handlers
     handleSave, handleApplyToAll, handleSaveCooldown,
     applyingPrompts, applyProgress, handleApplyPromptsToAll,

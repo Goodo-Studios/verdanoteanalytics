@@ -16,6 +16,7 @@ import { IterationsTab } from "@/components/analytics/IterationsTab";
 import { TagInsightsTab } from "@/components/analytics/TagInsightsTab";
 import { BenchmarksTab } from "@/components/analytics/BenchmarksTab";
 import { VideoTab } from "@/components/analytics/VideoTab";
+import { CrossPlatformTab } from "@/components/analytics/CrossPlatformTab";
 import { useAnalyticsPageState } from "@/hooks/useAnalyticsPageState";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -65,8 +66,8 @@ const AnalyticsPage = () => {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="bg-transparent border-b border-border-light rounded-none p-0 h-auto gap-0 flex-wrap">
-          {["trends", "winrate", "scale", "kill", "iterations", "taginsights", ...(canBenchmark ? ["video", "benchmarks"] : [])].map((tab) => {
-            const labels: Record<string, string> = { winrate: "Win Rate", taginsights: "Tag Insights", video: "Video", benchmarks: "Benchmarks" };
+          {["trends", "winrate", "scale", "kill", "iterations", "taginsights", ...(canBenchmark ? ["video", "benchmarks", "crossplatform"] : [])].map((tab) => {
+            const labels: Record<string, string> = { winrate: "Win Rate", taginsights: "Tag Insights", video: "Video", benchmarks: "Benchmarks", crossplatform: "Cross-Platform" };
             return (
               <TabsTrigger
                 key={tab}
@@ -111,6 +112,11 @@ const AnalyticsPage = () => {
         {canBenchmark && (
           <TabsContent value="benchmarks" className="space-y-4">
             <BenchmarksTab />
+          </TabsContent>
+        )}
+        {canBenchmark && (
+          <TabsContent value="crossplatform" className="space-y-4">
+            <CrossPlatformTab creatives={creatives} trendData={filteredTrendData} onCreativeClick={setSelectedCreative} />
           </TabsContent>
         )}
       </Tabs>

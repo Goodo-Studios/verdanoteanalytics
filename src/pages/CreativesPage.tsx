@@ -68,6 +68,9 @@ const CreativesPage = () => {
   // Fatigue filter
   const [fatigueFilter, setFatigueFilter] = useState("__all__");
 
+  // Platform filter
+  const [platformFilter, setPlatformFilter] = useState("__all__");
+
   // Compare mode
   const [compareMode, setCompareMode] = useState(false);
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
@@ -140,6 +143,11 @@ const CreativesPage = () => {
   const sortedCreatives = useMemo(() => {
     let list = [...creatives].map((c: any) => ({ ...c, _cpmr: (Number(c.cpm) || 0) * (Number(c.frequency) || 0) }));
 
+    // Apply platform filter
+    if (platformFilter !== "__all__") {
+      list = list.filter((c: any) => (c.platform || "meta") === platformFilter);
+    }
+
     // Apply momentum filter
     if (momentumFilter !== "__all__" && wowTrends) {
       list = list.filter((c: any) => {
@@ -197,7 +205,7 @@ const CreativesPage = () => {
       if (typeof va === "number" || !isNaN(Number(va))) return (Number(va) - Number(vb)) * dir;
       return String(va).localeCompare(String(vb)) * dir;
     });
-  }, [creatives, sort, momentumFilter, wowTrends, gradeMap, fatigueFilter, fatigueMap, advancedConditions, scoreMap]);
+  }, [creatives, sort, momentumFilter, wowTrends, gradeMap, fatigueFilter, fatigueMap, advancedConditions, scoreMap, platformFilter]);
 
   const toggleBulkId = useCallback((adId: string) => {
     setBulkSelectedIds(prev => {
@@ -398,6 +406,7 @@ const CreativesPage = () => {
         groupBy={groupBy} setGroupBy={setGroupBy} viewMode={viewMode}
         momentumFilter={momentumFilter} onMomentumChange={setMomentumFilter}
         fatigueFilter={fatigueFilter} onFatigueChange={setFatigueFilter}
+        platformFilter={platformFilter} onPlatformChange={setPlatformFilter}
       />
 
       {isLoading ? (
