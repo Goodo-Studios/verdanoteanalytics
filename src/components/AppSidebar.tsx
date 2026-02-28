@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { NavLink } from "@/components/NavLink";
 import { HelpCircle } from "lucide-react";
 import {
@@ -18,7 +19,6 @@ import {
   Radar,
   Trophy,
   GitCommitHorizontal,
-  Building2,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
@@ -37,7 +37,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
 const baseNavItems = [
-  { title: "Agency", url: "/agency", icon: Building2, builderOnly: true },
   { title: "Overview", url: "/", icon: LayoutGrid },
   { title: "Creatives", url: "/creatives", icon: Zap },
   { title: "Creators", url: "/creators", icon: Users },
@@ -74,6 +73,10 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
   const { role, isClient, isBuilder, isEmployee, isEditor, user, signOut } = useAuth();
   const { isClientPreview, toggleClientPreview } = useClientPreview();
   const { data: allCreatives = [] } = useAllCreatives({});
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const isAgencyView = selectedAccountId === "all";
 
   // Compute health dots per account (builder/employee only)
   const healthDots = useMemo(() => {
@@ -98,7 +101,16 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
     ? clientNavItems
     : isEditor
     ? editorNavItems
-    : baseNavItems.filter(item => !(item as any).builderOnly || isBuilder);
+    : baseNavItems;
+
+  const handleAccountChange = (value: string) => {
+    setSelectedAccountId(value);
+    if (value === "all") {
+      navigate("/agency");
+    } else if (location.pathname === "/agency") {
+      navigate("/");
+    }
+  };
 
   const roleBadgeClass = role === "client"
     ? "font-label text-[9px] uppercase tracking-[0.1em] font-semibold bg-gold-light text-[#92730F] capitalize h-4 px-1.5 border-0"
@@ -122,12 +134,12 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
           )}
         </div>
         {showSwitcher && accounts.length > 0 && (
-          <Select value={selectedAccountId || ""} onValueChange={setSelectedAccountId}>
+          <Select value={selectedAccountId || ""} onValueChange={handleAccountChange}>
             <SelectTrigger className="w-full h-9 font-body text-[13px] font-medium text-charcoal border border-input bg-background rounded-md [&>svg]:text-sage">
               <SelectValue placeholder="Select account" />
             </SelectTrigger>
             <SelectContent className="bg-white border border-border-light rounded-[8px] shadow-modal">
-              {!effectiveClient && !isEditor && <SelectItem value="all" className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">All Accounts</SelectItem>}
+              {isBuilder && !effectiveClient && !isEditor && <SelectItem value="all" className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">Agency View</SelectItem>}
               {[...accounts].sort((a: any, b: any) => a.name.localeCompare(b.name)).map((acc: any) => (
                 <SelectItem key={acc.id} value={acc.id} className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">
                   <span className="flex items-center gap-2">
