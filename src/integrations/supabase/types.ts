@@ -60,6 +60,9 @@ export type Database = {
       }
       ad_accounts: {
         Row: {
+          attribution_model: string | null
+          attribution_notes: string | null
+          click_window: number | null
           client_responsiveness: string | null
           client_start_date: string | null
           company_description: string | null
@@ -69,6 +72,7 @@ export type Database = {
           creative_count: number
           date_range_days: number
           id: string
+          industry_category: string | null
           insights_prompt: string | null
           is_active: boolean
           iteration_spend_threshold: number
@@ -99,12 +103,16 @@ export type Database = {
           tiktok_advertiser_id: string | null
           untagged_count: number
           updated_at: string
+          view_window: number | null
           winner_kpi: string
           winner_kpi_direction: string
           winner_kpi_threshold: number
           winner_roas_threshold: number
         }
         Insert: {
+          attribution_model?: string | null
+          attribution_notes?: string | null
+          click_window?: number | null
           client_responsiveness?: string | null
           client_start_date?: string | null
           company_description?: string | null
@@ -114,6 +122,7 @@ export type Database = {
           creative_count?: number
           date_range_days?: number
           id: string
+          industry_category?: string | null
           insights_prompt?: string | null
           is_active?: boolean
           iteration_spend_threshold?: number
@@ -144,12 +153,16 @@ export type Database = {
           tiktok_advertiser_id?: string | null
           untagged_count?: number
           updated_at?: string
+          view_window?: number | null
           winner_kpi?: string
           winner_kpi_direction?: string
           winner_kpi_threshold?: number
           winner_roas_threshold?: number
         }
         Update: {
+          attribution_model?: string | null
+          attribution_notes?: string | null
+          click_window?: number | null
           client_responsiveness?: string | null
           client_start_date?: string | null
           company_description?: string | null
@@ -159,6 +172,7 @@ export type Database = {
           creative_count?: number
           date_range_days?: number
           id?: string
+          industry_category?: string | null
           insights_prompt?: string | null
           is_active?: boolean
           iteration_spend_threshold?: number
@@ -189,6 +203,7 @@ export type Database = {
           tiktok_advertiser_id?: string | null
           untagged_count?: number
           updated_at?: string
+          view_window?: number | null
           winner_kpi?: string
           winner_kpi_direction?: string
           winner_kpi_threshold?: number

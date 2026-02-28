@@ -19,6 +19,7 @@ import { ClientHealthSection } from "@/components/settings/ClientHealthSection";
 import { ApiKeysSection } from "@/components/settings/ApiKeysSection";
 import { TikTokConnectionSection } from "@/components/settings/TikTokConnectionSection";
 import { ScoringCalibrationSection } from "@/components/settings/ScoringCalibrationSection";
+import { AttributionSection } from "@/components/settings/AttributionSection";
 import { useSettingsPageState } from "@/hooks/useSettingsPageState";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
@@ -182,6 +183,7 @@ const SettingsPage = () => {
             })}
             saving={s.updateAccountSettings.isPending}
           />
+          {(isBuilder || isEmployee) && <AttributionSection account={s.account} />}
           {(isBuilder || isEmployee) && <ClientHealthSection account={s.account} />}
           {isBuilder && <PortfolioSettingsSection account={s.account} />}
         </div>
