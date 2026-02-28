@@ -1,11 +1,12 @@
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, Users, FileEdit, BookOpen } from "lucide-react";
+import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, Users, FileEdit, BookOpen, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useCreator } from "@/hooks/useCreatorsApi";
 import { useState, forwardRef } from "react";
@@ -16,6 +17,7 @@ import { CreativeNotes } from "@/components/creative-detail/CreativeNotes";
 import { TrendSection } from "@/components/creative-detail/TrendSection";
 import { PredictionSection } from "@/components/creative-detail/PredictionSection";
 import { CreativeChangelog } from "@/components/creative-detail/CreativeChangelog";
+import { CreativeAIAnalysis } from "@/components/creative-detail/CreativeAIAnalysis";
 import { GradeBadge } from "@/components/creatives/GradeBadge";
 import { ScoreCircle } from "@/components/creatives/ScoreCircle";
 import type { WoWTrend } from "@/hooks/useWoWTrends";
@@ -253,140 +255,160 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
         {/* Media preview */}
         <MediaPreview creative={creative} />
 
-        <CreativeMetrics creative={creative} />
+        <Tabs defaultValue="details" className="w-full">
+          <TabsList className="w-full">
+            <TabsTrigger value="details" className="flex-1">Details</TabsTrigger>
+            {canEdit && (
+              <TabsTrigger value="ai-analysis" className="flex-1 gap-1.5">
+                <Sparkles className="h-3.5 w-3.5" />
+                AI Analysis
+              </TabsTrigger>
+            )}
+          </TabsList>
 
-        {/* Creative Score */}
-        {creativeScore && (
-          <div className="space-y-2 px-1">
-            <div className="flex items-center gap-3">
-              <ScoreCircle score={creativeScore.score} tier={creativeScore.tier} size="md" />
-              <span className="font-heading text-[16px] text-foreground">Creative Score: {creativeScore.score}/100</span>
-            </div>
-            <div className="w-full h-2.5 bg-muted rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${creativeScore.tier === "green" ? "bg-success" : creativeScore.tier === "amber" ? "bg-amber-500" : "bg-destructive"}`}
-                style={{ width: `${creativeScore.score}%` }}
+          <TabsContent value="details" className="space-y-4 mt-4">
+            <CreativeMetrics creative={creative} />
+
+            {/* Creative Score */}
+            {creativeScore && (
+              <div className="space-y-2 px-1">
+                <div className="flex items-center gap-3">
+                  <ScoreCircle score={creativeScore.score} tier={creativeScore.tier} size="md" />
+                  <span className="font-heading text-[16px] text-foreground">Creative Score: {creativeScore.score}/100</span>
+                </div>
+                <div className="w-full h-2.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${creativeScore.tier === "green" ? "bg-success" : creativeScore.tier === "amber" ? "bg-amber-500" : "bg-destructive"}`}
+                    style={{ width: `${creativeScore.score}%` }}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-[12px] font-body mt-1">
+                  <ScoreRow label="ROAS" value={creativeScore.breakdown.roas} max={35} />
+                  <ScoreRow label="CTR" value={creativeScore.breakdown.ctr} max={20} />
+                  <ScoreRow label="Hook Rate" value={creativeScore.breakdown.hookRate} max={15} />
+                  <ScoreRow label="CPA Efficiency" value={creativeScore.breakdown.cpaEfficiency} max={10} />
+                  <ScoreRow label="Momentum" value={creativeScore.breakdown.momentum} max={10} />
+                  {creativeScore.breakdown.fatiguePenalty < 0 && (
+                    <ScoreRow label="Fatigue Penalty" value={creativeScore.breakdown.fatiguePenalty} max={0} negative />
+                  )}
+                </div>
+              </div>
+            )}
+
+            {gradeMap?.get(creative.ad_id) && (
+              <div className="flex items-center gap-2 px-1">
+                <GradeBadge grade={gradeMap.get(creative.ad_id)!.grade} />
+                <span className="font-body text-[12px] text-muted-foreground">
+                  This creative ranks in the top {100 - gradeMap.get(creative.ad_id)!.roasPercentile}% for ROAS in this account.
+                </span>
+              </div>
+            )}
+            <TrendSection trend={wowTrends?.get(creative.ad_id)} />
+
+            {/* Fatigue section */}
+            {fatigue && fatigue.level !== "ok" && (
+              <div className="space-y-2 px-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-label text-[11px] font-semibold uppercase tracking-wider text-foreground">
+                    {fatigue.level === "high" ? "🔥" : "⚠️"} Fatigue Score
+                  </span>
+                  <span className={`font-data text-[13px] font-bold tabular-nums ${fatigue.level === "high" ? "text-destructive" : "text-amber-600"}`}>
+                    {fatigue.score}/100
+                  </span>
+                </div>
+                <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${fatigue.level === "high" ? "bg-destructive" : "bg-amber-400"}`}
+                    style={{ width: `${fatigue.score}%` }}
+                  />
+                </div>
+                {fatigue.explanation && (
+                  <p className="font-body text-[12px] text-muted-foreground leading-relaxed">{fatigue.explanation}</p>
+                )}
+                {fatigue.reasons.length > 0 && (
+                  <ul className="space-y-0.5">
+                    {fatigue.reasons.map((r, i) => (
+                      <li key={i} className="font-body text-[11px] text-muted-foreground flex items-center gap-1.5">
+                        <span className="w-1 h-1 rounded-full bg-muted-foreground flex-shrink-0" />
+                        {r}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {/* Performance Prediction (builder/employee only) */}
+            {canEdit && creative.spend > 0 && (
+              <PredictionSection
+                creative={creative}
+                wowTrend={wowTrends?.get(creative.ad_id)}
+                fatigue={fatigue}
+                killThreshold={1.0}
               />
-            </div>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-[12px] font-body mt-1">
-              <ScoreRow label="ROAS" value={creativeScore.breakdown.roas} max={35} />
-              <ScoreRow label="CTR" value={creativeScore.breakdown.ctr} max={20} />
-              <ScoreRow label="Hook Rate" value={creativeScore.breakdown.hookRate} max={15} />
-              <ScoreRow label="CPA Efficiency" value={creativeScore.breakdown.cpaEfficiency} max={10} />
-              <ScoreRow label="Momentum" value={creativeScore.breakdown.momentum} max={10} />
-              {creativeScore.breakdown.fatiguePenalty < 0 && (
-                <ScoreRow label="Fatigue Penalty" value={creativeScore.breakdown.fatiguePenalty} max={0} negative />
+            )}
+
+            {/* Context */}
+            <div className="space-y-1.5">
+              <p className="font-body text-[13px]"><span className="font-semibold text-foreground">Ad Name:</span> <span className="font-normal text-muted-foreground break-all">{creative.ad_name}</span></p>
+              {creator && (
+                <p className="font-body text-[13px] flex items-center gap-1.5">
+                  <span className="font-semibold text-foreground">Creator:</span>
+                  <a href="/creators" className="inline-flex items-center gap-1 text-primary hover:underline font-normal">
+                    <Users className="h-3 w-3" />{creator.name}
+                  </a>
+                </p>
               )}
+              <p className="font-body text-[13px]"><span className="font-semibold text-foreground">Campaign:</span> <span className="font-normal text-muted-foreground break-all">{creative.campaign_name || "—"}</span></p>
+              <p className="font-body text-[13px]"><span className="font-semibold text-foreground">Ad Set:</span> <span className="font-normal text-muted-foreground break-all">{creative.adset_name || "—"}</span></p>
             </div>
-          </div>
-        )}
 
-        {gradeMap?.get(creative.ad_id) && (
-          <div className="flex items-center gap-2 px-1">
-            <GradeBadge grade={gradeMap.get(creative.ad_id)!.grade} />
-            <span className="font-body text-[12px] text-slate">
-              This creative ranks in the top {100 - gradeMap.get(creative.ad_id)!.roasPercentile}% for ROAS in this account.
-            </span>
-          </div>
-        )}
-        <TrendSection trend={wowTrends?.get(creative.ad_id)} />
-
-        {/* Fatigue section */}
-        {fatigue && fatigue.level !== "ok" && (
-          <div className="space-y-2 px-1">
-            <div className="flex items-center gap-2">
-              <span className="font-label text-[11px] font-semibold uppercase tracking-wider text-charcoal">
-                {fatigue.level === "high" ? "🔥" : "⚠️"} Fatigue Score
-              </span>
-              <span className={`font-data text-[13px] font-bold tabular-nums ${fatigue.level === "high" ? "text-red-600" : "text-amber-600"}`}>
-                {fatigue.score}/100
-              </span>
-            </div>
-            <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${fatigue.level === "high" ? "bg-red-500" : "bg-amber-400"}`}
-                style={{ width: `${fatigue.score}%` }}
-              />
-            </div>
-            {fatigue.explanation && (
-              <p className="font-body text-[12px] text-slate leading-relaxed">{fatigue.explanation}</p>
+            {/* Create Brief from This */}
+            {(isBuilder || isEmployee) && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 font-body text-[12px]"
+                  onClick={handleCreateBrief}
+                  disabled={createBrief.isPending}
+                >
+                  <FileEdit className="h-3.5 w-3.5" />
+                  Create Brief from This
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 font-body text-[12px]"
+                  onClick={() => setHookBrowserOpen(true)}
+                >
+                  <BookOpen className="h-3.5 w-3.5" />
+                  Browse Hooks
+                </Button>
+                <SaveToMoodboardMenu
+                  adId={creative.ad_id}
+                  thumbnailUrl={creative.thumbnail_url}
+                  caption={creative.ad_name}
+                />
+              </div>
             )}
-            {fatigue.reasons.length > 0 && (
-              <ul className="space-y-0.5">
-                {fatigue.reasons.map((r, i) => (
-                  <li key={i} className="font-body text-[11px] text-sage flex items-center gap-1.5">
-                    <span className="w-1 h-1 rounded-full bg-sage flex-shrink-0" />
-                    {r}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
 
-        {/* Performance Prediction (builder/employee only) */}
-        {canEdit && creative.spend > 0 && (
-          <PredictionSection
-            creative={creative}
-            wowTrend={wowTrends?.get(creative.ad_id)}
-            fatigue={fatigue}
-            killThreshold={1.0}
-          />
-        )}
+            <Separator />
+            <CreativeNotes creative={creative} />
+            <Separator />
+            <CreativeChangelog adId={creative.ad_id} accountId={creative.account_id} />
+            <Separator />
+            <CreativeTagEditor creative={creative} />
+            <Separator />
+            <CreativeIterationAnalysis creative={creative} />
+          </TabsContent>
 
-        {/* Context */}
-        <div className="space-y-1.5">
-          <p className="font-body text-[13px]"><span className="font-semibold text-charcoal">Ad Name:</span> <span className="font-normal text-slate break-all">{creative.ad_name}</span></p>
-          {creator && (
-            <p className="font-body text-[13px] flex items-center gap-1.5">
-              <span className="font-semibold text-charcoal">Creator:</span>
-              <a href="/creators" className="inline-flex items-center gap-1 text-primary hover:underline font-normal">
-                <Users className="h-3 w-3" />{creator.name}
-              </a>
-            </p>
+          {canEdit && (
+            <TabsContent value="ai-analysis" className="mt-4">
+              <CreativeAIAnalysis creative={creative} />
+            </TabsContent>
           )}
-          <p className="font-body text-[13px]"><span className="font-semibold text-charcoal">Campaign:</span> <span className="font-normal text-slate break-all">{creative.campaign_name || "—"}</span></p>
-          <p className="font-body text-[13px]"><span className="font-semibold text-charcoal">Ad Set:</span> <span className="font-normal text-slate break-all">{creative.adset_name || "—"}</span></p>
-        </div>
-
-        {/* Create Brief from This */}
-        {(isBuilder || isEmployee) && (
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5 font-body text-[12px]"
-              onClick={handleCreateBrief}
-              disabled={createBrief.isPending}
-            >
-              <FileEdit className="h-3.5 w-3.5" />
-              Create Brief from This
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5 font-body text-[12px]"
-              onClick={() => setHookBrowserOpen(true)}
-            >
-              <BookOpen className="h-3.5 w-3.5" />
-              Browse Hooks
-            </Button>
-            <SaveToMoodboardMenu
-              adId={creative.ad_id}
-              thumbnailUrl={creative.thumbnail_url}
-              caption={creative.ad_name}
-            />
-          </div>
-        )}
-
-        <Separator />
-        <CreativeNotes creative={creative} />
-        <Separator />
-        <CreativeChangelog adId={creative.ad_id} accountId={creative.account_id} />
-        <Separator />
-        <CreativeTagEditor creative={creative} />
-        <Separator />
-        <CreativeIterationAnalysis creative={creative} />
+        </Tabs>
       </DialogContent>
       <HookBrowserModal open={hookBrowserOpen} onClose={() => setHookBrowserOpen(false)} />
     </Dialog>
