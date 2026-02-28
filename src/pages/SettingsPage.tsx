@@ -18,7 +18,7 @@ import { DataExportSection } from "@/components/settings/DataExportSection";
 import { ClientHealthSection } from "@/components/settings/ClientHealthSection";
 import { ApiKeysSection } from "@/components/settings/ApiKeysSection";
 
-import { ScoringCalibrationSection } from "@/components/settings/ScoringCalibrationSection";
+
 import { AttributionSection } from "@/components/settings/AttributionSection";
 import { AccountSetupChecklist, useAccountNeedsOnboarding } from "@/components/settings/AccountSetupChecklist";
 import { OnboardingChecklistModal } from "@/components/settings/OnboardingChecklistModal";
@@ -30,7 +30,7 @@ import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 
-type SettingsTab = "setup" | "account" | "scoring" | "naming" | "export" | "api" | "transition";
+type SettingsTab = "setup" | "account" | "naming" | "export" | "api" | "transition";
 
 const SettingsPage = () => {
   const s = useSettingsPageState();
@@ -60,7 +60,7 @@ const SettingsPage = () => {
       <TabButton active={activeTab === "setup"} onClick={() => setActiveTab("setup")}>Account Setup</TabButton>
       <TabButton active={activeTab === "account"} onClick={() => setActiveTab("account")}>Account</TabButton>
       
-      <TabButton active={activeTab === "scoring"} onClick={() => setActiveTab("scoring")}>Scoring</TabButton>
+      
       {isBuilder && <TabButton active={activeTab === "naming"} onClick={() => setActiveTab("naming")}>Naming</TabButton>}
       <TabButton active={activeTab === "export"} onClick={() => setActiveTab("export")}>Export</TabButton>
       <TabButton active={activeTab === "api"} onClick={() => setActiveTab("api")}>API Access</TabButton>
@@ -180,8 +180,6 @@ const SettingsPage = () => {
           {(isBuilder || isEmployee) && <AttributionSection account={s.account} />}
           {(isBuilder || isEmployee) && <ClientHealthSection account={s.account} />}
         </div>
-      ) : activeTab === "scoring" ? (
-        <ScoringCalibrationSection account={s.account} />
       ) : activeTab === "naming" ? (
         <NamingConventionSection />
       ) : activeTab === "api" ? (

@@ -39,13 +39,12 @@ import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
 import { useWoWTrends } from "@/hooks/useWoWTrends";
 import { gradeCreatives, gradeOrder } from "@/lib/creativeGrading";
 import { computeFatigueMap } from "@/lib/fatigueScore";
-import { computeScoreMap, type ScoringConfig, DEFAULT_SCORING_CONFIG } from "@/lib/creativeScore";
 import { isForecastedToFatigue } from "@/lib/fatigueForecast";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
 import { usePinnedViews } from "@/hooks/useSavedViews";
 import { useCardPresence } from "@/hooks/useCardPresence";
-import { useScoreHistoryBatch } from "@/hooks/useScoreHistory";
+
 import type { GradeInfo } from "@/lib/creativeGrading";
 
 const CreativesPage = () => {
@@ -126,32 +125,9 @@ const CreativesPage = () => {
   // Compute fatigue scores
   const fatigueMap = useMemo(() => computeFatigueMap(creatives, wowTrends), [creatives, wowTrends]);
 
-  // Fetch scoring config for this account
-  const { data: scoringConfig } = useQuery({
-    queryKey: ["scoring-config", selectedAccountId],
-    queryFn: async () => {
-      if (!selectedAccountId || selectedAccountId === "all") return DEFAULT_SCORING_CONFIG;
-      const { data } = await supabase
-        .from("account_context")
-        .select("scoring_config")
-        .eq("account_id", selectedAccountId)
-        .maybeSingle();
-      return (data?.scoring_config as unknown as ScoringConfig) || DEFAULT_SCORING_CONFIG;
-    },
-    enabled: !!selectedAccountId,
-  });
-
-  // Compute creative scores
-  const scaleThreshold = selectedAccountData?.scale_threshold ?? 2.0;
-  const scoreMap = useMemo(() => computeScoreMap(creatives, scaleThreshold, wowTrends, fatigueMap, scoringConfig), [creatives, scaleThreshold, wowTrends, fatigueMap, scoringConfig]);
-
   // Anomaly detection
   const { anomalies, anomalySet } = useAnomalyDetection(creatives, selectedAccountId);
   const { hoveredCards, setHoveredCard } = useCardPresence(selectedAccountId);
-
-  // Score history for sparklines
-  const creativeAdIds = useMemo(() => creatives.map((c: any) => c.ad_id), [creatives]);
-  const { data: scoreHistoryMap } = useScoreHistoryBatch(creativeAdIds);
 
   // Fetch daily metrics for fatigue forecast filter (only when filter active)
   const { data: dailyMetricsMap } = useQuery({
@@ -255,14 +231,8 @@ const CreativesPage = () => {
       });
     }
 
-    // Special handling for score sort
-    if (sort.key === "score") {
-      return list.sort((a: any, b: any) => {
-        const sa = scoreMap.get(a.ad_id)?.score ?? 0;
-        const sb = scoreMap.get(b.ad_id)?.score ?? 0;
-        return (sa - sb) * dir;
-      });
-    }
+
+
 
     return list.sort((a: any, b: any) => {
       const va = a[field], vb = b[field];
@@ -272,7 +242,7 @@ const CreativesPage = () => {
       if (typeof va === "number" || !isNaN(Number(va))) return (Number(va) - Number(vb)) * dir;
       return String(va).localeCompare(String(vb)) * dir;
     });
-  }, [creatives, sort, momentumFilter, wowTrends, gradeMap, fatigueFilter, fatigueMap, advancedConditions, scoreMap, platformFilter, dailyMetricsMap]);
+  }, [creatives, sort, momentumFilter, wowTrends, gradeMap, fatigueFilter, fatigueMap, advancedConditions, platformFilter, dailyMetricsMap]);
 
   const toggleBulkId = useCallback((adId: string) => {
     setBulkSelectedIds(prev => {
@@ -487,7 +457,7 @@ const CreativesPage = () => {
           <p className="font-body text-[14px] text-slate max-w-md">Add a Meta ad account in the Accounts tab and sync to pull in your creatives.</p>
         </div>
       ) : conceptView ? (
-        <ConceptsGrid creatives={sortedCreatives} gradeMap={gradeMap} scoreMap={scoreMap} />
+        <ConceptsGrid creatives={sortedCreatives} gradeMap={gradeMap} />
       ) : groupBy !== "__none__" && groupedData ? (
         <CreativesGroupTable groupBy={groupBy} data={groupedData} />
       ) : viewMode === "timeline" && selectedAccountId && selectedAccountId !== "all" ? (
@@ -505,11 +475,9 @@ const CreativesPage = () => {
           compareIds={compareIds}
           wowTrends={wowTrends}
           gradeMap={gradeMap}
-          scoreMap={scoreMap}
           bulkSelectedIds={canBulkAction ? bulkSelectedIds : undefined}
           onBulkToggle={canBulkAction ? toggleBulkId : undefined}
           onBulkToggleAll={canBulkAction ? toggleBulkAll : undefined}
-          scoreHistoryMap={scoreHistoryMap}
         />
       ) : (
         <CreativesCardGrid
@@ -520,7 +488,6 @@ const CreativesPage = () => {
           wowTrends={wowTrends}
           gradeMap={gradeMap}
           fatigueMap={fatigueMap}
-          scoreMap={scoreMap}
           anomalySet={anomalySet}
           hoveredCards={hoveredCards}
           onCardHover={setHoveredCard}
@@ -528,7 +495,7 @@ const CreativesPage = () => {
       )}
 
       <CreativesPagination page={page} totalPages={totalPages} totalItems={totalCreatives} pageSize={CREATIVES_PAGE_SIZE} onPageChange={setPage} />
-      <CreativeDetailModal creative={creatives.find((c: any) => c.ad_id === selectedCreativeId) || null} open={!!selectedCreativeId} onClose={() => setSelectedCreativeId(null)} wowTrends={wowTrends} gradeMap={gradeMap} fatigueMap={fatigueMap} scoreMap={scoreMap} />
+      <CreativeDetailModal creative={creatives.find((c: any) => c.ad_id === selectedCreativeId) || null} open={!!selectedCreativeId} onClose={() => setSelectedCreativeId(null)} wowTrends={wowTrends} gradeMap={gradeMap} fatigueMap={fatigueMap} />
       {canBulkAction && (
         <>
           <BulkActionBar

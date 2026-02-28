@@ -2,15 +2,13 @@ import { useMemo } from "react";
 import { groupByConcept } from "@/lib/conceptGrouping";
 import { ConceptCard } from "./ConceptCard";
 import type { GradeInfo } from "@/lib/creativeGrading";
-import type { CreativeScore } from "@/lib/creativeScore";
 
 interface ConceptsGridProps {
   creatives: any[];
   gradeMap?: Map<string, GradeInfo>;
-  scoreMap?: Map<string, CreativeScore>;
 }
 
-export function ConceptsGrid({ creatives, gradeMap, scoreMap }: ConceptsGridProps) {
+export function ConceptsGrid({ creatives, gradeMap }: ConceptsGridProps) {
   const concepts = useMemo(() => groupByConcept(creatives), [creatives]);
 
   if (concepts.length === 0) {
@@ -27,7 +25,7 @@ export function ConceptsGrid({ creatives, gradeMap, scoreMap }: ConceptsGridProp
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {concepts.map(c => (
-        <ConceptCard key={c.name} concept={c} gradeMap={gradeMap} scoreMap={scoreMap} />
+        <ConceptCard key={c.name} concept={c} gradeMap={gradeMap} />
       ))}
     </div>
   );

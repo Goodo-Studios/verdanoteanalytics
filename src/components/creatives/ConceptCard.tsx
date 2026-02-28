@@ -4,24 +4,20 @@ import { ConceptGroup } from "@/lib/conceptGrouping";
 import { cn } from "@/lib/utils";
 import { ImageIcon } from "lucide-react";
 import { GradeBadge } from "./GradeBadge";
-import { ScoreCircle } from "./ScoreCircle";
 import { gradeOrder, type GradeInfo } from "@/lib/creativeGrading";
-import type { CreativeScore } from "@/lib/creativeScore";
 
 interface ConceptCardProps {
   concept: ConceptGroup;
   gradeMap?: Map<string, GradeInfo>;
-  scoreMap?: Map<string, CreativeScore>;
 }
 
-export function ConceptCard({ concept, gradeMap, scoreMap }: ConceptCardProps) {
+export function ConceptCard({ concept, gradeMap }: ConceptCardProps) {
   const [expanded, setExpanded] = useState(false);
   const { name, iterations, totalSpend, totalPurchases, blendedRoas, best, worst } = concept;
 
   const sortedIterations = [...iterations].sort((a, b) => (Number(b.roas) || 0) - (Number(a.roas) || 0));
   const thumbs = iterations.filter(c => c.thumbnail_url || c.video_url).slice(0, 4);
 
-  // Best grade across iterations
   const bestGrade = gradeMap ? iterations.reduce<GradeInfo | null>((best, c) => {
     const g = gradeMap.get(c.ad_id);
     if (!g) return best;
@@ -29,22 +25,12 @@ export function ConceptCard({ concept, gradeMap, scoreMap }: ConceptCardProps) {
     return best;
   }, null) : null;
 
-  // Best score across iterations
-  const bestScore = scoreMap ? iterations.reduce<CreativeScore | null>((best, c) => {
-    const s = scoreMap.get(c.ad_id);
-    if (!s) return best;
-    if (!best || s.score > best.score) return s;
-    return best;
-  }, null) : null;
-
   return (
     <div className="rounded-card border border-border-light bg-card shadow-card transition-shadow duration-200 hover:shadow-card-hover">
-      {/* Header */}
       <button
         onClick={() => setExpanded(prev => !prev)}
         className="w-full text-left p-4 flex items-start gap-4"
       >
-        {/* Mini thumbnails */}
         {thumbs.length > 0 && (
           <div className="flex -space-x-2 shrink-0">
             {thumbs.map((c: any, i: number) => (
@@ -60,7 +46,6 @@ export function ConceptCard({ concept, gradeMap, scoreMap }: ConceptCardProps) {
             <div className="flex items-center gap-2 min-w-0">
               <h3 className="font-heading text-[15px] text-foreground truncate">{name}</h3>
               {bestGrade && <GradeBadge grade={bestGrade.grade} />}
-              {bestScore && <ScoreCircle score={bestScore.score} tier={bestScore.tier} />}
             </div>
             <div className="flex items-center gap-1 text-muted-foreground shrink-0">
               {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -72,14 +57,12 @@ export function ConceptCard({ concept, gradeMap, scoreMap }: ConceptCardProps) {
         </div>
       </button>
 
-      {/* Metrics row */}
       <div className="px-4 pb-3 flex items-stretch divide-x divide-border-light text-center">
         <MetricCell label="Blended ROAS" value={`${blendedRoas.toFixed(2)}x`} highlight={blendedRoas >= 2 ? "positive" : blendedRoas < 1 ? "negative" : undefined} />
         <MetricCell label="Total Spend" value={`$${totalSpend.toLocaleString("en-US", { maximumFractionDigits: 0 })}`} />
         <MetricCell label="Purchases" value={totalPurchases.toLocaleString()} />
       </div>
 
-      {/* Best / Worst */}
       {(best || worst) && (
         <div className="px-4 pb-3 flex gap-3 text-[12px] font-body">
           {best && (
@@ -97,7 +80,6 @@ export function ConceptCard({ concept, gradeMap, scoreMap }: ConceptCardProps) {
         </div>
       )}
 
-      {/* Expanded iterations */}
       {expanded && (
         <div className="border-t border-border-light">
           <table className="w-full text-[12px] font-body">
