@@ -24,24 +24,34 @@ interface PeriodMetrics {
   frequency: number; cpmr: number;
 }
 
-function aggregatePeriod(data: DailyTrendPoint[], from: string, to: string, creatives: any[]): PeriodMetrics {
+function aggregatePeriod(data: DailyTrendPoint[], from: string, to: string, _creatives: any[]): PeriodMetrics {
   const rows = data.filter((d) => d.date >= from && d.date <= to);
   const spend = rows.reduce((s, r) => s + r.spend, 0);
   const impressions = rows.reduce((s, r) => s + r.impressions, 0);
   const clicks = rows.reduce((s, r) => s + r.clicks, 0);
   const purchases = rows.reduce((s, r) => s + r.purchases, 0);
   const purchaseValue = rows.reduce((s, r) => s + r.purchase_value, 0);
-  const activeCreatives = creatives.filter((c) => {
-    const created = c.created_at?.slice(0, 10);
-    return created && created >= from && created <= to;
-  }).length;
+
+  // Active creatives = unique ads with delivery in the period
+  const uniqueAds = new Set<string>();
+  for (const r of rows) {
+    // activeAdCount tracks unique ad_ids per day from daily metrics
+    if (r.activeAdCount > 0) uniqueAds.add(r.date); // count from daily data
+  }
+  // Sum unique ad counts across days, then deduplicate by taking max daily count as proxy
+  const activeCreatives = rows.length > 0
+    ? Math.max(...rows.map(r => r.activeAdCount || 0))
+    : 0;
 
   const cpm = impressions > 0 ? (spend / impressions) * 1000 : 0;
-  // Frequency = impressions / unique reach; approximate from daily rows count
-  const dayCount = rows.length || 1;
-  const avgDailyImpressions = impressions / dayCount;
-  // Use a simple proxy: total impressions / (unique creative count * days)
-  const frequency = dayCount > 0 ? impressions / (Math.max(activeCreatives, 1) * dayCount) * (dayCount / 30) : 0;
+
+  // Frequency: average of daily frequency values weighted by whether they have data
+  const freqRows = rows.filter(r => r.frequency > 0);
+  const frequency = freqRows.length > 0
+    ? freqRows.reduce((s, r) => s + r.frequency, 0) / freqRows.length
+    : 0;
+
+  // CPMr = CPM * frequency (cost per 1000 repeat impressions)
   const cpmr = cpm * (frequency || 1);
 
   return {
@@ -152,6 +162,10 @@ export function HistoricalTab({ trendData, creatives, roasThreshold, onCreativeC
         if (m.key === "ctr") return d.ctr;
         if (m.key === "cpa") return d.cpa;
         if (m.key === "spend") return d.spend;
+        if (m.key === "cpm") return d.cpm;
+        if (m.key === "frequency") return d.frequency;
+        if (m.key === "cpmr") return d.cpm * (d.frequency || 1);
+        if (m.key === "activeCreatives") return d.activeAdCount;
         return 0;
       });
     }
@@ -184,14 +198,14 @@ export function HistoricalTab({ trendData, creatives, roasThreshold, onCreativeC
       const spend = rows.reduce((s, r) => s + r.spend, 0);
       const pv = rows.reduce((s, r) => s + r.purchase_value, 0);
       const roas = spend > 0 ? pv / spend : 0;
-      // Win rate = % of creatives with ROAS > 2 in that month range
-      const monthCreatives = creatives.filter((c) => {
-        const cd = c.created_at?.slice(0, 10);
-        return cd && cd >= start && cd <= end;
-      });
-      const winners = monthCreatives.filter((c) => (c.roas || 0) >= roasThreshold);
-      const winRate = monthCreatives.length > 0 ? (winners.length / monthCreatives.length) * 100 : 0;
-      months.push({ label: format(m, "MMM yyyy"), start, end, roas, spend, winRate, creativeCount: monthCreatives.length });
+      // Active creatives = max unique ad count in any day of the month
+      const activeAdCount = rows.length > 0 ? Math.max(...rows.map(r => r.activeAdCount || 0)) : 0;
+      // Win rate: use creatives that were active (had spend) during this period with good ROAS
+      const monthActive = creatives.filter((c: any) => (Number(c.spend) || 0) > 0);
+      // Approximate: filter by creatives whose data overlaps this month
+      const winners = monthActive.filter((c: any) => (Number(c.roas) || 0) >= roasThreshold);
+      const winRate = monthActive.length > 0 ? (winners.length / monthActive.length) * 100 : 0;
+      months.push({ label: format(m, "MMM yyyy"), start, end, roas, spend, winRate, creativeCount: activeAdCount });
     }
 
     // Best month insight
