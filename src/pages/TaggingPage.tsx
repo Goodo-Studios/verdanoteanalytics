@@ -20,9 +20,10 @@ import { useUploadMappings } from "@/hooks/useAccountsApi";
 import { TAG_OPTIONS_MAP } from "@/lib/tagOptions";
 import { toast } from "sonner";
 import {
-  Search, ChevronLeft, ChevronRight, Filter, Upload, LayoutGrid, Loader2, Save, X, Plus, Wand2, Zap,
+  Search, ChevronLeft, ChevronRight, Filter, Upload, LayoutGrid, Loader2, Save, X, Plus, Wand2, Zap, FileCheck,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
+import { NamingCheckTab } from "@/components/tagging/NamingCheckTab";
 import { cn } from "@/lib/utils";
 
 const TAG_FIELDS = ["ad_type", "person", "style", "hook", "product", "theme"] as const;
@@ -280,6 +281,13 @@ const TaggingPage = () => {
             >
               CSV Upload
             </TabsTrigger>
+            <TabsTrigger
+              value="naming"
+              className="font-body text-[14px] font-medium text-muted-foreground data-[state=active]:text-foreground data-[state=active]:font-semibold data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none rounded-none px-4 py-2.5 bg-transparent gap-1.5"
+            >
+              <FileCheck className="h-3.5 w-3.5" />
+              Naming Check
+            </TabsTrigger>
             </TabsList>
             {canAutoTag && activeTab === "manual" && (
               <Button
@@ -483,6 +491,11 @@ const TaggingPage = () => {
               </div>
             </div>
           </div>
+        </TabsContent>
+
+        {/* ── Naming Check Tab ── */}
+        <TabsContent value="naming" className="space-y-4">
+          <NamingCheckTab creatives={allCreatives} />
         </TabsContent>
       </Tabs>
 
