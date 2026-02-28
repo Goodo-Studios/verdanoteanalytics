@@ -24,6 +24,7 @@ export type Database = {
           offer_history: Json | null
           onboarding_checklist: Json | null
           scoring_config: Json | null
+          transition_log: Json
           updated_at: string | null
           updated_by: string | null
         }
@@ -36,6 +37,7 @@ export type Database = {
           offer_history?: Json | null
           onboarding_checklist?: Json | null
           scoring_config?: Json | null
+          transition_log?: Json
           updated_at?: string | null
           updated_by?: string | null
         }
@@ -48,6 +50,7 @@ export type Database = {
           offer_history?: Json | null
           onboarding_checklist?: Json | null
           scoring_config?: Json | null
+          transition_log?: Json
           updated_at?: string | null
           updated_by?: string | null
         }
