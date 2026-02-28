@@ -16,12 +16,13 @@ import { DataHealthSection } from "@/components/settings/DataHealthSection";
 import { DataExportSection } from "@/components/settings/DataExportSection";
 import { PortfolioSettingsSection } from "@/components/settings/PortfolioSettingsSection";
 import { ClientHealthSection } from "@/components/settings/ClientHealthSection";
+import { ApiKeysSection } from "@/components/settings/ApiKeysSection";
 import { useSettingsPageState } from "@/hooks/useSettingsPageState";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 
-type SettingsTab = "account" | "context" | "export";
+type SettingsTab = "account" | "context" | "export" | "api";
 
 const SettingsPage = () => {
   const s = useSettingsPageState();
@@ -45,6 +46,7 @@ const SettingsPage = () => {
              <TabButton active={activeTab === "account"} onClick={() => setActiveTab("account")}>Account</TabButton>
               <TabButton active={activeTab === "context"} onClick={() => setActiveTab("context")}>Account Context</TabButton>
               <TabButton active={activeTab === "export"} onClick={() => setActiveTab("export")}>Export</TabButton>
+              <TabButton active={activeTab === "api"} onClick={() => setActiveTab("api")}>API Access</TabButton>
             </div>
           )}
 
@@ -72,6 +74,10 @@ const SettingsPage = () => {
                 </div>
               )}
             </>
+          ) : activeTab === "api" ? (
+            <div className="max-w-2xl">
+              <ApiKeysSection />
+            </div>
           ) : (
             <div className="max-w-3xl">
               <DataExportSection />
@@ -107,6 +113,7 @@ const SettingsPage = () => {
           <TabButton active={activeTab === "account"} onClick={() => setActiveTab("account")}>Account</TabButton>
           <TabButton active={activeTab === "context"} onClick={() => setActiveTab("context")}>Account Context</TabButton>
           <TabButton active={activeTab === "export"} onClick={() => setActiveTab("export")}>Export</TabButton>
+          <TabButton active={activeTab === "api"} onClick={() => setActiveTab("api")}>API Access</TabButton>
         </div>
       )}
 
@@ -163,6 +170,10 @@ const SettingsPage = () => {
         </div>
       ) : activeTab === "context" ? (
         <AccountContextSection account={s.account} />
+      ) : activeTab === "api" ? (
+        <div className="max-w-2xl">
+          <ApiKeysSection />
+        </div>
       ) : (
         <div className="max-w-3xl">
           <DataExportSection />
