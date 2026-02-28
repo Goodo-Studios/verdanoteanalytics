@@ -1726,6 +1726,48 @@ export type Database = {
         }
         Relationships: []
       }
+      webhooks: {
+        Row: {
+          account_ids: string[] | null
+          created_at: string | null
+          created_by: string | null
+          events: string[]
+          id: string
+          is_active: boolean | null
+          last_status_code: number | null
+          last_triggered_at: string | null
+          name: string
+          secret: string | null
+          url: string
+        }
+        Insert: {
+          account_ids?: string[] | null
+          created_at?: string | null
+          created_by?: string | null
+          events: string[]
+          id?: string
+          is_active?: boolean | null
+          last_status_code?: number | null
+          last_triggered_at?: string | null
+          name: string
+          secret?: string | null
+          url: string
+        }
+        Update: {
+          account_ids?: string[] | null
+          created_at?: string | null
+          created_by?: string | null
+          events?: string[]
+          id?: string
+          is_active?: boolean | null
+          last_status_code?: number | null
+          last_triggered_at?: string | null
+          name?: string
+          secret?: string | null
+          url?: string
+        }
+        Relationships: []
+      }
       whitelisting_deals: {
         Row: {
           access_expires_at: string | null

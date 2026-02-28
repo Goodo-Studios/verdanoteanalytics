@@ -22,12 +22,13 @@ import { ScoringCalibrationSection } from "@/components/settings/ScoringCalibrat
 import { AttributionSection } from "@/components/settings/AttributionSection";
 import { AccountSetupChecklist, useAccountNeedsOnboarding } from "@/components/settings/AccountSetupChecklist";
 import { OnboardingChecklistModal } from "@/components/settings/OnboardingChecklistModal";
+import { WebhooksSection } from "@/components/settings/WebhooksSection";
 import { useSettingsPageState } from "@/hooks/useSettingsPageState";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 
-type SettingsTab = "setup" | "account" | "context" | "scoring" | "export" | "api";
+type SettingsTab = "setup" | "account" | "context" | "scoring" | "export" | "api" | "webhooks";
 
 const SettingsPage = () => {
   const s = useSettingsPageState();
@@ -60,6 +61,7 @@ const SettingsPage = () => {
       <TabButton active={activeTab === "scoring"} onClick={() => setActiveTab("scoring")}>Scoring</TabButton>
       <TabButton active={activeTab === "export"} onClick={() => setActiveTab("export")}>Export</TabButton>
       <TabButton active={activeTab === "api"} onClick={() => setActiveTab("api")}>API Access</TabButton>
+      {isBuilder && <TabButton active={activeTab === "webhooks"} onClick={() => setActiveTab("webhooks")}>Webhooks</TabButton>}
     </div>
   );
 
@@ -194,6 +196,8 @@ const SettingsPage = () => {
         <ScoringCalibrationSection account={s.account} />
       ) : activeTab === "api" ? (
         <div className="max-w-2xl"><ApiKeysSection /></div>
+      ) : activeTab === "webhooks" ? (
+        <WebhooksSection />
       ) : (
         <div className="max-w-3xl"><DataExportSection /></div>
       )}
