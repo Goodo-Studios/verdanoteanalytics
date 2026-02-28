@@ -76,6 +76,7 @@ export type Database = {
           last_synced_at: string | null
           logo_url: string | null
           name: string
+          next_sync_at: string | null
           portfolio_cta_url: string | null
           portfolio_enabled: boolean
           portfolio_headline: string | null
@@ -85,6 +86,9 @@ export type Database = {
           report_schedule: string
           scale_threshold: number
           secondary_kpis: string | null
+          sync_frequency: string | null
+          sync_hour: number | null
+          sync_timezone: string | null
           target_cpa: number | null
           target_monthly_spend: number | null
           target_roas: number | null
@@ -115,6 +119,7 @@ export type Database = {
           last_synced_at?: string | null
           logo_url?: string | null
           name: string
+          next_sync_at?: string | null
           portfolio_cta_url?: string | null
           portfolio_enabled?: boolean
           portfolio_headline?: string | null
@@ -124,6 +129,9 @@ export type Database = {
           report_schedule?: string
           scale_threshold?: number
           secondary_kpis?: string | null
+          sync_frequency?: string | null
+          sync_hour?: number | null
+          sync_timezone?: string | null
           target_cpa?: number | null
           target_monthly_spend?: number | null
           target_roas?: number | null
@@ -154,6 +162,7 @@ export type Database = {
           last_synced_at?: string | null
           logo_url?: string | null
           name?: string
+          next_sync_at?: string | null
           portfolio_cta_url?: string | null
           portfolio_enabled?: boolean
           portfolio_headline?: string | null
@@ -163,6 +172,9 @@ export type Database = {
           report_schedule?: string
           scale_threshold?: number
           secondary_kpis?: string | null
+          sync_frequency?: string | null
+          sync_hour?: number | null
+          sync_timezone?: string | null
           target_cpa?: number | null
           target_monthly_spend?: number | null
           target_roas?: number | null
