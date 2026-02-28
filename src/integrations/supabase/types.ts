@@ -1336,6 +1336,42 @@ export type Database = {
         }
         Relationships: []
       }
+      segments: {
+        Row: {
+          account_id: string | null
+          color: string | null
+          created_at: string | null
+          created_by: string
+          description: string | null
+          filter_config: Json
+          id: string
+          is_shared: boolean | null
+          name: string
+        }
+        Insert: {
+          account_id?: string | null
+          color?: string | null
+          created_at?: string | null
+          created_by: string
+          description?: string | null
+          filter_config?: Json
+          id?: string
+          is_shared?: boolean | null
+          name: string
+        }
+        Update: {
+          account_id?: string | null
+          color?: string | null
+          created_at?: string | null
+          created_by?: string
+          description?: string | null
+          filter_config?: Json
+          id?: string
+          is_shared?: boolean | null
+          name?: string
+        }
+        Relationships: []
+      }
       settings: {
         Row: {
           key: string

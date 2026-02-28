@@ -9,6 +9,7 @@ import {
 import { X, Plus, Trash2 } from "lucide-react";
 import { TYPE_OPTIONS, HOOK_OPTIONS } from "@/lib/tagOptions";
 import type { Grade } from "@/lib/creativeGrading";
+import { SaveAsSegmentButton } from "@/components/creatives/SaveAsSegmentButton";
 
 /* ── types ─────────────────────────────────────────── */
 
@@ -65,9 +66,10 @@ interface AdvancedFiltersPanelProps {
   onClose: () => void;
   conditions: AdvancedConditions;
   onChange: (conditions: AdvancedConditions) => void;
+  accountId?: string | null;
 }
 
-export function AdvancedFiltersPanel({ open, onClose, conditions, onChange }: AdvancedFiltersPanelProps) {
+export function AdvancedFiltersPanel({ open, onClose, conditions, onChange, accountId }: AdvancedFiltersPanelProps) {
   const addCondition = useCallback(() => {
     const usedFields = new Set(conditions.map(c => c.field));
     const available = FIELD_DEFS.find(f => !usedFields.has(f.key));
@@ -133,10 +135,11 @@ export function AdvancedFiltersPanel({ open, onClose, conditions, onChange }: Ad
       </div>
 
       {/* Footer */}
-      <div className="px-4 py-3 border-t border-border">
+      <div className="px-4 py-3 border-t border-border space-y-2">
         <Button size="sm" variant="outline" onClick={addCondition} className="w-full gap-1.5 font-body text-[12px]">
           <Plus className="h-3.5 w-3.5" />Add condition
         </Button>
+        <SaveAsSegmentButton conditions={conditions} accountId={accountId} />
       </div>
     </div>
   );

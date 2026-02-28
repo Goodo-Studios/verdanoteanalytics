@@ -41,6 +41,7 @@ import LeaderboardPage from "./pages/LeaderboardPage";
 import ChangelogPage from "./pages/ChangelogPage";
 import HooksPage from "./pages/HooksPage";
 import AgencyDashboardPage from "./pages/AgencyDashboardPage";
+import SegmentsPage from "./pages/SegmentsPage";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
@@ -84,6 +85,7 @@ function ProtectedRoutes() {
         <Route path="/settings" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <SettingsPage />} />
         <Route path="/user-settings" element={<UserSettingsPage />} />
         <Route path="/saved-views" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <SavedViewsPage />} />
+        <Route path="/segments" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <SegmentsPage />} />
         <Route path="/briefs" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <BriefsPage />} />
         <Route path="/calendar" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <CalendarPage />} />
         <Route path="/competitors" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <CompetitorsPage />} />
