@@ -6,8 +6,9 @@ import { PresenceAvatars } from "@/components/PresenceAvatars";
 import { OnboardingWizard } from "@/components/OnboardingWizard";
 import { CommandBar, CommandBarTrigger } from "@/components/CommandBar";
 import { useFirstLogin } from "@/hooks/useFirstLogin";
+import { useTheme } from "@/contexts/ThemeContext";
 import { Button } from "@/components/ui/button";
-import { Menu } from "lucide-react";
+import { Menu, Sun, Moon } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 
 interface AppLayoutProps {
@@ -17,6 +18,7 @@ interface AppLayoutProps {
 export function AppLayout({ children }: AppLayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { showOnboarding, openTour, closeTour } = useFirstLogin();
+  const { theme, toggleTheme } = useTheme();
 
   return (
     <div className="flex min-h-screen w-full bg-background">
@@ -59,6 +61,19 @@ export function AppLayout({ children }: AppLayoutProps) {
             <PresenceAvatars />
             <CommandBarTrigger />
             <NotificationCenter />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={toggleTheme}
+              aria-label="Toggle theme"
+            >
+              {theme === "light" ? (
+                <Moon className="h-4 w-4 transition-transform duration-200 rotate-0" />
+              ) : (
+                <Sun className="h-4 w-4 transition-transform duration-200 rotate-180" />
+              )}
+            </Button>
           </div>
         </div>
         <div className="p-4 md:p-6 max-w-[1400px] mx-auto">

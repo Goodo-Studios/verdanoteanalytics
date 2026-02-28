@@ -77,6 +77,78 @@
     --shadow-modal: 0 12px 40px rgba(13,59,37,0.12), 0 4px 12px rgba(13,59,37,0.06);
     --shadow-focus: 0 0 0 3px rgba(27,122,78,0.2);
   }
+
+  .dark {
+    --background: 228 20% 7%;           /* #0f1117 */
+    --foreground: 150 10% 90%;          /* #e0e8e0 */
+
+    --card: 228 18% 13%;               /* #1a1d27 */
+    --card-foreground: 150 10% 90%;
+
+    --popover: 228 18% 13%;
+    --popover-foreground: 150 10% 90%;
+
+    --primary: 152 63% 29%;            /* keep brand green */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 228 14% 22%;
+    --secondary-foreground: 150 10% 80%;
+
+    --muted: 228 14% 18%;
+    --muted-foreground: 220 9% 52%;     /* #6b7280 */
+
+    --accent: 228 14% 18%;
+    --accent-foreground: 150 10% 80%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 228 14% 20%;             /* #2a2d3a */
+    --input: 228 14% 20%;
+    --ring: 152 63% 29%;
+
+    /* Status */
+    --success: 142 60% 42%;
+    --success-foreground: 0 0% 100%;
+    --warning: 40 55% 52%;
+    --warning-foreground: 0 0% 100%;
+    --info: 200 55% 48%;
+    --info-foreground: 0 0% 100%;
+
+    /* Tags */
+    --tag-parsed: 152 50% 35%;
+    --tag-csv: 200 55% 48%;
+    --tag-manual: 40 55% 52%;
+    --tag-untagged: 0 72% 51%;
+
+    /* Recommendations */
+    --scale: 152 50% 35%;
+    --watch: 40 55% 52%;
+    --kill: 0 72% 51%;
+
+    /* Sidebar */
+    --sidebar-background: 228 22% 9%;   /* #13151f */
+    --sidebar-foreground: 220 9% 52%;
+    --sidebar-primary: 152 63% 29%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 228 14% 16%;
+    --sidebar-accent-foreground: 150 10% 80%;
+    --sidebar-border: 228 14% 20%;
+    --sidebar-ring: 152 63% 29%;
+
+    /* Charts */
+    --chart-1: 152 50% 40%;
+    --chart-2: 152 45% 50%;
+    --chart-3: 40 55% 55%;
+    --chart-4: 340 30% 55%;
+    --chart-5: 200 50% 55%;
+
+    /* Shadows */
+    --shadow-card: 0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
+    --shadow-hover: 0 4px 12px rgba(0,0,0,0.5), 0 2px 4px rgba(0,0,0,0.3);
+    --shadow-modal: 0 12px 40px rgba(0,0,0,0.6), 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-focus: 0 0 0 3px rgba(27,122,78,0.35);
+  }
 }
 
 @layer base {
@@ -97,6 +169,10 @@
     color: hsl(155 56% 15%);
     line-height: 1.15;
     margin: 0;
+  }
+
+  .dark h1, .dark h2, .dark h3, .dark h4, .dark h5, .dark h6 {
+    color: hsl(150 10% 90%);
   }
 
   h1 {
@@ -129,6 +205,12 @@
     color: hsl(155 56% 15%);
     letter-spacing: -0.01em;
     line-height: 1.1;
+  }
+
+  .dark .page-title,
+  .dark .section-title,
+  .dark .card-title {
+    color: hsl(150 10% 90%);
   }
 
   .page-subtitle {
