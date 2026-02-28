@@ -967,47 +967,38 @@ export type Database = {
         Row: {
           account_id: string
           ad_id: string | null
-          change_type: string
           created_at: string | null
           created_by: string | null
-          description: string | null
+          description: string
+          event_type: string
           id: string
-          metric_name: string | null
+          metadata: Json | null
           new_value: number | null
           old_value: number | null
-          pct_change: number | null
-          severity: string
-          title: string
         }
         Insert: {
           account_id: string
           ad_id?: string | null
-          change_type: string
           created_at?: string | null
           created_by?: string | null
-          description?: string | null
+          description: string
+          event_type: string
           id?: string
-          metric_name?: string | null
+          metadata?: Json | null
           new_value?: number | null
           old_value?: number | null
-          pct_change?: number | null
-          severity?: string
-          title: string
         }
         Update: {
           account_id?: string
           ad_id?: string | null
-          change_type?: string
           created_at?: string | null
           created_by?: string | null
-          description?: string | null
+          description?: string
+          event_type?: string
           id?: string
-          metric_name?: string | null
+          metadata?: Json | null
           new_value?: number | null
           old_value?: number | null
-          pct_change?: number | null
-          severity?: string
-          title?: string
         }
         Relationships: [
           {
