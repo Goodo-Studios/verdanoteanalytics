@@ -42,6 +42,9 @@ verify_jwt = false
 [functions.enrich-thumbnails]
 verify_jwt = false
 
+[functions.fetch-thumbnail]
+verify_jwt = false
+
 [functions.api]
 verify_jwt = false
 
