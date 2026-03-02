@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -42,7 +42,7 @@ export function TagInsightsTab({
   creatives, spendThreshold,
   winnerKpi = "roas", winnerKpiDirection = "gte", winnerKpiThreshold = 2,
 }: TagInsightsTabProps) {
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
   const [selectedDims, setSelectedDims] = useState<Set<string>>(new Set(["hook"]));
   const [metric, setMetric] = useState("roas");
   const [minSpend, setMinSpend] = useState(spendThreshold);

@@ -37,7 +37,7 @@ import { Switch } from "@/components/ui/switch";
 import { Bookmark, Plus, Trash2, ExternalLink, Loader2, Pencil, Copy, GripVertical, Users, Pin } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useState, useCallback, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAccountContext } from "@/contexts/AccountContext";
@@ -96,7 +96,7 @@ const SLICE_OPTIONS = [
 const SavedViewsPage = () => {
   const { user, isBuilder, isEmployee } = useAuth();
   const { accounts, setSelectedAccountId } = useAccountContext();
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);

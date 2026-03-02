@@ -28,17 +28,15 @@ import {
 import { useAccountContext } from "@/contexts/AccountContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
+import { useRolePrefix } from "@/hooks/useRolePath";
 import { Button } from "@/components/ui/button";
-
 
 const baseNavItems = [
   { title: "Overview", url: "/", icon: LayoutGrid },
   { title: "Creatives", url: "/creatives", icon: Zap },
-  
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Tagging", url: "/tagging", icon: Tags },
   { title: "Reports", url: "/reports", icon: FileText },
-  
   { title: "Saved Views", url: "/saved-views", icon: Bookmark },
   { title: "AI Analyst", url: "/ai-chat", icon: Sparkles },
 ];
@@ -52,16 +50,15 @@ const clientNavItems = [
   { title: "AI Analyst", url: "/ai-chat", icon: Sparkles },
 ];
 
-
 export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void; onTakeTour?: () => void }) {
   const { accounts, selectedAccountId, setSelectedAccountId, isLoading } = useAccountContext();
   const { role, isClient, isBuilder, isEmployee, user, signOut } = useAuth();
   const { isClientPreview, toggleClientPreview } = useClientPreview();
   const navigate = useNavigate();
   const location = useLocation();
+  const prefix = useRolePrefix();
 
   const isAgencyView = selectedAccountId === "all";
-
   const effectiveClient = isClient || isClientPreview;
 
   const showSwitcher = !effectiveClient || accounts.length > 1;
@@ -79,9 +76,9 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
   const handleAccountChange = (value: string) => {
     setSelectedAccountId(value);
     if (value === "all") {
-      navigate("/agency");
-    } else if (location.pathname === "/agency") {
-      navigate("/");
+      navigate(`${prefix}/agency`);
+    } else if (location.pathname.includes("/agency")) {
+      navigate(`${prefix}/`);
     }
   };
 
@@ -140,7 +137,7 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
         {navItems.map((item) => (
           <NavLink
             key={item.url}
-            to={item.url}
+            to={`${prefix}${item.url}`}
             end={item.url === "/"}
             className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent"
             activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
@@ -152,7 +149,7 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
         ))}
         {showSettings && (
           <NavLink
-            to="/settings"
+            to={`${prefix}/settings`}
             className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent"
             activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
             onClick={onNavigate}
@@ -168,7 +165,7 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
       {!effectiveClient && (
         <div className="px-3 pt-3 pb-1">
           <NavLink
-            to="/user-settings"
+            to={`${prefix}/user-settings`}
             className="flex items-center gap-3 rounded-md px-3 py-2 font-body text-[13px] text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent"
             activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
             onClick={onNavigate}

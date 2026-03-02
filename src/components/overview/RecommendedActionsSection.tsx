@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 import { computePredictionCounts, type PredictionAction } from "@/lib/predictions";
 import type { WoWTrend } from "@/hooks/useWoWTrends";
 import type { FatigueResult } from "@/lib/fatigueScore";
@@ -20,7 +20,7 @@ interface RecommendedActionsProps {
 }
 
 export function RecommendedActionsSection({ creatives, wowTrends, fatigueMap, killThreshold = 1.0 }: RecommendedActionsProps) {
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
 
   const counts = useMemo(
     () => computePredictionCounts(creatives, wowTrends, fatigueMap, killThreshold),

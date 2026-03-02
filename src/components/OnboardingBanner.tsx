@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { X } from "lucide-react";
 import { useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 
 export function OnboardingBanner() {
   const { data: settings, isLoading: settingsLoading } = useSettings();
@@ -16,7 +16,7 @@ export function OnboardingBanner() {
       return saved ? new Set(JSON.parse(saved)) : new Set();
     } catch { return new Set(); }
   });
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
 
   const toggleManual = useCallback((idx: number) => {
     setManualChecks(prev => {

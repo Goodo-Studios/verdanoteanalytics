@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { CheckCircle2, Circle, ExternalLink, Loader2, Rocket, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useNavigate } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 
 interface ChecklistItem {
   id: string;
@@ -104,7 +104,7 @@ interface Props {
 export function AccountSetupChecklist({ account, onSwitchTab, onAllComplete }: Props) {
   const { data: saved, isLoading } = useOnboardingChecklist(account.id);
   const save = useSaveChecklist();
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
 
   const checklist = useMemo(() => {
     const items: ChecklistItem[] = CHECKLIST_ITEMS.map((def) => {

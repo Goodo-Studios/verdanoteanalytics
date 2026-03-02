@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import { gradeCreatives, type Grade, type GradeInfo } from "@/lib/creativeGrading";
 import { GradeBadge } from "@/components/creatives/GradeBadge";
-import { useNavigate } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -98,7 +98,7 @@ function DotTooltip({ active, payload }: any) {
 /* ── Component ─────────────────────────────────────── */
 
 export function MatrixTab({ creatives, scaleThreshold, onCreativeClick }: Props) {
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
   const [colorMode, setColorMode] = useState<ColorMode>("grade");
   const [minSpend, setMinSpend] = useState(10);
 

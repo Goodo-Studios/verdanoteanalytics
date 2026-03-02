@@ -12,7 +12,8 @@ import {
   createSection,
   legacySectionsFromReport,
 } from "@/lib/reportSections";
-import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { useParams, useLocation } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useReports, useUpdateReportSections } from "@/hooks/useReportsApi";
 import { ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, Save, Loader2, Eye, Pencil, BookmarkPlus } from "lucide-react";
@@ -25,7 +26,7 @@ import {
 
 const ReportBuilderPage = () => {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
   const location = useLocation();
   const { data: reports, isLoading } = useReports();
   const updateSections = useUpdateReportSections();

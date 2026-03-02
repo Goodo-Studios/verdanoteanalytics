@@ -5,7 +5,8 @@ import { Separator } from "@/components/ui/separator";
 import { TrendingUp, Download, ArrowUp, ArrowDown, Minus, AlertTriangle, ArrowLeft, Send, Loader2, Pencil, FileText } from "lucide-react";
 import { exportReportCSV } from "@/lib/csv";
 import { useReports, useSendReportToSlack } from "@/hooks/useReportsApi";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 import { useMemo, useState, useCallback } from "react";
 import { SectionRenderer } from "@/components/reports/SectionRenderer";
 import { legacySectionsFromReport, ReportSection } from "@/lib/reportSections";
@@ -37,7 +38,7 @@ function DeltaBadge({ current, previous, prefix = "", suffix = "", inverse = fal
 
 const ReportDetailPage = () => {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
   const { isClient } = useAuth();
   const { data: reports, isLoading } = useReports();
   const slackMut = useSendReportToSlack();
