@@ -46,7 +46,7 @@ import { useCardPresence } from "@/hooks/useCardPresence";
 import type { GradeInfo } from "@/lib/creativeGrading";
 
 const CreativesPage = () => {
-  const { isClient, isBuilder, isEmployee, isEditor } = useAuth();
+  const { isClient, isBuilder, isEmployee } = useAuth();
   const { setSelectedAccountId } = useAccountContext();
   const navigate = useNavigate();
   const { data: pinnedViews = [] } = usePinnedViews();
@@ -292,7 +292,7 @@ const CreativesPage = () => {
 
   return (
     <AppLayout>
-      {!isClient && !isEditor && <OnboardingBanner />}
+      {!isClient && <OnboardingBanner />}
       <SyncStatusBanner />
       <MediaRefreshBanner />
       <PageHeader
