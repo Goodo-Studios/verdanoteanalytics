@@ -14,7 +14,7 @@ import { CalendarIcon, Loader2, Layers } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { useNavigate } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 
 interface PortfolioReportModalProps {
   open: boolean;
@@ -24,7 +24,7 @@ interface PortfolioReportModalProps {
 
 export function PortfolioReportModal({ open, onOpenChange, accounts }: PortfolioReportModalProps) {
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
   const lastMonth = subMonths(new Date(), 1);
 
   const [reportName, setReportName] = useState("Goodo Studios Portfolio Performance Report");

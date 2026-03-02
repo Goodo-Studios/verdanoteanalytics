@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,7 @@ function fmtPct(n: number) {
 }
 
 export default function AgencyDashboardPage() {
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
   const { accounts, setSelectedAccountId } = useAccountContext();
   const { data: allCreatives = [] } = useAllCreatives({});
   const { data: wowTrends } = useWoWTrends();

@@ -3,7 +3,7 @@ import { X, RefreshCw, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { computeFatigueMap, type FatigueResult } from "@/lib/fatigueScore";
-import { useNavigate } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 
 /* ── Types ─────────────────────────────────── */
 
@@ -245,7 +245,7 @@ function generateInsights(
 export function InsightCardsStrip({
   creatives, metrics, prevMetrics, fatigueMap, wowTrends, scaleThreshold, spendThreshold,
 }: InsightCardsProps) {
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
   const [refreshKey, setRefreshKey] = useState(0);
   const [dismissed, setDismissed] = useState<Set<string>>(() => {
     const d = getDismissed();

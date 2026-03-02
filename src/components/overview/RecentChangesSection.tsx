@@ -7,7 +7,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow, parseISO } from "date-fns";
-import { useNavigate } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 
 const EVENT_ICON: Record<string, typeof Info> = {
   roas_change: TrendingUp,
@@ -33,7 +33,7 @@ const EVENT_COLOR: Record<string, string> = {
 
 export function RecentChangesSection() {
   const { selectedAccountId } = useAccountContext();
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
   const { data: entries = [], isLoading } = useChangelog(
     selectedAccountId && selectedAccountId !== "all" ? selectedAccountId : undefined
   );

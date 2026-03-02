@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 import { useAccountContext } from "@/contexts/AccountContext";
 
 import { useAllCreatives } from "@/hooks/useAllCreatives";
@@ -110,7 +110,7 @@ function fmt$(v: number) {
 }
 
 export function BenchmarksTab() {
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
   const { accounts, setSelectedAccountId } = useAccountContext();
 
   // Fetch ALL creatives across all accounts

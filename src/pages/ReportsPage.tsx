@@ -40,7 +40,7 @@ import { cn } from "@/lib/utils";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useState, useCallback, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 import { useReports, useGenerateReport, useDeleteReport, useSendReportToSlack, useReportSchedules, useUpsertReportSchedule } from "@/hooks/useReportsApi";
 import { useAccounts } from "@/hooks/useAccountsApi";
 import { exportReportCSV } from "@/lib/csv";
@@ -67,7 +67,7 @@ const ReportsPage = () => {
   const [dateStart, setDateStart] = useState<Date>(subDays(new Date(), 7));
   const [dateEnd, setDateEnd] = useState<Date>(new Date());
   const [activeTab, setActiveTab] = useState("reports");
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
 
   const { data: rawReports, isLoading } = useReports();
   const { data: accounts } = useAccounts();

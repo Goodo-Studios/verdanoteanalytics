@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dna, FileText, Video, Image, Mic, Target, Lightbulb, Clock, Trophy } from "lucide-react";
 import { extractConceptRoot, groupByConcept } from "@/lib/conceptGrouping";
-import { useNavigate } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 
 interface Props {
   creatives: any[];
@@ -89,7 +89,7 @@ function PctBar({ pct }: { pct: number }) {
 }
 
 export function CreativeDnaTab({ creatives, scaleThreshold, spendThreshold, accountName, killScaleKpi = "roas", killScaleKpiDirection = "gte" }: Props) {
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
 
   const { winners, taggedCount, dna } = useMemo(() => {
     const tagged = creatives.filter(

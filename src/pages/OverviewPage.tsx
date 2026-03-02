@@ -23,7 +23,7 @@ import { RecommendedActionsSection } from "@/components/overview/RecommendedActi
 import { RecentChangesSection } from "@/components/overview/RecentChangesSection";
 import { computeFatigueMap } from "@/lib/fatigueScore";
 import { InsightCardsStrip } from "@/components/overview/InsightCardsStrip";
-import { useNavigate } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 import {
   TrendingUp, Eye, XCircle, ArrowRight, RefreshCw,
   Pencil, RotateCcw, Check, Plus,
@@ -60,7 +60,7 @@ function sizeClass(size: SectionSize) {
 }
 
 const OverviewPage = () => {
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
   const sync = useSync();
   const { isBuilder, isEmployee } = useAuth();
   const canEdit = isBuilder || isEmployee;

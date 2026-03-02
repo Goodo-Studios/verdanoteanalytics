@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { useNavigate } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 import { useSync } from "@/hooks/useSyncApi";
 import { FileText, RefreshCw, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -9,7 +9,7 @@ interface Props {
 }
 
 export function QuickActionsSection({ accountId }: Props) {
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
   const sync = useSync();
 
   return (

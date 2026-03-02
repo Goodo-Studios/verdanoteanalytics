@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 import {
   Search, FileText, Users, FlaskConical, Layers, LayoutGrid, X,
   FileEdit, RefreshCw, CalendarDays, Link2, ArrowRightLeft,
@@ -90,7 +90,7 @@ export function GlobalSearch() {
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
   const { selectedAccountId, accounts, setSelectedAccountId } = useAccountContext();
   const { isBuilder, isEmployee } = useAuth();
   const sync = useSync();

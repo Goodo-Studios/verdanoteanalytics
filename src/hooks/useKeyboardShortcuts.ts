@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 
 interface ShortcutOptions {
   onOpenShortcutsModal: () => void;
@@ -17,7 +18,7 @@ function isInputFocused() {
 }
 
 export function useKeyboardShortcuts({ onOpenShortcutsModal, onAccountPrev, onAccountNext }: ShortcutOptions) {
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
   const chordRef = useRef<string | null>(null);
   const chordTimer = useRef<ReturnType<typeof setTimeout>>();
 

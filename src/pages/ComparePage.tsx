@@ -1,5 +1,6 @@
 import { AppLayout } from "@/components/AppLayout";
 import { useSearchParams, Link } from "react-router-dom";
+import { useRolePrefix } from "@/hooks/useRolePath";
 import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { calculateBenchmarks, diagnoseCreatives, DIAGNOSTIC_META, DiagnosedCreative } from "@/lib/iterationDiagnostics";
@@ -42,6 +43,7 @@ const ComparePage = () => {
   const [searchParams] = useSearchParams();
   const ids = (searchParams.get("ids") || "").split(",").filter(Boolean);
   const { selectedAccountId, selectedAccount } = useAccountContext();
+  const prefix = useRolePrefix();
   const [mode, setMode] = useState<"ads" | "concepts">("ads");
 
   const filters = useMemo(() => ({
@@ -157,7 +159,7 @@ const ComparePage = () => {
       <AppLayout>
         <div className="py-20 text-center">
           <p className="font-body text-[14px] text-slate">No creatives found. Please select creatives from the Creatives page.</p>
-          <Link to="/creatives" className="font-body text-[13px] text-verdant hover:underline mt-2 inline-block">← Back to Creatives</Link>
+          <Link to={`${prefix}/creatives`} className="font-body text-[13px] text-verdant hover:underline mt-2 inline-block">← Back to Creatives</Link>
         </div>
       </AppLayout>
     );
@@ -170,7 +172,7 @@ const ComparePage = () => {
       <div className="space-y-8">
         {/* Header */}
         <div>
-          <Link to="/creatives" className="font-body text-[13px] text-verdant hover:underline flex items-center gap-1 mb-3">
+          <Link to={`${prefix}/creatives`} className="font-body text-[13px] text-verdant hover:underline flex items-center gap-1 mb-3">
             <ArrowLeft className="h-3.5 w-3.5" /> Back to Creatives
           </Link>
           <h1 className="font-heading text-[32px] text-forest">Creative Comparison</h1>
@@ -297,7 +299,7 @@ const ComparePage = () => {
               )}
               {anyUntagged && (
                 <p className="font-body text-[13px] text-sage mt-3">
-                  <Link to="/tagging" className="text-verdant hover:underline">Tag these creatives</Link> to unlock qualitative pattern analysis.
+                  <Link to={`${prefix}/tagging`} className="text-verdant hover:underline">Tag these creatives</Link> to unlock qualitative pattern analysis.
                 </p>
               )}
             </div>

@@ -4,14 +4,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { FileText, Eye, Download } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 import { useReports } from "@/hooks/useReportsApi";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { exportReportCSV } from "@/lib/csv";
 
 const ClientReportsPage = () => {
   const { selectedAccountId } = useAccountContext();
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
   const { data: rawReports, isLoading } = useReports();
 
   const reports = useMemo(() => {

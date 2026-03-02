@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 import { ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -16,7 +16,7 @@ function fmt$(n: number) {
 }
 
 export function SpendPacingWidget({ account, mtdSpend }: SpendPacingWidgetProps) {
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
   const target = Number(account?.target_monthly_spend) || 0;
 
   const pacing = useMemo(() => {

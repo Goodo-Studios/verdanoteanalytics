@@ -22,7 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RefreshCw, LayoutGrid, List, Loader2, Download, Search, X, Columns, Layers, Bookmark, CalendarDays, SlidersHorizontal } from "lucide-react";
 import { useMemo, useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
 import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { useCreatives, CREATIVES_PAGE_SIZE, useCreativeFilters } from "@/hooks/useCreatives";
@@ -48,7 +48,7 @@ import type { GradeInfo } from "@/lib/creativeGrading";
 const CreativesPage = () => {
   const { isClient, isBuilder, isEmployee } = useAuth();
   const { setSelectedAccountId } = useAccountContext();
-  const navigate = useNavigate();
+  const navigate = useRoleNavigate();
   const { data: pinnedViews = [] } = usePinnedViews();
   const state = useCreativesPageState();
   const {
