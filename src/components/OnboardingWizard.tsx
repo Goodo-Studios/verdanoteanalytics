@@ -5,11 +5,11 @@ import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  Zap, Layers, Sparkles, LayoutGrid, FileText, Award,
+  Zap, Layers, Sparkles, LayoutGrid, FileText,
   Bell, TrendingUp, Calendar, ArrowRight, Check, Leaf,
 } from "lucide-react";
 
-type AppRole = "builder" | "employee" | "client" | "editor";
+type AppRole = "builder" | "employee" | "client";
 
 interface Props {
   open: boolean;
@@ -21,7 +21,6 @@ interface Props {
 const subtitles: Record<AppRole, string> = {
   builder: "Your creative analytics command center is ready.",
   employee: "Your team's creative performance data is live.",
-  editor: "See how your work is performing in real ads.",
   client: "Your creative results, all in one place.",
 };
 
@@ -37,10 +36,6 @@ const tourFeatures: Record<AppRole, Feature[]> = {
     { icon: <Zap className="h-5 w-5 text-verdant" />, title: "Creatives", description: "See every ad and what's working" },
     { icon: <Layers className="h-5 w-5 text-verdant" />, title: "Concepts", description: "Group iterations and find your winners" },
     { icon: <Sparkles className="h-5 w-5 text-verdant" />, title: "AI Analyst", description: "Ask questions about your data in plain English" },
-  ],
-  editor: [
-    { icon: <Zap className="h-5 w-5 text-verdant" />, title: "Your Creatives", description: "See your edits and their performance" },
-    { icon: <Award className="h-5 w-5 text-verdant" />, title: "The Score", description: "Understand what makes an ad convert" },
   ],
   client: [
     { icon: <LayoutGrid className="h-5 w-5 text-verdant" />, title: "Overview", description: "Your results at a glance" },
@@ -76,7 +71,7 @@ export function OnboardingWizard({ open, onClose }: Props) {
 
   const next = () => {
     if (step < totalSteps - 1) {
-      // Skip notification step for editor/client
+      // Skip notification step for client
       if (step === 1 && !hasNotificationStep(role)) {
         setStep(totalSteps - 1);
       } else {
