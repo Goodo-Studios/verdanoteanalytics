@@ -22,7 +22,7 @@ const AccountContext = createContext<AccountContextType>({
 export function AccountProvider({ children }: { children: ReactNode }) {
   const { data: allAccounts, isLoading: accountsLoading } = useAccounts();
   const { isClient, isEditor, user } = useAuth();
-  const needsAccountFilter = isClient || isEditor;
+  const needsAccountFilter = isClient;
   const [linkedAccountIds, setLinkedAccountIds] = useState<string[] | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(() => {
     return localStorage.getItem("selectedAccountId");
