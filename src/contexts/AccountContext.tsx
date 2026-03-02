@@ -28,7 +28,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     return localStorage.getItem("selectedAccountId");
   });
 
-  // Fetch linked accounts for clients and editors
+  // Fetch linked accounts for clients
   useEffect(() => {
     if (needsAccountFilter && user) {
       supabase
@@ -43,7 +43,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     }
   }, [needsAccountFilter, user]);
 
-  // Filter accounts for clients and editors
+  // Filter accounts for clients
   const accounts = needsAccountFilter && linkedAccountIds
     ? (allAccounts || []).filter((a: any) => linkedAccountIds.includes(a.id))
     : (allAccounts || []);
