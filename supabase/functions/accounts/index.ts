@@ -30,7 +30,7 @@ serve(async (req) => {
     });
   }
   const { data: userRole } = await supabase.from("user_roles").select("role").eq("user_id", user.id).single();
-  if (!userRole || !["builder", "employee", "editor"].includes(userRole.role)) {
+  if (!userRole || !["builder", "employee"].includes(userRole.role)) {
     return new Response(JSON.stringify({ error: "Forbidden" }), {
       status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

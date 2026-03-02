@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
-import EditorOverviewPage from "./pages/EditorOverviewPage";
+
 import { AccountProvider } from "@/contexts/AccountContext";
 import { ClientPreviewContext, useClientPreviewMode } from "@/hooks/useClientPreviewMode";
 import { ClientPreviewBanner } from "@/components/ClientPreviewBanner";
@@ -43,7 +43,7 @@ import { useClientPreview } from "@/hooks/useClientPreviewMode";
 const queryClient = new QueryClient();
 
 function ProtectedRoutes() {
-  const { user, isLoading, isClient, isEditor, isBuilder } = useAuth();
+  const { user, isLoading, isClient, isBuilder } = useAuth();
   const { isClientPreview } = useClientPreview();
   const effectiveClient = isClient || isClientPreview;
 
@@ -64,21 +64,21 @@ function ProtectedRoutes() {
     <AccountProvider>
       <ClientPreviewBanner />
       <Routes>
-        <Route path="/" element={agencyHome && !isEditor ? <AgencyDashboardPage /> : <OverviewPage />} />
+        <Route path="/" element={agencyHome ? <AgencyDashboardPage /> : <OverviewPage />} />
         <Route path="/agency" element={isBuilder ? <AgencyDashboardPage /> : <Navigate to="/" replace />} />
         <Route path="/creatives" element={<CreativesPage />} />
         <Route path="/creatives/compare" element={<ComparePage />} />
         <Route path="/analytics" element={<AnalyticsPage />} />
-        <Route path="/tagging" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <TaggingPage />} />
+        <Route path="/tagging" element={effectiveClient ? <Navigate to="/" replace /> : <TaggingPage />} />
         
-        <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : isEditor ? <ClientReportsPage /> : <ReportsPage />} />
+        <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : <ReportsPage />} />
         <Route path="/reports/:id" element={<ReportDetailPage />} />
         <Route path="/reports/:id/build" element={<ReportBuilderPage />} />
-        <Route path="/settings" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <SettingsPage />} />
+        <Route path="/settings" element={effectiveClient ? <Navigate to="/" replace /> : <SettingsPage />} />
         <Route path="/user-settings" element={<UserSettingsPage />} />
-        <Route path="/saved-views" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <SavedViewsPage />} />
+        <Route path="/saved-views" element={effectiveClient ? <Navigate to="/" replace /> : <SavedViewsPage />} />
         
-        <Route path="/briefs" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <BriefsPage />} />
+        <Route path="/briefs" element={effectiveClient ? <Navigate to="/" replace /> : <BriefsPage />} />
         
         
         <Route path="/pipeline" element={<ContentPipelinePage />} />

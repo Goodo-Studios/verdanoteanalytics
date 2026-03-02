@@ -14,7 +14,6 @@ interface AuthContextType {
   isBuilder: boolean;
   isEmployee: boolean;
   isClient: boolean;
-  isEditor: boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -27,7 +26,6 @@ const AuthContext = createContext<AuthContextType>({
   isBuilder: false,
   isEmployee: false,
   isClient: false,
-  isEditor: false,
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -81,10 +79,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isBuilder = role === "builder";
   const isEmployee = role === "employee";
   const isClient = role === "client";
-  const isEditor = role === "editor";
 
   return (
-    <AuthContext.Provider value={{ user, session, role, isLoading, signIn, signOut, isBuilder, isEmployee, isClient, isEditor }}>
+    <AuthContext.Provider value={{ user, session, role, isLoading, signIn, signOut, isBuilder, isEmployee, isClient }}>
       {children}
     </AuthContext.Provider>
   );
