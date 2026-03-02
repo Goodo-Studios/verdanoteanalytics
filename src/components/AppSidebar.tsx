@@ -29,7 +29,7 @@ import { useAccountContext } from "@/contexts/AccountContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+
 
 const baseNavItems = [
   { title: "Overview", url: "/", icon: LayoutGrid },
@@ -85,9 +85,7 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
     }
   };
 
-  const roleBadgeClass = role === "client"
-    ? "font-label text-[9px] uppercase tracking-[0.1em] font-semibold bg-gold-light text-[#92730F] capitalize h-4 px-1.5 border-0"
-    : "font-label text-[9px] uppercase tracking-[0.1em] text-sage capitalize h-4 px-1.5 border-border/50";
+  const roleLabel = effectiveClient ? "client" : role;
 
   return (
     <aside className="flex h-screen w-56 flex-col bg-background border-r border-input">
@@ -96,14 +94,27 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
         <img src={verdanoteLogo} alt="Verdanote" className="h-7" />
       </div>
 
-      {/* Role badge + Account Switcher */}
-      <div className="px-3 pt-4 pb-2 space-y-2">
-        <div className="flex items-center justify-between px-2">
-          <p className="font-label text-[9px] uppercase tracking-[0.1em] text-sage">Account</p>
-          {!effectiveClient && (
-            <Badge variant="outline" className={roleBadgeClass}>{role}</Badge>
-          )}
+      {/* Role indicator */}
+      <div className="px-3 pt-4 pb-1">
+        <div className="flex items-center rounded-md bg-muted/50 p-0.5">
+          {(["builder", "employee", "client"] as const).map((r) => (
+            <div
+              key={r}
+              className={`flex-1 text-center py-1.5 rounded-[5px] font-label text-[9px] uppercase tracking-[0.1em] font-semibold transition-colors ${
+                roleLabel === r
+                  ? "bg-background text-forest shadow-sm"
+                  : "text-sage/50"
+              }`}
+            >
+              {r}
+            </div>
+          ))}
         </div>
+      </div>
+
+      {/* Account Switcher */}
+      <div className="px-3 pt-2 pb-2 space-y-1.5">
+        <p className="font-label text-[9px] uppercase tracking-[0.1em] text-sage px-2">Account</p>
         {showSwitcher && accounts.length > 0 && (
           <Select value={selectedAccountId || ""} onValueChange={handleAccountChange}>
             <SelectTrigger className="w-full h-9 font-body text-[13px] font-medium text-charcoal border border-input bg-background rounded-md [&>svg]:text-sage">
