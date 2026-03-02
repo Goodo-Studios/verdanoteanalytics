@@ -21,15 +21,16 @@ const AccountContext = createContext<AccountContextType>({
 
 export function AccountProvider({ children }: { children: ReactNode }) {
   const { data: allAccounts, isLoading: accountsLoading } = useAccounts();
-  const { isClient, user } = useAuth();
+  const { isClient, isEditor, user } = useAuth();
+  const needsAccountFilter = isClient || isEditor;
   const [linkedAccountIds, setLinkedAccountIds] = useState<string[] | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(() => {
     return localStorage.getItem("selectedAccountId");
   });
 
-  // Fetch linked accounts for clients
+  // Fetch linked accounts for clients and editors
   useEffect(() => {
-    if (isClient && user) {
+    if (needsAccountFilter && user) {
       supabase
         .from("user_accounts")
         .select("account_id")
@@ -40,14 +41,14 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     } else {
       setLinkedAccountIds(null);
     }
-  }, [isClient, user]);
+  }, [needsAccountFilter, user]);
 
-  // Filter accounts for clients
-  const accounts = isClient && linkedAccountIds
+  // Filter accounts for clients and editors
+  const accounts = needsAccountFilter && linkedAccountIds
     ? (allAccounts || []).filter((a: any) => linkedAccountIds.includes(a.id))
     : (allAccounts || []);
 
-  const isLoading = accountsLoading || (isClient && linkedAccountIds === null);
+  const isLoading = accountsLoading || (needsAccountFilter && linkedAccountIds === null);
 
   // Auto-select first account if none selected, or clear stale selection
   useEffect(() => {
