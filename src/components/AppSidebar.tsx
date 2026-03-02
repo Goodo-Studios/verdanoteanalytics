@@ -55,7 +55,9 @@ const clientNavItems = [
 const editorNavItems = [
   { title: "Overview", url: "/", icon: LayoutGrid },
   { title: "Creatives", url: "/creatives", icon: Zap },
+  { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Reports", url: "/reports", icon: FileText },
+  { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
   { title: "AI Analyst", url: "/ai-chat", icon: Sparkles },
 ];
 

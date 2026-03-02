@@ -64,11 +64,11 @@ function ProtectedRoutes() {
     <AccountProvider>
       <ClientPreviewBanner />
       <Routes>
-        <Route path="/" element={isEditor ? <EditorOverviewPage /> : agencyHome ? <AgencyDashboardPage /> : <OverviewPage />} />
+        <Route path="/" element={agencyHome && !isEditor ? <AgencyDashboardPage /> : <OverviewPage />} />
         <Route path="/agency" element={isBuilder ? <AgencyDashboardPage /> : <Navigate to="/" replace />} />
-        <Route path="/creatives" element={isEditor ? <ClientCreativesPage /> : <CreativesPage />} />
-        <Route path="/creatives/compare" element={isEditor ? <Navigate to="/" replace /> : <ComparePage />} />
-        <Route path="/analytics" element={isEditor ? <Navigate to="/" replace /> : <AnalyticsPage />} />
+        <Route path="/creatives" element={<CreativesPage />} />
+        <Route path="/creatives/compare" element={<ComparePage />} />
+        <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/tagging" element={(effectiveClient || isEditor) ? <Navigate to="/" replace /> : <TaggingPage />} />
         
         <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : isEditor ? <ClientReportsPage /> : <ReportsPage />} />
