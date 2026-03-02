@@ -57,7 +57,6 @@ const editorNavItems = [
   { title: "Creatives", url: "/creatives", icon: Zap },
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Reports", url: "/reports", icon: FileText },
-  { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
   { title: "AI Analyst", url: "/ai-chat", icon: Sparkles },
 ];
 
@@ -72,7 +71,7 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
 
   const effectiveClient = isClient || isClientPreview;
 
-  const showSwitcher = !effectiveClient || accounts.length > 1;
+  const showSwitcher = isEditor || !effectiveClient || accounts.length > 1;
   const showSettings = !effectiveClient && !isEditor;
   const agencyNavItems = [
     { title: "Overview", url: "/agency", icon: LayoutGrid },
