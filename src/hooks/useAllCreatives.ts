@@ -41,7 +41,7 @@ export function useAllCreatives(filters: Record<string, string> = {}) {
 
       return allData;
     },
-    staleTime: 2 * 60 * 1000, // Cache for 2 minutes
-    refetchInterval: 5 * 60 * 1000, // Refresh every 5 minutes
+    staleTime: 10 * 60 * 1000, // Cache for 10 minutes
+    refetchOnWindowFocus: false,
   });
 }

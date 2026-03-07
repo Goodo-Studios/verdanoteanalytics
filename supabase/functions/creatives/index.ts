@@ -15,6 +15,17 @@ const DISPLAY_NAMES: Record<string, string> = {
 
 function toDisplayName(val: string): string { return DISPLAY_NAMES[val] || val; }
 
+// Explicit column list avoids SELECT * overhead — only fetch what the client actually uses
+const CREATIVE_COLS = [
+  "ad_id", "account_id", "ad_name", "unique_code", "ad_type", "ad_status",
+  "person", "style", "hook", "product", "theme", "tag_source", "notes",
+  "spend", "impressions", "clicks", "ctr", "cpm", "cpc", "cpa", "roas",
+  "purchases", "purchase_value", "adds_to_cart", "cost_per_add_to_cart",
+  "video_views", "thumb_stop_rate", "hold_rate", "frequency", "video_avg_play_time",
+  "campaign_name", "adset_name", "preview_url", "thumbnail_url", "full_res_url",
+  "video_url", "scheduled_launch_date", "created_at", "updated_at",
+].join(", ");
+
 const VALID_TYPES = ["Video", "Static", "GIF", "Carousel"];
 const VALID_PERSONS = ["Creator", "Customer", "Founder", "Actor", "NoTalent"];
 const VALID_STYLES = ["UGCNative", "StudioClean", "TextForward", "Lifestyle"];
@@ -140,7 +151,7 @@ serve(async (req) => {
 
         // If no daily metrics exist for this date range, fall back to lifetime metrics
         if (!dailyData || dailyData.length === 0) {
-          let cQuery = supabase.from("creatives").select("*").order("spend", { ascending: false });
+          let cQuery = supabase.from("creatives").select(CREATIVE_COLS).order("spend", { ascending: false });
           if (accountId) cQuery = cQuery.eq("account_id", accountId);
           if (adType) cQuery = cQuery.eq("ad_type", adType);
           if (person) cQuery = cQuery.eq("person", person);
@@ -212,7 +223,7 @@ serve(async (req) => {
           const allCreatives: any[] = [];
           for (let i = 0; i < relevantAdIds.length; i += 100) {
             const batch = relevantAdIds.slice(i, i + 100);
-            let cQuery = supabase.from("creatives").select("*").in("ad_id", batch);
+            let cQuery = supabase.from("creatives").select(CREATIVE_COLS).in("ad_id", batch);
             if (adType) cQuery = cQuery.eq("ad_type", adType);
             if (person) cQuery = cQuery.eq("person", person);
             if (style) cQuery = cQuery.eq("style", style);
@@ -276,7 +287,7 @@ serve(async (req) => {
 
       const { count } = await countQuery;
 
-      let query = supabase.from("creatives").select("*").order("spend", { ascending: false });
+      let query = supabase.from("creatives").select(CREATIVE_COLS).order("spend", { ascending: false });
       if (accountId) query = query.eq("account_id", accountId);
       if (adType) query = query.eq("ad_type", adType);
       if (person) query = query.eq("person", person);
@@ -435,15 +446,27 @@ serve(async (req) => {
         });
       }
 
-      // Apply tags
+      // Apply tags — batch updates by tag signature to reduce round-trips
       let applied = 0;
+      const signatureMap = new Map<string, { update: Record<string, any>; ad_ids: string[] }>();
       for (const item of taggable) {
         const update: Record<string, any> = { tag_source: "inferred" };
         if (item.tags.ad_type) update.ad_type = item.tags.ad_type;
         if (item.tags.hook) update.hook = item.tags.hook;
         if (item.tags.theme) update.theme = item.tags.theme;
-        const { error: upErr } = await supabase.from("creatives").update(update).eq("ad_id", item.ad_id);
-        if (!upErr) applied++;
+        const sig = JSON.stringify(update);
+        if (!signatureMap.has(sig)) {
+          signatureMap.set(sig, { update, ad_ids: [] });
+        }
+        signatureMap.get(sig)!.ad_ids.push(item.ad_id);
+      }
+      for (const { update, ad_ids } of signatureMap.values()) {
+        const { error: upErr, data: upData } = await supabase
+          .from("creatives")
+          .update(update)
+          .in("ad_id", ad_ids)
+          .select("ad_id");
+        if (!upErr) applied += (upData?.length ?? ad_ids.length);
       }
 
       // Update untagged count

@@ -1,11 +1,11 @@
 import { useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Lightbulb, TrendingUp, TrendingDown, Minus } from "lucide-react";
-import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { calculateBenchmarks, type MetricLevel } from "@/lib/iterationDiagnostics";
 
 interface Props {
   creative: any;
+  allCreatives: any[];
 }
 
 function LevelIcon({ level }: { level: MetricLevel }) {
@@ -26,9 +26,7 @@ function levelFor(value: number, p25: number, p75: number): MetricLevel {
   return "average";
 }
 
-export function CreativeIterationAnalysis({ creative }: Props) {
-  const { data: allCreatives = [] } = useAllCreatives({ account_id: creative.account_id });
-  
+export function CreativeIterationAnalysis({ creative, allCreatives }: Props) {
   const analysis = useMemo(() => {
     if (allCreatives.length < 3) return null;
     

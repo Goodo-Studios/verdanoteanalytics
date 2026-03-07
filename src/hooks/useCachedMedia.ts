@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const CACHE_NAME = "verdanote-media-cache-v1";
 const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -126,6 +126,9 @@ export function useCachedMedia(
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  // Track the previous blob URL so we can revoke it when a new one is created,
+  // preventing the memory leak where stale blob URLs accumulate.
+  const previousObjectUrlRef = useRef<string | null>(null);
 
   const loadMedia = useCallback(async () => {
     if (!mediaUrl) {
@@ -141,6 +144,11 @@ export function useCachedMedia(
       // Check cache first
       const cached = await mediaCache.get(mediaUrl);
       if (cached) {
+        // Revoke previous blob URL before setting new one
+        if (previousObjectUrlRef.current && previousObjectUrlRef.current.startsWith("blob:")) {
+          URL.revokeObjectURL(previousObjectUrlRef.current);
+        }
+        previousObjectUrlRef.current = cached;
         setObjectUrl(cached);
         setIsLoading(false);
         return;
@@ -159,6 +167,11 @@ export function useCachedMedia(
       await mediaCache.set(mediaUrl, blob);
 
       const url = URL.createObjectURL(blob);
+      // Revoke previous blob URL before setting new one
+      if (previousObjectUrlRef.current && previousObjectUrlRef.current.startsWith("blob:")) {
+        URL.revokeObjectURL(previousObjectUrlRef.current);
+      }
+      previousObjectUrlRef.current = url;
       setObjectUrl(url);
     } catch (err) {
       console.error("Media load error:", err);
@@ -173,10 +186,11 @@ export function useCachedMedia(
   useEffect(() => {
     loadMedia();
 
-    // Cleanup object URL on unmount or URL change
+    // Cleanup object URL on unmount
     return () => {
-      if (objectUrl && objectUrl.startsWith("blob:")) {
-        URL.revokeObjectURL(objectUrl);
+      if (previousObjectUrlRef.current && previousObjectUrlRef.current.startsWith("blob:")) {
+        URL.revokeObjectURL(previousObjectUrlRef.current);
+        previousObjectUrlRef.current = null;
       }
     };
   }, [mediaUrl]);

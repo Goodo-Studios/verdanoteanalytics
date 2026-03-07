@@ -8,39 +8,47 @@ import { AccountProvider } from "@/contexts/AccountContext";
 import { ClientPreviewContext, useClientPreviewMode } from "@/hooks/useClientPreviewMode";
 import { ClientPreviewBanner } from "@/components/ClientPreviewBanner";
 import { useRolePrefix } from "@/hooks/useRolePath";
-import OverviewPage from "./pages/OverviewPage";
-import ClientOverviewPage from "./pages/ClientOverviewPage";
-import CreativesPage from "./pages/CreativesPage";
-import ClientCreativesPage from "./pages/ClientCreativesPage";
-import AnalyticsPage from "./pages/AnalyticsPage";
-import ComparePage from "./pages/ComparePage";
-import TaggingPage from "./pages/TaggingPage";
+import { Loader2 } from "lucide-react";
+import { useClientPreview } from "@/hooks/useClientPreviewMode";
+import { lazy, Suspense } from "react";
 
-import ReportsPage from "./pages/ReportsPage";
-import ClientReportsPage from "./pages/ClientReportsPage";
-import ReportDetailPage from "./pages/ReportDetailPage";
-import ReportBuilderPage from "./pages/ReportBuilderPage";
-import PublicReportPage from "./pages/PublicReportPage";
-
-import SettingsPage from "./pages/SettingsPage";
-import UserSettingsPage from "./pages/UserSettingsPage";
-import SavedViewsPage from "./pages/SavedViewsPage";
+// Critical pages — loaded eagerly (auth flow)
 import LoginPage from "./pages/LoginPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import UpdatePasswordPage from "./pages/UpdatePasswordPage";
-import AIChatPage from "./pages/AIChatPage";
 
-import BriefsPage from "./pages/BriefsPage";
-import PublicBriefPage from "./pages/PublicBriefPage";
-
-import AgencyDashboardPage from "./pages/AgencyDashboardPage";
-import ContentPipelinePage from "./pages/ContentPipelinePage";
-
-import NotFound from "./pages/NotFound";
-import { Loader2 } from "lucide-react";
-import { useClientPreview } from "@/hooks/useClientPreviewMode";
+// Non-critical pages — lazy loaded for bundle splitting
+const OverviewPage = lazy(() => import("./pages/OverviewPage"));
+const ClientOverviewPage = lazy(() => import("./pages/ClientOverviewPage"));
+const CreativesPage = lazy(() => import("./pages/CreativesPage"));
+const ClientCreativesPage = lazy(() => import("./pages/ClientCreativesPage"));
+const AnalyticsPage = lazy(() => import("./pages/AnalyticsPage"));
+const ComparePage = lazy(() => import("./pages/ComparePage"));
+const TaggingPage = lazy(() => import("./pages/TaggingPage"));
+const ReportsPage = lazy(() => import("./pages/ReportsPage"));
+const ClientReportsPage = lazy(() => import("./pages/ClientReportsPage"));
+const ReportDetailPage = lazy(() => import("./pages/ReportDetailPage"));
+const ReportBuilderPage = lazy(() => import("./pages/ReportBuilderPage"));
+const PublicReportPage = lazy(() => import("./pages/PublicReportPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const UserSettingsPage = lazy(() => import("./pages/UserSettingsPage"));
+const SavedViewsPage = lazy(() => import("./pages/SavedViewsPage"));
+const AIChatPage = lazy(() => import("./pages/AIChatPage"));
+const BriefsPage = lazy(() => import("./pages/BriefsPage"));
+const PublicBriefPage = lazy(() => import("./pages/PublicBriefPage"));
+const AgencyDashboardPage = lazy(() => import("./pages/AgencyDashboardPage"));
+const ContentPipelinePage = lazy(() => import("./pages/ContentPipelinePage"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
+
+function PageFallback() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
 
 /** Redirect / to the correct role prefix */
 function RoleRedirect() {
@@ -88,27 +96,29 @@ function RoleGuardedRoutes() {
   return (
     <AccountProvider>
       <ClientPreviewBanner />
-      <Routes>
-        <Route path="/" element={agencyHome ? <AgencyDashboardPage /> : <OverviewPage />} />
-        <Route path="/agency" element={isBuilder ? <AgencyDashboardPage /> : <Navigate to={`${prefix}/`} replace />} />
-        <Route path="/creatives" element={<CreativesPage />} />
-        <Route path="/creatives/compare" element={<ComparePage />} />
-        <Route path="/analytics" element={<AnalyticsPage />} />
-        <Route path="/tagging" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <TaggingPage />} />
-        
-        <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : <ReportsPage />} />
-        <Route path="/reports/:id" element={<ReportDetailPage />} />
-        <Route path="/reports/:id/build" element={<ReportBuilderPage />} />
-        <Route path="/settings" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <SettingsPage />} />
-        <Route path="/user-settings" element={<UserSettingsPage />} />
-        <Route path="/saved-views" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <SavedViewsPage />} />
-        
-        <Route path="/briefs" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <BriefsPage />} />
-        
-        <Route path="/pipeline" element={<ContentPipelinePage />} />
-        <Route path="/ai-chat" element={<AIChatPage />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
+      <Suspense fallback={<PageFallback />}>
+        <Routes>
+          <Route path="/" element={agencyHome ? <AgencyDashboardPage /> : <OverviewPage />} />
+          <Route path="/agency" element={isBuilder ? <AgencyDashboardPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/creatives" element={<CreativesPage />} />
+          <Route path="/creatives/compare" element={<ComparePage />} />
+          <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/tagging" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <TaggingPage />} />
+          
+          <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : <ReportsPage />} />
+          <Route path="/reports/:id" element={<ReportDetailPage />} />
+          <Route path="/reports/:id/build" element={<ReportBuilderPage />} />
+          <Route path="/settings" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <SettingsPage />} />
+          <Route path="/user-settings" element={<UserSettingsPage />} />
+          <Route path="/saved-views" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <SavedViewsPage />} />
+          
+          <Route path="/briefs" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <BriefsPage />} />
+          
+          <Route path="/pipeline" element={<ContentPipelinePage />} />
+          <Route path="/ai-chat" element={<AIChatPage />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </Suspense>
     </AccountProvider>
   );
 }
@@ -128,8 +138,16 @@ const App = () => {
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/reset-password" element={<ResetPasswordPage />} />
                   <Route path="/update-password" element={<UpdatePasswordPage />} />
-                  <Route path="/public/reports/:id" element={<PublicReportPage />} />
-                  <Route path="/briefs/share/:token" element={<PublicBriefPage />} />
+                  <Route path="/public/reports/:id" element={
+                    <Suspense fallback={<PageFallback />}>
+                      <PublicReportPage />
+                    </Suspense>
+                  } />
+                  <Route path="/briefs/share/:token" element={
+                    <Suspense fallback={<PageFallback />}>
+                      <PublicBriefPage />
+                    </Suspense>
+                  } />
                   
                   {/* Root → redirect to role prefix */}
                   <Route path="/" element={<RoleRedirect />} />

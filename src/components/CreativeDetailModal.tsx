@@ -28,6 +28,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useAllCreatives } from "@/hooks/useAllCreatives";
 
 
 
@@ -237,6 +238,9 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
   if (!creative) return null;
   const fatigue = fatigueMap?.get(creative.ad_id);
 
+  // Fetch all creatives once at modal level — passed down to avoid duplicate fetches
+  const { data: allCreatives = [] } = useAllCreatives({ account_id: creative.account_id });
+
   const creativeLink = creative ? `https://www.facebook.com/ads/library/?id=${creative.ad_id}` : "";
 
   const handleOpenCodaBrief = () => {
@@ -311,7 +315,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
             <CreativeMetrics creative={creative} />
 
             {/* Iteration Analysis - right after metrics */}
-            <CreativeIterationAnalysis creative={creative} />
+            <CreativeIterationAnalysis creative={creative} allCreatives={allCreatives} />
 
             {gradeMap?.get(creative.ad_id) && (
               <div className="flex items-center gap-2 px-1">
