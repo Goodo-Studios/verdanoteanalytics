@@ -856,7 +856,6 @@ export type Database = {
           creator_id: string | null
           ctr: number | null
           frequency: number | null
-          full_res_url: string | null
           hold_rate: number | null
           hook: string | null
           impressions: number | null
@@ -910,7 +909,6 @@ export type Database = {
           creator_id?: string | null
           ctr?: number | null
           frequency?: number | null
-          full_res_url?: string | null
           hold_rate?: number | null
           hook?: string | null
           impressions?: number | null
@@ -964,7 +962,6 @@ export type Database = {
           creator_id?: string | null
           ctr?: number | null
           frequency?: number | null
-          full_res_url?: string | null
           hold_rate?: number | null
           hook?: string | null
           impressions?: number | null
