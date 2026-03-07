@@ -231,8 +231,8 @@ function buildSystemPrompt(
   const baseContext = `CURRENT ACCOUNT: ${accountName}
 DATASET: ${creatives.length} creatives | Total Spend: $${stats.totalSpend.toFixed(0)} | Avg ROAS: ${stats.avgRoas.toFixed(2)}x | Avg CTR: ${(stats.avgCtr * 100).toFixed(2)}% | Avg CPA: $${stats.avgCpa.toFixed(0)}
 
-TOP PERFORMERS BY ROAS: ${stats.topByRoas || "N/A"}
-TOP SPENDERS: ${stats.topBySpend || "N/A"}
+TOP PERFORMERS (by spend — highest spend = most trusted by media buyers): ${stats.topBySpend || "N/A"}
+HIGH ROAS (efficient but not necessarily best): ${stats.topByRoas || "N/A"}
 
 FULL CREATIVE DATA (name | spend | roas | cpa | ctr% | hook% | hold% | type | hook | style | status):
 ${table}`;
