@@ -224,6 +224,6 @@ serve(async (req) => {
     return json({ error: "Not found" }, 404);
   } catch (err) {
     console.error("competitor-ads error:", err);
-    return json({ error: err.message || "Internal error" }, 500);
+    return json({ error: (err as Error).message || "Internal error" }, 500);
   }
 });
