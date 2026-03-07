@@ -77,8 +77,8 @@ serve(async (req) => {
       .map(([t, v]) => `${t}: ROAS ${(v.pv / v.spend).toFixed(2)}x, ${v.count} ads, $${v.spend.toFixed(0)} spend`)
       .join("\n");
 
-    const creativeSummary = topByRoas
-      .map(c => `"${c.ad_name}" — ROAS: ${(c.roas || 0).toFixed(2)}x, CPA: $${(c.cpa || 0).toFixed(2)}, Spend: $${(c.spend || 0).toFixed(0)}, Type: ${c.ad_type || c.style || "N/A"}`)
+    const creativeSummary = topBySpend
+      .map(c => `"${c.ad_name}" — Spend: $${(c.spend || 0).toFixed(0)}, ROAS: ${(c.roas || 0).toFixed(2)}x, CPA: $${(c.cpa || 0).toFixed(2)}, Type: ${c.ad_type || c.style || "N/A"}`)
       .join("\n");
 
     const prompt = `You are a creative performance analyst writing insights for a business owner who is NOT a marketer.
