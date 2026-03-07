@@ -83,6 +83,7 @@ const OverviewPage = () => {
   } = useDashboardLayout();
 
   const isSingleAccount = selectedAccountId && selectedAccountId !== "all";
+  const [selectedCreative, setSelectedCreative] = useState<any>(null);
   
   const { data: wowTrends } = useWoWTrends(isSingleAccount ? selectedAccountId : undefined);
   const { data: mtdSpend = 0 } = useMtdSpend(isSingleAccount ? selectedAccountId : undefined);
