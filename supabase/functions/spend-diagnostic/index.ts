@@ -205,6 +205,9 @@ serve(async (req) => {
     const spendDelta = vnSpend - metaSpend;
     const spendDeltaPct = metaSpend > 0 ? ((spendDelta / metaSpend) * 100) : 0;
 
+    const dailySpendDelta = dailySpend - metaSpend;
+    const dailySpendDeltaPct = metaSpend > 0 ? ((dailySpendDelta / metaSpend) * 100) : 0;
+
     const result = {
       account_name: account.name,
       date_range: { since, until, days: dateRangeDays },
@@ -217,7 +220,7 @@ serve(async (req) => {
         roas: metaSpend > 0 ? Math.round((metaPurchaseValue / metaSpend) * 100) / 100 : 0,
         ad_count: metaAdCount,
       },
-      verdanote: {
+      verdanote_snapshot: {
         spend: Math.round(vnSpend * 100) / 100,
         impressions: vnImpressions,
         purchases: vnPurchases,
@@ -225,11 +228,25 @@ serve(async (req) => {
         roas: vnSpend > 0 ? Math.round((vnPurchaseValue / vnSpend) * 100) / 100 : 0,
         creative_count: creativeCount,
       },
-      delta: {
+      verdanote_daily: {
+        spend: Math.round(dailySpend * 100) / 100,
+        impressions: dailyImpressions,
+        purchases: dailyPurchases,
+        purchase_value: Math.round(dailyPurchaseValue * 100) / 100,
+        roas: dailySpend > 0 ? Math.round((dailyPurchaseValue / dailySpend) * 100) / 100 : 0,
+        ad_count: dailyAdIds.size,
+      },
+      delta_snapshot: {
         spend: Math.round(spendDelta * 100) / 100,
         spend_pct: Math.round(spendDeltaPct * 100) / 100,
         impressions: vnImpressions - metaImpressions,
         ad_count: metaAdCount !== null ? creativeCount - metaAdCount : null,
+      },
+      delta_daily: {
+        spend: Math.round(dailySpendDelta * 100) / 100,
+        spend_pct: Math.round(dailySpendDeltaPct * 100) / 100,
+        impressions: dailyImpressions - metaImpressions,
+        ad_count: metaAdCount !== null ? dailyAdIds.size - metaAdCount : null,
       },
     };
 
