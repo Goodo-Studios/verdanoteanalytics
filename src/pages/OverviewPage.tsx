@@ -291,6 +291,15 @@ const OverviewPage = () => {
             );
           })}
         </div>
+
+        {selectedCreative && (
+          <CreativeDetailModal
+            creative={selectedCreative}
+            open={!!selectedCreative}
+            onClose={() => setSelectedCreative(null)}
+            fatigueMap={fatigueMap}
+          />
+        )}
       </div>
     </AppLayout>
   );
