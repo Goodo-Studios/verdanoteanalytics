@@ -60,8 +60,8 @@ serve(async (req) => {
     const totalPV = creatives.reduce((s: number, c: any) => s + (c.spend || 0) * (c.roas || 0), 0);
     const avgRoas = totalSpend > 0 ? totalPV / totalSpend : 0;
 
-    const topByRoas = [...creatives].filter(c => (c.roas || 0) > 0 && (c.spend || 0) > 50)
-      .sort((a, b) => (b.roas || 0) - (a.roas || 0)).slice(0, 5);
+    const topBySpend = [...creatives].filter(c => (c.spend || 0) > 50)
+      .sort((a, b) => (b.spend || 0) - (a.spend || 0)).slice(0, 5);
 
     const byType: Record<string, { spend: number; pv: number; count: number }> = {};
     for (const c of creatives) {
