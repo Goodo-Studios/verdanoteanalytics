@@ -212,7 +212,7 @@ function computeStats(creatives: any[]) {
   const topBySpend = [...creatives]
     .sort((a, b) => (b.spend || 0) - (a.spend || 0))
     .slice(0, 5)
-    .map(c => `"${c.ad_name}" ($${c.spend?.toFixed(0)})`)
+    .map(c => `"${c.ad_name}" (Spend: $${c.spend?.toFixed(0)}, ROAS: ${c.roas?.toFixed(2)}x)`)
     .join("; ");
 
   return { totalSpend, avgRoas, avgCtr, avgCpa, topByRoas, topBySpend };
