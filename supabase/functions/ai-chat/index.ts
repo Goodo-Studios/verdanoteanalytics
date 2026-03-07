@@ -330,7 +330,7 @@ You MUST output EXACTLY 3 concepts in this format:
 - **Format**: [UGC / Static / Video / Carousel — pick one]
 - **Angle**: [Offer / Social Proof / Problem-Solution / Aspirational / Fear-of-Missing / Education — pick one]
 - **Why This Works**: [1-2 sentences explaining why this concept fits the audience, referencing performance data]
-- **Reference**: [Name a similar creative from the account data that performed well, with its ROAS]
+- **Reference**: [Name a similar creative from the account data that performed well (high spend = best), with its spend and ROAS]
 - **Suggested Ad Name**: [Follow the account's naming convention if visible, e.g. "PRODUCT_STYLE_HOOK_v1"]
 
 ### Concept 2: [Concept Name]
