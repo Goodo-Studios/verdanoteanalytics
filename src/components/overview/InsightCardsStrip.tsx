@@ -26,6 +26,7 @@ interface InsightCardsProps {
   wowTrends?: Map<string, any>;
   scaleThreshold: number;
   spendThreshold: number;
+  onCreativeClick?: (creative: any) => void;
 }
 
 /* ── Dismiss logic (localStorage, 24h TTL) ── */
@@ -69,6 +70,7 @@ function generateInsights(
   scaleThreshold: number,
   spendThreshold: number,
   navigate: (path: string) => void,
+  onCreativeClick?: (creative: any) => void,
 ): InsightCard[] {
   const cards: InsightCard[] = [];
   const active = creatives.filter((c: any) => (Number(c.spend) || 0) >= spendThreshold);
@@ -91,7 +93,7 @@ function generateInsights(
       headline: "New best performer",
       body: `${topCreative.ad_name} is your #1 creative at ${roas.toFixed(1)}x ROAS and ${fmt$(spend)} spend. It's outperforming your account average by ${diff}x.`,
       cta: "View Creative →",
-      ctaAction: () => navigate(`/creatives?highlight=${topCreative.ad_id}`),
+      ctaAction: () => onCreativeClick ? onCreativeClick(topCreative) : navigate(`/creatives?highlight=${topCreative.ad_id}`),
       priority: 1,
     });
   }
@@ -199,7 +201,7 @@ function generateInsights(
       headline: "Underfunded winner",
       body: `${c.ad_name} has a ${roas.toFixed(1)}x ROAS but only ${fmt$(spend)} in spend. Scaling to ${fmt$(targetSpend)} could add ~${fmt$(Number(projectedRevenue))} in attributed revenue.`,
       cta: "View Creative →",
-      ctaAction: () => navigate(`/creatives?highlight=${c.ad_id}`),
+      ctaAction: () => onCreativeClick ? onCreativeClick(c) : navigate(`/creatives?highlight=${c.ad_id}`),
       priority: 3,
     });
   }
@@ -243,7 +245,7 @@ function generateInsights(
 /* ── Component ─────────────────────────────── */
 
 export function InsightCardsStrip({
-  creatives, metrics, prevMetrics, fatigueMap, wowTrends, scaleThreshold, spendThreshold,
+  creatives, metrics, prevMetrics, fatigueMap, wowTrends, scaleThreshold, spendThreshold, onCreativeClick,
 }: InsightCardsProps) {
   const navigate = useRoleNavigate();
   const [refreshKey, setRefreshKey] = useState(0);
@@ -253,9 +255,9 @@ export function InsightCardsStrip({
   });
 
   const allCards = useMemo(
-    () => generateInsights(creatives, metrics, prevMetrics, fatigueMap, wowTrends, scaleThreshold, spendThreshold, navigate),
+    () => generateInsights(creatives, metrics, prevMetrics, fatigueMap, wowTrends, scaleThreshold, spendThreshold, navigate, onCreativeClick),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [creatives, metrics, prevMetrics, fatigueMap, wowTrends, scaleThreshold, spendThreshold, refreshKey]
+    [creatives, metrics, prevMetrics, fatigueMap, wowTrends, scaleThreshold, spendThreshold, refreshKey, onCreativeClick]
   );
 
   const visibleCards = useMemo(() => allCards.filter((c) => !dismissed.has(c.id)), [allCards, dismissed]);

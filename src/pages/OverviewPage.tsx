@@ -122,6 +122,7 @@ const OverviewPage = () => {
                   wowTrends={wowTrends}
                   scaleThreshold={killScaleConfig.scaleAt}
                   spendThreshold={spendThreshold}
+                  onCreativeClick={setSelectedCreative}
                 />
               </div>
             )}
