@@ -236,11 +236,11 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
   const [briefNote, setBriefNote] = useState("");
   const [pushing, setPushing] = useState(false);
 
+  // Fetch all creatives once at modal level — passed down to avoid duplicate fetches
+  const { data: allCreatives = [] } = useAllCreatives({ account_id: creative?.account_id });
+
   if (!creative) return null;
   const fatigue = fatigueMap?.get(creative.ad_id);
-
-  // Fetch all creatives once at modal level — passed down to avoid duplicate fetches
-  const { data: allCreatives = [] } = useAllCreatives({ account_id: creative.account_id });
 
   const creativeLink = creative ? `https://www.facebook.com/ads/library/?id=${creative.ad_id}` : "";
 
