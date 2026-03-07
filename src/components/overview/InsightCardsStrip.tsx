@@ -201,7 +201,7 @@ function generateInsights(
       headline: "Underfunded winner",
       body: `${c.ad_name} has a ${roas.toFixed(1)}x ROAS but only ${fmt$(spend)} in spend. Scaling to ${fmt$(targetSpend)} could add ~${fmt$(Number(projectedRevenue))} in attributed revenue.`,
       cta: "View Creative →",
-      ctaAction: () => navigate(`/creatives?highlight=${c.ad_id}`),
+      ctaAction: () => onCreativeClick ? onCreativeClick(c) : navigate(`/creatives?highlight=${c.ad_id}`),
       priority: 3,
     });
   }
