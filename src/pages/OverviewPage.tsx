@@ -298,7 +298,7 @@ const OverviewPage = () => {
 
 /* ── Sub-components ─────────────────────────────────────────── */
 
-function CreativeInsightCard({ creative, variant, spendThreshold }: { creative: any; variant: "top" | "concern"; spendThreshold: number }) {
+function CreativeInsightCard({ creative, variant, spendThreshold, onClick }: { creative: any; variant: "top" | "concern"; spendThreshold: number; onClick?: () => void }) {
   const roas = Number(creative.roas) || 0;
   const cpa = Number(creative.cpa) || 0;
   const ctr = Number(creative.ctr) || 0;
@@ -308,7 +308,7 @@ function CreativeInsightCard({ creative, variant, spendThreshold }: { creative: 
   const estimatedLoss = variant === "concern" && roas < 1 ? spend * (1 - roas) : 0;
 
   return (
-    <div className="flex gap-4">
+    <div className={cn("flex gap-4", onClick && "cursor-pointer hover:bg-sage-light/50 -mx-2 px-2 py-1 rounded-[6px] transition-colors")} onClick={onClick}>
       {creative.thumbnail_url && <img src={creative.thumbnail_url} alt="" className="h-20 w-20 rounded-[4px] object-cover flex-shrink-0" />}
       <div className="min-w-0 flex-1 space-y-2">
         <p className="font-body text-[14px] font-semibold text-charcoal truncate">{creative.ad_name}</p>
