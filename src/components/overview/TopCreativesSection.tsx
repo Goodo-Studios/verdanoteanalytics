@@ -10,9 +10,10 @@ interface Props {
   creatives: any[];
   count?: number;
   sortBy?: string;
+  onCreativeClick?: (creative: any) => void;
 }
 
-export function TopCreativesSection({ creatives, count = 5, sortBy = "roas" }: Props) {
+export function TopCreativesSection({ creatives, count = 5, sortBy = "roas", onCreativeClick }: Props) {
   const top = useMemo(() => {
     const qualified = creatives.filter((c: any) => (Number(c.spend) || 0) > 0);
     const sorted = [...qualified].sort((a, b) => {
@@ -32,7 +33,7 @@ export function TopCreativesSection({ creatives, count = 5, sortBy = "roas" }: P
       <h2 className="font-heading text-[18px] text-forest mb-4">Top Creatives by {sortBy.toUpperCase()}</h2>
       <div className="space-y-3">
         {top.map((c: any, i: number) => (
-          <div key={c.ad_id} className="flex items-center gap-3">
+          <div key={c.ad_id} className={cn("flex items-center gap-3", onCreativeClick && "cursor-pointer hover:bg-sage-light/50 -mx-2 px-2 py-1 rounded-[6px] transition-colors")} onClick={() => onCreativeClick?.(c)}>
             <span className="font-data text-[14px] font-semibold text-sage w-5 text-right">{i + 1}</span>
             {c.thumbnail_url && (
               <img src={c.thumbnail_url} alt="" className="h-10 w-10 rounded-[4px] object-cover flex-shrink-0" />

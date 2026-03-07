@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { GoalsBar } from "@/components/GoalsBar";
@@ -16,6 +16,7 @@ import { EditableSectionWrapper } from "@/components/overview/EditableSectionWra
 import { AddSectionPanel } from "@/components/overview/AddSectionPanel";
 import { TopCreativesSection } from "@/components/overview/TopCreativesSection";
 import { TrendChartSection } from "@/components/overview/TrendChartSection";
+import { CreativeDetailModal } from "@/components/CreativeDetailModal";
 
 import { TagPerformanceSection } from "@/components/overview/TagPerformanceSection";
 import { QuickActionsSection } from "@/components/overview/QuickActionsSection";
@@ -82,6 +83,7 @@ const OverviewPage = () => {
   } = useDashboardLayout();
 
   const isSingleAccount = selectedAccountId && selectedAccountId !== "all";
+  const [selectedCreative, setSelectedCreative] = useState<any>(null);
   
   const { data: wowTrends } = useWoWTrends(isSingleAccount ? selectedAccountId : undefined);
   const { data: mtdSpend = 0 } = useMtdSpend(isSingleAccount ? selectedAccountId : undefined);
@@ -137,11 +139,11 @@ const OverviewPage = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white border border-border-light rounded-[8px] p-5">
               <h2 className="font-heading text-[18px] text-forest mb-4">Top Performer</h2>
-              {topPerformer ? <CreativeInsightCard creative={topPerformer} variant="top" spendThreshold={spendThreshold} /> : <p className="font-body text-[13px] text-sage">No qualifying creatives found.</p>}
+              {topPerformer ? <CreativeInsightCard creative={topPerformer} variant="top" spendThreshold={spendThreshold} onClick={() => setSelectedCreative(topPerformer)} /> : <p className="font-body text-[13px] text-sage">No qualifying creatives found.</p>}
             </div>
             <div className="bg-white border border-border-light rounded-[8px] p-5">
               <h2 className="font-heading text-[18px] text-forest mb-4">Biggest Concern</h2>
-              {biggestConcern ? <CreativeInsightCard creative={biggestConcern} variant="concern" spendThreshold={spendThreshold} /> : <p className="font-body text-[13px] text-sage">No underperforming creatives — all ROAS ≥ 1.0.</p>}
+              {biggestConcern ? <CreativeInsightCard creative={biggestConcern} variant="concern" spendThreshold={spendThreshold} onClick={() => setSelectedCreative(biggestConcern)} /> : <p className="font-body text-[13px] text-sage">No underperforming creatives — all ROAS ≥ 1.0.</p>}
             </div>
           </div>
         ) : null;
@@ -198,7 +200,7 @@ const OverviewPage = () => {
           </div>
         ) : null;
       case "topCreatives":
-        return !isLoading ? <TopCreativesSection creatives={creatives} /> : null;
+        return !isLoading ? <TopCreativesSection creatives={creatives} onCreativeClick={setSelectedCreative} /> : null;
       case "trendChart":
         return <TrendChartSection accountId={isSingleAccount ? selectedAccountId : undefined} />;
       case "recentTests":
@@ -289,6 +291,15 @@ const OverviewPage = () => {
             );
           })}
         </div>
+
+        {selectedCreative && (
+          <CreativeDetailModal
+            creative={selectedCreative}
+            open={!!selectedCreative}
+            onClose={() => setSelectedCreative(null)}
+            fatigueMap={fatigueMap}
+          />
+        )}
       </div>
     </AppLayout>
   );
@@ -296,7 +307,7 @@ const OverviewPage = () => {
 
 /* ── Sub-components ─────────────────────────────────────────── */
 
-function CreativeInsightCard({ creative, variant, spendThreshold }: { creative: any; variant: "top" | "concern"; spendThreshold: number }) {
+function CreativeInsightCard({ creative, variant, spendThreshold, onClick }: { creative: any; variant: "top" | "concern"; spendThreshold: number; onClick?: () => void }) {
   const roas = Number(creative.roas) || 0;
   const cpa = Number(creative.cpa) || 0;
   const ctr = Number(creative.ctr) || 0;
@@ -306,7 +317,7 @@ function CreativeInsightCard({ creative, variant, spendThreshold }: { creative: 
   const estimatedLoss = variant === "concern" && roas < 1 ? spend * (1 - roas) : 0;
 
   return (
-    <div className="flex gap-4">
+    <div className={cn("flex gap-4", onClick && "cursor-pointer hover:bg-sage-light/50 -mx-2 px-2 py-1 rounded-[6px] transition-colors")} onClick={onClick}>
       {creative.thumbnail_url && <img src={creative.thumbnail_url} alt="" className="h-20 w-20 rounded-[4px] object-cover flex-shrink-0" />}
       <div className="min-w-0 flex-1 space-y-2">
         <p className="font-body text-[14px] font-semibold text-charcoal truncate">{creative.ad_name}</p>
