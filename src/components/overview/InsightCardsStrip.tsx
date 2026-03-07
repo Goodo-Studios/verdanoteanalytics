@@ -255,9 +255,9 @@ export function InsightCardsStrip({
   });
 
   const allCards = useMemo(
-    () => generateInsights(creatives, metrics, prevMetrics, fatigueMap, wowTrends, scaleThreshold, spendThreshold, navigate),
+    () => generateInsights(creatives, metrics, prevMetrics, fatigueMap, wowTrends, scaleThreshold, spendThreshold, navigate, onCreativeClick),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [creatives, metrics, prevMetrics, fatigueMap, wowTrends, scaleThreshold, spendThreshold, refreshKey]
+    [creatives, metrics, prevMetrics, fatigueMap, wowTrends, scaleThreshold, spendThreshold, refreshKey, onCreativeClick]
   );
 
   const visibleCards = useMemo(() => allCards.filter((c) => !dismissed.has(c.id)), [allCards, dismissed]);
