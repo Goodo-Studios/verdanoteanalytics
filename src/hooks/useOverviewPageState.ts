@@ -3,12 +3,12 @@ import { useAccountContext } from "@/contexts/AccountContext";
 import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { useKillScaleLogic, KillScaleConfig } from "@/lib/killScaleLogic";
 import { calculateBenchmarks, diagnoseCreatives } from "@/lib/iterationDiagnostics";
-import { formatDistanceToNow } from "date-fns";
+import { format, formatDistanceToNow, subDays } from "date-fns";
 
 export function useOverviewPageState() {
   const { selectedAccountId, selectedAccount, accounts } = useAccountContext();
-  const [dateFrom, setDateFrom] = useState<string | undefined>();
-  const [dateTo, setDateTo] = useState<string | undefined>();
+  const [dateFrom, setDateFrom] = useState<string | undefined>(() => format(subDays(new Date(), 13), "yyyy-MM-dd"));
+  const [dateTo, setDateTo] = useState<string | undefined>(() => format(new Date(), "yyyy-MM-dd"));
 
   const dateFilters = useMemo(() => ({
     ...(selectedAccountId && selectedAccountId !== "all" ? { account_id: selectedAccountId } : {}),
