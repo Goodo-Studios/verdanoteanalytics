@@ -44,8 +44,8 @@ export function useCreativesPageState() {
     return {};
   });
 
-  const [dateFrom, setDateFrom] = useState<string | undefined>(() => searchParams.get("from") || undefined);
-  const [dateTo, setDateTo] = useState<string | undefined>(() => searchParams.get("to") || undefined);
+  const [dateFrom, setDateFrom] = useState<string | undefined>(() => searchParams.get("from") || format(subDays(new Date(), 13), "yyyy-MM-dd"));
+  const [dateTo, setDateTo] = useState<string | undefined>(() => searchParams.get("to") || format(new Date(), "yyyy-MM-dd"));
   const [selectedCreativeId, setSelectedCreativeId] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState(() => searchParams.get("group") || "__none__");
   const [sort, setSort] = useState<SortConfig>({ key: "", direction: null });
