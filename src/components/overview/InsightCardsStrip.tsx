@@ -244,7 +244,7 @@ function generateInsights(
 /* ── Component ─────────────────────────────── */
 
 export function InsightCardsStrip({
-  creatives, metrics, prevMetrics, fatigueMap, wowTrends, scaleThreshold, spendThreshold,
+  creatives, metrics, prevMetrics, fatigueMap, wowTrends, scaleThreshold, spendThreshold, onCreativeClick,
 }: InsightCardsProps) {
   const navigate = useRoleNavigate();
   const [refreshKey, setRefreshKey] = useState(0);
