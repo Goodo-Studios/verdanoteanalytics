@@ -122,7 +122,7 @@ serve(async (req) => {
       }
     }
 
-    // 2) Sum spend from Verdanote's creatives table for same account
+    // 2) Sum spend from Verdanote's creatives table (snapshot) for same account
     const { data: creatives, error: crErr } = await supabase
       .from("creatives")
       .select("spend, impressions, purchases, purchase_value")
@@ -148,6 +148,42 @@ serve(async (req) => {
       creativeCount++;
     }
 
+    // 2b) Sum spend from creative_daily_metrics (accurate historical aggregation)
+    let dailySpend = 0;
+    let dailyImpressions = 0;
+    let dailyPurchases = 0;
+    let dailyPurchaseValue = 0;
+    let dailyAdIds = new Set<string>();
+    let dailyOffset = 0;
+    const DAILY_PAGE = 1000;
+
+    while (true) {
+      const { data: dailyRows, error: dailyErr } = await supabase
+        .from("creative_daily_metrics")
+        .select("ad_id, spend, impressions, purchases, purchase_value")
+        .eq("account_id", account_id)
+        .gte("date", since)
+        .lte("date", until)
+        .range(dailyOffset, dailyOffset + DAILY_PAGE - 1);
+
+      if (dailyErr) {
+        console.error("Daily metrics query error:", dailyErr.message);
+        break;
+      }
+      if (!dailyRows || dailyRows.length === 0) break;
+
+      for (const row of dailyRows) {
+        dailySpend += row.spend || 0;
+        dailyImpressions += row.impressions || 0;
+        dailyPurchases += row.purchases || 0;
+        dailyPurchaseValue += row.purchase_value || 0;
+        if (row.ad_id) dailyAdIds.add(row.ad_id);
+      }
+
+      if (dailyRows.length < DAILY_PAGE) break;
+      dailyOffset += DAILY_PAGE;
+    }
+
     // 3) Also check ad-level insights count from Meta to compare creative counts
     const countUrl =
       `https://graph.facebook.com/${META_API_VERSION}/${account_id}/insights?` +
@@ -169,6 +205,9 @@ serve(async (req) => {
     const spendDelta = vnSpend - metaSpend;
     const spendDeltaPct = metaSpend > 0 ? ((spendDelta / metaSpend) * 100) : 0;
 
+    const dailySpendDelta = dailySpend - metaSpend;
+    const dailySpendDeltaPct = metaSpend > 0 ? ((dailySpendDelta / metaSpend) * 100) : 0;
+
     const result = {
       account_name: account.name,
       date_range: { since, until, days: dateRangeDays },
@@ -181,7 +220,7 @@ serve(async (req) => {
         roas: metaSpend > 0 ? Math.round((metaPurchaseValue / metaSpend) * 100) / 100 : 0,
         ad_count: metaAdCount,
       },
-      verdanote: {
+      verdanote_snapshot: {
         spend: Math.round(vnSpend * 100) / 100,
         impressions: vnImpressions,
         purchases: vnPurchases,
@@ -189,11 +228,25 @@ serve(async (req) => {
         roas: vnSpend > 0 ? Math.round((vnPurchaseValue / vnSpend) * 100) / 100 : 0,
         creative_count: creativeCount,
       },
-      delta: {
+      verdanote_daily: {
+        spend: Math.round(dailySpend * 100) / 100,
+        impressions: dailyImpressions,
+        purchases: dailyPurchases,
+        purchase_value: Math.round(dailyPurchaseValue * 100) / 100,
+        roas: dailySpend > 0 ? Math.round((dailyPurchaseValue / dailySpend) * 100) / 100 : 0,
+        ad_count: dailyAdIds.size,
+      },
+      delta_snapshot: {
         spend: Math.round(spendDelta * 100) / 100,
         spend_pct: Math.round(spendDeltaPct * 100) / 100,
         impressions: vnImpressions - metaImpressions,
         ad_count: metaAdCount !== null ? creativeCount - metaAdCount : null,
+      },
+      delta_daily: {
+        spend: Math.round(dailySpendDelta * 100) / 100,
+        spend_pct: Math.round(dailySpendDeltaPct * 100) / 100,
+        impressions: dailyImpressions - metaImpressions,
+        ad_count: metaAdCount !== null ? dailyAdIds.size - metaAdCount : null,
       },
     };
 

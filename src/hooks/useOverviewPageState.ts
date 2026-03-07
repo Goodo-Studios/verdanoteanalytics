@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { useAllCreatives } from "@/hooks/useAllCreatives";
+import { usePeriodMetrics } from "@/hooks/usePeriodMetrics";
 import { useKillScaleLogic, KillScaleConfig } from "@/lib/killScaleLogic";
 import { calculateBenchmarks, diagnoseCreatives } from "@/lib/iterationDiagnostics";
 import { format, formatDistanceToNow, subDays } from "date-fns";
@@ -16,8 +17,8 @@ export function useOverviewPageState() {
     ...(dateTo ? { date_to: dateTo } : {}),
   }), [selectedAccountId, dateFrom, dateTo]);
 
-  // Previous period filters for delta comparison
-  const prevPeriodFilters = useMemo(() => {
+  // Previous period date range for delta comparison
+  const prevPeriodDates = useMemo(() => {
     if (!dateFrom || !dateTo) return null;
     const from = new Date(dateFrom);
     const to = new Date(dateTo);
@@ -27,16 +28,42 @@ export function useOverviewPageState() {
     const prevFrom = new Date(prevTo);
     prevFrom.setDate(prevFrom.getDate() - days + 1);
     return {
-      ...(selectedAccountId && selectedAccountId !== "all" ? { account_id: selectedAccountId } : {}),
-      date_from: prevFrom.toISOString().split("T")[0],
-      date_to: prevTo.toISOString().split("T")[0],
+      dateFrom: prevFrom.toISOString().split("T")[0],
+      dateTo: prevTo.toISOString().split("T")[0],
     };
-  }, [selectedAccountId, dateFrom, dateTo]);
+  }, [dateFrom, dateTo]);
+
+  // Previous period filters for useAllCreatives (still needed for non-metric features)
+  const prevPeriodFilters = useMemo(() => {
+    if (!prevPeriodDates) return null;
+    return {
+      ...(selectedAccountId && selectedAccountId !== "all" ? { account_id: selectedAccountId } : {}),
+      date_from: prevPeriodDates.dateFrom,
+      date_to: prevPeriodDates.dateTo,
+    };
+  }, [selectedAccountId, prevPeriodDates]);
 
   const { data: creatives = [], isLoading } = useAllCreatives(dateFilters);
   const shouldFetchPrev = !!prevPeriodFilters;
   const { data: prevCreatives = [] } = useAllCreatives(prevPeriodFilters || {});
-  const hasPrevPeriod = shouldFetchPrev && prevCreatives.length > 0;
+
+  // ── Accurate period metrics from creative_daily_metrics ──
+  const effectiveAccountId = selectedAccountId && selectedAccountId !== "all" ? selectedAccountId : undefined;
+
+  const { data: dailyMetrics, isLoading: dailyMetricsLoading } = usePeriodMetrics({
+    accountId: effectiveAccountId,
+    dateFrom,
+    dateTo,
+  });
+
+  const { data: prevDailyMetrics } = usePeriodMetrics({
+    accountId: effectiveAccountId,
+    dateFrom: prevPeriodDates?.dateFrom,
+    dateTo: prevPeriodDates?.dateTo,
+    enabled: !!prevPeriodDates,
+  });
+
+  const hasPrevPeriod = shouldFetchPrev && !!prevDailyMetrics && prevDailyMetrics.totalSpend > 0;
 
   // Account settings
   const roasThreshold = parseFloat(selectedAccount?.winner_roas_threshold || "2.0");
@@ -50,11 +77,33 @@ export function useOverviewPageState() {
     spendThreshold,
   }), [selectedAccount, roasThreshold, spendThreshold]);
 
-  // Kill/Scale/Watch counts
+  // Kill/Scale/Watch counts (still uses creatives table for per-ad classification)
   const { scale, watch, kill } = useKillScaleLogic(creatives, killScaleConfig);
 
-  // Metrics calculations
+  // ── Metrics from daily aggregation (accurate period totals) ──
   const metrics = useMemo(() => {
+    if (dailyMetrics) {
+      // Win rate still needs per-creative data from creatives table
+      const active = creatives.filter((c: any) => (Number(c.spend) || 0) > 0);
+      const winnerKpi = killScaleConfig.winnerKpi;
+      const isGte = killScaleConfig.winnerKpiDirection !== "lte";
+      const threshold = killScaleConfig.scaleAt;
+      const winners = active.filter((c: any) => {
+        const val = Number(c[winnerKpi]) || 0;
+        return isGte ? val >= threshold : (val > 0 && val <= threshold);
+      });
+      const winRate = active.length > 0 ? (winners.length / active.length) * 100 : 0;
+
+      return {
+        totalSpend: dailyMetrics.totalSpend,
+        activeCount: dailyMetrics.activeCount,
+        avgCpa: dailyMetrics.avgCpa,
+        avgRoas: dailyMetrics.avgRoas,
+        avgCtr: dailyMetrics.avgCtr,
+        winRate,
+      };
+    }
+    // Fallback to creatives table if daily metrics not yet loaded
     const active = creatives.filter((c: any) => (Number(c.spend) || 0) > 0);
     const totalSpend = active.reduce((s: number, c: any) => s + (Number(c.spend) || 0), 0);
     const totalPurchaseValue = active.reduce((s: number, c: any) => s + (Number(c.purchase_value) || 0), 0);
@@ -76,11 +125,22 @@ export function useOverviewPageState() {
     const winRate = active.length > 0 ? (winners.length / active.length) * 100 : 0;
 
     return { totalSpend, activeCount: active.length, avgCpa, avgRoas, avgCtr, winRate };
-  }, [creatives, killScaleConfig]);
+  }, [creatives, killScaleConfig, dailyMetrics]);
 
-  // Previous period metrics for deltas
+  // Previous period metrics from daily aggregation
   const prevMetrics = useMemo(() => {
-    if (!hasPrevPeriod || prevCreatives.length === 0) return null;
+    if (!hasPrevPeriod) return null;
+    if (prevDailyMetrics) {
+      return {
+        totalSpend: prevDailyMetrics.totalSpend,
+        activeCount: prevDailyMetrics.activeCount,
+        avgCpa: prevDailyMetrics.avgCpa,
+        avgRoas: prevDailyMetrics.avgRoas,
+        avgCtr: prevDailyMetrics.avgCtr,
+      };
+    }
+    // Fallback
+    if (prevCreatives.length === 0) return null;
     const active = prevCreatives.filter((c: any) => (Number(c.spend) || 0) > 0);
     const totalSpend = active.reduce((s: number, c: any) => s + (Number(c.spend) || 0), 0);
     const totalPurchaseValue = active.reduce((s: number, c: any) => s + (Number(c.purchase_value) || 0), 0);
@@ -91,9 +151,9 @@ export function useOverviewPageState() {
     const avgCpa = totalPurchases > 0 ? totalSpend / totalPurchases : 0;
     const avgCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
     return { totalSpend, activeCount: active.length, avgCpa, avgRoas, avgCtr };
-  }, [prevCreatives, hasPrevPeriod]);
+  }, [prevCreatives, hasPrevPeriod, prevDailyMetrics]);
 
-  // Top performer & biggest concern
+  // Top performer & biggest concern (still per-creative from creatives table)
   const topPerformer = useMemo(() => {
     const qualified = creatives.filter((c: any) => (Number(c.spend) || 0) >= spendThreshold);
     if (qualified.length === 0) return null;
@@ -143,7 +203,7 @@ export function useOverviewPageState() {
     accountName, lastSyncedAgo,
     dateFrom, dateTo, setDateFrom, setDateTo,
     selectedAccountId, selectedAccount,
-    creatives, isLoading,
+    creatives, isLoading: isLoading || dailyMetricsLoading,
     metrics, prevMetrics, hasPrevPeriod,
     topPerformer, biggestConcern,
     scale, watch, kill, killScaleConfig,
