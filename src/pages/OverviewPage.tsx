@@ -200,7 +200,7 @@ const OverviewPage = () => {
           </div>
         ) : null;
       case "topCreatives":
-        return !isLoading ? <TopCreativesSection creatives={creatives} /> : null;
+        return !isLoading ? <TopCreativesSection creatives={creatives} onCreativeClick={setSelectedCreative} /> : null;
       case "trendChart":
         return <TrendChartSection accountId={isSingleAccount ? selectedAccountId : undefined} />;
       case "recentTests":
