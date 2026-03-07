@@ -147,7 +147,7 @@ function MediaPreview({ creative }: { creative: any }) {
     );
   }
 
-  const adLibraryUrl = creative.ad_id ? `https://www.facebook.com/ads/library/?id=${creative.ad_id}` : null;
+  const adLibraryUrl = creative.ad_id ? `https://www.facebook.com/ads/library/?active_status=all&ad_type=all&country=ALL&id=${creative.ad_id}&search_type=keyword_unordered&media_type=all` : null;
 
   return (
     <div className="bg-muted rounded-lg flex items-center justify-center overflow-hidden relative group">
