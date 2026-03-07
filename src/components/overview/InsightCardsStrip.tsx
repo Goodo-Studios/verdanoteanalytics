@@ -93,7 +93,7 @@ function generateInsights(
       headline: "New best performer",
       body: `${topCreative.ad_name} is your #1 creative at ${roas.toFixed(1)}x ROAS and ${fmt$(spend)} spend. It's outperforming your account average by ${diff}x.`,
       cta: "View Creative →",
-      ctaAction: () => navigate(`/creatives?highlight=${topCreative.ad_id}`),
+      ctaAction: () => onCreativeClick ? onCreativeClick(topCreative) : navigate(`/creatives?highlight=${topCreative.ad_id}`),
       priority: 1,
     });
   }
