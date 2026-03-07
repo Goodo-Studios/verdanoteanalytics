@@ -84,9 +84,10 @@ function MediaPreview({ creative }: { creative: any }) {
   const isVideoAdWithoutSource = creative.video_url === "no-video" && (creative.video_views > 0);
   const facebookAdUrl = creative.preview_url || (creative.ad_id ? `https://www.facebook.com/ads/library/?id=${creative.ad_id}` : null);
 
-  // Use cached media hook for thumbnail — caches to IndexedDB, survives Meta CDN URL expiry
+  // Use cached media hook for thumbnail — caches to IndexedDB, survives Meta CDN URL expiry.
+  // Prefer full_res_url (high-res source stored during refresh-thumbnails) to avoid grainy modal images.
   const { url: cachedThumbnailUrl, isLoading: thumbnailLoading, error: thumbnailError } = useCachedMedia(
-    creative.thumbnail_url,
+    creative.full_res_url || creative.thumbnail_url,
     { placeholderUrl: "/placeholder-creative.png" }
   );
 

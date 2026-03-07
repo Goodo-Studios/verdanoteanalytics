@@ -34,8 +34,10 @@ async function fetchWithTimeout(url: string, timeoutMs = FETCH_TIMEOUT_MS): Prom
   }
 }
 
-/** Fetch a fresh high-res image URL from Meta Graph API. */
-async function getFreshImageUrl(adId: string, accountId: string): Promise<string | null> {
+/** Fetch a fresh high-res image URL from Meta Graph API.
+ * Returns { thumbnailUrl, fullResUrl } where fullResUrl is the highest-resolution
+ * source available (stored separately so the modal can use it without rescaling). */
+async function getFreshImageUrl(adId: string, accountId: string): Promise<{ thumbnailUrl: string; fullResUrl: string | null } | null> {
   try {
     const res = await fetchWithTimeout(
       `https://graph.facebook.com/v21.0/${adId}?fields=creative{thumbnail_url,image_url,image_hash,object_story_spec}&access_token=${META_ACCESS_TOKEN}`
@@ -64,7 +66,8 @@ async function getFreshImageUrl(adId: string, accountId: string): Promise<string
           const w = img.original_width || img.width || 0;
           console.log(`image_hash for ${adId}: ${w}px wide, url length: ${fullUrl?.length}`);
           if (fullUrl && fullUrl.length > 100) {
-            return fullUrl;
+            // img.url from adimages is already full-resolution — store it as both thumbnail and full_res_url
+            return { thumbnailUrl: fullUrl, fullResUrl: fullUrl };
           }
         }
       }
@@ -84,7 +87,7 @@ async function getFreshImageUrl(adId: string, accountId: string): Promise<string
           const best = sorted[0];
           if (best?.uri && (best.width || 0) >= 200) {
             console.log(`Video thumbnail for ${adId}: ${best.width}x${best.height}`);
-            return best.uri;
+            return { thumbnailUrl: best.uri, fullResUrl: null };
           }
         }
       }
@@ -95,7 +98,8 @@ async function getFreshImageUrl(adId: string, accountId: string): Promise<string
         const picData = await picRes.json();
         if (picData?.data?.url) {
           console.log(`Video picture fallback (1080px) for ${adId}`);
-          return picData.data.url;
+          // 1080px video poster — use as both thumbnail and full_res_url
+          return { thumbnailUrl: picData.data.url, fullResUrl: picData.data.url };
         }
       }
     }
@@ -114,7 +118,7 @@ async function getFreshImageUrl(adId: string, accountId: string): Promise<string
             const postData = await postRes.json();
             if (postData.full_picture) {
               console.log(`Post full_picture for ${adId}`);
-              return postData.full_picture;
+              return { thumbnailUrl: postData.full_picture, fullResUrl: null };
             }
           }
         }
@@ -123,17 +127,17 @@ async function getFreshImageUrl(adId: string, accountId: string): Promise<string
 
     if (creative.image_url) {
       console.log(`Using image_url for ${adId}`);
-      return creative.image_url;
+      return { thumbnailUrl: creative.image_url, fullResUrl: null };
     }
 
     if (spec) {
       const imageUrl = spec.link_data?.image_url || spec.photo_data?.url || spec.photo_data?.image_url;
-      if (imageUrl) return imageUrl;
+      if (imageUrl) return { thumbnailUrl: imageUrl, fullResUrl: null };
     }
 
     if (creative.thumbnail_url) {
       console.log(`Using original thumbnail_url for ${adId}`);
-      return creative.thumbnail_url;
+      return { thumbnailUrl: creative.thumbnail_url, fullResUrl: null };
     }
 
     return null;
@@ -465,14 +469,17 @@ serve(async (req) => {
         const batch = slowPathThumbs.slice(i, i + DISCOVERY_BATCH_SIZE);
         for (const c of batch) {
           if (isOverBudget()) continue;
-          const freshUrl = await getFreshImageUrl(c.ad_id, c.account_id);
-          if (!freshUrl) {
+          const freshResult = await getFreshImageUrl(c.ad_id, c.account_id);
+          if (!freshResult) {
             await supabase.from("creatives").update({ thumbnail_url: NO_THUMB_SENTINEL }).eq("ad_id", c.ad_id);
             thumbFailed++;
             continue;
           }
-          // Store the CDN URL for now — fast-path will cache it next run
-          await supabase.from("creatives").update({ thumbnail_url: freshUrl }).eq("ad_id", c.ad_id);
+          // Store the CDN URL for now — fast-path will cache it next run.
+          // Also persist full_res_url when available so the modal can serve the hi-res version.
+          const updatePayload: Record<string, string | null> = { thumbnail_url: freshResult.thumbnailUrl };
+          if (freshResult.fullResUrl) updatePayload.full_res_url = freshResult.fullResUrl;
+          await supabase.from("creatives").update(updatePayload).eq("ad_id", c.ad_id);
           thumbCached++;
         }
       }
