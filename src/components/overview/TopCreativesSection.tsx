@@ -10,6 +10,7 @@ interface Props {
   creatives: any[];
   count?: number;
   sortBy?: string;
+  onCreativeClick?: (creative: any) => void;
 }
 
 export function TopCreativesSection({ creatives, count = 5, sortBy = "roas" }: Props) {
