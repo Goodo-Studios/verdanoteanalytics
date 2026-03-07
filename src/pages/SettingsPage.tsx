@@ -13,6 +13,7 @@ import { CsvUploadModal } from "@/components/settings/CsvUploadModal";
 import { AIBriefModal } from "@/components/settings/AIBriefModal";
 import { WeeklyRetroModal } from "@/components/settings/WeeklyRetroModal";
 import { DataHealthSection } from "@/components/settings/DataHealthSection";
+import { SpendDiagnosticSection } from "@/components/settings/SpendDiagnosticSection";
 import { DataExportSection } from "@/components/settings/DataExportSection";
 
 
@@ -95,7 +96,8 @@ const SettingsPage = () => {
                 </div>
               </div>
               {isBuilder && (
-                <div className="max-w-4xl mt-8">
+                <div className="max-w-4xl mt-8 space-y-8">
+                  <SpendDiagnosticSection />
                   <DataHealthSection />
                 </div>
               )}
