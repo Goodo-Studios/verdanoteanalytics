@@ -70,6 +70,7 @@ function generateInsights(
   scaleThreshold: number,
   spendThreshold: number,
   navigate: (path: string) => void,
+  onCreativeClick?: (creative: any) => void,
 ): InsightCard[] {
   const cards: InsightCard[] = [];
   const active = creatives.filter((c: any) => (Number(c.spend) || 0) >= spendThreshold);
