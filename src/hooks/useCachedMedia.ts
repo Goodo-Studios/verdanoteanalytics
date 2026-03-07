@@ -176,8 +176,9 @@ export function useCachedMedia(
     } catch (err) {
       console.error("Media load error:", err);
       setError(err as Error);
-      // Use fallback or placeholder
-      setObjectUrl(fallbackUrl || placeholderUrl);
+      // Fall back to the original URL (img tags can load cross-origin even when fetch can't),
+      // then try explicit fallback, then placeholder as last resort
+      setObjectUrl(mediaUrl || fallbackUrl || placeholderUrl);
     } finally {
       setIsLoading(false);
     }
