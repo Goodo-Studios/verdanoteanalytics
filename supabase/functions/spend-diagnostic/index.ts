@@ -122,7 +122,7 @@ serve(async (req) => {
       }
     }
 
-    // 2) Sum spend from Verdanote's creatives table for same account
+    // 2) Sum spend from Verdanote's creatives table (snapshot) for same account
     const { data: creatives, error: crErr } = await supabase
       .from("creatives")
       .select("spend, impressions, purchases, purchase_value")
@@ -146,6 +146,42 @@ serve(async (req) => {
       vnPurchases += c.purchases || 0;
       vnPurchaseValue += c.purchase_value || 0;
       creativeCount++;
+    }
+
+    // 2b) Sum spend from creative_daily_metrics (accurate historical aggregation)
+    let dailySpend = 0;
+    let dailyImpressions = 0;
+    let dailyPurchases = 0;
+    let dailyPurchaseValue = 0;
+    let dailyAdIds = new Set<string>();
+    let dailyOffset = 0;
+    const DAILY_PAGE = 1000;
+
+    while (true) {
+      const { data: dailyRows, error: dailyErr } = await supabase
+        .from("creative_daily_metrics")
+        .select("ad_id, spend, impressions, purchases, purchase_value")
+        .eq("account_id", account_id)
+        .gte("date", since)
+        .lte("date", until)
+        .range(dailyOffset, dailyOffset + DAILY_PAGE - 1);
+
+      if (dailyErr) {
+        console.error("Daily metrics query error:", dailyErr.message);
+        break;
+      }
+      if (!dailyRows || dailyRows.length === 0) break;
+
+      for (const row of dailyRows) {
+        dailySpend += row.spend || 0;
+        dailyImpressions += row.impressions || 0;
+        dailyPurchases += row.purchases || 0;
+        dailyPurchaseValue += row.purchase_value || 0;
+        if (row.ad_id) dailyAdIds.add(row.ad_id);
+      }
+
+      if (dailyRows.length < DAILY_PAGE) break;
+      dailyOffset += DAILY_PAGE;
     }
 
     // 3) Also check ad-level insights count from Meta to compare creative counts
