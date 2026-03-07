@@ -96,7 +96,8 @@ const SettingsPage = () => {
                 </div>
               </div>
               {isBuilder && (
-                <div className="max-w-4xl mt-8">
+                <div className="max-w-4xl mt-8 space-y-8">
+                  <SpendDiagnosticSection />
                   <DataHealthSection />
                 </div>
               )}
