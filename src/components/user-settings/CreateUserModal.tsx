@@ -50,7 +50,6 @@ export function CreateUserModal({
               <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="client">Client</SelectItem>
-                <SelectItem value="editor">Editor</SelectItem>
                 <SelectItem value="employee">Employee</SelectItem>
                 <SelectItem value="builder">Builder</SelectItem>
               </SelectContent>
