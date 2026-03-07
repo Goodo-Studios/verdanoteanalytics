@@ -6,6 +6,7 @@ import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Button } from "@/components/ui/button";
 import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, FileEdit, Sparkles, MessageSquare, GitBranch, Loader2 } from "lucide-react";
 import { useState, forwardRef } from "react";
+import { useCachedMedia } from "@/hooks/useCachedMedia";
 
 import { CreativeMetrics } from "@/components/creative-detail/CreativeMetrics";
 import { CreativeTagEditor } from "@/components/creative-detail/CreativeTagEditor";
@@ -79,10 +80,18 @@ function MediaPreview({ creative }: { creative: any }) {
   const [showVideo, setShowVideo] = useState(false);
   const [videoError, setVideoError] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
-  const [imgError, setImgError] = useState(false);
   const hasVideo = !!creative.video_url && creative.video_url !== "no-video";
   const isVideoAdWithoutSource = creative.video_url === "no-video" && (creative.video_views > 0);
   const facebookAdUrl = creative.preview_url || (creative.ad_id ? `https://www.facebook.com/ads/library/?id=${creative.ad_id}` : null);
+
+  // Use cached media hook for thumbnail — caches to IndexedDB, survives Meta CDN URL expiry
+  const { url: cachedThumbnailUrl, isLoading: thumbnailLoading, error: thumbnailError } = useCachedMedia(
+    creative.thumbnail_url,
+    { placeholderUrl: "/placeholder-creative.png" }
+  );
+
+  // Thumbnail is considered unavailable only when no URL was provided AND the hook has no cached value
+  const hasThumbnail = !!creative.thumbnail_url;
 
   if (hasVideo && showVideo) {
     if (videoError) {
@@ -114,7 +123,7 @@ function MediaPreview({ creative }: { creative: any }) {
           controls
           autoPlay
           className="w-full max-h-[400px]"
-          poster={creative.thumbnail_url || undefined}
+          poster={cachedThumbnailUrl || undefined}
           onError={() => setVideoError(true)}
         />
         {creative.preview_url && (
@@ -140,19 +149,32 @@ function MediaPreview({ creative }: { creative: any }) {
 
   return (
     <div className="bg-muted rounded-lg flex items-center justify-center overflow-hidden relative group">
-      {creative.thumbnail_url && !imgError ? (
+      {hasThumbnail ? (
         <div className="relative w-full">
-          {!imgLoaded && (
-            <div className="w-full h-[300px] bg-cream-dark rounded" />
+          {/* Loading skeleton — shown while cache/network fetch is in progress */}
+          {(thumbnailLoading || !imgLoaded) && (
+            <div className="w-full h-[300px] bg-cream-dark rounded animate-pulse flex items-center justify-center">
+              <ImageIcon className="h-8 w-8 text-muted-foreground/40" />
+            </div>
           )}
+
+          {/* Error state — hook fell back to placeholder, surface a clear message */}
+          {thumbnailError && !thumbnailLoading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-muted/80 z-10">
+              <span className="font-body text-xs text-muted-foreground">Thumbnail unavailable</span>
+            </div>
+          )}
+
+          {/* Cached thumbnail — rendered via blob URL from IndexedDB */}
           <img
-            src={creative.thumbnail_url}
+            src={cachedThumbnailUrl}
             alt={creative.ad_name}
-            className={`w-full max-h-[400px] object-contain ${imgLoaded ? "opacity-100" : "opacity-0 absolute inset-0"}`}
-            loading="lazy"
+            className={`w-full max-h-[400px] object-contain transition-opacity duration-300 ${imgLoaded ? "opacity-100" : "opacity-0 absolute inset-0"}`}
             onLoad={() => setImgLoaded(true)}
-            onError={() => setImgError(true)}
+            onError={() => {/* hook already handled fallback */}}
           />
+
+          {/* Video play overlay */}
           {hasVideo && imgLoaded && (
             <button
               onClick={() => { setShowVideo(true); setVideoError(false); }}
@@ -163,6 +185,8 @@ function MediaPreview({ creative }: { creative: any }) {
               </div>
             </button>
           )}
+
+          {/* Ad Library link */}
           {adLibraryUrl && imgLoaded && (
             <a
               href={adLibraryUrl}
