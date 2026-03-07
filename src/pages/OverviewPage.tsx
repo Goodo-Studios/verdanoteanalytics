@@ -16,6 +16,7 @@ import { EditableSectionWrapper } from "@/components/overview/EditableSectionWra
 import { AddSectionPanel } from "@/components/overview/AddSectionPanel";
 import { TopCreativesSection } from "@/components/overview/TopCreativesSection";
 import { TrendChartSection } from "@/components/overview/TrendChartSection";
+import { CreativeDetailModal } from "@/components/CreativeDetailModal";
 
 import { TagPerformanceSection } from "@/components/overview/TagPerformanceSection";
 import { QuickActionsSection } from "@/components/overview/QuickActionsSection";
