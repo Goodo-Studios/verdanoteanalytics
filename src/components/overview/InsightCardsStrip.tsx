@@ -26,6 +26,7 @@ interface InsightCardsProps {
   wowTrends?: Map<string, any>;
   scaleThreshold: number;
   spendThreshold: number;
+  onCreativeClick?: (creative: any) => void;
 }
 
 /* ── Dismiss logic (localStorage, 24h TTL) ── */
