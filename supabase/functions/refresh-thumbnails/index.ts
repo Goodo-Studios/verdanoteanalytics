@@ -15,8 +15,12 @@ const CACHE_BATCH_SIZE = 15; // Pure download+upload — parallelizable I/O
 const VIDEO_BATCH_SIZE = 1;
 const MAX_TOTAL = 5000;
 const MAX_VIDEO_SIZE = 150 * 1024 * 1024; // 150MB cap
-const TIME_BUDGET_MS = 120_000; // 2 minutes wall-clock — stay well within ~150s CPU limit
+const TIME_BUDGET_MS = 110_000; // ~110s — leave 10s margin within Supabase's ~150s CPU limit
 const FETCH_TIMEOUT_MS = 30_000; // 30s timeout per HTTP request
+
+// How many hours before an account is eligible for re-refresh
+// With 12+ accounts cycling every 10-15 min, each account gets refreshed every 2-3 hours
+const MEDIA_REFRESH_COOLDOWN_HOURS = 2;
 
 // Sentinel values to mark failed fetches so they're skipped on future runs
 const NO_THUMB_SENTINEL = "no-thumbnail";
@@ -286,6 +290,74 @@ async function updateLog(supabase: any, logId: number, updates: Record<string, a
   await supabase.from("media_refresh_logs").update(updates).eq("id", logId);
 }
 
+/**
+ * Pick the single account to process this invocation.
+ *
+ * Strategy (in priority order):
+ *   1. Explicit account_id in request — use that directly
+ *   2. account_id=all (or missing) → round-robin by last_media_sync ASC NULLS FIRST
+ *      among active accounts, skipping any refreshed within MEDIA_REFRESH_COOLDOWN_HOURS
+ *
+ * Prioritisation within the rotation: accounts with NULL last_media_sync (never refreshed)
+ * come first, then accounts sorted by oldest refresh, then by total spend DESC as tiebreaker
+ * so high-value accounts get refreshed more often.
+ */
+async function pickAccount(
+  supabase: any,
+  requestedAccountId: string | null
+): Promise<{ account: any | null; skippedAll: boolean; nextAccount: any | null }> {
+  // Explicit account requested — use it no matter what
+  if (requestedAccountId && requestedAccountId !== "all") {
+    const { data: account } = await supabase
+      .from("ad_accounts")
+      .select("id, name, total_spend, last_media_sync")
+      .eq("id", requestedAccountId)
+      .single();
+    return { account: account || null, skippedAll: false, nextAccount: null };
+  }
+
+  // Rotation: fetch all active accounts sorted by staleness
+  const { data: accounts } = await supabase
+    .from("ad_accounts")
+    .select("id, name, total_spend, last_media_sync")
+    .eq("is_active", true)
+    .order("last_media_sync", { ascending: true, nullsFirst: true })
+    .order("total_spend", { ascending: false, nullsFirst: false });
+
+  if (!accounts || accounts.length === 0) {
+    return { account: null, skippedAll: true, nextAccount: null };
+  }
+
+  const cooldownMs = MEDIA_REFRESH_COOLDOWN_HOURS * 60 * 60 * 1000;
+  const now = Date.now();
+
+  // Find the first account outside the cooldown window
+  for (const acc of accounts) {
+    if (!acc.last_media_sync) {
+      // Never refreshed — highest priority
+      const nextAcc = accounts.find((a: any) => a.id !== acc.id);
+      return { account: acc, skippedAll: false, nextAccount: nextAcc || null };
+    }
+    const lastRefresh = new Date(acc.last_media_sync).getTime();
+    if (now - lastRefresh >= cooldownMs) {
+      const nextAcc = accounts.find((a: any) => a.id !== acc.id);
+      return { account: acc, skippedAll: false, nextAccount: nextAcc || null };
+    }
+  }
+
+  // All accounts are within cooldown — log this and skip
+  const mostStale = accounts[0];
+  const staleMs = mostStale.last_media_sync
+    ? now - new Date(mostStale.last_media_sync).getTime()
+    : 0;
+  const staleMin = Math.round(staleMs / 60000);
+  console.log(
+    `All ${accounts.length} accounts refreshed within cooldown window (${MEDIA_REFRESH_COOLDOWN_HOURS}h). ` +
+    `Most stale: ${mostStale.name} (${staleMin}m ago). Skipping.`
+  );
+  return { account: null, skippedAll: true, nextAccount: mostStale };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -302,17 +374,42 @@ serve(async (req) => {
         accountFilter = body?.account_id || null;
       } catch { /* no body */ }
     }
-    if (accountFilter) console.log(`Filtering to account: ${accountFilter}`);
 
-    // Concurrency guard: skip if another refresh is already running
+    // ── CHANGE 1: Single-account rotation ──────────────────────────────────
+    // Pick ONE account to process this invocation (or use the explicit one)
+    const { account: targetAccount, skippedAll, nextAccount } = await pickAccount(supabase, accountFilter);
+
+    if (skippedAll || !targetAccount) {
+      console.log("All accounts are within cooldown — nothing to process.");
+      return new Response(JSON.stringify({
+        skipped: true,
+        reason: "all_accounts_within_cooldown",
+        next_eligible_account: nextAccount ? { id: nextAccount.id, name: nextAccount.name, last_media_sync: nextAccount.last_media_sync } : null,
+        cooldown_hours: MEDIA_REFRESH_COOLDOWN_HOURS,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Use the resolved single account for all queries below
+    const resolvedAccountId = targetAccount.id;
+    console.log(`Processing account: ${targetAccount.name} (${resolvedAccountId}) — last refresh: ${targetAccount.last_media_sync || "never"}`);
+
+    // Concurrency guard: skip if this specific account already has a running refresh
     const { data: runningLogs } = await supabase
       .from("media_refresh_logs")
       .select("id")
       .eq("status", "running")
+      .eq("account_id", resolvedAccountId)
       .limit(1);
     if (runningLogs && runningLogs.length > 0) {
-      console.log("Skipping: another media refresh is already running.");
-      return new Response(JSON.stringify({ skipped: true, reason: "already_running" }), {
+      console.log(`Skipping ${targetAccount.name}: media refresh already running.`);
+      return new Response(JSON.stringify({
+        skipped: true,
+        reason: "already_running",
+        account_id: resolvedAccountId,
+        next_account: nextAccount ? { id: nextAccount.id, name: nextAccount.name } : null,
+      }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -320,32 +417,32 @@ serve(async (req) => {
     // Create a progress log entry
     const { data: logRow } = await supabase
       .from("media_refresh_logs")
-      .insert({ account_id: accountFilter || "all", status: "running", current_phase: 1 })
+      .insert({ account_id: resolvedAccountId, status: "running", current_phase: 1 })
       .select("id")
       .single();
     const logId = logRow?.id;
 
-    // Phase 1: Discover work
+    // Phase 1: Discover work for this single account
     // FAST PATH: thumbnails with a real CDN URL not yet cached to storage
-    let uncachedThumbsQuery = supabase
+    const uncachedThumbsQuery = supabase
       .from("creatives")
       .select("ad_id, account_id, thumbnail_url")
       .not("thumbnail_url", "is", null)
       .neq("thumbnail_url", NO_THUMB_SENTINEL)
       .not("thumbnail_url", "like", `%/storage/v1/object/public/%`)
+      .eq("account_id", resolvedAccountId)
       .gt("impressions", 0);
-    if (accountFilter) uncachedThumbsQuery = uncachedThumbsQuery.eq("account_id", accountFilter);
     const { data: uncachedThumbs } = await uncachedThumbsQuery
       .order("spend", { ascending: false, nullsFirst: false })
       .limit(MAX_TOTAL);
 
     // SLOW PATH: NULL thumbnails + no-thumbnail sentinels — both need Meta API re-discovery
-    let missingThumbsQuery = supabase
+    const missingThumbsQuery = supabase
       .from("creatives")
       .select("ad_id, account_id, thumbnail_url")
       .or("thumbnail_url.is.null,thumbnail_url.eq.no-thumbnail")
+      .eq("account_id", resolvedAccountId)
       .gt("impressions", 0);
-    if (accountFilter) missingThumbsQuery = missingThumbsQuery.eq("account_id", accountFilter);
     const { data: missingThumbs } = await missingThumbsQuery
       .order("spend", { ascending: false, nullsFirst: false })
       .limit(MAX_TOTAL);
@@ -354,35 +451,35 @@ serve(async (req) => {
     const slowPathThumbs = missingThumbs || [];
     const allThumbWork = [...fastPathThumbs, ...slowPathThumbs].slice(0, MAX_TOTAL);
 
-    // Videos: include null AND no-video sentinel rows (sentinels get a fresh attempt every refresh)
-    let missingVideosQuery = supabase
+    // Videos: include null AND no-video sentinel rows
+    const missingVideosQuery = supabase
       .from("creatives")
       .select("ad_id, account_id")
       .or("video_url.is.null,video_url.eq.no-video")
+      .eq("account_id", resolvedAccountId)
       .gt("video_views", 0)
       .gt("impressions", 0);
-    if (accountFilter) missingVideosQuery = missingVideosQuery.eq("account_id", accountFilter);
     const { data: missingVideos } = await missingVideosQuery
       .order("spend", { ascending: false, nullsFirst: false })
       .limit(2000);
 
-    let uncachedVideosQuery = supabase
+    const uncachedVideosQuery = supabase
       .from("creatives")
       .select("ad_id, account_id, video_url")
       .not("video_url", "is", null)
       .not("video_url", "like", `%/storage/v1/object/public/%`)
       .neq("video_url", NO_VIDEO_SENTINEL)
+      .eq("account_id", resolvedAccountId)
       .gt("impressions", 0);
-    if (accountFilter) uncachedVideosQuery = uncachedVideosQuery.eq("account_id", accountFilter);
     const { data: uncachedVideos } = await uncachedVideosQuery.limit(2000);
 
-    // Find ads missing preview_url (for iframe embeds)
-    let missingPreviewQuery = supabase
+    // Find ads missing preview_url
+    const missingPreviewQuery = supabase
       .from("creatives")
       .select("ad_id")
       .is("preview_url", null)
+      .eq("account_id", resolvedAccountId)
       .gt("impressions", 0);
-    if (accountFilter) missingPreviewQuery = missingPreviewQuery.eq("account_id", accountFilter);
     const { data: missingPreviews } = await missingPreviewQuery.limit(MAX_TOTAL);
 
     const thumbs = allThumbWork;
@@ -402,10 +499,10 @@ serve(async (req) => {
       });
     }
 
-    console.log(`Discovery: fastThumbs=${fastPathThumbs.length} slowThumbs=${slowPathThumbs.length} missingVideos=${noVideos.length} uncachedVideos=${videos.length} previews=${previews.length} account=${accountFilter || "all"}`);
+    console.log(`[${targetAccount.name}] Discovery: fastThumbs=${fastPathThumbs.length} slowThumbs=${slowPathThumbs.length} missingVideos=${noVideos.length} uncachedVideos=${videos.length} previews=${previews.length}`);
 
     if (thumbsTotal === 0 && videosTotal === 0) {
-      console.log("All media already cached — nothing to do.");
+      console.log(`[${targetAccount.name}] All media already cached — marking complete.`);
       if (logId) {
         await updateLog(supabase, logId, {
           status: "completed",
@@ -413,12 +510,21 @@ serve(async (req) => {
           completed_at: new Date().toISOString(),
         });
       }
-      return new Response(JSON.stringify({ thumbnails: { cached: 0, failed: 0, total: 0 }, videos: { cached: 0, failed: 0, total: 0 } }), {
+      // Still update last_media_sync so rotation moves to next account
+      await supabase
+        .from("ad_accounts")
+        .update({ last_media_sync: new Date().toISOString() })
+        .eq("id", resolvedAccountId);
+
+      return new Response(JSON.stringify({
+        account: { id: resolvedAccountId, name: targetAccount.name },
+        thumbnails: { cached: 0, failed: 0, total: 0 },
+        videos: { cached: 0, failed: 0, total: 0 },
+        next_account: nextAccount ? { id: nextAccount.id, name: nextAccount.name } : null,
+      }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    console.log(`Found ${fastPathThumbs.length} thumbnails to cache (fast), ${slowPathThumbs.length} to discover (slow), ${noVideos.length} ads missing video_url, ${videos.length} uncached videos`);
 
     // Phase 2: Process thumbnails
     if (logId) await updateLog(supabase, logId, { current_phase: 2 });
@@ -458,7 +564,7 @@ serve(async (req) => {
       }
     }
 
-    // SLOW PATH: sequential Meta API discovery for NULL thumbnails (only if budget remains)
+    // SLOW PATH: sequential Meta API discovery for NULL thumbnails
     if (!budgetExceeded) {
       for (let i = 0; i < slowPathThumbs.length; i += DISCOVERY_BATCH_SIZE) {
         if (isOverBudget()) {
@@ -580,7 +686,7 @@ serve(async (req) => {
 
     const durationMs = Date.now() - invocationStart;
 
-    // Finalize log — always mark as completed (even partial) so we don't get stuck
+    // Finalize log
     if (logId) {
       await updateLog(supabase, logId, {
         status: "completed",
@@ -594,24 +700,55 @@ serve(async (req) => {
       });
     }
 
+    // ── CHANGE 1: Update last_media_sync for this account ─────────────────
+    // Always update even if budget was exceeded — we did process this account
+    await supabase
+      .from("ad_accounts")
+      .update({ last_media_sync: new Date().toISOString() })
+      .eq("id", resolvedAccountId);
+
     // Remaining work summary
     const thumbsRemaining = allThumbWork.length - (thumbCached + thumbFailed);
     const videosRemaining = (noVideos.length + videos.length) - (totalVideosCached + totalVideosFailed);
     const previewsRemaining = previews.length - previewsFetched;
-    console.log(`Done — Thumbs: ${thumbCached} cached (${fastPathThumbs.length} fast-path, ${slowPathThumbs.length} slow-path), ${thumbFailed} failed, ${thumbsRemaining} remaining | Videos fetched: ${videosFetched}, cached: ${videoCached}, failed: ${videoFailed}, ${videosRemaining} remaining | Previews: ${previewsFetched}/${previews.length}`);
-    if (budgetExceeded) {
-      console.log(`⏳ Time budget reached. Next cron run will continue with remaining: ~${thumbsRemaining} thumbs, ~${videosRemaining} videos, ~${previewsRemaining} previews`);
-    } else if (thumbsRemaining > 0 || videosRemaining > 0 || previewsRemaining > 0) {
-      console.log(`⏳ Next cron run will continue processing: ~${thumbsRemaining} thumbs, ~${videosRemaining} videos, ~${previewsRemaining} previews`);
-    } else {
-      console.log(`✅ All media fully cached for this batch.`);
+
+    console.log(
+      `[${targetAccount.name}] Done — ` +
+      `Thumbs: ${thumbCached} cached, ${thumbFailed} failed, ${thumbsRemaining} remaining | ` +
+      `Videos fetched: ${videosFetched}, cached: ${videoCached}, failed: ${videoFailed}, ${videosRemaining} remaining | ` +
+      `Previews: ${previewsFetched}/${previews.length} | ` +
+      `Budget exceeded: ${budgetExceeded}`
+    );
+
+    if (nextAccount) {
+      console.log(`Next account in rotation: ${nextAccount.name} (${nextAccount.id})`);
     }
 
     return new Response(JSON.stringify({
-      thumbnails: { cached: thumbCached, failed: thumbFailed, total: allThumbWork.length, fastPath: fastPathThumbs.length, slowPath: slowPathThumbs.length },
-      videos: { fetched: videosFetched, markedNA: videosMarkedNA, cached: videoCached, failed: videoFailed, total: videos.length + noVideos.length },
+      account: { id: resolvedAccountId, name: targetAccount.name },
+      thumbnails: {
+        cached: thumbCached,
+        failed: thumbFailed,
+        total: allThumbWork.length,
+        fastPath: fastPathThumbs.length,
+        slowPath: slowPathThumbs.length,
+        remaining: thumbsRemaining,
+      },
+      videos: {
+        fetched: videosFetched,
+        markedNA: videosMarkedNA,
+        cached: videoCached,
+        failed: videoFailed,
+        total: videos.length + noVideos.length,
+        remaining: videosRemaining,
+      },
       previews: { fetched: previewsFetched, total: previews.length },
       budgetExceeded,
+      // Rotation info for observability
+      next_account: nextAccount
+        ? { id: nextAccount.id, name: nextAccount.name, last_media_sync: nextAccount.last_media_sync }
+        : null,
+      cooldown_hours: MEDIA_REFRESH_COOLDOWN_HOURS,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

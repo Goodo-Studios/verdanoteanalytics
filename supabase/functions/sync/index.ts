@@ -229,6 +229,33 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
   const syncScope = state.sync_scope || "full";
   const dateRangeDays = syncType === "initial" ? 90 : (account.date_range_days || 14);
 
+  // ── CHANGE 2: Incremental sync — determine date window ──────────────────
+  // If the account has a last_data_sync timestamp and this is NOT an initial sync,
+  // use that as the `since` date for insights queries so we only pull new/changed data.
+  // If no last_data_sync exists (first run), fall back to the full dateRangeDays window.
+  const lastDataSync: string | null = account.last_data_sync || null;
+  const isInitialSync = syncType === "initial" || !lastDataSync;
+
+  // Compute the effective start date for insights queries
+  let incrementalSinceDate: string | null = null;
+  if (!isInitialSync && lastDataSync) {
+    // Use last sync date as `since`, but clamp to a minimum of 2 days ago
+    // to catch any delayed data from Meta's attribution windows.
+    const lastSyncMs = new Date(lastDataSync).getTime();
+    const twoDaysAgo = Date.now() - 2 * 24 * 60 * 60 * 1000;
+    const effectiveSince = Math.min(lastSyncMs, twoDaysAgo);
+    incrementalSinceDate = new Date(effectiveSince).toISOString().split("T")[0];
+    console.log(
+      `Incremental sync for ${account.name}: fetching data since ${incrementalSinceDate} ` +
+      `(last_data_sync: ${lastDataSync})`
+    );
+  } else {
+    console.log(
+      `Initial/full sync for ${account.name}: fetching last ${dateRangeDays} days`
+    );
+  }
+  // ────────────────────────────────────────────────────────────────────────
+
   // Determine which phases to run based on sync_scope
   const scopePhases: Record<string, number[]> = {
     full: [1, 2, 3, 4, 5],
@@ -505,17 +532,42 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     // ═══════════════════════════════════════════════════════════════════
     if (phase === 2) {
       const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - dateRangeDays);
-      const timeRange = JSON.stringify({ since: startDate.toISOString().split("T")[0], until: endDate.toISOString().split("T")[0] });
+
+      // ── CHANGE 2: Use incremental date range when available ──────────────
+      // If we have a last_data_sync date, only fetch data since then.
+      // Fall back to full dateRangeDays for initial syncs or missing timestamp.
+      // On resume (cursor present), skip date recalculation and use saved URL directly.
+      let phase2TimeRange: string;
+      let phase2SinceDate: string;
+      if (state.insights_cursor) {
+        // Resuming — timeRange is embedded in the saved cursor URL, don't recalculate
+        phase2TimeRange = state.insights_time_range || "";
+        phase2SinceDate = state.insights_since_date || "";
+        console.log(`Phase 2 resuming from cursor — time range: ${phase2TimeRange}`);
+      } else if (incrementalSinceDate) {
+        // Incremental: fetch only since last sync
+        phase2SinceDate = incrementalSinceDate;
+        phase2TimeRange = JSON.stringify({ since: phase2SinceDate, until: endDate.toISOString().split("T")[0] });
+        console.log(`Phase 2 incremental: ${phase2SinceDate} → ${endDate.toISOString().split("T")[0]}`);
+      } else {
+        // Initial / full sync: use full date range
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - dateRangeDays);
+        phase2SinceDate = startDate.toISOString().split("T")[0];
+        phase2TimeRange = JSON.stringify({ since: phase2SinceDate, until: endDate.toISOString().split("T")[0] });
+        console.log(`Phase 2 full: ${phase2SinceDate} → ${endDate.toISOString().split("T")[0]}`);
+      }
+      // ────────────────────────────────────────────────────────────────────
 
       const insightsFields = "ad_id,spend,purchase_roas,cost_per_action_type,ctr,clicks,impressions,cpm,cpc,frequency,actions,action_values,video_avg_time_watched_actions,video_thruplay_watched_actions";
       const cursor = state.insights_cursor || null;
       let insightsCount = state.insights_count || 0;
+      // Track whether incremental query returned zero results (triggers fallback)
+      let incrementalReturnedZero = false;
 
       let nextUrl = cursor || (
         `https://graph.facebook.com/${META_API_VERSION}/${accountId}/insights?` +
-        `time_range=${encodeURIComponent(timeRange)}&level=ad` +
+        `time_range=${encodeURIComponent(phase2TimeRange)}&level=ad` +
         `&fields=${insightsFields}` +
         `&limit=${insightsPageSize}&access_token=${encodeURIComponent(metaToken)}`
       );
@@ -525,6 +577,14 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         const result = await metaFetch(nextUrl, ctx);
         if (result.error) break;
         if (result.data) {
+          if (result.data.length === 0 && insightsCount === 0 && incrementalSinceDate && !state.insights_cursor) {
+            // Incremental query returned nothing on first page — Meta may have limited history
+            // Flag for fallback to full window
+            incrementalReturnedZero = true;
+            console.log(`Incremental query returned 0 results for ${account.name} — will fall back to full window`);
+            break;
+          }
+
           // Bulk update via DB function — single RPC call per batch instead of N individual updates
           const BATCH_SIZE = 500;
           const metricRows = result.data.map((row: any) => ({
@@ -545,9 +605,51 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         if (nextUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
       }
 
+      // ── CHANGE 2: Fallback to full window if incremental returned nothing ──
+      if (incrementalReturnedZero && !isTimedOut()) {
+        console.log(`Falling back to full ${dateRangeDays}-day window for ${account.name}...`);
+        const fallbackStart = new Date();
+        fallbackStart.setDate(fallbackStart.getDate() - dateRangeDays);
+        const fallbackTimeRange = JSON.stringify({
+          since: fallbackStart.toISOString().split("T")[0],
+          until: endDate.toISOString().split("T")[0],
+        });
+        let fallbackUrl: string | null =
+          `https://graph.facebook.com/${META_API_VERSION}/${accountId}/insights?` +
+          `time_range=${encodeURIComponent(fallbackTimeRange)}&level=ad` +
+          `&fields=${insightsFields}` +
+          `&limit=${insightsPageSize}&access_token=${encodeURIComponent(metaToken)}`;
+
+        while (fallbackUrl && !isTimedOut()) {
+          await heartbeat();
+          const result = await metaFetch(fallbackUrl, ctx);
+          if (result.error) break;
+          if (result.data && result.data.length > 0) {
+            const BATCH_SIZE = 500;
+            const metricRows = result.data.map((row: any) => ({ ad_id: row.ad_id, ...parseInsightsRow(row) }));
+            for (let i = 0; i < metricRows.length; i += BATCH_SIZE) {
+              const batch = metricRows.slice(i, i + BATCH_SIZE);
+              const { error } = await supabase.rpc("bulk_update_creative_metrics", { payload: JSON.stringify(batch) });
+              if (error) console.error("Phase 2 fallback RPC error:", error.message);
+              if (isTimedOut()) break;
+            }
+            insightsCount += result.data.length;
+            console.log(`  Fallback insights upserted: ${insightsCount}`);
+          }
+          fallbackUrl = result.next;
+          if (fallbackUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
+        }
+        if (fallbackUrl && isTimedOut()) {
+          console.log(`Phase 2 fallback paused at ${insightsCount} insights`);
+          await saveState(2, { insights_cursor: fallbackUrl, insights_count: insightsCount, insights_time_range: fallbackTimeRange, insights_since_date: fallbackStart.toISOString().split("T")[0] });
+          return;
+        }
+      }
+      // ────────────────────────────────────────────────────────────────────
+
       if (nextUrl && isTimedOut()) {
         console.log(`Phase 2 paused at ${insightsCount} insights`);
-        await saveState(2, { insights_cursor: nextUrl, insights_count: insightsCount });
+        await saveState(2, { insights_cursor: nextUrl, insights_count: insightsCount, insights_time_range: phase2TimeRange, insights_since_date: phase2SinceDate });
       } else {
         console.log(`Phase 2 complete: ${insightsCount} insights`);
 
@@ -617,7 +719,22 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           console.error("Slack notification error (non-fatal):", slackErr);
         }
 
-        await saveState(3, { insights_cursor: null, insights_count: insightsCount });
+        // ── CHANGE 2: Record last_data_sync timestamp after successful Phase 2 ──
+        // This is the key timestamp that enables incremental sync on next run.
+        // We set it to the start of the sync's effective date window so next run
+        // only fetches data after this point.
+        try {
+          await supabase
+            .from("ad_accounts")
+            .update({ last_data_sync: new Date().toISOString() })
+            .eq("id", accountId);
+          console.log(`  Updated last_data_sync for ${account.name}`);
+        } catch (syncTimestampErr) {
+          console.error("Failed to update last_data_sync (non-fatal):", syncTimestampErr);
+        }
+        // ────────────────────────────────────────────────────────────────
+
+        await saveState(3, { insights_cursor: null, insights_count: insightsCount, insights_time_range: null, insights_since_date: null });
       }
       return;
     }
@@ -655,14 +772,42 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         .select("*", { count: "exact", head: true }).eq("account_id", accountId);
       const hasExistingAds = (existingCount || 0) > 0;
 
-      const dailyDays = hasExistingAds && syncType !== "initial"
-        ? Math.min(dateRangeDays, 30)
-        : dateRangeDays;
-
+      // ── CHANGE 2: Incremental daily breakdowns ───────────────────────────
+      // Use incremental date range for daily breakdowns too.
+      // For initial syncs: full dateRangeDays (capped at 30 for daily detail).
+      // For incremental syncs: only since last data sync (min 2 days for attribution).
+      let dailyDays: number;
+      let dailySinceDate: string;
       const CHUNK_DAYS = 15;
       const endDate = new Date();
-      const fullStartDate = new Date();
-      fullStartDate.setDate(fullStartDate.getDate() - dailyDays);
+
+      if (!state.daily_chunk_offset && incrementalSinceDate) {
+        // Incremental: compute days since last sync
+        const sinceMs = new Date(incrementalSinceDate).getTime();
+        const daysSinceSync = Math.ceil((Date.now() - sinceMs) / (1000 * 60 * 60 * 24));
+        // Add 2 days buffer for attribution window, cap at dateRangeDays
+        dailyDays = Math.min(daysSinceSync + 2, dateRangeDays);
+        dailySinceDate = incrementalSinceDate;
+        console.log(`Phase 4 incremental: ${dailyDays} days of daily data (since ${dailySinceDate})`);
+      } else if (!state.daily_chunk_offset) {
+        // Initial/full: use standard window (30 days cap for daily detail)
+        dailyDays = hasExistingAds && syncType !== "initial"
+          ? Math.min(dateRangeDays, 30)
+          : dateRangeDays;
+        const fullStart = new Date();
+        fullStart.setDate(fullStart.getDate() - dailyDays);
+        dailySinceDate = fullStart.toISOString().split("T")[0];
+        console.log(`Phase 4 full: ${dailyDays} days of daily data`);
+      } else {
+        // Resuming — use saved values
+        dailyDays = state.daily_days || (hasExistingAds && syncType !== "initial" ? Math.min(dateRangeDays, 30) : dateRangeDays);
+        dailySinceDate = state.daily_since_date || (() => {
+          const d = new Date(); d.setDate(d.getDate() - dailyDays); return d.toISOString().split("T")[0];
+        })();
+      }
+      // ────────────────────────────────────────────────────────────────────
+
+      const fullStartDate = new Date(dailySinceDate + "T00:00:00Z");
 
       const chunkOffset = state.daily_chunk_offset || 0;
       const dailyCursor = state.daily_cursor || null;
@@ -739,7 +884,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
 
         if (nextUrl && isTimedOut()) {
           console.log(`Phase 4 paused mid-chunk ${currentChunk + 1}`);
-          await saveState(4, { daily_chunk_offset: currentChunk, daily_cursor: nextUrl });
+          await saveState(4, { daily_chunk_offset: currentChunk, daily_cursor: nextUrl, daily_days: dailyDays, daily_since_date: dailySinceDate });
           return;
         }
 
@@ -749,10 +894,10 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
 
       if (currentChunk >= totalChunks) {
         console.log("Phase 4 complete — moving to finalize");
-        await saveState(5, { daily_chunk_offset: null, daily_cursor: null });
+        await saveState(5, { daily_chunk_offset: null, daily_cursor: null, daily_days: null, daily_since_date: null });
       } else {
         console.log(`Phase 4 paused after chunk ${currentChunk}`);
-        await saveState(4, { daily_chunk_offset: currentChunk, daily_cursor: null });
+        await saveState(4, { daily_chunk_offset: currentChunk, daily_cursor: null, daily_days: dailyDays, daily_since_date: dailySinceDate });
       }
       return;
     }
