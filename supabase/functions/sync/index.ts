@@ -790,17 +790,16 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         dailySinceDate = incrementalSinceDate;
         console.log(`Phase 4 incremental: ${dailyDays} days of daily data (since ${dailySinceDate})`);
       } else if (!state.daily_chunk_offset) {
-        // Initial/full: use standard window (30 days cap for daily detail)
-        dailyDays = hasExistingAds && syncType !== "initial"
-          ? Math.min(dateRangeDays, 30)
-          : dateRangeDays;
+        // Initial/full: use the entire date_range_days window so daily metrics
+        // cover the same period as the aggregated insights (Phase 2).
+        dailyDays = dateRangeDays;
         const fullStart = new Date();
         fullStart.setDate(fullStart.getDate() - dailyDays);
         dailySinceDate = fullStart.toISOString().split("T")[0];
         console.log(`Phase 4 full: ${dailyDays} days of daily data`);
       } else {
         // Resuming — use saved values
-        dailyDays = state.daily_days || (hasExistingAds && syncType !== "initial" ? Math.min(dateRangeDays, 30) : dateRangeDays);
+        dailyDays = state.daily_days || dateRangeDays;
         dailySinceDate = state.daily_since_date || (() => {
           const d = new Date(); d.setDate(d.getDate() - dailyDays); return d.toISOString().split("T")[0];
         })();
