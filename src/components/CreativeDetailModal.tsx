@@ -139,10 +139,17 @@ function MediaPreview({ creative }: { creative: any }) {
     );
   }
 
-  if (isVideoAdWithoutSource && creative.preview_url) {
+  if (isVideoAdWithoutSource) {
+    const adLibUrl = creative.ad_id ? `https://www.facebook.com/ads/library/?id=${creative.ad_id}` : facebookAdUrl;
     return (
-      <div className="relative group">
-        <MetaPreviewEmbed url={creative.preview_url} fallbackUrl={facebookAdUrl} />
+      <div className="bg-muted rounded-lg flex flex-col items-center justify-center gap-3 py-12">
+        <Video className="h-8 w-8 text-muted-foreground" />
+        <span className="font-body text-[13px] text-muted-foreground">Video preview not available inline</span>
+        {adLibUrl && (
+          <a href={adLibUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+            <Button size="sm" className="gap-1.5"><ExternalLink className="h-3.5 w-3.5" />View in Ad Library</Button>
+          </a>
+        )}
       </div>
     );
   }
