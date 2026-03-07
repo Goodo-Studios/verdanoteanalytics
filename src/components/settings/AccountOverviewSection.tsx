@@ -38,7 +38,7 @@ export function AccountOverviewSection({
           <h2 className="font-heading text-[20px] text-forest">Account Overview</h2>
           <p className="font-data text-[12px] text-sage tracking-wide">{account.id}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant="secondary" onClick={onRename} title="Rename">
             <Pencil className="h-3.5 w-3.5 mr-1.5" />
             Edit
