@@ -248,10 +248,10 @@ You MUST respond in EXACTLY this markdown format — no deviations:
 ## Week of [use today's date in Month Day, Year format]
 
 ### 🏆 What Worked
-[Analyze the top 3 creatives by ROAS that have meaningful spend (>$100). For each, state: ad name, ROAS, spend, CPA, and a brief explanation of WHY it worked based on its type, hook, style, and metrics.]
+[Analyze the top 3 creatives by SPEND (highest spend = most trusted/scaled). For each, state: ad name, spend, ROAS, CPA, and a brief explanation of WHY it worked based on its type, hook, style, and metrics. High spend indicates the media buyer is confident in the ad.]
 
 ### ⚠️ What Didn't
-[Analyze the bottom 3 creatives with spend > $500 by ROAS. For each, state: ad name, ROAS, spend, CPA, and diagnose WHY it underperformed — weak hook rate? low hold? bad CPA?]
+[Analyze the 3 worst-performing creatives with spend > $500 by ROAS. For each, state: ad name, ROAS, spend, CPA, and diagnose WHY it underperformed — weak hook rate? low hold? bad CPA?]
 
 ### 📊 Patterns
 [2-3 data-driven observations about patterns across the dataset. E.g. "UGC styles average 2.3x ROAS vs static at 1.1x", "Problem-solution hooks outperform by 40%"]

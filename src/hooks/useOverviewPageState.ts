@@ -98,9 +98,9 @@ export function useOverviewPageState() {
     const qualified = creatives.filter((c: any) => (Number(c.spend) || 0) >= spendThreshold);
     if (qualified.length === 0) return null;
     return qualified.reduce((best: any, c: any) => {
-      const roas = Number(c.roas) || 0;
-      const bestRoas = Number(best.roas) || 0;
-      return roas > bestRoas ? c : best;
+      const spend = Number(c.spend) || 0;
+      const bestSpend = Number(best.spend) || 0;
+      return spend > bestSpend ? c : best;
     }, qualified[0]);
   }, [creatives, spendThreshold]);
 

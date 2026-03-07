@@ -86,7 +86,7 @@ serve(async (req) => {
 DATA SUMMARY:
 - ${creatives.length} creatives, $${totalSpend.toFixed(0)} total spend, ${avgRoas.toFixed(2)}x blended ROAS
 
-TOP PERFORMERS:
+TOP PERFORMERS (by spend — highest spend = most trusted by media buyers):
 ${creativeSummary}
 
 PERFORMANCE BY FORMAT/TYPE:
