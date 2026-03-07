@@ -212,7 +212,7 @@ function computeStats(creatives: any[]) {
   const topBySpend = [...creatives]
     .sort((a, b) => (b.spend || 0) - (a.spend || 0))
     .slice(0, 5)
-    .map(c => `"${c.ad_name}" ($${c.spend?.toFixed(0)})`)
+    .map(c => `"${c.ad_name}" (Spend: $${c.spend?.toFixed(0)}, ROAS: ${c.roas?.toFixed(2)}x)`)
     .join("; ");
 
   return { totalSpend, avgRoas, avgCtr, avgCpa, topByRoas, topBySpend };
@@ -231,8 +231,8 @@ function buildSystemPrompt(
   const baseContext = `CURRENT ACCOUNT: ${accountName}
 DATASET: ${creatives.length} creatives | Total Spend: $${stats.totalSpend.toFixed(0)} | Avg ROAS: ${stats.avgRoas.toFixed(2)}x | Avg CTR: ${(stats.avgCtr * 100).toFixed(2)}% | Avg CPA: $${stats.avgCpa.toFixed(0)}
 
-TOP PERFORMERS BY ROAS: ${stats.topByRoas || "N/A"}
-TOP SPENDERS: ${stats.topBySpend || "N/A"}
+TOP PERFORMERS (by spend — highest spend = most trusted by media buyers): ${stats.topBySpend || "N/A"}
+HIGH ROAS (efficient but not necessarily best): ${stats.topByRoas || "N/A"}
 
 FULL CREATIVE DATA (name | spend | roas | cpa | ctr% | hook% | hold% | type | hook | style | status):
 ${table}`;
@@ -248,10 +248,10 @@ You MUST respond in EXACTLY this markdown format — no deviations:
 ## Week of [use today's date in Month Day, Year format]
 
 ### 🏆 What Worked
-[Analyze the top 3 creatives by ROAS that have meaningful spend (>$100). For each, state: ad name, ROAS, spend, CPA, and a brief explanation of WHY it worked based on its type, hook, style, and metrics.]
+[Analyze the top 3 creatives by SPEND (highest spend = most trusted/scaled). For each, state: ad name, spend, ROAS, CPA, and a brief explanation of WHY it worked based on its type, hook, style, and metrics. High spend indicates the media buyer is confident in the ad.]
 
 ### ⚠️ What Didn't
-[Analyze the bottom 3 creatives with spend > $500 by ROAS. For each, state: ad name, ROAS, spend, CPA, and diagnose WHY it underperformed — weak hook rate? low hold? bad CPA?]
+[Analyze the 3 worst-performing creatives with spend > $500 by ROAS. For each, state: ad name, ROAS, spend, CPA, and diagnose WHY it underperformed — weak hook rate? low hold? bad CPA?]
 
 ### 📊 Patterns
 [2-3 data-driven observations about patterns across the dataset. E.g. "UGC styles average 2.3x ROAS vs static at 1.1x", "Problem-solution hooks outperform by 40%"]
@@ -330,7 +330,7 @@ You MUST output EXACTLY 3 concepts in this format:
 - **Format**: [UGC / Static / Video / Carousel — pick one]
 - **Angle**: [Offer / Social Proof / Problem-Solution / Aspirational / Fear-of-Missing / Education — pick one]
 - **Why This Works**: [1-2 sentences explaining why this concept fits the audience, referencing performance data]
-- **Reference**: [Name a similar creative from the account data that performed well, with its ROAS]
+- **Reference**: [Name a similar creative from the account data that performed well (high spend = best), with its spend and ROAS]
 - **Suggested Ad Name**: [Follow the account's naming convention if visible, e.g. "PRODUCT_STYLE_HOOK_v1"]
 
 ### Concept 2: [Concept Name]
@@ -346,6 +346,8 @@ You MUST output EXACTLY 3 concepts in this format:
       return `You are Verdanote AI, an expert creative performance analyst for Meta advertising.
 
 ${baseContext}
+
+IMPORTANT: The best-performing ads are determined primarily by SPEND, not ROAS. High spend means the media buyer trusts and has scaled the ad. A high-ROAS ad with low spend may just be a fluke or too new to evaluate.
 
 You have deep knowledge of Meta advertising, creative strategy, and performance marketing. 
 Answer questions concisely but thoroughly. When asked for recommendations, be specific and actionable.

@@ -60,8 +60,8 @@ serve(async (req) => {
     const totalPV = creatives.reduce((s: number, c: any) => s + (c.spend || 0) * (c.roas || 0), 0);
     const avgRoas = totalSpend > 0 ? totalPV / totalSpend : 0;
 
-    const topByRoas = [...creatives].filter(c => (c.roas || 0) > 0 && (c.spend || 0) > 50)
-      .sort((a, b) => (b.roas || 0) - (a.roas || 0)).slice(0, 5);
+    const topBySpend = [...creatives].filter(c => (c.spend || 0) > 50)
+      .sort((a, b) => (b.spend || 0) - (a.spend || 0)).slice(0, 5);
 
     const byType: Record<string, { spend: number; pv: number; count: number }> = {};
     for (const c of creatives) {
@@ -77,8 +77,8 @@ serve(async (req) => {
       .map(([t, v]) => `${t}: ROAS ${(v.pv / v.spend).toFixed(2)}x, ${v.count} ads, $${v.spend.toFixed(0)} spend`)
       .join("\n");
 
-    const creativeSummary = topByRoas
-      .map(c => `"${c.ad_name}" — ROAS: ${(c.roas || 0).toFixed(2)}x, CPA: $${(c.cpa || 0).toFixed(2)}, Spend: $${(c.spend || 0).toFixed(0)}, Type: ${c.ad_type || c.style || "N/A"}`)
+    const creativeSummary = topBySpend
+      .map(c => `"${c.ad_name}" — Spend: $${(c.spend || 0).toFixed(0)}, ROAS: ${(c.roas || 0).toFixed(2)}x, CPA: $${(c.cpa || 0).toFixed(2)}, Type: ${c.ad_type || c.style || "N/A"}`)
       .join("\n");
 
     const prompt = `You are a creative performance analyst writing insights for a business owner who is NOT a marketer.
@@ -86,7 +86,7 @@ serve(async (req) => {
 DATA SUMMARY:
 - ${creatives.length} creatives, $${totalSpend.toFixed(0)} total spend, ${avgRoas.toFixed(2)}x blended ROAS
 
-TOP PERFORMERS:
+TOP PERFORMERS (by spend — highest spend = most trusted by media buyers):
 ${creativeSummary}
 
 PERFORMANCE BY FORMAT/TYPE:

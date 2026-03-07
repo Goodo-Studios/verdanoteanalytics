@@ -13,7 +13,7 @@ interface Props {
   onCreativeClick?: (creative: any) => void;
 }
 
-export function TopCreativesSection({ creatives, count = 5, sortBy = "roas", onCreativeClick }: Props) {
+export function TopCreativesSection({ creatives, count = 5, sortBy = "spend", onCreativeClick }: Props) {
   const top = useMemo(() => {
     const qualified = creatives.filter((c: any) => (Number(c.spend) || 0) > 0);
     const sorted = [...qualified].sort((a, b) => {
