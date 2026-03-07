@@ -347,6 +347,8 @@ You MUST output EXACTLY 3 concepts in this format:
 
 ${baseContext}
 
+IMPORTANT: The best-performing ads are determined primarily by SPEND, not ROAS. High spend means the media buyer trusts and has scaled the ad. A high-ROAS ad with low spend may just be a fluke or too new to evaluate.
+
 You have deep knowledge of Meta advertising, creative strategy, and performance marketing. 
 Answer questions concisely but thoroughly. When asked for recommendations, be specific and actionable.
 Format responses with markdown when helpful (lists, bold key metrics).`;
