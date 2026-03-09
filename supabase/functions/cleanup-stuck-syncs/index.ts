@@ -11,6 +11,7 @@ serve(async (_req) => {
   );
 
   const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   const activityThreshold = Date.now() - 2 * 60 * 1000; // 2 min no heartbeat = stuck
   const now = new Date().toISOString();
 
