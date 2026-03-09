@@ -188,25 +188,11 @@ async function getFreshPreviewUrl(adId: string): Promise<string | null> {
   }
 }
 
-/** Fetch a fresh video source URL from Meta Graph API.
- *
- * Covers all known creative formats:
- *   1. Standard video ads — creative.video_id or spec.video_data.video_id
- *   2. Direct spec.video_data.video_url (some formats inline the URL)
- *   3. template_data.video_data.video_id (DPA/catalog video templates)
- *   4. Carousel child attachments — spec.link_data.child_attachments[].video_id
- *      (carousel ads where each card can have its own video)
- *   5. Whitelisted/creator-boosted posts — effective_object_story_id → post video
- *      (partnership ads where video lives under the creator's page, not the ad account)
- *   6. adcreatives endpoint fallback — requests video_id + asset_feed_spec directly
- *      catches formats not exposed via the ad endpoint
- *   7. asset_feed_spec.videos[].video_id — dynamic creative / advantage+ formats
- */
+/** Fetch a fresh video source URL from Meta Graph API. */
 async function getFreshVideoUrl(adId: string): Promise<string | null> {
   try {
-    // Step 1: Fetch ad creative with expanded fields covering all known formats
     const res = await fetchWithTimeout(
-      `https://graph.facebook.com/v21.0/${adId}?fields=creative{id,video_id,object_story_spec,effective_object_story_id,asset_feed_spec}&access_token=${META_ACCESS_TOKEN}`
+      `https://graph.facebook.com/v21.0/${adId}?fields=creative{object_story_spec,video_id}&access_token=${META_ACCESS_TOKEN}`
     );
     if (!res.ok) {
       console.log(`Meta video API failed for ${adId}: ${res.status}`);
@@ -217,36 +203,17 @@ async function getFreshVideoUrl(adId: string): Promise<string | null> {
     if (!creative) return null;
 
     const spec = creative.object_story_spec;
+
     const videoIds: string[] = [];
-
-    // -- Path 1: top-level video_id on the creative
     if (creative.video_id) videoIds.push(creative.video_id);
-
-    // -- Path 2: standard video_data
     if (spec?.video_data?.video_id) videoIds.push(spec.video_data.video_id);
+    if (spec?.template_data?.video_data?.video_id) videoIds.push(spec.template_data.video_data.video_id);
+
     if (spec?.video_data?.video_url) {
       console.log(`Found video_url in spec for ${adId}`);
       return spec.video_data.video_url;
     }
 
-    // -- Path 3: template / DPA video
-    if (spec?.template_data?.video_data?.video_id) {
-      videoIds.push(spec.template_data.video_data.video_id);
-    }
-
-    // -- Path 4: carousel child attachments (each card may have its own video)
-    const children: any[] = spec?.link_data?.child_attachments || [];
-    for (const child of children) {
-      if (child?.video_id) videoIds.push(child.video_id);
-    }
-
-    // -- Path 5: asset_feed_spec (Advantage+/dynamic creative)
-    const feedVideos: any[] = creative.asset_feed_spec?.videos || [];
-    for (const v of feedVideos) {
-      if (v?.video_id) videoIds.push(v.video_id);
-    }
-
-    // Try fetching source from all collected video_ids
     for (const vid of [...new Set(videoIds)]) {
       const vidRes = await fetchWithTimeout(
         `https://graph.facebook.com/v21.0/${vid}?fields=source&access_token=${META_ACCESS_TOKEN}`
@@ -254,66 +221,8 @@ async function getFreshVideoUrl(adId: string): Promise<string | null> {
       if (vidRes.ok) {
         const vidData = await vidRes.json();
         if (vidData?.source) {
-          console.log(`Got video source from video_id ${vid} for ${adId} (path 1-5)`);
+          console.log(`Got video source from video_id ${vid} for ${adId}`);
           return vidData.source;
-        }
-      }
-    }
-
-    // -- Path 6: effective_object_story_id → fetch the live post for its video
-    // Used for whitelisted/creator-boosted ads where the video lives under the page,
-    // not the ad account. The post's attachments contain the actual video asset.
-    const storyId = creative.effective_object_story_id;
-    if (storyId) {
-      const postRes = await fetchWithTimeout(
-        `https://graph.facebook.com/v21.0/${storyId}?fields=attachments{media,media_type}&access_token=${META_ACCESS_TOKEN}`
-      );
-      if (postRes.ok) {
-        const postData = await postRes.json();
-        const attachments: any[] = postData?.attachments?.data || [];
-        for (const att of attachments) {
-          const videoId = att?.media?.video?.id;
-          if (videoId) {
-            const vidRes = await fetchWithTimeout(
-              `https://graph.facebook.com/v21.0/${videoId}?fields=source&access_token=${META_ACCESS_TOKEN}`
-            );
-            if (vidRes.ok) {
-              const vidData = await vidRes.json();
-              if (vidData?.source) {
-                console.log(`Got video source via effective_object_story_id for ${adId} (path 6)`);
-                return vidData.source;
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // -- Path 7: adcreatives endpoint fallback — some formats only expose video_id here
-    if (creative.id) {
-      const creativeRes = await fetchWithTimeout(
-        `https://graph.facebook.com/v21.0/${creative.id}?fields=video_id,asset_feed_spec&access_token=${META_ACCESS_TOKEN}`
-      );
-      if (creativeRes.ok) {
-        const creativeData = await creativeRes.json();
-        const fallbackIds: string[] = [];
-        if (creativeData?.video_id) fallbackIds.push(creativeData.video_id);
-        const feedVids: any[] = creativeData?.asset_feed_spec?.videos || [];
-        for (const v of feedVids) {
-          if (v?.video_id) fallbackIds.push(v.video_id);
-        }
-        for (const vid of [...new Set(fallbackIds)]) {
-          if (videoIds.includes(vid)) continue; // already tried
-          const vidRes = await fetchWithTimeout(
-            `https://graph.facebook.com/v21.0/${vid}?fields=source&access_token=${META_ACCESS_TOKEN}`
-          );
-          if (vidRes.ok) {
-            const vidData = await vidRes.json();
-            if (vidData?.source) {
-              console.log(`Got video source via adcreatives fallback for ${adId} (path 7)`);
-              return vidData.source;
-            }
-          }
         }
       }
     }
@@ -402,7 +311,7 @@ async function pickAccount(
     // Use only columns that definitely exist in the schema
     const { data: account, error } = await supabase
       .from("ad_accounts")
-      .select("id, name, creative_count")
+      .select("id, name, total_spend")
       .eq("id", requestedAccountId)
       .single();
     if (error) {
@@ -418,19 +327,18 @@ async function pickAccount(
   // Try with last_media_sync first (column added by migration 20260307000001)
   const { data: accountsWithSync, error: syncErr } = await supabase
     .from("ad_accounts")
-    .select("id, name, last_media_sync, creative_count")
+    .select("id, name, total_spend, last_media_sync")
     .eq("is_active", true)
     .order("last_media_sync", { ascending: true, nullsFirst: true })
-    .order("creative_count", { ascending: false, nullsFirst: false });
+    .order("total_spend", { ascending: false, nullsFirst: false });
 
   if (syncErr) {
-    // last_media_sync column doesn't exist yet -- fall back to ordering by last_synced_at
+    // Column doesn't exist yet -- fall back to ordering by total_spend only
     console.log(`last_media_sync column not available (${syncErr.message}), using fallback ordering`);
     const { data: fallbackAccounts } = await supabase
       .from("ad_accounts")
-      .select("id, name, creative_count, last_synced_at")
-      .eq("is_active", true)
-      .order("last_synced_at", { ascending: true, nullsFirst: true });
+      .select("id, name")
+      .eq("is_active", true);
     accounts = fallbackAccounts;
   } else {
     accounts = accountsWithSync;

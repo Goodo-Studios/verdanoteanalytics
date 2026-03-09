@@ -85,6 +85,7 @@ export type Database = {
           kill_scale_kpi: string
           kill_scale_kpi_direction: string
           kill_threshold: number
+          last_media_sync: string | null
           last_scheduled_report_at: string | null
           last_synced_at: string | null
           logo_url: string | null
@@ -107,6 +108,7 @@ export type Database = {
           target_roas: number | null
           tiktok_access_token: string | null
           tiktok_advertiser_id: string | null
+          total_spend: number | null
           untagged_count: number
           updated_at: string
           view_window: number | null
@@ -135,6 +137,7 @@ export type Database = {
           kill_scale_kpi?: string
           kill_scale_kpi_direction?: string
           kill_threshold?: number
+          last_media_sync?: string | null
           last_scheduled_report_at?: string | null
           last_synced_at?: string | null
           logo_url?: string | null
@@ -157,6 +160,7 @@ export type Database = {
           target_roas?: number | null
           tiktok_access_token?: string | null
           tiktok_advertiser_id?: string | null
+          total_spend?: number | null
           untagged_count?: number
           updated_at?: string
           view_window?: number | null
@@ -185,6 +189,7 @@ export type Database = {
           kill_scale_kpi?: string
           kill_scale_kpi_direction?: string
           kill_threshold?: number
+          last_media_sync?: string | null
           last_scheduled_report_at?: string | null
           last_synced_at?: string | null
           logo_url?: string | null
@@ -207,6 +212,7 @@ export type Database = {
           target_roas?: number | null
           tiktok_access_token?: string | null
           tiktok_advertiser_id?: string | null
+          total_spend?: number | null
           untagged_count?: number
           updated_at?: string
           view_window?: number | null
