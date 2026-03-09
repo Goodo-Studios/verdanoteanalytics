@@ -42,37 +42,20 @@ interface CreativeDetailModalProps {
 }
 
 function MetaPreviewEmbed({ url, fallbackUrl }: { url: string; fallbackUrl?: string | null }) {
-  const [iframeError, setIframeError] = useState(false);
+  const linkUrl = url || fallbackUrl;
 
-  if (iframeError && fallbackUrl) {
-    return (
-      <div className="w-full h-[400px] flex flex-col items-center justify-center gap-3 bg-muted rounded-lg">
-        <AlertCircle className="h-6 w-6 text-muted-foreground" />
-        <p className="font-body text-xs text-muted-foreground">Preview couldn't load inline.</p>
-        <a href={fallbackUrl} target="_blank" rel="noopener noreferrer">
-          <Button size="sm" className="gap-1.5"><ExternalLink className="h-3.5 w-3.5" />Open Preview</Button>
-        </a>
-      </div>
-    );
-  }
+  if (!linkUrl) return null;
 
   return (
-    <div className="bg-muted rounded-lg overflow-hidden relative">
-      <iframe
-        src={url}
-        className="w-full h-[400px] border-0 rounded-lg"
-        allow="autoplay; encrypted-media"
-        allowFullScreen
-        onError={() => setIframeError(true)}
-        sandbox="allow-scripts allow-same-origin allow-popups"
-      />
-      {fallbackUrl && (
-        <a href={fallbackUrl} target="_blank" rel="noopener noreferrer" className="absolute bottom-2 right-2">
-          <Button size="sm" variant="secondary" className="gap-1.5 text-xs">
-            <ExternalLink className="h-3 w-3" />Open in New Tab
-          </Button>
-        </a>
-      )}
+    <div className="w-full h-[200px] flex flex-col items-center justify-center gap-3 bg-muted rounded-lg border border-border">
+      <ExternalLink className="h-8 w-8 text-muted-foreground" />
+      <p className="text-sm text-muted-foreground font-medium">Ad Preview</p>
+      <p className="text-xs text-muted-foreground text-center px-4">Meta ad previews can't be embedded. Open in Facebook to view.</p>
+      <a href={linkUrl} target="_blank" rel="noopener noreferrer">
+        <Button size="sm" className="gap-1.5 mt-1">
+          <ExternalLink className="h-3.5 w-3.5" />View Ad on Facebook
+        </Button>
+      </a>
     </div>
   );
 }
