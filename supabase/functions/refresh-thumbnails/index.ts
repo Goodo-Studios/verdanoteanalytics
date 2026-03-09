@@ -306,23 +306,44 @@ async function pickAccount(
   supabase: any,
   requestedAccountId: string | null
 ): Promise<{ account: any | null; skippedAll: boolean; nextAccount: any | null }> {
-  // Explicit account requested — use it no matter what
+  // Explicit account requested — bypass ALL cooldown logic, fetch minimal account info
   if (requestedAccountId && requestedAccountId !== "all") {
-    const { data: account } = await supabase
+    // Use only columns that definitely exist in the schema
+    const { data: account, error } = await supabase
       .from("ad_accounts")
-      .select("id, name, total_spend, last_media_sync")
+      .select("id, name, total_spend")
       .eq("id", requestedAccountId)
       .single();
+    if (error) {
+      console.log(`Could not fetch account ${requestedAccountId}: ${error.message}`);
+      // Fall back to a minimal object so the function can proceed
+      return { account: { id: requestedAccountId, name: requestedAccountId, total_spend: 0 }, skippedAll: false, nextAccount: null };
+    }
     return { account: account || null, skippedAll: false, nextAccount: null };
   }
 
-  // Rotation: fetch all active accounts sorted by staleness
-  const { data: accounts } = await supabase
+  // Rotation: try to use last_media_sync if it exists, fall back to last_synced_at
+  let accounts: any[] | null = null;
+  // Try with last_media_sync first (column added by migration 20260307000001)
+  const { data: accountsWithSync, error: syncErr } = await supabase
     .from("ad_accounts")
     .select("id, name, total_spend, last_media_sync")
     .eq("is_active", true)
     .order("last_media_sync", { ascending: true, nullsFirst: true })
     .order("total_spend", { ascending: false, nullsFirst: false });
+
+  if (syncErr) {
+    // Column doesn't exist yet -- fall back to ordering by total_spend only
+    console.log(`last_media_sync column not available (${syncErr.message}), using fallback ordering`);
+    const { data: fallbackAccounts } = await supabase
+      .from("ad_accounts")
+      .select("id, name, total_spend")
+      .eq("is_active", true)
+      .order("total_spend", { ascending: false, nullsFirst: false });
+    accounts = fallbackAccounts;
+  } else {
+    accounts = accountsWithSync;
+  }
 
   if (!accounts || accounts.length === 0) {
     return { account: null, skippedAll: true, nextAccount: null };
@@ -334,7 +355,7 @@ async function pickAccount(
   // Find the first account outside the cooldown window
   for (const acc of accounts) {
     if (!acc.last_media_sync) {
-      // Never refreshed — highest priority
+      // Never refreshed (or column missing) — highest priority
       const nextAcc = accounts.find((a: any) => a.id !== acc.id);
       return { account: acc, skippedAll: false, nextAccount: nextAcc || null };
     }
@@ -396,22 +417,33 @@ serve(async (req) => {
     console.log(`Processing account: ${targetAccount.name} (${resolvedAccountId}) — last refresh: ${targetAccount.last_media_sync || "never"}`);
 
     // Concurrency guard: skip if this specific account already has a running refresh
-    const { data: runningLogs } = await supabase
-      .from("media_refresh_logs")
-      .select("id")
-      .eq("status", "running")
-      .eq("account_id", resolvedAccountId)
-      .limit(1);
-    if (runningLogs && runningLogs.length > 0) {
-      console.log(`Skipping ${targetAccount.name}: media refresh already running.`);
-      return new Response(JSON.stringify({
-        skipped: true,
-        reason: "already_running",
-        account_id: resolvedAccountId,
-        next_account: nextAccount ? { id: nextAccount.id, name: nextAccount.name } : null,
-      }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    // Skip this guard when force=true (explicit backfill runs)
+    if (!forceRefresh) {
+      const { data: runningLogs } = await supabase
+        .from("media_refresh_logs")
+        .select("id")
+        .eq("status", "running")
+        .eq("account_id", resolvedAccountId)
+        .limit(1);
+      if (runningLogs && runningLogs.length > 0) {
+        console.log(`Skipping ${targetAccount.name}: media refresh already running. Use force=true to override.`);
+        return new Response(JSON.stringify({
+          skipped: true,
+          reason: "already_running",
+          account_id: resolvedAccountId,
+          next_account: nextAccount ? { id: nextAccount.id, name: nextAccount.name } : null,
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    } else {
+      // Force mode: clean up any stale running logs for this account first
+      await supabase
+        .from("media_refresh_logs")
+        .update({ status: "failed", completed_at: new Date().toISOString() })
+        .eq("status", "running")
+        .eq("account_id", resolvedAccountId);
+      console.log(`Force mode: cleared stale running logs for ${resolvedAccountId}`);
     }
 
     // Create a progress log entry
@@ -725,12 +757,17 @@ serve(async (req) => {
       });
     }
 
-    // ── CHANGE 1: Update last_media_sync for this account ─────────────────
+    // ── CHANGE 1: Update last_media_sync for this account (if column exists) ─
     // Always update even if budget was exceeded — we did process this account
-    await supabase
-      .from("ad_accounts")
-      .update({ last_media_sync: new Date().toISOString() })
-      .eq("id", resolvedAccountId);
+    // Silently ignore if column doesn't exist yet (migration pending)
+    try {
+      await supabase
+        .from("ad_accounts")
+        .update({ last_media_sync: new Date().toISOString() })
+        .eq("id", resolvedAccountId);
+    } catch (e) {
+      console.log(`Note: could not update last_media_sync (column may not exist yet): ${e}`);
+    }
 
     // Remaining work summary
     const thumbsRemaining = allThumbWork.length - (thumbCached + thumbFailed);
