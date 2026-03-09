@@ -402,7 +402,7 @@ async function pickAccount(
     // Use only columns that definitely exist in the schema
     const { data: account, error } = await supabase
       .from("ad_accounts")
-      .select("id, name, total_spend")
+      .select("id, name, creative_count")
       .eq("id", requestedAccountId)
       .single();
     if (error) {
@@ -418,19 +418,19 @@ async function pickAccount(
   // Try with last_media_sync first (column added by migration 20260307000001)
   const { data: accountsWithSync, error: syncErr } = await supabase
     .from("ad_accounts")
-    .select("id, name, total_spend, last_media_sync")
+    .select("id, name, last_media_sync, creative_count")
     .eq("is_active", true)
     .order("last_media_sync", { ascending: true, nullsFirst: true })
-    .order("total_spend", { ascending: false, nullsFirst: false });
+    .order("creative_count", { ascending: false, nullsFirst: false });
 
   if (syncErr) {
-    // Column doesn't exist yet -- fall back to ordering by total_spend only
+    // last_media_sync column doesn't exist yet -- fall back to ordering by last_synced_at
     console.log(`last_media_sync column not available (${syncErr.message}), using fallback ordering`);
     const { data: fallbackAccounts } = await supabase
       .from("ad_accounts")
-      .select("id, name, total_spend")
+      .select("id, name, creative_count, last_synced_at")
       .eq("is_active", true)
-      .order("total_spend", { ascending: false, nullsFirst: false });
+      .order("last_synced_at", { ascending: true, nullsFirst: true });
     accounts = fallbackAccounts;
   } else {
     accounts = accountsWithSync;
