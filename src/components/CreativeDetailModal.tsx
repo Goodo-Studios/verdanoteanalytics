@@ -42,37 +42,20 @@ interface CreativeDetailModalProps {
 }
 
 function MetaPreviewEmbed({ url, fallbackUrl }: { url: string; fallbackUrl?: string | null }) {
-  const [iframeError, setIframeError] = useState(false);
+  const linkUrl = url || fallbackUrl;
 
-  if (iframeError && fallbackUrl) {
-    return (
-      <div className="w-full h-[400px] flex flex-col items-center justify-center gap-3 bg-muted rounded-lg">
-        <AlertCircle className="h-6 w-6 text-muted-foreground" />
-        <p className="font-body text-xs text-muted-foreground">Preview couldn't load inline.</p>
-        <a href={fallbackUrl} target="_blank" rel="noopener noreferrer">
-          <Button size="sm" className="gap-1.5"><ExternalLink className="h-3.5 w-3.5" />Open Preview</Button>
-        </a>
-      </div>
-    );
-  }
+  if (!linkUrl) return null;
 
   return (
-    <div className="bg-muted rounded-lg overflow-hidden relative">
-      <iframe
-        src={url}
-        className="w-full h-[400px] border-0 rounded-lg"
-        allow="autoplay; encrypted-media"
-        allowFullScreen
-        onError={() => setIframeError(true)}
-        sandbox="allow-scripts allow-same-origin allow-popups"
-      />
-      {fallbackUrl && (
-        <a href={fallbackUrl} target="_blank" rel="noopener noreferrer" className="absolute bottom-2 right-2">
-          <Button size="sm" variant="secondary" className="gap-1.5 text-xs">
-            <ExternalLink className="h-3 w-3" />Open in New Tab
-          </Button>
-        </a>
-      )}
+    <div className="w-full h-[200px] flex flex-col items-center justify-center gap-3 bg-muted rounded-lg border border-border">
+      <ExternalLink className="h-8 w-8 text-muted-foreground" />
+      <p className="text-sm text-muted-foreground font-medium">Ad Preview</p>
+      <p className="text-xs text-muted-foreground text-center px-4">Meta ad previews can't be embedded. Open in Facebook to view.</p>
+      <a href={linkUrl} target="_blank" rel="noopener noreferrer">
+        <Button size="sm" className="gap-1.5 mt-1">
+          <ExternalLink className="h-3.5 w-3.5" />View Ad on Facebook
+        </Button>
+      </a>
     </div>
   );
 }
@@ -161,7 +144,7 @@ function MediaPreview({ creative }: { creative: any }) {
     );
   }
 
-  const adLibraryUrl = creative.ad_id ? `https://www.facebook.com/ads/library/?id=${creative.ad_id}` : null;
+  const adLibraryUrl = creative.ad_id ? `https://www.facebook.com/ads/library/?id=${encodeURIComponent(String(creative.ad_id))}` : null;
 
   return (
     <div className="bg-muted rounded-lg flex items-center justify-center overflow-hidden relative group">
@@ -204,18 +187,16 @@ function MediaPreview({ creative }: { creative: any }) {
 
           {/* Ad Library link */}
           {adLibraryUrl && imgLoaded && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                window.open(adLibraryUrl, '_blank', 'noopener,noreferrer');
-              }}
+            <a
+              href={adLibraryUrl}
+              target="_blank"
+              rel="noopener noreferrer"
               className="absolute bottom-2 right-2 z-10 inline-flex items-center gap-1.5 bg-white/90 hover:bg-white text-[11px] font-medium text-slate-700 rounded-md px-2.5 py-1.5 shadow-sm transition-colors cursor-pointer"
               title="View in Facebook Ad Library"
             >
               <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
               Ad Library
-            </button>
+            </a>
           )}
         </div>
       ) : (
