@@ -3,6 +3,36 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const CACHE_NAME = "verdanote-media-cache-v1";
 const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days
 
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+
+/**
+ * Build a video proxy URL that routes through our edge function.
+ * This avoids CORS and handles expired Meta CDN URLs gracefully.
+ */
+export function videoProxyUrl(rawUrl: string): string {
+  if (!rawUrl) return rawUrl;
+  // Already a storage URL -- no proxy needed, serves directly
+  if (rawUrl.includes("/storage/v1/object/public/")) return rawUrl;
+  // Proxy Meta CDN and any other external video URLs
+  return `${SUPABASE_URL}/functions/v1/video-proxy?url=${encodeURIComponent(rawUrl)}`;
+}
+
+/**
+ * Returns true for URLs that are video files (won't cache well as blobs in IndexedDB).
+ * Videos are large and already streamed by the browser -- skip IndexedDB caching for them.
+ */
+function isVideoUrl(url: string): boolean {
+  const lower = url.toLowerCase();
+  return (
+    lower.includes(".mp4") ||
+    lower.includes(".webm") ||
+    lower.includes(".mov") ||
+    lower.includes("video/") ||
+    lower.includes("fbcdn.net") && lower.includes("video") ||
+    lower.includes("/video-proxy")
+  );
+}
+
 interface CachedMedia {
   url: string;
   blob: Blob;
@@ -141,6 +171,14 @@ export function useCachedMedia(
     setError(null);
 
     try {
+      // Videos are large and streamed natively by the browser -- skip IndexedDB caching.
+      // Just return the URL directly (or proxied through video-proxy for Meta CDN URLs).
+      if (isVideoUrl(mediaUrl)) {
+        setObjectUrl(mediaUrl);
+        setIsLoading(false);
+        return;
+      }
+
       // Check cache first
       const cached = await mediaCache.get(mediaUrl);
       if (cached) {
@@ -154,7 +192,7 @@ export function useCachedMedia(
         return;
       }
 
-      // Fetch from network
+      // Fetch from network -- images only at this point
       const response = await fetch(mediaUrl, {
         credentials: "omit", // Don't send cookies to Meta
       });

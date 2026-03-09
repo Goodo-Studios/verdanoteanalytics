@@ -196,12 +196,13 @@ serve(async (req) => {
     const publicUrl = await cacheToStorage(supabase, imageUrl, account_id, ad_id);
 
     if (publicUrl) {
-      // Update creative with both the CDN URL and the storage path
+      // Update creative: thumbnail_url gets the permanent storage URL, full_res_url also set
       const storagePath = `${account_id}/${ad_id}`;
       await supabase
         .from("creatives")
         .update({
-          thumbnail_url: imageUrl,
+          thumbnail_url: publicUrl,
+          full_res_url: publicUrl,
           thumbnail_storage_path: storagePath,
         })
         .eq("ad_id", ad_id);

@@ -112,12 +112,18 @@ async function discoverImageUrl(adId: string, accountId: string): Promise<string
 /**
  * Download an image and upload it to Supabase Storage (ad-thumbnails bucket).
  */
+const SUPABASE_URL_ENV = Deno.env.get("SUPABASE_URL") || "";
+
+/**
+ * Download an image and upload it to Supabase Storage (ad-thumbnails bucket).
+ * Returns the permanent public URL (not just the storage path).
+ */
 async function cacheToStorage(
   supabase: any,
   imageUrl: string,
   accountId: string,
   adId: string
-): Promise<string | null> {
+): Promise<{ storagePath: string; publicUrl: string } | null> {
   try {
     const res = await fetchWithTimeout(imageUrl, 12_000);
     if (!res.ok) { await res.text(); return null; }
@@ -139,7 +145,12 @@ async function cacheToStorage(
       return null;
     }
 
-    return storagePath;
+    // Build the permanent public URL
+    const { data: publicData } = supabase.storage.from("ad-thumbnails").getPublicUrl(storagePath);
+    const publicUrl = publicData?.publicUrl ||
+      `${SUPABASE_URL_ENV}/storage/v1/object/public/ad-thumbnails/${storagePath}`;
+
+    return { storagePath, publicUrl };
   } catch (e) {
     console.error(`Cache to storage error for ${adId}:`, e);
     return null;
@@ -316,10 +327,15 @@ async function runCaching(supabase: any, accountFilter: string | null) {
     const batch = items.slice(i, i + CACHE_BATCH);
     const results = await Promise.allSettled(
       batch.map(async (c: any) => {
-        const storagePath = await cacheToStorage(supabase, c.thumbnail_url, c.account_id, c.ad_id);
-        if (storagePath) {
+        const result = await cacheToStorage(supabase, c.thumbnail_url, c.account_id, c.ad_id);
+        if (result) {
+          // Update thumbnail_url to the permanent storage URL so it never expires
           await supabase.from("creatives")
-            .update({ thumbnail_storage_path: storagePath })
+            .update({
+              thumbnail_url: result.publicUrl,
+              full_res_url: result.publicUrl,
+              thumbnail_storage_path: result.storagePath,
+            })
             .eq("ad_id", c.ad_id);
           return "cached";
         }

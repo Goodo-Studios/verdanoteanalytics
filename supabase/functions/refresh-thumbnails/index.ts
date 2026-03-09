@@ -451,6 +451,31 @@ serve(async (req) => {
     const slowPathThumbs = missingThumbs || [];
     const allThumbWork = [...fastPathThumbs, ...slowPathThumbs].slice(0, MAX_TOTAL);
 
+    // Periodic sentinel reset: clear no-video for ads that are still spending (active ads).
+    // The sentinel was set because Meta API failed at a previous point in time -- if the ad
+    // is still running it may have a valid video source available now.
+    // Reset up to 200 sentinels per invocation, prioritized by recent spend.
+    {
+      const sentinelResetQuery = supabase
+        .from("creatives")
+        .select("ad_id")
+        .eq("video_url", NO_VIDEO_SENTINEL)
+        .eq("account_id", resolvedAccountId)
+        .gt("video_views", 0)
+        .gt("spend", 50) // Only reset ads with meaningful spend -- ignore tiny/inactive
+        .order("spend", { ascending: false, nullsFirst: false })
+        .limit(200);
+      const { data: sentinelRows } = await sentinelResetQuery;
+      if (sentinelRows && sentinelRows.length > 0) {
+        const ids = sentinelRows.map((r: any) => r.ad_id);
+        await supabase
+          .from("creatives")
+          .update({ video_url: null })
+          .in("ad_id", ids);
+        console.log(`[${targetAccount.name}] Reset ${ids.length} no-video sentinels for active ads (will retry fetch this run)`);
+      }
+    }
+
     // Videos: include null AND no-video sentinel rows
     const missingVideosQuery = supabase
       .from("creatives")
