@@ -391,7 +391,7 @@ async function updateLog(supabase: any, logId: number, updates: Record<string, a
  *
  * Prioritisation within the rotation: accounts with NULL last_media_sync (never refreshed)
  * come first, then accounts sorted by oldest refresh, then by total spend DESC as tiebreaker
- * so high-value accounts get refreshed more often.
+ * come first, then accounts sorted by oldest refresh, then by creative_count DESC as tiebreaker.
  */
 async function pickAccount(
   supabase: any,
