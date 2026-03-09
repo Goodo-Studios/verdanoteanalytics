@@ -11,6 +11,7 @@ serve(async (_req) => {
   );
 
   const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   const activityThreshold = Date.now() - 2 * 60 * 1000; // 2 min no heartbeat = stuck
   const now = new Date().toISOString();
 
@@ -27,8 +28,11 @@ serve(async (_req) => {
     });
   }
 
-  // Only mark as stuck if there's been no activity in the last 5 minutes
+  // Mark as stuck if no heartbeat in 2 min, OR if running for over 1 hour regardless
   const trulyStuck = candidates.filter((s: any) => {
+    const startedAt = new Date(s.started_at || 0).getTime();
+    // If running for over 1 hour, always consider stuck
+    if (startedAt < new Date(oneHourAgo).getTime()) return true;
     const lastActivity = s.sync_state?.last_activity;
     if (lastActivity && new Date(lastActivity).getTime() > activityThreshold) return false;
     return true;
