@@ -337,9 +337,8 @@ async function pickAccount(
     console.log(`last_media_sync column not available (${syncErr.message}), using fallback ordering`);
     const { data: fallbackAccounts } = await supabase
       .from("ad_accounts")
-      .select("id, name, total_spend")
-      .eq("is_active", true)
-      .order("total_spend", { ascending: false, nullsFirst: false });
+      .select("id, name")
+      .eq("is_active", true);
     accounts = fallbackAccounts;
   } else {
     accounts = accountsWithSync;
