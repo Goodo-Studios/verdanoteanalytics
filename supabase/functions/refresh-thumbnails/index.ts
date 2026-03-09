@@ -214,7 +214,21 @@ async function getFreshVideoUrl(adId: string): Promise<string | null> {
     }
     const data = await res.json();
     const creative = data?.creative;
-    if (!creative) return null;
+    if (!creative) {
+      // Log the raw response keys so we know what Meta returned instead of creative
+      const topKeys = Object.keys(data || {}).join(",") || "empty";
+      const errCode = data?.error?.code;
+      const errMsg = data?.error?.message;
+      if (errCode || errMsg) {
+        console.log(`Meta video: no creative for ${adId} — error ${errCode}: ${errMsg}`);
+      } else {
+        console.log(`Meta video: no creative for ${adId} — response keys: ${topKeys}`);
+      }
+      return null;
+    }
+    // Log what fields Meta returned so we know which path will fire
+    const creativeKeys = Object.keys(creative).join(",");
+    console.log(`Meta video: creative for ${adId} — fields: ${creativeKeys}`);
 
     const spec = creative.object_story_spec;
     const videoIds: string[] = [];
