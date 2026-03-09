@@ -408,7 +408,7 @@ async function pickAccount(
     if (error) {
       console.log(`Could not fetch account ${requestedAccountId}: ${error.message}`);
       // Fall back to a minimal object so the function can proceed
-      return { account: { id: requestedAccountId, name: requestedAccountId, total_spend: 0 }, skippedAll: false, nextAccount: null };
+      return { account: { id: requestedAccountId, name: requestedAccountId }, skippedAll: false, nextAccount: null };
     }
     return { account: account || null, skippedAll: false, nextAccount: null };
   }
