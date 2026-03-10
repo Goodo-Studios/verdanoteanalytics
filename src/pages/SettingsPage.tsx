@@ -147,8 +147,6 @@ const SettingsPage = () => {
         </div>
       ) : activeTab === "naming" ? (
         <NamingConventionSection />
-      ) : activeTab === "api" ? (
-        <div className="max-w-2xl"><ApiKeysSection /></div>
       ) : (
         <div className="max-w-3xl"><DataExportSection /></div>
       )}
