@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 interface SyncScheduleSectionProps {
   accounts: any[];
   onSyncAll: () => void;
+  onSyncAccount?: (accountId: string) => void;
   isSyncing: boolean;
 }
 
