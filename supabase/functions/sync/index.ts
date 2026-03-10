@@ -147,10 +147,10 @@ function parseInsightsRow(row: any) {
 
 // ─── Phase Budget ────────────────────────────────────────────────────────────
 // Phase budget: 4 minutes (240s). Requires Supabase function timeout >= 300s (Pro plan).
-// Previously 2 minutes (120s) -- increased to give large accounts (NDC, Bearaby) enough time.
-// Leaves ~60s margin against a 300s Supabase function timeout.
-// If you're on the Free plan (150s hard limit), revert to 2 * 60 * 1000.
-const PHASE_BUDGET_MS = 4 * 60 * 1000;
+// 110s budget -- leaves ~40s margin within Supabase's 150s hard wall to save cursor state.
+// Large accounts resume from cursor on next trigger; the sync manager re-triggers automatically.
+// Do NOT set above 110s unless Supabase function timeout is confirmed > 150s.
+const PHASE_BUDGET_MS = 110 * 1000;
 const HEARTBEAT_INTERVAL_MS = 20 * 1000;
 
 // ─── Promote Next Queued Sync ────────────────────────────────────────────────
