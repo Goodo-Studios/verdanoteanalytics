@@ -149,9 +149,21 @@ export function DataHealthSection() {
 
   return (
     <section className="glass-panel p-6 space-y-4">
-      <div>
-        <h2 className="font-heading text-[20px] text-forest">Data Health</h2>
-        <p className="font-body text-[13px] text-slate font-light mt-1">Media coverage and sync status across all accounts.</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-heading text-[20px] text-forest">Data Health</h2>
+          <p className="font-body text-[13px] text-slate font-light mt-1">Media coverage and sync status across all accounts.</p>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => refreshMedia.mutate({})}
+          disabled={refreshMedia.isPending}
+          className="gap-1.5"
+        >
+          {refreshMedia.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          Refresh All Media
+        </Button>
       </div>
 
       <div className="overflow-hidden rounded-md border border-border">
