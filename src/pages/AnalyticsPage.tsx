@@ -70,8 +70,8 @@ const AnalyticsPage = () => {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="bg-transparent border-b border-border-light rounded-none p-0 h-auto gap-0 flex-wrap">
-          {["trends", "winrate", "scale", "kill", "iterations", "taginsights", "dna", ...(canBenchmark ? ["matrix", "historical", "video"] : [])].map((tab) => {
-            const labels: Record<string, string> = { winrate: "Win Rate", taginsights: "Tag Insights", dna: "Creative DNA", matrix: "Matrix", historical: "Historical", video: "Video" };
+        {["trends", "iterations", "taginsights", "dna", ...(canBenchmark ? ["matrix", "historical", "video"] : [])].map((tab) => {
+            const labels: Record<string, string> = { taginsights: "Tag Insights", dna: "Creative DNA", matrix: "Matrix", historical: "Historical", video: "Video" };
             return (
               <TabsTrigger
                 key={tab}
