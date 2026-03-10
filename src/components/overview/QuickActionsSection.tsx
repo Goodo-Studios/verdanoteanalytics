@@ -33,14 +33,6 @@ export function QuickActionsSection({ accountId }: Props) {
           <RefreshCw className={cn("h-4 w-4", sync.isPending && "animate-spin")} />
           Trigger Sync
         </Button>
-        <Button
-          variant="outline"
-          className="font-body text-[13px] gap-2"
-          onClick={() => navigate("/ai-chat")}
-        >
-          <Sparkles className="h-4 w-4" />
-          Generate Brief
-        </Button>
       </div>
     </div>
   );
