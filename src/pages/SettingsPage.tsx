@@ -14,7 +14,7 @@ import { DataHealthSection } from "@/components/settings/DataHealthSection";
 import { SpendDiagnosticSection } from "@/components/settings/SpendDiagnosticSection";
 import { DataExportSection } from "@/components/settings/DataExportSection";
 
-import { ApiKeysSection } from "@/components/settings/ApiKeysSection";
+
 
 import { AttributionSection } from "@/components/settings/AttributionSection";
 
@@ -25,7 +25,7 @@ import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 
-type SettingsTab = "account" | "naming" | "export" | "api";
+type SettingsTab = "account" | "naming" | "export";
 
 const SettingsPage = () => {
   const s = useSettingsPageState();
@@ -38,7 +38,6 @@ const SettingsPage = () => {
       <TabButton active={activeTab === "account"} onClick={() => setActiveTab("account")}>Account</TabButton>
       {isBuilder && <TabButton active={activeTab === "naming"} onClick={() => setActiveTab("naming")}>Naming</TabButton>}
       <TabButton active={activeTab === "export"} onClick={() => setActiveTab("export")}>Export</TabButton>
-      <TabButton active={activeTab === "api"} onClick={() => setActiveTab("api")}>API Access</TabButton>
       
     </div>
   );
@@ -75,8 +74,6 @@ const SettingsPage = () => {
                 </div>
               )}
             </>
-          ) : activeTab === "api" ? (
-            <div className="max-w-2xl"><ApiKeysSection /></div>
           ) : (
             <div className="max-w-3xl"><DataExportSection /></div>
           )}
@@ -150,8 +147,6 @@ const SettingsPage = () => {
         </div>
       ) : activeTab === "naming" ? (
         <NamingConventionSection />
-      ) : activeTab === "api" ? (
-        <div className="max-w-2xl"><ApiKeysSection /></div>
       ) : (
         <div className="max-w-3xl"><DataExportSection /></div>
       )}
