@@ -2,7 +2,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { PageHeader } from "@/components/PageHeader";
 import { MetricCard } from "@/components/MetricCard";
 import { CreativeDetailModal } from "@/components/CreativeDetailModal";
-import { OnboardingBanner } from "@/components/OnboardingBanner";
+
 import { CreativesTable } from "@/components/creatives/CreativesTable";
 import { CreativesCardGrid } from "@/components/creatives/CreativesCardGrid";
 import { CreativesTimeline } from "@/components/creatives/CreativesTimeline";
@@ -292,7 +292,7 @@ const CreativesPage = () => {
 
   return (
     <AppLayout>
-      {!isClient && <OnboardingBanner />}
+      
       <SyncStatusBanner />
       <MediaRefreshBanner />
       <PageHeader
