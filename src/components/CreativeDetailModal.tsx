@@ -43,7 +43,6 @@ interface CreativeDetailModalProps {
 
 function MediaPreview({ creative }: { creative: any }) {
   const [imgLoaded, setImgLoaded] = useState(false);
-  const [playingVideo, setPlayingVideo] = useState(false);
 
   const adLibraryUrl = creative.ad_id
     ? `https://www.facebook.com/ads/library/?id=${encodeURIComponent(String(creative.ad_id))}`
@@ -57,48 +56,9 @@ function MediaPreview({ creative }: { creative: any }) {
   const hasThumbnail = !!creative.thumbnail_url;
   const isVideoAd = (creative.video_views || 0) > 0;
 
-  // A real cached video exists in Supabase storage (not the "no-video" sentinel)
-  const hasCachedVideo =
-    !!creative.video_url &&
-    creative.video_url !== "no-video" &&
-    creative.video_url.includes("/storage/v1/object/public/");
-
-  const handlePlayClick = () => {
-    if (hasCachedVideo) {
-      // Play the cached mp4 inline
-      setPlayingVideo(true);
-    } else if (adLibraryUrl) {
-      // Fallback: open Ad Library in new tab
-      window.open(adLibraryUrl, "_blank", "noopener,noreferrer");
-    }
-  };
-
   return (
     <div className="bg-muted rounded-lg flex items-center justify-center overflow-hidden relative group">
-      {/* Inline video player — shown when user clicks play on a cached video */}
-      {playingVideo && hasCachedVideo ? (
-        <div className="relative w-full">
-          <video
-            src={creative.video_url}
-            controls
-            autoPlay
-            className="w-full max-h-[500px] rounded-lg bg-black"
-          />
-          {/* Ad Library link on video */}
-          {adLibraryUrl && (
-            <a
-              href={adLibraryUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="absolute bottom-2 right-2 z-10 inline-flex items-center gap-1.5 bg-white/90 hover:bg-white text-[11px] font-medium text-foreground/80 rounded-md px-2.5 py-1.5 shadow-sm transition-colors cursor-pointer"
-              title="View in Facebook Ad Library"
-            >
-              <ExternalLink className="h-3 w-3" />
-              Ad Library
-            </a>
-          )}
-        </div>
-      ) : hasThumbnail ? (
+      {hasThumbnail ? (
         <div className="relative w-full">
           {(thumbnailLoading || !imgLoaded) && (
             <div className="w-full h-[300px] bg-muted rounded animate-pulse flex items-center justify-center">
@@ -119,22 +79,21 @@ function MediaPreview({ creative }: { creative: any }) {
             onLoad={() => setImgLoaded(true)}
           />
 
-          {/* Play overlay — inline video if cached, otherwise Ad Library */}
-          {isVideoAd && imgLoaded && (
-            <button
-              onClick={handlePlayClick}
-              className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity"
-              title={hasCachedVideo ? "Play video" : "Watch on Facebook Ad Library"}
+          {/* Play overlay for video ads — always opens Ad Library */}
+          {isVideoAd && adLibraryUrl && imgLoaded && (
+            <a
+              href={adLibraryUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
             >
               <div className="h-14 w-14 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
                 <Play className="h-6 w-6 text-foreground ml-0.5" />
               </div>
-              {!hasCachedVideo && (
-                <span className="absolute bottom-3 left-1/2 -translate-x-1/2 text-[10px] font-medium text-white bg-black/60 rounded px-2 py-0.5 whitespace-nowrap">
-                  Opens Ad Library
-                </span>
-              )}
-            </button>
+              <span className="absolute bottom-3 left-1/2 -translate-x-1/2 text-[10px] font-medium text-white bg-black/60 rounded px-2 py-0.5 whitespace-nowrap">
+                Watch on Ad Library
+              </span>
+            </a>
           )}
 
           {/* Ad Library link badge */}
@@ -167,7 +126,6 @@ function MediaPreview({ creative }: { creative: any }) {
     </div>
   );
 }
-
 export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModalProps>(function CreativeDetailModal({ creative, open, onClose, wowTrends, gradeMap, fatigueMap }, ref) {
   const { isBuilder, isEmployee, user } = useAuth();
   const { selectedAccount } = useAccountContext();
