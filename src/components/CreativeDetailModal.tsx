@@ -390,12 +390,6 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
         <Tabs defaultValue="details" className="w-full">
           <TabsList className="w-full">
             <TabsTrigger value="details" className="flex-1">Details</TabsTrigger>
-            {canEdit && (
-              <TabsTrigger value="ai-analysis" className="flex-1 gap-1.5">
-                <Sparkles className="h-3.5 w-3.5" />
-                AI Analysis
-              </TabsTrigger>
-            )}
             <TabsTrigger value="comments" className="flex-1 gap-1.5">
               <MessageSquare className="h-3.5 w-3.5" />
               Comments
