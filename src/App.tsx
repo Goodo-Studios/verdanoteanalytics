@@ -21,7 +21,7 @@ import UpdatePasswordPage from "./pages/UpdatePasswordPage";
 const OverviewPage = lazy(() => import("./pages/OverviewPage"));
 const ClientOverviewPage = lazy(() => import("./pages/ClientOverviewPage"));
 const CreativesPage = lazy(() => import("./pages/CreativesPage"));
-const ClientCreativesPage = lazy(() => import("./pages/ClientCreativesPage"));
+
 const AnalyticsPage = lazy(() => import("./pages/AnalyticsPage"));
 const ComparePage = lazy(() => import("./pages/ComparePage"));
 const TaggingPage = lazy(() => import("./pages/TaggingPage"));
