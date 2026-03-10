@@ -107,12 +107,6 @@ const AnalyticsPage = () => {
             killScaleKpiDirection={killScaleConfig.winnerKpiDirection}
           />
         </TabsContent>
-        <TabsContent value="matrix" className="space-y-4">
-          <MatrixTab creatives={creatives} scaleThreshold={killScaleConfig.scaleAt} onCreativeClick={setSelectedCreative} />
-        </TabsContent>
-        <TabsContent value="historical" className="space-y-4">
-          <HistoricalTab trendData={filteredTrendData} creatives={creatives} roasThreshold={roasThreshold} onCreativeClick={setSelectedCreative} />
-        </TabsContent>
         {canBenchmark && (
           <TabsContent value="video" className="space-y-4">
             <VideoTab creatives={creatives} killThreshold={killScaleConfig.killAt} onCreativeClick={setSelectedCreative} />
