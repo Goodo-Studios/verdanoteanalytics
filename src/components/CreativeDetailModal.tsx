@@ -43,10 +43,8 @@ interface CreativeDetailModalProps {
 
 function MediaPreview({ creative }: { creative: any }) {
   const [imgLoaded, setImgLoaded] = useState(false);
+  const [playingVideo, setPlayingVideo] = useState(false);
 
-  const facebookAdUrl = creative.ad_id
-    ? `https://www.facebook.com/ads/library/?id=${creative.ad_id}`
-    : null;
   const adLibraryUrl = creative.ad_id
     ? `https://www.facebook.com/ads/library/?id=${encodeURIComponent(String(creative.ad_id))}`
     : null;
@@ -59,18 +57,51 @@ function MediaPreview({ creative }: { creative: any }) {
   const hasThumbnail = !!creative.thumbnail_url;
   const isVideoAd = (creative.video_views || 0) > 0;
 
-  // Always open the public Ad Library page — preview_url points to
-  // business.facebook.com which is blocked (ERR_BLOCKED_BY_RESPONSE)
+  // A real cached video exists in Supabase storage (not the "no-video" sentinel)
+  const hasCachedVideo =
+    !!creative.video_url &&
+    creative.video_url !== "no-video" &&
+    creative.video_url.includes("/storage/v1/object/public/");
+
   const handlePlayClick = () => {
-    if (facebookAdUrl) window.open(facebookAdUrl, "_blank", "noopener,noreferrer");
+    if (hasCachedVideo) {
+      // Play the cached mp4 inline
+      setPlayingVideo(true);
+    } else if (adLibraryUrl) {
+      // Fallback: open Ad Library in new tab
+      window.open(adLibraryUrl, "_blank", "noopener,noreferrer");
+    }
   };
 
   return (
     <div className="bg-muted rounded-lg flex items-center justify-center overflow-hidden relative group">
-      {hasThumbnail ? (
+      {/* Inline video player — shown when user clicks play on a cached video */}
+      {playingVideo && hasCachedVideo ? (
+        <div className="relative w-full">
+          <video
+            src={creative.video_url}
+            controls
+            autoPlay
+            className="w-full max-h-[500px] rounded-lg bg-black"
+          />
+          {/* Ad Library link on video */}
+          {adLibraryUrl && (
+            <a
+              href={adLibraryUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="absolute bottom-2 right-2 z-10 inline-flex items-center gap-1.5 bg-white/90 hover:bg-white text-[11px] font-medium text-foreground/80 rounded-md px-2.5 py-1.5 shadow-sm transition-colors cursor-pointer"
+              title="View in Facebook Ad Library"
+            >
+              <ExternalLink className="h-3 w-3" />
+              Ad Library
+            </a>
+          )}
+        </div>
+      ) : hasThumbnail ? (
         <div className="relative w-full">
           {(thumbnailLoading || !imgLoaded) && (
-            <div className="w-full h-[300px] bg-cream-dark rounded animate-pulse flex items-center justify-center">
+            <div className="w-full h-[300px] bg-muted rounded animate-pulse flex items-center justify-center">
               <ImageIcon className="h-8 w-8 text-muted-foreground/40" />
             </div>
           )}
@@ -88,49 +119,46 @@ function MediaPreview({ creative }: { creative: any }) {
             onLoad={() => setImgLoaded(true)}
           />
 
-          {/* Play overlay — opens Meta preview in new tab */}
-          {(creative.preview_url || facebookAdUrl) && imgLoaded && (
+          {/* Play overlay — inline video if cached, otherwise Ad Library */}
+          {isVideoAd && imgLoaded && (
             <button
               onClick={handlePlayClick}
               className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity"
+              title={hasCachedVideo ? "Play video" : "Watch on Facebook Ad Library"}
             >
               <div className="h-14 w-14 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
                 <Play className="h-6 w-6 text-foreground ml-0.5" />
               </div>
+              {!hasCachedVideo && (
+                <span className="absolute bottom-3 left-1/2 -translate-x-1/2 text-[10px] font-medium text-white bg-black/60 rounded px-2 py-0.5 whitespace-nowrap">
+                  Opens Ad Library
+                </span>
+              )}
             </button>
           )}
 
-          {/* Ad Library link */}
+          {/* Ad Library link badge */}
           {adLibraryUrl && imgLoaded && (
             <a
               href={adLibraryUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="absolute bottom-2 right-2 z-10 inline-flex items-center gap-1.5 bg-white/90 hover:bg-white text-[11px] font-medium text-slate-700 rounded-md px-2.5 py-1.5 shadow-sm transition-colors cursor-pointer"
+              className="absolute bottom-2 right-2 z-10 inline-flex items-center gap-1.5 bg-white/90 hover:bg-white text-[11px] font-medium text-foreground/80 rounded-md px-2.5 py-1.5 shadow-sm transition-colors cursor-pointer"
               title="View in Facebook Ad Library"
             >
-              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
-              </svg>
+              <ExternalLink className="h-3 w-3" />
               Ad Library
             </a>
           )}
         </div>
       ) : (
         <div className="flex flex-col items-center gap-2 py-12">
-          <ImageIcon className="h-8 w-8 text-sage" />
-          <span className="font-body text-[13px] text-sage">No preview available</span>
-          {isVideoAd && facebookAdUrl && (
-            <a href={facebookAdUrl} target="_blank" rel="noopener noreferrer">
-              <Button size="sm" className="gap-1.5 text-xs mt-1">
-                <Video className="h-4 w-4" />Watch on Facebook
-              </Button>
-            </a>
-          )}
-          {!isVideoAd && creative.preview_url && (
-            <a href={creative.preview_url} target="_blank" rel="noopener noreferrer">
+          <ImageIcon className="h-8 w-8 text-muted-foreground" />
+          <span className="font-body text-[13px] text-muted-foreground">No preview available</span>
+          {adLibraryUrl && (
+            <a href={adLibraryUrl} target="_blank" rel="noopener noreferrer">
               <Button size="sm" variant="secondary" className="gap-1.5 text-xs mt-1">
-                <ExternalLink className="h-3 w-3" />View Ad Preview
+                <ExternalLink className="h-3 w-3" />View in Ad Library
               </Button>
             </a>
           )}
