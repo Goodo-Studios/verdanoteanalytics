@@ -242,19 +242,28 @@ export function useCachedMedia(
   };
 }
 
-// Preload multiple media URLs in background
+// Preload multiple media URLs in background with concurrency limit
 export function preloadMedia(urls: string[]): void {
-  urls.forEach((url) => {
-    // Fire and forget - don't block UI
-    mediaCache.get(url).then((cached) => {
-      if (!cached) {
+  const CONCURRENCY = 4;
+  let active = 0;
+  const queue = [...urls];
+
+  function next() {
+    while (active < CONCURRENCY && queue.length > 0) {
+      const url = queue.shift()!;
+      if (isVideoUrl(url)) continue; // skip videos
+      active++;
+      mediaCache.get(url).then((cached) => {
+        if (cached) { active--; next(); return; }
         fetch(url, { credentials: "omit" })
           .then((res) => res.blob())
           .then((blob) => mediaCache.set(url, blob))
-          .catch(console.error);
-      }
-    });
-  });
+          .catch(() => {})
+          .finally(() => { active--; next(); });
+      }).catch(() => { active--; next(); });
+    }
+  }
+  next();
 }
 
 export { mediaCache };
