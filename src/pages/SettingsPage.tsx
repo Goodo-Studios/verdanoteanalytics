@@ -18,7 +18,7 @@ import { ApiKeysSection } from "@/components/settings/ApiKeysSection";
 
 import { AttributionSection } from "@/components/settings/AttributionSection";
 
-import { TransitionTab } from "@/components/settings/TransitionTab";
+
 import { NamingConventionSection } from "@/components/settings/NamingConventionSection";
 import { useSettingsPageState } from "@/hooks/useSettingsPageState";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
