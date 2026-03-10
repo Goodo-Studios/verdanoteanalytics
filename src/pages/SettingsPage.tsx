@@ -25,7 +25,7 @@ import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 
-type SettingsTab = "account" | "naming" | "export" | "api" | "transition";
+type SettingsTab = "account" | "naming" | "export" | "api";
 
 const SettingsPage = () => {
   const s = useSettingsPageState();
