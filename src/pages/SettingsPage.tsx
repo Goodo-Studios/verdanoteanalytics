@@ -199,8 +199,6 @@ const SettingsPage = () => {
         onConfirm={s.handleConfirmCsvUpload}
         isPending={s.uploadMappings.isPending}
       />
-      <AIBriefModal open={showBriefModal} onClose={() => setShowBriefModal(false)} account={s.account} />
-      <WeeklyRetroModal open={showRetroModal} onClose={() => setShowRetroModal(false)} account={s.account} />
       <OnboardingChecklistModal
         open={showOnboardingModal}
         onClose={() => setShowOnboardingModal(false)}
