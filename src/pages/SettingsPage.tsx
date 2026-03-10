@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 
 import { SyncStatusBanner } from "@/components/SyncStatusBanner";
@@ -14,13 +14,9 @@ import { DataHealthSection } from "@/components/settings/DataHealthSection";
 import { SpendDiagnosticSection } from "@/components/settings/SpendDiagnosticSection";
 import { DataExportSection } from "@/components/settings/DataExportSection";
 
-
 import { ApiKeysSection } from "@/components/settings/ApiKeysSection";
 
-
 import { AttributionSection } from "@/components/settings/AttributionSection";
-import { AccountSetupChecklist, useAccountNeedsOnboarding } from "@/components/settings/AccountSetupChecklist";
-import { OnboardingChecklistModal } from "@/components/settings/OnboardingChecklistModal";
 
 import { TransitionTab } from "@/components/settings/TransitionTab";
 import { NamingConventionSection } from "@/components/settings/NamingConventionSection";
@@ -29,38 +25,20 @@ import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 
-type SettingsTab = "setup" | "account" | "naming" | "export" | "api" | "transition";
+type SettingsTab = "account" | "naming" | "export" | "api" | "transition";
 
 const SettingsPage = () => {
   const s = useSettingsPageState();
   const isSyncing = useIsSyncing();
   const { isBuilder, isEmployee } = useAuth();
   const [activeTab, setActiveTab] = useState<SettingsTab>("account");
-  const [showOnboardingModal, setShowOnboardingModal] = useState(false);
-
-  const needsOnboarding = useAccountNeedsOnboarding(s.account);
-
-  // Auto-show onboarding modal for new accounts
-  useEffect(() => {
-    if (needsOnboarding && s.account) {
-      const dismissKey = `onboarding_dismissed_${s.account.id}`;
-      if (!sessionStorage.getItem(dismissKey)) {
-        setShowOnboardingModal(true);
-        sessionStorage.setItem(dismissKey, "1");
-      }
-    }
-  }, [needsOnboarding, s.account]);
 
   const tabBar = (
     <div className="flex gap-1 mb-6 border-b border-border-light overflow-x-auto">
-      <TabButton active={activeTab === "setup"} onClick={() => setActiveTab("setup")}>Account Setup</TabButton>
       <TabButton active={activeTab === "account"} onClick={() => setActiveTab("account")}>Account</TabButton>
-      
-      
       {isBuilder && <TabButton active={activeTab === "naming"} onClick={() => setActiveTab("naming")}>Naming</TabButton>}
       <TabButton active={activeTab === "export"} onClick={() => setActiveTab("export")}>Export</TabButton>
       <TabButton active={activeTab === "api"} onClick={() => setActiveTab("api")}>API Access</TabButton>
-      
       {isBuilder && <TabButton active={activeTab === "transition"} onClick={() => setActiveTab("transition")}>Transition</TabButton>}
     </div>
   );
@@ -72,7 +50,7 @@ const SettingsPage = () => {
         <AppLayout>
           <PageHeader title="Account Settings" description="Select a specific ad account from the sidebar to view its settings." />
           {isBuilder && tabBar}
-          {activeTab === "account" || activeTab === "setup" ? (
+          {activeTab === "account" ? (
             <>
               <div className="max-w-2xl">
                 <div className="glass-panel p-6 space-y-4">
@@ -131,9 +109,7 @@ const SettingsPage = () => {
       <SyncStatusBanner />
       <MediaRefreshBanner />
 
-      {activeTab === "setup" ? (
-        <AccountSetupChecklist account={s.account} onSwitchTab={(tab) => setActiveTab(tab as SettingsTab)} />
-      ) : activeTab === "account" ? (
+      {activeTab === "account" ? (
         <div className="max-w-2xl space-y-8">
           <AccountOverviewSection
             account={s.account}
@@ -171,7 +147,6 @@ const SettingsPage = () => {
           />
           <SyncHistorySection accountId={s.account.id} />
           {(isBuilder || isEmployee) && <AttributionSection account={s.account} />}
-          
         </div>
       ) : activeTab === "naming" ? (
         <NamingConventionSection />
@@ -198,12 +173,6 @@ const SettingsPage = () => {
         onFileChange={s.handleCsvUpload}
         onConfirm={s.handleConfirmCsvUpload}
         isPending={s.uploadMappings.isPending}
-      />
-      <OnboardingChecklistModal
-        open={showOnboardingModal}
-        onClose={() => setShowOnboardingModal(false)}
-        account={s.account}
-        onSwitchTab={(tab) => setActiveTab(tab as SettingsTab)}
       />
     </AppLayout>
   );
