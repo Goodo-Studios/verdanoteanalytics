@@ -167,18 +167,12 @@ export default function AgencyDashboardPage() {
               const wowTrend = topCreative ? wowTrends?.get(topCreative.ad_id) : undefined;
               const target = Number(acc.target_monthly_spend) || 0;
               const pacing = target > 0 ? mtd / target : null;
-              const setupProgress = computeSetupProgress(allChecklists[acc.id], acc);
 
               return (
                 <Card key={acc.id} className="p-4 space-y-3 hover:shadow-card-hover transition-shadow">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 min-w-0">
                       <h3 className="font-body text-[14px] font-semibold text-foreground truncate">{acc.name}</h3>
-                      {setupProgress.pct < 100 && (
-                        <span className="font-data text-[10px] tabular-nums text-warning bg-warning/10 px-1.5 py-0.5 rounded-sm shrink-0">
-                          Setup {setupProgress.pct}%
-                        </span>
-                      )}
                     </div>
                   </div>
 
