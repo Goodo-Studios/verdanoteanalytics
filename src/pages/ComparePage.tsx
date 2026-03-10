@@ -494,39 +494,37 @@ function ConceptSelector({ label, value, onChange, groups, excludeValue, concept
 // ─── Shared Components ──────────────────────────────────────────────────────
 
 function ComparisonThumbnail({ creative }: { creative: any }) {
-  const [showVideo, setShowVideo] = useState(false);
-  const hasVideo = creative.video_url && creative.video_url !== "no-video";
+  const isVideoAd = (creative.video_views || 0) > 0;
+  const adLibraryUrl = creative.ad_id
+    ? `https://www.facebook.com/ads/library/?id=${encodeURIComponent(String(creative.ad_id))}`
+    : null;
 
   return (
     <div className="relative aspect-video rounded-[6px] overflow-hidden bg-muted">
-      {showVideo && hasVideo ? (
-        <video src={creative.video_url} controls autoPlay className="h-full w-full object-cover" />
+      {creative.thumbnail_url ? (
+        <img src={creative.thumbnail_url} alt="" className="h-full w-full object-cover" />
       ) : (
-        <>
-          {creative.thumbnail_url ? (
-            <img src={creative.thumbnail_url} alt="" className="h-full w-full object-cover" />
-          ) : (
-            <div className="h-full w-full flex items-center justify-center">
-              <span className="text-sage font-body text-[13px]">No preview</span>
-            </div>
-          )}
-          {hasVideo && (
-            <>
-              <div className="absolute top-2 left-2 bg-charcoal/80 rounded-[3px] px-1.5 py-0.5 flex items-center gap-0.5">
-                <Video className="h-3 w-3 text-white" />
-                <span className="font-label text-[9px] font-semibold uppercase tracking-wide text-white">Video</span>
-              </div>
-              <button
-                onClick={() => setShowVideo(true)}
-                className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 hover:opacity-100 transition-opacity"
-              >
-                <div className="h-10 w-10 rounded-full bg-white/90 flex items-center justify-center">
-                  <Play className="h-5 w-5 text-charcoal ml-0.5" />
-                </div>
-              </button>
-            </>
-          )}
-        </>
+        <div className="h-full w-full flex items-center justify-center">
+          <span className="text-muted-foreground font-body text-[13px]">No preview</span>
+        </div>
+      )}
+      {isVideoAd && (
+        <div className="absolute top-2 left-2 bg-charcoal/80 rounded-[3px] px-1.5 py-0.5 flex items-center gap-0.5">
+          <Video className="h-3 w-3 text-white" />
+          <span className="font-label text-[9px] font-semibold uppercase tracking-wide text-white">Video</span>
+        </div>
+      )}
+      {isVideoAd && adLibraryUrl && (
+        <a
+          href={adLibraryUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 hover:opacity-100 transition-opacity"
+        >
+          <div className="h-10 w-10 rounded-full bg-white/90 flex items-center justify-center">
+            <Play className="h-5 w-5 text-charcoal ml-0.5" />
+          </div>
+        </a>
       )}
     </div>
   );
