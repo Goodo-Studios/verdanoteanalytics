@@ -13,7 +13,7 @@ import { CsvUploadModal } from "@/components/settings/CsvUploadModal";
 import { DataHealthSection } from "@/components/settings/DataHealthSection";
 import { SpendDiagnosticSection } from "@/components/settings/SpendDiagnosticSection";
 import { DataExportSection } from "@/components/settings/DataExportSection";
-import { AttributionSection } from "@/components/settings/AttributionSection";
+
 import { NamingConventionSection } from "@/components/settings/NamingConventionSection";
 import { useSettingsPageState } from "@/hooks/useSettingsPageState";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
