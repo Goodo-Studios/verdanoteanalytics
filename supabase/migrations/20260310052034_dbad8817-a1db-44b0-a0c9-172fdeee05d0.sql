@@ -1,0 +1,1 @@
+UPDATE media_refresh_logs SET status = 'cancelled', completed_at = now() WHERE status = 'running' AND account_id != 'act_740559457651983'
