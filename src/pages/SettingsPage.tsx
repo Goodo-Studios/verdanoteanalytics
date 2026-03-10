@@ -10,8 +10,6 @@ import { SyncScheduleSection } from "@/components/settings/SyncScheduleSection";
 import { SyncHistorySection } from "@/components/settings/SyncHistorySection";
 import { RenameAccountModal } from "@/components/settings/RenameAccountModal";
 import { CsvUploadModal } from "@/components/settings/CsvUploadModal";
-import { AIBriefModal } from "@/components/settings/AIBriefModal";
-import { WeeklyRetroModal } from "@/components/settings/WeeklyRetroModal";
 import { DataHealthSection } from "@/components/settings/DataHealthSection";
 import { SpendDiagnosticSection } from "@/components/settings/SpendDiagnosticSection";
 import { DataExportSection } from "@/components/settings/DataExportSection";
