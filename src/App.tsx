@@ -37,7 +37,16 @@ const AgencyDashboardPage = lazy(() => import("./pages/AgencyDashboardPage"));
 const ContentPipelinePage = lazy(() => import("./pages/ContentPipelinePage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 2 * 60 * 1000, // 2 minutes
+      gcTime: 10 * 60 * 1000,   // 10 minutes
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 function PageFallback() {
   return (
