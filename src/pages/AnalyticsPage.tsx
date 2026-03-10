@@ -19,8 +19,6 @@ import { VideoTab } from "@/components/analytics/VideoTab";
 
 import { CreativeDnaTab } from "@/components/analytics/CreativeDnaTab";
 
-import { HistoricalTab } from "@/components/analytics/HistoricalTab";
-import { MatrixTab } from "@/components/analytics/MatrixTab";
 import { useAnalyticsPageState } from "@/hooks/useAnalyticsPageState";
 import { useAuth } from "@/contexts/AuthContext";
 
