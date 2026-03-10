@@ -135,6 +135,7 @@ const SettingsPage = () => {
           <SyncScheduleSection
             accounts={s.accounts}
             onSyncAll={() => { s.accounts.forEach((acc: any) => { s.sync.mutate({ account_id: acc.id }); }); }}
+            onSyncAccount={(accountId) => { s.sync.mutate({ account_id: accountId }); }}
             isSyncing={s.sync.isPending || isSyncing}
           />
           <SyncHistorySection accountId={s.account.id} />

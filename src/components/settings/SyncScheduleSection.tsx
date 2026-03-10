@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 interface SyncScheduleSectionProps {
   accounts: any[];
   onSyncAll: () => void;
+  onSyncAccount?: (accountId: string) => void;
   isSyncing: boolean;
 }
 
@@ -49,7 +50,7 @@ function formatTimestamp(ts: string | null) {
   });
 }
 
-export function SyncScheduleSection({ accounts, onSyncAll, isSyncing }: SyncScheduleSectionProps) {
+export function SyncScheduleSection({ accounts, onSyncAll, onSyncAccount, isSyncing }: SyncScheduleSectionProps) {
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState<string | null>(null);
 
@@ -140,7 +141,21 @@ export function SyncScheduleSection({ accounts, onSyncAll, isSyncing }: SyncSche
                     </Badge>
                   )}
                 </div>
-                {isSavingThis && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                <div className="flex items-center gap-2">
+                  {isSavingThis && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                  {onSyncAccount && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 gap-1 text-xs"
+                      disabled={isSyncing}
+                      onClick={() => onSyncAccount(acc.id)}
+                    >
+                      <RefreshCw className="h-3 w-3" />
+                      Sync
+                    </Button>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-3 gap-3">
