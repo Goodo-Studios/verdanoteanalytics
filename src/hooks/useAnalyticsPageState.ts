@@ -3,14 +3,15 @@ import { useSearchParams } from "react-router-dom";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { useDailyTrends } from "@/hooks/useDailyTrends";
+import { subDays, format } from "date-fns";
 
 export function useAnalyticsPageState() {
   const { selectedAccountId, selectedAccount } = useAccountContext();
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "trends");
   const [selectedCreative, setSelectedCreative] = useState<any>(null);
-  const [dateFrom, setDateFrom] = useState<string | undefined>();
-  const [dateTo, setDateTo] = useState<string | undefined>();
+  const [dateFrom, setDateFrom] = useState<string | undefined>(() => format(subDays(new Date(), 14), "yyyy-MM-dd"));
+  const [dateTo, setDateTo] = useState<string | undefined>(() => format(new Date(), "yyyy-MM-dd"));
 
   const dateFilters = useMemo(() => ({
     ...(selectedAccountId && selectedAccountId !== "all" ? { account_id: selectedAccountId } : {}),
