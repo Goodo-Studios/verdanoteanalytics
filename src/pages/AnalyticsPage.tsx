@@ -19,8 +19,6 @@ import { VideoTab } from "@/components/analytics/VideoTab";
 
 import { CreativeDnaTab } from "@/components/analytics/CreativeDnaTab";
 
-import { HistoricalTab } from "@/components/analytics/HistoricalTab";
-import { MatrixTab } from "@/components/analytics/MatrixTab";
 import { useAnalyticsPageState } from "@/hooks/useAnalyticsPageState";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -70,8 +68,8 @@ const AnalyticsPage = () => {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="bg-transparent border-b border-border-light rounded-none p-0 h-auto gap-0 flex-wrap">
-        {["trends", "iterations", "taginsights", "dna", ...(canBenchmark ? ["matrix", "historical", "video"] : [])].map((tab) => {
-            const labels: Record<string, string> = { taginsights: "Tag Insights", dna: "Creative DNA", matrix: "Matrix", historical: "Historical", video: "Video" };
+        {["trends", "iterations", "taginsights", "dna", ...(canBenchmark ? ["video"] : [])].map((tab) => {
+            const labels: Record<string, string> = { taginsights: "Tag Insights", dna: "Creative DNA", video: "Video" };
             return (
               <TabsTrigger
                 key={tab}
@@ -108,12 +106,6 @@ const AnalyticsPage = () => {
             killScaleKpi={killScaleConfig.winnerKpi}
             killScaleKpiDirection={killScaleConfig.winnerKpiDirection}
           />
-        </TabsContent>
-        <TabsContent value="matrix" className="space-y-4">
-          <MatrixTab creatives={creatives} scaleThreshold={killScaleConfig.scaleAt} onCreativeClick={setSelectedCreative} />
-        </TabsContent>
-        <TabsContent value="historical" className="space-y-4">
-          <HistoricalTab trendData={filteredTrendData} creatives={creatives} roasThreshold={roasThreshold} onCreativeClick={setSelectedCreative} />
         </TabsContent>
         {canBenchmark && (
           <TabsContent value="video" className="space-y-4">
