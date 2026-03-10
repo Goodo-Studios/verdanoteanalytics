@@ -126,10 +126,11 @@ export function DataHealthSection() {
   const { data: health, isLoading } = useDataHealth();
 
   const refreshMedia = useMutationWithToast({
-    mutationFn: (params: { account_id: string }) =>
+    mutationFn: (params: { account_id?: string }) =>
       apiFetch("refresh-thumbnails", "", { method: "POST", body: JSON.stringify(params) }),
     invalidateKeys: [["data-health"]],
-    successMessage: "Media refresh started",
+    successMessage: (data: any) =>
+      data?.account_id ? "Media refresh started" : "Media refresh started for all accounts",
     errorMessage: "Failed to start refresh",
   });
 
