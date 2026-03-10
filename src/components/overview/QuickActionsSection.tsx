@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { useRoleNavigate } from "@/hooks/useRolePath";
 import { useSync } from "@/hooks/useSyncApi";
-import { FileText, RefreshCw, Sparkles } from "lucide-react";
+import { FileText, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Props {

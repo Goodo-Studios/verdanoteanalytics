@@ -13,8 +13,6 @@ import {
   Bookmark,
   Tags,
   Eye,
-  Sparkles,
-  FileEdit,
   ListChecks,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
