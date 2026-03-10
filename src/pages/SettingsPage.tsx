@@ -18,14 +18,14 @@ import { ApiKeysSection } from "@/components/settings/ApiKeysSection";
 
 import { AttributionSection } from "@/components/settings/AttributionSection";
 
-import { TransitionTab } from "@/components/settings/TransitionTab";
+
 import { NamingConventionSection } from "@/components/settings/NamingConventionSection";
 import { useSettingsPageState } from "@/hooks/useSettingsPageState";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 
-type SettingsTab = "account" | "naming" | "export" | "api" | "transition";
+type SettingsTab = "account" | "naming" | "export" | "api";
 
 const SettingsPage = () => {
   const s = useSettingsPageState();
@@ -39,7 +39,7 @@ const SettingsPage = () => {
       {isBuilder && <TabButton active={activeTab === "naming"} onClick={() => setActiveTab("naming")}>Naming</TabButton>}
       <TabButton active={activeTab === "export"} onClick={() => setActiveTab("export")}>Export</TabButton>
       <TabButton active={activeTab === "api"} onClick={() => setActiveTab("api")}>API Access</TabButton>
-      {isBuilder && <TabButton active={activeTab === "transition"} onClick={() => setActiveTab("transition")}>Transition</TabButton>}
+      
     </div>
   );
 
@@ -152,8 +152,6 @@ const SettingsPage = () => {
         <NamingConventionSection />
       ) : activeTab === "api" ? (
         <div className="max-w-2xl"><ApiKeysSection /></div>
-      ) : activeTab === "transition" ? (
-        <TransitionTab account={s.account} />
       ) : (
         <div className="max-w-3xl"><DataExportSection /></div>
       )}
