@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2 } from "lucide-react";
 import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
 import { ChartSkeleton } from "@/components/skeletons/ChartSkeleton";
-import { SaveViewButton } from "@/components/SaveViewButton";
+
 import { CreativeDetailModal } from "@/components/CreativeDetailModal";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { TrendsTab } from "@/components/analytics/TrendsTab";
