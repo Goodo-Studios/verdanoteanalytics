@@ -32,8 +32,6 @@ const ReportBuilderPage = lazy(() => import("./pages/ReportBuilderPage"));
 const PublicReportPage = lazy(() => import("./pages/PublicReportPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const UserSettingsPage = lazy(() => import("./pages/UserSettingsPage"));
-const SavedViewsPage = lazy(() => import("./pages/SavedViewsPage"));
-const AIChatPage = lazy(() => import("./pages/AIChatPage"));
 const BriefsPage = lazy(() => import("./pages/BriefsPage"));
 const PublicBriefPage = lazy(() => import("./pages/PublicBriefPage"));
 const AgencyDashboardPage = lazy(() => import("./pages/AgencyDashboardPage"));
@@ -110,12 +108,10 @@ function RoleGuardedRoutes() {
           <Route path="/reports/:id/build" element={<ReportBuilderPage />} />
           <Route path="/settings" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <SettingsPage />} />
           <Route path="/user-settings" element={<UserSettingsPage />} />
-          <Route path="/saved-views" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <SavedViewsPage />} />
           
           <Route path="/briefs" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <BriefsPage />} />
           
           <Route path="/pipeline" element={<ContentPipelinePage />} />
-          <Route path="/ai-chat" element={<AIChatPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>

@@ -1,6 +1,6 @@
 import { ReactNode, useState, useCallback } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
-import { AIChatWidget } from "@/components/AIChatWidget";
+
 import { NotificationCenter } from "@/components/NotificationCenter";
 import { PresenceAvatars } from "@/components/PresenceAvatars";
 import { OnboardingWizard } from "@/components/OnboardingWizard";
@@ -122,7 +122,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           {children}
         </div>
       </main>
-      <AIChatWidget />
+      
       <CommandBar />
       <KeyboardShortcutsModal open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
 

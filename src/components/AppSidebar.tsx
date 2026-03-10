@@ -13,8 +13,6 @@ import {
   Bookmark,
   Tags,
   Eye,
-  Sparkles,
-  FileEdit,
   ListChecks,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
@@ -37,8 +35,6 @@ const baseNavItems = [
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Tagging", url: "/tagging", icon: Tags },
   { title: "Reports", url: "/reports", icon: FileText },
-  { title: "Saved Views", url: "/saved-views", icon: Bookmark },
-  { title: "AI Analyst", url: "/ai-chat", icon: Sparkles },
 ];
 
 const clientNavItems = [
@@ -47,7 +43,6 @@ const clientNavItems = [
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
   { title: "Reports", url: "/reports", icon: FileText },
-  { title: "AI Analyst", url: "/ai-chat", icon: Sparkles },
 ];
 
 export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void; onTakeTour?: () => void }) {

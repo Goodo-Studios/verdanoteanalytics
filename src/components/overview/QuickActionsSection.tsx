@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { useRoleNavigate } from "@/hooks/useRolePath";
 import { useSync } from "@/hooks/useSyncApi";
-import { FileText, RefreshCw, Sparkles } from "lucide-react";
+import { FileText, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -32,14 +32,6 @@ export function QuickActionsSection({ accountId }: Props) {
         >
           <RefreshCw className={cn("h-4 w-4", sync.isPending && "animate-spin")} />
           Trigger Sync
-        </Button>
-        <Button
-          variant="outline"
-          className="font-body text-[13px] gap-2"
-          onClick={() => navigate("/ai-chat")}
-        >
-          <Sparkles className="h-4 w-4" />
-          Generate Brief
         </Button>
       </div>
     </div>
