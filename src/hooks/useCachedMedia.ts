@@ -159,7 +159,7 @@ export function useCachedMedia(
 
     try {
       // Videos are large and streamed natively by the browser -- skip IndexedDB caching.
-      // Just return the URL directly (or proxied through video-proxy for Meta CDN URLs).
+      // Just return the URL directly so the browser handles it natively.
       if (isVideoUrl(mediaUrl)) {
         setObjectUrl(mediaUrl);
         setIsLoading(false);
