@@ -244,10 +244,20 @@ function MediaPreview({ creative }: { creative: any }) {
             }}
           />
 
-          {/* Video play overlay */}
+          {/* Video play overlay — inline player for real video, or open preview_url */}
           {hasVideo && imgLoaded && (
             <button
               onClick={() => setShowVideo(true)}
+              className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity"
+            >
+              <div className="h-14 w-14 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+                <Play className="h-6 w-6 text-foreground ml-0.5" />
+              </div>
+            </button>
+          )}
+          {!hasVideo && creative.preview_url && imgLoaded && (
+            <button
+              onClick={() => window.open(creative.preview_url, "_blank", "noopener,noreferrer")}
               className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity"
             >
               <div className="h-14 w-14 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
