@@ -144,10 +144,6 @@ const SettingsPage = () => {
             onToggle={(checked) => s.toggleAccount.mutate({ id: s.account!.id, is_active: checked })}
             onRefreshMedia={() => s.refreshMedia.mutate({ account_id: s.account!.id })}
             refreshMediaPending={s.refreshMedia.isPending}
-            onAIBrief={() => setShowBriefModal(true)}
-            showAIBrief={canBrief}
-            onWeeklyRetro={() => setShowRetroModal(true)}
-            showWeeklyRetro={canBrief}
           />
           <SyncSettingsSection
             dateRange={s.dateRange} setDateRange={s.setDateRange}
