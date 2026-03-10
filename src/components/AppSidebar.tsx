@@ -37,8 +37,6 @@ const baseNavItems = [
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Tagging", url: "/tagging", icon: Tags },
   { title: "Reports", url: "/reports", icon: FileText },
-  { title: "Saved Views", url: "/saved-views", icon: Bookmark },
-  { title: "AI Analyst", url: "/ai-chat", icon: Sparkles },
 ];
 
 const clientNavItems = [
