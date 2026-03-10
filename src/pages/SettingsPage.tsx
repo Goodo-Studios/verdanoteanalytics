@@ -98,7 +98,7 @@ const SettingsPage = () => {
 
       {(isBuilder || isEmployee) && tabBar}
 
-      <SyncStatusBanner />
+      <SyncStatusBanner accountId={s.account.id} />
       <MediaRefreshBanner />
 
       {activeTab === "account" ? (
