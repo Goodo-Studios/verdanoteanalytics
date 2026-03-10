@@ -35,9 +35,6 @@ const SettingsPage = () => {
   const s = useSettingsPageState();
   const isSyncing = useIsSyncing();
   const { isBuilder, isEmployee } = useAuth();
-  const canBrief = isBuilder || isEmployee;
-  const [showBriefModal, setShowBriefModal] = useState(false);
-  const [showRetroModal, setShowRetroModal] = useState(false);
   const [activeTab, setActiveTab] = useState<SettingsTab>("account");
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
 
