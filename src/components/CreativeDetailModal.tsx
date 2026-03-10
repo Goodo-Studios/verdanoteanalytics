@@ -4,7 +4,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, FileEdit, Sparkles, MessageSquare, GitBranch, Loader2 } from "lucide-react";
+import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, FileEdit, MessageSquare, GitBranch, Loader2 } from "lucide-react";
 import { useState, forwardRef } from "react";
 import { useCachedMedia, videoProxyUrl } from "@/hooks/useCachedMedia";
 
