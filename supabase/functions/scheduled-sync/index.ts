@@ -63,7 +63,7 @@ serve(async (req) => {
           continue;
         }
 
-        // Calculate next_sync_at based on frequency
+        // Calculate next_sync_at based on frequency (DST-aware)
         const nextSync = calculateNextSync(account.sync_frequency, account.sync_hour, account.sync_timezone);
 
         // Update next_sync_at
@@ -92,6 +92,10 @@ serve(async (req) => {
   }
 });
 
+/**
+ * DST-aware next sync calculation using Intl.DateTimeFormat
+ * instead of hardcoded UTC offsets.
+ */
 function calculateNextSync(frequency: string, hour: number, timezone: string): Date {
   const now = new Date();
 
@@ -103,31 +107,52 @@ function calculateNextSync(frequency: string, hour: number, timezone: string): D
       return new Date(now.getTime() + 12 * 60 * 60 * 1000);
     }
     case "daily": {
-      // Next occurrence of the specified hour in the account's timezone
-      // Simple approach: add 24h from now, then adjust to the target hour
-      const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-      // Use UTC approximation — timezone offset applied for common US timezones
-      const tzOffsets: Record<string, number> = {
-        "America/New_York": -5,
-        "America/Chicago": -6,
-        "America/Denver": -7,
-        "America/Los_Angeles": -8,
-        "America/Phoenix": -7,
-        "UTC": 0,
-        "Europe/London": 0,
-        "Europe/Berlin": 1,
-        "Australia/Sydney": 11,
-      };
-      const offset = tzOffsets[timezone] ?? -5;
-      const targetUtcHour = ((hour - offset) % 24 + 24) % 24;
+      // Use Intl to get the current offset for the timezone (handles DST)
+      const targetUtcHour = getUtcHourForTimezone(hour, timezone, now);
+
+      // Start with tomorrow
+      const tomorrow = new Date(now);
+      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
       tomorrow.setUTCHours(targetUtcHour, 0, 0, 0);
-      // If this time already passed today, it'll be tomorrow which is correct
+
+      // If the computed time is in the past (edge case near midnight), add a day
       if (tomorrow.getTime() <= now.getTime()) {
-        tomorrow.setTime(tomorrow.getTime() + 24 * 60 * 60 * 1000);
+        tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
       }
       return tomorrow;
     }
     default:
       return new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  }
+}
+
+/**
+ * Converts a local hour in a given timezone to UTC hour,
+ * accounting for DST using Intl.DateTimeFormat.
+ */
+function getUtcHourForTimezone(localHour: number, timezone: string, referenceDate: Date): number {
+  try {
+    // Get the timezone offset by formatting a date in the target timezone
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      hour: "numeric",
+      hourCycle: "h23",
+    });
+
+    // Get current hour in the target timezone
+    const parts = formatter.formatToParts(referenceDate);
+    const tzHour = parseInt(parts.find(p => p.type === "hour")?.value || "0");
+
+    // Compute offset: UTC hour = reference UTC hour, TZ hour = tzHour
+    const utcHour = referenceDate.getUTCHours();
+    const offset = tzHour - utcHour; // positive = ahead of UTC
+
+    // Convert desired local hour to UTC
+    const targetUtcHour = ((localHour - offset) % 24 + 24) % 24;
+    return targetUtcHour;
+  } catch {
+    // Fallback: assume UTC if timezone is invalid
+    console.warn(`Invalid timezone "${timezone}", falling back to UTC`);
+    return localHour;
   }
 }
