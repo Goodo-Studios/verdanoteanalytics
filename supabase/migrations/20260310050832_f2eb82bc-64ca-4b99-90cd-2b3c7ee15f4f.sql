@@ -1,0 +1,1 @@
+UPDATE sync_logs SET status = 'cancelled', completed_at = now(), api_errors = '[{"timestamp":"2026-03-10T05:35:00Z","message":"Cancelled — not requested"}]' WHERE status IN ('running', 'queued') AND account_id != 'act_740559457651983'

@@ -1,0 +1,1 @@
+UPDATE sync_logs SET status = 'running', sync_state = jsonb_set(sync_state, '{last_activity}', to_jsonb(now()::text)) WHERE id = 674 AND status = 'queued'

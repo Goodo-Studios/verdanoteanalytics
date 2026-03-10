@@ -5,10 +5,19 @@ import { Loader2, Clock, X, Download, UploadCloud } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 
-export function SyncStatusBanner() {
+interface SyncStatusBannerProps {
+  accountId?: string;
+}
+
+export function SyncStatusBanner({ accountId }: SyncStatusBannerProps = {}) {
   const isSyncing = useIsSyncing();
-  const { data: logs } = useSyncHistory();
+  const { data: allLogs } = useSyncHistory();
   const { data: accounts } = useAccounts();
+
+  // If an accountId is provided, only show syncs for that account
+  const logs = accountId
+    ? (allLogs || []).filter((l: any) => l.account_id === accountId)
+    : allLogs;
   const cancelSync = useCancelSync();
   const [elapsed, setElapsed] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
@@ -27,14 +36,14 @@ export function SyncStatusBanner() {
     }
   }, [isSyncing, runningLog?.id]);
 
-  if (!isSyncing) return null;
+  if (!runningLog) return null;
 
   const mins = Math.floor(elapsed / 60);
   const secs = elapsed % 60;
   const timeStr = mins > 0 ? `${mins}m ${String(secs).padStart(2, "0")}s` : `${secs}s`;
 
-  const accountId = runningLog?.account_id || "";
-  const accountName = (accounts || []).find((a: any) => a.id === accountId)?.name || accountId;
+  const logAccountId = runningLog?.account_id || "";
+  const accountName = (accounts || []).find((a: any) => a.id === logAccountId)?.name || logAccountId;
   const fetched = runningLog?.creatives_fetched ?? 0;
   const upserted = runningLog?.creatives_upserted ?? 0;
   const currentPhase = runningLog?.current_phase ?? 0;
