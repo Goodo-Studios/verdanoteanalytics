@@ -5,10 +5,19 @@ import { Loader2, Clock, X, Download, UploadCloud } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 
-export function SyncStatusBanner() {
+interface SyncStatusBannerProps {
+  accountId?: string;
+}
+
+export function SyncStatusBanner({ accountId }: SyncStatusBannerProps = {}) {
   const isSyncing = useIsSyncing();
-  const { data: logs } = useSyncHistory();
+  const { data: allLogs } = useSyncHistory();
   const { data: accounts } = useAccounts();
+
+  // If an accountId is provided, only show syncs for that account
+  const logs = accountId
+    ? (allLogs || []).filter((l: any) => l.account_id === accountId)
+    : allLogs;
   const cancelSync = useCancelSync();
   const [elapsed, setElapsed] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
