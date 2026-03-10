@@ -10,7 +10,6 @@ import {
   Zap,
   LogOut,
   UserCog,
-  Bookmark,
   Tags,
   Eye,
   ListChecks,

@@ -19,7 +19,6 @@ import UpdatePasswordPage from "./pages/UpdatePasswordPage";
 
 // Non-critical pages — lazy loaded for bundle splitting
 const OverviewPage = lazy(() => import("./pages/OverviewPage"));
-const ClientOverviewPage = lazy(() => import("./pages/ClientOverviewPage"));
 const CreativesPage = lazy(() => import("./pages/CreativesPage"));
 
 const AnalyticsPage = lazy(() => import("./pages/AnalyticsPage"));
