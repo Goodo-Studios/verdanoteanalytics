@@ -42,8 +42,8 @@ export function SyncStatusBanner({ accountId }: SyncStatusBannerProps = {}) {
   const secs = elapsed % 60;
   const timeStr = mins > 0 ? `${mins}m ${String(secs).padStart(2, "0")}s` : `${secs}s`;
 
-  const accountId = runningLog?.account_id || "";
-  const accountName = (accounts || []).find((a: any) => a.id === accountId)?.name || accountId;
+  const logAccountId = runningLog?.account_id || "";
+  const accountName = (accounts || []).find((a: any) => a.id === logAccountId)?.name || logAccountId;
   const fetched = runningLog?.creatives_fetched ?? 0;
   const upserted = runningLog?.creatives_upserted ?? 0;
   const currentPhase = runningLog?.current_phase ?? 0;
