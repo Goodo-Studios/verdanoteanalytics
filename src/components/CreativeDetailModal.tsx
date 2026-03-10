@@ -4,7 +4,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, FileEdit, Sparkles, MessageSquare, GitBranch, Loader2 } from "lucide-react";
+import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, FileEdit, MessageSquare, GitBranch, Loader2 } from "lucide-react";
 import { useState, forwardRef } from "react";
 import { useCachedMedia, videoProxyUrl } from "@/hooks/useCachedMedia";
 
@@ -15,7 +15,7 @@ import { CreativeIterationAnalysis } from "@/components/creative-detail/Creative
 import { TrendSection } from "@/components/creative-detail/TrendSection";
 import { PredictionSection } from "@/components/creative-detail/PredictionSection";
 
-import { CreativeAIAnalysis } from "@/components/creative-detail/CreativeAIAnalysis";
+
 import { CreativeComments } from "@/components/creative-detail/CreativeComments";
 import { CreativeVersions } from "@/components/creative-detail/CreativeVersions";
 import { GradeBadge } from "@/components/creatives/GradeBadge";
@@ -390,12 +390,6 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
         <Tabs defaultValue="details" className="w-full">
           <TabsList className="w-full">
             <TabsTrigger value="details" className="flex-1">Details</TabsTrigger>
-            {canEdit && (
-              <TabsTrigger value="ai-analysis" className="flex-1 gap-1.5">
-                <Sparkles className="h-3.5 w-3.5" />
-                AI Analysis
-              </TabsTrigger>
-            )}
             <TabsTrigger value="comments" className="flex-1 gap-1.5">
               <MessageSquare className="h-3.5 w-3.5" />
               Comments
@@ -491,11 +485,6 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
             <CreativeTagEditor creative={creative} />
           </TabsContent>
 
-          {canEdit && (
-            <TabsContent value="ai-analysis" className="mt-4">
-              <CreativeAIAnalysis creative={creative} />
-            </TabsContent>
-          )}
 
           <TabsContent value="comments" className="mt-4">
             <CreativeComments adId={creative.ad_id} accountId={creative.account_id} />

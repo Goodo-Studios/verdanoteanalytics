@@ -18,7 +18,7 @@ serve(async (_req) => {
   // Only clean up "running" syncs — "queued" syncs are intentionally waiting
   const { data: candidates } = await supabase
     .from("sync_logs")
-    .select("id, sync_state, started_at")
+    .select("id, sync_state")
     .eq("status", "running")
     .lt("started_at", threeMinAgo);
 
