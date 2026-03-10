@@ -190,7 +190,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto bg-white rounded-[8px] shadow-modal">
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto bg-white rounded-[8px] shadow-modal">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <span className="font-label text-[12px] font-semibold text-charcoal tracking-wide">{creative.unique_code}</span>
