@@ -1044,12 +1044,15 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
               if (isTimedOut()) { console.log("  Score snapshots paused — budget exceeded"); break; }
               const chunk = scoreRows.slice(i, i + 500);
               const { error: scoreErr } = await supabase.from("score_history").insert(chunk);
-            if (scoreErr) console.error("Score history insert error (non-fatal):", scoreErr.message);
+              if (scoreErr) console.error("Score history insert error (non-fatal):", scoreErr.message);
+            }
+            console.log(`  Recorded score snapshots for ${scoreRows.length} creatives`);
           }
-          console.log(`  Recorded score snapshots for ${scoreRows.length} creatives`);
+        } catch (scoreHistoryErr) {
+          console.error("Score history error (non-fatal):", scoreHistoryErr);
         }
-      } catch (scoreHistoryErr) {
-        console.error("Score history error (non-fatal):", scoreHistoryErr);
+      } else {
+        console.log("  Skipping score snapshots — budget exceeded");
       }
 
       // ── Auto-log changelog + notifications (consolidated single query) ──
