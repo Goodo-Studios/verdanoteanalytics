@@ -292,7 +292,7 @@ const CreativesPage = () => {
 
   return (
     <AppLayout>
-      {!isClient && <OnboardingBanner />}
+      
       <SyncStatusBanner />
       <MediaRefreshBanner />
       <PageHeader
