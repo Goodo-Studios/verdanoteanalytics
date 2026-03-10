@@ -206,33 +206,8 @@ function MediaPreview({ creative }: { creative: any }) {
     );
   }
 
-  // Video ad but no source URL yet -- show Ad Library link
-  if (isVideoAdWithoutSource) {
-    const adLibUrl = facebookAdUrl;
-    return (
-      <div className="bg-muted rounded-lg flex flex-col items-center justify-center gap-3 py-12">
-        <Video className="h-8 w-8 text-muted-foreground" />
-        <span className="font-body text-[13px] text-muted-foreground">
-          Video preview not available inline
-        </span>
-        <p className="text-xs text-muted-foreground text-center px-8">
-          The video source URL couldn't be fetched from Meta. It will be retried automatically.
-        </p>
-        {adLibUrl && (
-          <Button
-            size="sm"
-            className="gap-1.5"
-            onClick={(e) => {
-              e.stopPropagation();
-              window.open(adLibUrl, "_blank", "noopener,noreferrer");
-            }}
-          >
-            <ExternalLink className="h-3.5 w-3.5" />View in Ad Library
-          </Button>
-        )}
-      </div>
-    );
-  }
+  // No valid video source — fall through to thumbnail display below
+  // (the thumbnail section handles showing a play overlay for preview_url)
 
   const adLibraryUrl = creative.ad_id
     ? `https://www.facebook.com/ads/library/?id=${encodeURIComponent(String(creative.ad_id))}`
@@ -269,10 +244,20 @@ function MediaPreview({ creative }: { creative: any }) {
             }}
           />
 
-          {/* Video play overlay */}
+          {/* Video play overlay — inline player for real video, or open preview_url */}
           {hasVideo && imgLoaded && (
             <button
               onClick={() => setShowVideo(true)}
+              className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity"
+            >
+              <div className="h-14 w-14 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+                <Play className="h-6 w-6 text-foreground ml-0.5" />
+              </div>
+            </button>
+          )}
+          {!hasVideo && creative.preview_url && imgLoaded && (
+            <button
+              onClick={() => window.open(creative.preview_url, "_blank", "noopener,noreferrer")}
               className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity"
             >
               <div className="h-14 w-14 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
