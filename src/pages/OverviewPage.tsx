@@ -108,7 +108,7 @@ const OverviewPage = () => {
               <MetricCard label="Total Spend" value={fmt$(metrics.totalSpend)} trend={hasPrevPeriod ? delta(metrics.totalSpend, prevMetrics?.totalSpend) : undefined} className="bg-background flex-1" />
               <MetricCard label="Active Creatives" value={fmtN(metrics.activeCount)} trend={hasPrevPeriod ? delta(metrics.activeCount, prevMetrics?.activeCount) : undefined} className="bg-background flex-1" />
               <MetricCard label="Avg CPA" value={fmt$(metrics.avgCpa)} trend={hasPrevPeriod ? deltaInverse(metrics.avgCpa, prevMetrics?.avgCpa) : undefined} className="bg-background flex-1" />
-              <MetricCard label="Avg ROAS" value={`${metrics.avgRoas.toFixed(2)}x`} trend={hasPrevPeriod ? delta(metrics.avgRoas, prevMetrics?.avgRoas) : undefined} className="bg-background flex-1" badge={<AttributionBadge account={selectedAccount} currentRoas={metrics.avgRoas} />} />
+              <MetricCard label="Avg ROAS" value={`${metrics.avgRoas.toFixed(2)}x`} trend={hasPrevPeriod ? delta(metrics.avgRoas, prevMetrics?.avgRoas) : undefined} className="bg-background flex-1" />
               <MetricCard label="Win Rate" value={fmtPct(metrics.winRate)} className="bg-background flex-1" />
               <MetricCard label="Blended CTR" value={fmtPct(metrics.avgCtr)} trend={hasPrevPeriod ? delta(metrics.avgCtr, prevMetrics?.avgCtr) : undefined} className="bg-background flex-1" />
             </div>

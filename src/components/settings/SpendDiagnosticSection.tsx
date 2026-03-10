@@ -105,9 +105,6 @@ export function SpendDiagnosticSection() {
             <span className="font-body text-[13px] text-muted-foreground">
               {result.account_name} · {result.date_range.since} → {result.date_range.until} ({result.date_range.days}d)
             </span>
-            <span className="font-body text-[11px] text-muted-foreground">
-              Attribution: {result.attribution.click_window ?? 7}d click / {result.attribution.view_window ?? 1}d view
-            </span>
           </div>
 
           <div className="rounded-md border border-border overflow-hidden">

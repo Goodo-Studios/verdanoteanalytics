@@ -138,7 +138,7 @@ const SettingsPage = () => {
             isSyncing={s.sync.isPending || isSyncing}
           />
           <SyncHistorySection accountId={s.account.id} />
-          {(isBuilder || isEmployee) && <AttributionSection account={s.account} />}
+          
         </div>
       ) : activeTab === "naming" ? (
         <NamingConventionSection />
