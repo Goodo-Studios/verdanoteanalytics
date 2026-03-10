@@ -41,6 +41,7 @@ interface CreativeDetailModalProps {
   fatigueMap?: Map<string, FatigueResult>;
 }
 
+function MediaPreview({ creative }: { creative: any }) {
   const [imgLoaded, setImgLoaded] = useState(false);
 
   const facebookAdUrl = creative.ad_id
