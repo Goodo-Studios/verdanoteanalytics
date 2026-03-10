@@ -14,7 +14,7 @@ import { useWoWTrends } from "@/hooks/useWoWTrends";
 import { useMtdSpend } from "@/hooks/useMtdSpend";
 import { useSync } from "@/hooks/useSyncApi";
 import { computeFatigue } from "@/lib/fatigueScore";
-import { computeSetupProgress, useOnboardingChecklist } from "@/components/settings/AccountSetupChecklist";
+
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
