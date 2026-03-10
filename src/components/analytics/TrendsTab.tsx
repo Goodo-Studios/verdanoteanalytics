@@ -86,7 +86,7 @@ function SummaryCard({ label, value, change, invertColor }: { label: string; val
 }
 
 export const TrendsTab = forwardRef<HTMLDivElement, TrendsTabProps>(function TrendsTab({ trendData, isLoading }, ref) {
-  const [granularity, setGranularity] = useState<Granularity>("daily");
+  const granularity: Granularity = "daily";
   const [selectedMetrics, setSelectedMetrics] = useState<Set<string>>(new Set(["spend", "cpa"]));
 
   const chartData = useMemo(() => {
@@ -168,20 +168,7 @@ export const TrendsTab = forwardRef<HTMLDivElement, TrendsTabProps>(function Tre
 
   return (
     <div ref={ref}>
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex border border-border rounded-button overflow-hidden">
-          {(["daily", "weekly", "monthly"] as Granularity[]).map(g => (
-            <Button
-              key={g}
-              variant="ghost"
-              size="sm"
-              className={`h-8 font-body text-[13px] px-3 rounded-none ${granularity === g ? "bg-verdant text-white hover:bg-verdant-light hover:text-white" : "text-slate"}`}
-              onClick={() => setGranularity(g)}
-            >
-              {g.charAt(0).toUpperCase() + g.slice(1)}
-            </Button>
-          ))}
-        </div>
+      <div className="flex items-center justify-end mb-1">
         <span className="font-label text-[11px] text-sage tracking-wide">{dataRangeLabel}</span>
       </div>
 

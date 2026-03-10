@@ -70,8 +70,8 @@ const AnalyticsPage = () => {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="bg-transparent border-b border-border-light rounded-none p-0 h-auto gap-0 flex-wrap">
-          {["trends", "winrate", "scale", "kill", "iterations", "taginsights", "dna", ...(canBenchmark ? ["matrix", "historical", "video"] : [])].map((tab) => {
-            const labels: Record<string, string> = { winrate: "Win Rate", taginsights: "Tag Insights", dna: "Creative DNA", matrix: "Matrix", historical: "Historical", video: "Video" };
+        {["trends", "iterations", "taginsights", "dna", ...(canBenchmark ? ["matrix", "historical", "video"] : [])].map((tab) => {
+            const labels: Record<string, string> = { taginsights: "Tag Insights", dna: "Creative DNA", matrix: "Matrix", historical: "Historical", video: "Video" };
             return (
               <TabsTrigger
                 key={tab}
@@ -86,15 +86,6 @@ const AnalyticsPage = () => {
 
         <TabsContent value="trends" className="space-y-4">
           <TrendsTab trendData={filteredTrendData} isLoading={trendsLoading} />
-        </TabsContent>
-        <TabsContent value="winrate" className="space-y-4">
-          <WinRateTab creatives={creatives} roasThreshold={roasThreshold} spendThreshold={spendThreshold} defaultSlice={defaultSlice} winnerKpi={selectedAccount?.winner_kpi} winnerKpiDirection={selectedAccount?.winner_kpi_direction} winnerKpiThreshold={parseFloat(selectedAccount?.winner_kpi_threshold || "0") || undefined} />
-        </TabsContent>
-        <TabsContent value="scale" className="space-y-4">
-          <ScaleTab creatives={creatives} config={killScaleConfig} onCreativeClick={setSelectedCreative} />
-        </TabsContent>
-        <TabsContent value="kill" className="space-y-4">
-          <KillTab creatives={creatives} config={killScaleConfig} onCreativeClick={setSelectedCreative} />
         </TabsContent>
         <TabsContent value="iterations" className="space-y-4">
           <IterationsTab creatives={creatives} spendThreshold={spendThreshold} onCreativeClick={setSelectedCreative} />
