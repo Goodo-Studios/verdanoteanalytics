@@ -87,15 +87,6 @@ const AnalyticsPage = () => {
         <TabsContent value="trends" className="space-y-4">
           <TrendsTab trendData={filteredTrendData} isLoading={trendsLoading} />
         </TabsContent>
-        <TabsContent value="winrate" className="space-y-4">
-          <WinRateTab creatives={creatives} roasThreshold={roasThreshold} spendThreshold={spendThreshold} defaultSlice={defaultSlice} winnerKpi={selectedAccount?.winner_kpi} winnerKpiDirection={selectedAccount?.winner_kpi_direction} winnerKpiThreshold={parseFloat(selectedAccount?.winner_kpi_threshold || "0") || undefined} />
-        </TabsContent>
-        <TabsContent value="scale" className="space-y-4">
-          <ScaleTab creatives={creatives} config={killScaleConfig} onCreativeClick={setSelectedCreative} />
-        </TabsContent>
-        <TabsContent value="kill" className="space-y-4">
-          <KillTab creatives={creatives} config={killScaleConfig} onCreativeClick={setSelectedCreative} />
-        </TabsContent>
         <TabsContent value="iterations" className="space-y-4">
           <IterationsTab creatives={creatives} spendThreshold={spendThreshold} onCreativeClick={setSelectedCreative} />
         </TabsContent>
