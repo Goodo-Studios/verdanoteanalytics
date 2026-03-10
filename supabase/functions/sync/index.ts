@@ -1427,9 +1427,7 @@ serve(async (req) => {
         }
       }
 
-      if (!created.length) {
-        return new Response(JSON.stringify({ message: "All requested accounts already syncing" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
+      // Dead code removed — created.length is guaranteed > 0 here (checked at line 1394)
 
       return new Response(JSON.stringify({ started: created }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
