@@ -4,9 +4,9 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, ExternalLink, Play, Video, AlertCircle, FileEdit, MessageSquare, GitBranch, Loader2 } from "lucide-react";
+import { Image as ImageIcon, ExternalLink, Play, Video, FileEdit, MessageSquare, GitBranch, Loader2 } from "lucide-react";
 import { useState, forwardRef } from "react";
-import { useCachedMedia, videoProxyUrl } from "@/hooks/useCachedMedia";
+import { useCachedMedia } from "@/hooks/useCachedMedia";
 
 import { CreativeMetrics } from "@/components/creative-detail/CreativeMetrics";
 import { CreativeTagEditor } from "@/components/creative-detail/CreativeTagEditor";
@@ -41,197 +41,43 @@ interface CreativeDetailModalProps {
   fatigueMap?: Map<string, FatigueResult>;
 }
 
-function MetaPreviewEmbed({ url, fallbackUrl }: { url: string; fallbackUrl?: string | null }) {
-  const linkUrl = url || fallbackUrl;
-
-  if (!linkUrl) return null;
-
-  return (
-    <div className="w-full h-[200px] flex flex-col items-center justify-center gap-3 bg-muted rounded-lg border border-border">
-      <ExternalLink className="h-8 w-8 text-muted-foreground" />
-      <p className="text-sm text-muted-foreground font-medium">Ad Preview</p>
-      <p className="text-xs text-muted-foreground text-center px-4">Meta ad previews can't be embedded. Open in Facebook to view.</p>
-      <a href={linkUrl} target="_blank" rel="noopener noreferrer">
-        <Button size="sm" className="gap-1.5 mt-1">
-          <ExternalLink className="h-3.5 w-3.5" />View Ad on Facebook
-        </Button>
-      </a>
-    </div>
-  );
-}
-
-/**
- * VideoPlayer -- handles the 3-step fallback chain for video playback:
- *
- * Step 1: Try playing via video-proxy (routes through edge fn, solves CORS + signed URL expiry)
- * Step 2: If proxy 404/502, fall back to direct video_url (works for Supabase storage)
- * Step 3: If both fail, show Facebook Ad Library / preview_url link
- *
- * This replaces the previous single-attempt approach that went straight to error state.
- */
-function VideoPlayer({
-  creative,
-  posterUrl,
-  onBack,
-}: {
-  creative: any;
-  posterUrl?: string;
-  onBack: () => void;
-}) {
-  // Fallback state: 0 = try proxy, 1 = try direct URL, 2 = failed
-  const [fallbackLevel, setFallbackLevel] = useState(0);
-  const facebookAdUrl = creative.ad_id
-    ? `https://www.facebook.com/ads/library/?id=${creative.ad_id}`
-    : null;
-
-  const isStorageUrl = creative.video_url?.includes("/storage/v1/object/public/");
-
-  // For Supabase storage URLs, skip the proxy (no CORS issue, serves directly)
-  const videoSrc =
-    isStorageUrl
-      ? creative.video_url
-      : fallbackLevel === 0
-      ? videoProxyUrl(creative.video_url)
-      : fallbackLevel === 1
-      ? creative.video_url
-      : null;
-
-  const handleError = () => {
-    if (fallbackLevel < 1 && !isStorageUrl) {
-      // Proxy failed -- try direct URL
-      setFallbackLevel(1);
-    } else {
-      // All video sources exhausted
-      setFallbackLevel(2);
-    }
-  };
-
-  if (fallbackLevel === 2 || !videoSrc) {
-    // Terminal failure -- show external links
-    return (
-      <div className="bg-muted rounded-lg overflow-hidden relative">
-        <div className="w-full h-[400px] flex flex-col items-center justify-center gap-3 text-muted-foreground">
-          <AlertCircle className="h-8 w-8" />
-          <p className="text-sm font-medium">Video unavailable inline</p>
-          <p className="text-xs text-center px-6">
-            The video URL has likely expired. It will be refreshed automatically within 2 hours.
-          </p>
-          <div className="flex gap-2 mt-1 flex-wrap justify-center">
-            {facebookAdUrl && (
-              <a href={facebookAdUrl} target="_blank" rel="noopener noreferrer">
-                <Button size="sm" className="gap-1.5">
-                  <Video className="h-4 w-4" />Watch on Facebook
-                </Button>
-              </a>
-            )}
-            {creative.preview_url && (
-              <a href={creative.preview_url} target="_blank" rel="noopener noreferrer">
-                <Button size="sm" variant="outline" className="gap-1.5">
-                  <ExternalLink className="h-3.5 w-3.5" />Ad Preview
-                </Button>
-              </a>
-            )}
-          </div>
-          <button
-            onClick={onBack}
-            className="text-xs text-muted-foreground underline mt-1"
-          >
-            Back to thumbnail
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="bg-muted rounded-lg overflow-hidden relative">
-      <video
-        key={videoSrc}
-        src={videoSrc}
-        controls
-        autoPlay
-        playsInline
-        className="w-full max-h-[400px]"
-        poster={posterUrl}
-        onError={handleError}
-      />
-      <div className="absolute bottom-2 right-2 flex gap-1.5">
-        {creative.preview_url && (
-          <a href={creative.preview_url} target="_blank" rel="noopener noreferrer">
-            <Button size="sm" variant="secondary" className="gap-1.5 text-xs bg-white/90 text-foreground hover:bg-white">
-              <ExternalLink className="h-3 w-3" />Ad Preview
-            </Button>
-          </a>
-        )}
-        {facebookAdUrl && (
-          <a href={facebookAdUrl} target="_blank" rel="noopener noreferrer">
-            <Button size="sm" variant="secondary" className="gap-1.5 text-xs bg-white/90 text-foreground hover:bg-white">
-              <ExternalLink className="h-3 w-3" />Facebook
-            </Button>
-          </a>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function MediaPreview({ creative }: { creative: any }) {
-  const [showVideo, setShowVideo] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
 
-  const hasVideo = !!creative.video_url && creative.video_url !== "no-video";
-  const isVideoAdWithoutSource =
-    creative.video_url === "no-video" && (creative.video_views || 0) > 0;
   const facebookAdUrl = creative.ad_id
     ? `https://www.facebook.com/ads/library/?id=${creative.ad_id}`
     : null;
+  const adLibraryUrl = creative.ad_id
+    ? `https://www.facebook.com/ads/library/?id=${encodeURIComponent(String(creative.ad_id))}`
+    : null;
 
-  // Use cached media hook for thumbnail -- caches to IndexedDB, survives Meta CDN URL expiry.
-  // Prefer full_res_url (high-res source stored during refresh-thumbnails).
   const { url: cachedThumbnailUrl, isLoading: thumbnailLoading, error: thumbnailError } =
     useCachedMedia(creative.full_res_url || creative.thumbnail_url, {
       placeholderUrl: "/placeholder-creative.png",
     });
 
   const hasThumbnail = !!creative.thumbnail_url;
+  const isVideoAd = (creative.video_views || 0) > 0;
 
-  // Show the inline video player
-  if (hasVideo && showVideo) {
-    return (
-      <VideoPlayer
-        creative={creative}
-        posterUrl={cachedThumbnailUrl || undefined}
-        onBack={() => setShowVideo(false)}
-      />
-    );
-  }
-
-  // No valid video source — fall through to thumbnail display below
-  // (the thumbnail section handles showing a play overlay for preview_url)
-
-  const adLibraryUrl = creative.ad_id
-    ? `https://www.facebook.com/ads/library/?id=${encodeURIComponent(String(creative.ad_id))}`
-    : null;
+  // Always open Meta preview in a new tab — never play inline
+  const handlePlayClick = () => {
+    const url = creative.preview_url || facebookAdUrl;
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+  };
 
   return (
     <div className="bg-muted rounded-lg flex items-center justify-center overflow-hidden relative group">
       {hasThumbnail ? (
         <div className="relative w-full">
-          {/* Loading skeleton */}
           {(thumbnailLoading || !imgLoaded) && (
             <div className="w-full h-[300px] bg-cream-dark rounded animate-pulse flex items-center justify-center">
               <ImageIcon className="h-8 w-8 text-muted-foreground/40" />
             </div>
           )}
-
-          {/* Error state */}
           {thumbnailError && !thumbnailLoading && (
             <div className="absolute inset-0 flex items-center justify-center bg-muted/80 z-10">
               <span className="font-body text-xs text-muted-foreground">Thumbnail unavailable</span>
             </div>
           )}
-
-          {/* Thumbnail image */}
           <img
             src={cachedThumbnailUrl}
             alt={creative.ad_name}
@@ -239,25 +85,12 @@ function MediaPreview({ creative }: { creative: any }) {
               imgLoaded ? "opacity-100" : "opacity-0 absolute inset-0"
             }`}
             onLoad={() => setImgLoaded(true)}
-            onError={() => {
-              /* hook already handled fallback */
-            }}
           />
 
-          {/* Video play overlay — inline player for real video, or open preview_url */}
-          {hasVideo && imgLoaded && (
+          {/* Play overlay — opens Meta preview in new tab */}
+          {(creative.preview_url || facebookAdUrl) && imgLoaded && (
             <button
-              onClick={() => setShowVideo(true)}
-              className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity"
-            >
-              <div className="h-14 w-14 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
-                <Play className="h-6 w-6 text-foreground ml-0.5" />
-              </div>
-            </button>
-          )}
-          {!hasVideo && creative.preview_url && imgLoaded && (
-            <button
-              onClick={() => window.open(creative.preview_url, "_blank", "noopener,noreferrer")}
+              onClick={handlePlayClick}
               className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity"
             >
               <div className="h-14 w-14 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
@@ -286,14 +119,14 @@ function MediaPreview({ creative }: { creative: any }) {
         <div className="flex flex-col items-center gap-2 py-12">
           <ImageIcon className="h-8 w-8 text-sage" />
           <span className="font-body text-[13px] text-sage">No preview available</span>
-          {isVideoAdWithoutSource && facebookAdUrl && (
+          {isVideoAd && facebookAdUrl && (
             <a href={facebookAdUrl} target="_blank" rel="noopener noreferrer">
               <Button size="sm" className="gap-1.5 text-xs mt-1">
                 <Video className="h-4 w-4" />Watch on Facebook
               </Button>
             </a>
           )}
-          {!isVideoAdWithoutSource && creative.preview_url && (
+          {!isVideoAd && creative.preview_url && (
             <a href={creative.preview_url} target="_blank" rel="noopener noreferrer">
               <Button size="sm" variant="secondary" className="gap-1.5 text-xs mt-1">
                 <ExternalLink className="h-3 w-3" />View Ad Preview
