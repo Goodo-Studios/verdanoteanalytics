@@ -38,22 +38,6 @@ export default function AgencyDashboardPage() {
   const { data: portfolioMtdSpend = 0 } = useMtdSpend();
   const sync = useSync();
 
-  // Bulk fetch onboarding checklists for all accounts
-  const { data: allChecklists = {} } = useQuery({
-    queryKey: ["agency-onboarding-checklists"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("account_context")
-        .select("account_id, onboarding_checklist");
-      if (error) throw error;
-      const map: Record<string, any[]> = {};
-      for (const row of data || []) {
-        map[row.account_id] = (row.onboarding_checklist as any) || [];
-      }
-      return map;
-    },
-    staleTime: 5 * 60 * 1000,
-  });
 
   const { data: perAccountSpend = new Map<string, number>() } = useQuery({
     queryKey: ["agency-per-account-spend"],
