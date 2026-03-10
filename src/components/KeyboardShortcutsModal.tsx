@@ -56,9 +56,7 @@ const sections: Section[] = [
     shortcuts: [
       { keys: ["→"], description: "Next creative" },
       { keys: ["←"], description: "Previous creative" },
-      { keys: ["Space"], description: "Play / pause video" },
-      { keys: ["A"], description: "AI Analysis tab" },
-      { keys: ["I"], description: "Iterate panel" },
+      { keys: ["C"], description: "Comments tab" },
       { keys: ["C"], description: "Comments tab" },
       { keys: ["B"], description: "Brief from creative" },
       { keys: ["Esc"], description: "Close modal" },
