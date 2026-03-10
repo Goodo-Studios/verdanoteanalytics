@@ -1,5 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  discoverImageUrl,
+  discoverPreviewUrl,
+  discoverVideoUrl,
+  fetchWithTimeout,
+  NO_THUMB_SENTINEL,
+  NO_VIDEO_SENTINEL,
+} from "../_shared/media-discovery.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,334 +18,14 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const META_ACCESS_TOKEN = Deno.env.get("META_ACCESS_TOKEN")!;
 const THUMB_BUCKET = "ad-thumbnails";
 const VIDEO_BUCKET = "ad-videos";
-const DISCOVERY_BATCH_SIZE = 5; // Meta API discovery — sequential to avoid CPU spikes
-const CACHE_BATCH_SIZE = 15; // Pure download+upload — parallelizable I/O
+const DISCOVERY_BATCH_SIZE = 5;
+const CACHE_BATCH_SIZE = 15;
 const VIDEO_BATCH_SIZE = 1;
 const MAX_TOTAL = 5000;
-const MAX_VIDEO_SIZE = 150 * 1024 * 1024; // 150MB cap
-const TIME_BUDGET_MS = 110_000; // ~110s — leave 10s margin within Supabase's ~150s CPU limit
-const FETCH_TIMEOUT_MS = 30_000; // 30s timeout per HTTP request
-
-// How many hours before an account is eligible for re-refresh
-// With 12+ accounts cycling every 10-15 min, each account gets refreshed every 2-3 hours
+const MAX_VIDEO_SIZE = 150 * 1024 * 1024;
+const TIME_BUDGET_MS = 110_000;
+const FETCH_TIMEOUT_MS = 30_000;
 const MEDIA_REFRESH_COOLDOWN_HOURS = 2;
-
-// Sentinel values to mark failed fetches so they're skipped on future runs
-const NO_THUMB_SENTINEL = "no-thumbnail";
-const NO_VIDEO_SENTINEL = "no-video";
-
-/** Fetch with a timeout — aborts if the request takes longer than timeoutMs */
-async function fetchWithTimeout(url: string, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    return res;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/** Fetch a fresh high-res image URL from Meta Graph API.
- * Returns { thumbnailUrl, fullResUrl } where fullResUrl is the highest-resolution
- * source available (stored separately so the modal can use it without rescaling). */
-async function getFreshImageUrl(adId: string, accountId: string): Promise<{ thumbnailUrl: string; fullResUrl: string | null } | null> {
-  try {
-    const res = await fetchWithTimeout(
-      `https://graph.facebook.com/v21.0/${adId}?fields=creative{thumbnail_url,image_url,image_hash,object_story_spec}&access_token=${META_ACCESS_TOKEN}`
-    );
-    if (!res.ok) {
-      console.log(`Meta API failed for ${adId}: ${res.status}`);
-      return null;
-    }
-    const data = await res.json();
-    const creative = data?.creative;
-    if (!creative) return null;
-
-    const imageHash = creative.image_hash ||
-      creative.object_story_spec?.link_data?.image_hash ||
-      creative.object_story_spec?.photo_data?.image_hash;
-    if (imageHash) {
-      const imgRes = await fetchWithTimeout(
-        `https://graph.facebook.com/v21.0/${accountId}/adimages?hashes=["${imageHash}"]&fields=url,url_128,width,height,original_width,original_height,permalink_url&access_token=${META_ACCESS_TOKEN}`
-      );
-      if (imgRes.ok) {
-        const imgData = await imgRes.json();
-        const images = imgData?.data;
-        if (images && images.length > 0) {
-          const img = images[0];
-          const fullUrl = img.url;
-          const w = img.original_width || img.width || 0;
-          console.log(`image_hash for ${adId}: ${w}px wide, url length: ${fullUrl?.length}`);
-          if (fullUrl && fullUrl.length > 100) {
-            // img.url from adimages is already full-resolution — store it as both thumbnail and full_res_url
-            return { thumbnailUrl: fullUrl, fullResUrl: fullUrl };
-          }
-        }
-      }
-    }
-
-    const spec = creative.object_story_spec;
-    const videoId = spec?.video_data?.video_id || spec?.template_data?.video_data?.video_id;
-    if (videoId) {
-      const vidRes = await fetchWithTimeout(
-        `https://graph.facebook.com/v21.0/${videoId}?fields=thumbnails{uri,width,height}&access_token=${META_ACCESS_TOKEN}`
-      );
-      if (vidRes.ok) {
-        const vidData = await vidRes.json();
-        const thumbs = vidData?.thumbnails?.data;
-        if (thumbs && thumbs.length > 0) {
-          const sorted = thumbs.sort((a: any, b: any) => (b.width || 0) - (a.width || 0));
-          const best = sorted[0];
-          if (best?.uri && (best.width || 0) >= 200) {
-            console.log(`Video thumbnail for ${adId}: ${best.width}x${best.height}`);
-            return { thumbnailUrl: best.uri, fullResUrl: null };
-          }
-        }
-      }
-      const picRes = await fetchWithTimeout(
-        `https://graph.facebook.com/v21.0/${videoId}/picture?redirect=false&width=1080&height=1080&access_token=${META_ACCESS_TOKEN}`
-      );
-      if (picRes.ok) {
-        const picData = await picRes.json();
-        if (picData?.data?.url) {
-          console.log(`Video picture fallback (1080px) for ${adId}`);
-          // 1080px video poster — use as both thumbnail and full_res_url
-          return { thumbnailUrl: picData.data.url, fullResUrl: picData.data.url };
-        }
-      }
-    }
-
-    if (creative.id) {
-      const creativeRes = await fetchWithTimeout(
-        `https://graph.facebook.com/v21.0/${creative.id}?fields=effective_object_story_id,image_url&access_token=${META_ACCESS_TOKEN}`
-      );
-      if (creativeRes.ok) {
-        const creativeData = await creativeRes.json();
-        if (creativeData.effective_object_story_id) {
-          const postRes = await fetchWithTimeout(
-            `https://graph.facebook.com/v21.0/${creativeData.effective_object_story_id}?fields=full_picture&access_token=${META_ACCESS_TOKEN}`
-          );
-          if (postRes.ok) {
-            const postData = await postRes.json();
-            if (postData.full_picture) {
-              console.log(`Post full_picture for ${adId}`);
-              return { thumbnailUrl: postData.full_picture, fullResUrl: null };
-            }
-          }
-        }
-      }
-    }
-
-    if (creative.image_url) {
-      console.log(`Using image_url for ${adId}`);
-      return { thumbnailUrl: creative.image_url, fullResUrl: null };
-    }
-
-    if (spec) {
-      const imageUrl = spec.link_data?.image_url || spec.photo_data?.url || spec.photo_data?.image_url;
-      if (imageUrl) return { thumbnailUrl: imageUrl, fullResUrl: null };
-    }
-
-    if (creative.thumbnail_url) {
-      console.log(`Using original thumbnail_url for ${adId}`);
-      return { thumbnailUrl: creative.thumbnail_url, fullResUrl: null };
-    }
-
-    return null;
-  } catch (e) {
-    console.log(`Meta API error for ${adId}:`, e);
-    return null;
-  }
-}
-
-/** Fetch ad preview URL from Meta Graph API for iframe embedding. */
-async function getFreshPreviewUrl(adId: string): Promise<string | null> {
-  try {
-    const res = await fetchWithTimeout(
-      `https://graph.facebook.com/v21.0/${adId}/previews?ad_format=DESKTOP_FEED_STANDARD&access_token=${META_ACCESS_TOKEN}`
-    );
-    if (res.ok) {
-      const data = await res.json();
-      const preview = data?.data?.[0];
-      if (preview?.body) {
-        const match = preview.body.match(/src="([^"]+)"/);
-        if (match?.[1]) {
-          const decoded = match[1].replace(/&amp;/g, "&");
-          return decoded;
-        }
-      }
-    }
-    const adRes = await fetchWithTimeout(
-      `https://graph.facebook.com/v21.0/${adId}?fields=creative{effective_object_story_id}&access_token=${META_ACCESS_TOKEN}`
-    );
-    if (adRes.ok) {
-      const adData = await adRes.json();
-      const storyId = adData?.creative?.effective_object_story_id;
-      if (storyId) {
-        const parts = storyId.split("_");
-        if (parts.length === 2) {
-          return `https://www.facebook.com/${parts[0]}/posts/${parts[1]}`;
-        }
-      }
-    }
-    return null;
-  } catch (e) {
-    console.log(`Preview URL error for ${adId}:`, e);
-    return null;
-  }
-}
-
-/** Fetch a fresh video source URL from Meta Graph API.
- *
- * Covers all known creative formats:
- *   1. Standard video ads — creative.video_id or spec.video_data.video_id
- *   2. Direct spec.video_data.video_url (some formats inline the URL)
- *   3. template_data.video_data.video_id (DPA/catalog video templates)
- *   4. Carousel child attachments — spec.link_data.child_attachments[].video_id
- *      (carousel ads where each card can have its own video)
- *   5. Whitelisted/creator-boosted posts — effective_object_story_id → post video
- *      (partnership ads where video lives under the creator's page, not the ad account)
- *   6. adcreatives endpoint fallback — requests video_id + asset_feed_spec directly
- *      catches formats not exposed via the ad endpoint
- *   7. asset_feed_spec.videos[].video_id — dynamic creative / advantage+ formats
- */
-async function getFreshVideoUrl(adId: string): Promise<string | null> {
-  try {
-    // Step 1: Fetch ad creative with expanded fields covering all known formats
-    const res = await fetchWithTimeout(
-      `https://graph.facebook.com/v21.0/${adId}?fields=creative{id,video_id,object_story_spec,effective_object_story_id,asset_feed_spec}&access_token=${META_ACCESS_TOKEN}`
-    );
-    if (!res.ok) {
-      console.log(`Meta video API failed for ${adId}: ${res.status}`);
-      return null;
-    }
-    const data = await res.json();
-    const creative = data?.creative;
-    if (!creative) {
-      // Log the raw response keys so we know what Meta returned instead of creative
-      const topKeys = Object.keys(data || {}).join(",") || "empty";
-      const errCode = data?.error?.code;
-      const errMsg = data?.error?.message;
-      if (errCode || errMsg) {
-        console.log(`Meta video: no creative for ${adId} — error ${errCode}: ${errMsg}`);
-      } else {
-        console.log(`Meta video: no creative for ${adId} — response keys: ${topKeys}`);
-      }
-      return null;
-    }
-    // Log what fields Meta returned so we know which path will fire
-    const creativeKeys = Object.keys(creative).join(",");
-    console.log(`Meta video: creative for ${adId} — fields: ${creativeKeys}`);
-
-    const spec = creative.object_story_spec;
-    const videoIds: string[] = [];
-
-    // -- Path 1: top-level video_id on the creative
-    if (creative.video_id) videoIds.push(creative.video_id);
-
-    // -- Path 2: standard video_data
-    if (spec?.video_data?.video_id) videoIds.push(spec.video_data.video_id);
-    if (spec?.video_data?.video_url) {
-      console.log(`Found video_url in spec for ${adId}`);
-      return spec.video_data.video_url;
-    }
-
-    // -- Path 3: template / DPA video
-    if (spec?.template_data?.video_data?.video_id) {
-      videoIds.push(spec.template_data.video_data.video_id);
-    }
-
-    // -- Path 4: carousel child attachments (each card may have its own video)
-    const children: any[] = spec?.link_data?.child_attachments || [];
-    for (const child of children) {
-      if (child?.video_id) videoIds.push(child.video_id);
-    }
-
-    // -- Path 5: asset_feed_spec (Advantage+/dynamic creative)
-    const feedVideos: any[] = creative.asset_feed_spec?.videos || [];
-    for (const v of feedVideos) {
-      if (v?.video_id) videoIds.push(v.video_id);
-    }
-
-    // Try fetching source from all collected video_ids
-    for (const vid of [...new Set(videoIds)]) {
-      const vidRes = await fetchWithTimeout(
-        `https://graph.facebook.com/v21.0/${vid}?fields=source&access_token=${META_ACCESS_TOKEN}`
-      );
-      if (vidRes.ok) {
-        const vidData = await vidRes.json();
-        if (vidData?.source) {
-          console.log(`Got video source from video_id ${vid} for ${adId} (path 1-5)`);
-          return vidData.source;
-        }
-      }
-    }
-
-    // -- Path 6: effective_object_story_id → fetch the live post for its video
-    // Used for whitelisted/creator-boosted ads where the video lives under the page,
-    // not the ad account. The post's attachments contain the actual video asset.
-    const storyId = creative.effective_object_story_id;
-    if (storyId) {
-      const postRes = await fetchWithTimeout(
-        `https://graph.facebook.com/v21.0/${storyId}?fields=attachments{media,media_type}&access_token=${META_ACCESS_TOKEN}`
-      );
-      if (postRes.ok) {
-        const postData = await postRes.json();
-        const attachments: any[] = postData?.attachments?.data || [];
-        for (const att of attachments) {
-          const videoId = att?.media?.video?.id;
-          if (videoId) {
-            const vidRes = await fetchWithTimeout(
-              `https://graph.facebook.com/v21.0/${videoId}?fields=source&access_token=${META_ACCESS_TOKEN}`
-            );
-            if (vidRes.ok) {
-              const vidData = await vidRes.json();
-              if (vidData?.source) {
-                console.log(`Got video source via effective_object_story_id for ${adId} (path 6)`);
-                return vidData.source;
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // -- Path 7: adcreatives endpoint fallback — some formats only expose video_id here
-    if (creative.id) {
-      const creativeRes = await fetchWithTimeout(
-        `https://graph.facebook.com/v21.0/${creative.id}?fields=video_id,asset_feed_spec&access_token=${META_ACCESS_TOKEN}`
-      );
-      if (creativeRes.ok) {
-        const creativeData = await creativeRes.json();
-        const fallbackIds: string[] = [];
-        if (creativeData?.video_id) fallbackIds.push(creativeData.video_id);
-        const feedVids: any[] = creativeData?.asset_feed_spec?.videos || [];
-        for (const v of feedVids) {
-          if (v?.video_id) fallbackIds.push(v.video_id);
-        }
-        for (const vid of [...new Set(fallbackIds)]) {
-          if (videoIds.includes(vid)) continue; // already tried
-          const vidRes = await fetchWithTimeout(
-            `https://graph.facebook.com/v21.0/${vid}?fields=source&access_token=${META_ACCESS_TOKEN}`
-          );
-          if (vidRes.ok) {
-            const vidData = await vidRes.json();
-            if (vidData?.source) {
-              console.log(`Got video source via adcreatives fallback for ${adId} (path 7)`);
-              return vidData.source;
-            }
-          }
-        }
-      }
-    }
-
-    return null;
-  } catch (e) {
-    console.log(`Meta video API error for ${adId}:`, e);
-    return null;
-  }
-}
 
 async function downloadAndCache(
   supabase: any,
@@ -348,7 +36,7 @@ async function downloadAndCache(
   type: "image" | "video"
 ): Promise<string | null> {
   try {
-    const resp = await fetchWithTimeout(url, 60_000); // 60s for large file downloads
+    const resp = await fetchWithTimeout(url, 60_000);
     if (!resp.ok) {
       console.log(`Download failed ${adId}: HTTP ${resp.status} ${resp.statusText}`);
       return null;
@@ -382,12 +70,9 @@ async function downloadAndCache(
   }
 }
 
-/** Shared mutable start time so inner helpers can check budget */
-let _invocationStart = 0;
-
-/** Helper to check if we've exceeded our time budget */
-function isOverBudget(startTime?: number): boolean {
-  return Date.now() - (startTime ?? _invocationStart) > TIME_BUDGET_MS;
+/** Helper to check if we've exceeded our time budget — takes start time as parameter */
+function isOverBudget(startTime: number): boolean {
+  return Date.now() - startTime > TIME_BUDGET_MS;
 }
 
 /** Helper to update the progress log row */
@@ -397,23 +82,13 @@ async function updateLog(supabase: any, logId: number, updates: Record<string, a
 
 /**
  * Pick the single account to process this invocation.
- *
- * Strategy (in priority order):
- *   1. Explicit account_id in request — use that directly
- *   2. account_id=all (or missing) → round-robin by last_media_sync ASC NULLS FIRST
- *      among active accounts, skipping any refreshed within MEDIA_REFRESH_COOLDOWN_HOURS
- *
- * Prioritisation within the rotation: accounts with NULL last_media_sync (never refreshed)
- * come first, then accounts sorted by oldest refresh, then by total spend DESC as tiebreaker
- * come first, then accounts sorted by oldest refresh, then by creative_count DESC as tiebreaker.
+ * Strategy: explicit account_id → use that; otherwise round-robin by last_media_sync ASC NULLS FIRST.
  */
 async function pickAccount(
   supabase: any,
   requestedAccountId: string | null
 ): Promise<{ account: any | null; skippedAll: boolean; nextAccount: any | null }> {
-  // Explicit account requested — bypass ALL cooldown logic, fetch minimal account info
   if (requestedAccountId && requestedAccountId !== "all") {
-    // Use only columns that definitely exist in the schema
     const { data: account, error } = await supabase
       .from("ad_accounts")
       .select("id, name, creative_count")
@@ -421,15 +96,12 @@ async function pickAccount(
       .single();
     if (error) {
       console.log(`Could not fetch account ${requestedAccountId}: ${error.message}`);
-      // Fall back to a minimal object so the function can proceed
       return { account: { id: requestedAccountId, name: requestedAccountId }, skippedAll: false, nextAccount: null };
     }
     return { account: account || null, skippedAll: false, nextAccount: null };
   }
 
-  // Rotation: try to use last_media_sync if it exists, fall back to last_synced_at
   let accounts: any[] | null = null;
-  // Try with last_media_sync first (column added by migration 20260307000001)
   const { data: accountsWithSync, error: syncErr } = await supabase
     .from("ad_accounts")
     .select("id, name, last_media_sync, creative_count")
@@ -438,7 +110,6 @@ async function pickAccount(
     .order("creative_count", { ascending: false, nullsFirst: false });
 
   if (syncErr) {
-    // last_media_sync column doesn't exist yet -- fall back to ordering by last_synced_at
     console.log(`last_media_sync column not available (${syncErr.message}), using fallback ordering`);
     const { data: fallbackAccounts } = await supabase
       .from("ad_accounts")
@@ -457,10 +128,8 @@ async function pickAccount(
   const cooldownMs = MEDIA_REFRESH_COOLDOWN_HOURS * 60 * 60 * 1000;
   const now = Date.now();
 
-  // Find the first account outside the cooldown window
   for (const acc of accounts) {
     if (!acc.last_media_sync) {
-      // Never refreshed (or column missing) — highest priority
       const nextAcc = accounts.find((a: any) => a.id !== acc.id);
       return { account: acc, skippedAll: false, nextAccount: nextAcc || null };
     }
@@ -471,7 +140,6 @@ async function pickAccount(
     }
   }
 
-  // All accounts are within cooldown — log this and skip
   const mostStale = accounts[0];
   const staleMs = mostStale.last_media_sync
     ? now - new Date(mostStale.last_media_sync).getTime()
@@ -501,8 +169,6 @@ serve(async (req) => {
       } catch { /* no body */ }
     }
 
-    // ── CHANGE 1: Single-account rotation ──────────────────────────────────
-    // Pick ONE account to process this invocation (or use the explicit one)
     const { account: targetAccount, skippedAll, nextAccount } = await pickAccount(supabase, accountFilter);
 
     if (skippedAll || !targetAccount) {
@@ -517,12 +183,10 @@ serve(async (req) => {
       });
     }
 
-    // Use the resolved single account for all queries below
     const resolvedAccountId = targetAccount.id;
     console.log(`Processing account: ${targetAccount.name} (${resolvedAccountId}) — last refresh: ${targetAccount.last_media_sync || "never"}`);
 
-    // Concurrency guard: skip if this specific account already has a running refresh
-    // Skip this guard when force=true (explicit backfill runs)
+    // Concurrency guard
     if (!forceRefresh) {
       const { data: runningLogs } = await supabase
         .from("media_refresh_logs")
@@ -531,7 +195,7 @@ serve(async (req) => {
         .eq("account_id", resolvedAccountId)
         .limit(1);
       if (runningLogs && runningLogs.length > 0) {
-        console.log(`Skipping ${targetAccount.name}: media refresh already running. Use force=true to override.`);
+        console.log(`Skipping ${targetAccount.name}: media refresh already running.`);
         return new Response(JSON.stringify({
           skipped: true,
           reason: "already_running",
@@ -542,7 +206,6 @@ serve(async (req) => {
         });
       }
     } else {
-      // Force mode: clean up any stale running logs for this account first
       await supabase
         .from("media_refresh_logs")
         .update({ status: "failed", completed_at: new Date().toISOString() })
@@ -551,7 +214,7 @@ serve(async (req) => {
       console.log(`Force mode: cleared stale running logs for ${resolvedAccountId}`);
     }
 
-    // Create a progress log entry
+    // Create progress log
     const { data: logRow } = await supabase
       .from("media_refresh_logs")
       .insert({ account_id: resolvedAccountId, status: "running", current_phase: 1 })
@@ -559,28 +222,29 @@ serve(async (req) => {
       .single();
     const logId = logRow?.id;
 
-    // Phase 1: Discover work for this single account
-    // FAST PATH: thumbnails with a real CDN URL not yet cached to storage
-    const uncachedThumbsQuery = supabase
+    // FIX: Pass invocationStart as a parameter instead of using global mutable state
+    const invocationStart = Date.now();
+
+    // ── Phase 1: Discovery ──────────────────────────────────────
+    // FAST PATH: thumbnails with CDN URL not yet cached to storage
+    const { data: uncachedThumbs } = await supabase
       .from("creatives")
       .select("ad_id, account_id, thumbnail_url")
       .not("thumbnail_url", "is", null)
       .neq("thumbnail_url", NO_THUMB_SENTINEL)
       .not("thumbnail_url", "like", `%/storage/v1/object/public/%`)
       .eq("account_id", resolvedAccountId)
-      .gt("impressions", 0);
-    const { data: uncachedThumbs } = await uncachedThumbsQuery
+      .gt("impressions", 0)
       .order("spend", { ascending: false, nullsFirst: false })
       .limit(MAX_TOTAL);
 
-    // SLOW PATH: NULL thumbnails + no-thumbnail sentinels — both need Meta API re-discovery
-    const missingThumbsQuery = supabase
+    // SLOW PATH: NULL + sentinel thumbnails needing Meta API discovery
+    const { data: missingThumbs } = await supabase
       .from("creatives")
       .select("ad_id, account_id, thumbnail_url")
       .or("thumbnail_url.is.null,thumbnail_url.eq.no-thumbnail")
       .eq("account_id", resolvedAccountId)
-      .gt("impressions", 0);
-    const { data: missingThumbs } = await missingThumbsQuery
+      .gt("impressions", 0)
       .order("spend", { ascending: false, nullsFirst: false })
       .limit(MAX_TOTAL);
 
@@ -588,71 +252,81 @@ serve(async (req) => {
     const slowPathThumbs = missingThumbs || [];
     const allThumbWork = [...fastPathThumbs, ...slowPathThumbs].slice(0, MAX_TOTAL);
 
-    // Periodic sentinel reset: clear no-video for ads that are still spending (active ads).
-    // The sentinel was set because Meta API failed at a previous point in time -- if the ad
-    // is still running it may have a valid video source available now.
-    // Reset up to 200 sentinels per invocation, prioritized by recent spend.
+    // FIX: Thumbnail sentinel reset (like video sentinel reset)
+    // Reset no-thumbnail for active ads with meaningful spend — Meta may have valid thumbnails now
     {
-      const sentinelResetQuery = supabase
+      const { data: sentinelThumbRows } = await supabase
+        .from("creatives")
+        .select("ad_id")
+        .eq("thumbnail_url", NO_THUMB_SENTINEL)
+        .eq("account_id", resolvedAccountId)
+        .gt("spend", 50)
+        .gt("impressions", 0)
+        .order("spend", { ascending: false, nullsFirst: false })
+        .limit(200);
+      if (sentinelThumbRows && sentinelThumbRows.length > 0) {
+        const ids = sentinelThumbRows.map((r: any) => r.ad_id);
+        await supabase.from("creatives").update({ thumbnail_url: null }).in("ad_id", ids);
+        console.log(`[${targetAccount.name}] Reset ${ids.length} no-thumbnail sentinels for active ads`);
+      }
+    }
+
+    // Video sentinel reset
+    {
+      const { data: sentinelRows } = await supabase
         .from("creatives")
         .select("ad_id")
         .eq("video_url", NO_VIDEO_SENTINEL)
         .eq("account_id", resolvedAccountId)
         .gt("video_views", 0)
-        .gt("spend", 50) // Only reset ads with meaningful spend -- ignore tiny/inactive
+        .gt("spend", 50)
         .order("spend", { ascending: false, nullsFirst: false })
         .limit(200);
-      const { data: sentinelRows } = await sentinelResetQuery;
       if (sentinelRows && sentinelRows.length > 0) {
         const ids = sentinelRows.map((r: any) => r.ad_id);
-        await supabase
-          .from("creatives")
-          .update({ video_url: null })
-          .in("ad_id", ids);
-        console.log(`[${targetAccount.name}] Reset ${ids.length} no-video sentinels for active ads (will retry fetch this run)`);
+        await supabase.from("creatives").update({ video_url: null }).in("ad_id", ids);
+        console.log(`[${targetAccount.name}] Reset ${ids.length} no-video sentinels for active ads`);
       }
     }
 
-    // Videos: include null AND no-video sentinel rows
-    const missingVideosQuery = supabase
+    // Videos needing discovery (null or sentinel)
+    const { data: missingVideos } = await supabase
       .from("creatives")
       .select("ad_id, account_id")
       .or("video_url.is.null,video_url.eq.no-video")
       .eq("account_id", resolvedAccountId)
       .gt("video_views", 0)
-      .gt("impressions", 0);
-    const { data: missingVideos } = await missingVideosQuery
+      .gt("impressions", 0)
       .order("spend", { ascending: false, nullsFirst: false })
       .limit(2000);
 
-    const uncachedVideosQuery = supabase
+    // FIX: Videos with existing CDN URLs — skip re-discovery, just download directly
+    const { data: uncachedVideos } = await supabase
       .from("creatives")
       .select("ad_id, account_id, video_url")
       .not("video_url", "is", null)
       .not("video_url", "like", `%/storage/v1/object/public/%`)
       .neq("video_url", NO_VIDEO_SENTINEL)
       .eq("account_id", resolvedAccountId)
-      .gt("impressions", 0);
-    const { data: uncachedVideos } = await uncachedVideosQuery.limit(2000);
+      .gt("impressions", 0)
+      .limit(2000);
 
-    // Find ads missing preview_url
-    const missingPreviewQuery = supabase
+    // Preview URLs
+    const { data: missingPreviews } = await supabase
       .from("creatives")
       .select("ad_id")
       .is("preview_url", null)
       .eq("account_id", resolvedAccountId)
-      .gt("impressions", 0);
-    const { data: missingPreviews } = await missingPreviewQuery.limit(MAX_TOTAL);
+      .gt("impressions", 0)
+      .limit(MAX_TOTAL);
 
-    const thumbs = allThumbWork;
     const noVideos = missingVideos || [];
     const videos = uncachedVideos || [];
     const previews = missingPreviews || [];
 
-    const thumbsTotal = thumbs.length;
+    const thumbsTotal = allThumbWork.length;
     const videosTotal = noVideos.length + videos.length;
 
-    // Update log with totals
     if (logId) {
       await updateLog(supabase, logId, {
         current_phase: 1,
@@ -668,11 +342,10 @@ serve(async (req) => {
       if (logId) {
         await updateLog(supabase, logId, {
           status: "completed",
-          current_phase: 3,
+          current_phase: 4,
           completed_at: new Date().toISOString(),
         });
       }
-      // Still update last_media_sync so rotation moves to next account
       await supabase
         .from("ad_accounts")
         .update({ last_media_sync: new Date().toISOString() })
@@ -688,17 +361,14 @@ serve(async (req) => {
       });
     }
 
-    // Phase 2: Process thumbnails
+    // ── Phase 2: Process thumbnails ──────────────────────────────────────
     if (logId) await updateLog(supabase, logId, { current_phase: 2 });
-    const invocationStart = Date.now();
-    _invocationStart = invocationStart;
     let budgetExceeded = false;
-
     let thumbCached = 0, thumbFailed = 0;
 
-    // FAST PATH: parallel download+upload for thumbnails that already have CDN URLs
+    // FAST PATH: parallel download+upload for thumbnails with CDN URLs
     for (let i = 0; i < fastPathThumbs.length; i += CACHE_BATCH_SIZE) {
-      if (isOverBudget()) {
+      if (isOverBudget(invocationStart)) {
         console.log(`Budget reached during fast-path at ${i}/${fastPathThumbs.length}. Cached: ${thumbCached}`);
         budgetExceeded = true;
         break;
@@ -706,13 +376,12 @@ serve(async (req) => {
       const batch = fastPathThumbs.slice(i, i + CACHE_BATCH_SIZE);
       const results = await Promise.allSettled(
         batch.map(async (c: any) => {
-          if (isOverBudget()) return false;
+          if (isOverBudget(invocationStart)) return false;
           const storageUrl = await downloadAndCache(supabase, THUMB_BUCKET, c.account_id, c.ad_id, c.thumbnail_url, "image");
           if (storageUrl) {
             await supabase.from("creatives").update({ thumbnail_url: storageUrl }).eq("ad_id", c.ad_id);
             return true;
           } else {
-            // CDN URL expired or bad — mark as sentinel
             await supabase.from("creatives").update({ thumbnail_url: NO_THUMB_SENTINEL }).eq("ad_id", c.ad_id);
             return false;
           }
@@ -729,22 +398,20 @@ serve(async (req) => {
     // SLOW PATH: sequential Meta API discovery for NULL thumbnails
     if (!budgetExceeded) {
       for (let i = 0; i < slowPathThumbs.length; i += DISCOVERY_BATCH_SIZE) {
-        if (isOverBudget()) {
+        if (isOverBudget(invocationStart)) {
           console.log(`Budget reached during slow-path at ${i}/${slowPathThumbs.length}`);
           budgetExceeded = true;
           break;
         }
         const batch = slowPathThumbs.slice(i, i + DISCOVERY_BATCH_SIZE);
         for (const c of batch) {
-          if (isOverBudget()) continue;
-          const freshResult = await getFreshImageUrl(c.ad_id, c.account_id);
+          if (isOverBudget(invocationStart)) continue;
+          const freshResult = await discoverImageUrl(c.ad_id, c.account_id, META_ACCESS_TOKEN, FETCH_TIMEOUT_MS);
           if (!freshResult) {
             await supabase.from("creatives").update({ thumbnail_url: NO_THUMB_SENTINEL }).eq("ad_id", c.ad_id);
             thumbFailed++;
             continue;
           }
-          // Store the CDN URL for now — fast-path will cache it next run.
-          // Also persist full_res_url when available so the modal can serve the hi-res version.
           const updatePayload: Record<string, string | null> = { thumbnail_url: freshResult.thumbnailUrl };
           if (freshResult.fullResUrl) updatePayload.full_res_url = freshResult.fullResUrl;
           await supabase.from("creatives").update(updatePayload).eq("ad_id", c.ad_id);
@@ -753,57 +420,38 @@ serve(async (req) => {
       }
     }
 
-    // ── Phase 3: Backfill preview_url (PRIORITIZED -- runs before video phases) ──────────────
-    // KEY CHANGE (2026-03-09): preview_url fetch moved before video phases.
-    //
-    // Background: Matthew's decision -- "I would rather just have a link to the ad than the
-    // ad playing in the creative modal if that meant everything will sync correctly."
-    //
-    // preview_url stores either:
-    //   1. The Meta ad preview iframe URL (DESKTOP_FEED_STANDARD format) -- for most ad types
-    //   2. The Facebook post link (https://www.facebook.com/{page_id}/posts/{post_id}) -- fallback
-    //      for creator/whitelisted ads (e.g. Sewing Parts Online) where video is inaccessible via
-    //      ad account token
-    //
-    // By running this first, every ad gets a usable "link to the ad" before we attempt
-    // video downloads. Video download is kept below but deprioritized -- it's a nice-to-have
-    // for accounts where Meta allows it.
+    // ── Phase 3: Preview URLs ──────────────────────────────────────
     if (logId) await updateLog(supabase, logId, { current_phase: 3 });
     let previewsFetched = 0;
     if (!budgetExceeded && previews.length > 0) {
       console.log(`[${targetAccount.name}] Phase 3: Fetching preview_url for ${previews.length} ads...`);
       for (let i = 0; i < previews.length; i++) {
-        if (isOverBudget()) { budgetExceeded = true; break; }
+        if (isOverBudget(invocationStart)) { budgetExceeded = true; break; }
         const c = previews[i];
-        const previewUrl = await getFreshPreviewUrl(c.ad_id);
+        const previewUrl = await discoverPreviewUrl(c.ad_id, META_ACCESS_TOKEN, FETCH_TIMEOUT_MS);
         if (previewUrl) {
           await supabase.from("creatives").update({ preview_url: previewUrl }).eq("ad_id", c.ad_id);
           previewsFetched++;
         }
-        // Log progress every 25 ads
         if (i > 0 && i % 25 === 0 && logId) {
-          await updateLog(supabase, logId, { previews_fetched: previewsFetched });
+          await updateLog(supabase, logId, {});
         }
       }
       console.log(`  Preview URLs fetched: ${previewsFetched}/${previews.length}`);
     }
 
-    // ── Phase 4: Process videos (deprioritized -- only if budget remains after preview_url) ──
-    // Video download is best-effort. Accounts where Meta blocks downloads (Sewing Parts Online)
-    // or where rate limits are hit will fall back to preview_url for the "watch the ad" UX.
+    // ── Phase 4: Videos ──────────────────────────────────────
     if (logId) await updateLog(supabase, logId, { current_phase: 4 });
 
     let videosFetched = 0, videosMarkedNA = 0;
     if (!budgetExceeded) {
       for (let i = 0; i < noVideos.length; i += DISCOVERY_BATCH_SIZE) {
-        if (isOverBudget()) { budgetExceeded = true; break; }
+        if (isOverBudget(invocationStart)) { budgetExceeded = true; break; }
         const batch = noVideos.slice(i, i + DISCOVERY_BATCH_SIZE);
         for (const c of batch) {
-          if (isOverBudget()) continue;
-          const freshUrl = await getFreshVideoUrl(c.ad_id);
+          if (isOverBudget(invocationStart)) continue;
+          const freshUrl = await discoverVideoUrl(c.ad_id, META_ACCESS_TOKEN, FETCH_TIMEOUT_MS);
           if (!freshUrl) {
-            // Mark as no-video sentinel so we don't retry on every run.
-            // If preview_url was already fetched above, the UI can still show "View on Facebook".
             await supabase.from("creatives").update({ video_url: NO_VIDEO_SENTINEL }).eq("ad_id", c.ad_id);
             videosMarkedNA++;
           } else {
@@ -821,7 +469,7 @@ serve(async (req) => {
           await updateLog(supabase, logId, { videos_cached: videosFetched, videos_failed: videosMarkedNA });
         }
 
-        if (isOverBudget()) {
+        if (isOverBudget(invocationStart)) {
           console.log(`Time budget reached during video discovery. Processed ${videosFetched + videosMarkedNA}/${noVideos.length}`);
           budgetExceeded = true;
           break;
@@ -829,17 +477,17 @@ serve(async (req) => {
       }
     }
 
+    // FIX: uncachedVideos already have valid URLs — download directly, don't re-discover via Meta API
     let videoCached = 0, videoFailed = 0;
     if (!budgetExceeded) {
       for (let i = 0; i < videos.length; i += VIDEO_BATCH_SIZE) {
-        if (isOverBudget()) { budgetExceeded = true; break; }
+        if (isOverBudget(invocationStart)) { budgetExceeded = true; break; }
         const batch = videos.slice(i, i + VIDEO_BATCH_SIZE);
         const results = await Promise.allSettled(
           batch.map(async (c: any) => {
-            if (isOverBudget()) return false;
-            const freshUrl = await getFreshVideoUrl(c.ad_id);
-            if (!freshUrl) { return false; }
-            const storageUrl = await downloadAndCache(supabase, VIDEO_BUCKET, c.account_id, c.ad_id, freshUrl, "video");
+            if (isOverBudget(invocationStart)) return false;
+            // Use existing video_url directly — no need to re-discover
+            const storageUrl = await downloadAndCache(supabase, VIDEO_BUCKET, c.account_id, c.ad_id, c.video_url, "video");
             if (storageUrl) {
               await supabase.from("creatives").update({ video_url: storageUrl }).eq("ad_id", c.ad_id);
               return true;
@@ -857,7 +505,7 @@ serve(async (req) => {
           });
         }
 
-        if (isOverBudget()) {
+        if (isOverBudget(invocationStart)) {
           console.log(`Time budget reached during video caching. Processed ${videoCached + videoFailed}/${videos.length}`);
           budgetExceeded = true;
           break;
@@ -868,14 +516,13 @@ serve(async (req) => {
 
     const totalVideosCached = videosFetched + videoCached;
     const totalVideosFailed = videosMarkedNA + videoFailed;
-
     const durationMs = Date.now() - invocationStart;
 
-    // Finalize log
+    // Finalize log — FIX: current_phase: 4 (was 3)
     if (logId) {
       await updateLog(supabase, logId, {
         status: "completed",
-        current_phase: 3,
+        current_phase: 4,
         thumbs_cached: thumbCached,
         thumbs_failed: thumbFailed,
         videos_cached: totalVideosCached,
@@ -885,22 +532,18 @@ serve(async (req) => {
       });
     }
 
-    // ── CHANGE 1: Update last_media_sync for this account (if column exists) ─
-    // Always update even if budget was exceeded — we did process this account
-    // Silently ignore if column doesn't exist yet (migration pending)
+    // Update last_media_sync
     try {
       await supabase
         .from("ad_accounts")
         .update({ last_media_sync: new Date().toISOString() })
         .eq("id", resolvedAccountId);
     } catch (e) {
-      console.log(`Note: could not update last_media_sync (column may not exist yet): ${e}`);
+      console.log(`Note: could not update last_media_sync: ${e}`);
     }
 
-    // Remaining work summary
     const thumbsRemaining = allThumbWork.length - (thumbCached + thumbFailed);
     const videosRemaining = (noVideos.length + videos.length) - (totalVideosCached + totalVideosFailed);
-    const previewsRemaining = previews.length - previewsFetched;
 
     console.log(
       `[${targetAccount.name}] Done — ` +
@@ -934,7 +577,6 @@ serve(async (req) => {
       },
       previews: { fetched: previewsFetched, total: previews.length },
       budgetExceeded,
-      // Rotation info for observability
       next_account: nextAccount
         ? { id: nextAccount.id, name: nextAccount.name, last_media_sync: nextAccount.last_media_sync }
         : null,
@@ -944,7 +586,6 @@ serve(async (req) => {
     });
   } catch (e) {
     console.error("Refresh media error:", e);
-    // Try to mark any running log as failed
     try {
       const { data: runningLogs } = await supabase
         .from("media_refresh_logs")
