@@ -31,7 +31,7 @@ import {
 } from "lucide-react";
 import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
 import { DIAGNOSTIC_META } from "@/lib/iterationDiagnostics";
-import { AttributionBadge } from "@/components/overview/AttributionBadge";
+
 import { cn } from "@/lib/utils";
 
 function fmt$(n: number) {
