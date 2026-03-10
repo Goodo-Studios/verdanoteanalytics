@@ -375,6 +375,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             upsertBatch.push({
               ad_id: ad.id,
               account_id: accountId,
+              platform: "meta",
               unique_code: ad.name.split("_")[0],
               ...metadata,
             });

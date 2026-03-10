@@ -50,13 +50,15 @@ export function SyncStatusBanner() {
   };
   const phaseLabel = isQueued ? "Queued" : (phaseLabels[currentPhase] || "Starting");
 
-  // Phase-based progress: 5 phases, each 20%
+  // Phase-based progress: each phase is 20%, with sub-progress within phases 2-4
   const TOTAL_PHASES = 5;
-  const hasMetrics = fetched > 0 || upserted > 0;
-  const phaseProgress = Math.max(5, ((currentPhase - 1) / TOTAL_PHASES) * 100);
-  const progressPercent = hasMetrics
-    ? Math.min(95, phaseProgress + (upserted / Math.max(fetched, 1)) * (100 / TOTAL_PHASES))
-    : Math.min(90, phaseProgress);
+  // Base progress from completed phases (phase 1 = 0%, phase 2 = 20%, etc.)
+  const baseProgress = Math.max(5, ((Math.max(1, currentPhase) - 1) / TOTAL_PHASES) * 100);
+  // Sub-progress within current phase: only use fetched/upserted ratio during phases 2-4
+  const subProgress = (currentPhase >= 2 && currentPhase <= 4 && fetched > 0)
+    ? (upserted / Math.max(fetched, 1)) * (100 / TOTAL_PHASES)
+    : 0;
+  const progressPercent = isQueued ? 2 : Math.min(95, baseProgress + subProgress);
 
   return (
     <div className="bg-primary/5 border border-primary/20 rounded-lg mb-4 overflow-hidden">

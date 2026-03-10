@@ -5,7 +5,7 @@ const MAX_RECENTS = 5;
 
 export function getRecents(): RecentItem[] {
   try { return JSON.parse(localStorage.getItem(RECENTS_KEY) || "[]"); }
-  catch { return []; }
+  catch (e) { console.warn("Failed to parse command bar recents:", e); return []; }
 }
 
 export function addRecent(item: Omit<RecentItem, "timestamp">) {
