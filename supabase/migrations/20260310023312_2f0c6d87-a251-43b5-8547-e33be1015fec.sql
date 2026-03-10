@@ -1,0 +1,1 @@
+ALTER TABLE public.ad_accounts ADD COLUMN IF NOT EXISTS last_data_sync timestamp with time zone DEFAULT NULL;

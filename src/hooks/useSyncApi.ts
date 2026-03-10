@@ -27,7 +27,14 @@ export function useSyncHistory(accountId?: string) {
     queryFn: () => apiFetch("sync", `history${accountId ? `?account_id=${accountId}` : ""}`),
     refetchInterval: (query) => {
       const logs = query.state.data as any[] | undefined;
-      return logs?.some((l: any) => l.status === "running" || l.status === "queued") ? 2000 : false;
+      const hasActive = logs?.some((l: any) => l.status === "running" || l.status === "queued");
+      if (!hasActive) return false;
+      // Cap polling: stop after 30 minutes to prevent indefinite polling on stuck syncs
+      const oldestActive = logs?.filter((l: any) => l.status === "running" || l.status === "queued")
+        .map((l: any) => new Date(l.started_at).getTime())
+        .sort((a: number, b: number) => a - b)[0];
+      if (oldestActive && Date.now() - oldestActive > 30 * 60 * 1000) return false;
+      return 2000;
     },
   });
 }
