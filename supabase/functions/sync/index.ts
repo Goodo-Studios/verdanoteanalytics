@@ -914,10 +914,10 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     // ═══════════════════════════════════════════════════════════════════
     // PHASE 5: Finalize
     // ═══════════════════════════════════════════════════════════════════
-    if (phase === 5 || phase === 6) {
+    if (phase === 5) {
       console.log("Phase 5: Finalizing...");
 
-      // ── Auto-tag untagged creatives from ad names ──
+      // ── Auto-tag untagged creatives from ad names (BATCHED) ──
       try {
         const FORMAT_PATTERNS: [RegExp, string][] = [
           [/\bugc\b/i, "UGC"], [/\bgfx\b|graphic/i, "Graphic"],
@@ -942,7 +942,8 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           .eq("account_id", accountId)
           .eq("tag_source", "untagged");
 
-        let autoTagged = 0;
+        // Batch: collect all updates, then upsert in chunks instead of one-by-one
+        const tagUpdates: { ad_id: string; ad_type?: string; hook?: string; theme?: string; tag_source: string }[] = [];
         for (const c of (untagged || [])) {
           const tags: Record<string, string | null> = { ad_type: null, hook: null, theme: null };
           for (const [re, val] of FORMAT_PATTERNS) { if (re.test(c.ad_name)) { tags.ad_type = val; break; } }
@@ -950,15 +951,24 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           if (!tags.hook && /\bugc\b/i.test(c.ad_name)) tags.hook = "Social Proof";
           for (const [re, val] of ANGLE_PATTERNS) { if (re.test(c.ad_name)) { tags.theme = val; break; } }
           if (tags.ad_type || tags.hook || tags.theme) {
-            const update: Record<string, any> = { tag_source: "inferred" };
-            if (tags.ad_type) update.ad_type = tags.ad_type;
-            if (tags.hook) update.hook = tags.hook;
-            if (tags.theme) update.theme = tags.theme;
-            await supabase.from("creatives").update(update).eq("ad_id", c.ad_id);
-            autoTagged++;
+            const row: any = { ad_id: c.ad_id, tag_source: "inferred" };
+            if (tags.ad_type) row.ad_type = tags.ad_type;
+            if (tags.hook) row.hook = tags.hook;
+            if (tags.theme) row.theme = tags.theme;
+            tagUpdates.push(row);
           }
         }
-        if (autoTagged > 0) console.log(`  Auto-tagged ${autoTagged} creatives from ad names`);
+        // Batch update in chunks of 200
+        for (let i = 0; i < tagUpdates.length; i += 200) {
+          const chunk = tagUpdates.slice(i, i + 200);
+          // Use individual updates grouped — Supabase doesn't support partial upsert on non-PK columns
+          // But we can use Promise.all for parallelism within chunk
+          await Promise.all(chunk.map(row => {
+            const { ad_id, ...fields } = row;
+            return supabase.from("creatives").update(fields).eq("ad_id", ad_id);
+          }));
+        }
+        if (tagUpdates.length > 0) console.log(`  Auto-tagged ${tagUpdates.length} creatives from ad names`);
       } catch (autoErr) {
         console.error("Auto-tag error (non-fatal):", autoErr);
       }
