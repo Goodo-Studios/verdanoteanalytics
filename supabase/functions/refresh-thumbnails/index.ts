@@ -753,8 +753,45 @@ serve(async (req) => {
       }
     }
 
-    // Phase 3: Process videos (only if we have budget remaining)
+    // ── Phase 3: Backfill preview_url (PRIORITIZED -- runs before video phases) ──────────────
+    // KEY CHANGE (2026-03-09): preview_url fetch moved before video phases.
+    //
+    // Background: Matthew's decision -- "I would rather just have a link to the ad than the
+    // ad playing in the creative modal if that meant everything will sync correctly."
+    //
+    // preview_url stores either:
+    //   1. The Meta ad preview iframe URL (DESKTOP_FEED_STANDARD format) -- for most ad types
+    //   2. The Facebook post link (https://www.facebook.com/{page_id}/posts/{post_id}) -- fallback
+    //      for creator/whitelisted ads (e.g. Sewing Parts Online) where video is inaccessible via
+    //      ad account token
+    //
+    // By running this first, every ad gets a usable "link to the ad" before we attempt
+    // video downloads. Video download is kept below but deprioritized -- it's a nice-to-have
+    // for accounts where Meta allows it.
     if (logId) await updateLog(supabase, logId, { current_phase: 3 });
+    let previewsFetched = 0;
+    if (!budgetExceeded && previews.length > 0) {
+      console.log(`[${targetAccount.name}] Phase 3: Fetching preview_url for ${previews.length} ads...`);
+      for (let i = 0; i < previews.length; i++) {
+        if (isOverBudget()) { budgetExceeded = true; break; }
+        const c = previews[i];
+        const previewUrl = await getFreshPreviewUrl(c.ad_id);
+        if (previewUrl) {
+          await supabase.from("creatives").update({ preview_url: previewUrl }).eq("ad_id", c.ad_id);
+          previewsFetched++;
+        }
+        // Log progress every 25 ads
+        if (i > 0 && i % 25 === 0 && logId) {
+          await updateLog(supabase, logId, { previews_fetched: previewsFetched });
+        }
+      }
+      console.log(`  Preview URLs fetched: ${previewsFetched}/${previews.length}`);
+    }
+
+    // ── Phase 4: Process videos (deprioritized -- only if budget remains after preview_url) ──
+    // Video download is best-effort. Accounts where Meta blocks downloads (Sewing Parts Online)
+    // or where rate limits are hit will fall back to preview_url for the "watch the ad" UX.
+    if (logId) await updateLog(supabase, logId, { current_phase: 4 });
 
     let videosFetched = 0, videosMarkedNA = 0;
     if (!budgetExceeded) {
@@ -765,6 +802,8 @@ serve(async (req) => {
           if (isOverBudget()) continue;
           const freshUrl = await getFreshVideoUrl(c.ad_id);
           if (!freshUrl) {
+            // Mark as no-video sentinel so we don't retry on every run.
+            // If preview_url was already fetched above, the UI can still show "View on Facebook".
             await supabase.from("creatives").update({ video_url: NO_VIDEO_SENTINEL }).eq("ad_id", c.ad_id);
             videosMarkedNA++;
           } else {
@@ -829,22 +868,6 @@ serve(async (req) => {
 
     const totalVideosCached = videosFetched + videoCached;
     const totalVideosFailed = videosMarkedNA + videoFailed;
-
-    // Phase 4: Backfill preview_url for iframe embeds (only if budget remains)
-    let previewsFetched = 0;
-    if (!budgetExceeded && previews.length > 0) {
-      console.log(`Phase 4: Fetching preview_url for ${previews.length} ads...`);
-      for (let i = 0; i < previews.length; i++) {
-        if (isOverBudget()) { budgetExceeded = true; break; }
-        const c = previews[i];
-        const previewUrl = await getFreshPreviewUrl(c.ad_id);
-        if (previewUrl) {
-          await supabase.from("creatives").update({ preview_url: previewUrl }).eq("ad_id", c.ad_id);
-          previewsFetched++;
-        }
-      }
-      console.log(`  Preview URLs fetched: ${previewsFetched}/${previews.length}`);
-    }
 
     const durationMs = Date.now() - invocationStart;
 

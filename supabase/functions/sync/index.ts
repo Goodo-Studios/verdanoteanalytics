@@ -39,8 +39,14 @@ async function metaFetch(
           const waitSec = Math.min(300, 30 * Math.pow(2, rateLimitRetries - 1));
           console.log(`Rate limited, waiting ${waitSec}s (retry ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES})...`);
           ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Rate limited, backing off ${waitSec}s` });
-          await new Promise(r => setTimeout(r, waitSec * 1000));
-          if (ctx.isTimedOut()) return { data: null, next: null, error: false, rateLimited: true };
+          // Interruptible wait: check timeout every second instead of sleeping the full duration.
+          // This prevents rate-limit backoffs from overrunning the phase budget and causing
+          // Supabase's hard wall-clock limit to kill the function before state can be saved.
+          const waitUntil = Date.now() + waitSec * 1000;
+          while (Date.now() < waitUntil) {
+            await new Promise(r => setTimeout(r, 1000));
+            if (ctx.isTimedOut()) return { data: null, next: null, error: false, rateLimited: true };
+          }
           continue;
         }
         if (json.error.message?.includes("reduce the amount of data")) {
@@ -140,7 +146,11 @@ function parseInsightsRow(row: any) {
 }
 
 // ─── Phase Budget ────────────────────────────────────────────────────────────
-const PHASE_BUDGET_MS = 2 * 60 * 1000;
+// Phase budget: 4 minutes (240s). Requires Supabase function timeout >= 300s (Pro plan).
+// Previously 2 minutes (120s) -- increased to give large accounts (NDC, Bearaby) enough time.
+// Leaves ~60s margin against a 300s Supabase function timeout.
+// If you're on the Free plan (150s hard limit), revert to 2 * 60 * 1000.
+const PHASE_BUDGET_MS = 4 * 60 * 1000;
 const HEARTBEAT_INTERVAL_MS = 20 * 1000;
 
 // ─── Promote Next Queued Sync ────────────────────────────────────────────────
