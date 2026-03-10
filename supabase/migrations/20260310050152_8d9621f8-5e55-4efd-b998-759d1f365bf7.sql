@@ -1,0 +1,1 @@
+UPDATE sync_logs SET status = 'failed', completed_at = now(), api_errors = '[{"timestamp":"2026-03-10T05:15:00Z","message":"Manually cancelled — stuck sync"}]' WHERE status IN ('running', 'queued')
