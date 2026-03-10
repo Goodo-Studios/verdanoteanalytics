@@ -485,11 +485,6 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
             <CreativeTagEditor creative={creative} />
           </TabsContent>
 
-          {canEdit && (
-            <TabsContent value="ai-analysis" className="mt-4">
-              <CreativeAIAnalysis creative={creative} />
-            </TabsContent>
-          )}
 
           <TabsContent value="comments" className="mt-4">
             <CreativeComments adId={creative.ad_id} accountId={creative.account_id} />
