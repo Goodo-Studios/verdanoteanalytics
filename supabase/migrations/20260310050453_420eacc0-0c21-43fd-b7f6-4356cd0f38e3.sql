@@ -1,0 +1,1 @@
+UPDATE sync_logs SET status = 'cancelled', completed_at = now(), api_errors = '[{"timestamp":"2026-03-10T05:30:00Z","message":"Cancelled to run Small Wonder sync"}]' WHERE status IN ('running', 'queued')
