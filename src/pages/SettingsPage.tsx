@@ -10,8 +10,6 @@ import { SyncScheduleSection } from "@/components/settings/SyncScheduleSection";
 import { SyncHistorySection } from "@/components/settings/SyncHistorySection";
 import { RenameAccountModal } from "@/components/settings/RenameAccountModal";
 import { CsvUploadModal } from "@/components/settings/CsvUploadModal";
-import { AIBriefModal } from "@/components/settings/AIBriefModal";
-import { WeeklyRetroModal } from "@/components/settings/WeeklyRetroModal";
 import { DataHealthSection } from "@/components/settings/DataHealthSection";
 import { SpendDiagnosticSection } from "@/components/settings/SpendDiagnosticSection";
 import { DataExportSection } from "@/components/settings/DataExportSection";
@@ -37,9 +35,6 @@ const SettingsPage = () => {
   const s = useSettingsPageState();
   const isSyncing = useIsSyncing();
   const { isBuilder, isEmployee } = useAuth();
-  const canBrief = isBuilder || isEmployee;
-  const [showBriefModal, setShowBriefModal] = useState(false);
-  const [showRetroModal, setShowRetroModal] = useState(false);
   const [activeTab, setActiveTab] = useState<SettingsTab>("account");
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
 
@@ -149,10 +144,6 @@ const SettingsPage = () => {
             onToggle={(checked) => s.toggleAccount.mutate({ id: s.account!.id, is_active: checked })}
             onRefreshMedia={() => s.refreshMedia.mutate({ account_id: s.account!.id })}
             refreshMediaPending={s.refreshMedia.isPending}
-            onAIBrief={() => setShowBriefModal(true)}
-            showAIBrief={canBrief}
-            onWeeklyRetro={() => setShowRetroModal(true)}
-            showWeeklyRetro={canBrief}
           />
           <SyncSettingsSection
             dateRange={s.dateRange} setDateRange={s.setDateRange}
@@ -208,8 +199,6 @@ const SettingsPage = () => {
         onConfirm={s.handleConfirmCsvUpload}
         isPending={s.uploadMappings.isPending}
       />
-      <AIBriefModal open={showBriefModal} onClose={() => setShowBriefModal(false)} account={s.account} />
-      <WeeklyRetroModal open={showRetroModal} onClose={() => setShowRetroModal(false)} account={s.account} />
       <OnboardingChecklistModal
         open={showOnboardingModal}
         onClose={() => setShowOnboardingModal(false)}
