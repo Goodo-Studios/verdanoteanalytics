@@ -15,7 +15,7 @@ import { CreativeIterationAnalysis } from "@/components/creative-detail/Creative
 import { TrendSection } from "@/components/creative-detail/TrendSection";
 import { PredictionSection } from "@/components/creative-detail/PredictionSection";
 
-import { CreativeAIAnalysis } from "@/components/creative-detail/CreativeAIAnalysis";
+
 import { CreativeComments } from "@/components/creative-detail/CreativeComments";
 import { CreativeVersions } from "@/components/creative-detail/CreativeVersions";
 import { GradeBadge } from "@/components/creatives/GradeBadge";
