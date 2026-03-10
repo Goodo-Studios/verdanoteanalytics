@@ -1,0 +1,1 @@
+UPDATE sync_logs SET status = 'cancelled', completed_at = now() WHERE status IN ('running', 'queued') AND account_id != 'act_740559457651983'
