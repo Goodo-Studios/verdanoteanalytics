@@ -50,7 +50,7 @@ function formatTimestamp(ts: string | null) {
   });
 }
 
-export function SyncScheduleSection({ accounts, onSyncAll, isSyncing }: SyncScheduleSectionProps) {
+export function SyncScheduleSection({ accounts, onSyncAll, onSyncAccount, isSyncing }: SyncScheduleSectionProps) {
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState<string | null>(null);
 
