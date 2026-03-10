@@ -152,8 +152,6 @@ const SettingsPage = () => {
         <NamingConventionSection />
       ) : activeTab === "api" ? (
         <div className="max-w-2xl"><ApiKeysSection /></div>
-      ) : activeTab === "transition" ? (
-        <TransitionTab account={s.account} />
       ) : (
         <div className="max-w-3xl"><DataExportSection /></div>
       )}
