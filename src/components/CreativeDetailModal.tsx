@@ -59,10 +59,10 @@ function MediaPreview({ creative }: { creative: any }) {
   const hasThumbnail = !!creative.thumbnail_url;
   const isVideoAd = (creative.video_views || 0) > 0;
 
-  // Always open Meta preview in a new tab — never play inline
+  // Always open the public Ad Library page — preview_url points to
+  // business.facebook.com which is blocked (ERR_BLOCKED_BY_RESPONSE)
   const handlePlayClick = () => {
-    const url = creative.preview_url || facebookAdUrl;
-    if (url) window.open(url, "_blank", "noopener,noreferrer");
+    if (facebookAdUrl) window.open(facebookAdUrl, "_blank", "noopener,noreferrer");
   };
 
   return (
