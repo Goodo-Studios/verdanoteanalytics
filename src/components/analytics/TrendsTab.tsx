@@ -86,7 +86,7 @@ function SummaryCard({ label, value, change, invertColor }: { label: string; val
 }
 
 export const TrendsTab = forwardRef<HTMLDivElement, TrendsTabProps>(function TrendsTab({ trendData, isLoading }, ref) {
-  const [granularity, setGranularity] = useState<Granularity>("daily");
+  const granularity: Granularity = "daily";
   const [selectedMetrics, setSelectedMetrics] = useState<Set<string>>(new Set(["spend", "cpa"]));
 
   const chartData = useMemo(() => {
