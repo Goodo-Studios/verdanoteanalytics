@@ -44,16 +44,19 @@ export function MediaRefreshBanner() {
   const phaseLabels: Record<number, string> = {
     1: "Discovering media",
     2: "Caching thumbnails",
-    3: "Caching videos",
+    3: "Fetching preview URLs",
+    4: "Caching videos",
   };
   const phaseLabel = phaseLabels[currentPhase] || "Starting";
 
-  // Progress: phase 1 = 5%, phase 2 = 5-60% based on thumbs, phase 3 = 60-95% based on videos
+  // Progress: phase 1 = 5%, phase 2 = 5-45% (thumbs), phase 3 = 45-60% (previews), phase 4 = 60-95% (videos)
   let progressPercent = 5;
   if (currentPhase === 2) {
     const thumbProgress = thumbsTotal > 0 ? (thumbsCached / thumbsTotal) : 0;
-    progressPercent = 5 + thumbProgress * 55;
+    progressPercent = 5 + thumbProgress * 40;
   } else if (currentPhase === 3) {
+    progressPercent = 50;
+  } else if (currentPhase === 4) {
     const videoProgress = videosTotal > 0 ? (videosCached / videosTotal) : 0;
     progressPercent = 60 + videoProgress * 35;
   }
@@ -81,7 +84,7 @@ export function MediaRefreshBanner() {
               <Clock className="h-3 w-3" />
               {timeStr}
             </span>
-            <span className="font-data text-[12px] font-medium text-slate">Phase {Math.min(currentPhase, 3)}/3</span>
+            <span className="font-data text-[12px] font-medium text-slate">Phase {Math.min(currentPhase, 4)}/4</span>
             {thumbsTotal > 0 && (
               <span className="font-data text-[12px] font-medium text-slate">{thumbsCached}/{thumbsTotal} thumbs</span>
             )}

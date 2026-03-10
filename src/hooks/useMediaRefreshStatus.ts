@@ -16,7 +16,14 @@ export function useMediaRefreshLogs() {
     },
     refetchInterval: (query) => {
       const logs = query.state.data as any[] | undefined;
-      return logs?.some((l: any) => l.status === "running") ? 2000 : false;
+      const hasRunning = logs?.some((l: any) => l.status === "running");
+      if (!hasRunning) return false;
+      // Cap polling: stop after 30 minutes to prevent indefinite polling
+      const oldestRunning = logs?.filter((l: any) => l.status === "running")
+        .map((l: any) => new Date(l.started_at).getTime())
+        .sort((a: number, b: number) => a - b)[0];
+      if (oldestRunning && Date.now() - oldestRunning > 30 * 60 * 1000) return false;
+      return 2000;
     },
   });
 }
