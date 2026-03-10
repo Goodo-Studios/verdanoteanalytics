@@ -108,12 +108,10 @@ function RoleGuardedRoutes() {
           <Route path="/reports/:id/build" element={<ReportBuilderPage />} />
           <Route path="/settings" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <SettingsPage />} />
           <Route path="/user-settings" element={<UserSettingsPage />} />
-          <Route path="/saved-views" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <SavedViewsPage />} />
           
           <Route path="/briefs" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <BriefsPage />} />
           
           <Route path="/pipeline" element={<ContentPipelinePage />} />
-          <Route path="/ai-chat" element={<AIChatPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>

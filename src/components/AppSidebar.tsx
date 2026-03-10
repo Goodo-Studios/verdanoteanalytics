@@ -45,7 +45,6 @@ const clientNavItems = [
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
   { title: "Reports", url: "/reports", icon: FileText },
-  { title: "AI Analyst", url: "/ai-chat", icon: Sparkles },
 ];
 
 export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void; onTakeTour?: () => void }) {
