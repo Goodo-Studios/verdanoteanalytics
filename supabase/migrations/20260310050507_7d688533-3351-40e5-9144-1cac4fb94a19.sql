@@ -1,0 +1,2 @@
+INSERT INTO sync_logs (account_id, status, sync_type, current_phase, sync_state, date_range_start, date_range_end)
+VALUES ('act_740559457651983', 'running', 'manual', 1, '{"last_activity":"2026-03-10T05:30:00Z","sync_scope":"full"}'::jsonb, (CURRENT_DATE - INTERVAL '14 days')::date, CURRENT_DATE)
