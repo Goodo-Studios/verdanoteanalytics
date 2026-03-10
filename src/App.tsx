@@ -32,8 +32,6 @@ const ReportBuilderPage = lazy(() => import("./pages/ReportBuilderPage"));
 const PublicReportPage = lazy(() => import("./pages/PublicReportPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const UserSettingsPage = lazy(() => import("./pages/UserSettingsPage"));
-const SavedViewsPage = lazy(() => import("./pages/SavedViewsPage"));
-const AIChatPage = lazy(() => import("./pages/AIChatPage"));
 const BriefsPage = lazy(() => import("./pages/BriefsPage"));
 const PublicBriefPage = lazy(() => import("./pages/PublicBriefPage"));
 const AgencyDashboardPage = lazy(() => import("./pages/AgencyDashboardPage"));
