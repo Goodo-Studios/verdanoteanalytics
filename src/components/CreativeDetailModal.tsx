@@ -176,62 +176,43 @@ function VideoPlayer({
 }
 
 function MediaPreview({ creative }: { creative: any }) {
-  const [showVideo, setShowVideo] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
 
-  const hasVideo = !!creative.video_url && creative.video_url !== "no-video";
-  const isVideoAdWithoutSource =
-    creative.video_url === "no-video" && (creative.video_views || 0) > 0;
   const facebookAdUrl = creative.ad_id
     ? `https://www.facebook.com/ads/library/?id=${creative.ad_id}`
     : null;
+  const adLibraryUrl = creative.ad_id
+    ? `https://www.facebook.com/ads/library/?id=${encodeURIComponent(String(creative.ad_id))}`
+    : null;
 
-  // Use cached media hook for thumbnail -- caches to IndexedDB, survives Meta CDN URL expiry.
-  // Prefer full_res_url (high-res source stored during refresh-thumbnails).
   const { url: cachedThumbnailUrl, isLoading: thumbnailLoading, error: thumbnailError } =
     useCachedMedia(creative.full_res_url || creative.thumbnail_url, {
       placeholderUrl: "/placeholder-creative.png",
     });
 
   const hasThumbnail = !!creative.thumbnail_url;
+  const isVideoAd = (creative.video_views || 0) > 0;
 
-  // Show the inline video player
-  if (hasVideo && showVideo) {
-    return (
-      <VideoPlayer
-        creative={creative}
-        posterUrl={cachedThumbnailUrl || undefined}
-        onBack={() => setShowVideo(false)}
-      />
-    );
-  }
-
-  // No valid video source — fall through to thumbnail display below
-  // (the thumbnail section handles showing a play overlay for preview_url)
-
-  const adLibraryUrl = creative.ad_id
-    ? `https://www.facebook.com/ads/library/?id=${encodeURIComponent(String(creative.ad_id))}`
-    : null;
+  // Always open Meta preview in a new tab — never play inline
+  const handlePlayClick = () => {
+    const url = creative.preview_url || facebookAdUrl;
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+  };
 
   return (
     <div className="bg-muted rounded-lg flex items-center justify-center overflow-hidden relative group">
       {hasThumbnail ? (
         <div className="relative w-full">
-          {/* Loading skeleton */}
           {(thumbnailLoading || !imgLoaded) && (
             <div className="w-full h-[300px] bg-cream-dark rounded animate-pulse flex items-center justify-center">
               <ImageIcon className="h-8 w-8 text-muted-foreground/40" />
             </div>
           )}
-
-          {/* Error state */}
           {thumbnailError && !thumbnailLoading && (
             <div className="absolute inset-0 flex items-center justify-center bg-muted/80 z-10">
               <span className="font-body text-xs text-muted-foreground">Thumbnail unavailable</span>
             </div>
           )}
-
-          {/* Thumbnail image */}
           <img
             src={cachedThumbnailUrl}
             alt={creative.ad_name}
@@ -239,25 +220,12 @@ function MediaPreview({ creative }: { creative: any }) {
               imgLoaded ? "opacity-100" : "opacity-0 absolute inset-0"
             }`}
             onLoad={() => setImgLoaded(true)}
-            onError={() => {
-              /* hook already handled fallback */
-            }}
           />
 
-          {/* Video play overlay — inline player for real video, or open preview_url */}
-          {hasVideo && imgLoaded && (
+          {/* Play overlay — opens Meta preview in new tab */}
+          {(creative.preview_url || facebookAdUrl) && imgLoaded && (
             <button
-              onClick={() => setShowVideo(true)}
-              className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity"
-            >
-              <div className="h-14 w-14 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
-                <Play className="h-6 w-6 text-foreground ml-0.5" />
-              </div>
-            </button>
-          )}
-          {!hasVideo && creative.preview_url && imgLoaded && (
-            <button
-              onClick={() => window.open(creative.preview_url, "_blank", "noopener,noreferrer")}
+              onClick={handlePlayClick}
               className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity"
             >
               <div className="h-14 w-14 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
@@ -286,14 +254,14 @@ function MediaPreview({ creative }: { creative: any }) {
         <div className="flex flex-col items-center gap-2 py-12">
           <ImageIcon className="h-8 w-8 text-sage" />
           <span className="font-body text-[13px] text-sage">No preview available</span>
-          {isVideoAdWithoutSource && facebookAdUrl && (
+          {isVideoAd && facebookAdUrl && (
             <a href={facebookAdUrl} target="_blank" rel="noopener noreferrer">
               <Button size="sm" className="gap-1.5 text-xs mt-1">
                 <Video className="h-4 w-4" />Watch on Facebook
               </Button>
             </a>
           )}
-          {!isVideoAdWithoutSource && creative.preview_url && (
+          {!isVideoAd && creative.preview_url && (
             <a href={creative.preview_url} target="_blank" rel="noopener noreferrer">
               <Button size="sm" variant="secondary" className="gap-1.5 text-xs mt-1">
                 <ExternalLink className="h-3 w-3" />View Ad Preview
