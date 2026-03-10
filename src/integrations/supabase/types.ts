@@ -85,6 +85,7 @@ export type Database = {
           kill_scale_kpi: string
           kill_scale_kpi_direction: string
           kill_threshold: number
+          last_data_sync: string | null
           last_media_sync: string | null
           last_scheduled_report_at: string | null
           last_synced_at: string | null
@@ -137,6 +138,7 @@ export type Database = {
           kill_scale_kpi?: string
           kill_scale_kpi_direction?: string
           kill_threshold?: number
+          last_data_sync?: string | null
           last_media_sync?: string | null
           last_scheduled_report_at?: string | null
           last_synced_at?: string | null
@@ -189,6 +191,7 @@ export type Database = {
           kill_scale_kpi?: string
           kill_scale_kpi_direction?: string
           kill_threshold?: number
+          last_data_sync?: string | null
           last_media_sync?: string | null
           last_scheduled_report_at?: string | null
           last_synced_at?: string | null
