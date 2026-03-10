@@ -16,7 +16,7 @@ export function ConceptCard({ concept, gradeMap }: ConceptCardProps) {
   const { name, iterations, totalSpend, totalPurchases, blendedRoas, best, worst } = concept;
 
   const sortedIterations = [...iterations].sort((a, b) => (Number(b.roas) || 0) - (Number(a.roas) || 0));
-  const thumbs = iterations.filter(c => c.thumbnail_url || c.video_url).slice(0, 4);
+  const thumbs = iterations.filter(c => c.thumbnail_url).slice(0, 4);
 
   const bestGrade = gradeMap ? iterations.reduce<GradeInfo | null>((best, c) => {
     const g = gradeMap.get(c.ad_id);

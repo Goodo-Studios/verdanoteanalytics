@@ -3,19 +3,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const CACHE_NAME = "verdanote-media-cache-v1";
 const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-
-/**
- * Build a video proxy URL that routes through our edge function.
- * This avoids CORS and handles expired Meta CDN URLs gracefully.
- */
-export function videoProxyUrl(rawUrl: string): string {
-  if (!rawUrl) return rawUrl;
-  // Already a storage URL -- no proxy needed, serves directly
-  if (rawUrl.includes("/storage/v1/object/public/")) return rawUrl;
-  // Proxy Meta CDN and any other external video URLs
-  return `${SUPABASE_URL}/functions/v1/video-proxy?url=${encodeURIComponent(rawUrl)}`;
-}
 
 /**
  * Returns true for URLs that are video files (won't cache well as blobs in IndexedDB).
