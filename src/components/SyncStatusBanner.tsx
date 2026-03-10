@@ -36,7 +36,7 @@ export function SyncStatusBanner({ accountId }: SyncStatusBannerProps = {}) {
     }
   }, [isSyncing, runningLog?.id]);
 
-  if (!isSyncing) return null;
+  if (!runningLog) return null;
 
   const mins = Math.floor(elapsed / 60);
   const secs = elapsed % 60;
