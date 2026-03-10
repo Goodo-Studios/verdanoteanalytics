@@ -38,7 +38,6 @@ const SettingsPage = () => {
       <TabButton active={activeTab === "account"} onClick={() => setActiveTab("account")}>Account</TabButton>
       {isBuilder && <TabButton active={activeTab === "naming"} onClick={() => setActiveTab("naming")}>Naming</TabButton>}
       <TabButton active={activeTab === "export"} onClick={() => setActiveTab("export")}>Export</TabButton>
-      <TabButton active={activeTab === "api"} onClick={() => setActiveTab("api")}>API Access</TabButton>
       
     </div>
   );
