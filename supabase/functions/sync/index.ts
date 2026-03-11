@@ -150,7 +150,9 @@ function parseInsightsRow(row: any) {
 // 110s budget -- leaves ~40s margin within Supabase's 150s hard wall to save cursor state.
 // Large accounts resume from cursor on next trigger; the sync manager re-triggers automatically.
 // Do NOT set above 110s unless Supabase function timeout is confirmed > 150s.
+// NOTE: Phase 1 (metadata fetch) uses PHASE_1_BUDGET_MS for large account safety
 const PHASE_BUDGET_MS = 110 * 1000;
+const PHASE_1_BUDGET_MS = 240 * 1000; // Extended budget for Phase 1 to handle large accounts
 const HEARTBEAT_INTERVAL_MS = 20 * 1000;
 
 // ─── Promote Next Queued Sync ────────────────────────────────────────────────
@@ -208,7 +210,10 @@ async function promoteNextQueued(supabase: any) {
 
 async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
   const startMs = Date.now();
-  const isTimedOut = () => (Date.now() - startMs) > PHASE_BUDGET_MS;
+  const phase = syncLog.current_phase || 1;
+  // Use extended budget for Phase 1 (metadata fetch) to handle large accounts
+  const phaseBudget = phase === 1 ? PHASE_1_BUDGET_MS : PHASE_BUDGET_MS;
+  const isTimedOut = () => (Date.now() - startMs) > phaseBudget;
   const ctx = { metaApiCalls: 0, apiErrors: [] as { timestamp: string; message: string }[], isTimedOut };
 
   // Lightweight heartbeat
