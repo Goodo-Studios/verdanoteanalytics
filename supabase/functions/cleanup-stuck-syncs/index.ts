@@ -13,12 +13,13 @@ serve(async (_req) => {
   const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString();
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   const activityThreshold = Date.now() - 2 * 60 * 1000; // 2 min no heartbeat = stuck
+  const phase1ExtendedThreshold = Date.now() - 5 * 60 * 1000; // Phase 1 gets 5 min
   const now = new Date().toISOString();
 
   // Only clean up "running" syncs — "queued" syncs are intentionally waiting
   const { data: candidates } = await supabase
     .from("sync_logs")
-    .select("id, sync_state, started_at")
+    .select("id, sync_state, started_at, current_phase")
     .eq("status", "running")
     .lt("started_at", threeMinAgo);
 
@@ -28,13 +29,16 @@ serve(async (_req) => {
     });
   }
 
-  // Mark as stuck if no heartbeat in 2 min, OR if running for over 1 hour regardless
+  // Mark as stuck if no heartbeat in appropriate time window, OR if running for over 1 hour regardless
   const trulyStuck = candidates.filter((s: any) => {
     const startedAt = new Date(s.started_at || 0).getTime();
     // If running for over 1 hour, always consider stuck
     if (startedAt < new Date(oneHourAgo).getTime()) return true;
+    
     const lastActivity = s.sync_state?.last_activity;
-    if (lastActivity && new Date(lastActivity).getTime() > activityThreshold) return false;
+    // Phase 1 gets extended time (5 min) for large account metadata fetching
+    const effectiveThreshold = s.current_phase === 1 ? phase1ExtendedThreshold : activityThreshold;
+    if (lastActivity && new Date(lastActivity).getTime() > effectiveThreshold) return false;
     return true;
   });
 
