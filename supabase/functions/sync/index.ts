@@ -1403,7 +1403,7 @@ serve(async (req) => {
         if (oldest?.length) {
           // Atomically promote only if still queued (prevents race condition)
           const { data: promoted, error: promoteErr } = await supabase.from("sync_logs")
-            .update({ status: "running", sync_state: { last_activity: new Date().toISOString() } })
+            .update({ status: "running", sync_state: { ...oldest[0].sync_state, last_activity: new Date().toISOString() } })
             .eq("id", oldest[0].id)
             .eq("status", "queued")  // only if still queued
             .select()
