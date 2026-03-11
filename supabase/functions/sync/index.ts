@@ -210,7 +210,10 @@ async function promoteNextQueued(supabase: any) {
 
 async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
   const startMs = Date.now();
-  const isTimedOut = () => (Date.now() - startMs) > PHASE_BUDGET_MS;
+  const phase = syncLog.current_phase || 1;
+  // Use extended budget for Phase 1 (metadata fetch) to handle large accounts
+  const phaseBudget = phase === 1 ? PHASE_1_BUDGET_MS : PHASE_BUDGET_MS;
+  const isTimedOut = () => (Date.now() - startMs) > phaseBudget;
   const ctx = { metaApiCalls: 0, apiErrors: [] as { timestamp: string; message: string }[], isTimedOut };
 
   // Lightweight heartbeat
