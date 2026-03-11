@@ -1,0 +1,1 @@
+UPDATE sync_logs SET status = 'cancelled', completed_at = now() WHERE id = 772 AND status = 'running';

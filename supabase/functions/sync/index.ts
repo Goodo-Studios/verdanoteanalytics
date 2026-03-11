@@ -185,14 +185,14 @@ async function promoteNextQueued(supabase: any) {
   }
 
   const { data: next } = await supabase.from("sync_logs")
-    .select("id")
+    .select("id, sync_state")
     .eq("status", "queued")
     .order("started_at", { ascending: true })
     .limit(1);
   if (next?.length) {
     await supabase.from("sync_logs").update({
       status: "running",
-      sync_state: { last_activity: new Date().toISOString() },
+      sync_state: { ...(next[0].sync_state || {}), last_activity: new Date().toISOString() },
     }).eq("id", next[0].id);
     console.log(`Promoted queued sync ${next[0].id} to running`);
   }
@@ -1403,7 +1403,7 @@ serve(async (req) => {
         if (oldest?.length) {
           // Atomically promote only if still queued (prevents race condition)
           const { data: promoted, error: promoteErr } = await supabase.from("sync_logs")
-            .update({ status: "running", sync_state: { last_activity: new Date().toISOString() } })
+            .update({ status: "running", sync_state: { ...oldest[0].sync_state, last_activity: new Date().toISOString() } })
             .eq("id", oldest[0].id)
             .eq("status", "queued")  // only if still queued
             .select()

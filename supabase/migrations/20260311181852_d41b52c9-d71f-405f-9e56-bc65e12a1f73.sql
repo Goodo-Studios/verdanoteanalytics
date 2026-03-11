@@ -1,0 +1,1 @@
+UPDATE ad_accounts SET last_data_sync = NULL WHERE id = 'act_138695479815833';
