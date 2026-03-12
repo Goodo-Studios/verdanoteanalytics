@@ -367,11 +367,22 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         const upsertBatch: any[] = [];
         const metadataBatch: { ad_id: string; data: any }[] = [];
         for (const ad of ads) {
+          // Build post URL from effective_object_story_id (format: {page_id}_{post_id})
+          let adPostUrl: string | null = null;
+          const storyId = ad.creative?.effective_object_story_id;
+          if (storyId && storyId.includes("_")) {
+            const [pageId, postId] = storyId.split("_", 2);
+            if (pageId && postId) {
+              adPostUrl = `https://www.facebook.com/${pageId}/posts/${postId}/`;
+            }
+          }
+
           const metadata = {
             ad_name: ad.name,
             ad_status: ad.status || "UNKNOWN",
             campaign_name: ad.campaign?.name || null,
             adset_name: ad.adset?.name || null,
+            ad_post_url: adPostUrl,
           };
           if (taggedAdIds.has(ad.id)) {
             metadataBatch.push({ ad_id: ad.id, data: metadata });
