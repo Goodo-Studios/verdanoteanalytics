@@ -845,6 +845,7 @@ export type Database = {
           account_id: string
           ad_id: string
           ad_name: string
+          ad_post_url: string | null
           ad_status: string | null
           ad_type: string | null
           adds_to_cart: number | null
@@ -899,6 +900,7 @@ export type Database = {
           account_id: string
           ad_id: string
           ad_name: string
+          ad_post_url?: string | null
           ad_status?: string | null
           ad_type?: string | null
           adds_to_cart?: number | null
@@ -953,6 +955,7 @@ export type Database = {
           account_id?: string
           ad_id?: string
           ad_name?: string
+          ad_post_url?: string | null
           ad_status?: string | null
           ad_type?: string | null
           adds_to_cart?: number | null
