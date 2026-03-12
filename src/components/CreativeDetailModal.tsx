@@ -44,6 +44,7 @@ interface CreativeDetailModalProps {
 function MediaPreview({ creative }: { creative: any }) {
   const [imgLoaded, setImgLoaded] = useState(false);
 
+  const adPreviewUrl = creative.ad_post_url || null;
   const adLibraryUrl = creative.ad_name
     ? `https://www.facebook.com/ads/library/?active_status=all&ad_type=all&q=${encodeURIComponent(String(creative.ad_name))}&country=ALL`
     : null;

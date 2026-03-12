@@ -514,7 +514,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       // ── Standard path: flat account-level sweep (small accounts) ─────
       let nextUrl: string | null = state.ads_cursor || (
         `https://graph.facebook.com/${META_API_VERSION}/${accountId}/ads?` +
-        `fields=id,name,status,campaign{name},adset{name}` +
+        `fields=id,name,status,campaign{name},adset{name},creative{effective_object_story_id}` +
         `&filtering=${deliveredFilter}` +
         `&limit=200&access_token=${encodeURIComponent(metaToken)}`
       );
