@@ -80,10 +80,10 @@ function MediaPreview({ creative }: { creative: any }) {
             onLoad={() => setImgLoaded(true)}
           />
 
-          {/* Play overlay for video ads — always opens Ad Library */}
-          {isVideoAd && adLibraryUrl && imgLoaded && (
+          {/* Play overlay for video ads — opens ad post preview or Ad Library */}
+          {isVideoAd && (adPreviewUrl || adLibraryUrl) && imgLoaded && (
             <a
-              href={adLibraryUrl}
+              href={adPreviewUrl || adLibraryUrl!}
               target="_blank"
               rel="noopener noreferrer"
               className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
@@ -92,22 +92,22 @@ function MediaPreview({ creative }: { creative: any }) {
                 <Play className="h-6 w-6 text-foreground ml-0.5" />
               </div>
               <span className="absolute bottom-3 left-1/2 -translate-x-1/2 text-[10px] font-medium text-white bg-black/60 rounded px-2 py-0.5 whitespace-nowrap">
-                Watch on Ad Library
+                {adPreviewUrl ? "View Ad Post" : "Search Ad Library"}
               </span>
             </a>
           )}
 
-          {/* Ad Library link badge */}
-          {adLibraryUrl && imgLoaded && (
+          {/* Ad preview / Ad Library link badge */}
+          {(adPreviewUrl || adLibraryUrl) && imgLoaded && (
             <a
-              href={adLibraryUrl}
+              href={adPreviewUrl || adLibraryUrl!}
               target="_blank"
               rel="noopener noreferrer"
               className="absolute bottom-2 right-2 z-10 inline-flex items-center gap-1.5 bg-white/90 hover:bg-white text-[11px] font-medium text-foreground/80 rounded-md px-2.5 py-1.5 shadow-sm transition-colors cursor-pointer"
-              title="View in Facebook Ad Library"
+              title={adPreviewUrl ? "View ad post on Facebook" : "Search in Ad Library"}
             >
               <ExternalLink className="h-3 w-3" />
-              Ad Library
+              {adPreviewUrl ? "View Post" : "Ad Library"}
             </a>
           )}
         </div>
@@ -115,10 +115,10 @@ function MediaPreview({ creative }: { creative: any }) {
         <div className="flex flex-col items-center gap-2 py-12">
           <ImageIcon className="h-8 w-8 text-muted-foreground" />
           <span className="font-body text-[13px] text-muted-foreground">No preview available</span>
-          {adLibraryUrl && (
-            <a href={adLibraryUrl} target="_blank" rel="noopener noreferrer">
+          {(adPreviewUrl || adLibraryUrl) && (
+            <a href={adPreviewUrl || adLibraryUrl!} target="_blank" rel="noopener noreferrer">
               <Button size="sm" variant="secondary" className="gap-1.5 text-xs mt-1">
-                <ExternalLink className="h-3 w-3" />View in Ad Library
+                <ExternalLink className="h-3 w-3" />{adPreviewUrl ? "View Post" : "Search Ad Library"}
               </Button>
             </a>
           )}
