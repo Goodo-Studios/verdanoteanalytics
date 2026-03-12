@@ -238,7 +238,6 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     return;
   }
 
-  const phase = syncLog.current_phase || 1;
   const state = syncLog.sync_state || {};
   const syncType = syncLog.sync_type || "manual";
   const syncScope = state.sync_scope || "full";
