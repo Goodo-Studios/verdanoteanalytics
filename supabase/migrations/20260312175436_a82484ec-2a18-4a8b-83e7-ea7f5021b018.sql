@@ -1,0 +1,1 @@
+ALTER TABLE public.creatives ADD COLUMN IF NOT EXISTS ad_post_url text DEFAULT NULL;
