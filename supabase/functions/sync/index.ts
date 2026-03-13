@@ -440,7 +440,48 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             campUrl = result.next;
             if (campUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
           }
-          console.log(`  Found ${campaigns.length} campaigns`);
+          console.log(`  Found ${campaigns.length} ACTIVE/PAUSED campaigns`);
+
+          // ── Spend-based pre-filter: only keep campaigns with spend in the date window ──
+          // This dramatically reduces API calls for accounts with many paused/inactive campaigns.
+          if (campaigns.length > 0 && !isTimedOut()) {
+            const filterEndDate = new Date().toISOString().split("T")[0];
+            const filterStartDate = incrementalSinceDate || (() => {
+              const d = new Date();
+              d.setDate(d.getDate() - dateRangeDays);
+              return d.toISOString().split("T")[0];
+            })();
+            const spendTimeRange = JSON.stringify({ since: filterStartDate, until: filterEndDate });
+            const campaignIds = campaigns.map(c => c.id);
+            const activeSet = new Set<string>();
+
+            // Fetch campaign-level insights (spend only) — one paginated call covers all campaigns
+            let spendUrl: string | null =
+              `https://graph.facebook.com/${META_API_VERSION}/${accountId}/insights?` +
+              `time_range=${encodeURIComponent(spendTimeRange)}&level=campaign` +
+              `&fields=campaign_id,spend&limit=500&access_token=${encodeURIComponent(metaToken)}`;
+            while (spendUrl && !isTimedOut()) {
+              const result = await metaFetch(spendUrl, ctx);
+              if (result.error) {
+                console.warn("Spend pre-filter failed — proceeding with all campaigns");
+                activeSet.clear();
+                break;
+              }
+              for (const row of result.data || []) {
+                if (parseFloat(row.spend || "0") > 0) {
+                  activeSet.add(row.campaign_id);
+                }
+              }
+              spendUrl = result.next;
+              if (spendUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
+            }
+
+            if (activeSet.size > 0) {
+              const before = campaigns.length;
+              campaigns = campaigns.filter(c => activeSet.has(c.id));
+              console.log(`  Spend filter: ${campaigns.length}/${before} campaigns had spend since ${filterStartDate}`);
+            }
+          }
         }
 
         // Step 2: iterate campaigns, resuming from saved index
