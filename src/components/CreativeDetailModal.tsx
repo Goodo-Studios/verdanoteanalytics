@@ -114,8 +114,9 @@ function MediaPreview({ creative }: { creative: any }) {
           <span className="font-body text-[13px] text-muted-foreground">No preview available</span>
           {adPreviewUrl && (
             <a href={adPreviewUrl} target="_blank" rel="noopener noreferrer">
-              <Button size="sm" variant="secondary" className="gap-1.5 text-xs mt-1">
-                <ExternalLink className="h-3 w-3" />View Post
+              <Button size="sm" variant="default" className="gap-1.5 text-xs mt-2">
+                {isVideoAd ? <Play className="h-3.5 w-3.5" /> : <ExternalLink className="h-3.5 w-3.5" />}
+                {isVideoAd ? "Watch on Facebook" : "View Post"}
               </Button>
             </a>
           )}
