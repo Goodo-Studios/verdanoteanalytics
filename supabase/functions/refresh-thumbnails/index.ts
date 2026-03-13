@@ -86,7 +86,8 @@ async function updateLog(supabase: any, logId: number, updates: Record<string, a
  */
 async function pickAccount(
   supabase: any,
-  requestedAccountId: string | null
+  requestedAccountId: string | null,
+  force = false
 ): Promise<{ account: any | null; skippedAll: boolean; nextAccount: any | null }> {
   if (requestedAccountId && requestedAccountId !== "all") {
     const { data: account, error } = await supabase
