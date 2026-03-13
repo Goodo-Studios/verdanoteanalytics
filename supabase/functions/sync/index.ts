@@ -64,7 +64,7 @@ async function metaFetch(
             const retryResp = await fetch(reducedUrl);
             const retryJson = await retryResp.json();
             if (!retryJson.error) {
-              return { data: retryJson.data || [], next: retryJson.paging?.next || null, error: false, rateLimited: false };
+              return { data: retryJson.data || [], next: retryJson.paging?.next || null, error: false, rateLimited: false, retriableUrl: null };
             }
             if (!retryJson.error?.message?.includes("reduce the amount of data")) {
               // Different error — stop retrying
