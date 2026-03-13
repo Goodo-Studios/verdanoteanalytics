@@ -415,8 +415,8 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         { field: "impressions", operator: "GREATER_THAN", value: "0" }
       ]));
 
-      // ── Large account path: campaign-by-campaign ─────────────────────
-      if (isLargeAccount) {
+      // ── Campaign-by-campaign path (default for all accounts) ────────
+      if (useCampaignBypassPhase1) {
         // Step 1: fetch all campaigns (or resume from saved list)
         let campaigns: { id: string; name: string }[] = state.campaigns || [];
 
