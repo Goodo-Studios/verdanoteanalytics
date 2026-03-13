@@ -77,7 +77,7 @@ async function metaFetch(
         const fullErrMsg = `Meta API error — code: ${json.error.code ?? "?"}, subcode: ${json.error.error_subcode ?? "?"}, type: ${json.error.type ?? "?"}, msg: ${json.error.message ?? "?"}`;
         console.error(fullErrMsg, JSON.stringify(json.error));
         ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: fullErrMsg });
-        return { data: null, next: null, error: true, rateLimited: isRateLimitError };
+        return { data: null, next: null, error: true, rateLimited: isRateLimitError, retriableUrl: null };
       }
 
       return { data: json.data || [], next: json.paging?.next || null, error: false, rateLimited: false };
