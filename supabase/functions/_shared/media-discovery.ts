@@ -112,7 +112,7 @@ export async function discoverImageUrl(
       }
     }
 
-    // Strategy 3: effective_object_story_id → full_picture
+    // Strategy 3: effective_object_story_id → full_picture (high-res)
     if (creative.id) {
       const creativeRes = await fetchWithTimeout(
         `https://graph.facebook.com/${META_API_VERSION}/${creative.id}?fields=effective_object_story_id,image_url&access_token=${accessToken}`,
@@ -120,6 +120,13 @@ export async function discoverImageUrl(
       );
       if (creativeRes.ok) {
         const creativeData = await creativeRes.json();
+
+        // Try image_url from creative endpoint first — this is often full resolution
+        if (creativeData.image_url) {
+          console.log(`Creative image_url for ${adId}`);
+          return { thumbnailUrl: creativeData.image_url, fullResUrl: creativeData.image_url };
+        }
+
         if (creativeData.effective_object_story_id) {
           const postRes = await fetchWithTimeout(
             `https://graph.facebook.com/${META_API_VERSION}/${creativeData.effective_object_story_id}?fields=full_picture&access_token=${accessToken}`,
@@ -129,7 +136,7 @@ export async function discoverImageUrl(
             const postData = await postRes.json();
             if (postData.full_picture) {
               console.log(`Post full_picture for ${adId}`);
-              return { thumbnailUrl: postData.full_picture, fullResUrl: null };
+              return { thumbnailUrl: postData.full_picture, fullResUrl: postData.full_picture };
             }
           } else {
             await postRes.text();
@@ -140,19 +147,20 @@ export async function discoverImageUrl(
       }
     }
 
-    // Strategy 4: Direct fallback fields
+    // Strategy 4: Direct fallback fields — image_url is usually full-res
     if (creative.image_url) {
       console.log(`Using image_url for ${adId}`);
-      return { thumbnailUrl: creative.image_url, fullResUrl: null };
+      return { thumbnailUrl: creative.image_url, fullResUrl: creative.image_url };
     }
 
     if (spec) {
       const imageUrl = spec.link_data?.image_url || spec.photo_data?.url || spec.photo_data?.image_url;
-      if (imageUrl) return { thumbnailUrl: imageUrl, fullResUrl: null };
+      if (imageUrl) return { thumbnailUrl: imageUrl, fullResUrl: imageUrl };
     }
 
+    // Strategy 5: creative.thumbnail_url is last resort (often low-res ~130px)
     if (creative.thumbnail_url) {
-      console.log(`Using original thumbnail_url for ${adId}`);
+      console.log(`Using original thumbnail_url for ${adId} (may be low-res)`);
       return { thumbnailUrl: creative.thumbnail_url, fullResUrl: null };
     }
 
