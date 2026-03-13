@@ -71,7 +71,7 @@ async function metaFetch(
               break;
             }
           }
-          return { data: null, next: null, error: true, rateLimited: false };
+          return { data: null, next: null, error: true, rateLimited: false, retriableUrl: null };
         }
         // Log full error details for debugging (especially useful for NDC "unknown error")
         const fullErrMsg = `Meta API error — code: ${json.error.code ?? "?"}, subcode: ${json.error.error_subcode ?? "?"}, type: ${json.error.type ?? "?"}, msg: ${json.error.message ?? "?"}`;
