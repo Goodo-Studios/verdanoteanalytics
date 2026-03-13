@@ -88,9 +88,11 @@ export async function discoverImageUrl(
         if (thumbs && thumbs.length > 0) {
           const sorted = thumbs.sort((a: any, b: any) => (b.width || 0) - (a.width || 0));
           const best = sorted[0];
-          if (best?.uri && (best.width || 0) >= 200) {
+          if (best?.uri && (best.width || 0) >= 480) {
             console.log(`Video thumbnail for ${adId}: ${best.width}x${best.height}`);
             return { thumbnailUrl: best.uri, fullResUrl: null };
+          } else {
+            console.log(`Video thumbnail too small for ${adId}: ${best?.width}x${best?.height} — skipping`);
           }
         }
       } else {
