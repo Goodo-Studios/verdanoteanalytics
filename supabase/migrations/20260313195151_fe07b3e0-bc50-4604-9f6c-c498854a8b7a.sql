@@ -1,0 +1,1 @@
+UPDATE creatives SET thumbnail_url = NULL, full_res_url = NULL, thumbnail_storage_path = NULL WHERE thumbnail_url LIKE '%/storage/v1/object/public/ad-thumbnails/%';
