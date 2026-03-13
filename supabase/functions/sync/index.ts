@@ -17,8 +17,8 @@ const MAX_RATE_LIMIT_RETRIES = 5; // Up from 3 — handles large account rate pr
 async function metaFetch(
   url: string,
   ctx: { metaApiCalls: number; apiErrors: { timestamp: string; message: string }[]; isTimedOut: () => boolean }
-): Promise<{ data: any[] | null; next: string | null; error: boolean; rateLimited: boolean }> {
-  if (ctx.isTimedOut()) return { data: null, next: null, error: false, rateLimited: false };
+): Promise<{ data: any[] | null; next: string | null; error: boolean; rateLimited: boolean; retriableUrl: string | null }> {
+  if (ctx.isTimedOut()) return { data: null, next: null, error: false, rateLimited: false, retriableUrl: url };
 
   let rateLimitRetries = 0;
   while (true) {
