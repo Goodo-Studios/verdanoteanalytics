@@ -422,9 +422,13 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
 
         if (campaigns.length === 0) {
           console.log("Phase 1 (large): fetching campaign list...");
+          // Filter out DELETED and ARCHIVED campaigns to reduce API calls
+          const campStatusFilter = encodeURIComponent(JSON.stringify([
+            { field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED"] }
+          ]));
           let campUrl: string | null =
             `https://graph.facebook.com/${META_API_VERSION}/${accountId}/campaigns?` +
-            `fields=id,name&limit=200&access_token=${encodeURIComponent(metaToken)}`;
+            `fields=id,name&filtering=${campStatusFilter}&limit=200&access_token=${encodeURIComponent(metaToken)}`;
           while (campUrl && !isTimedOut()) {
             const result = await metaFetch(campUrl, ctx);
             if (result.error) {
