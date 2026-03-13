@@ -34,6 +34,13 @@ async function cacheToStorage(
 
     const blob = await res.blob();
     const arrayBuffer = await blob.arrayBuffer();
+
+    // Quality guard: reject tiny images (likely low-res placeholders)
+    if (arrayBuffer.byteLength < 5000) {
+      console.log(`Skipping low-quality image for ${adId}: ${arrayBuffer.byteLength} bytes`);
+      return null;
+    }
+
     const uint8 = new Uint8Array(arrayBuffer);
 
     const { error: uploadError } = await supabase.storage

@@ -88,9 +88,11 @@ export async function discoverImageUrl(
         if (thumbs && thumbs.length > 0) {
           const sorted = thumbs.sort((a: any, b: any) => (b.width || 0) - (a.width || 0));
           const best = sorted[0];
-          if (best?.uri && (best.width || 0) >= 200) {
+          if (best?.uri && (best.width || 0) >= 480) {
             console.log(`Video thumbnail for ${adId}: ${best.width}x${best.height}`);
             return { thumbnailUrl: best.uri, fullResUrl: null };
+          } else {
+            console.log(`Video thumbnail too small for ${adId}: ${best?.width}x${best?.height} — skipping`);
           }
         }
       } else {
@@ -158,10 +160,10 @@ export async function discoverImageUrl(
       if (imageUrl) return { thumbnailUrl: imageUrl, fullResUrl: imageUrl };
     }
 
-    // Strategy 5: creative.thumbnail_url is last resort (often low-res ~130px)
+    // Strategy 5: creative.thumbnail_url is last resort — SKIP, usually ~130px placeholder
     if (creative.thumbnail_url) {
-      console.log(`Using original thumbnail_url for ${adId} (may be low-res)`);
-      return { thumbnailUrl: creative.thumbnail_url, fullResUrl: null };
+      console.log(`Skipping low-res thumbnail_url for ${adId} (~130px) — marking as no-thumbnail`);
+      // Don't return this; let the caller mark it as no-thumbnail so it can be retried later
     }
 
     return null;
