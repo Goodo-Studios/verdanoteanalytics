@@ -480,6 +480,17 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
               campError = true;
               break;
             }
+            // Rate-limited timeout: save the retriable URL as cursor so we resume this exact page
+            if (result.rateLimited && result.retriableUrl) {
+              console.log(`Phase 1 paused (rate-limited) mid-campaign ${campIdx + 1}/${campaigns.length} at ${fetchedCount} total ads`);
+              await saveState(1, {
+                campaigns,
+                campaign_index: campIdx,
+                campaign_cursor: result.retriableUrl,
+                creatives_fetched: fetchedCount,
+              });
+              return;
+            }
             if (result.data && result.data.length > 0) {
               await upsertAds(result.data);
               campFetched += result.data.length;
@@ -490,7 +501,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           }
 
           if (nextUrl && isTimedOut()) {
-            // Timed out mid-campaign — save cursor and resume this campaign next invocation
+            // Timed out mid-campaign (not rate-limited) — save cursor and resume this campaign next invocation
             console.log(`Phase 1 paused mid-campaign ${campIdx + 1}/${campaigns.length} at ${fetchedCount} total ads`);
             await saveState(1, {
               campaigns,
