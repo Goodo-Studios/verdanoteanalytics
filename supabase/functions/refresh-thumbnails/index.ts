@@ -379,7 +379,11 @@ serve(async (req) => {
           if (isOverBudget(invocationStart)) return false;
           const storageUrl = await downloadAndCache(supabase, THUMB_BUCKET, c.account_id, c.ad_id, c.thumbnail_url, "image");
           if (storageUrl) {
-            await supabase.from("creatives").update({ thumbnail_url: storageUrl }).eq("ad_id", c.ad_id);
+            await supabase.from("creatives").update({
+              thumbnail_url: storageUrl,
+              full_res_url: storageUrl,
+              thumbnail_storage_path: `${c.account_id}/${c.ad_id}`,
+            }).eq("ad_id", c.ad_id);
             return true;
           } else {
             await supabase.from("creatives").update({ thumbnail_url: NO_THUMB_SENTINEL }).eq("ad_id", c.ad_id);
