@@ -84,7 +84,7 @@ async function metaFetch(
     } catch (fetchErr) {
       console.error("Fetch error:", fetchErr);
       ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Network error: ${String(fetchErr)}` });
-      return { data: null, next: null, error: true, rateLimited: false };
+      return { data: null, next: null, error: true, rateLimited: false, retriableUrl: null };
     }
   }
 }
