@@ -41,11 +41,17 @@ export function useSyncHistory(accountId?: string) {
 
 export function useRefreshMedia() {
   return useMutationWithToast({
-    mutationFn: (params?: { account_id?: string }) =>
-      apiFetch("refresh-thumbnails", params?.account_id ? `?account_id=${params.account_id}` : ""),
+    mutationFn: (params?: { account_id?: string }) => {
+      const qs = new URLSearchParams();
+      if (params?.account_id) qs.set("account_id", params.account_id);
+      qs.set("force", "true");
+      return apiFetch("refresh-thumbnails", `?${qs.toString()}`);
+    },
     invalidateKeys: [["creatives"], ["all-creatives"]],
     successMessage: (data: any) =>
-      `Media refreshed — ${data?.thumbnails?.cached ?? 0} thumbnails, ${data?.videos?.cached ?? 0} videos cached`,
+      data?.skipped
+        ? "All media already cached — nothing to refresh"
+        : `Media refreshed — ${data?.thumbnails?.cached ?? 0} thumbnails, ${data?.videos?.cached ?? 0} videos cached`,
     errorMessage: "Media refresh failed",
   });
 }
