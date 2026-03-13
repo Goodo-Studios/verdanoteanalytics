@@ -152,7 +152,7 @@ function parseInsightsRow(row: any) {
 // Do NOT set above 110s unless Supabase function timeout is confirmed > 150s.
 // NOTE: Phase 1 (metadata fetch) uses PHASE_1_BUDGET_MS for large account safety
 const PHASE_BUDGET_MS = 110 * 1000;
-const PHASE_1_BUDGET_MS = 240 * 1000; // Extended budget for Phase 1 to handle large accounts
+const PHASE_1_BUDGET_MS = 100 * 1000; // Must stay under platform's ~150s hard wall-clock limit
 const HEARTBEAT_INTERVAL_MS = 20 * 1000;
 
 // ─── Promote Next Queued Sync ────────────────────────────────────────────────
