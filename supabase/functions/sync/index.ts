@@ -45,7 +45,7 @@ async function metaFetch(
           const waitUntil = Date.now() + waitSec * 1000;
           while (Date.now() < waitUntil) {
             await new Promise(r => setTimeout(r, 1000));
-            if (ctx.isTimedOut()) return { data: null, next: null, error: false, rateLimited: true };
+            if (ctx.isTimedOut()) return { data: null, next: null, error: false, rateLimited: true, retriableUrl: url };
           }
           continue;
         }
