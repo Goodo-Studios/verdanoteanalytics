@@ -281,11 +281,15 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
   const allowedPhases = scopePhases[syncScope] || scopePhases.full;
 
 
-  // Adaptive settings for large accounts (>3k creatives) — gentler on Meta API
-  const isLargeAccount = (account.creative_count || 0) > 3000;
-  const insightsPageSize = isLargeAccount ? 200 : 500;  // Reduce payload size for large accounts
-  const interRequestDelayMs = isLargeAccount ? 300 : 150; // Slower paging to avoid rate limits
-  console.log(`Account size: ${account.creative_count} creatives — using page_size=${insightsPageSize}, delay=${interRequestDelayMs}ms`);
+  // Adaptive settings based on account size — gentler on Meta API for larger accounts
+  const creativeCount = account.creative_count || 0;
+  const isLargeAccount = creativeCount > 3000;
+  const insightsPageSize = isLargeAccount ? 200 : 500;
+  const interRequestDelayMs = isLargeAccount ? 300 : 150;
+  // Always use campaign-by-campaign fetching for Phase 1 — it's more resilient
+  // against Meta API errors and supports resumable cursors per campaign
+  const useCampaignBypassPhase1 = true;
+  console.log(`Account size: ${creativeCount} creatives — page_size=${insightsPageSize}, delay=${interRequestDelayMs}ms, campaign-by-campaign=${useCampaignBypassPhase1}`);
 
   console.log(`\n━━━ Phase ${phase} for ${account.name} (${accountId}) ━━━`);
 
