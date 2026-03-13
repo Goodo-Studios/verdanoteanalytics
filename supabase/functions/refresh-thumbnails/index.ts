@@ -395,7 +395,7 @@ serve(async (req) => {
       }
     }
 
-    // SLOW PATH: sequential Meta API discovery for NULL thumbnails
+    // SLOW PATH: Meta API discovery for NULL thumbnails — discover AND cache to storage
     if (!budgetExceeded) {
       for (let i = 0; i < slowPathThumbs.length; i += DISCOVERY_BATCH_SIZE) {
         if (isOverBudget(invocationStart)) {
@@ -412,10 +412,23 @@ serve(async (req) => {
             thumbFailed++;
             continue;
           }
-          const updatePayload: Record<string, string | null> = { thumbnail_url: freshResult.thumbnailUrl };
-          if (freshResult.fullResUrl) updatePayload.full_res_url = freshResult.fullResUrl;
-          await supabase.from("creatives").update(updatePayload).eq("ad_id", c.ad_id);
-          thumbCached++;
+          // Cache the discovered URL to storage (same as fast path)
+          const bestUrl = freshResult.fullResUrl || freshResult.thumbnailUrl;
+          const storageUrl = await downloadAndCache(supabase, THUMB_BUCKET, c.account_id, c.ad_id, bestUrl, "image");
+          if (storageUrl) {
+            await supabase.from("creatives").update({
+              thumbnail_url: storageUrl,
+              full_res_url: storageUrl,
+              thumbnail_storage_path: `${c.account_id}/${c.ad_id}`,
+            }).eq("ad_id", c.ad_id);
+            thumbCached++;
+          } else {
+            // Fallback: store the CDN URL directly if download fails
+            const updatePayload: Record<string, string | null> = { thumbnail_url: freshResult.thumbnailUrl };
+            if (freshResult.fullResUrl) updatePayload.full_res_url = freshResult.fullResUrl;
+            await supabase.from("creatives").update(updatePayload).eq("ad_id", c.ad_id);
+            thumbCached++;
+          }
         }
       }
     }
