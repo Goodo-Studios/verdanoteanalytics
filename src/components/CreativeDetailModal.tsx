@@ -112,10 +112,10 @@ function MediaPreview({ creative }: { creative: any }) {
         <div className="flex flex-col items-center gap-2 py-12">
           <ImageIcon className="h-8 w-8 text-muted-foreground" />
           <span className="font-body text-[13px] text-muted-foreground">No preview available</span>
-          {(adPreviewUrl || adLibraryUrl) && (
-            <a href={adPreviewUrl || adLibraryUrl!} target="_blank" rel="noopener noreferrer">
+          {adPreviewUrl && (
+            <a href={adPreviewUrl} target="_blank" rel="noopener noreferrer">
               <Button size="sm" variant="secondary" className="gap-1.5 text-xs mt-1">
-                <ExternalLink className="h-3 w-3" />{adPreviewUrl ? "View Post" : "Search Ad Library"}
+                <ExternalLink className="h-3 w-3" />View Post
               </Button>
             </a>
           )}

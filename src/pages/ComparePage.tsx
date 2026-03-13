@@ -495,9 +495,7 @@ function ConceptSelector({ label, value, onChange, groups, excludeValue, concept
 
 function ComparisonThumbnail({ creative }: { creative: any }) {
   const isVideoAd = (creative.video_views || 0) > 0;
-  const adLibraryUrl = creative.ad_id
-    ? `https://www.facebook.com/ads/library/?id=${encodeURIComponent(String(creative.ad_id))}`
-    : null;
+  const adPreviewUrl = creative.ad_post_url || null;
 
   return (
     <div className="relative aspect-video rounded-[6px] overflow-hidden bg-muted">
@@ -514,9 +512,9 @@ function ComparisonThumbnail({ creative }: { creative: any }) {
           <span className="font-label text-[9px] font-semibold uppercase tracking-wide text-white">Video</span>
         </div>
       )}
-      {isVideoAd && adLibraryUrl && (
+      {isVideoAd && adPreviewUrl && (
         <a
-          href={adLibraryUrl}
+          href={adPreviewUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 hover:opacity-100 transition-opacity"
