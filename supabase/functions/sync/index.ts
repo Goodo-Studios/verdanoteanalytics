@@ -157,13 +157,13 @@ const HEARTBEAT_INTERVAL_MS = 20 * 1000;
 
 // ─── Promote Next Queued Sync ────────────────────────────────────────────────
 async function promoteNextQueued(supabase: any) {
-  // Check for configurable cooldown between sequential account syncs
+  // Check for cooldown between sequential account syncs (default: 2 min to let Meta rate limits recover)
   const { data: cooldownRow } = await supabase
     .from("settings")
     .select("value")
     .eq("key", "sync_cooldown_minutes")
     .single();
-  const cooldownMinutes = parseFloat(cooldownRow?.value || "0");
+  const cooldownMinutes = parseFloat(cooldownRow?.value || "2"); // Default 2 min cooldown
 
   if (cooldownMinutes > 0) {
     // Find the most recently completed sync
