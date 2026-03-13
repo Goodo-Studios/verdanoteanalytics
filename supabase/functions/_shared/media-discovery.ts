@@ -160,10 +160,10 @@ export async function discoverImageUrl(
       if (imageUrl) return { thumbnailUrl: imageUrl, fullResUrl: imageUrl };
     }
 
-    // Strategy 5: creative.thumbnail_url is last resort (often low-res ~130px)
+    // Strategy 5: creative.thumbnail_url is last resort — SKIP, usually ~130px placeholder
     if (creative.thumbnail_url) {
-      console.log(`Using original thumbnail_url for ${adId} (may be low-res)`);
-      return { thumbnailUrl: creative.thumbnail_url, fullResUrl: null };
+      console.log(`Skipping low-res thumbnail_url for ${adId} (~130px) — marking as no-thumbnail`);
+      // Don't return this; let the caller mark it as no-thumbnail so it can be retried later
     }
 
     return null;
