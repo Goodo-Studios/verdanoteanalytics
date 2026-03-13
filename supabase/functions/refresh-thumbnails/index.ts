@@ -176,7 +176,7 @@ serve(async (req) => {
       } catch { /* no body */ }
     }
 
-    const { account: targetAccount, skippedAll, nextAccount } = await pickAccount(supabase, accountFilter);
+    const { account: targetAccount, skippedAll, nextAccount } = await pickAccount(supabase, accountFilter, forceRefresh);
 
     if (skippedAll || !targetAccount) {
       console.log("All accounts are within cooldown — nothing to process.");
