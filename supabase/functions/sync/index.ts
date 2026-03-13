@@ -157,13 +157,13 @@ const HEARTBEAT_INTERVAL_MS = 20 * 1000;
 
 // ─── Promote Next Queued Sync ────────────────────────────────────────────────
 async function promoteNextQueued(supabase: any) {
-  // Check for configurable cooldown between sequential account syncs
+  // Check for cooldown between sequential account syncs (default: 2 min to let Meta rate limits recover)
   const { data: cooldownRow } = await supabase
     .from("settings")
     .select("value")
     .eq("key", "sync_cooldown_minutes")
     .single();
-  const cooldownMinutes = parseFloat(cooldownRow?.value || "0");
+  const cooldownMinutes = parseFloat(cooldownRow?.value || "2"); // Default 2 min cooldown
 
   if (cooldownMinutes > 0) {
     // Find the most recently completed sync
@@ -281,11 +281,15 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
   const allowedPhases = scopePhases[syncScope] || scopePhases.full;
 
 
-  // Adaptive settings for large accounts (>3k creatives) — gentler on Meta API
-  const isLargeAccount = (account.creative_count || 0) > 3000;
-  const insightsPageSize = isLargeAccount ? 200 : 500;  // Reduce payload size for large accounts
-  const interRequestDelayMs = isLargeAccount ? 300 : 150; // Slower paging to avoid rate limits
-  console.log(`Account size: ${account.creative_count} creatives — using page_size=${insightsPageSize}, delay=${interRequestDelayMs}ms`);
+  // Adaptive settings based on account size — gentler on Meta API for larger accounts
+  const creativeCount = account.creative_count || 0;
+  const isLargeAccount = creativeCount > 3000;
+  const insightsPageSize = isLargeAccount ? 200 : 500;
+  const interRequestDelayMs = isLargeAccount ? 300 : 150;
+  // Always use campaign-by-campaign fetching for Phase 1 — it's more resilient
+  // against Meta API errors and supports resumable cursors per campaign
+  const useCampaignBypassPhase1 = true;
+  console.log(`Account size: ${creativeCount} creatives — page_size=${insightsPageSize}, delay=${interRequestDelayMs}ms, campaign-by-campaign=${useCampaignBypassPhase1}`);
 
   console.log(`\n━━━ Phase ${phase} for ${account.name} (${accountId}) ━━━`);
 
@@ -411,8 +415,8 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         { field: "impressions", operator: "GREATER_THAN", value: "0" }
       ]));
 
-      // ── Large account path: campaign-by-campaign ─────────────────────
-      if (isLargeAccount) {
+      // ── Campaign-by-campaign path (default for all accounts) ────────
+      if (useCampaignBypassPhase1) {
         // Step 1: fetch all campaigns (or resume from saved list)
         let campaigns: { id: string; name: string }[] = state.campaigns || [];
 
@@ -511,43 +515,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         return;
       }
 
-      // ── Standard path: flat account-level sweep (small accounts) ─────
-      let nextUrl: string | null = state.ads_cursor || (
-        `https://graph.facebook.com/${META_API_VERSION}/${accountId}/ads?` +
-        `fields=id,name,status,campaign{name},adset{name},creative{effective_object_story_id}` +
-        `&filtering=${deliveredFilter}` +
-        `&limit=200&access_token=${encodeURIComponent(metaToken)}`
-      );
-
-      let phase1HasError = false;
-      while (nextUrl && !isTimedOut()) {
-        await heartbeat();
-        const result = await metaFetch(nextUrl, ctx);
-        if (result.error) {
-          ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: "Ad fetch failed, unknown error" });
-          phase1HasError = true;
-          break;
-        }
-        if (result.data && result.data.length > 0) {
-          await upsertAds(result.data);
-          fetchedCount += result.data.length;
-          console.log(`  Ads fetched & upserted: ${fetchedCount}`);
-        }
-        nextUrl = result.next;
-        if (nextUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
-      }
-
-      if (nextUrl && isTimedOut()) {
-        console.log(`Phase 1 paused at ${fetchedCount} ads — will resume`);
-        await saveState(1, { ads_cursor: nextUrl, creatives_fetched: fetchedCount });
-      } else if (phase1HasError) {
-        const resumeCursor = nextUrl || null;
-        console.log(`Phase 1 hit an error at ${fetchedCount} ads — will retry from ${resumeCursor ? "cursor" : "start"} next continue`);
-        await saveState(1, { ads_cursor: resumeCursor, creatives_fetched: fetchedCount });
-      } else {
-        console.log(`Phase 1 complete: ${fetchedCount} ads`);
-        await saveState(2, { ads_cursor: null, creatives_fetched: fetchedCount });
-      }
+      // (flat sweep path removed — campaign-by-campaign is always used now)
       return;
     }
 

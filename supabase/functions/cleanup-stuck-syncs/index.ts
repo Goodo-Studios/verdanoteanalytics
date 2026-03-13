@@ -11,7 +11,7 @@ serve(async (_req) => {
   );
 
   const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString();
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(); // Extended from 1h for large accounts
   const activityThreshold = Date.now() - 2 * 60 * 1000; // 2 min no heartbeat = stuck
   const phase1ExtendedThreshold = Date.now() - 20 * 60 * 1000; // Phase 1 gets 20 min
   const now = new Date().toISOString();
@@ -29,14 +29,14 @@ serve(async (_req) => {
     });
   }
 
-  // Mark as stuck if no heartbeat in appropriate time window, OR if running for over 1 hour regardless
+  // Mark as stuck if no heartbeat in appropriate time window, OR if running for over 2 hours regardless
   const trulyStuck = candidates.filter((s: any) => {
     const startedAt = new Date(s.started_at || 0).getTime();
-    // If running for over 1 hour, always consider stuck
-    if (startedAt < new Date(oneHourAgo).getTime()) return true;
+    // If running for over 2 hours, always consider stuck (even with heartbeats)
+    if (startedAt < new Date(twoHoursAgo).getTime()) return true;
     
     const lastActivity = s.sync_state?.last_activity;
-    // Phase 1 gets extended time (5 min) for large account metadata fetching
+    // Phase 1 gets extended time (20 min) for large account metadata fetching with rate limit backoffs
     const effectiveThreshold = s.current_phase === 1 ? phase1ExtendedThreshold : activityThreshold;
     if (lastActivity && new Date(lastActivity).getTime() > effectiveThreshold) return false;
     return true;
