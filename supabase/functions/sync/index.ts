@@ -515,43 +515,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         return;
       }
 
-      // ── Standard path: flat account-level sweep (small accounts) ─────
-      let nextUrl: string | null = state.ads_cursor || (
-        `https://graph.facebook.com/${META_API_VERSION}/${accountId}/ads?` +
-        `fields=id,name,status,campaign{name},adset{name},creative{effective_object_story_id}` +
-        `&filtering=${deliveredFilter}` +
-        `&limit=200&access_token=${encodeURIComponent(metaToken)}`
-      );
-
-      let phase1HasError = false;
-      while (nextUrl && !isTimedOut()) {
-        await heartbeat();
-        const result = await metaFetch(nextUrl, ctx);
-        if (result.error) {
-          ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: "Ad fetch failed, unknown error" });
-          phase1HasError = true;
-          break;
-        }
-        if (result.data && result.data.length > 0) {
-          await upsertAds(result.data);
-          fetchedCount += result.data.length;
-          console.log(`  Ads fetched & upserted: ${fetchedCount}`);
-        }
-        nextUrl = result.next;
-        if (nextUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
-      }
-
-      if (nextUrl && isTimedOut()) {
-        console.log(`Phase 1 paused at ${fetchedCount} ads — will resume`);
-        await saveState(1, { ads_cursor: nextUrl, creatives_fetched: fetchedCount });
-      } else if (phase1HasError) {
-        const resumeCursor = nextUrl || null;
-        console.log(`Phase 1 hit an error at ${fetchedCount} ads — will retry from ${resumeCursor ? "cursor" : "start"} next continue`);
-        await saveState(1, { ads_cursor: resumeCursor, creatives_fetched: fetchedCount });
-      } else {
-        console.log(`Phase 1 complete: ${fetchedCount} ads`);
-        await saveState(2, { ads_cursor: null, creatives_fetched: fetchedCount });
-      }
+      // (flat sweep path removed — campaign-by-campaign is always used now)
       return;
     }
 
