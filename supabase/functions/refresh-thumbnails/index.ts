@@ -126,6 +126,12 @@ async function pickAccount(
     return { account: null, skippedAll: true, nextAccount: null };
   }
 
+  if (force) {
+    // Force mode: pick the most stale account, ignoring cooldown
+    const nextAcc = accounts.length > 1 ? accounts[1] : null;
+    return { account: accounts[0], skippedAll: false, nextAccount: nextAcc };
+  }
+
   const cooldownMs = MEDIA_REFRESH_COOLDOWN_HOURS * 60 * 60 * 1000;
   const now = Date.now();
 
