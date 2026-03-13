@@ -17,8 +17,8 @@ const MAX_RATE_LIMIT_RETRIES = 5; // Up from 3 — handles large account rate pr
 async function metaFetch(
   url: string,
   ctx: { metaApiCalls: number; apiErrors: { timestamp: string; message: string }[]; isTimedOut: () => boolean }
-): Promise<{ data: any[] | null; next: string | null; error: boolean; rateLimited: boolean }> {
-  if (ctx.isTimedOut()) return { data: null, next: null, error: false, rateLimited: false };
+): Promise<{ data: any[] | null; next: string | null; error: boolean; rateLimited: boolean; retriableUrl: string | null }> {
+  if (ctx.isTimedOut()) return { data: null, next: null, error: false, rateLimited: false, retriableUrl: url };
 
   let rateLimitRetries = 0;
   while (true) {
@@ -45,7 +45,7 @@ async function metaFetch(
           const waitUntil = Date.now() + waitSec * 1000;
           while (Date.now() < waitUntil) {
             await new Promise(r => setTimeout(r, 1000));
-            if (ctx.isTimedOut()) return { data: null, next: null, error: false, rateLimited: true };
+            if (ctx.isTimedOut()) return { data: null, next: null, error: false, rateLimited: true, retriableUrl: url };
           }
           continue;
         }
@@ -64,27 +64,27 @@ async function metaFetch(
             const retryResp = await fetch(reducedUrl);
             const retryJson = await retryResp.json();
             if (!retryJson.error) {
-              return { data: retryJson.data || [], next: retryJson.paging?.next || null, error: false, rateLimited: false };
+              return { data: retryJson.data || [], next: retryJson.paging?.next || null, error: false, rateLimited: false, retriableUrl: null };
             }
             if (!retryJson.error?.message?.includes("reduce the amount of data")) {
               // Different error — stop retrying
               break;
             }
           }
-          return { data: null, next: null, error: true, rateLimited: false };
+          return { data: null, next: null, error: true, rateLimited: false, retriableUrl: null };
         }
         // Log full error details for debugging (especially useful for NDC "unknown error")
         const fullErrMsg = `Meta API error — code: ${json.error.code ?? "?"}, subcode: ${json.error.error_subcode ?? "?"}, type: ${json.error.type ?? "?"}, msg: ${json.error.message ?? "?"}`;
         console.error(fullErrMsg, JSON.stringify(json.error));
         ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: fullErrMsg });
-        return { data: null, next: null, error: true, rateLimited: isRateLimitError };
+        return { data: null, next: null, error: true, rateLimited: isRateLimitError, retriableUrl: null };
       }
 
-      return { data: json.data || [], next: json.paging?.next || null, error: false, rateLimited: false };
+      return { data: json.data || [], next: json.paging?.next || null, error: false, rateLimited: false, retriableUrl: null };
     } catch (fetchErr) {
       console.error("Fetch error:", fetchErr);
       ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Network error: ${String(fetchErr)}` });
-      return { data: null, next: null, error: true, rateLimited: false };
+      return { data: null, next: null, error: true, rateLimited: false, retriableUrl: null };
     }
   }
 }
@@ -480,6 +480,17 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
               campError = true;
               break;
             }
+            // Rate-limited timeout: save the retriable URL as cursor so we resume this exact page
+            if (result.rateLimited && result.retriableUrl) {
+              console.log(`Phase 1 paused (rate-limited) mid-campaign ${campIdx + 1}/${campaigns.length} at ${fetchedCount} total ads`);
+              await saveState(1, {
+                campaigns,
+                campaign_index: campIdx,
+                campaign_cursor: result.retriableUrl,
+                creatives_fetched: fetchedCount,
+              });
+              return;
+            }
             if (result.data && result.data.length > 0) {
               await upsertAds(result.data);
               campFetched += result.data.length;
@@ -490,7 +501,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           }
 
           if (nextUrl && isTimedOut()) {
-            // Timed out mid-campaign — save cursor and resume this campaign next invocation
+            // Timed out mid-campaign (not rate-limited) — save cursor and resume this campaign next invocation
             console.log(`Phase 1 paused mid-campaign ${campIdx + 1}/${campaigns.length} at ${fetchedCount} total ads`);
             await saveState(1, {
               campaigns,
