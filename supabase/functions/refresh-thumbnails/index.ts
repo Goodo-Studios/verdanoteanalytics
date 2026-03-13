@@ -86,7 +86,8 @@ async function updateLog(supabase: any, logId: number, updates: Record<string, a
  */
 async function pickAccount(
   supabase: any,
-  requestedAccountId: string | null
+  requestedAccountId: string | null,
+  force = false
 ): Promise<{ account: any | null; skippedAll: boolean; nextAccount: any | null }> {
   if (requestedAccountId && requestedAccountId !== "all") {
     const { data: account, error } = await supabase
@@ -123,6 +124,12 @@ async function pickAccount(
 
   if (!accounts || accounts.length === 0) {
     return { account: null, skippedAll: true, nextAccount: null };
+  }
+
+  if (force) {
+    // Force mode: pick the most stale account, ignoring cooldown
+    const nextAcc = accounts.length > 1 ? accounts[1] : null;
+    return { account: accounts[0], skippedAll: false, nextAccount: nextAcc };
   }
 
   const cooldownMs = MEDIA_REFRESH_COOLDOWN_HOURS * 60 * 60 * 1000;
@@ -169,7 +176,7 @@ serve(async (req) => {
       } catch { /* no body */ }
     }
 
-    const { account: targetAccount, skippedAll, nextAccount } = await pickAccount(supabase, accountFilter);
+    const { account: targetAccount, skippedAll, nextAccount } = await pickAccount(supabase, accountFilter, forceRefresh);
 
     if (skippedAll || !targetAccount) {
       console.log("All accounts are within cooldown — nothing to process.");
