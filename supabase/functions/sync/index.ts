@@ -80,7 +80,7 @@ async function metaFetch(
         return { data: null, next: null, error: true, rateLimited: isRateLimitError, retriableUrl: null };
       }
 
-      return { data: json.data || [], next: json.paging?.next || null, error: false, rateLimited: false };
+      return { data: json.data || [], next: json.paging?.next || null, error: false, rateLimited: false, retriableUrl: null };
     } catch (fetchErr) {
       console.error("Fetch error:", fetchErr);
       ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Network error: ${String(fetchErr)}` });
