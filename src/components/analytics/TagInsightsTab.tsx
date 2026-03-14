@@ -194,7 +194,7 @@ export function TagInsightsTab({
           Analyze performance by creative attributes. Creatives must be tagged to appear in this analysis.
         </p>
         <div className="flex items-center gap-3">
-          <span className="font-data text-[15px] font-semibold text-charcoal tabular-nums">
+          <span className="font-data text-[17px] font-semibold text-charcoal tabular-nums">
             {taggedCreatives.length.toLocaleString()} of {creatives.length.toLocaleString()} creatives tagged ({coverage.toFixed(1)}%)
           </span>
           <div className="w-[200px] h-1 rounded-full bg-cream-dark overflow-hidden">
