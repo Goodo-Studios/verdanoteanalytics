@@ -110,7 +110,7 @@ export function CreativeIterationAnalysis({ creative, allCreatives }: Props) {
       <div>
         <div className="flex items-center gap-2 mb-3">
           <Lightbulb className="h-4 w-4 text-primary" />
-          <h3 className="text-sm font-semibold">Iteration Analysis</h3>
+          <h3 className="font-heading text-[15px] text-foreground">Iteration Analysis</h3>
         </div>
         <p className="text-xs text-muted-foreground">Need at least 3 creatives with spend to generate analysis.</p>
       </div>
