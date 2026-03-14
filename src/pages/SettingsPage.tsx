@@ -108,7 +108,7 @@ const SettingsPage = () => {
               onClick={() => setActiveTab(t.key)}
               className={cn(
                 "flex items-center gap-1.5 font-body text-[13px] font-medium px-4 py-2.5 border-b-2 transition-colors -mb-px whitespace-nowrap",
-                activeTab === t.key
+                safeActiveTab === t.key
                   ? "border-verdant text-forest"
                   : "border-transparent text-muted-foreground hover:text-foreground hover:border-border-light",
               )}
