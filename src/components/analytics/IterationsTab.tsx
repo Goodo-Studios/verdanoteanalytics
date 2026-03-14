@@ -110,18 +110,18 @@ function TopPerformers({ creatives, benchmarks, minSpend, onCreativeClick }: Top
       .sort((a, b) => (Number(b.hold_rate) || 0) - (Number(a.hold_rate) || 0))
       .slice(0, 5);
 
-    const byCtr = [...qualified]
-      .filter((c) => (Number(c.ctr) || 0) > 0)
-      .sort((a, b) => (Number(b.ctr) || 0) - (Number(a.ctr) || 0))
+    const bySpend = [...qualified]
+      .sort((a, b) => (Number(b.spend) || 0) - (Number(a.spend) || 0))
       .slice(0, 5);
 
-    return { byHook, byHold, byCtr };
+    return { bySpend, byHook, byHold, byCtr };
   }, [creatives, minSpend]);
 
   const sections = [
-    { title: "Best Hook Rates", subtitle: "These hooks stop the scroll — duplicate the opening approach", icon: Eye, items: tops.byHook, metric: "thumb_stop_rate", label: "Hook Rate" },
-    { title: "Best Hold Rates", subtitle: "These keep viewers watching — replicate the pacing and structure", icon: TrendingUp, items: tops.byHold, metric: "hold_rate", label: "Hold Rate" },
-    { title: "Best CTRs", subtitle: "These drive clicks — reuse the CTA approach and end card style", icon: MousePointerClick, items: tops.byCtr, metric: "ctr", label: "CTR" },
+    { title: "Top 5 by Spend", subtitle: "Your highest-investment ads — understand where your budget is going", icon: DollarSign, items: tops.bySpend, metric: "spend", label: "Spend", format: "dollar" as const },
+    { title: "Best Hook Rates", subtitle: "These hooks stop the scroll — duplicate the opening approach", icon: Eye, items: tops.byHook, metric: "thumb_stop_rate", label: "Hook Rate", format: "pct" as const },
+    { title: "Best Hold Rates", subtitle: "These keep viewers watching — replicate the pacing and structure", icon: TrendingUp, items: tops.byHold, metric: "hold_rate", label: "Hold Rate", format: "pct" as const },
+    { title: "Best CTRs", subtitle: "These drive clicks — reuse the CTA approach and end card style", icon: MousePointerClick, items: tops.byCtr, metric: "ctr", label: "CTR", format: "pct" as const },
   ];
 
   return (
