@@ -247,8 +247,7 @@ serve(async (req) => {
 
           // Merge aggregated metrics
           const result = allCreatives.map((c: any) => {
-            const a = aggMap[c.ad_id] || { spend: 0, impressions: 0, clicks: 0, purchases: 0, purchase_value: 0, adds_to_cart: 0, video_views: 0, _freq_sum: 0, _tsr_sum: 0, _hr_sum: 0, _vpt_sum: 0, _days: 1 };
-            const days = a._days || 1;
+            const a = aggMap[c.ad_id] || { spend: 0, impressions: 0, clicks: 0, purchases: 0, purchase_value: 0, adds_to_cart: 0, video_views: 0, _freq_weighted: 0, _freq_imp: 0, _tsr_weighted: 0, _tsr_imp: 0, _hr_weighted: 0, _hr_vv: 0, _vpt_weighted: 0, _vpt_vv: 0, _days: 1 };
             return {
               ...c,
               spend: a.spend,
@@ -264,10 +263,10 @@ serve(async (req) => {
               adds_to_cart: a.adds_to_cart,
               cost_per_add_to_cart: a.adds_to_cart > 0 ? a.spend / a.adds_to_cart : 0,
               video_views: a.video_views,
-              thumb_stop_rate: a._tsr_sum / days,
-              hold_rate: a._hr_sum / days,
-              frequency: a._freq_sum / days,
-              video_avg_play_time: a._vpt_sum / days,
+              thumb_stop_rate: a._tsr_imp > 0 ? a._tsr_weighted / a._tsr_imp : 0,
+              hold_rate: a._hr_vv > 0 ? a._hr_weighted / a._hr_vv : 0,
+              frequency: a._freq_imp > 0 ? a._freq_weighted / a._freq_imp : 0,
+              video_avg_play_time: a._vpt_vv > 0 ? a._vpt_weighted / a._vpt_vv : 0,
             };
           });
 
