@@ -231,7 +231,7 @@ const SettingsPage = () => {
       )}
 
       {/* Admin Tab */}
-      {activeTab === "admin" && effectiveIsBuilder && (
+      {safeActiveTab === "admin" && effectiveIsBuilder && (
         <div className="max-w-2xl space-y-8">
           <MetaConnectionSection metaStatus={userState.metaStatus} metaUser={userState.metaUser} onTestConnection={userState.handleTestConnection} />
           <AdAccountsSection
