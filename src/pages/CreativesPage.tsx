@@ -156,6 +156,16 @@ const CreativesPage = () => {
   });
 
   const avgMetrics = useMemo(() => {
+    // Prefer server-side aggregates (covers ALL creatives, not just current page)
+    const agg = (creativesResult as any)?.aggregates;
+    if (agg) {
+      return {
+        totalSpend: `$${Number(agg.total_spend).toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+        cpa: agg.avg_cpa > 0 ? `$${Number(agg.avg_cpa).toFixed(2)}` : "—",
+        roas: agg.avg_roas > 0 ? `${Number(agg.avg_roas).toFixed(2)}x` : "—",
+      };
+    }
+    // Fallback: compute from current page
     if (creatives.length === 0) return { roas: "—", cpa: "—", totalSpend: "—" };
     const withSpend = creatives.filter((c: any) => c.spend > 0);
     if (withSpend.length === 0) return { roas: "—", cpa: "—", totalSpend: "—" };
@@ -165,7 +175,7 @@ const CreativesPage = () => {
     };
     const total = withSpend.reduce((s: number, c: any) => s + (Number(c.spend) || 0), 0);
     return { roas: `${avg("roas")}x`, cpa: `$${avg("cpa")}`, totalSpend: `$${total.toLocaleString("en-US", { maximumFractionDigits: 0 })}` };
-  }, [creatives]);
+  }, [creatives, creativesResult]);
 
   const sortedCreatives = useMemo(() => {
     let list = [...creatives].map((c: any) => ({ ...c, _cpmr: (Number(c.cpm) || 0) * (Number(c.frequency) || 0) }));
