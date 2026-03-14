@@ -77,34 +77,17 @@ function MediaPreview({ creative }: { creative: any }) {
             onLoad={() => setImgLoaded(true)}
           />
 
-          {/* Play overlay for video ads — opens Facebook post preview */}
-          {isVideoAd && adPreviewUrl && imgLoaded && (
-            <a
-              href={adPreviewUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-            >
-              <div className="h-14 w-14 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
-                <Play className="h-6 w-6 text-foreground ml-0.5" />
-              </div>
-              <span className="absolute bottom-3 left-1/2 -translate-x-1/2 text-[10px] font-medium text-white bg-black/60 rounded px-2 py-0.5 whitespace-nowrap">
-                View Ad Post
-              </span>
-            </a>
-          )}
-
-          {/* Ad post link badge */}
+          {/* Persistent Preview Ad button */}
           {adPreviewUrl && imgLoaded && (
             <a
               href={adPreviewUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="absolute bottom-2 right-2 z-10 inline-flex items-center gap-1.5 bg-white/90 hover:bg-white text-[11px] font-medium text-foreground/80 rounded-md px-2.5 py-1.5 shadow-sm transition-colors cursor-pointer"
-              title="View ad post on Facebook"
+              className="absolute bottom-2 right-2 z-10 inline-flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground text-[11px] font-semibold rounded-md px-3 py-1.5 shadow-md transition-colors cursor-pointer"
+              title="Preview this ad on Facebook"
             >
-              <ExternalLink className="h-3 w-3" />
-              View Post
+              {isVideoAd ? <Play className="h-3.5 w-3.5" /> : <ExternalLink className="h-3.5 w-3.5" />}
+              Preview Ad
             </a>
           )}
         </div>
