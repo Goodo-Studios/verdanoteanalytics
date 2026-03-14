@@ -17,7 +17,7 @@ import { BulkTagModal } from "@/components/creatives/BulkTagModal";
 import { AddToReportModal } from "@/components/creatives/AddToReportModal";
 import { TABLE_COLUMNS, SORT_FIELD_MAP } from "@/components/creatives/constants";
 import { ColumnPicker } from "@/components/ColumnPicker";
-import { SaveViewButton } from "@/components/SaveViewButton";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RefreshCw, LayoutGrid, List, Loader2, Download, Search, X, Columns, Layers, Bookmark, CalendarDays, SlidersHorizontal } from "lucide-react";
@@ -322,17 +322,6 @@ const CreativesPage = () => {
             )}
             {creatives.length > 0 && (
               <Button size="sm" variant="outline" onClick={() => exportCreativesCSV(creatives)}><Download className="h-3.5 w-3.5 mr-1.5" />Export</Button>
-            )}
-            {!isClient && (
-              <SaveViewButton getConfig={() => ({
-                page: "/creatives",
-                ...(selectedAccountId && selectedAccountId !== "all" ? { account_id: selectedAccountId } : {}),
-                ...(groupBy !== "__none__" ? { group_by: groupBy } : {}),
-                ...(search ? { search } : {}),
-                ...(dateFrom ? { date_from: dateFrom } : {}),
-                ...(dateTo ? { date_to: dateTo } : {}),
-                ...(Object.keys(filters).length > 0 ? { filters } : {}),
-              })} />
             )}
           </div>
         }
