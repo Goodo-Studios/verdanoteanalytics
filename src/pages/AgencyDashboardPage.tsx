@@ -174,7 +174,7 @@ export default function AgencyDashboardPage() {
                       {prior > 0 && (
                         <span className={cn("font-data text-[10px] tabular-nums", spendDelta >= 0 ? "text-primary" : "text-destructive")}>
                           {spendDelta >= 0 ? <TrendingUp className="h-3 w-3 inline mr-0.5" /> : <TrendingDown className="h-3 w-3 inline mr-0.5" />}
-                          {fmtPct(spendDelta)}
+                          {fmtSignedPct(spendDelta)}
                         </span>
                       )}
                     </div>
