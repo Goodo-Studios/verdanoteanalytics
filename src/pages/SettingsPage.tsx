@@ -121,7 +121,7 @@ const SettingsPage = () => {
       )}
 
       {/* Profile Tab */}
-      {activeTab === "profile" && (
+      {safeActiveTab === "profile" && (
         <div className="max-w-2xl space-y-8">
           <ProfileInfoSection
             email={userState.email}
