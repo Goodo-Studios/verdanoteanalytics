@@ -9,9 +9,9 @@ import { useClientPreview } from "@/hooks/useClientPreviewMode";
  */
 export function useRolePrefix(): string {
   const { role, isClient } = useAuth();
-  const { isClientPreview } = useClientPreview();
+  const { isClientPreview, isEmployeePreview } = useClientPreview();
   if (isClient || isClientPreview) return "/client";
-  if (role === "employee") return "/employee";
+  if (role === "employee" || isEmployeePreview) return "/employee";
   return "/builder";
 }
 

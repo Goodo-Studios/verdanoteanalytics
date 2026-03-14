@@ -47,16 +47,17 @@ const clientNavItems = [
 export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void; onTakeTour?: () => void }) {
   const { accounts, selectedAccountId, setSelectedAccountId, isLoading } = useAccountContext();
   const { role, isClient, isBuilder, isEmployee, user, signOut } = useAuth();
-  const { isClientPreview, toggleClientPreview } = useClientPreview();
+  const { isClientPreview, isEmployeePreview, previewRole, setPreviewRole } = useClientPreview();
   const navigate = useNavigate();
   const location = useLocation();
   const prefix = useRolePrefix();
 
   const isAgencyView = selectedAccountId === "all";
   const effectiveClient = isClient || isClientPreview;
+  const effectiveEmployee = isEmployeePreview;
 
   const showSwitcher = !effectiveClient || accounts.length > 1;
-  const showSettings = !effectiveClient;
+  const showSettings = !effectiveClient && !effectiveEmployee;
   const agencyNavItems = [
     { title: "Overview", url: "/agency", icon: LayoutGrid },
   ];
@@ -76,7 +77,24 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
     }
   };
 
-  const roleLabel = effectiveClient ? "client" : role;
+  const effectiveRole = effectiveClient ? "client" : effectiveEmployee ? "employee" : role;
+
+  const handleRoleClick = (r: "builder" | "employee" | "client") => {
+    if (!isBuilder) return; // Only builders can switch
+    if (r === role) {
+      // Clicking own role exits preview
+      setPreviewRole(null);
+    } else if (r === "client") {
+      setPreviewRole("client");
+    } else if (r === "employee") {
+      setPreviewRole("employee");
+    } else {
+      setPreviewRole(null);
+    }
+    // Navigate to root of new role view
+    const newPrefix = r === "client" ? "/client" : r === "employee" ? "/employee" : "/builder";
+    navigate(`${newPrefix}/`);
+  };
 
   return (
     <aside className="flex h-screen w-56 flex-col bg-background border-r border-input">
@@ -89,16 +107,17 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
       <div className="px-3 pt-4 pb-1">
         <div className="flex items-center rounded-md bg-muted/50 p-0.5">
           {(["builder", "employee", "client"] as const).map((r) => (
-            <div
+            <button
               key={r}
+              onClick={() => isBuilder ? handleRoleClick(r) : undefined}
               className={`flex-1 text-center py-1.5 rounded-[5px] font-label text-[9px] uppercase tracking-[0.1em] font-semibold transition-colors ${
-                roleLabel === r
+                effectiveRole === r
                   ? "bg-background text-forest shadow-sm"
-                  : "text-sage/50"
+                  : isBuilder ? "text-sage/50 hover:text-sage cursor-pointer" : "text-sage/50"
               }`}
             >
               {r}
-            </div>
+            </button>
           ))}
         </div>
       </div>
@@ -169,15 +188,15 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
           </NavLink>
         </div>
       )}
-      {/* Client Preview toggle for builders */}
-      {(isBuilder || isEmployee) && !isClient && (
+      {/* Preview mode indicator for builders */}
+      {isBuilder && previewRole && (
         <div className="px-3 pb-1">
           <button
-            onClick={toggleClientPreview}
-            className={`flex items-center gap-3 rounded-md px-3 py-2 font-body text-[13px] w-full text-left transition-hover ${isClientPreview ? "text-[#92730F] bg-gold-light/50 font-medium" : "text-slate hover:text-forest hover:bg-accent"}`}
+            onClick={() => { setPreviewRole(null); navigate(`/builder/`); }}
+            className="flex items-center gap-3 rounded-md px-3 py-2 font-body text-[13px] w-full text-left text-[#92730F] bg-gold-light/50 font-medium transition-hover"
           >
             <Eye className="h-4 w-4 flex-shrink-0" />
-            {isClientPreview ? "Exit Client View" : "Preview as Client"}
+            Exit {previewRole === "client" ? "Client" : "Employee"} View
           </button>
         </div>
       )}
