@@ -20,7 +20,7 @@ import { CreativeDetailModal } from "@/components/CreativeDetailModal";
 
 import { TagPerformanceSection } from "@/components/overview/TagPerformanceSection";
 import { QuickActionsSection } from "@/components/overview/QuickActionsSection";
-import { RecommendedActionsSection } from "@/components/overview/RecommendedActionsSection";
+
 import { RecentChangesSection } from "@/components/overview/RecentChangesSection";
 import { computeFatigueMap } from "@/lib/fatigueScore";
 import { InsightCardsStrip } from "@/components/overview/InsightCardsStrip";
@@ -133,14 +133,7 @@ const OverviewPage = () => {
           </div>
         ) : null;
       case "killscale":
-        return !isLoading && canEdit ? (
-          <RecommendedActionsSection
-            creatives={creatives}
-            wowTrends={wowTrends}
-            fatigueMap={fatigueMap}
-            killThreshold={killScaleConfig.killAt}
-          />
-        ) : null;
+        return null;
       case "activity":
         return !isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
