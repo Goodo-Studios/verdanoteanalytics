@@ -630,7 +630,7 @@ serve(async (req) => {
 
     console.log(
       `[${targetAccount.name}] Done — ` +
-      `Thumbs: ${thumbCached} cached, ${thumbFailed} failed, ${thumbsRemaining} remaining | ` +
+      `Thumbs: ${thumbCached} cached, ${thumbFailed} failed, ${thumbUpgraded} upgraded, ${thumbsRemaining} remaining | ` +
       `Videos fetched: ${videosFetched}, cached: ${videoCached}, failed: ${videoFailed}, ${videosRemaining} remaining | ` +
       `Previews: ${previewsFetched}/${previews.length} | ` +
       `Budget exceeded: ${budgetExceeded}`
