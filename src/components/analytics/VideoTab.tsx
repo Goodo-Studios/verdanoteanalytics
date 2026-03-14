@@ -122,9 +122,9 @@ export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: Vi
   }
 
   // Scatter plot dimensions
-  const SCATTER_W = 600;
-  const SCATTER_H = 400;
-  const PAD = { top: 30, right: 30, bottom: 50, left: 60 };
+  const SCATTER_W = 700;
+  const SCATTER_H = 480;
+  const PAD = { top: 30, right: 30, bottom: 60, left: 70 };
   const plotW = SCATTER_W - PAD.left - PAD.right;
   const plotH = SCATTER_H - PAD.top - PAD.bottom;
 
