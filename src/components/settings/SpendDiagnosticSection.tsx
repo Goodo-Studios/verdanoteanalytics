@@ -36,9 +36,9 @@ function MetricRow({ label, metaVal, snapshotVal, dailyVal, format = "number" }:
   return (
     <div className="grid grid-cols-5 gap-2 py-2 border-b border-border/50 last:border-0 items-center">
       <span className="font-label text-[11px] uppercase tracking-wide text-muted-foreground">{label}</span>
-      <span className="font-data text-[13px] text-foreground text-right tabular-nums">{fmt(mv)}</span>
-      <span className="font-data text-[13px] text-muted-foreground text-right tabular-nums">{fmt(snapshotVal ?? 0)}</span>
-      <span className="font-data text-[13px] text-foreground text-right tabular-nums font-semibold">{fmt(dv)}</span>
+      <span className="font-data text-[15px] text-foreground text-right tabular-nums">{fmt(mv)}</span>
+      <span className="font-data text-[15px] text-muted-foreground text-right tabular-nums">{fmt(snapshotVal ?? 0)}</span>
+      <span className="font-data text-[15px] text-foreground text-right tabular-nums font-semibold">{fmt(dv)}</span>
       <span className={`font-data text-[12px] text-right tabular-nums flex items-center justify-end gap-1 ${isOk ? "text-emerald-600" : isWarning ? "text-amber-600" : "text-destructive"}`}>
         {isOk ? <CheckCircle className="h-3 w-3" /> : isWarning ? <AlertTriangle className="h-3 w-3" /> : delta < 0 ? <TrendingDown className="h-3 w-3" /> : <TrendingUp className="h-3 w-3" />}
         {delta >= 0 ? "+" : ""}{fmt(delta)} ({deltaPct >= 0 ? "+" : ""}{deltaPct.toFixed(1)}%)
