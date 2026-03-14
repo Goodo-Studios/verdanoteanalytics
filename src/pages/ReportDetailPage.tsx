@@ -10,7 +10,7 @@ import { useRoleNavigate } from "@/hooks/useRolePath";
 import { useMemo, useState, useCallback, useEffect } from "react";
 import { fmtMetric } from "@/lib/formatters";
 import { SectionRenderer } from "@/components/reports/SectionRenderer";
-import { legacySectionsFromReport, ReportSection } from "@/lib/reportSections";
+import { legacySectionsFromReport, standardReportSections, ReportSection } from "@/lib/reportSections";
 import { PortfolioReportView } from "@/components/reports/PortfolioReportView";
 import { CreativeDetailModal } from "@/components/CreativeDetailModal";
 import { supabase } from "@/integrations/supabase/client";

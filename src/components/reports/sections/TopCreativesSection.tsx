@@ -12,7 +12,7 @@ interface TopCreativesSectionProps {
 }
 
 export function TopCreativesSection({ config, report, isEditing, onConfigChange }: TopCreativesSectionProps) {
-  const count = config.count || 6;
+  const count = config.count || 5;
   const sortBy = config.sortBy || "spend";
 
   const performers = useMemo(() => {
