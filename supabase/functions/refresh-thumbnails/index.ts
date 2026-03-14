@@ -255,6 +255,19 @@ serve(async (req) => {
       .order("spend", { ascending: false, nullsFirst: false })
       .limit(MAX_TOTAL);
 
+    // UPGRADE PATH: already cached but full_res_url is missing or same as thumbnail
+    // These were cached before higher-res discovery strategies were added
+    const { data: upgradeThumbsRaw } = await supabase
+      .from("creatives")
+      .select("ad_id, account_id, thumbnail_url")
+      .like("thumbnail_url", `%/storage/v1/object/public/%`)
+      .eq("account_id", resolvedAccountId)
+      .gt("impressions", 0)
+      .or("full_res_url.is.null,full_res_url.eq.thumbnail_url")
+      .order("spend", { ascending: false, nullsFirst: false })
+      .limit(500);
+    const upgradeThumbs = upgradeThumbsRaw || [];
+
     const fastPathThumbs = uncachedThumbs || [];
     const slowPathThumbs = missingThumbs || [];
     const allThumbWork = [...fastPathThumbs, ...slowPathThumbs].slice(0, MAX_TOTAL);
@@ -356,9 +369,9 @@ serve(async (req) => {
       });
     }
 
-    console.log(`[${targetAccount.name}] Discovery: fastThumbs=${fastPathThumbs.length} slowThumbs=${slowPathThumbs.length} missingVideos=${noVideos.length} uncachedVideos=${videos.length} previews=${previews.length}`);
+    console.log(`[${targetAccount.name}] Discovery: fastThumbs=${fastPathThumbs.length} slowThumbs=${slowPathThumbs.length} upgradeThumbs=${upgradeThumbs.length} missingVideos=${noVideos.length} uncachedVideos=${videos.length} previews=${previews.length}`);
 
-    if (thumbsTotal === 0 && videosTotal === 0) {
+    if (thumbsTotal === 0 && videosTotal === 0 && upgradeThumbs.length === 0) {
       console.log(`[${targetAccount.name}] All media already cached — marking complete.`);
       if (logId) {
         await updateLog(supabase, logId, {
@@ -455,6 +468,38 @@ serve(async (req) => {
             thumbCached++;
           }
         }
+      }
+    }
+
+    // ── Phase 2b: Upgrade already-cached thumbnails with better resolution ──
+    let thumbUpgraded = 0;
+    if (!budgetExceeded && upgradeThumbs.length > 0) {
+      console.log(`[${targetAccount.name}] Phase 2b: Upgrading ${upgradeThumbs.length} cached thumbnails...`);
+      for (let i = 0; i < upgradeThumbs.length; i += DISCOVERY_BATCH_SIZE) {
+        if (isOverBudget(invocationStart)) {
+          console.log(`Budget reached during upgrade at ${i}/${upgradeThumbs.length}`);
+          budgetExceeded = true;
+          break;
+        }
+        const batch = upgradeThumbs.slice(i, i + DISCOVERY_BATCH_SIZE);
+        for (const c of batch) {
+          if (isOverBudget(invocationStart)) continue;
+          const freshResult = await discoverImageUrl(c.ad_id, c.account_id, META_ACCESS_TOKEN, FETCH_TIMEOUT_MS);
+          if (!freshResult || !freshResult.fullResUrl) continue;
+          const newUrl = freshResult.fullResUrl;
+          const storageUrl = await downloadAndCache(supabase, THUMB_BUCKET, c.account_id, c.ad_id, newUrl, "image");
+          if (storageUrl) {
+            await supabase.from("creatives").update({
+              thumbnail_url: storageUrl,
+              full_res_url: storageUrl,
+              thumbnail_storage_path: `${c.account_id}/${c.ad_id}`,
+            }).eq("ad_id", c.ad_id);
+            thumbUpgraded++;
+          }
+        }
+      }
+      if (thumbUpgraded > 0) {
+        console.log(`[${targetAccount.name}] Upgraded ${thumbUpgraded}/${upgradeThumbs.length} thumbnails to higher resolution`);
       }
     }
 
@@ -585,7 +630,7 @@ serve(async (req) => {
 
     console.log(
       `[${targetAccount.name}] Done — ` +
-      `Thumbs: ${thumbCached} cached, ${thumbFailed} failed, ${thumbsRemaining} remaining | ` +
+      `Thumbs: ${thumbCached} cached, ${thumbFailed} failed, ${thumbUpgraded} upgraded, ${thumbsRemaining} remaining | ` +
       `Videos fetched: ${videosFetched}, cached: ${videoCached}, failed: ${videoFailed}, ${videosRemaining} remaining | ` +
       `Previews: ${previewsFetched}/${previews.length} | ` +
       `Budget exceeded: ${budgetExceeded}`
