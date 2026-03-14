@@ -9,7 +9,6 @@ import {
   FileText,
   Zap,
   LogOut,
-  UserCog,
   Tags,
   Eye,
   ListChecks,
@@ -34,6 +33,7 @@ const baseNavItems = [
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Tagging", url: "/tagging", icon: Tags },
   { title: "Reports", url: "/reports", icon: FileText },
+  { title: "Settings", url: "/settings", icon: Settings },
 ];
 
 const clientNavItems = [
@@ -42,6 +42,7 @@ const clientNavItems = [
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
   { title: "Reports", url: "/reports", icon: FileText },
+  { title: "Settings", url: "/settings", icon: Settings },
 ];
 
 export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void; onTakeTour?: () => void }) {
@@ -57,7 +58,7 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
   const effectiveEmployee = isEmployeePreview;
 
   const showSwitcher = !effectiveClient || accounts.length > 1;
-  const showSettings = !effectiveClient && !effectiveEmployee;
+  
   const agencyNavItems = [
     { title: "Overview", url: "/agency", icon: LayoutGrid },
   ];
@@ -160,34 +161,9 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
             {item.title}
           </NavLink>
         ))}
-        {showSettings && (
-          <NavLink
-            to={`${prefix}/settings`}
-            className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent"
-            activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
-            onClick={onNavigate}
-          >
-            <Settings className="h-4 w-4 flex-shrink-0" />
-            Settings
-          </NavLink>
-        )}
       </nav>
 
-      {/* Footer */}
       <div className="mx-5 border-t border-input" />
-      {!effectiveClient && (
-        <div className="px-3 pt-3 pb-1">
-          <NavLink
-            to={`${prefix}/user-settings`}
-            className="flex items-center gap-3 rounded-md px-3 py-2 font-body text-[13px] text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent"
-            activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
-            onClick={onNavigate}
-          >
-            <UserCog className="h-4 w-4 flex-shrink-0" />
-            User Settings
-          </NavLink>
-        </div>
-      )}
       {/* Preview mode indicator for builders */}
       {isBuilder && previewRole && (
         <div className="px-3 pb-1">

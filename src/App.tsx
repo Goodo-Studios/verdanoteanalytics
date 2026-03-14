@@ -30,7 +30,7 @@ const ReportDetailPage = lazy(() => import("./pages/ReportDetailPage"));
 const ReportBuilderPage = lazy(() => import("./pages/ReportBuilderPage"));
 const PublicReportPage = lazy(() => import("./pages/PublicReportPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
-const UserSettingsPage = lazy(() => import("./pages/UserSettingsPage"));
+
 const BriefsPage = lazy(() => import("./pages/BriefsPage"));
 const PublicBriefPage = lazy(() => import("./pages/PublicBriefPage"));
 const AgencyDashboardPage = lazy(() => import("./pages/AgencyDashboardPage"));
@@ -114,8 +114,8 @@ function RoleGuardedRoutes() {
           <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : <ReportsPage />} />
           <Route path="/reports/:id" element={<ReportDetailPage />} />
           <Route path="/reports/:id/build" element={<ReportBuilderPage />} />
-          <Route path="/settings" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <SettingsPage />} />
-          <Route path="/user-settings" element={<UserSettingsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/user-settings" element={<Navigate to={`${prefix}/settings`} replace />} />
           
           <Route path="/briefs" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <BriefsPage />} />
           
