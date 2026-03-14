@@ -186,7 +186,7 @@ function TopPerformers({ creatives, benchmarks, minSpend, onCreativeClick }: Top
                         </TooltipProvider>
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
-                        <span className="font-data text-[18px] font-semibold text-verdant">{val.toFixed(2)}%</span>
+                        <span className="font-data text-[17px] font-semibold text-verdant">{val.toFixed(2)}%</span>
                         <span className="font-data text-[17px] font-medium text-slate">${(Number(c.spend) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                       </div>
                     </div>
@@ -250,7 +250,7 @@ function IterationCard({ item, onClick }: { item: DiagnosedCreative; onClick?: (
             <MetricDot level={item.ctrLevel} />
             <div>
               <p className="font-label text-[9px] uppercase tracking-[0.05em] text-sage">CTR</p>
-              <p className="font-data text-[18px] font-semibold text-charcoal">{item.ctr.toFixed(2)}%</p>
+              <p className="font-data text-[17px] font-semibold text-charcoal">{item.ctr.toFixed(2)}%</p>
             </div>
           </div>
         ) : (
@@ -263,7 +263,7 @@ function IterationCard({ item, onClick }: { item: DiagnosedCreative; onClick?: (
               <MetricDot level={m.level} />
               <div>
                 <p className="font-label text-[9px] uppercase tracking-[0.05em] text-sage">{m.label}</p>
-                <p className="font-data text-[18px] font-semibold text-charcoal">{m.value.toFixed(2)}%</p>
+                <p className="font-data text-[17px] font-semibold text-charcoal">{m.value.toFixed(2)}%</p>
               </div>
             </div>
           ))

@@ -25,8 +25,8 @@ export function TopCreativesSection({ creatives, count = 5, sortBy = "spend", on
   }
 
   return (
-    <div className="bg-white border border-border-light rounded-[8px] p-5">
-      <h2 className="font-heading text-[18px] text-forest mb-4">Top Creatives by {sortBy.toUpperCase()}</h2>
+    <div className="bg-card border border-border-light rounded-[8px] p-5">
+      <h2 className="font-heading text-[18px] text-foreground mb-4">Top Creatives by {sortBy.toUpperCase()}</h2>
       <div className="space-y-3">
         {top.map((c: any, i: number) => (
           <div key={c.ad_id} className={cn("flex items-center gap-3", onCreativeClick && "cursor-pointer hover:bg-sage-light/50 -mx-2 px-2 py-1 rounded-[6px] transition-colors")} onClick={() => onCreativeClick?.(c)}>

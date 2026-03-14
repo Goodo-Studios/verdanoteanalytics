@@ -110,9 +110,9 @@ export function CreativeIterationAnalysis({ creative, allCreatives }: Props) {
       <div>
         <div className="flex items-center gap-2 mb-3">
           <Lightbulb className="h-4 w-4 text-primary" />
-          <h3 className="text-sm font-semibold">Iteration Analysis</h3>
+          <h3 className="font-heading text-[15px] text-foreground">Iteration Analysis</h3>
         </div>
-        <p className="text-xs text-muted-foreground">Need at least 3 creatives with spend to generate analysis.</p>
+        <p className="font-body text-[12px] text-muted-foreground">Need at least 3 creatives with spend to generate analysis.</p>
       </div>
     );
   }
@@ -121,7 +121,7 @@ export function CreativeIterationAnalysis({ creative, allCreatives }: Props) {
     <div>
       <div className="flex items-center gap-2 mb-3">
         <Lightbulb className="h-4 w-4 text-primary" />
-        <h3 className="text-sm font-semibold">Iteration Analysis</h3>
+        <h3 className="font-heading text-[15px] text-foreground">Iteration Analysis</h3>
       </div>
 
       {/* Performance vs benchmarks */}
@@ -130,20 +130,20 @@ export function CreativeIterationAnalysis({ creative, allCreatives }: Props) {
           <>
             <div className="rounded-md border p-2 space-y-1">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Hook</span>
+                <span className="font-label text-[10px] uppercase tracking-wider text-muted-foreground">Hook</span>
                 <LevelIcon level={analysis.hookLevel} />
               </div>
-              <p className="text-sm font-medium">{analysis.hookRate.toFixed(1)}%</p>
+              <p className="font-data text-[17px] font-semibold text-foreground">{analysis.hookRate.toFixed(1)}%</p>
               <Badge variant="outline" className={`text-[10px] ${levelColor(analysis.hookLevel)}`}>
                 {analysis.hookLevel}
               </Badge>
             </div>
             <div className="rounded-md border p-2 space-y-1">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Hold</span>
+                <span className="font-label text-[10px] uppercase tracking-wider text-muted-foreground">Hold</span>
                 <LevelIcon level={analysis.holdLevel} />
               </div>
-              <p className="text-sm font-medium">{analysis.holdRate.toFixed(1)}%</p>
+              <p className="font-data text-[17px] font-semibold text-foreground">{analysis.holdRate.toFixed(1)}%</p>
               <Badge variant="outline" className={`text-[10px] ${levelColor(analysis.holdLevel)}`}>
                 {analysis.holdLevel}
               </Badge>
@@ -152,10 +152,10 @@ export function CreativeIterationAnalysis({ creative, allCreatives }: Props) {
         )}
         <div className={`rounded-md border p-2 space-y-1 ${analysis.isImage ? "col-span-3" : ""}`}>
           <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">CTR</span>
+            <span className="font-label text-[10px] uppercase tracking-wider text-muted-foreground">CTR</span>
             <LevelIcon level={analysis.ctrLevel} />
           </div>
-          <p className="text-sm font-medium">{analysis.ctr.toFixed(2)}%</p>
+          <p className="font-data text-[17px] font-semibold text-foreground">{analysis.ctr.toFixed(2)}%</p>
           <Badge variant="outline" className={`text-[10px] ${levelColor(analysis.ctrLevel)}`}>
             {analysis.ctrLevel}
           </Badge>
@@ -165,10 +165,10 @@ export function CreativeIterationAnalysis({ creative, allCreatives }: Props) {
       {/* Recommendations */}
       {analysis.recommendations.length > 0 && (
         <div className="mb-3">
-          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-2">Recommendations</p>
+          <p className="font-label text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Recommendations</p>
           <ul className="space-y-1.5">
             {analysis.recommendations.map((r, i) => (
-              <li key={i} className="text-xs leading-relaxed flex gap-2">
+               <li key={i} className="font-body text-[12px] leading-relaxed flex gap-2">
                 <span className="text-primary mt-0.5">•</span>
                 <span>{r}</span>
               </li>
@@ -180,10 +180,10 @@ export function CreativeIterationAnalysis({ creative, allCreatives }: Props) {
       {/* Tag insights */}
       {analysis.tagInsights.length > 0 && (
         <div>
-          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-2">Tag Comparisons</p>
+          <p className="font-label text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Tag Comparisons</p>
           <ul className="space-y-1.5">
             {analysis.tagInsights.map((t, i) => (
-              <li key={i} className="text-xs leading-relaxed flex gap-2">
+              <li key={i} className="font-body text-[12px] leading-relaxed flex gap-2">
                 <span className="text-primary mt-0.5">•</span>
                 <span>{t}</span>
               </li>

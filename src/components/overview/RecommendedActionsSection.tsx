@@ -39,8 +39,8 @@ export function RecommendedActionsSection({ creatives, wowTrends, fatigueMap, ki
   };
 
   return (
-    <div className="bg-white border border-border-light rounded-[8px] p-5">
-      <h2 className="font-heading text-[18px] text-forest mb-4">Recommended Actions</h2>
+    <div className="bg-card border border-border-light rounded-[8px] p-5">
+      <h2 className="font-heading text-[18px] text-foreground mb-4">Recommended Actions</h2>
       <div className="flex flex-wrap gap-3">
         {ACTIONS.map(({ key, label, verb, icon: Icon, color, bg, hoverBg }) => {
           const count = counts[key].length;

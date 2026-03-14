@@ -67,7 +67,7 @@ export function AdAccountsSection({ accounts, syncPending, onSyncAll, onRefreshA
                     <div className="font-data text-[11px] text-sage tracking-wide">{acc.id}</div>
                   </TableCell>
                   <TableCell className="py-3.5">
-                    <span className="font-data text-[16px] font-semibold text-charcoal">{acc.creative_count}</span>
+                    <span className="font-data text-[17px] font-semibold text-charcoal">{acc.creative_count}</span>
                   </TableCell>
                   <TableCell className="text-right py-3.5">
                     <Button size="sm" variant="ghost" className="text-sage hover:text-forest" onClick={() => onRename({ id: acc.id, name: acc.name })} title="Rename">

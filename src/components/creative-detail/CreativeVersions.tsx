@@ -143,8 +143,8 @@ function LinkVersionModal({ creative, open, onClose }: { creative: any; open: bo
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{r.ad_name}</p>
-                <p className="text-xs text-muted-foreground">
+                 <p className="font-body text-[13px] font-medium text-foreground truncate">{r.ad_name}</p>
+                 <p className="font-body text-[11px] text-muted-foreground">
                   v{r.version || 1} · {new Date(r.created_at).toLocaleDateString()}
                 </p>
               </div>

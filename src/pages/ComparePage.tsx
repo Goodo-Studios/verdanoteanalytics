@@ -243,7 +243,7 @@ const ComparePage = () => {
                         return (
                           <div key={m.key} className="flex items-center justify-between">
                             <span className="font-label text-[10px] uppercase tracking-[0.04em] text-sage">{m.label}</span>
-                            <span className={cn("font-data text-[16px] font-semibold tabular-nums", colorClass)}>
+                            <span className={cn("font-data text-[17px] font-semibold tabular-nums", colorClass)}>
                               {m.format(val)}
                             </span>
                           </div>

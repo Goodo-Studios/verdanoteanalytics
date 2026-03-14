@@ -27,7 +27,7 @@ export function TaggingProgressBar({ creatives, total, onAutoTagAll, isAutoTaggi
     <div className="border border-border rounded-lg p-4 bg-card space-y-2">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="font-data text-[16px] font-semibold tabular-nums text-foreground">
+          <span className="font-data text-[17px] font-semibold tabular-nums text-foreground">
             {stats.tagged} / {total}
           </span>
           <span className="font-body text-[13px] text-muted-foreground">creatives tagged</span>
