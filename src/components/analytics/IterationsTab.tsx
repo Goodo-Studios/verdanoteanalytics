@@ -165,7 +165,7 @@ function TopPerformers({ creatives, benchmarks, minSpend, onCreativeClick }: Top
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
                         <span className="font-data text-[17px] font-semibold text-verdant">{section.format === "dollar" ? `$${val.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : `${val.toFixed(2)}%`}</span>
-                        <span className="font-data text-[17px] font-medium text-slate">${(Number(c.spend) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                        {section.format !== "dollar" && <span className="font-data text-[17px] font-medium text-slate">${(Number(c.spend) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-x-3 gap-y-1">
