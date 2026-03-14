@@ -57,7 +57,7 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
   const effectiveEmployee = isEmployeePreview;
 
   const showSwitcher = !effectiveClient || accounts.length > 1;
-  const showSettings = !effectiveClient && !effectiveEmployee;
+  const showSettings = !effectiveClient;
   const agencyNavItems = [
     { title: "Overview", url: "/agency", icon: LayoutGrid },
   ];
