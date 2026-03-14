@@ -30,7 +30,7 @@ export function TrendSection({ trend }: TrendSectionProps) {
         <div className="text-muted-foreground font-data text-[17px]">vs</div>
         <div>
           <span className="font-label text-[9px] uppercase tracking-wider text-muted-foreground">Prior Week</span>
-          <p className="font-data text-[16px] font-semibold text-foreground">{fmtRoas(trend.priorWeekRoas)}</p>
+          <p className="font-data text-[17px] font-semibold text-foreground">{fmtRoas(trend.priorWeekRoas)}</p>
         </div>
         <div>
           <span className="font-label text-[9px] uppercase tracking-wider text-muted-foreground">Change</span>
