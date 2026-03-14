@@ -39,7 +39,7 @@ export function TagPerformanceSection({ creatives }: Props) {
 
   if (tagGroups.length === 0) {
     return (
-      <div className="bg-white border border-border-light rounded-[8px] p-5 text-center">
+      <div className="bg-card border border-border-light rounded-[8px] p-5 text-center">
         <p className="font-body text-[13px] text-sage">No tagged creatives with spend data.</p>
       </div>
     );
