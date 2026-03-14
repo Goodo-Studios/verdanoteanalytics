@@ -613,10 +613,12 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     if (phase === 2) {
       const endDate = new Date();
 
-      // ── CHANGE 2: Use incremental date range when available ──────────────
-      // If we have a last_data_sync date, only fetch data since then.
-      // Fall back to full dateRangeDays for initial syncs or missing timestamp.
-      // On resume (cursor present), skip date recalculation and use saved URL directly.
+      // ── Phase 2 ALWAYS uses the full date range ──────────────────────────
+      // Phase 2 writes aggregated totals to the creatives table (spend, roas, etc.).
+      // Using an incremental window would OVERWRITE full-period totals with partial
+      // values, causing spend discrepancies vs Meta Ads Manager.
+      // Incremental optimization is only safe for Phase 4 (daily metrics) where
+      // data is additive per-day and keyed by (ad_id, date).
       let phase2TimeRange: string;
       let phase2SinceDate: string;
       if (state.insights_cursor) {
@@ -624,18 +626,13 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         phase2TimeRange = state.insights_time_range || "";
         phase2SinceDate = state.insights_since_date || "";
         console.log(`Phase 2 resuming from cursor — time range: ${phase2TimeRange}`);
-      } else if (incrementalSinceDate) {
-        // Incremental: fetch only since last sync
-        phase2SinceDate = incrementalSinceDate;
-        phase2TimeRange = JSON.stringify({ since: phase2SinceDate, until: endDate.toISOString().split("T")[0] });
-        console.log(`Phase 2 incremental: ${phase2SinceDate} → ${endDate.toISOString().split("T")[0]}`);
       } else {
-        // Initial / full sync: use full date range
+        // Always use full date range for snapshot accuracy
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - dateRangeDays);
         phase2SinceDate = startDate.toISOString().split("T")[0];
         phase2TimeRange = JSON.stringify({ since: phase2SinceDate, until: endDate.toISOString().split("T")[0] });
-        console.log(`Phase 2 full: ${phase2SinceDate} → ${endDate.toISOString().split("T")[0]}`);
+        console.log(`Phase 2 full: ${phase2SinceDate} → ${endDate.toISOString().split("T")[0]} (always full range for snapshot accuracy)`);
       }
       // ────────────────────────────────────────────────────────────────────
 
