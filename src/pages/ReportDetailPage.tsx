@@ -288,7 +288,7 @@ const ReportDetailPage = () => {
                               {p.unique_code && <div className="text-xs font-data text-muted-foreground mt-0.5">{p.unique_code}</div>}
                             </div>
                           </div>
-                          <div className="flex items-center gap-6 font-mono text-sm">
+                          <div className="flex items-center gap-6 font-data text-sm">
                             <div className="text-right">
                               <div className="text-xs text-muted-foreground">ROAS</div>
                               <div>{fmt(p.roas, "", "x")}</div>
