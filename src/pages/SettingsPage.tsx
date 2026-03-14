@@ -134,7 +134,7 @@ const SettingsPage = () => {
             savingPassword={userState.savingPassword}
             onChangePassword={userState.handleChangePassword}
           />
-          {isBuilder && <AgencyHomeToggle />}
+          {effectiveIsBuilder && <AgencyHomeToggle />}
         </div>
       )}
 
