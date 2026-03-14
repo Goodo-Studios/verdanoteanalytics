@@ -65,7 +65,7 @@ const ReportsPage = () => {
   const [reportName, setReportName] = useState("");
   const [accountId, setAccountId] = useState("");
   const [dateStart, setDateStart] = useState<Date>(subDays(new Date(), 7));
-  const [dateEnd, setDateEnd] = useState<Date>(new Date());
+  const [dateEnd, setDateEnd] = useState<Date>(subDays(new Date(), 1));
   const [activeTab, setActiveTab] = useState("reports");
   const navigate = useRoleNavigate();
 
