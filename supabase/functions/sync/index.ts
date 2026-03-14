@@ -699,63 +699,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         if (nextUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
       }
 
-      // ── CHANGE 2: Fallback to full window if incremental returned nothing ──
-      if (incrementalReturnedZero && !isTimedOut()) {
-        console.log(`Falling back to full ${dateRangeDays}-day window for ${account.name}...`);
-        const fallbackStart = new Date();
-        fallbackStart.setDate(fallbackStart.getDate() - dateRangeDays);
-        const fallbackTimeRange = JSON.stringify({
-          since: fallbackStart.toISOString().split("T")[0],
-          until: endDate.toISOString().split("T")[0],
-        });
-        let fallbackUrl: string | null =
-          `https://graph.facebook.com/${META_API_VERSION}/${accountId}/insights?` +
-          `time_range=${encodeURIComponent(fallbackTimeRange)}&level=ad` +
-          `&fields=${insightsFields}` +
-          `&${attributionSetting}` +
-          `&limit=${insightsPageSize}&access_token=${encodeURIComponent(metaToken)}`;
-
-        while (fallbackUrl && !isTimedOut()) {
-          await heartbeat();
-          const result = await metaFetch(fallbackUrl, ctx);
-          if (result.error) break;
-          if (result.data && result.data.length > 0) {
-            const BATCH_SIZE = 500;
-            const metricRows = result.data.map((row: any) => ({ ad_id: row.ad_id, ...parseInsightsRow(row) }));
-
-            // Auto-create missing creatives in fallback path too
-            const fbAdIds = [...new Set(metricRows.map((r: any) => r.ad_id))];
-            const { data: fbExisting } = await supabase
-              .from("creatives").select("ad_id").eq("account_id", accountId).in("ad_id", fbAdIds);
-            const fbSet = new Set((fbExisting || []).map((e: any) => e.ad_id));
-            const fbMissing = fbAdIds.filter((id: string) => !fbSet.has(id));
-            if (fbMissing.length > 0) {
-              await supabase.from("creatives").upsert(
-                fbMissing.map((adId: string) => ({ ad_id: adId, account_id: accountId, ad_name: adId, platform: "meta", tag_source: "untagged" })),
-                { onConflict: "ad_id", ignoreDuplicates: true }
-              );
-              console.log(`  Fallback auto-created ${fbMissing.length} missing creatives`);
-            }
-
-            for (let i = 0; i < metricRows.length; i += BATCH_SIZE) {
-              const batch = metricRows.slice(i, i + BATCH_SIZE);
-              const { error } = await supabase.rpc("bulk_update_creative_metrics", { payload: JSON.stringify(batch) });
-              if (error) console.error("Phase 2 fallback RPC error:", error.message);
-              if (isTimedOut()) break;
-            }
-            insightsCount += result.data.length;
-            console.log(`  Fallback insights upserted: ${insightsCount}`);
-          }
-          fallbackUrl = result.next;
-          if (fallbackUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
-        }
-        if (fallbackUrl && isTimedOut()) {
-          console.log(`Phase 2 fallback paused at ${insightsCount} insights`);
-          await saveState(2, { insights_cursor: fallbackUrl, insights_count: insightsCount, insights_time_range: fallbackTimeRange, insights_since_date: fallbackStart.toISOString().split("T")[0] });
-          return;
-        }
-      }
-      // ────────────────────────────────────────────────────────────────────
+      // (Incremental fallback removed — Phase 2 now always uses full date range)
 
       if (nextUrl && isTimedOut()) {
         console.log(`Phase 2 paused at ${insightsCount} insights`);
