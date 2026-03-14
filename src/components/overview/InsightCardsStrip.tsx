@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { computeFatigueMap, type FatigueResult } from "@/lib/fatigueScore";
 import { useRoleNavigate } from "@/hooks/useRolePath";
+import { fmt$ } from "@/lib/formatters";
 
 /* ── Types ─────────────────────────────────── */
 
