@@ -317,7 +317,7 @@ const ReportsPage = () => {
                 <span className="font-body text-[13px] text-sage">to</span>
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" className={cn("h-9 flex-1 justify-start border-border-light rounded-[4px]", !dateEnd ? "font-body text-[14px] text-muted-foreground" : "font-data text-[14px] font-medium text-charcoal")}>
+                    <Button variant="outline" className={cn("h-9 flex-1 justify-start border-border-light rounded-[4px]", !dateEnd ? "font-body text-[14px] text-muted-foreground" : "font-data text-[15px] font-medium text-charcoal")}>
                       <CalendarIcon className="h-3.5 w-3.5 mr-1.5 text-sage" />
                       {dateEnd ? format(dateEnd, "MMM d, yyyy") : "End"}
                     </Button>
