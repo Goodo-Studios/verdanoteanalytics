@@ -163,9 +163,9 @@ const HEARTBEAT_INTERVAL_MS = 20 * 1000;
 async function selfContinue(): Promise<void> {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_PUBLISHABLE_KEY");
-    if (!supabaseUrl || !anonKey) {
-      console.warn("selfContinue: missing SUPABASE_URL or anon key — falling back to cron");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !serviceKey) {
+      console.warn("selfContinue: missing env vars — falling back to cron");
       return;
     }
     // Fire-and-forget: don't await the full response, just ensure the request is sent
@@ -173,7 +173,7 @@ async function selfContinue(): Promise<void> {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${anonKey}`,
+        "Authorization": `Bearer ${serviceKey}`,
       },
       body: JSON.stringify({ time: new Date().toISOString() }),
     }).catch((err) => {
