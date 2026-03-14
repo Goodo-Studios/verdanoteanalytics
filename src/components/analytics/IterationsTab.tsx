@@ -354,54 +354,6 @@ export function IterationsTab({ creatives, spendThreshold, onCreativeClick }: It
           {/* Filter controls */}
           <div className="flex flex-wrap gap-3 items-end">
             <div className="space-y-1">
-              <label className="font-label text-[10px] uppercase tracking-[0.05em] text-slate">Diagnostic</label>
-              <Select value={diagnosticFilter} onValueChange={(v) => setDiagnosticFilter(v as any)}>
-                <SelectTrigger className="w-[180px] h-8 font-body text-[13px] text-charcoal">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {DIAGNOSTIC_FILTERS.map((f) => (
-                    <SelectItem key={f.value} value={f.value} className="font-body text-[13px]">
-                      {f.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1">
-              <label className="font-label text-[10px] uppercase tracking-[0.05em] text-slate">Status</label>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[140px] h-8 font-body text-[13px] text-charcoal">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {STATUS_FILTERS.map((f) => (
-                    <SelectItem key={f.value} value={f.value} className="font-body text-[13px]">
-                      {f.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1">
-              <label className="font-label text-[10px] uppercase tracking-[0.05em] text-slate">Sort By</label>
-              <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortKey)}>
-                <SelectTrigger className="w-[160px] h-8 font-body text-[13px] text-charcoal">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SORT_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value} className="font-body text-[13px]">
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1">
               <label className="font-label text-[10px] uppercase tracking-[0.05em] text-slate">Min Spend ($)</label>
               <Input
                 type="number"
