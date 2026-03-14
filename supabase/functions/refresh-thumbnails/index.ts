@@ -304,16 +304,22 @@ serve(async (req) => {
       }
     }
 
-    // Videos needing discovery (null or sentinel)
-    const { data: missingVideos } = await supabase
+    // Videos needing discovery (null or sentinel) — exclude known static ad types
+    const { data: missingVideosRaw } = await supabase
       .from("creatives")
-      .select("ad_id, account_id")
+      .select("ad_id, account_id, ad_type, ad_name")
       .or("video_url.is.null,video_url.eq.no-video")
       .eq("account_id", resolvedAccountId)
       .gt("video_views", 0)
       .gt("impressions", 0)
       .order("spend", { ascending: false, nullsFirst: false })
       .limit(2000);
+    // Filter out static ad types that can't have real videos
+    const STATIC_AD_TYPES = ["Static Image", "Graphic", "Image"];
+    const missingVideos = (missingVideosRaw || []).filter((c: any) => {
+      if (STATIC_AD_TYPES.includes(c.ad_type)) return false;
+      return true;
+    });
 
     // FIX: Videos with existing CDN URLs — skip re-discovery, just download directly
     const { data: uncachedVideos } = await supabase
