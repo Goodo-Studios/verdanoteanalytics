@@ -269,7 +269,7 @@ const ComparePage = () => {
                           <span className={cn("font-label text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-[3px]", meta.color)}>{meta.label}</span>
                           <span className={cn(
                             "font-label text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-[3px]",
-                            d.priorityLabel === "High" ? "bg-red-100 text-red-700" : d.priorityLabel === "Medium" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"
+                            d.priorityLabel === "High" ? "bg-destructive/10 text-destructive" : d.priorityLabel === "Medium" ? "bg-warning/10 text-warning" : "bg-muted text-muted-foreground"
                           )}>{d.priorityLabel}</span>
                         </div>
                         <p className="font-body text-[12px] text-slate">{d.recommendation}</p>
