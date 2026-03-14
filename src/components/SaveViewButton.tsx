@@ -54,7 +54,7 @@ export function SaveViewButton({ getConfig }: SaveViewButtonProps) {
           Save View
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[280px] p-4 bg-white border border-border-light rounded-[8px] shadow-card" align="end">
+      <PopoverContent className="w-[280px] p-4 bg-card border border-border-light rounded-[8px] shadow-card" align="end">
         <div className="space-y-3">
           <Label className="font-body text-[13px] font-medium text-charcoal">View name</Label>
           <Input

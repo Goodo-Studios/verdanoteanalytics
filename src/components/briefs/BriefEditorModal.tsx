@@ -111,7 +111,7 @@ export function BriefEditorModal({ brief, open, onClose, onStatusChange, onCopyS
               <Badge className={cn("cursor-pointer font-label text-[9px] uppercase", statusObj.color)}>
                 {statusObj.label} <ChevronDown className="h-3 w-3 ml-0.5" />
               </Badge>
-              <div className="absolute right-0 top-full mt-1 bg-white border border-border-light rounded-md shadow-modal p-1 hidden group-hover:block z-20 min-w-[120px]">
+              <div className="absolute right-0 top-full mt-1 bg-card border border-border-light rounded-md shadow-modal p-1 hidden group-hover:block z-20 min-w-[120px]">
                 {STATUS_OPTIONS.map((s) => (
                   <button
                     key={s.value}
