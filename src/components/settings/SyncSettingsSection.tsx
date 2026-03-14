@@ -196,7 +196,7 @@ export function SyncSettingsSection({
           </div>
           <div className="space-y-2">
             <Label className="font-body text-[14px] font-medium text-kill">Kill Threshold</Label>
-            <Input type="number" value={killThreshold} onChange={(e) => setKillThreshold(e.target.value)} step="0.1" min="0" className="bg-background font-data text-[15px] font-medium text-charcoal" />
+            <Input type="number" value={killThreshold} onChange={(e) => setKillThreshold(e.target.value)} step="0.1" min="0" className="bg-background font-data text-[17px] font-medium text-charcoal" />
             <p className="font-body text-[12px] text-sage">
               {ksIsGte ? `${ksKpiLabel} < this → Kill` : `${ksKpiLabel} > this → Kill`}
             </p>
