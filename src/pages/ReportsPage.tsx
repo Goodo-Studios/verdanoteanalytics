@@ -280,7 +280,7 @@ const ReportsPage = () => {
       })()}
       {/* Generate Dialog */}
       <Dialog open={showGenerate} onOpenChange={setShowGenerate}>
-        <DialogContent className="max-w-md bg-white rounded-[8px] shadow-modal p-7">
+        <DialogContent className="max-w-md bg-card rounded-[8px] shadow-modal p-7">
           <DialogHeader>
             <DialogTitle className="font-heading text-[22px] text-forest">Generate Report</DialogTitle>
             <DialogDescription className="font-body text-[13px] text-slate font-light">Create a new snapshot report of your creative performance.</DialogDescription>
