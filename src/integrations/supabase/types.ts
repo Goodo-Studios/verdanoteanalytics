@@ -1085,6 +1085,33 @@ export type Database = {
           },
         ]
       }
+      health_checks: {
+        Row: {
+          checked_at: string
+          duration_ms: number | null
+          findings: Json
+          id: number
+          status: string
+          summary: Json
+        }
+        Insert: {
+          checked_at?: string
+          duration_ms?: number | null
+          findings?: Json
+          id?: never
+          status?: string
+          summary?: Json
+        }
+        Update: {
+          checked_at?: string
+          duration_ms?: number | null
+          findings?: Json
+          id?: never
+          status?: string
+          summary?: Json
+        }
+        Relationships: []
+      }
       hooks: {
         Row: {
           account_id: string | null
