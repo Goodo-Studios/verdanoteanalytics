@@ -20,7 +20,7 @@ import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { SyncHistorySection } from "@/components/settings/SyncHistorySection";
 import { ApiKeysSection } from "@/components/settings/ApiKeysSection";
 import { useAuth } from "@/contexts/AuthContext";
-import { AlertsConfigSection } from "@/components/user-settings/AlertsConfigSection";
+
 
 const UserSettingsPage = () => {
   const s = useUserSettingsPageState();
