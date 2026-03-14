@@ -253,8 +253,8 @@ const ReportDetailPage = () => {
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
                   {metrics.map((m) => (
                     <div key={m.label} className="glass-panel p-4 text-center space-y-1">
-                      <div className="metric-label text-xs uppercase tracking-wider">{m.label}</div>
-                      <div className="text-xl font-semibold font-mono">{m.value}</div>
+                      <div className="font-label text-[10px] uppercase tracking-wider text-muted-foreground">{m.label}</div>
+                      <div className="font-data text-[20px] font-semibold text-foreground tabular-nums">{m.value}</div>
                       {prev && m.current !== undefined && (
                         <DeltaBadge
                           current={m.current ?? null}

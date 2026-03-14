@@ -273,7 +273,7 @@ function IterationCard({ item, onClick }: { item: DiagnosedCreative; onClick?: (
       {/* Context row */}
       <div className="flex flex-wrap gap-x-4 gap-y-1">
         <span className="font-body text-[11px] text-sage">Spend: <span className="font-data text-[12px] font-medium text-charcoal">${item.spend.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span></span>
-        <span className="font-body text-[11px] text-sage">ROAS: <span className="font-data text-[12px] font-medium text-charcoal">{item.roas.toFixed(2)}</span></span>
+        <span className="font-body text-[11px] text-sage">ROAS: <span className="font-data text-[12px] font-medium text-charcoal">{item.roas.toFixed(2)}x</span></span>
         <span className="font-body text-[11px] text-sage">CPA: <span className="font-data text-[12px] font-medium text-charcoal">${item.cpa.toFixed(2)}</span></span>
         <span className="font-body text-[11px] text-sage">Frequency: <span className="font-data text-[12px] font-medium text-charcoal">{item.frequency.toFixed(1)}</span></span>
       </div>
