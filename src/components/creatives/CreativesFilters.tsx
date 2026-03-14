@@ -34,25 +34,10 @@ export function CreativesFilters({
 }: CreativesFiltersProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const activeCount = Object.entries(filters).filter(([, v]) => v && v !== "__all__").length
-    + (momentumFilter && momentumFilter !== "__all__" ? 1 : 0)
-    + (fatigueFilter && fatigueFilter !== "__all__" ? 1 : 0)
-    + (platformFilter && platformFilter !== "__all__" ? 1 : 0);
+  const activeCount = Object.entries(filters).filter(([k, v]) => v && v !== "__all__" && k !== "tag_source").length;
 
   const filterControls = (
     <>
-      {onPlatformChange && (
-        <Select value={platformFilter || "__all__"} onValueChange={onPlatformChange}>
-          <SelectTrigger className={`w-full sm:w-28 h-8 font-body text-[12px] font-medium bg-background rounded-[6px] border ${platformFilter && platformFilter !== "__all__" ? "border-verdant text-forest bg-sage-light" : "border-border-light text-slate"}`}>
-            <SelectValue placeholder="Platform" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">All platforms</SelectItem>
-            <SelectItem value="meta">Meta</SelectItem>
-            <SelectItem value="tiktok">TikTok</SelectItem>
-          </SelectContent>
-        </Select>
-      )}
       {filterOptions && (
         <>
           {(["ad_type", "person", "style", "hook"] as const).map((field) => (
@@ -68,44 +53,6 @@ export function CreativesFilters({
               </SelectContent>
             </Select>
           ))}
-          <Select value={filters.tag_source || "__all__"} onValueChange={(v) => updateFilter("tag_source", v)}>
-            <SelectTrigger className={`w-full sm:w-32 h-8 font-body text-[12px] font-medium bg-background rounded-[6px] border ${filters.tag_source && filters.tag_source !== "__all__" ? "border-verdant text-forest bg-sage-light" : "border-border-light text-slate"}`}><SelectValue placeholder="Tag source" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">All sources</SelectItem>
-              <SelectItem value="parsed">Parsed</SelectItem>
-              <SelectItem value="csv_match">CSV Match</SelectItem>
-              <SelectItem value="manual">Manual</SelectItem>
-              <SelectItem value="untagged">Untagged</SelectItem>
-            </SelectContent>
-          </Select>
-          {onMomentumChange && (
-            <Select value={momentumFilter || "__all__"} onValueChange={onMomentumChange}>
-              <SelectTrigger className={`w-full sm:w-40 h-8 font-body text-[12px] font-medium bg-background rounded-[6px] border ${momentumFilter && momentumFilter !== "__all__" ? "border-verdant text-forest bg-sage-light" : "border-border-light text-slate"}`}>
-                <SelectValue placeholder="Momentum" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">All momentum</SelectItem>
-                <SelectItem value="gaining">Gaining momentum</SelectItem>
-                <SelectItem value="steady">Holding steady</SelectItem>
-                <SelectItem value="losing">Losing momentum</SelectItem>
-                <SelectItem value="fading">Fading fast</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
-          {onFatigueChange && (
-            <Select value={fatigueFilter || "__all__"} onValueChange={onFatigueChange}>
-              <SelectTrigger className={`w-full sm:w-36 h-8 font-body text-[12px] font-medium bg-background rounded-[6px] border ${fatigueFilter && fatigueFilter !== "__all__" ? "border-verdant text-forest bg-sage-light" : "border-border-light text-slate"}`}>
-                <SelectValue placeholder="Fatigue" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">All fatigue</SelectItem>
-                <SelectItem value="high">🔥 High Fatigue</SelectItem>
-                <SelectItem value="warning">⚠️ Fatiguing</SelectItem>
-                <SelectItem value="forecast">📈 Fatigue soon (7d)</SelectItem>
-                <SelectItem value="ok">Healthy</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
         </>
       )}
       {viewMode === "table" && (
