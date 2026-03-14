@@ -20,7 +20,7 @@ import { ColumnPicker } from "@/components/ColumnPicker";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { RefreshCw, LayoutGrid, List, Loader2, Download, Search, X, Columns, Layers, Bookmark, CalendarDays, SlidersHorizontal } from "lucide-react";
+import { RefreshCw, LayoutGrid, List, Loader2, Download, Search, X, Columns, Layers, CalendarDays, SlidersHorizontal } from "lucide-react";
 import { useMemo, useState, useCallback } from "react";
 import { useRoleNavigate } from "@/hooks/useRolePath";
 import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";

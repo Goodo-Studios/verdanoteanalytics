@@ -26,7 +26,7 @@ import { computeFatigueMap } from "@/lib/fatigueScore";
 import { InsightCardsStrip } from "@/components/overview/InsightCardsStrip";
 import { useRoleNavigate } from "@/hooks/useRolePath";
 import {
-  TrendingUp, Eye, XCircle, ArrowRight, RefreshCw,
+  ArrowRight, RefreshCw,
   Pencil, RotateCcw, Check, Plus,
 } from "lucide-react";
 import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
