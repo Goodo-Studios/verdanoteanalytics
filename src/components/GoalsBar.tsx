@@ -91,7 +91,7 @@ function GoalProgressBar({ goal }: { goal: Goal }) {
         <span className="font-label text-[10px] uppercase tracking-wide text-sage font-medium">
           {label}: {format(target)}
         </span>
-        <span className={cn("font-data text-[14px] font-semibold tabular-nums", 
+        <span className={cn("font-data text-[15px] font-semibold tabular-nums", 
           status === "green" ? "text-verdant" : status === "amber" ? "text-gold" : "text-red-500"
         )}>
           {format(current)}

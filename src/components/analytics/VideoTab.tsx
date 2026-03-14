@@ -299,13 +299,13 @@ export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: Vi
           {sorted.map(c => (
             <TableRow key={c.ad_id} className="cursor-pointer" onClick={() => onCreativeClick?.(c)}>
               <TableCell className="font-body text-[13px] font-medium text-foreground max-w-[200px] truncate">{c.ad_name}</TableCell>
-              <TableCell className="text-right font-data text-[13px] tabular-nums">{pct(c.hook_rate)}</TableCell>
-              <TableCell className="text-right font-data text-[13px] tabular-nums">{pct(c.hold_rate_val)}</TableCell>
-              <TableCell className="text-right font-data text-[13px] tabular-nums">{pct(c.view_to_click)}</TableCell>
-              <TableCell className="text-right font-data text-[13px] tabular-nums">{fmt$(c.cost_per_thruplay)}</TableCell>
-              <TableCell className="text-right font-data text-[13px] tabular-nums">{c.avg_play_time > 0 ? `${c.avg_play_time.toFixed(1)}s` : "—"}</TableCell>
-              <TableCell className="text-right font-data text-[13px] tabular-nums">${c.spend_val.toLocaleString("en-US", { maximumFractionDigits: 0 })}</TableCell>
-              <TableCell className="text-right font-data text-[13px] tabular-nums">{c.roas_val.toFixed(2)}x</TableCell>
+              <TableCell className="text-right font-data text-[15px] tabular-nums">{pct(c.hook_rate)}</TableCell>
+              <TableCell className="text-right font-data text-[15px] tabular-nums">{pct(c.hold_rate_val)}</TableCell>
+              <TableCell className="text-right font-data text-[15px] tabular-nums">{pct(c.view_to_click)}</TableCell>
+              <TableCell className="text-right font-data text-[15px] tabular-nums">{fmt$(c.cost_per_thruplay)}</TableCell>
+              <TableCell className="text-right font-data text-[15px] tabular-nums">{c.avg_play_time > 0 ? `${c.avg_play_time.toFixed(1)}s` : "—"}</TableCell>
+              <TableCell className="text-right font-data text-[15px] tabular-nums">${c.spend_val.toLocaleString("en-US", { maximumFractionDigits: 0 })}</TableCell>
+              <TableCell className="text-right font-data text-[15px] tabular-nums">{c.roas_val.toFixed(2)}x</TableCell>
               <TableCell className="text-center"><GradeBadge grade={c.grade as Grade} /></TableCell>
             </TableRow>
           ))}

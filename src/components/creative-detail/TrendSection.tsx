@@ -27,7 +27,7 @@ export function TrendSection({ trend }: TrendSectionProps) {
           <span className="font-label text-[9px] uppercase tracking-wider text-muted-foreground">This Week</span>
           <p className="font-data text-[16px] font-semibold text-foreground">{fmtRoas(trend.thisWeekRoas)}</p>
         </div>
-        <div className="text-muted-foreground font-data text-[13px]">vs</div>
+        <div className="text-muted-foreground font-data text-[15px]">vs</div>
         <div>
           <span className="font-label text-[9px] uppercase tracking-wider text-muted-foreground">Prior Week</span>
           <p className="font-data text-[16px] font-semibold text-foreground">{fmtRoas(trend.priorWeekRoas)}</p>

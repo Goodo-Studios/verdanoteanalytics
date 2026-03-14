@@ -298,25 +298,22 @@ export function TagInsightsTab({
                         ))}
                       </div>
                     </TableCell>
-                    <TableCell className="font-data text-[13px] font-medium text-charcoal tabular-nums text-right">{row.count}</TableCell>
+                    <TableCell className="font-data text-[15px] font-medium text-charcoal tabular-nums text-right">{row.count}</TableCell>
                     <TableCell className="text-right">
                       <div className="relative inline-flex items-center justify-end min-w-[120px]">
-                        <div className="absolute inset-y-0 left-0 rounded-[2px] bg-verdant/20" style={{ width: `${barWidth}%` }} />
-                        <span className="font-data text-[16px] font-semibold text-charcoal tabular-nums relative z-10">
-                          {metricConfig.format(row.avgMetric)}
-                        </span>
+...
                       </div>
                     </TableCell>
-                    <TableCell className="font-data text-[13px] font-medium text-charcoal tabular-nums text-right">${row.avgCpa.toFixed(2)}</TableCell>
-                    <TableCell className="font-data text-[13px] font-medium text-charcoal tabular-nums text-right">${row.totalSpend.toLocaleString("en-US", { maximumFractionDigits: 0 })}</TableCell>
+                    <TableCell className="font-data text-[15px] font-medium text-charcoal tabular-nums text-right">${row.avgCpa.toFixed(2)}</TableCell>
+                    <TableCell className="font-data text-[15px] font-medium text-charcoal tabular-nums text-right">${row.totalSpend.toLocaleString("en-US", { maximumFractionDigits: 0 })}</TableCell>
                     <TableCell className={cn(
-                      "font-data text-[13px] font-medium tabular-nums text-right",
+                      "font-data text-[15px] font-medium tabular-nums text-right",
                       row.winRate >= 50 ? "text-verdant" : row.winRate < 20 ? "text-red-700" : "text-charcoal"
                     )}>
                       {row.winRate.toFixed(1)}%
                     </TableCell>
                     <TableCell className={cn(
-                      "font-data text-[13px] font-medium tabular-nums text-right",
+                      "font-data text-[15px] font-medium tabular-nums text-right",
                       row.vsAvg > 0 ? "text-verdant" : row.vsAvg < 0 ? "text-red-700" : "text-charcoal"
                     )}>
                       {row.vsAvg > 0 ? "+" : ""}{row.vsAvg.toFixed(0)}%

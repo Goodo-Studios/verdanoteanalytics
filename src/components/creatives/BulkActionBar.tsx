@@ -23,7 +23,7 @@ export function BulkActionBar({ count, onTag, onExport, onAddToReport, onClear }
           to   { opacity: 1; transform: translate(-50%, 0); }
         }
       `}</style>
-      <span className="font-data text-[14px] font-semibold text-foreground tabular-nums">
+      <span className="font-data text-[15px] font-semibold text-foreground tabular-nums">
         {count} creative{count !== 1 ? "s" : ""} selected
       </span>
       <div className="w-px h-5 bg-border" />
