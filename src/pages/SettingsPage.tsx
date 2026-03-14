@@ -84,15 +84,15 @@ const SettingsPage = () => {
         <div>
           <h1 className="font-heading text-[32px] text-forest">Settings</h1>
           <p className="font-body text-[13px] text-slate font-light mt-1">
-            {isClient
+            {effectiveIsClient
               ? "Manage your profile and security."
               : "Manage your profile, account configuration, and admin preferences."}
           </p>
         </div>
       </div>
 
-      {!isClient && <SyncStatusBanner />}
-      {!isClient && <MediaRefreshBanner />}
+      {!effectiveIsClient && <SyncStatusBanner />}
+      {!effectiveIsClient && <MediaRefreshBanner />}
 
       {/* Tab bar - only show if multiple tabs */}
       {tabs.length > 1 && (
