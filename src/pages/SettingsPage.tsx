@@ -144,7 +144,7 @@ const SettingsPage = () => {
       )}
 
       {/* Account Tab */}
-      {activeTab === "account" && (effectiveIsBuilder || effectiveIsEmployee) && (
+      {safeActiveTab === "account" && (effectiveIsBuilder || effectiveIsEmployee) && (
         <div className="max-w-2xl space-y-8">
           {!accountState.account ? (
             <>
