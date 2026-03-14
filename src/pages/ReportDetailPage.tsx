@@ -1,8 +1,7 @@
 import { AppLayout } from "@/components/AppLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
-import { TrendingUp, Download, ArrowUp, ArrowDown, Minus, AlertTriangle, ArrowLeft, Send, Loader2, Pencil, FileText } from "lucide-react";
+import { Download, ArrowLeft, Send, Loader2, Pencil, FileText } from "lucide-react";
 import { exportReportCSV } from "@/lib/csv";
 import { useReports, useSendReportToSlack } from "@/hooks/useReportsApi";
 import { useParams } from "react-router-dom";
@@ -16,26 +15,6 @@ import { CreativeDetailModal } from "@/components/CreativeDetailModal";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { ReportPrintLayout } from "@/components/reports/ReportPrintLayout";
-
-function DeltaBadge({ current, previous, prefix = "", suffix = "", inverse = false }: {
-  current: number | null;
-  previous: number | null;
-  prefix?: string;
-  suffix?: string;
-  inverse?: boolean;
-}) {
-  if (current === null || current === undefined || previous === null || previous === undefined) return null;
-  const diff = Number(current) - Number(previous);
-  if (Math.abs(diff) < 0.01) return <span className="text-xs text-muted-foreground flex items-center gap-0.5"><Minus className="h-3 w-3" />—</span>;
-  const isPositive = diff > 0;
-  const isGood = inverse ? !isPositive : isPositive;
-  return (
-    <span className={`text-xs flex items-center gap-0.5 ${isGood ? "text-success" : "text-destructive"}`}>
-      {isPositive ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
-      {prefix}{Math.abs(diff).toLocaleString("en-US", { maximumFractionDigits: 2 })}{suffix}
-    </span>
-  );
-}
 
 const ReportDetailPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -143,9 +122,10 @@ const ReportDetailPage = () => {
 
   const prev = previousReport;
   const isPortfolio = report.report_type === "portfolio";
-  const hasSections = report.sections && Array.isArray(report.sections) && report.sections.length > 0;
-  const topPerformers = (() => { try { return JSON.parse(report.top_performers || "[]"); } catch { return []; } })();
-  const iterationSuggestions = (() => { try { return JSON.parse(report.iteration_suggestions || "[]"); } catch { return []; } })();
+  const reportSections: ReportSection[] = (report.sections && Array.isArray(report.sections) && report.sections.length > 0)
+    ? report.sections as ReportSection[]
+    : legacySectionsFromReport(report);
+  
 
   const metrics = [
     { label: "Creatives", value: report.creative_count, prevValue: prev?.creative_count, current: report.creative_count },
@@ -156,7 +136,7 @@ const ReportDetailPage = () => {
     { label: "Win Rate", value: fmt(report.win_rate, "", "%"), prevValue: prev?.win_rate, current: report.win_rate, suffix: "%" },
   ];
 
-  // Build highlights for print layout
+  const topPerformers = (() => { try { return JSON.parse(report.top_performers || "[]"); } catch { return []; } })();
   const highlights: string[] = [];
   if (report.win_rate) highlights.push(`Win rate: ${Number(report.win_rate).toFixed(0)}% of creatives are above scale threshold`);
   if (report.blended_roas) highlights.push(`Blended ROAS of ${Number(report.blended_roas).toFixed(2)}x across ${report.creative_count || 0} creatives`);
@@ -234,114 +214,15 @@ const ReportDetailPage = () => {
               </p>
             )}
 
-            {/* Portfolio report view */}
+            {/* Report content */}
             {isPortfolio ? (
               <PortfolioReportView report={report} />
-            ) : hasSections ? (
+            ) : (
               <div className="space-y-6">
-                {(report.sections as ReportSection[]).map((section: ReportSection) => (
+                {reportSections.map((section: ReportSection) => (
                   <SectionRenderer key={section.id} section={section} report={report} />
                 ))}
               </div>
-            ) : (
-              <>
-                {/* Legacy: Metrics Grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-                  {metrics.map((m) => (
-                    <div key={m.label} className="glass-panel p-4 text-center space-y-1">
-                      <div className="font-label text-[10px] uppercase tracking-wider text-muted-foreground">{m.label}</div>
-                      <div className="font-data text-[20px] font-semibold text-foreground tabular-nums">{m.value}</div>
-                      {prev && m.current !== undefined && (
-                        <DeltaBadge
-                          current={m.current ?? null}
-                          previous={m.prevValue ?? null}
-                          prefix={m.prefix || ""}
-                          suffix={m.suffix || ""}
-                          inverse={m.inverse || false}
-                        />
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                <Separator />
-
-                {/* Legacy: Top Performers */}
-                {topPerformers.length > 0 && (
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-2">
-                      <TrendingUp className="h-5 w-5 text-scale" />
-                      <h2 className="text-lg font-heading font-semibold">Top Performers</h2>
-                      <Badge variant="outline" className="text-xs">by spend</Badge>
-                    </div>
-                    <div className="space-y-2">
-                      {topPerformers.map((p: any, i: number) => (
-                        <div
-                          key={p.ad_id}
-                          className="flex items-center justify-between glass-panel p-4 cursor-pointer hover:bg-accent/50 transition-colors"
-                          onClick={() => handleAdClick(p.ad_id)}
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="font-data text-muted-foreground text-sm w-6">{i + 1}.</span>
-                            <div>
-                              <div className="text-sm font-medium">{p.ad_name}</div>
-                              {p.unique_code && <div className="text-xs font-data text-muted-foreground mt-0.5">{p.unique_code}</div>}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-6 font-data text-sm">
-                            <div className="text-right">
-                              <div className="text-xs text-muted-foreground">ROAS</div>
-                              <div>{fmt(p.roas, "", "x")}</div>
-                            </div>
-                            <div className="text-right">
-                              <div className="text-xs text-muted-foreground">CPA</div>
-                              <div>{fmt(p.cpa, "$")}</div>
-                            </div>
-                            <div className="text-right">
-                              <div className="text-xs text-muted-foreground">Spend</div>
-                              <div>{fmt(p.spend, "$")}</div>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Legacy: Iteration Suggestions */}
-                {iterationSuggestions.length > 0 && (
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-2">
-                      <AlertTriangle className="h-5 w-5 text-warning" />
-                      <h2 className="text-lg font-heading font-semibold">Iteration Suggestions</h2>
-                      <Badge variant="outline" className="text-xs">{iterationSuggestions.length} ads need work</Badge>
-                    </div>
-                    <div className="space-y-2">
-                      {iterationSuggestions.map((s: any) => (
-                        <div
-                          key={s.ad_id}
-                          className="glass-panel p-4 space-y-2 cursor-pointer hover:bg-accent/50 transition-colors"
-                          onClick={() => handleAdClick(s.ad_id)}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <Badge variant="secondary" className="text-xs font-medium shrink-0">{s.label}</Badge>
-                              <div>
-                                <span className="text-sm font-medium">{s.ad_name}</span>
-                                {s.unique_code && <span className="text-xs font-data text-muted-foreground ml-2">{s.unique_code}</span>}
-                              </div>
-                            </div>
-                            <span className="font-data text-sm text-muted-foreground shrink-0">{fmt(s.spend, "$")}</span>
-                          </div>
-                          <p className="text-sm text-muted-foreground leading-relaxed pl-[calc(theme(spacing.3)+var(--badge-offset,0px))]">
-                            {s.recommendation}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
             )}
           </div>
 

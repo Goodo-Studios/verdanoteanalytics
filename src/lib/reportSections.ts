@@ -1,4 +1,4 @@
-export type SectionType = "text" | "metric_summary" | "top_creatives" | "chart" | "tag_breakdown" | "custom_callout";
+export type SectionType = "notes" | "metric_summary" | "top_creatives" | "iterations" | "chart" | "tag_breakdown" | "text" | "custom_callout";
 
 export interface ReportSection {
   id: string;
@@ -7,36 +7,42 @@ export interface ReportSection {
 }
 
 export const SECTION_TYPE_META: Record<SectionType, { label: string; icon: string; description: string }> = {
-  text: { label: "Text Block", icon: "📝", description: "Rich text / markdown content" },
+  notes: { label: "Notes", icon: "📝", description: "Your notes to share with this report" },
   metric_summary: { label: "Metric Summary", icon: "📊", description: "Key metrics for the date range" },
-  top_creatives: { label: "Top Creatives", icon: "🏆", description: "Top N creatives grid" },
+  top_creatives: { label: "Top 5 Ads", icon: "🏆", description: "Top 5 performing creatives" },
+  iterations: { label: "Top 5 Iterations", icon: "🔄", description: "Top 5 iteration opportunities" },
   chart: { label: "Chart", icon: "📈", description: "Spend or ROAS trend line chart" },
   tag_breakdown: { label: "Tag Breakdown", icon: "🏷️", description: "ROAS by tag category" },
+  text: { label: "Text Block", icon: "📄", description: "Rich text / markdown content" },
   custom_callout: { label: "Custom Callout", icon: "⭐", description: "Highlighted stat with icon" },
 };
 
 export function createSection(type: SectionType): ReportSection {
   const id = crypto.randomUUID();
   const defaults: Record<SectionType, Record<string, any>> = {
-    text: { content: "" },
+    notes: { content: "" },
     metric_summary: {},
-    top_creatives: { count: 6, sortBy: "spend" },
+    top_creatives: { count: 5, sortBy: "spend" },
+    iterations: { count: 5 },
     chart: { metric: "spend" },
     tag_breakdown: { tagField: "hook" },
+    text: { content: "" },
     custom_callout: { icon: "🏆", stat: "", label: "" },
   };
   return { id, type, config: defaults[type] };
 }
 
+/** The standard report layout — same for everyone */
+export function standardReportSections(): ReportSection[] {
+  return [
+    { id: "std-notes", type: "notes", config: { content: "" } },
+    { id: "std-metrics", type: "metric_summary", config: {} },
+    { id: "std-top5", type: "top_creatives", config: { count: 5, sortBy: "spend" } },
+    { id: "std-iterations", type: "iterations", config: { count: 5 } },
+  ];
+}
+
 /** Convert legacy report (no sections) into a sections array */
-export function legacySectionsFromReport(report: any): ReportSection[] {
-  const sections: ReportSection[] = [];
-  // Always show metrics summary
-  sections.push({ id: "legacy-metrics", type: "metric_summary", config: {} });
-  // Top performers as a top_creatives section
-  const topPerformers = (() => { try { return JSON.parse(report.top_performers || "[]"); } catch { return []; } })();
-  if (topPerformers.length > 0) {
-    sections.push({ id: "legacy-top", type: "top_creatives", config: { count: Math.min(topPerformers.length, 10), sortBy: "spend" } });
-  }
-  return sections;
+export function legacySectionsFromReport(_report: any): ReportSection[] {
+  return standardReportSections();
 }

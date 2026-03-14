@@ -1,7 +1,9 @@
 import { ReportSection } from "@/lib/reportSections";
+import { NotesSection } from "./sections/NotesSection";
 import { TextSection } from "./sections/TextSection";
 import { MetricSummarySection } from "./sections/MetricSummarySection";
 import { TopCreativesSection } from "./sections/TopCreativesSection";
+import { IterationsSection } from "./sections/IterationsSection";
 import { ChartSection } from "./sections/ChartSection";
 import { TagBreakdownSection } from "./sections/TagBreakdownSection";
 import { CustomCalloutSection } from "./sections/CustomCalloutSection";
@@ -17,9 +19,11 @@ export function SectionRenderer({ section, report, isEditing, onConfigChange }: 
   const props = { config: section.config, report, isEditing, onConfigChange };
 
   switch (section.type) {
+    case "notes": return <NotesSection {...props} />;
     case "text": return <TextSection {...props} />;
     case "metric_summary": return <MetricSummarySection {...props} />;
     case "top_creatives": return <TopCreativesSection {...props} />;
+    case "iterations": return <IterationsSection {...props} />;
     case "chart": return <ChartSection {...props} />;
     case "tag_breakdown": return <TagBreakdownSection {...props} />;
     case "custom_callout": return <CustomCalloutSection {...props} />;
