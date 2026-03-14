@@ -90,6 +90,7 @@
     /* ── Semantic text colors (dark-mode aware) ── */
     --text-strong: 150 10% 92%;         /* near-white for data/headings */
     --text-secondary: 220 6% 68%;       /* bright enough for labels */
+    --text-heading: 150 15% 85%;        /* soft green-white for headings */
 
     --card: 228 18% 13%;               /* #1a1d27 */
     --card-foreground: 150 10% 90%;
