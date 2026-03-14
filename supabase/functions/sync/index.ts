@@ -1247,8 +1247,106 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         console.error("Changelog/notification error (non-fatal):", changelogNotifErr);
       }
 
+      // ── Post-Sync Spend Audit ──────────────────────────────────────────
+      // Compare local daily totals against Meta account-level spend
+      let auditResult: any = null;
+      if (!isTimedOut()) {
+        try {
+          const metaToken = Deno.env.get("META_ACCESS_TOKEN");
+          if (metaToken) {
+            const auditEnd = new Date().toISOString().split("T")[0];
+            const auditStartDate = new Date();
+            auditStartDate.setDate(auditStartDate.getDate() - dateRangeDays);
+            const auditStart = auditStartDate.toISOString().split("T")[0];
+            const auditTimeRange = JSON.stringify({ since: auditStart, until: auditEnd });
+
+            // Fetch Meta account-level spend
+            const auditUrl =
+              `https://graph.facebook.com/${META_API_VERSION}/${accountId}/insights?` +
+              `time_range=${encodeURIComponent(auditTimeRange)}` +
+              `&fields=spend,impressions,purchases,purchase_roas` +
+              `&${attributionSetting}` +
+              `&access_token=${encodeURIComponent(metaToken)}`;
+
+            const auditResp = await fetch(auditUrl);
+            const auditJson = await auditResp.json();
+            ctx.metaApiCalls++;
+
+            if (auditJson.data && auditJson.data.length > 0 && !auditJson.error) {
+              const metaSpend = parseFloat(auditJson.data[0].spend || "0");
+              const metaImpressions = parseInt(auditJson.data[0].impressions || "0");
+
+              // Sum local daily metrics (paginated)
+              let localSpend = 0;
+              let localImpressions = 0;
+              let localAdIds = 0;
+              let offset = 0;
+              const PAGE = 1000;
+              while (true) {
+                const { data: rows } = await supabase
+                  .from("creative_daily_metrics")
+                  .select("spend, impressions")
+                  .eq("account_id", accountId)
+                  .gte("date", auditStart)
+                  .lte("date", auditEnd)
+                  .range(offset, offset + PAGE - 1);
+                if (!rows || rows.length === 0) break;
+                for (const r of rows) {
+                  localSpend += r.spend || 0;
+                  localImpressions += r.impressions || 0;
+                  localAdIds++;
+                }
+                if (rows.length < PAGE) break;
+                offset += PAGE;
+              }
+
+              const spendDelta = localSpend - metaSpend;
+              const spendDeltaPct = metaSpend > 0 ? (spendDelta / metaSpend) * 100 : 0;
+              const driftExceeded = Math.abs(spendDeltaPct) >= 2;
+
+              auditResult = {
+                meta_spend: Math.round(metaSpend * 100) / 100,
+                local_spend: Math.round(localSpend * 100) / 100,
+                spend_delta: Math.round(spendDelta * 100) / 100,
+                spend_delta_pct: Math.round(spendDeltaPct * 100) / 100,
+                meta_impressions: metaImpressions,
+                local_impressions: localImpressions,
+                date_range: { since: auditStart, until: auditEnd },
+                drift_exceeded: driftExceeded,
+              };
+
+              console.log(`  📊 Post-sync audit: Meta=$${metaSpend.toFixed(2)} Local=$${localSpend.toFixed(2)} Delta=${spendDeltaPct.toFixed(1)}% ${driftExceeded ? "⚠️ DRIFT" : "✅ OK"}`);
+
+              // Send drift warning notification
+              if (driftExceeded) {
+                const direction = spendDelta < 0 ? "under-reporting" : "over-reporting";
+                for (const uid of userIds) {
+                  notifications.push({
+                    user_id: uid, account_id: accountId, type: "concern",
+                    title: `⚠️ Data drift detected: ${account.name}`,
+                    body: `Local spend is ${direction} by ${Math.abs(spendDeltaPct).toFixed(1)}% vs Meta ($${Math.abs(spendDelta).toFixed(0)} gap). Run a full re-sync or check the Spend Diagnostic.`,
+                  });
+                }
+                // Insert the extra notifications
+                if (notifications.length > 0) {
+                  const driftNotifs = notifications.filter(n => n.title.includes("Data drift"));
+                  if (driftNotifs.length > 0) {
+                    await supabase.from("notifications").insert(driftNotifs);
+                  }
+                }
+              }
+            }
+          }
+        } catch (auditErr) {
+          console.error("Post-sync audit error (non-fatal):", auditErr);
+        }
+      } else {
+        console.log("  Skipping post-sync audit — budget exceeded");
+      }
+
       const finalStatus = (JSON.parse(syncLog.api_errors || "[]")).length > 0 ? "completed_with_errors" : "completed";
-      await saveState(5, {}, finalStatus);
+      // Save audit result to sync_state for visibility
+      await saveState(5, { audit: auditResult }, finalStatus);
       console.log(`\n✅ Sync complete for ${account.name}: ${finalStatus}`);
       return;
     }
