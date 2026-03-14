@@ -428,6 +428,37 @@ export async function discoverVideoUrl(
       }
     }
 
+    // Path 8: Ad Preview API — extract video source URL from rendered preview HTML
+    // Works for whitelisted ads where direct video_id source access is restricted
+    try {
+      const previewRes = await fetchWithTimeout(
+        `https://graph.facebook.com/${META_API_VERSION}/${adId}/previews?ad_format=DESKTOP_FEED_STANDARD&access_token=${accessToken}`,
+        timeoutMs
+      );
+      if (previewRes.ok) {
+        const previewData = await previewRes.json();
+        const previewBody = previewData?.data?.[0]?.body;
+        if (previewBody) {
+          // Look for video source URLs in the preview HTML
+          const videoMatches = [...previewBody.matchAll(/src="([^"]+)"/g)]
+            .map((m: RegExpMatchArray) => m[1].replace(/&amp;/g, "&"))
+            .filter((url: string) =>
+              (url.includes("video") || url.includes(".mp4") || url.includes("fbcdn")) &&
+              !url.includes("_n.jpg") && !url.includes("_n.png") && // skip thumbnails
+              (url.includes(".mp4") || url.includes("/v/"))
+            );
+          if (videoMatches.length > 0) {
+            console.log(`Got video via Ad Preview API for ${adId}`);
+            return videoMatches[0];
+          }
+        }
+      } else {
+        await previewRes.text();
+      }
+    } catch (e) {
+      console.log(`Video preview API fallback error for ${adId}:`, e);
+    }
+
     return null;
   } catch (e) {
     console.log(`Meta video API error for ${adId}:`, e);
