@@ -304,13 +304,13 @@ export function SyncHistorySection({ accountId }: { accountId?: string }) {
                       ) : <span className="text-sage">—</span>}
                     </TableCell>
                     <TableCell className="text-right py-3">
-                      <span className="font-data text-[15px] font-medium text-charcoal tabular-nums">{log.creatives_fetched ?? <span className="text-sage">—</span>}</span>
+                      <span className="font-data text-[17px] font-medium text-charcoal tabular-nums">{log.creatives_fetched ?? <span className="text-sage">—</span>}</span>
                     </TableCell>
                     <TableCell className="text-right py-3">
-                      <span className="font-data text-[15px] font-medium text-charcoal tabular-nums">{log.creatives_upserted ?? <span className="text-sage">—</span>}</span>
+                      <span className="font-data text-[17px] font-medium text-charcoal tabular-nums">{log.creatives_upserted ?? <span className="text-sage">—</span>}</span>
                     </TableCell>
                     <TableCell className="text-right py-3">
-                      <span className="font-data text-[15px] font-medium text-charcoal">
+                      <span className="font-data text-[17px] font-medium text-charcoal">
                         {log.status === "running"
                           ? <span className="text-primary"><RunningDuration startedAt={log.started_at} /></span>
                           : fmtDuration(log.duration_ms) === "—" ? <span className="text-sage">—</span> : fmtDuration(log.duration_ms)}

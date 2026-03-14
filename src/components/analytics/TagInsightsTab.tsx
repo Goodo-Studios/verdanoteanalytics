@@ -304,16 +304,16 @@ export function TagInsightsTab({
 ...
                       </div>
                     </TableCell>
-                    <TableCell className="font-data text-[15px] font-medium text-charcoal tabular-nums text-right">${row.avgCpa.toFixed(2)}</TableCell>
-                    <TableCell className="font-data text-[15px] font-medium text-charcoal tabular-nums text-right">${row.totalSpend.toLocaleString("en-US", { maximumFractionDigits: 0 })}</TableCell>
+                    <TableCell className="font-data text-[17px] font-medium text-charcoal tabular-nums text-right">${row.avgCpa.toFixed(2)}</TableCell>
+                    <TableCell className="font-data text-[17px] font-medium text-charcoal tabular-nums text-right">${row.totalSpend.toLocaleString("en-US", { maximumFractionDigits: 0 })}</TableCell>
                     <TableCell className={cn(
-                      "font-data text-[15px] font-medium tabular-nums text-right",
+                      "font-data text-[17px] font-medium tabular-nums text-right",
                       row.winRate >= 50 ? "text-verdant" : row.winRate < 20 ? "text-red-700" : "text-charcoal"
                     )}>
                       {row.winRate.toFixed(1)}%
                     </TableCell>
                     <TableCell className={cn(
-                      "font-data text-[15px] font-medium tabular-nums text-right",
+                      "font-data text-[17px] font-medium tabular-nums text-right",
                       row.vsAvg > 0 ? "text-verdant" : row.vsAvg < 0 ? "text-red-700" : "text-charcoal"
                     )}>
                       {row.vsAvg > 0 ? "+" : ""}{row.vsAvg.toFixed(0)}%

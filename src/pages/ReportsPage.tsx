@@ -225,12 +225,12 @@ const ReportsPage = () => {
                       </div>
                       <div className="font-data text-[11px] text-slate">{r.date_range_days ? `${r.date_range_days} days` : "—"}</div>
                     </TableCell>
-                    <TableCell className="font-data text-[15px] text-slate">{new Date(r.created_at).toLocaleDateString()}</TableCell>
-                    <TableCell className="font-data text-[15px] text-right tabular-nums">{r.creative_count}</TableCell>
-                    <TableCell className="font-data text-[15px] text-right tabular-nums">{fmt(r.total_spend, "$")}</TableCell>
-                    <TableCell className="font-data text-[15px] text-right tabular-nums">{fmt(r.blended_roas, "", "x")}</TableCell>
-                    <TableCell className="font-data text-[15px] text-right tabular-nums">{fmt(r.win_rate, "", "%")}</TableCell>
-                    <TableCell className="font-data text-[15px] text-right tabular-nums">{fmt(r.average_cpa, "$")}</TableCell>
+                    <TableCell className="font-data text-[17px] text-slate">{new Date(r.created_at).toLocaleDateString()}</TableCell>
+                    <TableCell className="font-data text-[17px] text-right tabular-nums">{r.creative_count}</TableCell>
+                    <TableCell className="font-data text-[17px] text-right tabular-nums">{fmt(r.total_spend, "$")}</TableCell>
+                    <TableCell className="font-data text-[17px] text-right tabular-nums">{fmt(r.blended_roas, "", "x")}</TableCell>
+                    <TableCell className="font-data text-[17px] text-right tabular-nums">{fmt(r.win_rate, "", "%")}</TableCell>
+                    <TableCell className="font-data text-[17px] text-right tabular-nums">{fmt(r.average_cpa, "$")}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
                         {!isClient && (
