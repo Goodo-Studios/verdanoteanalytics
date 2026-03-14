@@ -301,7 +301,7 @@
   .text-page-title {
     font-family: 'Libre Caslon Display', serif;
     font-size: 2rem;
-    color: hsl(155 56% 15%);
+    color: hsl(var(--text-strong));
     letter-spacing: -0.01em;
   }
 
