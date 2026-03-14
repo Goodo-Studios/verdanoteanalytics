@@ -13,15 +13,12 @@ interface TrendsTabProps {
   isLoading: boolean;
 }
 
-const METRIC_OPTIONS: { key: keyof DailyTrendPoint; label: string; color: string; prefix?: string; suffix?: string; decimals?: number; invertColor?: boolean }[] = [
+const METRIC_OPTIONS: { key: string; label: string; color: string; prefix?: string; suffix?: string; decimals?: number; invertColor?: boolean; compute?: (d: any) => number }[] = [
   { key: "spend", label: "Spend", color: "hsl(var(--primary))", prefix: "$", decimals: 0 },
-  { key: "cpa", label: "CPA", color: "hsl(0, 84%, 60%)", prefix: "$", decimals: 2, invertColor: true },
   { key: "cpm", label: "CPM", color: "hsl(262, 83%, 58%)", prefix: "$", decimals: 2, invertColor: true },
-  { key: "roas", label: "ROAS", color: "hsl(142, 71%, 45%)", suffix: "x", decimals: 2 },
-  { key: "ctr", label: "CTR", color: "hsl(199, 89%, 48%)", suffix: "%", decimals: 2 },
-  { key: "cpc", label: "CPC", color: "hsl(25, 95%, 53%)", prefix: "$", decimals: 2, invertColor: true },
-  { key: "impressions", label: "Impressions", color: "hsl(280, 60%, 50%)", decimals: 0 },
-  { key: "purchases", label: "Purchases", color: "hsl(160, 60%, 45%)", decimals: 0 },
+  { key: "cpa", label: "CPA", color: "hsl(0, 84%, 60%)", prefix: "$", decimals: 2, invertColor: true },
+  { key: "cpmr", label: "CPMR", color: "hsl(25, 95%, 53%)", prefix: "$", decimals: 2, invertColor: true, compute: (d: any) => (Number(d.cpm) || 0) * (Number(d.frequency) || 0) },
+  { key: "frequency", label: "Frequency", color: "hsl(199, 89%, 48%)", decimals: 2 },
 ];
 
 function bucketKey(date: string, granularity: Granularity): string {
