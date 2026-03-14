@@ -704,6 +704,21 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           if (result.data && result.data.length > 0) {
             const BATCH_SIZE = 500;
             const metricRows = result.data.map((row: any) => ({ ad_id: row.ad_id, ...parseInsightsRow(row) }));
+
+            // Auto-create missing creatives in fallback path too
+            const fbAdIds = [...new Set(metricRows.map((r: any) => r.ad_id))];
+            const { data: fbExisting } = await supabase
+              .from("creatives").select("ad_id").eq("account_id", accountId).in("ad_id", fbAdIds);
+            const fbSet = new Set((fbExisting || []).map((e: any) => e.ad_id));
+            const fbMissing = fbAdIds.filter((id: string) => !fbSet.has(id));
+            if (fbMissing.length > 0) {
+              await supabase.from("creatives").upsert(
+                fbMissing.map((adId: string) => ({ ad_id: adId, account_id: accountId, ad_name: adId, platform: "meta", tag_source: "untagged" })),
+                { onConflict: "ad_id", ignoreDuplicates: true }
+              );
+              console.log(`  Fallback auto-created ${fbMissing.length} missing creatives`);
+            }
+
             for (let i = 0; i < metricRows.length; i += BATCH_SIZE) {
               const batch = metricRows.slice(i, i + BATCH_SIZE);
               const { error } = await supabase.rpc("bulk_update_creative_metrics", { payload: JSON.stringify(batch) });
