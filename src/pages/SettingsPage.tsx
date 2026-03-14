@@ -265,6 +265,13 @@ const SettingsPage = () => {
         </div>
       )}
 
+      {/* Health Tab */}
+      {safeActiveTab === "health" && effectiveIsBuilder && (
+        <div className="max-w-3xl space-y-8">
+          <SystemHealthSection />
+        </div>
+      )}
+
       {/* Modals from account settings */}
       <RenameAccountModal
         account={accountState.renamingAccount}
