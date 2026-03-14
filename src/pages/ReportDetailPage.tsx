@@ -7,7 +7,7 @@ import { exportReportCSV } from "@/lib/csv";
 import { useReports, useSendReportToSlack } from "@/hooks/useReportsApi";
 import { useParams } from "react-router-dom";
 import { useRoleNavigate } from "@/hooks/useRolePath";
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import { SectionRenderer } from "@/components/reports/SectionRenderer";
 import { legacySectionsFromReport, ReportSection } from "@/lib/reportSections";
 import { PortfolioReportView } from "@/components/reports/PortfolioReportView";
@@ -66,7 +66,10 @@ const ReportDetailPage = () => {
 
   // Fetch top creatives for print layout
   const [topCreatives, setTopCreatives] = useState<any[]>([]);
-  useMemo(() => {
+  const [tagBreakdown, setTagBreakdown] = useState<any[]>([]);
+
+  // useEffect for async side effects (not useMemo which is for pure computation)
+  useEffect(() => {
     if (!report?.account_id) return;
     supabase
       .from("creatives")
@@ -75,12 +78,7 @@ const ReportDetailPage = () => {
       .order("spend", { ascending: false })
       .limit(6)
       .then(({ data }) => setTopCreatives(data || []));
-  }, [report?.account_id]);
 
-  // Fetch tag breakdown for print layout
-  const [tagBreakdown, setTagBreakdown] = useState<any[]>([]);
-  useMemo(() => {
-    if (!report?.account_id) return;
     supabase
       .from("creatives")
       .select("hook, style, ad_type, roas, spend")

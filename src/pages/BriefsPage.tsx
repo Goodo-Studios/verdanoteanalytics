@@ -206,8 +206,8 @@ const BriefsPage = () => {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                      <button onClick={() => copyShareLink(brief.share_token)} className="p-1 rounded hover:bg-muted" title="Copy share link">
-                        <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                      <button onClick={() => brief.share_token && copyShareLink(brief.share_token)} className="p-1 rounded hover:bg-muted" title="Copy share link" disabled={!brief.share_token}>
+                        <Copy className={cn("h-3.5 w-3.5", brief.share_token ? "text-muted-foreground" : "text-muted-foreground/30")} />
                       </button>
                       <button onClick={() => deleteBrief.mutate(brief.id)} className="p-1 rounded hover:bg-destructive/10" title="Delete">
                         <Trash2 className="h-3.5 w-3.5 text-destructive" />
