@@ -71,7 +71,7 @@ export function AccountOverviewSection({
                 <Switch checked={account.is_active} onCheckedChange={onToggle} />
               </TableCell>
               <TableCell>
-                <span className="font-data text-[16px] font-semibold text-charcoal">{account.creative_count}</span>
+                <span className="font-data text-[17px] font-semibold text-charcoal">{account.creative_count}</span>
               </TableCell>
               <TableCell>
                 <div className="flex items-center gap-1">

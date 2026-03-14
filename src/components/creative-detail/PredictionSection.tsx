@@ -48,7 +48,7 @@ export function PredictionSection({ creative, wowTrend, fatigue, killThreshold =
         <div className="rounded-[6px] border border-border-light p-3">
           <p className="font-label text-[9px] uppercase tracking-wider text-muted-foreground mb-1">Projected ROAS</p>
           <p className={cn(
-            "font-data text-[18px] font-semibold tabular-nums",
+            "font-data text-[17px] font-semibold tabular-nums",
             prediction.projectedRoas >= 2 ? "text-verdant" : prediction.projectedRoas < 1 ? "text-destructive" : "text-charcoal"
           )}>
             {prediction.projectedRoas.toFixed(2)}x

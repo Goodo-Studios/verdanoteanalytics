@@ -247,7 +247,7 @@ export function PortfolioReportView({ report }: PortfolioReportViewProps) {
                     </div>
                     <div className="text-center p-3 bg-muted/30 rounded-lg">
                       <div className="font-label text-[10px] uppercase tracking-wider text-muted-foreground">Win Rate</div>
-                      <div className="font-data text-[16px] font-semibold tabular-nums">{fmt(a.win_rate, "", "%")}</div>
+                      <div className="font-data text-[17px] font-semibold tabular-nums">{fmt(a.win_rate, "", "%")}</div>
                     </div>
                   </div>
 
