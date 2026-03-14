@@ -72,7 +72,7 @@ export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: Vi
           grade,
         };
       });
-  }, [creatives, grades]);
+  }, [creatives, grades, effectiveMinSpend]);
 
   // Aggregated metrics
   const agg = useMemo(() => {
