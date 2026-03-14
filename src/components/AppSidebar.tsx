@@ -107,16 +107,17 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
       <div className="px-3 pt-4 pb-1">
         <div className="flex items-center rounded-md bg-muted/50 p-0.5">
           {(["builder", "employee", "client"] as const).map((r) => (
-            <div
+            <button
               key={r}
+              onClick={() => isBuilder ? handleRoleClick(r) : undefined}
               className={`flex-1 text-center py-1.5 rounded-[5px] font-label text-[9px] uppercase tracking-[0.1em] font-semibold transition-colors ${
-                roleLabel === r
+                effectiveRole === r
                   ? "bg-background text-forest shadow-sm"
-                  : "text-sage/50"
+                  : isBuilder ? "text-sage/50 hover:text-sage cursor-pointer" : "text-sage/50"
               }`}
             >
               {r}
-            </div>
+            </button>
           ))}
         </div>
       </div>
