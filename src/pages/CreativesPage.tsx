@@ -20,7 +20,7 @@ import { ColumnPicker } from "@/components/ColumnPicker";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { RefreshCw, LayoutGrid, List, Loader2, Download, Search, X, Columns, Layers, Bookmark, CalendarDays, SlidersHorizontal } from "lucide-react";
+import { RefreshCw, LayoutGrid, List, Loader2, Download, Search, X, Columns, Layers, CalendarDays, SlidersHorizontal } from "lucide-react";
 import { useMemo, useState, useCallback } from "react";
 import { useRoleNavigate } from "@/hooks/useRolePath";
 import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
@@ -40,7 +40,6 @@ import { computeFatigueMap } from "@/lib/fatigueScore";
 import { isForecastedToFatigue } from "@/lib/fatigueForecast";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
-import { usePinnedViews } from "@/hooks/useSavedViews";
 import { useCardPresence } from "@/hooks/useCardPresence";
 
 import type { GradeInfo } from "@/lib/creativeGrading";
@@ -49,7 +48,6 @@ const CreativesPage = () => {
   const { isClient, isBuilder, isEmployee } = useAuth();
   const { setSelectedAccountId } = useAccountContext();
   const navigate = useRoleNavigate();
-  const { data: pinnedViews = [] } = usePinnedViews();
   const state = useCreativesPageState();
   const {
     viewMode, setViewMode, visibleCols, toggleCol, columnOrder, handleReorder,
@@ -327,34 +325,6 @@ const CreativesPage = () => {
         }
       />
 
-      {/* Pinned view quick-filters */}
-      {pinnedViews.length > 0 && (
-        <div className="flex items-center gap-2 mb-4 flex-wrap">
-          <Bookmark className="h-3.5 w-3.5 text-sage" />
-          {pinnedViews.map((v: any) => (
-            <button
-              key={v.id}
-              onClick={() => {
-                const c = v.config;
-                if (c.account_id && c.apply_account) setSelectedAccountId(c.account_id);
-                const params = new URLSearchParams();
-                if (c.analytics_tab) params.set("tab", c.analytics_tab);
-                if (c.slice_by) params.set("slice", c.slice_by);
-                if (c.group_by) params.set("group", c.group_by);
-                if (c.search) params.set("q", c.search);
-                if (c.date_from) params.set("from", c.date_from);
-                if (c.date_to) params.set("to", c.date_to);
-                if (c.filters) params.set("filters", JSON.stringify(c.filters));
-                const qs = params.toString();
-                navigate(`${c.page || "/creatives"}${qs ? `?${qs}` : ""}`);
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-background hover:bg-sage-light font-body text-[12px] font-medium text-charcoal transition-colors"
-            >
-              {v.name}
-            </button>
-          ))}
-        </div>
-      )}
 
       {/* Compare mode banner */}
       {compareMode && (
