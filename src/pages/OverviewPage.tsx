@@ -126,7 +126,7 @@ const OverviewPage = () => {
               <h2 className="font-heading text-[18px] text-forest mb-4">Top Performer</h2>
               {topPerformer ? <CreativeInsightCard creative={topPerformer} variant="top" spendThreshold={spendThreshold} onClick={() => setSelectedCreative(topPerformer)} /> : <p className="font-body text-[13px] text-sage">No qualifying creatives found.</p>}
             </div>
-            <div className="bg-white border border-border-light rounded-[8px] p-5">
+            <div className="bg-card border border-border-light rounded-[8px] p-5">
               <h2 className="font-heading text-[18px] text-forest mb-4">Biggest Concern</h2>
               {biggestConcern ? <CreativeInsightCard creative={biggestConcern} variant="concern" spendThreshold={spendThreshold} onClick={() => setSelectedCreative(biggestConcern)} /> : <p className="font-body text-[13px] text-sage">No underperforming creatives — all ROAS ≥ 1.0.</p>}
             </div>
