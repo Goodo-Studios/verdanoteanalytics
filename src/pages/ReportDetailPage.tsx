@@ -2,6 +2,20 @@ import { AppLayout } from "@/components/AppLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Download, ArrowLeft, Send, Loader2, Pencil, FileText } from "lucide-react";
+import { exportReportCSV } from "@/lib/csv";
+import { useReports, useSendReportToSlack } from "@/hooks/useReportsApi";
+import { useParams } from "react-router-dom";
+import { useRoleNavigate } from "@/hooks/useRolePath";
+import { useMemo, useState, useCallback, useEffect } from "react";
+import { fmtMetric } from "@/lib/formatters";
+import { SectionRenderer } from "@/components/reports/SectionRenderer";
+import { legacySectionsFromReport, ReportSection } from "@/lib/reportSections";
+import { PortfolioReportView } from "@/components/reports/PortfolioReportView";
+import { CreativeDetailModal } from "@/components/CreativeDetailModal";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { ReportPrintLayout } from "@/components/reports/ReportPrintLayout";
+
 const ReportDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useRoleNavigate();
