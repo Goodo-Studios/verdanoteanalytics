@@ -243,29 +243,29 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
   const syncScope = state.sync_scope || "full";
   const dateRangeDays = syncType === "initial" ? 90 : (account.date_range_days || 14);
 
+  // ── Attribution windows — passed to Meta API for accurate conversion data ──
+  const clickWindow = account.click_window || 7;
+  const viewWindow = account.view_window || 1;
+  const attributionSetting = `action_attribution_windows=["${clickWindow}d_click","${viewWindow}d_view"]`;
+
   // ── CHANGE 2: Incremental sync — determine date window ──────────────────
-  // If the account has a last_data_sync timestamp and this is NOT an initial sync,
-  // use that as the `since` date for insights queries so we only pull new/changed data.
-  // If no last_data_sync exists (first run), fall back to the full dateRangeDays window.
   const lastDataSync: string | null = account.last_data_sync || null;
   const isInitialSync = syncType === "initial" || !lastDataSync;
 
-  // Compute the effective start date for insights queries
   let incrementalSinceDate: string | null = null;
   if (!isInitialSync && lastDataSync) {
-    // Use last sync date as `since`, but clamp to a minimum of 2 days ago
-    // to catch any delayed data from Meta's attribution windows.
     const lastSyncMs = new Date(lastDataSync).getTime();
     const twoDaysAgo = Date.now() - 2 * 24 * 60 * 60 * 1000;
     const effectiveSince = Math.min(lastSyncMs, twoDaysAgo);
     incrementalSinceDate = new Date(effectiveSince).toISOString().split("T")[0];
     console.log(
       `Incremental sync for ${account.name}: fetching data since ${incrementalSinceDate} ` +
-      `(last_data_sync: ${lastDataSync})`
+      `(last_data_sync: ${lastDataSync}, attribution: ${clickWindow}d_click/${viewWindow}d_view)`
     );
   } else {
     console.log(
-      `Initial/full sync for ${account.name}: fetching last ${dateRangeDays} days`
+      `Initial/full sync for ${account.name}: fetching last ${dateRangeDays} days ` +
+      `(attribution: ${clickWindow}d_click/${viewWindow}d_view)`
     );
   }
   // ────────────────────────────────────────────────────────────────────────
