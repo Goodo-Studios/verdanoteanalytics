@@ -155,7 +155,7 @@ export function CreativeIterationAnalysis({ creative, allCreatives }: Props) {
             <span className="text-[10px] uppercase tracking-wider text-muted-foreground">CTR</span>
             <LevelIcon level={analysis.ctrLevel} />
           </div>
-          <p className="text-sm font-medium">{analysis.ctr.toFixed(2)}%</p>
+          <p className="font-data text-[17px] font-semibold text-foreground">{analysis.ctr.toFixed(2)}%</p>
           <Badge variant="outline" className={`text-[10px] ${levelColor(analysis.ctrLevel)}`}>
             {analysis.ctrLevel}
           </Badge>
