@@ -1,18 +1,7 @@
 import { useKillScaleLogic, type KillScaleConfig, KPI_LABELS } from "@/lib/killScaleLogic";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-
-interface KillScaleListProps {
-  creatives: any[];
-  config: KillScaleConfig;
-  variant: "kill" | "scale";
-  onCreativeClick?: (creative: any) => void;
-}
-
-const fmt = (v: number | null | undefined, decimals = 2) =>
-  v == null ? "—" : Number(v).toFixed(decimals);
-const fmtDollar = (v: number | null | undefined) =>
-  v == null ? "—" : `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+import { fmtMetric, fmt$ } from "@/lib/formatters";
 
 const KPI_SUFFIXES: Record<string, { prefix: string; suffix: string }> = {
   roas: { prefix: "", suffix: "x" },
