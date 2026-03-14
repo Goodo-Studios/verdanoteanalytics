@@ -131,12 +131,18 @@ export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: Vi
   const maxSpend = Math.max(...videoCreatives.map(c => c.spend_val), 1);
   const bubbleScale = (spend: number) => Math.max(4, Math.sqrt(spend / maxSpend) * 28);
 
+  // Benchmark thresholds for quadrant dividers (as 0-1 ratios)
+  const HOOK_BENCHMARK = 0.35; // 35% hook rate
+  const HOLD_BENCHMARK = 0.20; // 20% hold rate
+
   // Quadrant labels — X = Hold Rate, Y = Hook Rate
+  const holdX = PAD.left + HOLD_BENCHMARK * plotW;
+  const hookY = PAD.top + plotH - HOOK_BENCHMARK * plotH;
   const quadrants = [
-    { label: "Hooks & Holds", x: PAD.left + plotW * 0.75, y: PAD.top + plotH * 0.15, className: "text-primary" },
-    { label: "Hooks, doesn't hold", x: PAD.left + plotW * 0.25, y: PAD.top + plotH * 0.15, className: "text-warning" },
-    { label: "Holds, doesn't hook", x: PAD.left + plotW * 0.75, y: PAD.top + plotH * 0.85, className: "text-warning" },
-    { label: "Losing them", x: PAD.left + plotW * 0.25, y: PAD.top + plotH * 0.85, className: "text-destructive" },
+    { label: "Hooks & Holds", x: holdX + (PAD.left + plotW - holdX) / 2, y: hookY - (hookY - PAD.top) / 2, className: "text-primary" },
+    { label: "Hooks, doesn't hold", x: PAD.left + (holdX - PAD.left) / 2, y: hookY - (hookY - PAD.top) / 2, className: "text-warning" },
+    { label: "Holds, doesn't hook", x: holdX + (PAD.left + plotW - holdX) / 2, y: hookY + (PAD.top + plotH - hookY) / 2, className: "text-warning" },
+    { label: "Losing them", x: PAD.left + (holdX - PAD.left) / 2, y: hookY + (PAD.top + plotH - hookY) / 2, className: "text-destructive" },
   ];
 
   const maxBarHook = top10Hook.length > 0 ? top10Hook[0].hook_rate : 1;
@@ -194,9 +200,9 @@ export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: Vi
               <line x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={PAD.top + plotH} stroke="hsl(var(--border))" strokeWidth="1" />
               <line x1={PAD.left} y1={PAD.top + plotH} x2={PAD.left + plotW} y2={PAD.top + plotH} stroke="hsl(var(--border))" strokeWidth="1" />
 
-              {/* Grid lines at 50% */}
-              <line x1={PAD.left + plotW / 2} y1={PAD.top} x2={PAD.left + plotW / 2} y2={PAD.top + plotH} stroke="hsl(var(--border))" strokeWidth="1" strokeDasharray="4,4" opacity="0.5" />
-              <line x1={PAD.left} y1={PAD.top + plotH / 2} x2={PAD.left + plotW} y2={PAD.top + plotH / 2} stroke="hsl(var(--border))" strokeWidth="1" strokeDasharray="4,4" opacity="0.5" />
+              {/* Grid lines at benchmarks */}
+              <line x1={holdX} y1={PAD.top} x2={holdX} y2={PAD.top + plotH} stroke="hsl(var(--border))" strokeWidth="1" strokeDasharray="4,4" opacity="0.5" />
+              <line x1={PAD.left} y1={hookY} x2={PAD.left + plotW} y2={hookY} stroke="hsl(var(--border))" strokeWidth="1" strokeDasharray="4,4" opacity="0.5" />
 
               {/* Quadrant labels */}
               {quadrants.map(q => (
