@@ -282,7 +282,7 @@ const ReportDetailPage = () => {
                           onClick={() => handleAdClick(p.ad_id)}
                         >
                           <div className="flex items-center gap-3">
-                            <span className="font-mono text-muted-foreground text-sm w-6">{i + 1}.</span>
+                            <span className="font-data text-muted-foreground text-sm w-6">{i + 1}.</span>
                             <div>
                               <div className="text-sm font-medium">{p.ad_name}</div>
                               {p.unique_code && <div className="text-xs font-mono text-muted-foreground mt-0.5">{p.unique_code}</div>}
