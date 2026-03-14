@@ -31,11 +31,11 @@ function bucketKey(date: string, granularity: Granularity): string {
 function aggregateBuckets(data: DailyTrendPoint[], granularity: Granularity) {
   if (granularity === "daily") return data;
 
-  const buckets: Record<string, { spend: number; impressions: number; clicks: number; purchases: number; purchase_value: number; adds_to_cart: number; video_views: number }> = {};
+  const buckets: Record<string, { spend: number; impressions: number; clicks: number; purchases: number; purchase_value: number; adds_to_cart: number; video_views: number; frequencySum: number; frequencyCount: number }> = {};
 
   for (const d of data) {
     const key = bucketKey(d.date, granularity);
-    if (!buckets[key]) buckets[key] = { spend: 0, impressions: 0, clicks: 0, purchases: 0, purchase_value: 0, adds_to_cart: 0, video_views: 0 };
+    if (!buckets[key]) buckets[key] = { spend: 0, impressions: 0, clicks: 0, purchases: 0, purchase_value: 0, adds_to_cart: 0, video_views: 0, frequencySum: 0, frequencyCount: 0 };
     const b = buckets[key];
     b.spend += d.spend;
     b.impressions += d.impressions;
@@ -44,20 +44,30 @@ function aggregateBuckets(data: DailyTrendPoint[], granularity: Granularity) {
     b.purchase_value += d.purchase_value;
     b.adds_to_cart += d.adds_to_cart;
     b.video_views += d.video_views;
+    if (d.frequency > 0) {
+      b.frequencySum += d.frequency;
+      b.frequencyCount += 1;
+    }
   }
 
   return Object.entries(buckets)
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, b]) => ({
-      date,
-      ...b,
-      ctr: b.impressions > 0 ? (b.clicks / b.impressions) * 100 : 0,
-      cpm: b.impressions > 0 ? (b.spend / b.impressions) * 1000 : 0,
-      cpc: b.clicks > 0 ? b.spend / b.clicks : 0,
-      cpa: b.purchases > 0 ? b.spend / b.purchases : 0,
-      roas: b.spend > 0 ? b.purchase_value / b.spend : 0,
-      cost_per_atc: b.adds_to_cart > 0 ? b.spend / b.adds_to_cart : 0,
-    }));
+    .map(([date, b]) => {
+      const frequency = b.frequencyCount > 0 ? b.frequencySum / b.frequencyCount : 0;
+      const cpm = b.impressions > 0 ? (b.spend / b.impressions) * 1000 : 0;
+      return {
+        date,
+        ...b,
+        frequency,
+        ctr: b.impressions > 0 ? (b.clicks / b.impressions) * 100 : 0,
+        cpm,
+        cpc: b.clicks > 0 ? b.spend / b.clicks : 0,
+        cpa: b.purchases > 0 ? b.spend / b.purchases : 0,
+        roas: b.spend > 0 ? b.purchase_value / b.spend : 0,
+        cost_per_atc: b.adds_to_cart > 0 ? b.spend / b.adds_to_cart : 0,
+        cpmr: cpm * frequency,
+      };
+    });
 }
 
 function SummaryCard({ label, value, change, invertColor }: { label: string; value: string; change: number | null; invertColor: boolean }) {
