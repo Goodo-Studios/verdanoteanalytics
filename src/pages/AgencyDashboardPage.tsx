@@ -170,7 +170,7 @@ export default function AgencyDashboardPage() {
                   <div className="grid grid-cols-3 gap-2">
                     <div>
                       <p className="font-label text-[9px] uppercase tracking-wider text-muted-foreground">Spend MTD</p>
-                      <p className="font-data text-[14px] font-medium tabular-nums text-foreground">{fmt$(mtd)}</p>
+                      <p className="font-data text-[15px] font-medium tabular-nums text-foreground">{fmt$(mtd)}</p>
                       {prior > 0 && (
                         <span className={cn("font-data text-[10px] tabular-nums", spendDelta >= 0 ? "text-primary" : "text-destructive")}>
                           {spendDelta >= 0 ? <TrendingUp className="h-3 w-3 inline mr-0.5" /> : <TrendingDown className="h-3 w-3 inline mr-0.5" />}
@@ -180,7 +180,7 @@ export default function AgencyDashboardPage() {
                     </div>
                     <div>
                       <p className="font-label text-[9px] uppercase tracking-wider text-muted-foreground">ROAS</p>
-                      <p className="font-data text-[14px] font-medium tabular-nums text-foreground">{avgRoas.toFixed(2)}x</p>
+                      <p className="font-data text-[15px] font-medium tabular-nums text-foreground">{avgRoas.toFixed(2)}x</p>
                       {wowTrend && wowTrend.direction !== "insufficient" && (
                         <span className={cn("font-data text-[10px]", wowTrend.direction === "up" ? "text-primary" : wowTrend.direction === "down" ? "text-destructive" : "text-muted-foreground")}>
                           {wowTrend.label}
@@ -189,7 +189,7 @@ export default function AgencyDashboardPage() {
                     </div>
                     <div>
                       <p className="font-label text-[9px] uppercase tracking-wider text-muted-foreground">Active</p>
-                      <p className="font-data text-[14px] font-medium tabular-nums text-foreground">{active.length}</p>
+                      <p className="font-data text-[15px] font-medium tabular-nums text-foreground">{active.length}</p>
                     </div>
                   </div>
 
@@ -279,7 +279,7 @@ export default function AgencyDashboardPage() {
                       <p className="font-body text-[10px] text-muted-foreground">{getAccountName(c.account_id)}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="font-data text-[13px] font-medium text-primary tabular-nums">{Number(c.roas).toFixed(2)}x</p>
+                      <p className="font-data text-[15px] font-medium text-primary tabular-nums">{Number(c.roas).toFixed(2)}x</p>
                       <p className="font-data text-[10px] text-muted-foreground tabular-nums">{fmt$(Number(c.spend))}</p>
                     </div>
                   </div>

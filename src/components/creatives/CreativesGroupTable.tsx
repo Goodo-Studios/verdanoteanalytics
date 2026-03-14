@@ -35,11 +35,11 @@ export function CreativesGroupTable({ groupBy, data }: CreativesGroupTableProps)
           {data.map((g) => (
             <TableRow key={g.name} className="border-b border-border-light">
               <TableCell className="font-body text-[13px] font-medium text-charcoal">{g.name}</TableCell>
-              <TableCell className="font-data text-[13px] font-medium text-charcoal tabular-nums text-right">{g.count}</TableCell>
-              <TableCell className="font-data text-[13px] font-medium text-charcoal tabular-nums text-right">${g.totalSpend.toLocaleString("en-US", { maximumFractionDigits: 0 })}</TableCell>
-              <TableCell className="font-data text-[13px] font-medium text-charcoal tabular-nums text-right">{g.avgRoas.toFixed(2)}x</TableCell>
-              <TableCell className="font-data text-[13px] font-medium text-charcoal tabular-nums text-right">${g.avgCpa.toFixed(2)}</TableCell>
-              <TableCell className="font-data text-[13px] font-medium text-charcoal tabular-nums text-right">${g.avgSpend.toLocaleString("en-US", { maximumFractionDigits: 0 })}</TableCell>
+              <TableCell className="font-data text-[15px] font-medium text-charcoal tabular-nums text-right">{g.count}</TableCell>
+              <TableCell className="font-data text-[15px] font-medium text-charcoal tabular-nums text-right">${g.totalSpend.toLocaleString("en-US", { maximumFractionDigits: 0 })}</TableCell>
+              <TableCell className="font-data text-[15px] font-medium text-charcoal tabular-nums text-right">{g.avgRoas.toFixed(2)}x</TableCell>
+              <TableCell className="font-data text-[15px] font-medium text-charcoal tabular-nums text-right">${g.avgCpa.toFixed(2)}</TableCell>
+              <TableCell className="font-data text-[15px] font-medium text-charcoal tabular-nums text-right">${g.avgSpend.toLocaleString("en-US", { maximumFractionDigits: 0 })}</TableCell>
             </TableRow>
           ))}
         </TableBody>

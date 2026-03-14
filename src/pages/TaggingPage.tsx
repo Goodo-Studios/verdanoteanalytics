@@ -355,7 +355,7 @@ const TaggingPage = () => {
                 </button>
               </Badge>
             )}
-            <span className="font-data text-[13px] font-medium text-muted-foreground">{total.toLocaleString()} creatives</span>
+            <span className="font-data text-[15px] font-medium text-muted-foreground">{total.toLocaleString()} creatives</span>
           </div>
 
           {/* Table */}

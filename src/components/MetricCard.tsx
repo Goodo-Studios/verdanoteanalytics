@@ -23,7 +23,7 @@ export function MetricCard({ label, value, icon, trend, badge, className }: Metr
         {trend && (
           <span
             className={cn(
-              "font-data text-[13px] font-medium mb-0.5",
+              "font-data text-[15px] font-medium mb-0.5",
               trend.positive ? "text-verdant" : "text-red-700"
             )}
           >

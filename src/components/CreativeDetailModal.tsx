@@ -210,7 +210,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
                   <span className="font-label text-[11px] font-semibold uppercase tracking-wider text-foreground">
                     {fatigue.level === "high" ? "🔥" : "⚠️"} Fatigue Score
                   </span>
-                  <span className={`font-data text-[13px] font-bold tabular-nums ${fatigue.level === "high" ? "text-destructive" : "text-amber-600"}`}>
+                  <span className={`font-data text-[15px] font-bold tabular-nums ${fatigue.level === "high" ? "text-destructive" : "text-amber-600"}`}>
                     {fatigue.score}/100
                   </span>
                 </div>

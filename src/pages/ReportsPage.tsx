@@ -225,12 +225,12 @@ const ReportsPage = () => {
                       </div>
                       <div className="font-data text-[11px] text-slate">{r.date_range_days ? `${r.date_range_days} days` : "—"}</div>
                     </TableCell>
-                    <TableCell className="font-data text-[13px] text-slate">{new Date(r.created_at).toLocaleDateString()}</TableCell>
-                    <TableCell className="font-data text-[13px] text-right tabular-nums">{r.creative_count}</TableCell>
-                    <TableCell className="font-data text-[13px] text-right tabular-nums">{fmt(r.total_spend, "$")}</TableCell>
-                    <TableCell className="font-data text-[13px] text-right tabular-nums">{fmt(r.blended_roas, "", "x")}</TableCell>
-                    <TableCell className="font-data text-[13px] text-right tabular-nums">{fmt(r.win_rate, "", "%")}</TableCell>
-                    <TableCell className="font-data text-[13px] text-right tabular-nums">{fmt(r.average_cpa, "$")}</TableCell>
+                    <TableCell className="font-data text-[15px] text-slate">{new Date(r.created_at).toLocaleDateString()}</TableCell>
+                    <TableCell className="font-data text-[15px] text-right tabular-nums">{r.creative_count}</TableCell>
+                    <TableCell className="font-data text-[15px] text-right tabular-nums">{fmt(r.total_spend, "$")}</TableCell>
+                    <TableCell className="font-data text-[15px] text-right tabular-nums">{fmt(r.blended_roas, "", "x")}</TableCell>
+                    <TableCell className="font-data text-[15px] text-right tabular-nums">{fmt(r.win_rate, "", "%")}</TableCell>
+                    <TableCell className="font-data text-[15px] text-right tabular-nums">{fmt(r.average_cpa, "$")}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
                         {!isClient && (
@@ -305,7 +305,7 @@ const ReportsPage = () => {
               <div className="flex items-center gap-2">
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" className={cn("h-9 flex-1 justify-start border-border-light rounded-[4px]", !dateStart ? "font-body text-[14px] text-muted-foreground" : "font-data text-[14px] font-medium text-charcoal")}>
+                    <Button variant="outline" className={cn("h-9 flex-1 justify-start border-border-light rounded-[4px]", !dateStart ? "font-body text-[14px] text-muted-foreground" : "font-data text-[15px] font-medium text-charcoal")}>
                       <CalendarIcon className="h-3.5 w-3.5 mr-1.5 text-sage" />
                       {dateStart ? format(dateStart, "MMM d, yyyy") : "Start"}
                     </Button>
@@ -317,7 +317,7 @@ const ReportsPage = () => {
                 <span className="font-body text-[13px] text-sage">to</span>
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" className={cn("h-9 flex-1 justify-start border-border-light rounded-[4px]", !dateEnd ? "font-body text-[14px] text-muted-foreground" : "font-data text-[14px] font-medium text-charcoal")}>
+                    <Button variant="outline" className={cn("h-9 flex-1 justify-start border-border-light rounded-[4px]", !dateEnd ? "font-body text-[14px] text-muted-foreground" : "font-data text-[15px] font-medium text-charcoal")}>
                       <CalendarIcon className="h-3.5 w-3.5 mr-1.5 text-sage" />
                       {dateEnd ? format(dateEnd, "MMM d, yyyy") : "End"}
                     </Button>
@@ -348,7 +348,7 @@ const ReportsPage = () => {
               Report Schedules
             </DialogTitle>
             <DialogDescription className="font-body text-[13px] text-slate font-light">
-              Configure automatic report generation per account. Use templates: <span className="font-data text-[13px] font-medium text-verdant">{"{account}"}</span>, <span className="font-data text-[13px] font-medium text-verdant">{"{cadence}"}</span>, <span className="font-data text-[13px] font-medium text-verdant">{"{date}"}</span>.
+              Configure automatic report generation per account. Use templates: <span className="font-data text-[15px] font-medium text-verdant">{"{account}"}</span>, <span className="font-data text-[15px] font-medium text-verdant">{"{cadence}"}</span>, <span className="font-data text-[15px] font-medium text-verdant">{"{date}"}</span>.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">

@@ -40,7 +40,7 @@ export function CustomCalloutSection({ config, isEditing, onConfigChange }: Cust
                 value={stat}
                 onChange={(e) => onConfigChange?.({ ...config, stat: e.target.value })}
                 placeholder="e.g. 23.3x"
-                className="font-data text-[14px] h-8"
+                className="font-data text-[15px] h-8"
               />
             </div>
             <div className="space-y-1">

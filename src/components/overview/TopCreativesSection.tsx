@@ -30,7 +30,7 @@ export function TopCreativesSection({ creatives, count = 5, sortBy = "spend", on
       <div className="space-y-3">
         {top.map((c: any, i: number) => (
           <div key={c.ad_id} className={cn("flex items-center gap-3", onCreativeClick && "cursor-pointer hover:bg-sage-light/50 -mx-2 px-2 py-1 rounded-[6px] transition-colors")} onClick={() => onCreativeClick?.(c)}>
-            <span className="font-data text-[14px] font-semibold text-sage w-5 text-right">{i + 1}</span>
+            <span className="font-data text-[15px] font-semibold text-sage w-5 text-right">{i + 1}</span>
             {c.thumbnail_url && (
               <img src={c.thumbnail_url} alt="" className="h-10 w-10 rounded-[4px] object-cover flex-shrink-0" />
             )}

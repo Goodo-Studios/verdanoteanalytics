@@ -108,7 +108,7 @@ export function PortfolioReportModal({ open, onOpenChange, accounts }: Portfolio
             <div className="flex items-center gap-2">
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className={cn("h-9 flex-1 justify-start border-border-light rounded-[4px]", "font-data text-[14px] font-medium text-charcoal")}>
+                  <Button variant="outline" className={cn("h-9 flex-1 justify-start border-border-light rounded-[4px]", "font-data text-[15px] font-medium text-charcoal")}>
                     <CalendarIcon className="h-3.5 w-3.5 mr-1.5 text-sage" />
                     {format(dateStart, "MMM d, yyyy")}
                   </Button>
@@ -120,7 +120,7 @@ export function PortfolioReportModal({ open, onOpenChange, accounts }: Portfolio
               <span className="font-body text-[13px] text-sage">to</span>
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className={cn("h-9 flex-1 justify-start border-border-light rounded-[4px]", "font-data text-[14px] font-medium text-charcoal")}>
+                  <Button variant="outline" className={cn("h-9 flex-1 justify-start border-border-light rounded-[4px]", "font-data text-[15px] font-medium text-charcoal")}>
                     <CalendarIcon className="h-3.5 w-3.5 mr-1.5 text-sage" />
                     {format(dateEnd, "MMM d, yyyy")}
                   </Button>

@@ -59,10 +59,10 @@ export function KillScaleList({ creatives, config, variant, onCreativeClick }: K
               <TableCell className="font-body text-[12px] max-w-[260px] truncate">
                 {c.ad_name || c.ad_id}
               </TableCell>
-              <TableCell className="font-data text-[12px] text-right tabular-nums">
+              <TableCell className="font-data text-[15px] text-right tabular-nums">
                 {fmt$(Number(c.spend) || 0)}
               </TableCell>
-              <TableCell className="font-data text-[12px] text-right tabular-nums">
+              <TableCell className="font-data text-[15px] text-right tabular-nums">
                 {(() => {
                   const kpiVal = c[config.winnerKpi];
                   const units = KPI_SUFFIXES[config.winnerKpi] || { prefix: "", suffix: "" };

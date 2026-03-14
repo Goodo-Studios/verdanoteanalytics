@@ -74,7 +74,7 @@ function SummaryCard({ label, value, change, invertColor }: { label: string; val
       <div className="flex items-end gap-2">
         <span className="font-data text-[28px] font-semibold text-charcoal tracking-tight leading-none">{value}</span>
         {change !== null && (
-          <span className={`inline-flex items-center gap-0.5 font-data text-[13px] font-medium mb-0.5 ${isNeutral ? "text-muted-foreground" : isGood ? "text-verdant" : "text-red-700"}`}>
+          <span className={`inline-flex items-center gap-0.5 font-data text-[15px] font-medium mb-0.5 ${isNeutral ? "text-muted-foreground" : isGood ? "text-verdant" : "text-red-700"}`}>
             {isNeutral ? <Minus className="h-3 w-3" /> : isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
             {isPositive ? "+" : ""}{change.toFixed(1)}%
           </span>
