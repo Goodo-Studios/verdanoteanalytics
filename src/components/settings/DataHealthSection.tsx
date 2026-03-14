@@ -184,8 +184,8 @@ export function DataHealthSection() {
             {(health || []).map((row) => (
               <TableRow key={row.id}>
                 <TableCell className="font-body text-[13px] font-medium text-charcoal">{row.name}</TableCell>
-                <TableCell className="font-data text-[15px] text-charcoal text-right">{row.creative_count}</TableCell>
-                <TableCell className="font-data text-[15px] text-charcoal text-right">{row.with_spend}</TableCell>
+                <TableCell className="font-data text-[17px] text-charcoal text-right">{row.creative_count}</TableCell>
+                <TableCell className="font-data text-[17px] text-charcoal text-right">{row.with_spend}</TableCell>
                 <TableCell className="text-right"><CoverageCell pct={row.thumb_coverage} /></TableCell>
                 <TableCell className="text-right"><CoverageCell pct={row.video_coverage} /></TableCell>
                 <TableCell className="font-data text-[12px] text-slate">{formatDate(row.last_synced_at)}</TableCell>

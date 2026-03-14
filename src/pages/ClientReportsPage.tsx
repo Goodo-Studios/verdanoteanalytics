@@ -70,7 +70,7 @@ const ClientReportsPage = () => {
                       {new Date(r.created_at).toLocaleDateString()}
                     </TableCell>
                     <TableCell className="font-data text-[17px] text-right tabular-nums">{fmt(r.total_spend, "$")}</TableCell>
-                    <TableCell className="font-data text-[15px] text-right tabular-nums">{fmt(r.blended_roas, "", "x")}</TableCell>
+                    <TableCell className="font-data text-[17px] text-right tabular-nums">{fmt(r.blended_roas, "", "x")}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1 justify-end">
                         <Button variant="ghost" size="sm" className="h-7 px-2" onClick={(e) => { e.stopPropagation(); exportReportCSV(r); }}>

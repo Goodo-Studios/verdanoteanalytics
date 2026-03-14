@@ -114,9 +114,9 @@ export function WinRateTab({
               {winRateData.breakdown.map((row) => (
                 <TableRow key={row.name} className="border-b border-border-light">
                   <TableCell className="font-body text-[13px] text-charcoal">{row.name}</TableCell>
-                  <TableCell className="font-data text-[15px] font-medium text-charcoal tabular-nums text-right">{row.total}</TableCell>
-                  <TableCell className="font-data text-[15px] font-medium text-charcoal tabular-nums text-right">{row.winners}</TableCell>
-                  <TableCell className="font-data text-[15px] font-medium text-charcoal tabular-nums text-right">{row.winRate.toFixed(1)}%</TableCell>
+                  <TableCell className="font-data text-[17px] font-medium text-charcoal tabular-nums text-right">{row.total}</TableCell>
+                  <TableCell className="font-data text-[17px] font-medium text-charcoal tabular-nums text-right">{row.winners}</TableCell>
+                  <TableCell className="font-data text-[17px] font-medium text-charcoal tabular-nums text-right">{row.winRate.toFixed(1)}%</TableCell>
                   <TableCell>
                     <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
                       <div className="h-full bg-verdant rounded-full" style={{ width: `${Math.min(row.winRate, 100)}%` }} />
