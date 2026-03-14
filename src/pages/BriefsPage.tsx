@@ -153,7 +153,7 @@ const BriefsPage = () => {
                     <button
                       key={brief.id}
                       onClick={() => { setEditorBrief(brief); setEditorOpen(true); }}
-                      className="w-full text-left p-3 rounded-lg border border-border-light bg-white hover:shadow-card transition-shadow space-y-2"
+                      className="w-full text-left p-3 rounded-lg border border-border-light bg-card hover:shadow-card transition-shadow space-y-2"
                     >
                       <p className="font-body text-[13px] font-semibold text-forest truncate">{brief.name}</p>
                       <p className="font-body text-[11px] text-muted-foreground">{accountName(brief.account_id)}</p>
