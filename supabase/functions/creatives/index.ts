@@ -135,7 +135,9 @@ serve(async (req) => {
         let dmOffset = 0;
         const DM_PAGE = 1000;
         while (true) {
-          let dmQuery = supabase.from("creative_daily_metrics").select("ad_id, spend, impressions, clicks, purchases, purchase_value, adds_to_cart, video_views, frequency, thumb_stop_rate, hold_rate, video_avg_play_time");
+          let dmQuery = supabase.from("creative_daily_metrics").select("ad_id, spend, impressions, clicks, purchases, purchase_value, adds_to_cart, video_views, frequency, thumb_stop_rate, hold_rate, video_avg_play_time")
+            .order("ad_id", { ascending: true })
+            .order("date", { ascending: true });
           if (accountId) dmQuery = dmQuery.eq("account_id", accountId);
           if (dateFrom) dmQuery = dmQuery.gte("date", dateFrom);
           if (dateTo) dmQuery = dmQuery.lte("date", dateTo);
@@ -272,7 +274,12 @@ serve(async (req) => {
 
           result.sort((a: any, b: any) => (b.spend || 0) - (a.spend || 0));
           const total = result.length;
-          return new Response(JSON.stringify({ data: result.slice(offset, offset + limit), total }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          // Compute aggregate totals across ALL creatives (not just the page slice)
+          const aggTotalSpend = result.reduce((s: number, c: any) => s + (Number(c.spend) || 0), 0);
+          const withSpend = result.filter((c: any) => c.spend > 0);
+          const aggAvgCpa = withSpend.length > 0 ? withSpend.reduce((s: number, c: any) => s + (Number(c.cpa) || 0), 0) / withSpend.length : 0;
+          const aggAvgRoas = withSpend.length > 0 ? withSpend.reduce((s: number, c: any) => s + (Number(c.roas) || 0), 0) / withSpend.length : 0;
+          return new Response(JSON.stringify({ data: result.slice(offset, offset + limit), total, aggregates: { total_spend: aggTotalSpend, avg_cpa: aggAvgCpa, avg_roas: aggAvgRoas } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       }
 
