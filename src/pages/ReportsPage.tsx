@@ -353,7 +353,7 @@ const ReportsPage = () => {
           </DialogHeader>
           <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
             {(accounts || []).map((a: any) => (
-              <div key={a.id} className="rounded-card border border-border-light bg-white p-5 space-y-4">
+              <div key={a.id} className="rounded-card border border-border-light bg-card p-5 space-y-4">
                 <div className="font-body text-[16px] font-semibold text-charcoal">{a.name}</div>
                 {CADENCES.map(({ key, label, defaultDays, description }, idx) => {
                   const schedule = getSchedule(a.id, key);
