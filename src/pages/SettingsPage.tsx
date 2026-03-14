@@ -2,7 +2,7 @@ import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { SyncStatusBanner } from "@/components/SyncStatusBanner";
 import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
-import { Loader2, User, Settings as SettingsIcon, Shield, FileOutput, Tags, Building2 } from "lucide-react";
+import { Loader2, User, Settings as SettingsIcon, Shield, FileOutput, Tags, Building2, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Profile / User sections
