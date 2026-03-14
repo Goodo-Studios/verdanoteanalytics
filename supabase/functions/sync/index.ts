@@ -797,10 +797,16 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     if (phase === 3) {
       console.log("Phase 3: Cleanup zero-spend creatives...");
 
-      // Single delete call — no need to count first then delete separately
+      // Delete zero-spend creatives EXCEPT:
+      // - manually/csv-tagged ones (user investment)
+      // - placeholder ads created by Phase 4 auto-create (ad_name = ad_id pattern)
+      //   These will get real metrics in Phase 4 of the current sync.
       const { count: zeroSpendCount } = await supabase.from("creatives")
         .delete({ count: "exact" })
-        .eq("account_id", accountId).lte("spend", 0).not("tag_source", "in", '("manual","csv")');
+        .eq("account_id", accountId)
+        .lte("spend", 0)
+        .is("impressions", null)  // Only delete truly empty rows (never had data)
+        .not("tag_source", "in", '("manual","csv")');
       if (zeroSpendCount && zeroSpendCount > 0) {
         console.log(`  Cleaned up ${zeroSpendCount} zero-spend creatives`);
       }
