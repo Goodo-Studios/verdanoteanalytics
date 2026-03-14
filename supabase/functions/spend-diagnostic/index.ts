@@ -204,7 +204,7 @@ serve(async (req) => {
       const countUrl =
         `https://graph.facebook.com/${META_API_VERSION}/${account_id}/insights?` +
         `time_range=${encodeURIComponent(timeRange)}&level=ad` +
-        `&fields=ad_id&limit=1&filtering=[]` +
+        `&fields=ad_id&limit=1&summary=total_count` +
         `&${attributionSetting}` +
         `&access_token=${encodeURIComponent(metaToken)}`;
 
