@@ -1169,6 +1169,11 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         console.log("  Skipping score snapshots — budget exceeded");
       }
 
+      // Get users linked to this account (for notifications AND audit drift alerts)
+      // Hoisted above changelog block so it's in scope for the audit block too
+      const { data: userLinks } = await supabase.from("user_accounts").select("user_id").eq("account_id", accountId);
+      const userIds = (userLinks || []).map((l: any) => l.user_id);
+
       // ── Auto-log changelog + notifications (consolidated single query) ──
       try {
         const scaleThreshold = account.scale_threshold || 2.0;
@@ -1180,10 +1185,6 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           .select("ad_id, ad_name, roas, prior_roas, spend, ad_status")
           .eq("account_id", accountId)
           .gt("impressions", 0);
-
-        // Get users linked to this account (for notifications)
-        const { data: userLinks } = await supabase.from("user_accounts").select("user_id").eq("account_id", accountId);
-        const userIds = (userLinks || []).map((l: any) => l.user_id);
 
         const changelogEntries: any[] = [];
         const notifications: any[] = [];
