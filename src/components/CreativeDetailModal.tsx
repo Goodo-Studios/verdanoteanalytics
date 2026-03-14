@@ -278,7 +278,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
           </TabsContent>
 
           <TabsContent value="versions" className="mt-4">
-            <CreativeVersions creative={creative} onCreativeClick={(c) => { onClose(); setTimeout(() => { /* parent should handle navigation to version */ }, 0); }} />
+            <CreativeVersions creative={creative} onCreativeClick={(c) => { onClose(); }} />
           </TabsContent>
         </Tabs>
       </DialogContent>

@@ -1,4 +1,4 @@
-import { fmt } from "@/components/creatives/constants";
+import { fmtMetric } from "@/lib/formatters";
 
 interface CreativeMetricsProps {
   creative: any;
@@ -7,12 +7,12 @@ interface CreativeMetricsProps {
 export function CreativeMetrics({ creative }: CreativeMetricsProps) {
   const fmtVal = (v: number | null, prefix = "", suffix = "") => {
     if (v === null || v === undefined || v === 0) return "—";
-    return `${prefix}${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${suffix}`;
+    return fmtMetric(v, prefix, suffix, 2);
   };
 
   const fmtInt = (v: number | null) => {
     if (v === null || v === undefined || v === 0) return "—";
-    return Number(v).toLocaleString("en-US");
+    return fmtMetric(v, "", "", 0);
   };
 
   const cpmr = (creative.cpm && creative.frequency) ? creative.cpm * creative.frequency : null;
@@ -60,7 +60,7 @@ export function CreativeMetrics({ creative }: CreativeMetricsProps) {
           <p className="font-label text-[10px] font-semibold uppercase tracking-[0.08em] text-slate mb-2 pb-1.5 border-b border-border-light">{section.title}</p>
           <div className={`grid gap-px bg-border-light`} style={{ gridTemplateColumns: `repeat(${section.cols}, minmax(0, 1fr))` }}>
             {section.metrics.map((m) => (
-              <div key={m.label} className="bg-white py-3 px-2.5 text-center">
+              <div key={m.label} className="bg-background py-3 px-2.5 text-center">
                 <div className="font-label text-[9px] uppercase tracking-[0.06em] text-sage">{m.label}</div>
                 <div className="font-data text-[16px] font-semibold text-charcoal mt-0.5">{m.value}</div>
               </div>

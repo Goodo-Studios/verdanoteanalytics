@@ -238,7 +238,7 @@ const ComparePage = () => {
                         let colorClass = "text-charcoal";
                         if (h) {
                           if (h.bestIdx === idx) colorClass = "text-verdant";
-                          else if (h.worstIdx === idx) colorClass = "text-red-700";
+                          else if (h.worstIdx === idx) colorClass = "text-destructive";
                         }
                         return (
                           <div key={m.key} className="flex items-center justify-between">
@@ -269,7 +269,7 @@ const ComparePage = () => {
                           <span className={cn("font-label text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-[3px]", meta.color)}>{meta.label}</span>
                           <span className={cn(
                             "font-label text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-[3px]",
-                            d.priorityLabel === "High" ? "bg-red-100 text-red-700" : d.priorityLabel === "Medium" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"
+                            d.priorityLabel === "High" ? "bg-destructive/10 text-destructive" : d.priorityLabel === "Medium" ? "bg-warning/10 text-warning" : "bg-muted text-muted-foreground"
                           )}>{d.priorityLabel}</span>
                         </div>
                         <p className="font-body text-[12px] text-slate">{d.recommendation}</p>
@@ -423,13 +423,13 @@ function ConceptComparison({ conceptGroups, conceptA, conceptB, setConceptA, set
                     <TableCell className="font-label text-[11px] uppercase tracking-wide text-slate">{row.label}</TableCell>
                     <TableCell className={cn(
                       "font-data text-[14px] font-semibold tabular-nums",
-                      !tied && aWins ? "bg-emerald-50 text-emerald-700" : "text-charcoal"
+                      !tied && aWins ? "bg-primary/10 text-primary" : "text-charcoal"
                     )}>
                       {row.useGroup ? (row as any).format(row.valA, a) : (row as any).format(row.valA)}
                     </TableCell>
                     <TableCell className={cn(
                       "font-data text-[14px] font-semibold tabular-nums",
-                      !tied && bWins ? "bg-emerald-50 text-emerald-700" : "text-charcoal"
+                      !tied && bWins ? "bg-primary/10 text-primary" : "text-charcoal"
                     )}>
                       {row.useGroup ? (row as any).format(row.valB, b) : (row as any).format(row.valB)}
                     </TableCell>
