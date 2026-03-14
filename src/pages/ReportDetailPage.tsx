@@ -1,42 +1,7 @@
 import { AppLayout } from "@/components/AppLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { Download, ArrowLeft, Send, Loader2, Pencil, FileText } from "lucide-react";
-import { exportReportCSV } from "@/lib/csv";
-import { useReports, useSendReportToSlack } from "@/hooks/useReportsApi";
-import { useParams } from "react-router-dom";
-import { useRoleNavigate } from "@/hooks/useRolePath";
-import { useMemo, useState, useCallback, useEffect } from "react";
-import { fmtMetric } from "@/lib/formatters";
-import { SectionRenderer } from "@/components/reports/SectionRenderer";
-import { legacySectionsFromReport, standardReportSections, ReportSection } from "@/lib/reportSections";
-import { PortfolioReportView } from "@/components/reports/PortfolioReportView";
-import { CreativeDetailModal } from "@/components/CreativeDetailModal";
-import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
-import { ReportPrintLayout } from "@/components/reports/ReportPrintLayout";
-
-function DeltaBadge({ current, previous, prefix = "", suffix = "", inverse = false }: {
-  current: number | null;
-  previous: number | null;
-  prefix?: string;
-  suffix?: string;
-  inverse?: boolean;
-}) {
-  if (current === null || current === undefined || previous === null || previous === undefined) return null;
-  const diff = Number(current) - Number(previous);
-  if (Math.abs(diff) < 0.01) return <span className="text-xs text-muted-foreground flex items-center gap-0.5"><Minus className="h-3 w-3" />—</span>;
-  const isPositive = diff > 0;
-  const isGood = inverse ? !isPositive : isPositive;
-  return (
-    <span className={`text-xs flex items-center gap-0.5 ${isGood ? "text-success" : "text-destructive"}`}>
-      {isPositive ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
-      {prefix}{Math.abs(diff).toLocaleString("en-US", { maximumFractionDigits: 2 })}{suffix}
-    </span>
-  );
-}
-
 const ReportDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useRoleNavigate();
