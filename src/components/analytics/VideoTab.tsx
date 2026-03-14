@@ -31,6 +31,8 @@ function pct(n: number) { return `${(n * 100).toFixed(1)}%`; }
 export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: VideoTabProps) {
   const [sort, setSort] = useState<SortConfig>({ key: "hook_rate", direction: "desc" });
   const [hoveredBubble, setHoveredBubble] = useState<string | null>(null);
+  const [minSpendOverride, setMinSpendOverride] = useState<string>("");
+  const effectiveMinSpend = minSpendOverride !== "" ? Math.max(0, Number(minSpendOverride) || 0) : 100;
 
   const grades = useMemo(() => gradeCreatives(creatives, killThreshold), [creatives, killThreshold]);
 
