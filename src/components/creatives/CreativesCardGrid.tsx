@@ -1,6 +1,6 @@
 import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { LayoutGrid, Video, Zap as ZapIcon, ExternalLink, Play } from "lucide-react";
+import { LayoutGrid, Video, Zap as ZapIcon } from "lucide-react";
 import { useState } from "react";
 import { fmt } from "./constants";
 import { cn } from "@/lib/utils";
@@ -134,27 +134,7 @@ export function CreativesCardGrid({ creatives, onSelect, compareMode = false, co
                 <div className="flex items-center gap-1 flex-1 min-w-0 mr-2">
                   <p className="font-body text-[12px] font-medium text-charcoal truncate">{c.ad_name}</p>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  {c.ad_post_url && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const parts = c.ad_post_url.match(/(\d+)\/posts\/(\d+)/);
-                        if (parts) {
-                          window.open(`https://www.facebook.com/${parts[1]}/posts/${parts[2]}/`, "_blank");
-                        } else {
-                          window.open(c.ad_post_url, "_blank");
-                        }
-                      }}
-                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-accent hover:bg-accent/80 text-accent-foreground transition-colors"
-                      title="View ad preview"
-                    >
-                      {c.video_views > 0 ? <Play className="h-3 w-3" /> : <ExternalLink className="h-3 w-3" />}
-                      <span className="font-label text-[9px] font-semibold uppercase">Preview</span>
-                    </button>
-                  )}
-                  <TagSourceBadge source={c.tag_source} />
-                </div>
+                <TagSourceBadge source={c.tag_source} />
               </div>
               <p className="font-body text-[11px] font-normal text-sage truncate mt-0.5">{c.unique_code}</p>
             </div>
