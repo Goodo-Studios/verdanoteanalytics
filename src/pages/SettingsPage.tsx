@@ -224,7 +224,7 @@ const SettingsPage = () => {
       )}
 
       {/* Export Tab */}
-      {activeTab === "export" && (
+      {safeActiveTab === "export" && (
         <div className="max-w-3xl">
           <DataExportSection />
         </div>
