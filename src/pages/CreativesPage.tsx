@@ -325,34 +325,6 @@ const CreativesPage = () => {
         }
       />
 
-      {/* Pinned view quick-filters */}
-      {pinnedViews.length > 0 && (
-        <div className="flex items-center gap-2 mb-4 flex-wrap">
-          <Bookmark className="h-3.5 w-3.5 text-sage" />
-          {pinnedViews.map((v: any) => (
-            <button
-              key={v.id}
-              onClick={() => {
-                const c = v.config;
-                if (c.account_id && c.apply_account) setSelectedAccountId(c.account_id);
-                const params = new URLSearchParams();
-                if (c.analytics_tab) params.set("tab", c.analytics_tab);
-                if (c.slice_by) params.set("slice", c.slice_by);
-                if (c.group_by) params.set("group", c.group_by);
-                if (c.search) params.set("q", c.search);
-                if (c.date_from) params.set("from", c.date_from);
-                if (c.date_to) params.set("to", c.date_to);
-                if (c.filters) params.set("filters", JSON.stringify(c.filters));
-                const qs = params.toString();
-                navigate(`${c.page || "/creatives"}${qs ? `?${qs}` : ""}`);
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-background hover:bg-sage-light font-body text-[12px] font-medium text-charcoal transition-colors"
-            >
-              {v.name}
-            </button>
-          ))}
-        </div>
-      )}
 
       {/* Compare mode banner */}
       {compareMode && (
