@@ -321,7 +321,7 @@ function CreativeInsightCard({ creative, variant, spendThreshold, onClick }: { c
         {variant === "concern" && estimatedLoss > 0 && (
           <p className="font-body text-[12px] text-slate">
             Spending {fmt$(spend)} at {roas.toFixed(1)}x ROAS — losing approximately{" "}
-            <span className="font-data text-[15px] font-semibold text-destructive">{fmt$(estimatedLoss)}</span>
+            <span className="font-data text-[17px] font-semibold text-destructive">{fmt$(estimatedLoss)}</span>
           </p>
         )}
       </div>
