@@ -284,9 +284,16 @@ export function SyncHistorySection({ accountId }: { accountId?: string }) {
                     {!accountId && <TableCell className="font-body text-[13px] font-medium text-charcoal py-3">{getAccountName(log.account_id)}</TableCell>}
                     <TableCell className="py-3"><Badge className="font-label text-[10px] font-medium bg-cream-dark text-slate rounded-[4px] tracking-wide border-0">{log.sync_type}</Badge></TableCell>
                     <TableCell className="py-3">
-                      <div className={`flex items-center gap-1.5 font-label text-[10px] font-semibold ${sc.className}`}>
-                        <StatusIcon className="h-3 w-3" />
-                        {sc.label}
+                      <div className="flex items-center gap-1.5">
+                        <div className={`flex items-center gap-1.5 font-label text-[10px] font-semibold ${sc.className}`}>
+                          <StatusIcon className="h-3 w-3" />
+                          {sc.label}
+                        </div>
+                        {log.sync_state?.audit && (
+                          log.sync_state.audit.drift_exceeded
+                            ? <Badge variant="outline" className="text-[9px] border-gold/50 text-gold px-1 py-0">⚠ {log.sync_state.audit.spend_delta_pct}%</Badge>
+                            : <Badge variant="outline" className="text-[9px] border-verdant/50 text-verdant px-1 py-0">✓</Badge>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell className="py-3">
