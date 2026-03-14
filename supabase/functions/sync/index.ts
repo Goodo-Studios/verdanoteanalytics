@@ -913,10 +913,29 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         // Incremental: compute days since last sync
         const sinceMs = new Date(incrementalSinceDate).getTime();
         const daysSinceSync = Math.ceil((Date.now() - sinceMs) / (1000 * 60 * 60 * 24));
-        // Add 2 days buffer for attribution window, cap at dateRangeDays
-        dailyDays = Math.min(daysSinceSync + 2, dateRangeDays);
-        dailySinceDate = incrementalSinceDate;
-        console.log(`Phase 4 incremental: ${dailyDays} days of daily data (since ${dailySinceDate})`);
+
+        // Detect new ads: if creatives were created in this sync session (after sync started),
+        // they need full daily-metrics history, not just the incremental window.
+        const syncStartedAt = syncLog.started_at;
+        const { count: newAdsCount } = await supabase
+          .from("creatives")
+          .select("*", { count: "exact", head: true })
+          .eq("account_id", accountId)
+          .gte("created_at", syncStartedAt);
+
+        if ((newAdsCount || 0) > 0) {
+          // New ads detected — use full date range to backfill their history
+          dailyDays = dateRangeDays;
+          const fullStart = new Date();
+          fullStart.setDate(fullStart.getDate() - dailyDays);
+          dailySinceDate = fullStart.toISOString().split("T")[0];
+          console.log(`Phase 4 EXPANDED to full range: ${newAdsCount} new ads discovered. Fetching ${dailyDays} days since ${dailySinceDate}`);
+        } else {
+          // Add 2 days buffer for attribution window, cap at dateRangeDays
+          dailyDays = Math.min(daysSinceSync + 2, dateRangeDays);
+          dailySinceDate = incrementalSinceDate;
+          console.log(`Phase 4 incremental: ${dailyDays} days of daily data (since ${dailySinceDate})`);
+        }
       } else if (!state.daily_chunk_offset) {
         // Initial/full: use the entire date_range_days window so daily metrics
         // cover the same period as the aggregated insights (Phase 2).
