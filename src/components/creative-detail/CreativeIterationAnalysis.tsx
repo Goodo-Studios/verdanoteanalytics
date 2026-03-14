@@ -180,7 +180,7 @@ export function CreativeIterationAnalysis({ creative, allCreatives }: Props) {
       {/* Tag insights */}
       {analysis.tagInsights.length > 0 && (
         <div>
-          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-2">Tag Comparisons</p>
+          <p className="font-label text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Tag Comparisons</p>
           <ul className="space-y-1.5">
             {analysis.tagInsights.map((t, i) => (
               <li key={i} className="text-xs leading-relaxed flex gap-2">
