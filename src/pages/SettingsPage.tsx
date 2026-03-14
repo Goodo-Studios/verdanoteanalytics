@@ -32,6 +32,7 @@ import { useUserSettingsPageState } from "@/hooks/useUserSettingsPageState";
 import { useSettingsPageState } from "@/hooks/useSettingsPageState";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
+import { useClientPreview } from "@/hooks/useClientPreviewMode";
 
 type Tab = "profile" | "account" | "naming" | "export" | "admin";
 
@@ -39,25 +40,31 @@ const SettingsPage = () => {
   const userState = useUserSettingsPageState();
   const accountState = useSettingsPageState();
   const isSyncing = useIsSyncing();
-  const { isBuilder, isEmployee, isClient } = useAuth();
+  const { isBuilder: realBuilder, isEmployee: realEmployee, isClient: realClient } = useAuth();
+  const { isClientPreview, isEmployeePreview } = useClientPreview();
+
+  // Derive effective role flags accounting for preview mode
+  const effectiveIsClient = realClient || isClientPreview;
+  const effectiveIsEmployee = (realEmployee || isEmployeePreview) && !isClientPreview;
+  const effectiveIsBuilder = realBuilder && !isClientPreview && !isEmployeePreview;
 
   const [activeTab, setActiveTab] = useState<Tab>("profile");
 
-  // Build tabs based on role
+  // Build tabs based on effective role
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: "profile", label: "Profile", icon: <User className="h-3.5 w-3.5" /> },
   ];
 
-  if (isBuilder || isEmployee) {
+  if (effectiveIsBuilder || effectiveIsEmployee) {
     tabs.push({ key: "account", label: "Account", icon: <SettingsIcon className="h-3.5 w-3.5" /> });
   }
-  if (isBuilder) {
+  if (effectiveIsBuilder) {
     tabs.push({ key: "naming", label: "Naming", icon: <Tags className="h-3.5 w-3.5" /> });
   }
-  if (isBuilder || isEmployee) {
+  if (effectiveIsBuilder || effectiveIsEmployee) {
     tabs.push({ key: "export", label: "Export", icon: <FileOutput className="h-3.5 w-3.5" /> });
   }
-  if (isBuilder) {
+  if (effectiveIsBuilder) {
     tabs.push({ key: "admin", label: "Admin", icon: <Shield className="h-3.5 w-3.5" /> });
   }
 
