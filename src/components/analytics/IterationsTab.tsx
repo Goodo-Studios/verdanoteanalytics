@@ -287,9 +287,6 @@ function IterationCard({ item, onClick }: { item: DiagnosedCreative; onClick?: (
 }
 
 export function IterationsTab({ creatives, spendThreshold, onCreativeClick }: IterationsTabProps) {
-  const [diagnosticFilter, setDiagnosticFilter] = useState<DiagnosticType | "all">("all");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [sortBy, setSortBy] = useState<SortKey>("priority");
   const [minSpendOverride, setMinSpendOverride] = useState<string>("");
 
   const effectiveMinSpend = minSpendOverride !== "" ? Math.max(0, Number(minSpendOverride) || 0) : spendThreshold;
