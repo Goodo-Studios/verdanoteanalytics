@@ -68,6 +68,11 @@ const SettingsPage = () => {
     tabs.push({ key: "admin", label: "Admin", icon: <Shield className="h-3.5 w-3.5" /> });
   }
 
+
+  // Reset active tab if it's not available for the current effective role
+  const validKeys = tabs.map(t => t.key);
+  const safeActiveTab = validKeys.includes(activeTab) ? activeTab : "profile";
+
   if (userState.loadingProfile) {
     return (
       <AppLayout>
