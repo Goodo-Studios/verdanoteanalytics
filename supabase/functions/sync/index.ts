@@ -1351,22 +1351,16 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
 
               console.log(`  📊 Post-sync audit: Meta=$${metaSpend.toFixed(2)} Local=$${localSpend.toFixed(2)} Delta=${spendDeltaPct.toFixed(1)}% ${driftExceeded ? "⚠️ DRIFT" : "✅ OK"}`);
 
-              // Send drift warning notification
+              // Send drift warning notification (inserted directly, not through batch)
               if (driftExceeded) {
                 const direction = spendDelta < 0 ? "under-reporting" : "over-reporting";
-                for (const uid of userIds) {
-                  notifications.push({
-                    user_id: uid, account_id: accountId, type: "concern",
-                    title: `⚠️ Data drift detected: ${account.name}`,
-                    body: `Local spend is ${direction} by ${Math.abs(spendDeltaPct).toFixed(1)}% vs Meta ($${Math.abs(spendDelta).toFixed(0)} gap). Run a full re-sync or check the Spend Diagnostic.`,
-                  });
-                }
-                // Insert the extra notifications
-                if (notifications.length > 0) {
-                  const driftNotifs = notifications.filter(n => n.title.includes("Data drift"));
-                  if (driftNotifs.length > 0) {
-                    await supabase.from("notifications").insert(driftNotifs);
-                  }
+                const driftNotifs = userIds.map((uid: string) => ({
+                  user_id: uid, account_id: accountId, type: "concern",
+                  title: `⚠️ Data drift detected: ${account.name}`,
+                  body: `Local spend is ${direction} by ${Math.abs(spendDeltaPct).toFixed(1)}% vs Meta ($${Math.abs(spendDelta).toFixed(0)} gap). Run a full re-sync or check the Spend Diagnostic.`,
+                }));
+                if (driftNotifs.length > 0) {
+                  await supabase.from("notifications").insert(driftNotifs);
                 }
               }
             }
