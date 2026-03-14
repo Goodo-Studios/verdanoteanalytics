@@ -98,7 +98,7 @@ export const ColumnPicker = ({ columns, visibleColumns, onToggle, columnOrder, o
           Columns
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md bg-white rounded-[8px] shadow-modal p-7">
+      <DialogContent className="sm:max-w-md bg-card rounded-[8px] shadow-modal p-7">
         <DialogHeader>
           <DialogTitle className="font-heading text-[20px] text-forest">Choose & Order Columns</DialogTitle>
           <DialogDescription className="font-body text-[13px] text-slate font-light">Select data points and drag to reorder them.</DialogDescription>

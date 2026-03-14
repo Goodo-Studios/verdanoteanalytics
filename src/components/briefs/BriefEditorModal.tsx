@@ -94,7 +94,7 @@ export function BriefEditorModal({ brief, open, onClose, onStatusChange, onCopyS
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto p-0">
         {/* Header */}
-        <div className="sticky top-0 z-10 bg-white border-b border-border-light px-6 py-4 flex items-center justify-between gap-3">
+        <div className="sticky top-0 z-10 bg-card border-b border-border-light px-6 py-4 flex items-center justify-between gap-3">
           <div className="flex-1 min-w-0">
             <DialogTitle className="sr-only">Edit Brief</DialogTitle>
             <DialogDescription className="sr-only">Edit brief details and content</DialogDescription>
@@ -111,7 +111,7 @@ export function BriefEditorModal({ brief, open, onClose, onStatusChange, onCopyS
               <Badge className={cn("cursor-pointer font-label text-[9px] uppercase", statusObj.color)}>
                 {statusObj.label} <ChevronDown className="h-3 w-3 ml-0.5" />
               </Badge>
-              <div className="absolute right-0 top-full mt-1 bg-white border border-border-light rounded-md shadow-modal p-1 hidden group-hover:block z-20 min-w-[120px]">
+              <div className="absolute right-0 top-full mt-1 bg-card border border-border-light rounded-md shadow-modal p-1 hidden group-hover:block z-20 min-w-[120px]">
                 {STATUS_OPTIONS.map((s) => (
                   <button
                     key={s.value}

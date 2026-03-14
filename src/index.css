@@ -8,6 +8,11 @@
     --background: 39 47% 96%;        /* #FDF8F0 cream */
     --foreground: 0 0% 17%;          /* #2C2C2C charcoal */
 
+    /* ── Semantic text colors (dark-mode aware) ── */
+    --text-strong: 0 0% 17%;         /* charcoal in light */
+    --text-secondary: 220 9% 46%;    /* slate in light */
+    --text-heading: 155 56% 15%;     /* forest green in light */
+
     --card: 0 0% 100%;               /* #FFFFFF */
     --card-foreground: 0 0% 17%;
 
@@ -82,6 +87,11 @@
     --background: 228 20% 7%;           /* #0f1117 */
     --foreground: 150 10% 90%;          /* #e0e8e0 */
 
+    /* ── Semantic text colors (dark-mode aware) ── */
+    --text-strong: 150 10% 92%;         /* near-white for data/headings */
+    --text-secondary: 220 6% 68%;       /* bright enough for labels */
+    --text-heading: 150 15% 85%;        /* soft green-white for headings */
+
     --card: 228 18% 13%;               /* #1a1d27 */
     --card-foreground: 150 10% 90%;
 
@@ -95,7 +105,7 @@
     --secondary-foreground: 150 10% 80%;
 
     --muted: 228 14% 18%;
-    --muted-foreground: 220 9% 52%;     /* #6b7280 */
+    --muted-foreground: 220 6% 65%;     /* bumped from 52% for readability */
 
     --accent: 228 14% 18%;
     --accent-foreground: 150 10% 80%;
@@ -128,7 +138,7 @@
 
     /* Sidebar */
     --sidebar-background: 228 22% 9%;   /* #13151f */
-    --sidebar-foreground: 220 9% 52%;
+    --sidebar-foreground: 220 6% 65%;   /* bumped for readability */
     --sidebar-primary: 152 63% 29%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 228 14% 16%;
@@ -166,14 +176,12 @@
 
   h1, h2, h3, h4, h5, h6 {
     font-family: 'Libre Caslon Display', serif;
-    color: hsl(155 56% 15%);
+    color: hsl(var(--text-strong));
     line-height: 1.15;
     margin: 0;
   }
 
-  .dark h1, .dark h2, .dark h3, .dark h4, .dark h5, .dark h6 {
-    color: hsl(150 10% 90%);
-  }
+  /* dark heading override now handled by --text-strong token */
 
   h1 {
     font-size: 2rem;
@@ -202,15 +210,9 @@
   .page-title {
     font-family: 'Libre Caslon Display', serif;
     font-size: 2rem;
-    color: hsl(155 56% 15%);
+    color: hsl(var(--text-strong));
     letter-spacing: -0.01em;
     line-height: 1.1;
-  }
-
-  .dark .page-title,
-  .dark .section-title,
-  .dark .card-title {
-    color: hsl(150 10% 90%);
   }
 
   .page-subtitle {
@@ -224,14 +226,14 @@
   .section-title {
     font-family: 'Libre Caslon Display', serif;
     font-size: 1.5rem;
-    color: hsl(155 56% 15%);
+    color: hsl(var(--text-strong));
     line-height: 1.15;
   }
 
   .card-title {
     font-family: 'Libre Caslon Display', serif;
     font-size: 1.125rem;
-    color: hsl(155 56% 15%);
+    color: hsl(var(--text-strong));
     line-height: 1.2;
   }
 }
@@ -301,7 +303,7 @@
   .text-page-title {
     font-family: 'Libre Caslon Display', serif;
     font-size: 2rem;
-    color: hsl(155 56% 15%);
+    color: hsl(var(--text-strong));
     letter-spacing: -0.01em;
   }
 
@@ -337,12 +339,12 @@
 
   .sidebar-nav-item:hover {
     background: hsl(var(--accent));
-    color: hsl(155 56% 15%);
+    color: hsl(var(--text-heading));
   }
 
   .sidebar-nav-active {
     background: hsl(var(--accent)) !important;
-    color: hsl(155 56% 15%);
+    color: hsl(var(--text-heading));
     font-weight: 600;
   }
 

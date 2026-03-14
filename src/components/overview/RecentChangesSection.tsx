@@ -40,7 +40,7 @@ export function RecentChangesSection() {
 
   if (isLoading) {
     return (
-      <div className="bg-white border border-border-light rounded-[8px] p-5">
+       <div className="bg-card border border-border-light rounded-[8px] p-5">
         <h2 className="font-heading text-[18px] text-forest mb-4 flex items-center gap-2">
           <GitCommitHorizontal className="h-4 w-4 text-verdant" /> Recent Changes
         </h2>
@@ -54,7 +54,7 @@ export function RecentChangesSection() {
   const recent = entries.slice(0, 10);
 
   return (
-    <div className="bg-white border border-border-light rounded-[8px] p-5">
+    <div className="bg-card border border-border-light rounded-[8px] p-5">
       <h2 className="font-heading text-[18px] text-forest mb-4 flex items-center gap-2">
         <GitCommitHorizontal className="h-4 w-4 text-verdant" /> Recent Changes
       </h2>

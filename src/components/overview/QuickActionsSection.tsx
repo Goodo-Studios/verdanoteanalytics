@@ -13,7 +13,7 @@ export function QuickActionsSection({ accountId }: Props) {
   const sync = useSync();
 
   return (
-    <div className="bg-white border border-border-light rounded-[8px] p-5">
+    <div className="bg-card border border-border-light rounded-[8px] p-5">
       <h2 className="font-heading text-[18px] text-forest mb-4">Quick Actions</h2>
       <div className="flex flex-wrap gap-3">
         <Button

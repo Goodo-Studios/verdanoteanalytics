@@ -109,7 +109,7 @@ export function MonthlyRollupModal({ open, onOpenChange, accounts }: MonthlyRoll
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-lg bg-white rounded-[8px] shadow-modal p-7">
+      <DialogContent className="max-w-lg bg-card rounded-[8px] shadow-modal p-7">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 font-heading text-[22px] text-forest">
             <FileText className="h-5 w-5 text-sage" />

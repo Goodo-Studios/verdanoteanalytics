@@ -72,7 +72,7 @@ export default {
           light: "#22965F",
           dark: "#156B42",
         },
-        forest: "#0D3B25",
+        forest: "hsl(var(--text-heading))",
         sage: {
           DEFAULT: "#6B9A7E",
           light: "#E8F5EE",
@@ -82,8 +82,8 @@ export default {
           DEFAULT: "#FDF8F0",
           dark: "#F5EFE3",
         },
-        charcoal: "#2C2C2C",
-        slate: "#6B7280",
+        charcoal: "hsl(var(--text-strong))",
+        slate: "hsl(var(--text-secondary))",
         gold: {
           DEFAULT: "#D4A843",
           light: "#F5ECD4",

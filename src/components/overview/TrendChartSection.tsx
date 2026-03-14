@@ -35,7 +35,7 @@ export function TrendChartSection({ accountId, metric = "roas" }: Props) {
   }, [trends, metric]);
 
   return (
-    <div className="bg-white border border-border-light rounded-[8px] p-5">
+    <div className="bg-card border border-border-light rounded-[8px] p-5">
       <h2 className="font-heading text-[18px] text-forest mb-4">Trend: {METRIC_CONFIG[metric]?.label || metric}</h2>
       {dates.length === 0 ? (
         <p className="font-body text-[13px] text-sage text-center py-8">No daily data available.</p>
