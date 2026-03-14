@@ -305,7 +305,7 @@ const ReportsPage = () => {
               <div className="flex items-center gap-2">
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" className={cn("h-9 flex-1 justify-start border-border-light rounded-[4px]", !dateStart ? "font-body text-[14px] text-muted-foreground" : "font-data text-[15px] font-medium text-charcoal")}>
+                    <Button variant="outline" className={cn("h-9 flex-1 justify-start border-border-light rounded-[4px]", !dateStart ? "font-body text-[14px] text-muted-foreground" : "font-data text-[17px] font-medium text-charcoal")}>
                       <CalendarIcon className="h-3.5 w-3.5 mr-1.5 text-sage" />
                       {dateStart ? format(dateStart, "MMM d, yyyy") : "Start"}
                     </Button>
