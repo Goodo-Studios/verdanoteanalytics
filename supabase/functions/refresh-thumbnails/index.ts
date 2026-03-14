@@ -255,6 +255,19 @@ serve(async (req) => {
       .order("spend", { ascending: false, nullsFirst: false })
       .limit(MAX_TOTAL);
 
+    // UPGRADE PATH: already cached but full_res_url is missing or same as thumbnail
+    // These were cached before higher-res discovery strategies were added
+    const { data: upgradeThumbsRaw } = await supabase
+      .from("creatives")
+      .select("ad_id, account_id, thumbnail_url")
+      .like("thumbnail_url", `%/storage/v1/object/public/%`)
+      .eq("account_id", resolvedAccountId)
+      .gt("impressions", 0)
+      .or("full_res_url.is.null,full_res_url.eq.thumbnail_url")
+      .order("spend", { ascending: false, nullsFirst: false })
+      .limit(500);
+    const upgradeThumbs = upgradeThumbsRaw || [];
+
     const fastPathThumbs = uncachedThumbs || [];
     const slowPathThumbs = missingThumbs || [];
     const allThumbWork = [...fastPathThumbs, ...slowPathThumbs].slice(0, MAX_TOTAL);
