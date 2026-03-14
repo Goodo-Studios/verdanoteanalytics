@@ -34,10 +34,7 @@ export function CreativesFilters({
 }: CreativesFiltersProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const activeCount = Object.entries(filters).filter(([, v]) => v && v !== "__all__").length
-    + (momentumFilter && momentumFilter !== "__all__" ? 1 : 0)
-    + (fatigueFilter && fatigueFilter !== "__all__" ? 1 : 0)
-    + (platformFilter && platformFilter !== "__all__" ? 1 : 0);
+  const activeCount = Object.entries(filters).filter(([k, v]) => v && v !== "__all__" && k !== "tag_source").length;
 
   const filterControls = (
     <>
