@@ -173,21 +173,7 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
         )}
       </nav>
 
-      {/* Footer */}
       <div className="mx-5 border-t border-input" />
-      {!effectiveClient && (
-        <div className="px-3 pt-3 pb-1">
-          <NavLink
-            to={`${prefix}/user-settings`}
-            className="flex items-center gap-3 rounded-md px-3 py-2 font-body text-[13px] text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent"
-            activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
-            onClick={onNavigate}
-          >
-            <UserCog className="h-4 w-4 flex-shrink-0" />
-            User Settings
-          </NavLink>
-        </div>
-      )}
       {/* Preview mode indicator for builders */}
       {isBuilder && previewRole && (
         <div className="px-3 pb-1">
