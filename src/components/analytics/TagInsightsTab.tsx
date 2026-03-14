@@ -298,7 +298,7 @@ export function TagInsightsTab({
                         ))}
                       </div>
                     </TableCell>
-                    <TableCell className="font-data text-[15px] font-medium text-charcoal tabular-nums text-right">{row.count}</TableCell>
+                    <TableCell className="font-data text-[17px] font-medium text-charcoal tabular-nums text-right">{row.count}</TableCell>
                     <TableCell className="text-right">
                       <div className="relative inline-flex items-center justify-end min-w-[120px]">
 ...
