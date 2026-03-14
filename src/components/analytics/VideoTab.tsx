@@ -7,7 +7,8 @@ import { SortableTableHead, type SortConfig } from "@/components/SortableTableHe
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Film, Eye, MousePointerClick, Clock, Play } from "lucide-react";
+import { Film, Eye, MousePointerClick, Clock, Play, DollarSign } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { fmt$ } from "@/lib/formatters";
 
 interface VideoTabProps {
