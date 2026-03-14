@@ -344,7 +344,7 @@
 
   .sidebar-nav-active {
     background: hsl(var(--accent)) !important;
-    color: hsl(155 56% 15%);
+    color: hsl(var(--text-heading));
     font-weight: 600;
   }
 
