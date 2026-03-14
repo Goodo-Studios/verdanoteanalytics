@@ -144,7 +144,7 @@ const OverviewPage = () => {
       case "activity":
         return !isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-white border border-border-light rounded-[8px] p-5">
+            <div className="bg-card border border-border-light rounded-[8px] p-5">
               <h2 className="font-heading text-[18px] text-forest mb-4">Recent Iterations</h2>
               {recentDiagnostics.length === 0 ? (
                 <p className="font-body text-[13px] text-sage">No iteration diagnostics yet.</p>
