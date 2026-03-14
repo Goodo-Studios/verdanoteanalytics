@@ -140,7 +140,7 @@ export function CreativeIterationAnalysis({ creative, allCreatives }: Props) {
             </div>
             <div className="rounded-md border p-2 space-y-1">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Hold</span>
+                <span className="font-label text-[10px] uppercase tracking-wider text-muted-foreground">Hold</span>
                 <LevelIcon level={analysis.holdLevel} />
               </div>
               <p className="font-data text-[17px] font-semibold text-foreground">{analysis.holdRate.toFixed(1)}%</p>
