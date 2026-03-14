@@ -152,7 +152,7 @@ export function CreativeIterationAnalysis({ creative, allCreatives }: Props) {
         )}
         <div className={`rounded-md border p-2 space-y-1 ${analysis.isImage ? "col-span-3" : ""}`}>
           <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">CTR</span>
+            <span className="font-label text-[10px] uppercase tracking-wider text-muted-foreground">CTR</span>
             <LevelIcon level={analysis.ctrLevel} />
           </div>
           <p className="font-data text-[17px] font-semibold text-foreground">{analysis.ctr.toFixed(2)}%</p>
