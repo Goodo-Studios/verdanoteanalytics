@@ -224,7 +224,7 @@
   .section-title {
     font-family: 'Libre Caslon Display', serif;
     font-size: 1.5rem;
-    color: hsl(155 56% 15%);
+    color: hsl(var(--text-strong));
     line-height: 1.15;
   }
 
