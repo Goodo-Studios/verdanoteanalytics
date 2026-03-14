@@ -88,23 +88,23 @@ function CoverageCell({ pct }: { pct: number }) {
   const rounded = Math.round(pct);
   if (rounded >= 100) {
     return (
-      <span className="flex items-center gap-1 font-data text-[13px] text-emerald-700">
+      <span className="flex items-center gap-1 font-data text-[15px] text-emerald-700">
         <CheckCircle className="h-3.5 w-3.5" /> 100%
       </span>
     );
   }
   if (rounded >= 80) {
-    return <span className="font-data text-[13px] text-charcoal">{rounded}%</span>;
+    return <span className="font-data text-[15px] text-charcoal">{rounded}%</span>;
   }
   if (rounded >= 50) {
     return (
-      <span className="flex items-center gap-1 font-data text-[13px] text-amber-600">
+      <span className="flex items-center gap-1 font-data text-[15px] text-amber-600">
         <AlertTriangle className="h-3.5 w-3.5" /> {rounded}%
       </span>
     );
   }
   return (
-    <span className="flex items-center gap-1 font-data text-[13px] text-red-600">
+    <span className="flex items-center gap-1 font-data text-[15px] text-red-600">
       <XCircle className="h-3.5 w-3.5" /> {rounded}%
     </span>
   );
