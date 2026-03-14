@@ -207,7 +207,7 @@ export function QuickTagMode({ creatives, allCreatives = [], onExit }: QuickTagM
               </div>
               <div>
                 <p className="font-label text-[9px] uppercase tracking-wider text-muted-foreground">ROAS</p>
-                <p className="font-data text-[18px] font-semibold tabular-nums text-foreground">
+                 <p className="font-data text-[17px] font-semibold tabular-nums text-foreground">
                   {Number(creative.roas || 0).toFixed(2)}x
                 </p>
               </div>
