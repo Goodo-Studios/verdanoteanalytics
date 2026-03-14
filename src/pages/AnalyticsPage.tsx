@@ -9,7 +9,7 @@ import { ChartSkeleton } from "@/components/skeletons/ChartSkeleton";
 import { CreativeDetailModal } from "@/components/CreativeDetailModal";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { TrendsTab } from "@/components/analytics/TrendsTab";
-import { WinRateTab } from "@/components/analytics/WinRateTab";
+
 import { IterationsTab } from "@/components/analytics/IterationsTab";
 import { TagInsightsTab } from "@/components/analytics/TagInsightsTab";
 
