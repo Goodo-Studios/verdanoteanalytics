@@ -14,6 +14,13 @@ const fmt = (v: number | null | undefined, decimals = 2) =>
 const fmtDollar = (v: number | null | undefined) =>
   v == null ? "—" : `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
+const KPI_SUFFIXES: Record<string, { prefix: string; suffix: string }> = {
+  roas: { prefix: "", suffix: "x" },
+  cpa: { prefix: "$", suffix: "" },
+  ctr: { prefix: "", suffix: "%" },
+  thumb_stop_rate: { prefix: "", suffix: "%" },
+};
+
 export function KillScaleList({ creatives, config, variant, onCreativeClick }: KillScaleListProps) {
   const results = useKillScaleLogic(creatives, config);
   const items = variant === "kill" ? results.kill : results.scale;
@@ -60,7 +67,11 @@ export function KillScaleList({ creatives, config, variant, onCreativeClick }: K
                 {fmtDollar(c.spend)}
               </TableCell>
               <TableCell className="font-data text-[12px] text-right tabular-nums">
-                {fmt(c[config.winnerKpi])}
+                {(() => {
+                  const kpiVal = c[config.winnerKpi];
+                  const units = KPI_SUFFIXES[config.winnerKpi] || { prefix: "", suffix: "" };
+                  return kpiVal == null ? "—" : `${units.prefix}${Number(kpiVal).toFixed(2)}${units.suffix}`;
+                })()}
               </TableCell>
               <TableCell className="font-body text-[11px] text-muted-foreground max-w-[200px] truncate">
                 {c.reason}
