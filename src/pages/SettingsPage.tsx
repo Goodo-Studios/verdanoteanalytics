@@ -67,6 +67,7 @@ const SettingsPage = () => {
   }
   if (effectiveIsBuilder) {
     tabs.push({ key: "admin", label: "Admin", icon: <Shield className="h-3.5 w-3.5" /> });
+    tabs.push({ key: "health" as Tab, label: "Health", icon: <Activity className="h-3.5 w-3.5" /> });
   }
 
 
