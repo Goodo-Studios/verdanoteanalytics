@@ -40,7 +40,6 @@ import { computeFatigueMap } from "@/lib/fatigueScore";
 import { isForecastedToFatigue } from "@/lib/fatigueForecast";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
-import { usePinnedViews } from "@/hooks/useSavedViews";
 import { useCardPresence } from "@/hooks/useCardPresence";
 
 import type { GradeInfo } from "@/lib/creativeGrading";
