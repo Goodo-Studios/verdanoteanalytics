@@ -23,9 +23,10 @@ export function SyncStatusBanner({ accountId }: SyncStatusBannerProps = {}) {
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
   const runningLog = (logs || []).find((l: any) => l.status === "running") || (logs || []).find((l: any) => l.status === "queued");
+  const isRunning = runningLog?.status === "running";
 
   useEffect(() => {
-    if (isSyncing && runningLog) {
+    if (isRunning && runningLog) {
       const start = new Date(runningLog.started_at).getTime();
       const tick = () => setElapsed(Math.floor((Date.now() - start) / 1000));
       tick();
@@ -34,7 +35,7 @@ export function SyncStatusBanner({ accountId }: SyncStatusBannerProps = {}) {
     } else {
       setElapsed(0);
     }
-  }, [isSyncing, runningLog?.id]);
+  }, [isRunning, runningLog?.id]);
 
   if (!runningLog) return null;
 
