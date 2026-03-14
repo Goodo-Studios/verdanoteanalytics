@@ -187,7 +187,7 @@ function TopPerformers({ creatives, benchmarks, minSpend, onCreativeClick }: Top
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
                         <span className="font-data text-[18px] font-semibold text-verdant">{val.toFixed(2)}%</span>
-                        <span className="font-data text-[15px] font-medium text-slate">${(Number(c.spend) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                        <span className="font-data text-[17px] font-medium text-slate">${(Number(c.spend) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-x-3 gap-y-1">

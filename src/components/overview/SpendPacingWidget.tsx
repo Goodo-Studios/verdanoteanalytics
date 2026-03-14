@@ -119,10 +119,10 @@ export function SpendPacingWidget({ account, mtdSpend }: SpendPacingWidgetProps)
           />
         </div>
         <div className="flex items-center justify-between">
-          <span className="font-data text-[15px] font-semibold text-foreground tabular-nums">
+          <span className="font-data text-[17px] font-semibold text-foreground tabular-nums">
             {fmt$(mtdSpend)}
           </span>
-          <span className="font-data text-[15px] text-muted-foreground tabular-nums">
+          <span className="font-data text-[17px] text-muted-foreground tabular-nums">
             {fmt$(target)} target
           </span>
         </div>
