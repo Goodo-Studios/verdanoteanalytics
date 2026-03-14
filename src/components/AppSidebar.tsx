@@ -77,7 +77,24 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
     }
   };
 
-  const roleLabel = effectiveClient ? "client" : role;
+  const effectiveRole = effectiveClient ? "client" : effectiveEmployee ? "employee" : role;
+
+  const handleRoleClick = (r: "builder" | "employee" | "client") => {
+    if (!isBuilder) return; // Only builders can switch
+    if (r === role) {
+      // Clicking own role exits preview
+      setPreviewRole(null);
+    } else if (r === "client") {
+      setPreviewRole("client");
+    } else if (r === "employee") {
+      setPreviewRole("employee");
+    } else {
+      setPreviewRole(null);
+    }
+    // Navigate to root of new role view
+    const newPrefix = r === "client" ? "/client" : r === "employee" ? "/employee" : "/builder";
+    navigate(`${newPrefix}/`);
+  };
 
   return (
     <aside className="flex h-screen w-56 flex-col bg-background border-r border-input">
