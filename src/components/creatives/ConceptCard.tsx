@@ -64,17 +64,19 @@ export function ConceptCard({ concept, gradeMap }: ConceptCardProps) {
       </div>
 
       {(best || worst) && (
-        <div className="px-4 pb-3 flex gap-3 text-[12px] font-body">
+        <div className="px-4 pb-3 flex flex-col gap-1 text-[12px] font-body">
           {best && (
-            <div className="flex-1 min-w-0">
-              <span className="text-muted-foreground">Best: </span>
-              <span className="text-success font-medium truncate">{best.ad_name} ({(Number(best.roas) || 0).toFixed(2)}x)</span>
+            <div className="flex items-baseline gap-1 min-w-0">
+              <span className="text-muted-foreground shrink-0">Best:</span>
+              <span className="text-success font-medium truncate">{best.ad_name}</span>
+              <span className="text-success font-medium shrink-0">({(Number(best.roas) || 0).toFixed(2)}x)</span>
             </div>
           )}
           {worst && (
-            <div className="flex-1 min-w-0">
-              <span className="text-muted-foreground">Worst: </span>
-              <span className="text-destructive font-medium truncate">{worst.ad_name} ({(Number(worst.roas) || 0).toFixed(2)}x)</span>
+            <div className="flex items-baseline gap-1 min-w-0">
+              <span className="text-muted-foreground shrink-0">Worst:</span>
+              <span className="text-destructive font-medium truncate">{worst.ad_name}</span>
+              <span className="text-destructive font-medium shrink-0">({(Number(worst.roas) || 0).toFixed(2)}x)</span>
             </div>
           )}
         </div>
