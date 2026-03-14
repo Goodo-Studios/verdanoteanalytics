@@ -47,13 +47,14 @@ const clientNavItems = [
 export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void; onTakeTour?: () => void }) {
   const { accounts, selectedAccountId, setSelectedAccountId, isLoading } = useAccountContext();
   const { role, isClient, isBuilder, isEmployee, user, signOut } = useAuth();
-  const { isClientPreview, toggleClientPreview } = useClientPreview();
+  const { isClientPreview, isEmployeePreview, previewRole, setPreviewRole } = useClientPreview();
   const navigate = useNavigate();
   const location = useLocation();
   const prefix = useRolePrefix();
 
   const isAgencyView = selectedAccountId === "all";
   const effectiveClient = isClient || isClientPreview;
+  const effectiveEmployee = isEmployeePreview;
 
   const showSwitcher = !effectiveClient || accounts.length > 1;
   const showSettings = !effectiveClient;
