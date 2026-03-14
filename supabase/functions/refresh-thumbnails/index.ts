@@ -341,7 +341,7 @@ serve(async (req) => {
       .gt("impressions", 0)
       .limit(MAX_TOTAL);
 
-    const noVideos = missingVideos || [];
+    const noVideos = missingVideos;
     const videos = uncachedVideos || [];
     const previews = missingPreviews || [];
 
