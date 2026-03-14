@@ -86,10 +86,6 @@ const UserSettingsPage = () => {
 
           </TabsContent>
 
-          {/* Alerts Tab */}
-          <TabsContent value="alerts" className="space-y-6">
-            <AlertsConfigSection />
-          </TabsContent>
 
           {/* Admin Tab */}
           {s.isBuilder && (
