@@ -87,24 +87,26 @@ const SettingsPage = () => {
       {!isClient && <SyncStatusBanner />}
       {!isClient && <MediaRefreshBanner />}
 
-      {/* Tab bar */}
-      <div className="flex gap-1 mb-6 border-b border-border-light overflow-x-auto">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setActiveTab(t.key)}
-            className={cn(
-              "flex items-center gap-1.5 font-body text-[13px] font-medium px-4 py-2.5 border-b-2 transition-colors -mb-px whitespace-nowrap",
-              activeTab === t.key
-                ? "border-verdant text-forest"
-                : "border-transparent text-muted-foreground hover:text-foreground hover:border-border-light",
-            )}
-          >
-            {t.icon}
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {/* Tab bar - only show if multiple tabs */}
+      {tabs.length > 1 && (
+        <div className="flex gap-1 mb-6 border-b border-border-light overflow-x-auto">
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setActiveTab(t.key)}
+              className={cn(
+                "flex items-center gap-1.5 font-body text-[13px] font-medium px-4 py-2.5 border-b-2 transition-colors -mb-px whitespace-nowrap",
+                activeTab === t.key
+                  ? "border-verdant text-forest"
+                  : "border-transparent text-muted-foreground hover:text-foreground hover:border-border-light",
+              )}
+            >
+              {t.icon}
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Profile Tab */}
       {activeTab === "profile" && (
