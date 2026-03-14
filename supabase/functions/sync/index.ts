@@ -913,10 +913,48 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         // Incremental: compute days since last sync
         const sinceMs = new Date(incrementalSinceDate).getTime();
         const daysSinceSync = Math.ceil((Date.now() - sinceMs) / (1000 * 60 * 60 * 24));
-        // Add 2 days buffer for attribution window, cap at dateRangeDays
-        dailyDays = Math.min(daysSinceSync + 2, dateRangeDays);
-        dailySinceDate = incrementalSinceDate;
-        console.log(`Phase 4 incremental: ${dailyDays} days of daily data (since ${dailySinceDate})`);
+
+        // Check if new ads were discovered in this sync that have NO daily metrics.
+        // If so, expand the window to the full date range so they get complete history.
+        const { count: creativesWithNoDailyMetrics } = await supabase
+          .from("creatives")
+          .select("ad_id", { count: "exact", head: true })
+          .eq("account_id", accountId)
+          .not("ad_id", "in", `(SELECT DISTINCT ad_id FROM creative_daily_metrics WHERE account_id = '${accountId}')`);
+
+        // Fallback: also check via a direct comparison
+        const { count: totalCreatives } = await supabase.from("creatives")
+          .select("*", { count: "exact", head: true }).eq("account_id", accountId);
+        const { count: creativesWithDailyMetrics } = await supabase.rpc("get_ads_with_daily_metrics_count" as any, { _account_id: accountId }).maybeSingle().then(() => ({ count: 0 })).catch(() => ({ count: 0 }));
+
+        // Simple approach: count distinct ad_ids in daily_metrics for this account
+        const { data: dailyAdCount } = await supabase
+          .from("creative_daily_metrics")
+          .select("ad_id")
+          .eq("account_id", accountId)
+          .limit(1);
+        
+        // More reliable: compare total creatives vs those that have at least one daily metric row
+        const { count: distinctDailyAds } = await supabase
+          .from("creative_daily_metrics")
+          .select("ad_id", { count: "exact", head: true })
+          .eq("account_id", accountId);
+        
+        const newAdsWithoutHistory = (totalCreatives || 0) > (distinctDailyAds || 0);
+
+        if (newAdsWithoutHistory) {
+          // New ads detected — use full date range to backfill their history
+          dailyDays = dateRangeDays;
+          const fullStart = new Date();
+          fullStart.setDate(fullStart.getDate() - dailyDays);
+          dailySinceDate = fullStart.toISOString().split("T")[0];
+          console.log(`Phase 4 EXPANDED to full range: new ads detected without daily metrics (${totalCreatives} creatives, ~${distinctDailyAds} with daily data). Fetching ${dailyDays} days since ${dailySinceDate}`);
+        } else {
+          // Add 2 days buffer for attribution window, cap at dateRangeDays
+          dailyDays = Math.min(daysSinceSync + 2, dateRangeDays);
+          dailySinceDate = incrementalSinceDate;
+          console.log(`Phase 4 incremental: ${dailyDays} days of daily data (since ${dailySinceDate})`);
+        }
       } else if (!state.daily_chunk_offset) {
         // Initial/full: use the entire date_range_days window so daily metrics
         // cover the same period as the aggregated insights (Phase 2).
