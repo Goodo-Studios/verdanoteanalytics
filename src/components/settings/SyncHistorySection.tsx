@@ -405,6 +405,43 @@ export function SyncHistorySection({ accountId }: { accountId?: string }) {
                   </div>
                 </div>
 
+                {/* Post-Sync Audit */}
+                {(() => {
+                  const audit = selectedLog.sync_state?.audit;
+                  if (!audit) return null;
+                  const isOk = !audit.drift_exceeded;
+                  return (
+                    <div>
+                      <p className="font-medium mb-1.5 flex items-center gap-1.5">
+                        {isOk ? <CheckCircle2 className="h-3 w-3 text-verdant" /> : <AlertTriangle className="h-3 w-3 text-gold" />}
+                        Spend Audit
+                      </p>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="glass-panel p-2 text-center">
+                          <div className="text-[10px] text-muted-foreground">Meta</div>
+                          <div className="font-mono font-semibold mt-0.5">${audit.meta_spend?.toLocaleString()}</div>
+                        </div>
+                        <div className="glass-panel p-2 text-center">
+                          <div className="text-[10px] text-muted-foreground">Local Daily</div>
+                          <div className="font-mono font-semibold mt-0.5">${audit.local_spend?.toLocaleString()}</div>
+                        </div>
+                        <div className={`glass-panel p-2 text-center ${isOk ? "border-verdant/30" : "border-gold/30"}`}>
+                          <div className="text-[10px] text-muted-foreground">Delta</div>
+                          <div className={`font-mono font-semibold mt-0.5 ${isOk ? "text-verdant" : "text-gold"}`}>
+                            {audit.spend_delta_pct >= 0 ? "+" : ""}{audit.spend_delta_pct}%
+                          </div>
+                        </div>
+                      </div>
+                      {audit.drift_exceeded && (
+                        <p className="text-[10px] text-gold mt-1.5 flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3" />
+                          Spend drift exceeds 2% threshold — consider a full re-sync
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* Errors */}
                 {(() => {
                   try {
