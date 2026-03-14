@@ -129,33 +129,33 @@ export function PortfolioReportView({ report }: PortfolioReportViewProps) {
               {account_summaries.map(a => (
                 <TableRow key={a.account_id}>
                   <TableCell className="font-body text-[13px] font-medium text-charcoal">{a.name}</TableCell>
-                  <TableCell className="font-data text-[15px] text-right tabular-nums">{fmt(a.spend, "$")}</TableCell>
+                  <TableCell className="font-data text-[17px] text-right tabular-nums">{fmt(a.spend, "$")}</TableCell>
                   <TableCell className={cn(
-                    "font-data text-[15px] text-right tabular-nums font-semibold",
+                    "font-data text-[17px] text-right tabular-nums font-semibold",
                     a.roas >= 2 ? "text-primary" : a.roas < 1 ? "text-destructive" : "text-foreground"
                   )}>
                     {fmt(a.roas, "", "x")}
                   </TableCell>
-                  <TableCell className="font-data text-[15px] text-right tabular-nums">{fmt(a.cpa, "$")}</TableCell>
-                  <TableCell className="font-data text-[15px] text-right tabular-nums">{a.purchases.toLocaleString()}</TableCell>
-                  <TableCell className="font-data text-[15px] text-right tabular-nums">{fmt(a.win_rate, "", "%")}</TableCell>
-                  <TableCell className="font-data text-[15px] text-right tabular-nums">{a.creative_count}</TableCell>
+                  <TableCell className="font-data text-[17px] text-right tabular-nums">{fmt(a.cpa, "$")}</TableCell>
+                  <TableCell className="font-data text-[17px] text-right tabular-nums">{a.purchases.toLocaleString()}</TableCell>
+                  <TableCell className="font-data text-[17px] text-right tabular-nums">{fmt(a.win_rate, "", "%")}</TableCell>
+                  <TableCell className="font-data text-[17px] text-right tabular-nums">{a.creative_count}</TableCell>
                 </TableRow>
               ))}
               {/* Portfolio totals row */}
               <TableRow className="bg-muted/30 border-t-2 border-border">
                 <TableCell className="font-body text-[13px] font-bold text-forest">Portfolio Total</TableCell>
-                <TableCell className="font-data text-[15px] text-right tabular-nums font-bold">{fmt(report.total_spend, "$")}</TableCell>
+                <TableCell className="font-data text-[17px] text-right tabular-nums font-bold">{fmt(report.total_spend, "$")}</TableCell>
                 <TableCell className={cn(
-                  "font-data text-[15px] text-right tabular-nums font-bold",
+                  "font-data text-[17px] text-right tabular-nums font-bold",
                   report.blended_roas >= 2 ? "text-primary" : report.blended_roas < 1 ? "text-destructive" : "text-foreground"
                 )}>
                   {fmt(report.blended_roas, "", "x")}
                 </TableCell>
-                <TableCell className="font-data text-[15px] text-right tabular-nums font-bold">{fmt(report.average_cpa, "$")}</TableCell>
-                <TableCell className="font-data text-[15px] text-right tabular-nums font-bold">{portfolioTotals.totalPurchases.toLocaleString()}</TableCell>
-                <TableCell className="font-data text-[15px] text-right tabular-nums font-bold">—</TableCell>
-                <TableCell className="font-data text-[15px] text-right tabular-nums font-bold">{report.creative_count}</TableCell>
+                <TableCell className="font-data text-[17px] text-right tabular-nums font-bold">{fmt(report.average_cpa, "$")}</TableCell>
+                <TableCell className="font-data text-[17px] text-right tabular-nums font-bold">{portfolioTotals.totalPurchases.toLocaleString()}</TableCell>
+                <TableCell className="font-data text-[17px] text-right tabular-nums font-bold">—</TableCell>
+                <TableCell className="font-data text-[17px] text-right tabular-nums font-bold">{report.creative_count}</TableCell>
               </TableRow>
             </TableBody>
           </Table>
