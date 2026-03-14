@@ -122,11 +122,11 @@ const OverviewPage = () => {
       case "insights":
         return !isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-white border border-border-light rounded-[8px] p-5">
+            <div className="bg-card border border-border-light rounded-[8px] p-5">
               <h2 className="font-heading text-[18px] text-forest mb-4">Top Performer</h2>
               {topPerformer ? <CreativeInsightCard creative={topPerformer} variant="top" spendThreshold={spendThreshold} onClick={() => setSelectedCreative(topPerformer)} /> : <p className="font-body text-[13px] text-sage">No qualifying creatives found.</p>}
             </div>
-            <div className="bg-white border border-border-light rounded-[8px] p-5">
+            <div className="bg-card border border-border-light rounded-[8px] p-5">
               <h2 className="font-heading text-[18px] text-forest mb-4">Biggest Concern</h2>
               {biggestConcern ? <CreativeInsightCard creative={biggestConcern} variant="concern" spendThreshold={spendThreshold} onClick={() => setSelectedCreative(biggestConcern)} /> : <p className="font-body text-[13px] text-sage">No underperforming creatives — all ROAS ≥ 1.0.</p>}
             </div>
@@ -144,7 +144,7 @@ const OverviewPage = () => {
       case "activity":
         return !isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-white border border-border-light rounded-[8px] p-5">
+            <div className="bg-card border border-border-light rounded-[8px] p-5">
               <h2 className="font-heading text-[18px] text-forest mb-4">Recent Iterations</h2>
               {recentDiagnostics.length === 0 ? (
                 <p className="font-body text-[13px] text-sage">No iteration diagnostics yet.</p>
@@ -170,7 +170,7 @@ const OverviewPage = () => {
                 </div>
               )}
             </div>
-            <div className="bg-white border border-border-light rounded-[8px] p-5">
+            <div className="bg-card border border-border-light rounded-[8px] p-5">
               <h2 className="font-heading text-[18px] text-forest mb-4">Tagging Progress</h2>
               <div className="space-y-3">
                 <div className="h-2 rounded-full bg-cream-dark overflow-hidden">

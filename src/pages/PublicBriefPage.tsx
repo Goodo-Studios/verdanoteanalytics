@@ -106,7 +106,7 @@ const PublicBriefPage = () => {
                   className={cn(
                     "flex items-center gap-1 font-body text-[11px] px-2 py-0.5 rounded-full transition-colors",
                     understood.has(key)
-                      ? "bg-emerald-50 text-emerald-700"
+                      ? "bg-primary/10 text-primary"
                       : "bg-muted text-muted-foreground hover:bg-muted/80",
                   )}
                 >

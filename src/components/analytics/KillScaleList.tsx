@@ -1,6 +1,7 @@
 import { useKillScaleLogic, type KillScaleConfig, KPI_LABELS } from "@/lib/killScaleLogic";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { fmtMetric, fmt$ } from "@/lib/formatters";
 
 interface KillScaleListProps {
   creatives: any[];
@@ -8,11 +9,6 @@ interface KillScaleListProps {
   variant: "kill" | "scale";
   onCreativeClick?: (creative: any) => void;
 }
-
-const fmt = (v: number | null | undefined, decimals = 2) =>
-  v == null ? "—" : Number(v).toFixed(decimals);
-const fmtDollar = (v: number | null | undefined) =>
-  v == null ? "—" : `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
 const KPI_SUFFIXES: Record<string, { prefix: string; suffix: string }> = {
   roas: { prefix: "", suffix: "x" },
@@ -64,7 +60,7 @@ export function KillScaleList({ creatives, config, variant, onCreativeClick }: K
                 {c.ad_name || c.ad_id}
               </TableCell>
               <TableCell className="font-data text-[12px] text-right tabular-nums">
-                {fmtDollar(c.spend)}
+                {fmt$(Number(c.spend) || 0)}
               </TableCell>
               <TableCell className="font-data text-[12px] text-right tabular-nums">
                 {(() => {

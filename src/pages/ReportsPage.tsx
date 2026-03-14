@@ -280,7 +280,7 @@ const ReportsPage = () => {
       })()}
       {/* Generate Dialog */}
       <Dialog open={showGenerate} onOpenChange={setShowGenerate}>
-        <DialogContent className="max-w-md bg-white rounded-[8px] shadow-modal p-7">
+        <DialogContent className="max-w-md bg-card rounded-[8px] shadow-modal p-7">
           <DialogHeader>
             <DialogTitle className="font-heading text-[22px] text-forest">Generate Report</DialogTitle>
             <DialogDescription className="font-body text-[13px] text-slate font-light">Create a new snapshot report of your creative performance.</DialogDescription>
@@ -341,7 +341,7 @@ const ReportsPage = () => {
 
       {/* Schedule Dialog */}
       <Dialog open={showSchedule} onOpenChange={setShowSchedule}>
-        <DialogContent className="max-w-lg bg-white rounded-[8px] shadow-modal p-7">
+        <DialogContent className="max-w-lg bg-card rounded-[8px] shadow-modal p-7">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 font-heading text-[22px] text-forest">
               <CalendarClock className="h-5 w-5 text-sage" />
@@ -353,7 +353,7 @@ const ReportsPage = () => {
           </DialogHeader>
           <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
             {(accounts || []).map((a: any) => (
-              <div key={a.id} className="rounded-card border border-border-light bg-white p-5 space-y-4">
+              <div key={a.id} className="rounded-card border border-border-light bg-card p-5 space-y-4">
                 <div className="font-body text-[16px] font-semibold text-charcoal">{a.name}</div>
                 {CADENCES.map(({ key, label, defaultDays, description }, idx) => {
                   const schedule = getSchedule(a.id, key);
