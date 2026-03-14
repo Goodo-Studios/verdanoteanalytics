@@ -174,7 +174,7 @@
 
   h1, h2, h3, h4, h5, h6 {
     font-family: 'Libre Caslon Display', serif;
-    color: hsl(155 56% 15%);
+    color: hsl(var(--text-strong));
     line-height: 1.15;
     margin: 0;
   }
