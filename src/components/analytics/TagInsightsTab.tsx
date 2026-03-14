@@ -253,7 +253,7 @@ export function TagInsightsTab({
             type="number"
             value={minSpend}
             onChange={e => setMinSpend(Number(e.target.value) || 0)}
-            className="w-24 h-8 font-data text-[15px] border-border-light"
+            className="w-24 h-8 font-data text-[17px] border-border-light"
           />
         </div>
 
