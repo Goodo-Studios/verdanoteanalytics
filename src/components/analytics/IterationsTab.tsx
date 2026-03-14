@@ -20,32 +20,6 @@ interface IterationsTabProps {
   onCreativeClick?: (creative: any) => void;
 }
 
-type SortKey = "priority" | "spend" | "hookRate" | "holdRate" | "ctr";
-
-const SORT_OPTIONS: { value: SortKey; label: string }[] = [
-  { value: "priority", label: "Priority Score" },
-  { value: "spend", label: "Spend" },
-  { value: "hookRate", label: "Hook Rate" },
-  { value: "holdRate", label: "Hold Rate" },
-  { value: "ctr", label: "CTR" },
-];
-
-const DIAGNOSTIC_FILTERS: { value: DiagnosticType | "all"; label: string }[] = [
-  { value: "all", label: "All Diagnostics" },
-  { value: "weak_hook", label: "Weak Hook" },
-  { value: "weak_body", label: "Weak Body" },
-  { value: "weak_cta", label: "Weak CTA" },
-  { value: "weak_hook_body", label: "Weak Hook + Body" },
-  { value: "landing_page_issue", label: "Landing Page Issue?" },
-  { value: "all_weak", label: "Full Rebuild" },
-  { value: "weak_cta_image", label: "Weak CTR (Image)" },
-];
-
-const STATUS_FILTERS = [
-  { value: "all", label: "All Statuses" },
-  { value: "ACTIVE", label: "Active" },
-  { value: "PAUSED", label: "Paused" },
-];
 
 function MetricDot({ level }: { level: "strong" | "average" | "weak" }) {
   const cls =
