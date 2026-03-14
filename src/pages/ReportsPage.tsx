@@ -129,7 +129,7 @@ const ReportsPage = () => {
           setReportName("");
           setAccountId("");
           setDateStart(subDays(new Date(), 7));
-          setDateEnd(new Date());
+          setDateEnd(subDays(new Date(), 1));
           if (pendingTemplateSections && data?.id) {
             navigate(`/reports/${data.id}/build`, { state: { templateSections: pendingTemplateSections } });
             setPendingTemplateSections(null);

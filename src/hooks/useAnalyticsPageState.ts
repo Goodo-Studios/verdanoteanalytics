@@ -11,7 +11,7 @@ export function useAnalyticsPageState() {
   const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "trends");
   const [selectedCreative, setSelectedCreative] = useState<any>(null);
   const [dateFrom, setDateFrom] = useState<string | undefined>(() => format(subDays(new Date(), 14), "yyyy-MM-dd"));
-  const [dateTo, setDateTo] = useState<string | undefined>(() => format(new Date(), "yyyy-MM-dd"));
+  const [dateTo, setDateTo] = useState<string | undefined>(() => format(subDays(new Date(), 1), "yyyy-MM-dd"));
 
   const dateFilters = useMemo(() => ({
     ...(selectedAccountId && selectedAccountId !== "all" ? { account_id: selectedAccountId } : {}),

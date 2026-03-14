@@ -10,14 +10,16 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 
+const yesterday = () => subDays(new Date(), 1);
+
 const PRESETS = [
   { label: "Today", from: () => new Date(), to: () => new Date() },
   { label: "Yesterday", from: () => subDays(new Date(), 1), to: () => subDays(new Date(), 1) },
-  { label: "Last 7 days", from: () => subDays(new Date(), 6), to: () => new Date() },
-  { label: "Last 14 days", from: () => subDays(new Date(), 13), to: () => new Date() },
-  { label: "Last 30 days", from: () => subDays(new Date(), 29), to: () => new Date() },
-  { label: "This Week", from: () => startOfWeek(new Date(), { weekStartsOn: 1 }), to: () => new Date() },
-  { label: "This Month", from: () => startOfMonth(new Date()), to: () => new Date() },
+  { label: "Last 7 days", from: () => subDays(new Date(), 7), to: () => yesterday() },
+  { label: "Last 14 days", from: () => subDays(new Date(), 14), to: () => yesterday() },
+  { label: "Last 30 days", from: () => subDays(new Date(), 30), to: () => yesterday() },
+  { label: "This Week", from: () => startOfWeek(new Date(), { weekStartsOn: 1 }), to: () => yesterday() },
+  { label: "This Month", from: () => startOfMonth(new Date()), to: () => yesterday() },
   { label: "Last Month", from: () => startOfMonth(subMonths(new Date(), 1)), to: () => subDays(startOfMonth(new Date()), 1) },
 ];
 
