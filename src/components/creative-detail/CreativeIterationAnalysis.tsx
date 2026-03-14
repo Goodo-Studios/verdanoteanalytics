@@ -133,7 +133,7 @@ export function CreativeIterationAnalysis({ creative, allCreatives }: Props) {
                 <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Hook</span>
                 <LevelIcon level={analysis.hookLevel} />
               </div>
-              <p className="text-sm font-medium">{analysis.hookRate.toFixed(1)}%</p>
+              <p className="font-data text-[17px] font-semibold text-foreground">{analysis.hookRate.toFixed(1)}%</p>
               <Badge variant="outline" className={`text-[10px] ${levelColor(analysis.hookLevel)}`}>
                 {analysis.hookLevel}
               </Badge>
