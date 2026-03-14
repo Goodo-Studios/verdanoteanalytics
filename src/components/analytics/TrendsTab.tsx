@@ -13,15 +13,12 @@ interface TrendsTabProps {
   isLoading: boolean;
 }
 
-const METRIC_OPTIONS: { key: keyof DailyTrendPoint; label: string; color: string; prefix?: string; suffix?: string; decimals?: number; invertColor?: boolean }[] = [
+const METRIC_OPTIONS: { key: string; label: string; color: string; prefix?: string; suffix?: string; decimals?: number; invertColor?: boolean; compute?: (d: any) => number }[] = [
   { key: "spend", label: "Spend", color: "hsl(var(--primary))", prefix: "$", decimals: 0 },
-  { key: "cpa", label: "CPA", color: "hsl(0, 84%, 60%)", prefix: "$", decimals: 2, invertColor: true },
   { key: "cpm", label: "CPM", color: "hsl(262, 83%, 58%)", prefix: "$", decimals: 2, invertColor: true },
-  { key: "roas", label: "ROAS", color: "hsl(142, 71%, 45%)", suffix: "x", decimals: 2 },
-  { key: "ctr", label: "CTR", color: "hsl(199, 89%, 48%)", suffix: "%", decimals: 2 },
-  { key: "cpc", label: "CPC", color: "hsl(25, 95%, 53%)", prefix: "$", decimals: 2, invertColor: true },
-  { key: "impressions", label: "Impressions", color: "hsl(280, 60%, 50%)", decimals: 0 },
-  { key: "purchases", label: "Purchases", color: "hsl(160, 60%, 45%)", decimals: 0 },
+  { key: "cpa", label: "CPA", color: "hsl(0, 84%, 60%)", prefix: "$", decimals: 2, invertColor: true },
+  { key: "cpmr", label: "CPMR", color: "hsl(25, 95%, 53%)", prefix: "$", decimals: 2, invertColor: true, compute: (d: any) => (Number(d.cpm) || 0) * (Number(d.frequency) || 0) },
+  { key: "frequency", label: "Frequency", color: "hsl(199, 89%, 48%)", decimals: 2 },
 ];
 
 function bucketKey(date: string, granularity: Granularity): string {
@@ -34,11 +31,11 @@ function bucketKey(date: string, granularity: Granularity): string {
 function aggregateBuckets(data: DailyTrendPoint[], granularity: Granularity) {
   if (granularity === "daily") return data;
 
-  const buckets: Record<string, { spend: number; impressions: number; clicks: number; purchases: number; purchase_value: number; adds_to_cart: number; video_views: number }> = {};
+  const buckets: Record<string, { spend: number; impressions: number; clicks: number; purchases: number; purchase_value: number; adds_to_cart: number; video_views: number; frequencySum: number; frequencyCount: number }> = {};
 
   for (const d of data) {
     const key = bucketKey(d.date, granularity);
-    if (!buckets[key]) buckets[key] = { spend: 0, impressions: 0, clicks: 0, purchases: 0, purchase_value: 0, adds_to_cart: 0, video_views: 0 };
+    if (!buckets[key]) buckets[key] = { spend: 0, impressions: 0, clicks: 0, purchases: 0, purchase_value: 0, adds_to_cart: 0, video_views: 0, frequencySum: 0, frequencyCount: 0 };
     const b = buckets[key];
     b.spend += d.spend;
     b.impressions += d.impressions;
@@ -47,20 +44,30 @@ function aggregateBuckets(data: DailyTrendPoint[], granularity: Granularity) {
     b.purchase_value += d.purchase_value;
     b.adds_to_cart += d.adds_to_cart;
     b.video_views += d.video_views;
+    if (d.frequency > 0) {
+      b.frequencySum += d.frequency;
+      b.frequencyCount += 1;
+    }
   }
 
   return Object.entries(buckets)
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, b]) => ({
-      date,
-      ...b,
-      ctr: b.impressions > 0 ? (b.clicks / b.impressions) * 100 : 0,
-      cpm: b.impressions > 0 ? (b.spend / b.impressions) * 1000 : 0,
-      cpc: b.clicks > 0 ? b.spend / b.clicks : 0,
-      cpa: b.purchases > 0 ? b.spend / b.purchases : 0,
-      roas: b.spend > 0 ? b.purchase_value / b.spend : 0,
-      cost_per_atc: b.adds_to_cart > 0 ? b.spend / b.adds_to_cart : 0,
-    }));
+    .map(([date, b]) => {
+      const frequency = b.frequencyCount > 0 ? b.frequencySum / b.frequencyCount : 0;
+      const cpm = b.impressions > 0 ? (b.spend / b.impressions) * 1000 : 0;
+      return {
+        date,
+        ...b,
+        frequency,
+        ctr: b.impressions > 0 ? (b.clicks / b.impressions) * 100 : 0,
+        cpm,
+        cpc: b.clicks > 0 ? b.spend / b.clicks : 0,
+        cpa: b.purchases > 0 ? b.spend / b.purchases : 0,
+        roas: b.spend > 0 ? b.purchase_value / b.spend : 0,
+        cost_per_atc: b.adds_to_cart > 0 ? b.spend / b.adds_to_cart : 0,
+        cpmr: cpm * frequency,
+      };
+    });
 }
 
 function SummaryCard({ label, value, change, invertColor }: { label: string; value: string; change: number | null; invertColor: boolean }) {
@@ -139,7 +146,7 @@ export const TrendsTab = forwardRef<HTMLDivElement, TrendsTabProps>(function Tre
         prefix: m.prefix,
         suffix: m.suffix,
         decimals: m.decimals,
-        values: chartData.map((d) => Number(d[m.key]) || 0),
+        values: chartData.map((d) => m.compute ? m.compute(d) : (Number(d[m.key as keyof typeof d]) || 0)),
       }));
   }, [chartData, selectedMetrics]);
 
