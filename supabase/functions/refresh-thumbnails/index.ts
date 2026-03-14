@@ -471,6 +471,38 @@ serve(async (req) => {
       }
     }
 
+    // ── Phase 2b: Upgrade already-cached thumbnails with better resolution ──
+    let thumbUpgraded = 0;
+    if (!budgetExceeded && upgradeThumbs.length > 0) {
+      console.log(`[${targetAccount.name}] Phase 2b: Upgrading ${upgradeThumbs.length} cached thumbnails...`);
+      for (let i = 0; i < upgradeThumbs.length; i += DISCOVERY_BATCH_SIZE) {
+        if (isOverBudget(invocationStart)) {
+          console.log(`Budget reached during upgrade at ${i}/${upgradeThumbs.length}`);
+          budgetExceeded = true;
+          break;
+        }
+        const batch = upgradeThumbs.slice(i, i + DISCOVERY_BATCH_SIZE);
+        for (const c of batch) {
+          if (isOverBudget(invocationStart)) continue;
+          const freshResult = await discoverImageUrl(c.ad_id, c.account_id, META_ACCESS_TOKEN, FETCH_TIMEOUT_MS);
+          if (!freshResult || !freshResult.fullResUrl) continue;
+          const newUrl = freshResult.fullResUrl;
+          const storageUrl = await downloadAndCache(supabase, THUMB_BUCKET, c.account_id, c.ad_id, newUrl, "image");
+          if (storageUrl) {
+            await supabase.from("creatives").update({
+              thumbnail_url: storageUrl,
+              full_res_url: storageUrl,
+              thumbnail_storage_path: `${c.account_id}/${c.ad_id}`,
+            }).eq("ad_id", c.ad_id);
+            thumbUpgraded++;
+          }
+        }
+      }
+      if (thumbUpgraded > 0) {
+        console.log(`[${targetAccount.name}] Upgraded ${thumbUpgraded}/${upgradeThumbs.length} thumbnails to higher resolution`);
+      }
+    }
+
     // ── Phase 3: Preview URLs ──────────────────────────────────────
     if (logId) await updateLog(supabase, logId, { current_phase: 3 });
     let previewsFetched = 0;
