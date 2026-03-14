@@ -643,6 +643,31 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             ...parseInsightsRow(row),
           }));
 
+          // Auto-create missing creatives so bulk_update_creative_metrics can UPDATE them
+          // This prevents silently dropping metrics for ads not ingested in Phase 1
+          const batchAdIds = [...new Set(metricRows.map((r: any) => r.ad_id))];
+          const { data: existingAds } = await supabase
+            .from("creatives")
+            .select("ad_id")
+            .eq("account_id", accountId)
+            .in("ad_id", batchAdIds);
+          const existingSet = new Set((existingAds || []).map((e: any) => e.ad_id));
+          const missingIds = batchAdIds.filter((id: string) => !existingSet.has(id));
+          if (missingIds.length > 0) {
+            const newCreatives = missingIds.map((adId: string) => ({
+              ad_id: adId,
+              account_id: accountId,
+              ad_name: adId,
+              platform: "meta",
+              tag_source: "untagged",
+            }));
+            const { error: createErr } = await supabase
+              .from("creatives")
+              .upsert(newCreatives, { onConflict: "ad_id", ignoreDuplicates: true });
+            if (createErr) console.error(`Phase 2 auto-create error: ${createErr.message}`);
+            else if (missingIds.length > 0) console.log(`  Auto-created ${missingIds.length} missing creatives in Phase 2`);
+          }
+
           for (let i = 0; i < metricRows.length; i += BATCH_SIZE) {
             const batch = metricRows.slice(i, i + BATCH_SIZE);
             const { error } = await supabase.rpc("bulk_update_creative_metrics", { payload: JSON.stringify(batch) });
