@@ -639,8 +639,6 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       const insightsFields = "ad_id,spend,purchase_roas,cost_per_action_type,ctr,clicks,impressions,cpm,cpc,frequency,actions,action_values,video_avg_time_watched_actions,video_thruplay_watched_actions";
       const cursor = state.insights_cursor || null;
       let insightsCount = state.insights_count || 0;
-      // Track whether incremental query returned zero results (triggers fallback)
-      let incrementalReturnedZero = false;
 
       let nextUrl = cursor || (
         `https://graph.facebook.com/${META_API_VERSION}/${accountId}/insights?` +
@@ -655,13 +653,6 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         const result = await metaFetch(nextUrl, ctx);
         if (result.error) break;
         if (result.data) {
-          if (result.data.length === 0 && insightsCount === 0 && incrementalSinceDate && !state.insights_cursor) {
-            // Incremental query returned nothing on first page — Meta may have limited history
-            // Flag for fallback to full window
-            incrementalReturnedZero = true;
-            console.log(`Incremental query returned 0 results for ${account.name} — will fall back to full window`);
-            break;
-          }
 
           // Bulk update via DB function — single RPC call per batch instead of N individual updates
           const BATCH_SIZE = 500;
