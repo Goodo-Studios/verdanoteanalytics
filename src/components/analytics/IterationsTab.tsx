@@ -110,6 +110,11 @@ function TopPerformers({ creatives, benchmarks, minSpend, onCreativeClick }: Top
       .sort((a, b) => (Number(b.hold_rate) || 0) - (Number(a.hold_rate) || 0))
       .slice(0, 5);
 
+    const byCtr = [...qualified]
+      .filter((c) => (Number(c.ctr) || 0) > 0)
+      .sort((a, b) => (Number(b.ctr) || 0) - (Number(a.ctr) || 0))
+      .slice(0, 5);
+
     const bySpend = [...qualified]
       .sort((a, b) => (Number(b.spend) || 0) - (Number(a.spend) || 0))
       .slice(0, 5);
