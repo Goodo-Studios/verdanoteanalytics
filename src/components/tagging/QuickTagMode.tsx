@@ -201,7 +201,7 @@ export function QuickTagMode({ creatives, allCreatives = [], onExit }: QuickTagM
             <div className="flex items-center gap-4 mt-3">
               <div>
                 <p className="font-label text-[9px] uppercase tracking-wider text-muted-foreground">Spend</p>
-                <p className="font-data text-[18px] font-semibold tabular-nums text-foreground">
+                 <p className="font-data text-[17px] font-semibold tabular-nums text-foreground">
                   ${Number(creative.spend || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                 </p>
               </div>
