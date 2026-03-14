@@ -76,7 +76,7 @@ export function AccountOverviewSection({
               <TableCell>
                 <div className="flex items-center gap-1">
                   <Clock className="h-3 w-3 text-sage" />
-                  <span className="font-data text-[15px] text-slate">{formatDate(account.last_synced_at)}</span>
+                  <span className="font-data text-[17px] text-slate">{formatDate(account.last_synced_at)}</span>
                 </div>
               </TableCell>
             </TableRow>

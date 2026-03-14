@@ -176,7 +176,7 @@ const OverviewPage = () => {
                 <div className="h-2 rounded-full bg-cream-dark overflow-hidden">
                   <div className="h-full bg-verdant rounded-full transition-progress" style={{ width: `${taggingProgress.pct}%` }} />
                 </div>
-                <p className="font-data text-[15px] text-charcoal tabular-nums">{fmtN(taggingProgress.tagged)} tagged · {fmtN(taggingProgress.untagged)} untagged</p>
+                <p className="font-data text-[17px] text-charcoal tabular-nums">{fmtN(taggingProgress.tagged)} tagged · {fmtN(taggingProgress.untagged)} untagged</p>
                 <button onClick={() => navigate("/tagging")} className="font-body text-[13px] font-medium text-verdant hover:underline flex items-center gap-1">
                   Start tagging <ArrowRight className="h-3 w-3" />
                 </button>
@@ -321,7 +321,7 @@ function CreativeInsightCard({ creative, variant, spendThreshold, onClick }: { c
         {variant === "concern" && estimatedLoss > 0 && (
           <p className="font-body text-[12px] text-slate">
             Spending {fmt$(spend)} at {roas.toFixed(1)}x ROAS — losing approximately{" "}
-            <span className="font-data text-[15px] font-semibold text-destructive">{fmt$(estimatedLoss)}</span>
+            <span className="font-data text-[17px] font-semibold text-destructive">{fmt$(estimatedLoss)}</span>
           </p>
         )}
       </div>
@@ -333,7 +333,7 @@ function MiniMetric({ label, value, valueClass }: { label: string; value: string
   return (
     <div>
       <p className="font-label text-[9px] uppercase tracking-[0.06em] text-sage font-medium">{label}</p>
-      <p className={cn("font-data text-[15px] font-semibold tabular-nums", valueClass || "text-charcoal")}>{value}</p>
+      <p className={cn("font-data text-[17px] font-semibold tabular-nums", valueClass || "text-charcoal")}>{value}</p>
     </div>
   );
 }

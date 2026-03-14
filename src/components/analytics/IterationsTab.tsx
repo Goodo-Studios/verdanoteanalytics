@@ -94,7 +94,7 @@ function BenchmarkBar({ benchmarks }: { benchmarks: Benchmarks }) {
           <div key={m.label} className="flex items-center gap-3">
             <m.icon className="h-4 w-4 text-muted-foreground shrink-0" />
             <div>
-              <p className="font-body text-[13px] font-medium text-charcoal">{m.label}: <span className="font-data text-[15px] font-semibold text-charcoal">{m.data.median.toFixed(2)}%</span></p>
+              <p className="font-body text-[13px] font-medium text-charcoal">{m.label}: <span className="font-data text-[17px] font-semibold text-charcoal">{m.data.median.toFixed(2)}%</span></p>
               <p className="font-data text-[11px] text-sage">
                 25th: {m.data.p25.toFixed(2)}% &nbsp;|&nbsp; 75th: {m.data.p75.toFixed(2)}%
               </p>
@@ -187,7 +187,7 @@ function TopPerformers({ creatives, benchmarks, minSpend, onCreativeClick }: Top
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
                         <span className="font-data text-[18px] font-semibold text-verdant">{val.toFixed(2)}%</span>
-                        <span className="font-data text-[15px] font-medium text-slate">${(Number(c.spend) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                        <span className="font-data text-[17px] font-medium text-slate">${(Number(c.spend) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-x-3 gap-y-1">

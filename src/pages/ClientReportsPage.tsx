@@ -60,17 +60,17 @@ const ClientReportsPage = () => {
                 {reports.map((r: any) => (
                   <TableRow key={r.id} className="cursor-pointer hover:bg-accent/50 border-b border-border-light" onClick={() => navigate(`/reports/${r.id}`)}>
                     <TableCell>
-                      <div className="font-body text-[15px] font-semibold text-charcoal">{r.report_name}</div>
-                      {r.date_range_days && <div className="font-data text-[15px] text-slate">{r.date_range_days} days</div>}
+                      <div className="font-body text-[17px] font-semibold text-charcoal">{r.report_name}</div>
+                      {r.date_range_days && <div className="font-data text-[17px] text-slate">{r.date_range_days} days</div>}
                     </TableCell>
-                    <TableCell className="font-data text-[15px] text-slate">
+                    <TableCell className="font-data text-[17px] text-slate">
                       {r.date_range_start && r.date_range_end ? `${r.date_range_start} → ${r.date_range_end}` : "—"}
                     </TableCell>
-                    <TableCell className="font-data text-[15px] text-slate">
+                    <TableCell className="font-data text-[17px] text-slate">
                       {new Date(r.created_at).toLocaleDateString()}
                     </TableCell>
-                    <TableCell className="font-data text-[15px] text-right tabular-nums">{fmt(r.total_spend, "$")}</TableCell>
-                    <TableCell className="font-data text-[15px] text-right tabular-nums">{fmt(r.blended_roas, "", "x")}</TableCell>
+                    <TableCell className="font-data text-[17px] text-right tabular-nums">{fmt(r.total_spend, "$")}</TableCell>
+                    <TableCell className="font-data text-[17px] text-right tabular-nums">{fmt(r.blended_roas, "", "x")}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1 justify-end">
                         <Button variant="ghost" size="sm" className="h-7 px-2" onClick={(e) => { e.stopPropagation(); exportReportCSV(r); }}>

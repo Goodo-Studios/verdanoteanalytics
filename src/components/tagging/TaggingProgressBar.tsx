@@ -31,7 +31,7 @@ export function TaggingProgressBar({ creatives, total, onAutoTagAll, isAutoTaggi
             {stats.tagged} / {total}
           </span>
           <span className="font-body text-[13px] text-muted-foreground">creatives tagged</span>
-          <span className="font-data text-[15px] font-medium tabular-nums text-primary">
+          <span className="font-data text-[17px] font-medium tabular-nums text-primary">
             ({(stats.pct * 100).toFixed(0)}%)
           </span>
         </div>

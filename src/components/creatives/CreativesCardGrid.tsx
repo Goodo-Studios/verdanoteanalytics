@@ -143,18 +143,18 @@ export function CreativesCardGrid({ creatives, onSelect, compareMode = false, co
             <div className="border-t border-border-light grid grid-cols-3 gap-1 text-center py-2 px-3 relative">
               <div>
                 <div className="font-label text-[9px] uppercase tracking-[0.06em] text-sage font-medium">ROAS</div>
-                <div className={`font-data text-[15px] font-semibold tabular-nums ${roasColor(c.roas)} flex items-center justify-center gap-0.5`}>
+                <div className={`font-data text-[17px] font-semibold tabular-nums ${roasColor(c.roas)} flex items-center justify-center gap-0.5`}>
                   {fmt(c.roas, "", "x")}
                   <RoasTrendArrow trend={wowTrends?.get(c.ad_id)} />
                 </div>
               </div>
               <div>
                 <div className="font-label text-[9px] uppercase tracking-[0.06em] text-sage font-medium">CPA</div>
-                <div className="font-data text-[15px] font-semibold text-charcoal tabular-nums">{fmt(c.cpa, "$")}</div>
+                <div className="font-data text-[17px] font-semibold text-charcoal tabular-nums">{fmt(c.cpa, "$")}</div>
               </div>
               <div>
                 <div className="font-label text-[9px] uppercase tracking-[0.06em] text-sage font-medium">Spend</div>
-                <div className="font-data text-[15px] font-semibold text-charcoal tabular-nums">{fmt(c.spend, "$")}</div>
+                <div className="font-data text-[17px] font-semibold text-charcoal tabular-nums">{fmt(c.spend, "$")}</div>
               </div>
               {/* Fatigue badge */}
               {fatigueMap?.get(c.ad_id)?.level === "high" && (

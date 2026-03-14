@@ -422,13 +422,13 @@ function ConceptComparison({ conceptGroups, conceptA, conceptB, setConceptA, set
                   <TableRow key={row.label}>
                     <TableCell className="font-label text-[11px] uppercase tracking-wide text-slate">{row.label}</TableCell>
                     <TableCell className={cn(
-                      "font-data text-[15px] font-semibold tabular-nums",
+                      "font-data text-[17px] font-semibold tabular-nums",
                       !tied && aWins ? "bg-primary/10 text-primary" : "text-charcoal"
                     )}>
                       {row.useGroup ? (row as any).format(row.valA, a) : (row as any).format(row.valA)}
                     </TableCell>
                     <TableCell className={cn(
-                      "font-data text-[15px] font-semibold tabular-nums",
+                      "font-data text-[17px] font-semibold tabular-nums",
                       !tied && bWins ? "bg-primary/10 text-primary" : "text-charcoal"
                     )}>
                       {row.useGroup ? (row as any).format(row.valB, b) : (row as any).format(row.valB)}

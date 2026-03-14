@@ -291,7 +291,7 @@
 
   .text-table-data {
     font-family: 'Crimson Pro', serif;
-    font-size: 0.9375rem;
+    font-size: 1.0625rem;
     font-weight: 500;
     color: hsl(var(--foreground));
     font-variant-numeric: tabular-nums;

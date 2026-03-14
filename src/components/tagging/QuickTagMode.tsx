@@ -162,7 +162,7 @@ export function QuickTagMode({ creatives, allCreatives = [], onExit }: QuickTagM
           <span className="font-label text-[11px] uppercase tracking-wider text-muted-foreground">Quick Tag</span>
         </div>
         <div className="flex items-center gap-3">
-          <span className="font-data text-[15px] font-medium tabular-nums text-foreground">
+          <span className="font-data text-[17px] font-medium tabular-nums text-foreground">
             {index + 1} of {total}
           </span>
           <div className="w-32 h-1.5 bg-muted rounded-full overflow-hidden">

@@ -194,7 +194,7 @@ export function TagInsightsTab({
           Analyze performance by creative attributes. Creatives must be tagged to appear in this analysis.
         </p>
         <div className="flex items-center gap-3">
-          <span className="font-data text-[15px] font-semibold text-charcoal tabular-nums">
+          <span className="font-data text-[17px] font-semibold text-charcoal tabular-nums">
             {taggedCreatives.length.toLocaleString()} of {creatives.length.toLocaleString()} creatives tagged ({coverage.toFixed(1)}%)
           </span>
           <div className="w-[200px] h-1 rounded-full bg-cream-dark overflow-hidden">
@@ -253,7 +253,7 @@ export function TagInsightsTab({
             type="number"
             value={minSpend}
             onChange={e => setMinSpend(Number(e.target.value) || 0)}
-            className="w-24 h-8 font-data text-[15px] border-border-light"
+            className="w-24 h-8 font-data text-[17px] border-border-light"
           />
         </div>
 
@@ -263,7 +263,7 @@ export function TagInsightsTab({
             type="number"
             value={minCreatives}
             onChange={e => setMinCreatives(Number(e.target.value) || 1)}
-            className="w-20 h-8 font-data text-[15px] border-border-light"
+            className="w-20 h-8 font-data text-[17px] border-border-light"
           />
         </div>
       </div>
@@ -298,22 +298,22 @@ export function TagInsightsTab({
                         ))}
                       </div>
                     </TableCell>
-                    <TableCell className="font-data text-[15px] font-medium text-charcoal tabular-nums text-right">{row.count}</TableCell>
+                    <TableCell className="font-data text-[17px] font-medium text-charcoal tabular-nums text-right">{row.count}</TableCell>
                     <TableCell className="text-right">
                       <div className="relative inline-flex items-center justify-end min-w-[120px]">
 ...
                       </div>
                     </TableCell>
-                    <TableCell className="font-data text-[15px] font-medium text-charcoal tabular-nums text-right">${row.avgCpa.toFixed(2)}</TableCell>
-                    <TableCell className="font-data text-[15px] font-medium text-charcoal tabular-nums text-right">${row.totalSpend.toLocaleString("en-US", { maximumFractionDigits: 0 })}</TableCell>
+                    <TableCell className="font-data text-[17px] font-medium text-charcoal tabular-nums text-right">${row.avgCpa.toFixed(2)}</TableCell>
+                    <TableCell className="font-data text-[17px] font-medium text-charcoal tabular-nums text-right">${row.totalSpend.toLocaleString("en-US", { maximumFractionDigits: 0 })}</TableCell>
                     <TableCell className={cn(
-                      "font-data text-[15px] font-medium tabular-nums text-right",
+                      "font-data text-[17px] font-medium tabular-nums text-right",
                       row.winRate >= 50 ? "text-verdant" : row.winRate < 20 ? "text-red-700" : "text-charcoal"
                     )}>
                       {row.winRate.toFixed(1)}%
                     </TableCell>
                     <TableCell className={cn(
-                      "font-data text-[15px] font-medium tabular-nums text-right",
+                      "font-data text-[17px] font-medium tabular-nums text-right",
                       row.vsAvg > 0 ? "text-verdant" : row.vsAvg < 0 ? "text-red-700" : "text-charcoal"
                     )}>
                       {row.vsAvg > 0 ? "+" : ""}{row.vsAvg.toFixed(0)}%

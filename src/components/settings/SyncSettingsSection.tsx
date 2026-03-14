@@ -80,12 +80,12 @@ export function SyncSettingsSection({
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label className="font-body text-[14px] font-medium text-charcoal">Date Range (days)</Label>
-          <Input type="number" value={dateRange} onChange={(e) => setDateRange(e.target.value)} min="1" max="365" className="bg-background font-data text-[15px] font-medium text-charcoal" />
+          <Input type="number" value={dateRange} onChange={(e) => setDateRange(e.target.value)} min="1" max="365" className="bg-background font-data text-[17px] font-medium text-charcoal" />
           <p className="font-body text-[12px] text-sage">How many days of data to pull on each sync.</p>
         </div>
         <div className="space-y-2">
           <Label className="font-body text-[14px] font-medium text-charcoal">Iteration Spend Threshold ($)</Label>
-          <Input type="number" value={spendThreshold} onChange={(e) => setSpendThreshold(e.target.value)} min="0" className="bg-background font-data text-[15px] font-medium text-charcoal" />
+          <Input type="number" value={spendThreshold} onChange={(e) => setSpendThreshold(e.target.value)} min="0" className="bg-background font-data text-[17px] font-medium text-charcoal" />
           <p className="font-body text-[12px] text-sage">Minimum spend to include in analysis.</p>
         </div>
       </div>
@@ -104,7 +104,7 @@ export function SyncSettingsSection({
             min="0"
             max="60"
             step="1"
-            className="bg-background font-data text-[15px] font-medium text-charcoal"
+            className="bg-background font-data text-[17px] font-medium text-charcoal"
           />
           <p className="font-body text-[12px] text-sage">
             {syncCooldownMinutes === "0" || !syncCooldownMinutes
@@ -147,7 +147,7 @@ export function SyncSettingsSection({
           </div>
           <div className="space-y-2">
             <Label className="font-body text-[14px] font-medium text-charcoal">Winner Threshold</Label>
-            <Input type="number" value={winnerKpiThreshold} onChange={(e) => setWinnerKpiThreshold(e.target.value)} step="0.1" min="0" className="bg-background font-data text-[15px] font-medium text-charcoal" />
+            <Input type="number" value={winnerKpiThreshold} onChange={(e) => setWinnerKpiThreshold(e.target.value)} step="0.1" min="0" className="bg-background font-data text-[17px] font-medium text-charcoal" />
           </div>
         </div>
         <p className="font-body text-[12px] text-sage">
@@ -189,14 +189,14 @@ export function SyncSettingsSection({
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-2">
             <Label className="font-body text-[14px] font-medium text-scale">Scale Threshold</Label>
-            <Input type="number" value={scaleThreshold} onChange={(e) => setScaleThreshold(e.target.value)} step="0.1" min="0" className="bg-background font-data text-[15px] font-medium text-charcoal" />
+            <Input type="number" value={scaleThreshold} onChange={(e) => setScaleThreshold(e.target.value)} step="0.1" min="0" className="bg-background font-data text-[17px] font-medium text-charcoal" />
             <p className="font-body text-[12px] text-sage">
               {ksIsGte ? `${ksKpiLabel} ≥ this → Scale` : `${ksKpiLabel} ≤ this → Scale`}
             </p>
           </div>
           <div className="space-y-2">
             <Label className="font-body text-[14px] font-medium text-kill">Kill Threshold</Label>
-            <Input type="number" value={killThreshold} onChange={(e) => setKillThreshold(e.target.value)} step="0.1" min="0" className="bg-background font-data text-[15px] font-medium text-charcoal" />
+            <Input type="number" value={killThreshold} onChange={(e) => setKillThreshold(e.target.value)} step="0.1" min="0" className="bg-background font-data text-[17px] font-medium text-charcoal" />
             <p className="font-body text-[12px] text-sage">
               {ksIsGte ? `${ksKpiLabel} < this → Kill` : `${ksKpiLabel} > this → Kill`}
             </p>
@@ -212,15 +212,15 @@ export function SyncSettingsSection({
         <div className="grid grid-cols-3 gap-4">
           <div className="space-y-2">
             <Label className="font-body text-[14px] font-medium text-charcoal">Target ROAS</Label>
-            <Input type="number" value={targetRoas} onChange={(e) => setTargetRoas(e.target.value)} step="0.1" min="0" placeholder="e.g. 2.5" className="bg-background font-data text-[15px] font-medium text-charcoal" />
+            <Input type="number" value={targetRoas} onChange={(e) => setTargetRoas(e.target.value)} step="0.1" min="0" placeholder="e.g. 2.5" className="bg-background font-data text-[17px] font-medium text-charcoal" />
           </div>
           <div className="space-y-2">
             <Label className="font-body text-[14px] font-medium text-charcoal">Target CPA ($)</Label>
-            <Input type="number" value={targetCpa} onChange={(e) => setTargetCpa(e.target.value)} step="1" min="0" placeholder="e.g. 40" className="bg-background font-data text-[15px] font-medium text-charcoal" />
+            <Input type="number" value={targetCpa} onChange={(e) => setTargetCpa(e.target.value)} step="1" min="0" placeholder="e.g. 40" className="bg-background font-data text-[17px] font-medium text-charcoal" />
           </div>
           <div className="space-y-2">
             <Label className="font-body text-[14px] font-medium text-charcoal">Target Monthly Spend ($)</Label>
-            <Input type="number" value={targetMonthlySpend} onChange={(e) => setTargetMonthlySpend(e.target.value)} step="100" min="0" placeholder="e.g. 50000" className="bg-background font-data text-[15px] font-medium text-charcoal" />
+            <Input type="number" value={targetMonthlySpend} onChange={(e) => setTargetMonthlySpend(e.target.value)} step="100" min="0" placeholder="e.g. 50000" className="bg-background font-data text-[17px] font-medium text-charcoal" />
           </div>
         </div>
       </div>
