@@ -41,7 +41,7 @@ export function PredictionSection({ creative, wowTrend, fatigue, killThreshold =
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-[6px] border border-border-light p-3">
           <p className="font-label text-[9px] uppercase tracking-wider text-muted-foreground mb-1">7-Day Spend</p>
-          <p className="font-data text-[18px] font-semibold text-charcoal tabular-nums">
+          <p className="font-data text-[17px] font-semibold text-charcoal tabular-nums">
             {fmt$(prediction.projectedSpend7d)}
           </p>
         </div>
