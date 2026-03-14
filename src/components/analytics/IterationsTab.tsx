@@ -299,33 +299,8 @@ export function IterationsTab({ creatives, spendThreshold, onCreativeClick }: It
   );
 
   const filtered = useMemo(() => {
-    let list = diagnosed;
-    if (diagnosticFilter !== "all") {
-      list = list.filter((d) => d.diagnostic === diagnosticFilter);
-    }
-    if (statusFilter !== "all") {
-      list = list.filter((d) => d.ad_status?.toUpperCase() === statusFilter);
-    }
-
-    const sorted = [...list];
-    switch (sortBy) {
-      case "spend":
-        sorted.sort((a, b) => b.spend - a.spend);
-        break;
-      case "hookRate":
-        sorted.sort((a, b) => a.hookRate - b.hookRate);
-        break;
-      case "holdRate":
-        sorted.sort((a, b) => a.holdRate - b.holdRate);
-        break;
-      case "ctr":
-        sorted.sort((a, b) => a.ctr - b.ctr);
-        break;
-      default:
-        sorted.sort((a, b) => b.priorityScore - a.priorityScore);
-    }
-    return sorted;
-  }, [diagnosed, diagnosticFilter, statusFilter, sortBy]);
+    return [...diagnosed].sort((a, b) => b.priorityScore - a.priorityScore);
+  }, [diagnosed]);
 
   if (creatives.length === 0) {
     return (
