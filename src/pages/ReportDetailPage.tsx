@@ -2,7 +2,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { TrendingUp, Download, ArrowUp, ArrowDown, Minus, AlertTriangle, ArrowLeft, Send, Loader2, Pencil, FileText } from "lucide-react";
+import { Download, ArrowLeft, Send, Loader2, Pencil, FileText } from "lucide-react";
 import { exportReportCSV } from "@/lib/csv";
 import { useReports, useSendReportToSlack } from "@/hooks/useReportsApi";
 import { useParams } from "react-router-dom";
