@@ -80,7 +80,7 @@ function renderCell(c: any, key: string, wowTrends?: Map<string, WoWTrend>, grad
     if (cfg.format) {
       const isRoas = cfg.field === "roas";
       return (
-        <TableCell key={key} className={`text-right font-data text-[13px] font-medium text-charcoal tabular-nums ${mobileHide}`}>
+        <TableCell key={key} className={`text-right font-data text-[14px] font-medium text-charcoal tabular-nums ${mobileHide}`}>
           <span className="inline-flex items-center gap-0.5 justify-end">
             {fmt(value, cfg.format.prefix, cfg.format.suffix, cfg.format.decimals)}
             {isRoas && <RoasTrendArrow trend={wowTrends?.get(c.ad_id)} />}
