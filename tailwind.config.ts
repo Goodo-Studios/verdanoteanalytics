@@ -82,8 +82,8 @@ export default {
           DEFAULT: "#FDF8F0",
           dark: "#F5EFE3",
         },
-        charcoal: "#2C2C2C",
-        slate: "#6B7280",
+        charcoal: "hsl(var(--text-strong))",
+        slate: "hsl(var(--text-secondary))",
         gold: {
           DEFAULT: "#D4A843",
           light: "#F5ECD4",

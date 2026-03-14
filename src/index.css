@@ -179,9 +179,7 @@
     margin: 0;
   }
 
-  .dark h1, .dark h2, .dark h3, .dark h4, .dark h5, .dark h6 {
-    color: hsl(150 10% 90%);
-  }
+  /* dark heading override now handled by --text-strong token */
 
   h1 {
     font-size: 2rem;
