@@ -7,7 +7,7 @@ import { exportReportCSV } from "@/lib/csv";
 import { useReports, useSendReportToSlack } from "@/hooks/useReportsApi";
 import { useParams } from "react-router-dom";
 import { useRoleNavigate } from "@/hooks/useRolePath";
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import { SectionRenderer } from "@/components/reports/SectionRenderer";
 import { legacySectionsFromReport, ReportSection } from "@/lib/reportSections";
 import { PortfolioReportView } from "@/components/reports/PortfolioReportView";
