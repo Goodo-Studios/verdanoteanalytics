@@ -91,9 +91,9 @@ export function SyncStatusBanner({ accountId }: SyncStatusBannerProps = {}) {
           <div className="flex items-center gap-3 mt-0.5">
             <span className="font-data text-[12px] font-medium text-slate inline-flex items-center gap-1">
               <Clock className="h-3 w-3" />
-              {timeStr}
+              {isQueued ? "Waiting…" : timeStr}
             </span>
-            <span className="font-data text-[12px] font-medium text-slate">Phase {Math.min(currentPhase, 5)}/5</span>
+            {!isQueued && <span className="font-data text-[12px] font-medium text-slate">Phase {Math.min(currentPhase, 5)}/5</span>}
             {fetched > 0 && (
               <span className="font-data text-[12px] font-medium text-slate inline-flex items-center gap-1">
                 <Download className="h-3 w-3" />
