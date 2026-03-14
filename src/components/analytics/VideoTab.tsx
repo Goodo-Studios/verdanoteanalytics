@@ -222,14 +222,14 @@ export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: Vi
               {/* Tick marks */}
               {[0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1].map(v => (
                 <g key={`xtick-${v}`}>
-                  <text x={PAD.left + v * plotW} y={PAD.top + plotH + 18} textAnchor="middle" className="text-[13px] font-data fill-muted-foreground tabular-nums">
+                  <text x={PAD.left + v * plotW} y={PAD.top + plotH + 20} textAnchor="middle" className="text-[15px] font-data fill-muted-foreground tabular-nums">
                     {(v * 100).toFixed(0)}%
                   </text>
                 </g>
               ))}
               {[0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1].map(v => (
                 <g key={`ytick-${v}`}>
-                  <text x={PAD.left - 8} y={PAD.top + plotH - v * plotH + 4} textAnchor="end" className="text-[13px] font-data fill-muted-foreground tabular-nums">
+                  <text x={PAD.left - 8} y={PAD.top + plotH - v * plotH + 5} textAnchor="end" className="text-[15px] font-data fill-muted-foreground tabular-nums">
                     {(v * 100).toFixed(0)}%
                   </text>
                 </g>
