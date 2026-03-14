@@ -80,12 +80,12 @@ export function SyncSettingsSection({
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label className="font-body text-[14px] font-medium text-charcoal">Date Range (days)</Label>
-          <Input type="number" value={dateRange} onChange={(e) => setDateRange(e.target.value)} min="1" max="365" className="bg-background font-data text-[15px] font-medium text-charcoal" />
+          <Input type="number" value={dateRange} onChange={(e) => setDateRange(e.target.value)} min="1" max="365" className="bg-background font-data text-[17px] font-medium text-charcoal" />
           <p className="font-body text-[12px] text-sage">How many days of data to pull on each sync.</p>
         </div>
         <div className="space-y-2">
           <Label className="font-body text-[14px] font-medium text-charcoal">Iteration Spend Threshold ($)</Label>
-          <Input type="number" value={spendThreshold} onChange={(e) => setSpendThreshold(e.target.value)} min="0" className="bg-background font-data text-[15px] font-medium text-charcoal" />
+          <Input type="number" value={spendThreshold} onChange={(e) => setSpendThreshold(e.target.value)} min="0" className="bg-background font-data text-[17px] font-medium text-charcoal" />
           <p className="font-body text-[12px] text-sage">Minimum spend to include in analysis.</p>
         </div>
       </div>
