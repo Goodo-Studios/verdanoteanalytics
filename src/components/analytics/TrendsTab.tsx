@@ -136,7 +136,7 @@ export const TrendsTab = forwardRef<HTMLDivElement, TrendsTabProps>(function Tre
         prefix: m.prefix,
         suffix: m.suffix,
         decimals: m.decimals,
-        values: chartData.map((d) => Number(d[m.key]) || 0),
+        values: chartData.map((d) => m.compute ? m.compute(d) : (Number(d[m.key as keyof typeof d]) || 0)),
       }));
   }, [chartData, selectedMetrics]);
 
