@@ -369,9 +369,9 @@ serve(async (req) => {
       });
     }
 
-    console.log(`[${targetAccount.name}] Discovery: fastThumbs=${fastPathThumbs.length} slowThumbs=${slowPathThumbs.length} missingVideos=${noVideos.length} uncachedVideos=${videos.length} previews=${previews.length}`);
+    console.log(`[${targetAccount.name}] Discovery: fastThumbs=${fastPathThumbs.length} slowThumbs=${slowPathThumbs.length} upgradeThumbs=${upgradeThumbs.length} missingVideos=${noVideos.length} uncachedVideos=${videos.length} previews=${previews.length}`);
 
-    if (thumbsTotal === 0 && videosTotal === 0) {
+    if (thumbsTotal === 0 && videosTotal === 0 && upgradeThumbs.length === 0) {
       console.log(`[${targetAccount.name}] All media already cached — marking complete.`);
       if (logId) {
         await updateLog(supabase, logId, {
