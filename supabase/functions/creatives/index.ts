@@ -274,7 +274,12 @@ serve(async (req) => {
 
           result.sort((a: any, b: any) => (b.spend || 0) - (a.spend || 0));
           const total = result.length;
-          return new Response(JSON.stringify({ data: result.slice(offset, offset + limit), total }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          // Compute aggregate totals across ALL creatives (not just the page slice)
+          const aggTotalSpend = result.reduce((s: number, c: any) => s + (Number(c.spend) || 0), 0);
+          const withSpend = result.filter((c: any) => c.spend > 0);
+          const aggAvgCpa = withSpend.length > 0 ? withSpend.reduce((s: number, c: any) => s + (Number(c.cpa) || 0), 0) / withSpend.length : 0;
+          const aggAvgRoas = withSpend.length > 0 ? withSpend.reduce((s: number, c: any) => s + (Number(c.roas) || 0), 0) / withSpend.length : 0;
+          return new Response(JSON.stringify({ data: result.slice(offset, offset + limit), total, aggregates: { total_spend: aggTotalSpend, avg_cpa: aggAvgCpa, avg_roas: aggAvgRoas } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       }
 
