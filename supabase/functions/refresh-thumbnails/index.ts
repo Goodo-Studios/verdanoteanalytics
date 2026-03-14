@@ -278,21 +278,29 @@ serve(async (req) => {
       }
     }
 
-    // Video sentinel reset
+    // Video sentinel reset — only for likely-video ads, not static/image with auto-play views
     {
       const { data: sentinelRows } = await supabase
         .from("creatives")
-        .select("ad_id")
+        .select("ad_id, ad_type, ad_name")
         .eq("video_url", NO_VIDEO_SENTINEL)
         .eq("account_id", resolvedAccountId)
-        .gt("video_views", 0)
-        .gt("spend", 50)
+        .gt("video_views", 500)  // Higher threshold: filter out auto-play on static ads
+        .gt("spend", 100)
         .order("spend", { ascending: false, nullsFirst: false })
-        .limit(200);
+        .limit(100);
       if (sentinelRows && sentinelRows.length > 0) {
-        const ids = sentinelRows.map((r: any) => r.ad_id);
-        await supabase.from("creatives").update({ video_url: null }).in("ad_id", ids);
-        console.log(`[${targetAccount.name}] Reset ${ids.length} no-video sentinels for active ads`);
+        // Skip ads that are clearly not videos
+        const STATIC_TYPES = ["Static Image", "Graphic", "Image", "Carousel"];
+        const eligible = sentinelRows.filter((r: any) => {
+          if (STATIC_TYPES.includes(r.ad_type)) return false;
+          return true;
+        });
+        if (eligible.length > 0) {
+          const ids = eligible.map((r: any) => r.ad_id);
+          await supabase.from("creatives").update({ video_url: null }).in("ad_id", ids);
+          console.log(`[${targetAccount.name}] Reset ${ids.length} no-video sentinels for likely-video ads (skipped ${sentinelRows.length - eligible.length} static)`);
+        }
       }
     }
 
