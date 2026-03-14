@@ -192,20 +192,28 @@ serve(async (req) => {
           const aggMap: Record<string, any> = {};
           for (const row of dailyData) {
             if (!aggMap[row.ad_id]) {
-              aggMap[row.ad_id] = { spend: 0, impressions: 0, clicks: 0, purchases: 0, purchase_value: 0, adds_to_cart: 0, video_views: 0, _freq_sum: 0, _tsr_sum: 0, _hr_sum: 0, _vpt_sum: 0, _days: 0 };
+              aggMap[row.ad_id] = { spend: 0, impressions: 0, clicks: 0, purchases: 0, purchase_value: 0, adds_to_cart: 0, video_views: 0, _freq_weighted: 0, _freq_imp: 0, _tsr_weighted: 0, _tsr_imp: 0, _hr_weighted: 0, _hr_vv: 0, _vpt_weighted: 0, _vpt_vv: 0, _days: 0 };
             }
             const a = aggMap[row.ad_id];
+            const imp = Number(row.impressions) || 0;
+            const vv = Number(row.video_views) || 0;
+            const freq = Number(row.frequency) || 0;
+            const tsr = Number(row.thumb_stop_rate) || 0;
+            const hr = Number(row.hold_rate) || 0;
+            const vpt = Number(row.video_avg_play_time) || 0;
             a.spend += Number(row.spend) || 0;
-            a.impressions += Number(row.impressions) || 0;
+            a.impressions += imp;
             a.clicks += Number(row.clicks) || 0;
             a.purchases += Number(row.purchases) || 0;
             a.purchase_value += Number(row.purchase_value) || 0;
             a.adds_to_cart += Number(row.adds_to_cart) || 0;
-            a.video_views += Number(row.video_views) || 0;
-            a._freq_sum += Number(row.frequency) || 0;
-            a._tsr_sum += Number(row.thumb_stop_rate) || 0;
-            a._hr_sum += Number(row.hold_rate) || 0;
-            a._vpt_sum += Number(row.video_avg_play_time) || 0;
+            a.video_views += vv;
+            // Impressions-weighted average for frequency & thumb stop rate
+            if (freq > 0 && imp > 0) { a._freq_weighted += freq * imp; a._freq_imp += imp; }
+            if (tsr > 0 && imp > 0) { a._tsr_weighted += tsr * imp; a._tsr_imp += imp; }
+            // Video-views-weighted average for hold rate & avg play time
+            if (hr > 0 && vv > 0) { a._hr_weighted += hr * vv; a._hr_vv += vv; }
+            if (vpt > 0 && vv > 0) { a._vpt_weighted += vpt * vv; a._vpt_vv += vv; }
             a._days += 1;
           }
 
@@ -239,8 +247,7 @@ serve(async (req) => {
 
           // Merge aggregated metrics
           const result = allCreatives.map((c: any) => {
-            const a = aggMap[c.ad_id] || { spend: 0, impressions: 0, clicks: 0, purchases: 0, purchase_value: 0, adds_to_cart: 0, video_views: 0, _freq_sum: 0, _tsr_sum: 0, _hr_sum: 0, _vpt_sum: 0, _days: 1 };
-            const days = a._days || 1;
+            const a = aggMap[c.ad_id] || { spend: 0, impressions: 0, clicks: 0, purchases: 0, purchase_value: 0, adds_to_cart: 0, video_views: 0, _freq_weighted: 0, _freq_imp: 0, _tsr_weighted: 0, _tsr_imp: 0, _hr_weighted: 0, _hr_vv: 0, _vpt_weighted: 0, _vpt_vv: 0, _days: 1 };
             return {
               ...c,
               spend: a.spend,
@@ -256,10 +263,10 @@ serve(async (req) => {
               adds_to_cart: a.adds_to_cart,
               cost_per_add_to_cart: a.adds_to_cart > 0 ? a.spend / a.adds_to_cart : 0,
               video_views: a.video_views,
-              thumb_stop_rate: a._tsr_sum / days,
-              hold_rate: a._hr_sum / days,
-              frequency: a._freq_sum / days,
-              video_avg_play_time: a._vpt_sum / days,
+              thumb_stop_rate: a._tsr_imp > 0 ? a._tsr_weighted / a._tsr_imp : 0,
+              hold_rate: a._hr_vv > 0 ? a._hr_weighted / a._hr_vv : 0,
+              frequency: a._freq_imp > 0 ? a._freq_weighted / a._freq_imp : 0,
+              video_avg_play_time: a._vpt_vv > 0 ? a._vpt_weighted / a._vpt_vv : 0,
             };
           });
 
