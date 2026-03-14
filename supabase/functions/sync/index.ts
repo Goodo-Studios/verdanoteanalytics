@@ -155,6 +155,36 @@ const PHASE_BUDGET_MS = 110 * 1000;
 const PHASE_1_BUDGET_MS = 100 * 1000; // Must stay under platform's ~150s hard wall-clock limit
 const HEARTBEAT_INTERVAL_MS = 20 * 1000;
 
+// ─── Auto-Continue: Self-Invocation ──────────────────────────────────────────
+// After a phase budget expires and state is saved, the function fires a non-blocking
+// HTTP POST to /sync/continue so the next phase starts immediately instead of
+// waiting for the cron tick (~1 min). This eliminates the race condition where
+// cleanup-stuck-syncs marks a sync as "stuck" before the cron re-invokes it.
+async function selfContinue(): Promise<void> {
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_PUBLISHABLE_KEY");
+    if (!supabaseUrl || !anonKey) {
+      console.warn("selfContinue: missing SUPABASE_URL or anon key — falling back to cron");
+      return;
+    }
+    // Fire-and-forget: don't await the full response, just ensure the request is sent
+    fetch(`${supabaseUrl}/functions/v1/sync/continue`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${anonKey}`,
+      },
+      body: JSON.stringify({ time: new Date().toISOString() }),
+    }).catch((err) => {
+      console.warn("selfContinue fetch error (non-fatal):", err);
+    });
+    console.log("selfContinue: fired non-blocking continue invocation");
+  } catch (err) {
+    console.warn("selfContinue error (non-fatal):", err);
+  }
+}
+
 // ─── Promote Next Queued Sync ────────────────────────────────────────────────
 async function promoteNextQueued(supabase: any) {
   // Check for cooldown between sequential account syncs (default: 2 min to let Meta rate limits recover)
