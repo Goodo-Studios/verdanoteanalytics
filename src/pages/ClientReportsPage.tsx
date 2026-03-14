@@ -8,6 +8,7 @@ import { useRoleNavigate } from "@/hooks/useRolePath";
 import { useReports } from "@/hooks/useReportsApi";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { exportReportCSV } from "@/lib/csv";
+import { fmtMetric } from "@/lib/formatters";
 
 const ClientReportsPage = () => {
   const { selectedAccountId } = useAccountContext();

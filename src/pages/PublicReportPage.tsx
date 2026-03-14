@@ -22,10 +22,8 @@ function usePublicReport(id: string | undefined) {
   });
 }
 
-const fmt = (v: number | null, prefix = "", suffix = "") => {
-  if (v === null || v === undefined) return "—";
-  return `${prefix}${Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 })}${suffix}`;
-};
+import { fmtMetric } from "@/lib/formatters";
+const fmt = fmtMetric;
 
 const PublicReportPage = () => {
   const { id } = useParams<{ id: string }>();

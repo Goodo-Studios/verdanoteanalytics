@@ -40,6 +40,7 @@ import { cn } from "@/lib/utils";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useState, useCallback, useMemo } from "react";
+import { fmtMetric } from "@/lib/formatters";
 import { useRoleNavigate } from "@/hooks/useRolePath";
 import { useReports, useGenerateReport, useDeleteReport, useSendReportToSlack, useReportSchedules, useUpsertReportSchedule } from "@/hooks/useReportsApi";
 import { useAccounts } from "@/hooks/useAccountsApi";
