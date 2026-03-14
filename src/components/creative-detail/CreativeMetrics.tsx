@@ -1,4 +1,4 @@
-import { fmt } from "@/components/creatives/constants";
+import { fmtMetric } from "@/lib/formatters";
 
 interface CreativeMetricsProps {
   creative: any;
