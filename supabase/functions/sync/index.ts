@@ -1660,6 +1660,12 @@ serve(async (req) => {
             console.log(`Promoted sync ${promoted.id} for ${promoted.account_id}`);
             // Run first phase inline
             await runSyncPhase(supabase, promoted, metaToken);
+            // Auto-continue: if still running after first phase, self-invoke
+            const { data: postCheck } = await supabase.from("sync_logs")
+              .select("status").eq("id", promoted.id).single();
+            if (postCheck?.status === "running") {
+              await selfContinue();
+            }
           }
         }
       }
