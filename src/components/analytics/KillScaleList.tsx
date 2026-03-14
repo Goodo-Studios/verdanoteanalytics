@@ -14,6 +14,13 @@ const fmt = (v: number | null | undefined, decimals = 2) =>
 const fmtDollar = (v: number | null | undefined) =>
   v == null ? "—" : `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
+const KPI_SUFFIXES: Record<string, { prefix: string; suffix: string }> = {
+  roas: { prefix: "", suffix: "x" },
+  cpa: { prefix: "$", suffix: "" },
+  ctr: { prefix: "", suffix: "%" },
+  thumb_stop_rate: { prefix: "", suffix: "%" },
+};
+
 export function KillScaleList({ creatives, config, variant, onCreativeClick }: KillScaleListProps) {
   const results = useKillScaleLogic(creatives, config);
   const items = variant === "kill" ? results.kill : results.scale;
