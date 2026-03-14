@@ -188,15 +188,15 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
           </NavLink>
         </div>
       )}
-      {/* Client Preview toggle for builders */}
-      {(isBuilder || isEmployee) && !isClient && (
+      {/* Preview mode indicator for builders */}
+      {isBuilder && previewRole && (
         <div className="px-3 pb-1">
           <button
-            onClick={toggleClientPreview}
-            className={`flex items-center gap-3 rounded-md px-3 py-2 font-body text-[13px] w-full text-left transition-hover ${isClientPreview ? "text-[#92730F] bg-gold-light/50 font-medium" : "text-slate hover:text-forest hover:bg-accent"}`}
+            onClick={() => { setPreviewRole(null); navigate(`/builder/`); }}
+            className="flex items-center gap-3 rounded-md px-3 py-2 font-body text-[13px] w-full text-left text-[#92730F] bg-gold-light/50 font-medium transition-hover"
           >
             <Eye className="h-4 w-4 flex-shrink-0" />
-            {isClientPreview ? "Exit Client View" : "Preview as Client"}
+            Exit {previewRole === "client" ? "Client" : "Employee"} View
           </button>
         </div>
       )}
