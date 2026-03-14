@@ -23,9 +23,10 @@ export function SyncStatusBanner({ accountId }: SyncStatusBannerProps = {}) {
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
   const runningLog = (logs || []).find((l: any) => l.status === "running") || (logs || []).find((l: any) => l.status === "queued");
+  const isRunning = runningLog?.status === "running";
 
   useEffect(() => {
-    if (isSyncing && runningLog) {
+    if (isRunning && runningLog) {
       const start = new Date(runningLog.started_at).getTime();
       const tick = () => setElapsed(Math.floor((Date.now() - start) / 1000));
       tick();
@@ -34,7 +35,7 @@ export function SyncStatusBanner({ accountId }: SyncStatusBannerProps = {}) {
     } else {
       setElapsed(0);
     }
-  }, [isSyncing, runningLog?.id]);
+  }, [isRunning, runningLog?.id]);
 
   if (!runningLog) return null;
 
@@ -90,9 +91,9 @@ export function SyncStatusBanner({ accountId }: SyncStatusBannerProps = {}) {
           <div className="flex items-center gap-3 mt-0.5">
             <span className="font-data text-[12px] font-medium text-slate inline-flex items-center gap-1">
               <Clock className="h-3 w-3" />
-              {timeStr}
+              {isQueued ? "Waiting…" : timeStr}
             </span>
-            <span className="font-data text-[12px] font-medium text-slate">Phase {Math.min(currentPhase, 5)}/5</span>
+            {!isQueued && <span className="font-data text-[12px] font-medium text-slate">Phase {Math.min(currentPhase, 5)}/5</span>}
             {fetched > 0 && (
               <span className="font-data text-[12px] font-medium text-slate inline-flex items-center gap-1">
                 <Download className="h-3 w-3" />
