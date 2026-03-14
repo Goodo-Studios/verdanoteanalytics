@@ -320,7 +320,46 @@ serve(async (req) => {
       const { data, error } = await query;
       if (error) throw error;
 
-      return new Response(JSON.stringify({ data: data || [], total: count || 0 }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      // Compute aggregates across ALL matching creatives (not just the page slice)
+      // Fetch all matching ad spends for aggregate computation
+      const aggSpends: number[] = [];
+      const aggCpas: number[] = [];
+      const aggRoases: number[] = [];
+      let aggOffset = 0;
+      const AGG_PAGE = 1000;
+      while (true) {
+        let aggQ = supabase.from("creatives").select("spend, cpa, roas");
+        if (accountId) aggQ = aggQ.eq("account_id", accountId);
+        if (adType) aggQ = aggQ.eq("ad_type", adType);
+        if (person) aggQ = aggQ.eq("person", person);
+        if (style) aggQ = aggQ.eq("style", style);
+        if (hook) aggQ = aggQ.eq("hook", hook);
+        if (product) aggQ = aggQ.eq("product", product);
+        if (theme) aggQ = aggQ.eq("theme", theme);
+        if (tagSource) aggQ = aggQ.eq("tag_source", tagSource);
+        if (adStatus) aggQ = aggQ.eq("ad_status", adStatus);
+        if (delivery === "had_delivery") aggQ = aggQ.gt("spend", 0);
+        if (delivery === "active") aggQ = aggQ.eq("ad_status", "ACTIVE");
+        if (search) aggQ = aggQ.or(`ad_name.ilike.%${search}%,unique_code.ilike.%${search}%,campaign_name.ilike.%${search}%`);
+        aggQ = aggQ.order("ad_id", { ascending: true }).range(aggOffset, aggOffset + AGG_PAGE - 1);
+        const { data: aggData } = await aggQ;
+        if (!aggData || aggData.length === 0) break;
+        for (const row of aggData) {
+          const s = Number(row.spend) || 0;
+          aggSpends.push(s);
+          if (s > 0) {
+            aggCpas.push(Number(row.cpa) || 0);
+            aggRoases.push(Number(row.roas) || 0);
+          }
+        }
+        if (aggData.length < AGG_PAGE) break;
+        aggOffset += AGG_PAGE;
+      }
+      const aggTotalSpend = aggSpends.reduce((s, v) => s + v, 0);
+      const aggAvgCpa = aggCpas.length > 0 ? aggCpas.reduce((s, v) => s + v, 0) / aggCpas.length : 0;
+      const aggAvgRoas = aggRoases.length > 0 ? aggRoases.reduce((s, v) => s + v, 0) / aggRoases.length : 0;
+
+      return new Response(JSON.stringify({ data: data || [], total: count || 0, aggregates: { total_spend: aggTotalSpend, avg_cpa: aggAvgCpa, avg_roas: aggAvgRoas } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // PUT /creatives/:id — update tags
