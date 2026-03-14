@@ -180,7 +180,7 @@ export default function AgencyDashboardPage() {
                     </div>
                     <div>
                       <p className="font-label text-[9px] uppercase tracking-wider text-muted-foreground">ROAS</p>
-                      <p className="font-data text-[14px] font-medium tabular-nums text-foreground">{avgRoas.toFixed(2)}x</p>
+                      <p className="font-data text-[15px] font-medium tabular-nums text-foreground">{avgRoas.toFixed(2)}x</p>
                       {wowTrend && wowTrend.direction !== "insufficient" && (
                         <span className={cn("font-data text-[10px]", wowTrend.direction === "up" ? "text-primary" : wowTrend.direction === "down" ? "text-destructive" : "text-muted-foreground")}>
                           {wowTrend.label}
