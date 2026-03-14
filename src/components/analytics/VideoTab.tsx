@@ -200,9 +200,9 @@ export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: Vi
               <line x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={PAD.top + plotH} stroke="hsl(var(--border))" strokeWidth="1" />
               <line x1={PAD.left} y1={PAD.top + plotH} x2={PAD.left + plotW} y2={PAD.top + plotH} stroke="hsl(var(--border))" strokeWidth="1" />
 
-              {/* Grid lines at 50% */}
-              <line x1={PAD.left + plotW / 2} y1={PAD.top} x2={PAD.left + plotW / 2} y2={PAD.top + plotH} stroke="hsl(var(--border))" strokeWidth="1" strokeDasharray="4,4" opacity="0.5" />
-              <line x1={PAD.left} y1={PAD.top + plotH / 2} x2={PAD.left + plotW} y2={PAD.top + plotH / 2} stroke="hsl(var(--border))" strokeWidth="1" strokeDasharray="4,4" opacity="0.5" />
+              {/* Grid lines at benchmarks */}
+              <line x1={holdX} y1={PAD.top} x2={holdX} y2={PAD.top + plotH} stroke="hsl(var(--border))" strokeWidth="1" strokeDasharray="4,4" opacity="0.5" />
+              <line x1={PAD.left} y1={hookY} x2={PAD.left + plotW} y2={hookY} stroke="hsl(var(--border))" strokeWidth="1" strokeDasharray="4,4" opacity="0.5" />
 
               {/* Quadrant labels */}
               {quadrants.map(q => (
