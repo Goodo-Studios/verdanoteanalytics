@@ -9,7 +9,6 @@ import {
   FileText,
   Zap,
   LogOut,
-  UserCog,
   Tags,
   Eye,
   ListChecks,
