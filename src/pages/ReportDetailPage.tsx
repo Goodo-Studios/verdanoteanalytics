@@ -8,6 +8,7 @@ import { useReports, useSendReportToSlack } from "@/hooks/useReportsApi";
 import { useParams } from "react-router-dom";
 import { useRoleNavigate } from "@/hooks/useRolePath";
 import { useMemo, useState, useCallback, useEffect } from "react";
+import { fmtMetric } from "@/lib/formatters";
 import { SectionRenderer } from "@/components/reports/SectionRenderer";
 import { legacySectionsFromReport, ReportSection } from "@/lib/reportSections";
 import { PortfolioReportView } from "@/components/reports/PortfolioReportView";
@@ -115,10 +116,7 @@ const ReportDetailPage = () => {
     window.print();
   }, []);
 
-  const fmt = (v: number | null, prefix = "", suffix = "") => {
-    if (v === null || v === undefined) return "—";
-    return `${prefix}${Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 })}${suffix}`;
-  };
+  const fmt = fmtMetric;
 
   if (isLoading) {
     return (

@@ -18,17 +18,7 @@ import { computeFatigue } from "@/lib/fatigueScore";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
-
-function fmt$(n: number) {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}k`;
-  return `$${n.toFixed(0)}`;
-}
-
-function fmtPct(n: number) {
-  const sign = n >= 0 ? "+" : "";
-  return `${sign}${(n * 100).toFixed(0)}%`;
-}
+import { fmt$, fmtSignedPct } from "@/lib/formatters";
 
 export default function AgencyDashboardPage() {
   const navigate = useRoleNavigate();
@@ -184,7 +174,7 @@ export default function AgencyDashboardPage() {
                       {prior > 0 && (
                         <span className={cn("font-data text-[10px] tabular-nums", spendDelta >= 0 ? "text-primary" : "text-destructive")}>
                           {spendDelta >= 0 ? <TrendingUp className="h-3 w-3 inline mr-0.5" /> : <TrendingDown className="h-3 w-3 inline mr-0.5" />}
-                          {fmtPct(spendDelta)}
+                          {fmtSignedPct(spendDelta)}
                         </span>
                       )}
                     </div>

@@ -33,23 +33,7 @@ import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton
 import { DIAGNOSTIC_META } from "@/lib/iterationDiagnostics";
 
 import { cn } from "@/lib/utils";
-
-function fmt$(n: number) {
-  if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`;
-  return `$${n.toFixed(2)}`;
-}
-function fmtN(n: number) { return n.toLocaleString(); }
-function fmtPct(n: number) { return `${n.toFixed(1)}%`; }
-function delta(cur: number, prev: number | undefined): { value: number; positive: boolean } | undefined {
-  if (prev == null || prev === 0) return undefined;
-  const pct = ((cur - prev) / Math.abs(prev)) * 100;
-  return { value: Math.round(Math.abs(pct)), positive: pct >= 0 };
-}
-function deltaInverse(cur: number, prev: number | undefined): { value: number; positive: boolean } | undefined {
-  const d = delta(cur, prev);
-  if (!d) return undefined;
-  return { ...d, positive: !d.positive };
-}
+import { fmt$, fmtN, fmtPct, delta, deltaInverse } from "@/lib/formatters";
 
 /** Map section size to grid column span class */
 function sizeClass(size: SectionSize) {

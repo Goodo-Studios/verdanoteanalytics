@@ -13,10 +13,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 
-function fmt$(n: number) {
-  if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`;
-  return `$${n.toFixed(2)}`;
-}
+import { fmt$ } from "@/lib/formatters";
 
 const METRIC_CONFIG = [
   { key: "roas", label: "ROAS", format: (v: number) => `${v.toFixed(2)}x`, best: "max" },

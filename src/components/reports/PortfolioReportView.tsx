@@ -47,10 +47,8 @@ interface PortfolioReportViewProps {
   report: any;
 }
 
-const fmt = (v: number | null | undefined, prefix = "", suffix = "") => {
-  if (v === null || v === undefined) return "—";
-  return `${prefix}${Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 })}${suffix}`;
-};
+import { fmtMetric } from "@/lib/formatters";
+const fmt = fmtMetric;
 
 export function PortfolioReportView({ report }: PortfolioReportViewProps) {
   const [expandedAccounts, setExpandedAccounts] = useState<Set<string>>(new Set());

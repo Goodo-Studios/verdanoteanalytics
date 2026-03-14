@@ -8,6 +8,7 @@ import { useRoleNavigate } from "@/hooks/useRolePath";
 import { useReports } from "@/hooks/useReportsApi";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { exportReportCSV } from "@/lib/csv";
+import { fmtMetric } from "@/lib/formatters";
 
 const ClientReportsPage = () => {
   const { selectedAccountId } = useAccountContext();
@@ -20,10 +21,7 @@ const ClientReportsPage = () => {
     return rawReports.filter((r: any) => r.account_id === selectedAccountId);
   }, [rawReports, selectedAccountId]);
 
-  const fmt = (v: number | null, prefix = "", suffix = "") => {
-    if (v === null || v === undefined) return "—";
-    return `${prefix}${Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 })}${suffix}`;
-  };
+  const fmt = fmtMetric;
 
   return (
     <AppLayout>
