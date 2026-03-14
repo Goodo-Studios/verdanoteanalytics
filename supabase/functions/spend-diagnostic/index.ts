@@ -68,11 +68,17 @@ serve(async (req) => {
     const until = endDate.toISOString().split("T")[0];
     const timeRange = JSON.stringify({ since, until });
 
-    // 1) Fetch account-level spend from Meta (single API call)
+    // Attribution windows — match what sync uses
+    const clickWindow = account.click_window || 7;
+    const viewWindow = account.view_window || 1;
+    const attributionSetting = `action_attribution_windows=["${clickWindow}d_click","${viewWindow}d_view"]`;
+
+    // 1) Fetch account-level spend from Meta (single API call) with attribution windows
     const metaUrl =
       `https://graph.facebook.com/${META_API_VERSION}/${account_id}/insights?` +
       `time_range=${encodeURIComponent(timeRange)}` +
       `&fields=spend,impressions,clicks,actions,action_values` +
+      `&${attributionSetting}` +
       `&access_token=${encodeURIComponent(metaToken)}`;
 
     const metaResp = await fetch(metaUrl);
@@ -122,40 +128,48 @@ serve(async (req) => {
       }
     }
 
-    // 2) Sum spend from Verdanote's creatives table (snapshot) for same account
-    const { data: creatives, error: crErr } = await supabase
-      .from("creatives")
-      .select("spend, impressions, purchases, purchase_value")
-      .eq("account_id", account_id);
-
-    if (crErr) {
-      return new Response(JSON.stringify({ error: crErr.message }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
+    // 2) Sum spend from Verdanote's creatives table (snapshot) — PAGINATED to avoid 1000-row cap
     let vnSpend = 0;
     let vnImpressions = 0;
     let vnPurchases = 0;
     let vnPurchaseValue = 0;
     let creativeCount = 0;
+    let snapshotOffset = 0;
+    const PAGE_SIZE = 1000;
 
-    for (const c of creatives || []) {
-      vnSpend += c.spend || 0;
-      vnImpressions += c.impressions || 0;
-      vnPurchases += c.purchases || 0;
-      vnPurchaseValue += c.purchase_value || 0;
-      creativeCount++;
+    while (true) {
+      const { data: creatives, error: crErr } = await supabase
+        .from("creatives")
+        .select("spend, impressions, purchases, purchase_value")
+        .eq("account_id", account_id)
+        .range(snapshotOffset, snapshotOffset + PAGE_SIZE - 1);
+
+      if (crErr) {
+        return new Response(JSON.stringify({ error: crErr.message }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (!creatives || creatives.length === 0) break;
+
+      for (const c of creatives) {
+        vnSpend += c.spend || 0;
+        vnImpressions += c.impressions || 0;
+        vnPurchases += c.purchases || 0;
+        vnPurchaseValue += c.purchase_value || 0;
+        creativeCount++;
+      }
+
+      if (creatives.length < PAGE_SIZE) break;
+      snapshotOffset += PAGE_SIZE;
     }
 
-    // 2b) Sum spend from creative_daily_metrics (accurate historical aggregation)
+    // 2b) Sum spend from creative_daily_metrics (accurate historical aggregation) — PAGINATED
     let dailySpend = 0;
     let dailyImpressions = 0;
     let dailyPurchases = 0;
     let dailyPurchaseValue = 0;
     let dailyAdIds = new Set<string>();
     let dailyOffset = 0;
-    const DAILY_PAGE = 1000;
 
     while (true) {
       const { data: dailyRows, error: dailyErr } = await supabase
@@ -164,7 +178,7 @@ serve(async (req) => {
         .eq("account_id", account_id)
         .gte("date", since)
         .lte("date", until)
-        .range(dailyOffset, dailyOffset + DAILY_PAGE - 1);
+        .range(dailyOffset, dailyOffset + PAGE_SIZE - 1);
 
       if (dailyErr) {
         console.error("Daily metrics query error:", dailyErr.message);
@@ -180,23 +194,33 @@ serve(async (req) => {
         if (row.ad_id) dailyAdIds.add(row.ad_id);
       }
 
-      if (dailyRows.length < DAILY_PAGE) break;
-      dailyOffset += DAILY_PAGE;
+      if (dailyRows.length < PAGE_SIZE) break;
+      dailyOffset += PAGE_SIZE;
     }
 
-    // 3) Also check ad-level insights count from Meta to compare creative counts
-    const countUrl =
-      `https://graph.facebook.com/${META_API_VERSION}/${account_id}/insights?` +
-      `time_range=${encodeURIComponent(timeRange)}&level=ad` +
-      `&fields=ad_id&limit=0&summary=total_count` +
-      `&access_token=${encodeURIComponent(metaToken)}`;
-
+    // 3) Fetch ad-level count from Meta — use filtering=[] to get summary without downloading all rows
     let metaAdCount: number | null = null;
     try {
+      const countUrl =
+        `https://graph.facebook.com/${META_API_VERSION}/${account_id}/insights?` +
+        `time_range=${encodeURIComponent(timeRange)}&level=ad` +
+        `&fields=ad_id&limit=1&filtering=[]` +
+        `&${attributionSetting}` +
+        `&access_token=${encodeURIComponent(metaToken)}`;
+
       const countResp = await fetch(countUrl);
       const countJson = await countResp.json();
+      // Meta returns paging.cursors when there's data — use the summary or count pages
       if (countJson.summary?.total_count !== undefined) {
         metaAdCount = countJson.summary.total_count;
+      } else if (countJson.data) {
+        // If summary not available, at least note that data exists
+        // Use paging info to estimate — not perfect but better than null
+        if (countJson.paging?.next) {
+          metaAdCount = -1; // Signal: "more than 1, count unknown"
+        } else {
+          metaAdCount = countJson.data.length;
+        }
       }
     } catch (e) {
       console.error("Failed to fetch ad count:", e);
@@ -211,7 +235,7 @@ serve(async (req) => {
     const result = {
       account_name: account.name,
       date_range: { since, until, days: dateRangeDays },
-      attribution: { click_window: account.click_window, view_window: account.view_window },
+      attribution: { click_window: clickWindow, view_window: viewWindow },
       meta: {
         spend: Math.round(metaSpend * 100) / 100,
         impressions: metaImpressions,
@@ -240,13 +264,13 @@ serve(async (req) => {
         spend: Math.round(spendDelta * 100) / 100,
         spend_pct: Math.round(spendDeltaPct * 100) / 100,
         impressions: vnImpressions - metaImpressions,
-        ad_count: metaAdCount !== null ? creativeCount - metaAdCount : null,
+        ad_count: metaAdCount !== null && metaAdCount >= 0 ? creativeCount - metaAdCount : null,
       },
       delta_daily: {
         spend: Math.round(dailySpendDelta * 100) / 100,
         spend_pct: Math.round(dailySpendDeltaPct * 100) / 100,
         impressions: dailyImpressions - metaImpressions,
-        ad_count: metaAdCount !== null ? dailyAdIds.size - metaAdCount : null,
+        ad_count: metaAdCount !== null && metaAdCount >= 0 ? dailyAdIds.size - metaAdCount : null,
       },
     };
 
