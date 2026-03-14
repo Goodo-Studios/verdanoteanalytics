@@ -1301,7 +1301,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       let auditResult: any = null;
       if (!isTimedOut()) {
         try {
-          const metaToken = Deno.env.get("META_ACCESS_TOKEN");
+          // Use the metaToken parameter (already validated) — don't re-read from env
           if (metaToken) {
             const auditEnd = new Date().toISOString().split("T")[0];
             // Use the account's full date_range_days for audit (matches spend diagnostic)
