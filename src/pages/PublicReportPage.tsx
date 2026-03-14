@@ -182,7 +182,7 @@ const PublicReportPage = () => {
                           <Badge variant="secondary" className="text-xs font-medium shrink-0">{s.label}</Badge>
                           <div>
                             <span className="text-sm font-medium">{s.ad_name}</span>
-                            {s.unique_code && <span className="text-xs font-mono text-muted-foreground ml-2">{s.unique_code}</span>}
+                            {s.unique_code && <span className="text-xs font-data text-muted-foreground ml-2">{s.unique_code}</span>}
                           </div>
                         </div>
                         <span className="font-mono text-sm text-muted-foreground shrink-0">{fmt(s.spend, "$")}</span>
