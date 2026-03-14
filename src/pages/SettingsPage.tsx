@@ -27,6 +27,7 @@ import { SpendDiagnosticSection } from "@/components/settings/SpendDiagnosticSec
 import { DataExportSection } from "@/components/settings/DataExportSection";
 import { NamingConventionSection } from "@/components/settings/NamingConventionSection";
 import { ApiKeysSection } from "@/components/settings/ApiKeysSection";
+import { SystemHealthSection } from "@/components/settings/SystemHealthSection";
 
 import { useUserSettingsPageState } from "@/hooks/useUserSettingsPageState";
 import { useSettingsPageState } from "@/hooks/useSettingsPageState";
