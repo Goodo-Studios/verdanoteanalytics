@@ -35,7 +35,7 @@ import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
 
-type Tab = "profile" | "account" | "naming" | "export" | "admin";
+type Tab = "profile" | "account" | "naming" | "export" | "admin" | "health";
 
 const SettingsPage = () => {
   const userState = useUserSettingsPageState();
