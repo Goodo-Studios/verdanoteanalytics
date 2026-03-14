@@ -1287,8 +1287,10 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           const metaToken = Deno.env.get("META_ACCESS_TOKEN");
           if (metaToken) {
             const auditEnd = new Date().toISOString().split("T")[0];
+            // Use the account's full date_range_days for audit (matches spend diagnostic)
+            const auditDays = account.date_range_days || 180;
             const auditStartDate = new Date();
-            auditStartDate.setDate(auditStartDate.getDate() - dateRangeDays);
+            auditStartDate.setDate(auditStartDate.getDate() - auditDays);
             const auditStart = auditStartDate.toISOString().split("T")[0];
             const auditTimeRange = JSON.stringify({ since: auditStart, until: auditEnd });
 
