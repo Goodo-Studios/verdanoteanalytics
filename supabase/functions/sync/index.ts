@@ -1552,6 +1552,14 @@ serve(async (req) => {
 
       await runSyncPhase(supabase, syncLog, metaToken);
 
+      // Auto-continue: if the sync is still running (phase budget expired, not completed/failed),
+      // fire a non-blocking self-invocation so the next phase starts immediately.
+      const { data: postRunCheck } = await supabase.from("sync_logs")
+        .select("status").eq("id", syncLog.id).single();
+      if (postRunCheck?.status === "running") {
+        await selfContinue();
+      }
+
       return new Response(JSON.stringify({ continued: syncLog.id, phase: syncLog.current_phase }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
