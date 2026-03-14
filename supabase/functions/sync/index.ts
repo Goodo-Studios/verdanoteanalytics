@@ -643,6 +643,31 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             ...parseInsightsRow(row),
           }));
 
+          // Auto-create missing creatives so bulk_update_creative_metrics can UPDATE them
+          // This prevents silently dropping metrics for ads not ingested in Phase 1
+          const batchAdIds = [...new Set(metricRows.map((r: any) => r.ad_id))];
+          const { data: existingAds } = await supabase
+            .from("creatives")
+            .select("ad_id")
+            .eq("account_id", accountId)
+            .in("ad_id", batchAdIds);
+          const existingSet = new Set((existingAds || []).map((e: any) => e.ad_id));
+          const missingIds = batchAdIds.filter((id: string) => !existingSet.has(id));
+          if (missingIds.length > 0) {
+            const newCreatives = missingIds.map((adId: string) => ({
+              ad_id: adId,
+              account_id: accountId,
+              ad_name: adId,
+              platform: "meta",
+              tag_source: "untagged",
+            }));
+            const { error: createErr } = await supabase
+              .from("creatives")
+              .upsert(newCreatives, { onConflict: "ad_id", ignoreDuplicates: true });
+            if (createErr) console.error(`Phase 2 auto-create error: ${createErr.message}`);
+            else if (missingIds.length > 0) console.log(`  Auto-created ${missingIds.length} missing creatives in Phase 2`);
+          }
+
           for (let i = 0; i < metricRows.length; i += BATCH_SIZE) {
             const batch = metricRows.slice(i, i + BATCH_SIZE);
             const { error } = await supabase.rpc("bulk_update_creative_metrics", { payload: JSON.stringify(batch) });
@@ -669,6 +694,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           `https://graph.facebook.com/${META_API_VERSION}/${accountId}/insights?` +
           `time_range=${encodeURIComponent(fallbackTimeRange)}&level=ad` +
           `&fields=${insightsFields}` +
+          `&${attributionSetting}` +
           `&limit=${insightsPageSize}&access_token=${encodeURIComponent(metaToken)}`;
 
         while (fallbackUrl && !isTimedOut()) {
@@ -678,6 +704,21 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           if (result.data && result.data.length > 0) {
             const BATCH_SIZE = 500;
             const metricRows = result.data.map((row: any) => ({ ad_id: row.ad_id, ...parseInsightsRow(row) }));
+
+            // Auto-create missing creatives in fallback path too
+            const fbAdIds = [...new Set(metricRows.map((r: any) => r.ad_id))];
+            const { data: fbExisting } = await supabase
+              .from("creatives").select("ad_id").eq("account_id", accountId).in("ad_id", fbAdIds);
+            const fbSet = new Set((fbExisting || []).map((e: any) => e.ad_id));
+            const fbMissing = fbAdIds.filter((id: string) => !fbSet.has(id));
+            if (fbMissing.length > 0) {
+              await supabase.from("creatives").upsert(
+                fbMissing.map((adId: string) => ({ ad_id: adId, account_id: accountId, ad_name: adId, platform: "meta", tag_source: "untagged" })),
+                { onConflict: "ad_id", ignoreDuplicates: true }
+              );
+              console.log(`  Fallback auto-created ${fbMissing.length} missing creatives`);
+            }
+
             for (let i = 0; i < metricRows.length; i += BATCH_SIZE) {
               const batch = metricRows.slice(i, i + BATCH_SIZE);
               const { error } = await supabase.rpc("bulk_update_creative_metrics", { payload: JSON.stringify(batch) });
@@ -796,10 +837,16 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     if (phase === 3) {
       console.log("Phase 3: Cleanup zero-spend creatives...");
 
-      // Single delete call — no need to count first then delete separately
+      // Delete zero-spend creatives EXCEPT:
+      // - manually/csv-tagged ones (user investment)
+      // - placeholder ads created by Phase 4 auto-create (ad_name = ad_id pattern)
+      //   These will get real metrics in Phase 4 of the current sync.
       const { count: zeroSpendCount } = await supabase.from("creatives")
         .delete({ count: "exact" })
-        .eq("account_id", accountId).lte("spend", 0).not("tag_source", "in", '("manual","csv")');
+        .eq("account_id", accountId)
+        .lte("spend", 0)
+        .is("impressions", null)  // Only delete truly empty rows (never had data)
+        .not("tag_source", "in", '("manual","csv")');
       if (zeroSpendCount && zeroSpendCount > 0) {
         console.log(`  Cleaned up ${zeroSpendCount} zero-spend creatives`);
       }
@@ -1255,8 +1302,10 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           const metaToken = Deno.env.get("META_ACCESS_TOKEN");
           if (metaToken) {
             const auditEnd = new Date().toISOString().split("T")[0];
+            // Use the account's full date_range_days for audit (matches spend diagnostic)
+            const auditDays = account.date_range_days || 180;
             const auditStartDate = new Date();
-            auditStartDate.setDate(auditStartDate.getDate() - dateRangeDays);
+            auditStartDate.setDate(auditStartDate.getDate() - auditDays);
             const auditStart = auditStartDate.toISOString().split("T")[0];
             const auditTimeRange = JSON.stringify({ since: auditStart, until: auditEnd });
 
@@ -1317,22 +1366,16 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
 
               console.log(`  📊 Post-sync audit: Meta=$${metaSpend.toFixed(2)} Local=$${localSpend.toFixed(2)} Delta=${spendDeltaPct.toFixed(1)}% ${driftExceeded ? "⚠️ DRIFT" : "✅ OK"}`);
 
-              // Send drift warning notification
+              // Send drift warning notification (inserted directly, not through batch)
               if (driftExceeded) {
                 const direction = spendDelta < 0 ? "under-reporting" : "over-reporting";
-                for (const uid of userIds) {
-                  notifications.push({
-                    user_id: uid, account_id: accountId, type: "concern",
-                    title: `⚠️ Data drift detected: ${account.name}`,
-                    body: `Local spend is ${direction} by ${Math.abs(spendDeltaPct).toFixed(1)}% vs Meta ($${Math.abs(spendDelta).toFixed(0)} gap). Run a full re-sync or check the Spend Diagnostic.`,
-                  });
-                }
-                // Insert the extra notifications
-                if (notifications.length > 0) {
-                  const driftNotifs = notifications.filter(n => n.title.includes("Data drift"));
-                  if (driftNotifs.length > 0) {
-                    await supabase.from("notifications").insert(driftNotifs);
-                  }
+                const driftNotifs = userIds.map((uid: string) => ({
+                  user_id: uid, account_id: accountId, type: "concern",
+                  title: `⚠️ Data drift detected: ${account.name}`,
+                  body: `Local spend is ${direction} by ${Math.abs(spendDeltaPct).toFixed(1)}% vs Meta ($${Math.abs(spendDelta).toFixed(0)} gap). Run a full re-sync or check the Spend Diagnostic.`,
+                }));
+                if (driftNotifs.length > 0) {
+                  await supabase.from("notifications").insert(driftNotifs);
                 }
               }
             }
