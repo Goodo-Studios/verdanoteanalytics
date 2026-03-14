@@ -171,22 +171,6 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
           </DialogTitle>
         </DialogHeader>
 
-        {/* Preview Ad button */}
-        {creative.ad_post_url && (
-          <div className="flex justify-end -mt-1 mb-1">
-            <a
-              href={creative.ad_post_url}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <Button size="sm" variant="outline" className="gap-1.5 text-xs">
-                {(creative.video_views || 0) > 0 ? <Play className="h-3.5 w-3.5" /> : <ExternalLink className="h-3.5 w-3.5" />}
-                Preview Ad
-              </Button>
-            </a>
-          </div>
-        )}
-
         {/* Media preview */}
         <MediaPreview creative={creative} />
 
