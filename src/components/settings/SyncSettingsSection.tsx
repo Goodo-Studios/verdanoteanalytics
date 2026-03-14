@@ -104,7 +104,7 @@ export function SyncSettingsSection({
             min="0"
             max="60"
             step="1"
-            className="bg-background font-data text-[15px] font-medium text-charcoal"
+            className="bg-background font-data text-[17px] font-medium text-charcoal"
           />
           <p className="font-body text-[12px] text-sage">
             {syncCooldownMinutes === "0" || !syncCooldownMinutes
