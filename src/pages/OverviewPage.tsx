@@ -331,19 +331,5 @@ function MiniMetric({ label, value, valueClass }: { label: string; value: string
   );
 }
 
-function ActionCard({ icon, count, countColor, label, subtitle, bgTint, onClick }: {
-  icon: React.ReactNode; count: number; countColor: string; label: string; subtitle: string; bgTint: string; onClick: () => void;
-}) {
-  return (
-    <button onClick={onClick} className={cn("border border-border-light rounded-[8px] p-5 text-left transition-hover hover:shadow-card-hover cursor-pointer", bgTint)}>
-      <div className="flex items-center gap-3 mb-2">
-        {icon}
-        <span className={cn("font-data text-[28px] font-semibold tabular-nums", countColor)}>{count}</span>
-      </div>
-      <p className="font-label text-[10px] uppercase tracking-[0.06em] text-sage font-medium">{label}</p>
-      <p className="font-body text-[12px] text-slate mt-0.5">{subtitle}</p>
-    </button>
-  );
-}
 
 export default OverviewPage;
