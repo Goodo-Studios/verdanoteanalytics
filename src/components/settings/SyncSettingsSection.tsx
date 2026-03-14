@@ -212,15 +212,15 @@ export function SyncSettingsSection({
         <div className="grid grid-cols-3 gap-4">
           <div className="space-y-2">
             <Label className="font-body text-[14px] font-medium text-charcoal">Target ROAS</Label>
-            <Input type="number" value={targetRoas} onChange={(e) => setTargetRoas(e.target.value)} step="0.1" min="0" placeholder="e.g. 2.5" className="bg-background font-data text-[15px] font-medium text-charcoal" />
+            <Input type="number" value={targetRoas} onChange={(e) => setTargetRoas(e.target.value)} step="0.1" min="0" placeholder="e.g. 2.5" className="bg-background font-data text-[17px] font-medium text-charcoal" />
           </div>
           <div className="space-y-2">
             <Label className="font-body text-[14px] font-medium text-charcoal">Target CPA ($)</Label>
-            <Input type="number" value={targetCpa} onChange={(e) => setTargetCpa(e.target.value)} step="1" min="0" placeholder="e.g. 40" className="bg-background font-data text-[15px] font-medium text-charcoal" />
+            <Input type="number" value={targetCpa} onChange={(e) => setTargetCpa(e.target.value)} step="1" min="0" placeholder="e.g. 40" className="bg-background font-data text-[17px] font-medium text-charcoal" />
           </div>
           <div className="space-y-2">
             <Label className="font-body text-[14px] font-medium text-charcoal">Target Monthly Spend ($)</Label>
-            <Input type="number" value={targetMonthlySpend} onChange={(e) => setTargetMonthlySpend(e.target.value)} step="100" min="0" placeholder="e.g. 50000" className="bg-background font-data text-[15px] font-medium text-charcoal" />
+            <Input type="number" value={targetMonthlySpend} onChange={(e) => setTargetMonthlySpend(e.target.value)} step="100" min="0" placeholder="e.g. 50000" className="bg-background font-data text-[17px] font-medium text-charcoal" />
           </div>
         </div>
       </div>

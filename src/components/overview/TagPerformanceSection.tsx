@@ -58,7 +58,7 @@ export function TagPerformanceSection({ creatives }: Props) {
                 style={{ width: `${Math.min((g.avgRoas / 4) * 100, 100)}%` }}
               />
             </div>
-            <span className={cn("font-data text-[15px] font-semibold tabular-nums w-14 text-right", g.avgRoas >= 2 ? "text-verdant" : g.avgRoas >= 1 ? "text-gold" : "text-red-600")}>
+            <span className={cn("font-data text-[17px] font-semibold tabular-nums w-14 text-right", g.avgRoas >= 2 ? "text-verdant" : g.avgRoas >= 1 ? "text-gold" : "text-red-600")}>
               {g.avgRoas.toFixed(2)}x
             </span>
             <span className="font-body text-[11px] text-slate w-10 text-right">{g.count}</span>

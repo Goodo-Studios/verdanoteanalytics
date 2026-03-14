@@ -386,7 +386,7 @@ const ReportsPage = () => {
                               <Label className="font-label text-[10px] uppercase tracking-[0.06em] text-sage font-medium">Date Range (days)</Label>
                               <Input
                                 type="number"
-                                className="font-data text-[15px] font-medium text-charcoal border-border-light rounded-[4px] bg-background w-24"
+                                className="font-data text-[17px] font-medium text-charcoal border-border-light rounded-[4px] bg-background w-24"
                                 value={schedule?.date_range_days ?? defaultDays}
                                 onChange={(e) => handleUpdateSchedule(a.id, key, "date_range_days", parseInt(e.target.value) || defaultDays)}
                               />
