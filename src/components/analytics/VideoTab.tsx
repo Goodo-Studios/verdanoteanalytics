@@ -8,6 +8,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Film, Eye, MousePointerClick, Clock, Play } from "lucide-react";
+import { fmt$ } from "@/lib/formatters";
 
 interface VideoTabProps {
   creatives: any[];
@@ -25,7 +26,6 @@ const GRADE_COLORS: Record<Grade, string> = {
 };
 
 function pct(n: number) { return `${(n * 100).toFixed(1)}%`; }
-import { fmt$ } from "@/lib/formatters";
 
 export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: VideoTabProps) {
   const [sort, setSort] = useState<SortConfig>({ key: "hook_rate", direction: "desc" });
