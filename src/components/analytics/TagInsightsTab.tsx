@@ -224,7 +224,7 @@ export function TagInsightsTab({
                   "font-body text-[12px] px-2.5 py-1 rounded-full border transition-hover",
                   selectedDims.has(dim.key)
                     ? "bg-verdant text-white border-verdant font-medium"
-                    : "bg-white text-slate border-border-light hover:text-forest hover:border-forest"
+                    : "bg-card text-slate border-border-light hover:text-forest hover:border-forest"
                 )}
               >
                 {dim.label}
