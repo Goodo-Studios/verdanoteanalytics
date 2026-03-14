@@ -323,17 +323,6 @@ const CreativesPage = () => {
             {creatives.length > 0 && (
               <Button size="sm" variant="outline" onClick={() => exportCreativesCSV(creatives)}><Download className="h-3.5 w-3.5 mr-1.5" />Export</Button>
             )}
-            {!isClient && (
-              <SaveViewButton getConfig={() => ({
-                page: "/creatives",
-                ...(selectedAccountId && selectedAccountId !== "all" ? { account_id: selectedAccountId } : {}),
-                ...(groupBy !== "__none__" ? { group_by: groupBy } : {}),
-                ...(search ? { search } : {}),
-                ...(dateFrom ? { date_from: dateFrom } : {}),
-                ...(dateTo ? { date_to: dateTo } : {}),
-                ...(Object.keys(filters).length > 0 ? { filters } : {}),
-              })} />
-            )}
           </div>
         }
       />
