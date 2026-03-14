@@ -131,9 +131,9 @@ export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: Vi
   const maxSpend = Math.max(...videoCreatives.map(c => c.spend_val), 1);
   const bubbleScale = (spend: number) => Math.max(4, Math.sqrt(spend / maxSpend) * 28);
 
-  // Benchmark thresholds for quadrant dividers (as 0-1 ratios)
-  const HOOK_BENCHMARK = 0.35; // 35% hook rate
-  const HOLD_BENCHMARK = 0.20; // 20% hold rate
+  // Use account averages as quadrant dividers
+  const HOOK_BENCHMARK = agg.avgHook;
+  const HOLD_BENCHMARK = agg.avgHold;
 
   // Quadrant labels — X = Hold Rate, Y = Hook Rate
   const holdX = PAD.left + HOLD_BENCHMARK * plotW;
