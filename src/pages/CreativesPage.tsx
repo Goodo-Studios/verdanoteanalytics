@@ -48,7 +48,6 @@ const CreativesPage = () => {
   const { isClient, isBuilder, isEmployee } = useAuth();
   const { setSelectedAccountId } = useAccountContext();
   const navigate = useRoleNavigate();
-  const { data: pinnedViews = [] } = usePinnedViews();
   const state = useCreativesPageState();
   const {
     viewMode, setViewMode, visibleCols, toggleCol, columnOrder, handleReorder,
