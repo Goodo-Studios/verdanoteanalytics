@@ -143,8 +143,9 @@ const ReportDetailPage = () => {
 
   const prev = previousReport;
   const isPortfolio = report.report_type === "portfolio";
-  const hasSections = report.sections && Array.isArray(report.sections) && report.sections.length > 0;
-  const topPerformers = (() => { try { return JSON.parse(report.top_performers || "[]"); } catch { return []; } })();
+  const reportSections: ReportSection[] = (report.sections && Array.isArray(report.sections) && report.sections.length > 0)
+    ? report.sections as ReportSection[]
+    : legacySectionsFromReport(report);
   const iterationSuggestions = (() => { try { return JSON.parse(report.iteration_suggestions || "[]"); } catch { return []; } })();
 
   const metrics = [
