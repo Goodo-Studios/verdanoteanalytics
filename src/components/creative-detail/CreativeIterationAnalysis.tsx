@@ -168,7 +168,7 @@ export function CreativeIterationAnalysis({ creative, allCreatives }: Props) {
           <p className="font-label text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Recommendations</p>
           <ul className="space-y-1.5">
             {analysis.recommendations.map((r, i) => (
-              <li key={i} className="text-xs leading-relaxed flex gap-2">
+               <li key={i} className="font-body text-[12px] leading-relaxed flex gap-2">
                 <span className="text-primary mt-0.5">•</span>
                 <span>{r}</span>
               </li>
