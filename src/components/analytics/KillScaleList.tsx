@@ -67,7 +67,11 @@ export function KillScaleList({ creatives, config, variant, onCreativeClick }: K
                 {fmtDollar(c.spend)}
               </TableCell>
               <TableCell className="font-data text-[12px] text-right tabular-nums">
-                {fmt(c[config.winnerKpi])}
+                {(() => {
+                  const kpiVal = c[config.winnerKpi];
+                  const units = KPI_SUFFIXES[config.winnerKpi] || { prefix: "", suffix: "" };
+                  return kpiVal == null ? "—" : `${units.prefix}${Number(kpiVal).toFixed(2)}${units.suffix}`;
+                })()}
               </TableCell>
               <TableCell className="font-body text-[11px] text-muted-foreground max-w-[200px] truncate">
                 {c.reason}
