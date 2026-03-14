@@ -2,7 +2,7 @@ import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { SyncStatusBanner } from "@/components/SyncStatusBanner";
 import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
-import { Loader2, User, Settings as SettingsIcon, Shield, FileOutput, Tags, Building2 } from "lucide-react";
+import { Loader2, User, Settings as SettingsIcon, Shield, FileOutput, Tags, Building2, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Profile / User sections
@@ -27,6 +27,7 @@ import { SpendDiagnosticSection } from "@/components/settings/SpendDiagnosticSec
 import { DataExportSection } from "@/components/settings/DataExportSection";
 import { NamingConventionSection } from "@/components/settings/NamingConventionSection";
 import { ApiKeysSection } from "@/components/settings/ApiKeysSection";
+import { SystemHealthSection } from "@/components/settings/SystemHealthSection";
 
 import { useUserSettingsPageState } from "@/hooks/useUserSettingsPageState";
 import { useSettingsPageState } from "@/hooks/useSettingsPageState";
@@ -34,7 +35,7 @@ import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
 
-type Tab = "profile" | "account" | "naming" | "export" | "admin";
+type Tab = "profile" | "account" | "naming" | "export" | "admin" | "health";
 
 const SettingsPage = () => {
   const userState = useUserSettingsPageState();
@@ -66,6 +67,7 @@ const SettingsPage = () => {
   }
   if (effectiveIsBuilder) {
     tabs.push({ key: "admin", label: "Admin", icon: <Shield className="h-3.5 w-3.5" /> });
+    tabs.push({ key: "health" as Tab, label: "Health", icon: <Activity className="h-3.5 w-3.5" /> });
   }
 
 
@@ -260,6 +262,13 @@ const SettingsPage = () => {
           <div className="border-t border-border pt-8">
             <ApiKeysSection />
           </div>
+        </div>
+      )}
+
+      {/* Health Tab */}
+      {safeActiveTab === "health" && effectiveIsBuilder && (
+        <div className="max-w-3xl space-y-8">
+          <SystemHealthSection />
         </div>
       )}
 
