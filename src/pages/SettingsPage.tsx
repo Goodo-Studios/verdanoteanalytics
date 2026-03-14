@@ -198,12 +198,6 @@ const SettingsPage = () => {
                 targetCpa={accountState.targetCpa} setTargetCpa={accountState.setTargetCpa}
                 targetMonthlySpend={accountState.targetMonthlySpend} setTargetMonthlySpend={accountState.setTargetMonthlySpend}
               />
-              <SyncScheduleSection
-                accounts={accountState.accounts}
-                onSyncAll={() => { accountState.accounts.forEach((acc: any) => { accountState.sync.mutate({ account_id: acc.id }); }); }}
-                onSyncAccount={(accountId) => { accountState.sync.mutate({ account_id: accountId }); }}
-                isSyncing={accountState.sync.isPending || isSyncing}
-              />
               <SyncHistorySection accountId={accountState.account.id} />
             </>
           )}
