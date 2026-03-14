@@ -1,6 +1,6 @@
 import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { LayoutGrid, Video, Zap as ZapIcon, ExternalLink, Play } from "lucide-react";
+import { LayoutGrid, Video, Zap as ZapIcon } from "lucide-react";
 import { useState } from "react";
 import { fmt } from "./constants";
 import { cn } from "@/lib/utils";
