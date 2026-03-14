@@ -34,6 +34,7 @@ const baseNavItems = [
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Tagging", url: "/tagging", icon: Tags },
   { title: "Reports", url: "/reports", icon: FileText },
+  { title: "Settings", url: "/settings", icon: Settings },
 ];
 
 const clientNavItems = [
@@ -42,6 +43,7 @@ const clientNavItems = [
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
   { title: "Reports", url: "/reports", icon: FileText },
+  { title: "Settings", url: "/settings", icon: Settings },
 ];
 
 export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void; onTakeTour?: () => void }) {
