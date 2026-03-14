@@ -890,6 +890,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           `https://graph.facebook.com/${META_API_VERSION}/${accountId}/insights?` +
           `time_range=${encodeURIComponent(chunkRange)}&time_increment=1&level=ad` +
           `&fields=${insightsFields}` +
+          `&${attributionSetting}` +
           `&limit=${insightsPageSize}&access_token=${encodeURIComponent(metaToken)}`
         );
 
