@@ -146,7 +146,7 @@ const ReportDetailPage = () => {
   const reportSections: ReportSection[] = (report.sections && Array.isArray(report.sections) && report.sections.length > 0)
     ? report.sections as ReportSection[]
     : legacySectionsFromReport(report);
-  const iterationSuggestions = (() => { try { return JSON.parse(report.iteration_suggestions || "[]"); } catch { return []; } })();
+  
 
   const metrics = [
     { label: "Creatives", value: report.creative_count, prevValue: prev?.creative_count, current: report.creative_count },
