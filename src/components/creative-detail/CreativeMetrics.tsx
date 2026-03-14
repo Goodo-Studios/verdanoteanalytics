@@ -7,12 +7,12 @@ interface CreativeMetricsProps {
 export function CreativeMetrics({ creative }: CreativeMetricsProps) {
   const fmtVal = (v: number | null, prefix = "", suffix = "") => {
     if (v === null || v === undefined || v === 0) return "—";
-    return `${prefix}${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${suffix}`;
+    return fmtMetric(v, prefix, suffix, 2);
   };
 
   const fmtInt = (v: number | null) => {
     if (v === null || v === undefined || v === 0) return "—";
-    return Number(v).toLocaleString("en-US");
+    return fmtMetric(v, "", "", 0);
   };
 
   const cpmr = (creative.cpm && creative.frequency) ? creative.cpm * creative.frequency : null;
