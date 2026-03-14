@@ -615,18 +615,24 @@ serve(async (req) => {
       });
     }
 
-    // Update last_media_sync
-    try {
-      await supabase
-        .from("ad_accounts")
-        .update({ last_media_sync: new Date().toISOString() })
-        .eq("id", resolvedAccountId);
-    } catch (e) {
-      console.log(`Note: could not update last_media_sync: ${e}`);
-    }
-
     const thumbsRemaining = allThumbWork.length - (thumbCached + thumbFailed);
     const videosRemaining = (noVideos.length + videos.length) - (totalVideosCached + totalVideosFailed);
+
+    // Only update last_media_sync when this account is fully done (no remaining work)
+    // This ensures the account stays at the front of the queue until complete
+    if (thumbsRemaining <= 0 && videosRemaining <= 0) {
+      try {
+        await supabase
+          .from("ad_accounts")
+          .update({ last_media_sync: new Date().toISOString() })
+          .eq("id", resolvedAccountId);
+        console.log(`[${targetAccount.name}] Fully complete — updated last_media_sync`);
+      } catch (e) {
+        console.log(`Note: could not update last_media_sync: ${e}`);
+      }
+    } else {
+      console.log(`[${targetAccount.name}] ${thumbsRemaining} thumbs + ${videosRemaining} videos remaining — staying in queue`);
+    }
 
     console.log(
       `[${targetAccount.name}] Done — ` +
