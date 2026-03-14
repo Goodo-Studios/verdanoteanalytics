@@ -238,7 +238,7 @@ const ComparePage = () => {
                         let colorClass = "text-charcoal";
                         if (h) {
                           if (h.bestIdx === idx) colorClass = "text-verdant";
-                          else if (h.worstIdx === idx) colorClass = "text-red-700";
+                          else if (h.worstIdx === idx) colorClass = "text-destructive";
                         }
                         return (
                           <div key={m.key} className="flex items-center justify-between">
