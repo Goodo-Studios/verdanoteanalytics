@@ -66,6 +66,9 @@ const ReportDetailPage = () => {
 
   // Fetch top creatives for print layout
   const [topCreatives, setTopCreatives] = useState<any[]>([]);
+  const [tagBreakdown, setTagBreakdown] = useState<any[]>([]);
+
+  // useEffect (not useMemo) for async side effects
   useMemo(() => {
     if (!report?.account_id) return;
     supabase
@@ -75,12 +78,7 @@ const ReportDetailPage = () => {
       .order("spend", { ascending: false })
       .limit(6)
       .then(({ data }) => setTopCreatives(data || []));
-  }, [report?.account_id]);
 
-  // Fetch tag breakdown for print layout
-  const [tagBreakdown, setTagBreakdown] = useState<any[]>([]);
-  useMemo(() => {
-    if (!report?.account_id) return;
     supabase
       .from("creatives")
       .select("hook, style, ad_type, roas, spend")

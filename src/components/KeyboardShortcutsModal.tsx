@@ -57,7 +57,7 @@ const sections: Section[] = [
       { keys: ["→"], description: "Next creative" },
       { keys: ["←"], description: "Previous creative" },
       { keys: ["C"], description: "Comments tab" },
-      { keys: ["C"], description: "Comments tab" },
+      { keys: ["V"], description: "Versions tab" },
       { keys: ["B"], description: "Brief from creative" },
       { keys: ["Esc"], description: "Close modal" },
     ],
