@@ -911,6 +911,30 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
               .in("ad_id", batchAdIds);
             const validAdIds = new Set<string>((existingAds || []).map((e: any) => e.ad_id));
 
+            // FIX: Auto-create missing creatives that Meta reports metrics for
+            // This catches ads that were missed during Phase 1 (filtered by campaign status, budget timeout, etc.)
+            const missingAdIds = batchAdIds.filter((id: string) => !validAdIds.has(id));
+            if (missingAdIds.length > 0) {
+              const newCreatives = missingAdIds.map((adId: string) => ({
+                ad_id: adId,
+                account_id: accountId,
+                ad_name: adId, // Placeholder — will be updated on next Phase 1
+                platform: "meta",
+                tag_source: "untagged",
+                impressions: 0,
+              }));
+              const { error: insertErr } = await supabase
+                .from("creatives")
+                .upsert(newCreatives, { onConflict: "ad_id", ignoreDuplicates: true });
+              if (insertErr) {
+                console.error(`Auto-create creatives error: ${insertErr.message}`);
+              } else {
+                console.log(`    Auto-created ${missingAdIds.length} missing creatives from daily metrics`);
+                // Add them to valid set so their daily rows get upserted
+                for (const id of missingAdIds) validAdIds.add(id);
+              }
+            }
+
             const rows = result.data
               .filter((row: any) => validAdIds.has(row.ad_id))
               .map((row: any) => ({
@@ -927,7 +951,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
                 ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Daily upsert failed: ${error.message}` });
               }
             }
-            console.log(`    Upserted ${rows.length} daily rows (filtered from ${result.data.length}, ${batchAdIds.length - validAdIds.size} not in DB)`);
+            console.log(`    Upserted ${rows.length} daily rows (${missingAdIds.length} auto-created)`);
           }
           nextUrl = result.next;
           if (nextUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
