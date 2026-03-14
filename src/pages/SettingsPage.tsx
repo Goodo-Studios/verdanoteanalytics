@@ -32,6 +32,7 @@ import { useUserSettingsPageState } from "@/hooks/useUserSettingsPageState";
 import { useSettingsPageState } from "@/hooks/useSettingsPageState";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
+import { useClientPreview } from "@/hooks/useClientPreviewMode";
 
 type Tab = "profile" | "account" | "naming" | "export" | "admin";
 
@@ -39,27 +40,38 @@ const SettingsPage = () => {
   const userState = useUserSettingsPageState();
   const accountState = useSettingsPageState();
   const isSyncing = useIsSyncing();
-  const { isBuilder, isEmployee, isClient } = useAuth();
+  const { isBuilder: realBuilder, isEmployee: realEmployee, isClient: realClient } = useAuth();
+  const { isClientPreview, isEmployeePreview } = useClientPreview();
+
+  // Derive effective role flags accounting for preview mode
+  const effectiveIsClient = realClient || isClientPreview;
+  const effectiveIsEmployee = (realEmployee || isEmployeePreview) && !isClientPreview;
+  const effectiveIsBuilder = realBuilder && !isClientPreview && !isEmployeePreview;
 
   const [activeTab, setActiveTab] = useState<Tab>("profile");
 
-  // Build tabs based on role
+  // Build tabs based on effective role
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: "profile", label: "Profile", icon: <User className="h-3.5 w-3.5" /> },
   ];
 
-  if (isBuilder || isEmployee) {
+  if (effectiveIsBuilder || effectiveIsEmployee) {
     tabs.push({ key: "account", label: "Account", icon: <SettingsIcon className="h-3.5 w-3.5" /> });
   }
-  if (isBuilder) {
+  if (effectiveIsBuilder) {
     tabs.push({ key: "naming", label: "Naming", icon: <Tags className="h-3.5 w-3.5" /> });
   }
-  if (isBuilder || isEmployee) {
+  if (effectiveIsBuilder || effectiveIsEmployee) {
     tabs.push({ key: "export", label: "Export", icon: <FileOutput className="h-3.5 w-3.5" /> });
   }
-  if (isBuilder) {
+  if (effectiveIsBuilder) {
     tabs.push({ key: "admin", label: "Admin", icon: <Shield className="h-3.5 w-3.5" /> });
   }
+
+
+  // Reset active tab if it's not available for the current effective role
+  const validKeys = tabs.map(t => t.key);
+  const safeActiveTab = validKeys.includes(activeTab) ? activeTab : "profile";
 
   if (userState.loadingProfile) {
     return (
@@ -77,15 +89,15 @@ const SettingsPage = () => {
         <div>
           <h1 className="font-heading text-[32px] text-forest">Settings</h1>
           <p className="font-body text-[13px] text-slate font-light mt-1">
-            {isClient
+            {effectiveIsClient
               ? "Manage your profile and security."
               : "Manage your profile, account configuration, and admin preferences."}
           </p>
         </div>
       </div>
 
-      {!isClient && <SyncStatusBanner />}
-      {!isClient && <MediaRefreshBanner />}
+      {!effectiveIsClient && <SyncStatusBanner />}
+      {!effectiveIsClient && <MediaRefreshBanner />}
 
       {/* Tab bar - only show if multiple tabs */}
       {tabs.length > 1 && (
@@ -96,7 +108,7 @@ const SettingsPage = () => {
               onClick={() => setActiveTab(t.key)}
               className={cn(
                 "flex items-center gap-1.5 font-body text-[13px] font-medium px-4 py-2.5 border-b-2 transition-colors -mb-px whitespace-nowrap",
-                activeTab === t.key
+                safeActiveTab === t.key
                   ? "border-verdant text-forest"
                   : "border-transparent text-muted-foreground hover:text-foreground hover:border-border-light",
               )}
@@ -109,7 +121,7 @@ const SettingsPage = () => {
       )}
 
       {/* Profile Tab */}
-      {activeTab === "profile" && (
+      {safeActiveTab === "profile" && (
         <div className="max-w-2xl space-y-8">
           <ProfileInfoSection
             email={userState.email}
@@ -127,12 +139,12 @@ const SettingsPage = () => {
             savingPassword={userState.savingPassword}
             onChangePassword={userState.handleChangePassword}
           />
-          {isBuilder && <AgencyHomeToggle />}
+          {effectiveIsBuilder && <AgencyHomeToggle />}
         </div>
       )}
 
       {/* Account Tab */}
-      {activeTab === "account" && (isBuilder || isEmployee) && (
+      {safeActiveTab === "account" && (effectiveIsBuilder || effectiveIsEmployee) && (
         <div className="max-w-2xl space-y-8">
           {!accountState.account ? (
             <>
@@ -152,7 +164,7 @@ const SettingsPage = () => {
                       ))}
                     </div>
                   </div>
-                  {isBuilder && (
+                  {effectiveIsBuilder && (
                     <div className="max-w-4xl space-y-8">
                       <SpendDiagnosticSection />
                       <DataHealthSection />
@@ -207,19 +219,19 @@ const SettingsPage = () => {
       )}
 
       {/* Naming Tab */}
-      {activeTab === "naming" && isBuilder && (
+      {safeActiveTab === "naming" && effectiveIsBuilder && (
         <NamingConventionSection />
       )}
 
       {/* Export Tab */}
-      {activeTab === "export" && (
+      {safeActiveTab === "export" && (
         <div className="max-w-3xl">
           <DataExportSection />
         </div>
       )}
 
       {/* Admin Tab */}
-      {activeTab === "admin" && isBuilder && (
+      {safeActiveTab === "admin" && effectiveIsBuilder && (
         <div className="max-w-2xl space-y-8">
           <MetaConnectionSection metaStatus={userState.metaStatus} metaUser={userState.metaUser} onTestConnection={userState.handleTestConnection} />
           <AdAccountsSection
