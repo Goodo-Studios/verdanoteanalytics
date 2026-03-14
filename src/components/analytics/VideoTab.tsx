@@ -206,9 +206,9 @@ export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: Vi
 
               {/* Quadrant labels */}
               {quadrants.map(q => (
-                <text key={q.label} x={q.x} y={q.y} textAnchor="middle" className={cn("text-[10px] font-label font-medium fill-current", q.className)} opacity="0.6">
-                  {q.label}
-                </text>
+                 <text key={q.label} x={q.x} y={q.y} textAnchor="middle" className={cn("text-[13px] font-label font-semibold fill-current", q.className)} opacity="0.6">
+                   {q.label}
+                 </text>
               ))}
 
               {/* Axis labels */}
