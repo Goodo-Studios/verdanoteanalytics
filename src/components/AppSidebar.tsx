@@ -64,10 +64,6 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
 
   const navItems = isAgencyView
     ? agencyNavItems
-    : (effectiveClient)
-    ? clientNavItems
-    : (effectiveEmployee)
-    ? baseNavItems
     : effectiveClient
     ? clientNavItems
     : baseNavItems;
