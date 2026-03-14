@@ -1,10 +1,9 @@
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Target, Info, TrendingUp, MousePointerClick, Eye, ChevronDown, ChevronUp, Trophy, Repeat } from "lucide-react";
+import { Target, Info, TrendingUp, MousePointerClick, Eye, ChevronDown, ChevronUp, Trophy, Repeat, DollarSign } from "lucide-react";
 import {
   calculateBenchmarks,
   diagnoseCreatives,
@@ -20,32 +19,6 @@ interface IterationsTabProps {
   onCreativeClick?: (creative: any) => void;
 }
 
-type SortKey = "priority" | "spend" | "hookRate" | "holdRate" | "ctr";
-
-const SORT_OPTIONS: { value: SortKey; label: string }[] = [
-  { value: "priority", label: "Priority Score" },
-  { value: "spend", label: "Spend" },
-  { value: "hookRate", label: "Hook Rate" },
-  { value: "holdRate", label: "Hold Rate" },
-  { value: "ctr", label: "CTR" },
-];
-
-const DIAGNOSTIC_FILTERS: { value: DiagnosticType | "all"; label: string }[] = [
-  { value: "all", label: "All Diagnostics" },
-  { value: "weak_hook", label: "Weak Hook" },
-  { value: "weak_body", label: "Weak Body" },
-  { value: "weak_cta", label: "Weak CTA" },
-  { value: "weak_hook_body", label: "Weak Hook + Body" },
-  { value: "landing_page_issue", label: "Landing Page Issue?" },
-  { value: "all_weak", label: "Full Rebuild" },
-  { value: "weak_cta_image", label: "Weak CTR (Image)" },
-];
-
-const STATUS_FILTERS = [
-  { value: "all", label: "All Statuses" },
-  { value: "ACTIVE", label: "Active" },
-  { value: "PAUSED", label: "Paused" },
-];
 
 function MetricDot({ level }: { level: "strong" | "average" | "weak" }) {
   const cls =
@@ -142,13 +115,18 @@ function TopPerformers({ creatives, benchmarks, minSpend, onCreativeClick }: Top
       .sort((a, b) => (Number(b.ctr) || 0) - (Number(a.ctr) || 0))
       .slice(0, 5);
 
-    return { byHook, byHold, byCtr };
+    const bySpend = [...qualified]
+      .sort((a, b) => (Number(b.spend) || 0) - (Number(a.spend) || 0))
+      .slice(0, 5);
+
+    return { bySpend, byHook, byHold, byCtr };
   }, [creatives, minSpend]);
 
   const sections = [
-    { title: "Best Hook Rates", subtitle: "These hooks stop the scroll — duplicate the opening approach", icon: Eye, items: tops.byHook, metric: "thumb_stop_rate", label: "Hook Rate" },
-    { title: "Best Hold Rates", subtitle: "These keep viewers watching — replicate the pacing and structure", icon: TrendingUp, items: tops.byHold, metric: "hold_rate", label: "Hold Rate" },
-    { title: "Best CTRs", subtitle: "These drive clicks — reuse the CTA approach and end card style", icon: MousePointerClick, items: tops.byCtr, metric: "ctr", label: "CTR" },
+    { title: "Top 5 by Spend", subtitle: "Your highest-investment ads — understand where your budget is going", icon: DollarSign, items: tops.bySpend, metric: "spend", label: "Spend", format: "dollar" as const },
+    { title: "Best Hook Rates", subtitle: "These hooks stop the scroll — duplicate the opening approach", icon: Eye, items: tops.byHook, metric: "thumb_stop_rate", label: "Hook Rate", format: "pct" as const },
+    { title: "Best Hold Rates", subtitle: "These keep viewers watching — replicate the pacing and structure", icon: TrendingUp, items: tops.byHold, metric: "hold_rate", label: "Hold Rate", format: "pct" as const },
+    { title: "Best CTRs", subtitle: "These drive clicks — reuse the CTA approach and end card style", icon: MousePointerClick, items: tops.byCtr, metric: "ctr", label: "CTR", format: "pct" as const },
   ];
 
   return (
@@ -186,8 +164,8 @@ function TopPerformers({ creatives, benchmarks, minSpend, onCreativeClick }: Top
                         </TooltipProvider>
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
-                        <span className="font-data text-[17px] font-semibold text-verdant">{val.toFixed(2)}%</span>
-                        <span className="font-data text-[17px] font-medium text-slate">${(Number(c.spend) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                        <span className="font-data text-[17px] font-semibold text-verdant">{section.format === "dollar" ? `$${val.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : `${val.toFixed(2)}%`}</span>
+                        {section.format !== "dollar" && <span className="font-data text-[17px] font-medium text-slate">${(Number(c.spend) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-x-3 gap-y-1">
@@ -287,9 +265,6 @@ function IterationCard({ item, onClick }: { item: DiagnosedCreative; onClick?: (
 }
 
 export function IterationsTab({ creatives, spendThreshold, onCreativeClick }: IterationsTabProps) {
-  const [diagnosticFilter, setDiagnosticFilter] = useState<DiagnosticType | "all">("all");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [sortBy, setSortBy] = useState<SortKey>("priority");
   const [minSpendOverride, setMinSpendOverride] = useState<string>("");
 
   const effectiveMinSpend = minSpendOverride !== "" ? Math.max(0, Number(minSpendOverride) || 0) : spendThreshold;
@@ -302,33 +277,8 @@ export function IterationsTab({ creatives, spendThreshold, onCreativeClick }: It
   );
 
   const filtered = useMemo(() => {
-    let list = diagnosed;
-    if (diagnosticFilter !== "all") {
-      list = list.filter((d) => d.diagnostic === diagnosticFilter);
-    }
-    if (statusFilter !== "all") {
-      list = list.filter((d) => d.ad_status?.toUpperCase() === statusFilter);
-    }
-
-    const sorted = [...list];
-    switch (sortBy) {
-      case "spend":
-        sorted.sort((a, b) => b.spend - a.spend);
-        break;
-      case "hookRate":
-        sorted.sort((a, b) => a.hookRate - b.hookRate);
-        break;
-      case "holdRate":
-        sorted.sort((a, b) => a.holdRate - b.holdRate);
-        break;
-      case "ctr":
-        sorted.sort((a, b) => a.ctr - b.ctr);
-        break;
-      default:
-        sorted.sort((a, b) => b.priorityScore - a.priorityScore);
-    }
-    return sorted;
-  }, [diagnosed, diagnosticFilter, statusFilter, sortBy]);
+    return [...diagnosed].sort((a, b) => b.priorityScore - a.priorityScore);
+  }, [diagnosed]);
 
   if (creatives.length === 0) {
     return (
@@ -381,54 +331,6 @@ export function IterationsTab({ creatives, spendThreshold, onCreativeClick }: It
         <TabsContent value="fix" className="space-y-4">
           {/* Filter controls */}
           <div className="flex flex-wrap gap-3 items-end">
-            <div className="space-y-1">
-              <label className="font-label text-[10px] uppercase tracking-[0.05em] text-slate">Diagnostic</label>
-              <Select value={diagnosticFilter} onValueChange={(v) => setDiagnosticFilter(v as any)}>
-                <SelectTrigger className="w-[180px] h-8 font-body text-[13px] text-charcoal">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {DIAGNOSTIC_FILTERS.map((f) => (
-                    <SelectItem key={f.value} value={f.value} className="font-body text-[13px]">
-                      {f.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1">
-              <label className="font-label text-[10px] uppercase tracking-[0.05em] text-slate">Status</label>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[140px] h-8 font-body text-[13px] text-charcoal">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {STATUS_FILTERS.map((f) => (
-                    <SelectItem key={f.value} value={f.value} className="font-body text-[13px]">
-                      {f.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1">
-              <label className="font-label text-[10px] uppercase tracking-[0.05em] text-slate">Sort By</label>
-              <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortKey)}>
-                <SelectTrigger className="w-[160px] h-8 font-body text-[13px] text-charcoal">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SORT_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value} className="font-body text-[13px]">
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
             <div className="space-y-1">
               <label className="font-label text-[10px] uppercase tracking-[0.05em] text-slate">Min Spend ($)</label>
               <Input
