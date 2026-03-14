@@ -22,7 +22,7 @@ const CREATIVE_COLS = [
   "spend", "impressions", "clicks", "ctr", "cpm", "cpc", "cpa", "roas",
   "purchases", "purchase_value", "adds_to_cart", "cost_per_add_to_cart",
   "video_views", "thumb_stop_rate", "hold_rate", "frequency", "video_avg_play_time",
-  "campaign_name", "adset_name", "preview_url", "thumbnail_url", "full_res_url",
+  "campaign_name", "adset_name", "ad_post_url", "preview_url", "thumbnail_url", "full_res_url",
   "video_url", "scheduled_launch_date", "created_at", "updated_at",
 ].join(", ");
 
