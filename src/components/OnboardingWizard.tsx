@@ -5,7 +5,7 @@ import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  Zap, Layers, Sparkles, LayoutGrid, FileText,
+  Zap, Layers, LayoutGrid, FileText, BarChart3,
   Bell, TrendingUp, Calendar, ArrowRight, Check, Leaf,
 } from "lucide-react";
 
@@ -28,18 +28,20 @@ interface Feature { icon: React.ReactNode; title: string; description: string }
 
 const tourFeatures: Record<AppRole, Feature[]> = {
   builder: [
-    { icon: <Zap className="h-5 w-5 text-verdant" />, title: "Creatives", description: "See every ad and what's working" },
-    { icon: <Layers className="h-5 w-5 text-verdant" />, title: "Concepts", description: "Group iterations and find your winners" },
-    { icon: <Sparkles className="h-5 w-5 text-verdant" />, title: "AI Analyst", description: "Ask questions about your data in plain English" },
+    { icon: <Zap className="h-5 w-5 text-verdant" />, title: "Creatives", description: "See every ad with performance data, grades, and tags" },
+    { icon: <Layers className="h-5 w-5 text-verdant" />, title: "Concepts", description: "Group iterations together and spot your winners" },
+    { icon: <BarChart3 className="h-5 w-5 text-verdant" />, title: "Analytics", description: "Trends, kill/scale lists, and tag insights" },
+    { icon: <FileText className="h-5 w-5 text-verdant" />, title: "Reports", description: "Generate snapshot reports with top ads and iteration opportunities" },
   ],
   employee: [
-    { icon: <Zap className="h-5 w-5 text-verdant" />, title: "Creatives", description: "See every ad and what's working" },
-    { icon: <Layers className="h-5 w-5 text-verdant" />, title: "Concepts", description: "Group iterations and find your winners" },
-    { icon: <Sparkles className="h-5 w-5 text-verdant" />, title: "AI Analyst", description: "Ask questions about your data in plain English" },
+    { icon: <Zap className="h-5 w-5 text-verdant" />, title: "Creatives", description: "See every ad with performance data, grades, and tags" },
+    { icon: <Layers className="h-5 w-5 text-verdant" />, title: "Concepts", description: "Group iterations together and spot your winners" },
+    { icon: <BarChart3 className="h-5 w-5 text-verdant" />, title: "Analytics", description: "Trends, kill/scale lists, and tag insights" },
+    { icon: <FileText className="h-5 w-5 text-verdant" />, title: "Reports", description: "Generate snapshot reports with top ads and iteration opportunities" },
   ],
   client: [
     { icon: <LayoutGrid className="h-5 w-5 text-verdant" />, title: "Overview", description: "Your results at a glance" },
-    { icon: <FileText className="h-5 w-5 text-verdant" />, title: "Reports", description: "Deep dives from your team" },
+    { icon: <FileText className="h-5 w-5 text-verdant" />, title: "Reports", description: "Snapshot reports from your team" },
   ],
 };
 
