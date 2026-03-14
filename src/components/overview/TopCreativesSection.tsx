@@ -1,10 +1,6 @@
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
-
-function fmt$(n: number) {
-  if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`;
-  return `$${n.toFixed(2)}`;
-}
+import { fmt$ } from "@/lib/formatters";
 
 interface Props {
   creatives: any[];

@@ -1,7 +1,4 @@
-const fmt = (v: number | null, prefix = "", suffix = "") => {
-  if (v === null || v === undefined) return "—";
-  return `${prefix}${Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 })}${suffix}`;
-};
+import { fmtMetric as fmt } from "@/lib/formatters";
 
 interface MetricSummarySectionProps {
   config: Record<string, any>;

@@ -2,10 +2,7 @@ import { useMemo } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 
-const fmt = (v: number | null, prefix = "", suffix = "") => {
-  if (v === null || v === undefined) return "—";
-  return `${prefix}${Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 })}${suffix}`;
-};
+import { fmtMetric as fmt } from "@/lib/formatters";
 
 interface TopCreativesSectionProps {
   config: Record<string, any>;

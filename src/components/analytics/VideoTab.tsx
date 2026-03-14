@@ -25,7 +25,7 @@ const GRADE_COLORS: Record<Grade, string> = {
 };
 
 function pct(n: number) { return `${(n * 100).toFixed(1)}%`; }
-function fmt$(n: number) { return `$${n.toFixed(2)}`; }
+import { fmt$ } from "@/lib/formatters";
 
 export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: VideoTabProps) {
   const [sort, setSort] = useState<SortConfig>({ key: "hook_rate", direction: "desc" });

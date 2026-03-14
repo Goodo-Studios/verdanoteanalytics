@@ -18,10 +18,7 @@ interface PredictionSectionProps {
   killThreshold?: number;
 }
 
-function fmt$(n: number) {
-  if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`;
-  return `$${n.toFixed(0)}`;
-}
+import { fmt$ } from "@/lib/formatters";
 
 export function PredictionSection({ creative, wowTrend, fatigue, killThreshold = 1.0 }: PredictionSectionProps) {
   const prediction = predictCreative(creative, wowTrend, fatigue, killThreshold);

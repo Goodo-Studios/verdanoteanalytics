@@ -53,11 +53,7 @@ function isDismissed(id: string): boolean {
 }
 
 /* ── Formatting helpers ────────────────────── */
-
-function fmt$(n: number) {
-  if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`;
-  return `$${n.toFixed(0)}`;
-}
+import { fmt$ } from "@/lib/formatters";
 
 /* ── Card generation logic ─────────────────── */
 
