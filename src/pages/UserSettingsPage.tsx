@@ -4,7 +4,7 @@ import { SyncStatusBanner } from "@/components/SyncStatusBanner";
 import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
 import { PageHeader } from "@/components/PageHeader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, User, Shield, Mail, Building2, Bell } from "lucide-react";
+import { Loader2, User, Shield, Building2 } from "lucide-react";
 
 import { ProfileInfoSection } from "@/components/user-settings/ProfileInfoSection";
 import { ChangePasswordSection } from "@/components/user-settings/ChangePasswordSection";
