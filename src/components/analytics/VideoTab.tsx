@@ -39,7 +39,7 @@ export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: Vi
   // Filter to video creatives and compute video metrics
   const videoCreatives = useMemo(() => {
     return creatives
-      .filter(c => (Number(c.video_views) || 0) > 0 || (Number(c.thumb_stop_rate) || 0) > 0)
+      .filter(c => ((Number(c.video_views) || 0) > 0 || (Number(c.thumb_stop_rate) || 0) > 0) && (Number(c.spend) || 0) >= effectiveMinSpend)
       .map(c => {
         const views = Number(c.video_views) || 0;
         const impressions = Number(c.impressions) || 0;
