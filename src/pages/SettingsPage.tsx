@@ -219,7 +219,7 @@ const SettingsPage = () => {
       )}
 
       {/* Naming Tab */}
-      {activeTab === "naming" && effectiveIsBuilder && (
+      {safeActiveTab === "naming" && effectiveIsBuilder && (
         <NamingConventionSection />
       )}
 
