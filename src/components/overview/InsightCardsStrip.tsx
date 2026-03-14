@@ -54,7 +54,6 @@ function isDismissed(id: string): boolean {
 }
 
 /* ── Formatting helpers ────────────────────── */
-import { fmt$ } from "@/lib/formatters";
 
 /* ── Card generation logic ─────────────────── */
 
