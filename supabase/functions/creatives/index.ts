@@ -187,8 +187,12 @@ serve(async (req) => {
           const { data: allC, error: cErr } = await cQuery;
           if (cErr) throw cErr;
 
-          // Return lifetime metrics as-is (no daily data available for this range)
-          return new Response(JSON.stringify({ data: allC || [], total: count || 0 }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          // Compute aggregates from lifetime data for this fallback path
+          const fbAggTotalSpend = (allC || []).reduce((s: number, c: any) => s + (Number(c.spend) || 0), 0);
+          const fbWithSpend = (allC || []).filter((c: any) => (Number(c.spend) || 0) > 0);
+          const fbAvgCpa = fbWithSpend.length > 0 ? fbWithSpend.reduce((s: number, c: any) => s + (Number(c.cpa) || 0), 0) / fbWithSpend.length : 0;
+          const fbAvgRoas = fbWithSpend.length > 0 ? fbWithSpend.reduce((s: number, c: any) => s + (Number(c.roas) || 0), 0) / fbWithSpend.length : 0;
+          return new Response(JSON.stringify({ data: allC || [], total: count || 0, aggregates: { total_spend: fbAggTotalSpend, avg_cpa: fbAvgCpa, avg_roas: fbAvgRoas } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
         } else {
           // Aggregate by ad_id
           const aggMap: Record<string, any> = {};
