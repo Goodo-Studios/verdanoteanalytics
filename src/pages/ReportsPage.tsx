@@ -65,7 +65,7 @@ const ReportsPage = () => {
   const [reportName, setReportName] = useState("");
   const [accountId, setAccountId] = useState("");
   const [dateStart, setDateStart] = useState<Date>(subDays(new Date(), 7));
-  const [dateEnd, setDateEnd] = useState<Date>(new Date());
+  const [dateEnd, setDateEnd] = useState<Date>(subDays(new Date(), 1));
   const [activeTab, setActiveTab] = useState("reports");
   const navigate = useRoleNavigate();
 
@@ -129,7 +129,7 @@ const ReportsPage = () => {
           setReportName("");
           setAccountId("");
           setDateStart(subDays(new Date(), 7));
-          setDateEnd(new Date());
+          setDateEnd(subDays(new Date(), 1));
           if (pendingTemplateSections && data?.id) {
             navigate(`/reports/${data.id}/build`, { state: { templateSections: pendingTemplateSections } });
             setPendingTemplateSections(null);
