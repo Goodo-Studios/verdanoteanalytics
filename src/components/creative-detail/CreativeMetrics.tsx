@@ -62,7 +62,7 @@ export function CreativeMetrics({ creative }: CreativeMetricsProps) {
             {section.metrics.map((m) => (
               <div key={m.label} className="bg-background py-3 px-2.5 text-center">
                 <div className="font-label text-[9px] uppercase tracking-[0.06em] text-sage">{m.label}</div>
-                <div className="font-data text-[16px] font-semibold text-charcoal mt-0.5">{m.value}</div>
+                <div className="font-data text-[17px] font-semibold text-charcoal mt-0.5">{m.value}</div>
               </div>
             ))}
           </div>

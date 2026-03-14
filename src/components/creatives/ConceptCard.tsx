@@ -129,7 +129,7 @@ function MetricCell({ label, value, highlight }: { label: string; value: string;
     <div className="flex-1 py-1 px-3">
       <p className="font-label text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className={cn(
-        "font-data text-[18px] font-semibold leading-tight mt-0.5",
+        "font-data text-[17px] font-semibold leading-tight mt-0.5",
         highlight === "positive" ? "text-success" : highlight === "negative" ? "text-destructive" : "text-foreground"
       )}>
         {value}

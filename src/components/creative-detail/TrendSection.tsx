@@ -34,7 +34,7 @@ export function TrendSection({ trend }: TrendSectionProps) {
         </div>
         <div>
           <span className="font-label text-[9px] uppercase tracking-wider text-muted-foreground">Change</span>
-          <p className={cn("font-data text-[16px] font-semibold", labelColor)}>{pctStr}</p>
+          <p className={cn("font-data text-[17px] font-semibold", labelColor)}>{pctStr}</p>
         </div>
       </div>
       <p className={cn("font-body text-[12px] mt-1.5", labelColor)}>{trend.label}</p>

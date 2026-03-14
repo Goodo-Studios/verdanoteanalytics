@@ -263,7 +263,7 @@ function IterationCard({ item, onClick }: { item: DiagnosedCreative; onClick?: (
               <MetricDot level={m.level} />
               <div>
                 <p className="font-label text-[9px] uppercase tracking-[0.05em] text-sage">{m.label}</p>
-                <p className="font-data text-[18px] font-semibold text-charcoal">{m.value.toFixed(2)}%</p>
+                <p className="font-data text-[17px] font-semibold text-charcoal">{m.value.toFixed(2)}%</p>
               </div>
             </div>
           ))
