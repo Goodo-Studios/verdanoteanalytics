@@ -272,49 +272,54 @@ serve(async (req) => {
     const slowPathThumbs = missingThumbs || [];
     const allThumbWork = [...fastPathThumbs, ...slowPathThumbs].slice(0, MAX_TOTAL);
 
-    // FIX: Thumbnail sentinel reset (like video sentinel reset)
-    // Reset no-thumbnail for active ads with meaningful spend — Meta may have valid thumbnails now
-    {
-      const { data: sentinelThumbRows } = await supabase
-        .from("creatives")
-        .select("ad_id")
-        .eq("thumbnail_url", NO_THUMB_SENTINEL)
-        .eq("account_id", resolvedAccountId)
-        .gt("spend", 50)
-        .gt("impressions", 0)
-        .order("spend", { ascending: false, nullsFirst: false })
-        .limit(200);
-      if (sentinelThumbRows && sentinelThumbRows.length > 0) {
-        const ids = sentinelThumbRows.map((r: any) => r.ad_id);
-        await supabase.from("creatives").update({ thumbnail_url: null }).in("ad_id", ids);
-        console.log(`[${targetAccount.name}] Reset ${ids.length} no-thumbnail sentinels for active ads`);
-      }
-    }
+    // Sentinel resets: only run on FIRST discovery for an account (no last_media_sync)
+    // or if last_media_sync is >7 days old. This prevents an infinite loop where
+    // sentinels are reset every invocation and the same ads are re-discovered repeatedly.
+    const lastSync = targetAccount.last_media_sync ? new Date(targetAccount.last_media_sync).getTime() : 0;
+    const shouldResetSentinels = !lastSync || (Date.now() - lastSync > 7 * 24 * 60 * 60 * 1000);
 
-    // Video sentinel reset — only for likely-video ads, not static/image with auto-play views
-    {
-      const { data: sentinelRows } = await supabase
-        .from("creatives")
-        .select("ad_id, ad_type, ad_name")
-        .eq("video_url", NO_VIDEO_SENTINEL)
-        .eq("account_id", resolvedAccountId)
-        .gt("video_views", 500)  // Higher threshold: filter out auto-play on static ads
-        .gt("spend", 100)
-        .order("spend", { ascending: false, nullsFirst: false })
-        .limit(100);
-      if (sentinelRows && sentinelRows.length > 0) {
-        // Skip ads that are clearly not videos
-        const STATIC_TYPES = ["Static Image", "Graphic", "Image", "Carousel"];
-        const eligible = sentinelRows.filter((r: any) => {
-          if (STATIC_TYPES.includes(r.ad_type)) return false;
-          return true;
-        });
-        if (eligible.length > 0) {
-          const ids = eligible.map((r: any) => r.ad_id);
-          await supabase.from("creatives").update({ video_url: null }).in("ad_id", ids);
-          console.log(`[${targetAccount.name}] Reset ${ids.length} no-video sentinels for likely-video ads (skipped ${sentinelRows.length - eligible.length} static)`);
+    if (shouldResetSentinels) {
+      // Thumbnail sentinel reset
+      {
+        const { data: sentinelThumbRows } = await supabase
+          .from("creatives")
+          .select("ad_id")
+          .eq("thumbnail_url", NO_THUMB_SENTINEL)
+          .eq("account_id", resolvedAccountId)
+          .gt("spend", 50)
+          .gt("impressions", 0)
+          .order("spend", { ascending: false, nullsFirst: false })
+          .limit(200);
+        if (sentinelThumbRows && sentinelThumbRows.length > 0) {
+          const ids = sentinelThumbRows.map((r: any) => r.ad_id);
+          await supabase.from("creatives").update({ thumbnail_url: null }).in("ad_id", ids);
+          console.log(`[${targetAccount.name}] Reset ${ids.length} no-thumbnail sentinels for active ads`);
         }
       }
+
+      // Video sentinel reset — only for likely-video ads
+      {
+        const { data: sentinelRows } = await supabase
+          .from("creatives")
+          .select("ad_id, ad_type, ad_name")
+          .eq("video_url", NO_VIDEO_SENTINEL)
+          .eq("account_id", resolvedAccountId)
+          .gt("video_views", 500)
+          .gt("spend", 100)
+          .order("spend", { ascending: false, nullsFirst: false })
+          .limit(100);
+        if (sentinelRows && sentinelRows.length > 0) {
+          const STATIC_TYPES = ["Static Image", "Graphic", "Image", "Carousel"];
+          const eligible = sentinelRows.filter((r: any) => !STATIC_TYPES.includes(r.ad_type));
+          if (eligible.length > 0) {
+            const ids = eligible.map((r: any) => r.ad_id);
+            await supabase.from("creatives").update({ video_url: null }).in("ad_id", ids);
+            console.log(`[${targetAccount.name}] Reset ${ids.length} no-video sentinels for likely-video ads (skipped ${sentinelRows.length - eligible.length} static)`);
+          }
+        }
+      }
+    } else {
+      console.log(`[${targetAccount.name}] Skipping sentinel resets (last sync ${Math.round((Date.now() - lastSync) / 3600000)}h ago, threshold: 7d)`);
     }
 
     // Videos needing discovery (null or sentinel) — exclude known static ad types
