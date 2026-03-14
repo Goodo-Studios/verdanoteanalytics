@@ -115,10 +115,7 @@ const ReportDetailPage = () => {
     window.print();
   }, []);
 
-  const fmt = (v: number | null, prefix = "", suffix = "") => {
-    if (v === null || v === undefined) return "—";
-    return `${prefix}${Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 })}${suffix}`;
-  };
+  const fmt = fmtMetric;
 
   if (isLoading) {
     return (
