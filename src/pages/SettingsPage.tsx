@@ -236,6 +236,12 @@ const SettingsPage = () => {
             onCreateUser={() => userState.setShowCreateUser(true)}
             onDeleteUser={userState.setShowDeleteUserConfirm}
           />
+          <SyncScheduleSection
+            accounts={accountState.accounts}
+            onSyncAll={() => { accountState.accounts.forEach((acc: any) => { accountState.sync.mutate({ account_id: acc.id }); }); }}
+            onSyncAccount={(accountId) => { accountState.sync.mutate({ account_id: accountId }); }}
+            isSyncing={accountState.sync.isPending || isSyncing}
+          />
           <SyncHistorySection />
           <div className="border-t border-border pt-8">
             <ApiKeysSection />
