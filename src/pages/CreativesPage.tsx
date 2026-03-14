@@ -17,7 +17,7 @@ import { BulkTagModal } from "@/components/creatives/BulkTagModal";
 import { AddToReportModal } from "@/components/creatives/AddToReportModal";
 import { TABLE_COLUMNS, SORT_FIELD_MAP } from "@/components/creatives/constants";
 import { ColumnPicker } from "@/components/ColumnPicker";
-import { SaveViewButton } from "@/components/SaveViewButton";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RefreshCw, LayoutGrid, List, Loader2, Download, Search, X, Columns, Layers, Bookmark, CalendarDays, SlidersHorizontal } from "lucide-react";
