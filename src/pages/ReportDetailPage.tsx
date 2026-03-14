@@ -68,8 +68,8 @@ const ReportDetailPage = () => {
   const [topCreatives, setTopCreatives] = useState<any[]>([]);
   const [tagBreakdown, setTagBreakdown] = useState<any[]>([]);
 
-  // useEffect (not useMemo) for async side effects
-  useMemo(() => {
+  // useEffect for async side effects (not useMemo which is for pure computation)
+  useEffect(() => {
     if (!report?.account_id) return;
     supabase
       .from("creatives")
