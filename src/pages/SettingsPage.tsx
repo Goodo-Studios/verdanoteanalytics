@@ -159,7 +159,7 @@ const SettingsPage = () => {
                       ))}
                     </div>
                   </div>
-                  {isBuilder && (
+                  {effectiveIsBuilder && (
                     <div className="max-w-4xl space-y-8">
                       <SpendDiagnosticSection />
                       <DataHealthSection />
