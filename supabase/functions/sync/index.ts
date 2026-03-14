@@ -1071,11 +1071,13 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             tagUpdates.push(row);
           }
         }
-        // Batch update in chunks of 200
+        // Batch update in chunks of 200 — check timeout between chunks
         for (let i = 0; i < tagUpdates.length; i += 200) {
+          if (isTimedOut()) {
+            console.log(`  Auto-tag paused at ${i}/${tagUpdates.length} — budget exceeded`);
+            break;
+          }
           const chunk = tagUpdates.slice(i, i + 200);
-          // Use individual updates grouped — Supabase doesn't support partial upsert on non-PK columns
-          // But we can use Promise.all for parallelism within chunk
           await Promise.all(chunk.map(row => {
             const { ad_id, ...fields } = row;
             return supabase.from("creatives").update(fields).eq("ad_id", ad_id);
@@ -1299,7 +1301,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       let auditResult: any = null;
       if (!isTimedOut()) {
         try {
-          const metaToken = Deno.env.get("META_ACCESS_TOKEN");
+          // Use the metaToken parameter (already validated) — don't re-read from env
           if (metaToken) {
             const auditEnd = new Date().toISOString().split("T")[0];
             // Use the account's full date_range_days for audit (matches spend diagnostic)
