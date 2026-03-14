@@ -348,7 +348,7 @@ const ReportsPage = () => {
               Report Schedules
             </DialogTitle>
             <DialogDescription className="font-body text-[13px] text-slate font-light">
-              Configure automatic report generation per account. Use templates: <span className="font-data text-[13px] font-medium text-verdant">{"{account}"}</span>, <span className="font-data text-[13px] font-medium text-verdant">{"{cadence}"}</span>, <span className="font-data text-[13px] font-medium text-verdant">{"{date}"}</span>.
+              Configure automatic report generation per account. Use templates: <span className="font-data text-[15px] font-medium text-verdant">{"{account}"}</span>, <span className="font-data text-[15px] font-medium text-verdant">{"{cadence}"}</span>, <span className="font-data text-[15px] font-medium text-verdant">{"{date}"}</span>.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">

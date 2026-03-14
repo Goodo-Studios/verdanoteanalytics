@@ -279,7 +279,7 @@ export default function AgencyDashboardPage() {
                       <p className="font-body text-[10px] text-muted-foreground">{getAccountName(c.account_id)}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="font-data text-[13px] font-medium text-primary tabular-nums">{Number(c.roas).toFixed(2)}x</p>
+                      <p className="font-data text-[15px] font-medium text-primary tabular-nums">{Number(c.roas).toFixed(2)}x</p>
                       <p className="font-data text-[10px] text-muted-foreground tabular-nums">{fmt$(Number(c.spend))}</p>
                     </div>
                   </div>

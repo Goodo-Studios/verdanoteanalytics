@@ -333,7 +333,7 @@ function MiniMetric({ label, value, valueClass }: { label: string; value: string
   return (
     <div>
       <p className="font-label text-[9px] uppercase tracking-[0.06em] text-sage font-medium">{label}</p>
-      <p className={cn("font-data text-[14px] font-semibold tabular-nums", valueClass || "text-charcoal")}>{value}</p>
+      <p className={cn("font-data text-[15px] font-semibold tabular-nums", valueClass || "text-charcoal")}>{value}</p>
     </div>
   );
 }
