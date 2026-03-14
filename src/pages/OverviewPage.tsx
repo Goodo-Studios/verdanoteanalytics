@@ -176,7 +176,7 @@ const OverviewPage = () => {
                 <div className="h-2 rounded-full bg-cream-dark overflow-hidden">
                   <div className="h-full bg-verdant rounded-full transition-progress" style={{ width: `${taggingProgress.pct}%` }} />
                 </div>
-                <p className="font-data text-[15px] text-charcoal tabular-nums">{fmtN(taggingProgress.tagged)} tagged · {fmtN(taggingProgress.untagged)} untagged</p>
+                <p className="font-data text-[17px] text-charcoal tabular-nums">{fmtN(taggingProgress.tagged)} tagged · {fmtN(taggingProgress.untagged)} untagged</p>
                 <button onClick={() => navigate("/tagging")} className="font-body text-[13px] font-medium text-verdant hover:underline flex items-center gap-1">
                   Start tagging <ArrowRight className="h-3 w-3" />
                 </button>
