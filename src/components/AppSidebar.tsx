@@ -104,24 +104,26 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
         <img src={verdanoteLogo} alt="Verdanote" className="h-7" />
       </div>
 
-      {/* Role indicator */}
-      <div className="px-3 pt-4 pb-1">
-        <div className="flex items-center rounded-md bg-muted/50 p-0.5">
-          {(["builder", "employee", "client"] as const).map((r) => (
-            <button
-              key={r}
-              onClick={() => isBuilder ? handleRoleClick(r) : undefined}
-              className={`flex-1 text-center py-1.5 rounded-[5px] font-label text-[9px] uppercase tracking-[0.1em] font-semibold transition-colors ${
-                effectiveRole === r
-                  ? "bg-background text-forest shadow-sm"
-                  : isBuilder ? "text-sage/50 hover:text-sage cursor-pointer" : "text-sage/50"
-              }`}
-            >
-              {r}
-            </button>
-          ))}
+      {/* Role indicator - only builders can see/switch roles */}
+      {isBuilder && (
+        <div className="px-3 pt-4 pb-1">
+          <div className="flex items-center rounded-md bg-muted/50 p-0.5">
+            {(["builder", "employee", "client"] as const).map((r) => (
+              <button
+                key={r}
+                onClick={() => handleRoleClick(r)}
+                className={`flex-1 text-center py-1.5 rounded-[5px] font-label text-[9px] uppercase tracking-[0.1em] font-semibold transition-colors ${
+                  effectiveRole === r
+                    ? "bg-background text-forest shadow-sm"
+                    : "text-sage/50 hover:text-sage cursor-pointer"
+                }`}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Account Switcher */}
       <div className="px-3 pt-2 pb-2 space-y-1.5">
