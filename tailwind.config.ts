@@ -72,7 +72,7 @@ export default {
           light: "#22965F",
           dark: "#156B42",
         },
-        forest: "#0D3B25",
+        forest: "hsl(var(--text-heading))",
         sage: {
           DEFAULT: "#6B9A7E",
           light: "#E8F5EE",
