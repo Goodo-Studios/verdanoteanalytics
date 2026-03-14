@@ -669,6 +669,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           `https://graph.facebook.com/${META_API_VERSION}/${accountId}/insights?` +
           `time_range=${encodeURIComponent(fallbackTimeRange)}&level=ad` +
           `&fields=${insightsFields}` +
+          `&${attributionSetting}` +
           `&limit=${insightsPageSize}&access_token=${encodeURIComponent(metaToken)}`;
 
         while (fallbackUrl && !isTimedOut()) {
