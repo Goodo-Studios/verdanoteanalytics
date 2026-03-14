@@ -123,9 +123,9 @@ export function SpendDiagnosticSection() {
               <MetricRow label="ROAS" metaVal={result.meta.roas} snapshotVal={result.verdanote_snapshot.roas} dailyVal={result.verdanote_daily.roas} />
               <div className="grid grid-cols-5 gap-2 py-2 items-center">
                 <span className="font-label text-[11px] uppercase tracking-wide text-muted-foreground">Ad Count</span>
-                <span className="font-data text-[13px] text-foreground text-right tabular-nums">{result.meta.ad_count ?? "—"}</span>
-                <span className="font-data text-[13px] text-muted-foreground text-right tabular-nums">{result.verdanote_snapshot.creative_count}</span>
-                <span className="font-data text-[13px] text-foreground text-right tabular-nums font-semibold">{result.verdanote_daily.ad_count}</span>
+                <span className="font-data text-[15px] text-foreground text-right tabular-nums">{result.meta.ad_count ?? "—"}</span>
+                <span className="font-data text-[15px] text-muted-foreground text-right tabular-nums">{result.verdanote_snapshot.creative_count}</span>
+                <span className="font-data text-[15px] text-foreground text-right tabular-nums font-semibold">{result.verdanote_daily.ad_count}</span>
                 <span className={`font-data text-[12px] text-right tabular-nums ${result.delta_daily.ad_count === 0 ? "text-emerald-600" : "text-amber-600"}`}>
                   {result.meta.ad_count !== null ? `${(result.delta_daily.ad_count ?? 0) >= 0 ? "+" : ""}${result.delta_daily.ad_count}` : "—"}
                 </span>

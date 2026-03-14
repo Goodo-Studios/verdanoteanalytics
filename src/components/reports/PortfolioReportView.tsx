@@ -189,7 +189,7 @@ export function PortfolioReportView({ report }: PortfolioReportViewProps) {
                 <div>
                   <p className="font-body text-[13px] font-semibold text-charcoal truncate">{w.ad_name}</p>
                   <div className="flex items-center gap-3 mt-1">
-                    <span className="font-data text-[13px] font-bold text-primary tabular-nums">{fmt(w.roas, "", "x")} ROAS</span>
+                    <span className="font-data text-[15px] font-bold text-primary tabular-nums">{fmt(w.roas, "", "x")} ROAS</span>
                     <span className="font-data text-[12px] text-muted-foreground tabular-nums">{fmt(w.spend, "$")} spent</span>
                   </div>
                 </div>
