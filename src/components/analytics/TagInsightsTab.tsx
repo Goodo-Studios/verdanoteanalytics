@@ -263,7 +263,7 @@ export function TagInsightsTab({
             type="number"
             value={minCreatives}
             onChange={e => setMinCreatives(Number(e.target.value) || 1)}
-            className="w-20 h-8 font-data text-[15px] border-border-light"
+            className="w-20 h-8 font-data text-[17px] border-border-light"
           />
         </div>
       </div>
