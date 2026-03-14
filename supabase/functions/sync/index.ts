@@ -155,6 +155,36 @@ const PHASE_BUDGET_MS = 110 * 1000;
 const PHASE_1_BUDGET_MS = 100 * 1000; // Must stay under platform's ~150s hard wall-clock limit
 const HEARTBEAT_INTERVAL_MS = 20 * 1000;
 
+// ─── Auto-Continue: Self-Invocation ──────────────────────────────────────────
+// After a phase budget expires and state is saved, the function fires a non-blocking
+// HTTP POST to /sync/continue so the next phase starts immediately instead of
+// waiting for the cron tick (~1 min). This eliminates the race condition where
+// cleanup-stuck-syncs marks a sync as "stuck" before the cron re-invokes it.
+async function selfContinue(): Promise<void> {
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !serviceKey) {
+      console.warn("selfContinue: missing env vars — falling back to cron");
+      return;
+    }
+    // Fire-and-forget: don't await the full response, just ensure the request is sent
+    fetch(`${supabaseUrl}/functions/v1/sync/continue`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${serviceKey}`,
+      },
+      body: JSON.stringify({ time: new Date().toISOString() }),
+    }).catch((err) => {
+      console.warn("selfContinue fetch error (non-fatal):", err);
+    });
+    console.log("selfContinue: fired non-blocking continue invocation");
+  } catch (err) {
+    console.warn("selfContinue error (non-fatal):", err);
+  }
+}
+
 // ─── Promote Next Queued Sync ────────────────────────────────────────────────
 async function promoteNextQueued(supabase: any) {
   // Check for cooldown between sequential account syncs (default: 2 min to let Meta rate limits recover)
@@ -1522,6 +1552,14 @@ serve(async (req) => {
 
       await runSyncPhase(supabase, syncLog, metaToken);
 
+      // Auto-continue: if the sync is still running (phase budget expired, not completed/failed),
+      // fire a non-blocking self-invocation so the next phase starts immediately.
+      const { data: postRunCheck } = await supabase.from("sync_logs")
+        .select("status").eq("id", syncLog.id).single();
+      if (postRunCheck?.status === "running") {
+        await selfContinue();
+      }
+
       return new Response(JSON.stringify({ continued: syncLog.id, phase: syncLog.current_phase }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1622,6 +1660,12 @@ serve(async (req) => {
             console.log(`Promoted sync ${promoted.id} for ${promoted.account_id}`);
             // Run first phase inline
             await runSyncPhase(supabase, promoted, metaToken);
+            // Auto-continue: if still running after first phase, self-invoke
+            const { data: postCheck } = await supabase.from("sync_logs")
+              .select("status").eq("id", promoted.id).single();
+            if (postCheck?.status === "running") {
+              await selfContinue();
+            }
           }
         }
       }
