@@ -7,7 +7,8 @@ import { SortableTableHead, type SortConfig } from "@/components/SortableTableHe
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Film, Eye, MousePointerClick, Clock, Play } from "lucide-react";
+import { Film, Eye, MousePointerClick, Clock, Play, DollarSign } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { fmt$ } from "@/lib/formatters";
 
 interface VideoTabProps {
@@ -30,13 +31,15 @@ function pct(n: number) { return `${(n * 100).toFixed(1)}%`; }
 export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: VideoTabProps) {
   const [sort, setSort] = useState<SortConfig>({ key: "hook_rate", direction: "desc" });
   const [hoveredBubble, setHoveredBubble] = useState<string | null>(null);
+  const [minSpendOverride, setMinSpendOverride] = useState<string>("");
+  const effectiveMinSpend = minSpendOverride !== "" ? Math.max(0, Number(minSpendOverride) || 0) : 100;
 
   const grades = useMemo(() => gradeCreatives(creatives, killThreshold), [creatives, killThreshold]);
 
   // Filter to video creatives and compute video metrics
   const videoCreatives = useMemo(() => {
     return creatives
-      .filter(c => (Number(c.video_views) || 0) > 0 || (Number(c.thumb_stop_rate) || 0) > 0)
+      .filter(c => ((Number(c.video_views) || 0) > 0 || (Number(c.thumb_stop_rate) || 0) > 0) && (Number(c.spend) || 0) >= effectiveMinSpend)
       .map(c => {
         const views = Number(c.video_views) || 0;
         const impressions = Number(c.impressions) || 0;
@@ -69,7 +72,7 @@ export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: Vi
           grade,
         };
       });
-  }, [creatives, grades]);
+  }, [creatives, grades, effectiveMinSpend]);
 
   // Aggregated metrics
   const agg = useMemo(() => {
@@ -140,16 +143,32 @@ export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: Vi
 
   return (
     <div className="space-y-6">
-      {/* Insight callouts */}
-      <div className="glass-panel p-4 space-y-1.5">
-        <p className="font-body text-[13px] text-foreground">
-          Your average hook rate is <span className="font-data font-semibold text-primary">{pct(agg.avgHook)}</span>.
-          Industry benchmark is 25–35%.
-        </p>
-        <p className="font-body text-[13px] text-foreground">
-          Best hook: <span className="font-data font-semibold">{agg.bestHook.ad_name}</span> at{" "}
-          <span className="font-data font-semibold text-primary">{pct(agg.bestHook.hook_rate)}</span>
-        </p>
+      {/* Min spend control + insight callouts */}
+      <div className="glass-panel p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="space-y-1.5">
+            <p className="font-body text-[13px] text-foreground">
+              Your average hook rate is <span className="font-data font-semibold text-primary">{pct(agg.avgHook)}</span>.
+              Industry benchmark is 25–35%.
+            </p>
+            <p className="font-body text-[13px] text-foreground">
+              Best hook: <span className="font-data font-semibold">{agg.bestHook.ad_name}</span> at{" "}
+              <span className="font-data font-semibold text-primary">{pct(agg.bestHook.hook_rate)}</span>
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <label className="font-label text-[11px] uppercase tracking-wide text-muted-foreground font-semibold whitespace-nowrap flex items-center gap-1">
+              <DollarSign className="h-3 w-3" /> Min Spend
+            </label>
+            <Input
+              type="number"
+              placeholder="100"
+              value={minSpendOverride}
+              onChange={(e) => setMinSpendOverride(e.target.value)}
+              className="w-[100px] h-8 font-body text-[13px]"
+            />
+          </div>
+        </div>
       </div>
 
       {/* Metric cards */}
