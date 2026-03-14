@@ -3,6 +3,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { fmtMetric, fmt$ } from "@/lib/formatters";
 
+interface KillScaleListProps {
+  creatives: any[];
+  config: KillScaleConfig;
+  variant: "kill" | "scale";
+  onCreativeClick?: (creative: any) => void;
+}
+
 const KPI_SUFFIXES: Record<string, { prefix: string; suffix: string }> = {
   roas: { prefix: "", suffix: "x" },
   cpa: { prefix: "$", suffix: "" },
