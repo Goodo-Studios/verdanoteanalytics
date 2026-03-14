@@ -135,7 +135,9 @@ serve(async (req) => {
         let dmOffset = 0;
         const DM_PAGE = 1000;
         while (true) {
-          let dmQuery = supabase.from("creative_daily_metrics").select("ad_id, spend, impressions, clicks, purchases, purchase_value, adds_to_cart, video_views, frequency, thumb_stop_rate, hold_rate, video_avg_play_time");
+          let dmQuery = supabase.from("creative_daily_metrics").select("ad_id, spend, impressions, clicks, purchases, purchase_value, adds_to_cart, video_views, frequency, thumb_stop_rate, hold_rate, video_avg_play_time")
+            .order("ad_id", { ascending: true })
+            .order("date", { ascending: true });
           if (accountId) dmQuery = dmQuery.eq("account_id", accountId);
           if (dateFrom) dmQuery = dmQuery.gte("date", dateFrom);
           if (dateTo) dmQuery = dmQuery.lte("date", dateTo);
