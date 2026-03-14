@@ -429,7 +429,7 @@ function ConceptComparison({ conceptGroups, conceptA, conceptB, setConceptA, set
                     </TableCell>
                     <TableCell className={cn(
                       "font-data text-[14px] font-semibold tabular-nums",
-                      !tied && bWins ? "bg-emerald-50 text-emerald-700" : "text-charcoal"
+                      !tied && bWins ? "bg-primary/10 text-primary" : "text-charcoal"
                     )}>
                       {row.useGroup ? (row as any).format(row.valB, b) : (row as any).format(row.valB)}
                     </TableCell>
