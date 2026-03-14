@@ -179,7 +179,7 @@ const BriefsPage = () => {
         </div>
       ) : (
         /* ── Table View ───────────────────── */
-        <div className="border border-border-light rounded-lg overflow-hidden bg-white">
+        <div className="border border-border-light rounded-lg overflow-hidden bg-card">
           <table className="w-full text-left">
             <thead>
               <tr className="border-b border-border-light bg-muted/30">

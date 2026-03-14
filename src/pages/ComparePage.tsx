@@ -281,7 +281,7 @@ const ComparePage = () => {
             </div>
 
             {/* Pattern Summary */}
-            <div className="bg-white border border-border-light rounded-[8px] p-6">
+            <div className="bg-card border border-border-light rounded-[8px] p-6">
               <h2 className="font-heading text-[20px] text-forest mb-4">What stands out</h2>
               {patterns.length > 0 ? (
                 <ul className="space-y-2">

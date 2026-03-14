@@ -185,7 +185,7 @@ const PublicReportPage = () => {
                             {s.unique_code && <span className="text-xs font-data text-muted-foreground ml-2">{s.unique_code}</span>}
                           </div>
                         </div>
-                        <span className="font-mono text-sm text-muted-foreground shrink-0">{fmt(s.spend, "$")}</span>
+                        <span className="font-data text-sm text-muted-foreground shrink-0">{fmt(s.spend, "$")}</span>
                       </div>
                       <p className="text-sm text-muted-foreground leading-relaxed">
                         {s.recommendation}

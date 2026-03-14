@@ -53,7 +53,7 @@ export function KillScaleList({ creatives, config, variant, onCreativeClick }: K
                 {c.ad_name || c.ad_id}
               </TableCell>
               <TableCell className="font-data text-[12px] text-right tabular-nums">
-                {fmtDollar(c.spend)}
+                {fmt$(Number(c.spend) || 0)}
               </TableCell>
               <TableCell className="font-data text-[12px] text-right tabular-nums">
                 {(() => {

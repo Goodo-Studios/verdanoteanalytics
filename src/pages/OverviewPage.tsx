@@ -170,7 +170,7 @@ const OverviewPage = () => {
                 </div>
               )}
             </div>
-            <div className="bg-white border border-border-light rounded-[8px] p-5">
+            <div className="bg-card border border-border-light rounded-[8px] p-5">
               <h2 className="font-heading text-[18px] text-forest mb-4">Tagging Progress</h2>
               <div className="space-y-3">
                 <div className="h-2 rounded-full bg-cream-dark overflow-hidden">

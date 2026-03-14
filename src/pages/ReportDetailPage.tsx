@@ -331,7 +331,7 @@ const ReportDetailPage = () => {
                                 {s.unique_code && <span className="text-xs font-data text-muted-foreground ml-2">{s.unique_code}</span>}
                               </div>
                             </div>
-                            <span className="font-mono text-sm text-muted-foreground shrink-0">{fmt(s.spend, "$")}</span>
+                            <span className="font-data text-sm text-muted-foreground shrink-0">{fmt(s.spend, "$")}</span>
                           </div>
                           <p className="text-sm text-muted-foreground leading-relaxed pl-[calc(theme(spacing.3)+var(--badge-offset,0px))]">
                             {s.recommendation}
