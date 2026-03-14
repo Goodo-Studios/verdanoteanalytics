@@ -157,7 +157,7 @@ const ReportDetailPage = () => {
     { label: "Win Rate", value: fmt(report.win_rate, "", "%"), prevValue: prev?.win_rate, current: report.win_rate, suffix: "%" },
   ];
 
-  // Build highlights for print layout
+  const topPerformers = (() => { try { return JSON.parse(report.top_performers || "[]"); } catch { return []; } })();
   const highlights: string[] = [];
   if (report.win_rate) highlights.push(`Win rate: ${Number(report.win_rate).toFixed(0)}% of creatives are above scale threshold`);
   if (report.blended_roas) highlights.push(`Blended ROAS of ${Number(report.blended_roas).toFixed(2)}x across ${report.creative_count || 0} creatives`);
