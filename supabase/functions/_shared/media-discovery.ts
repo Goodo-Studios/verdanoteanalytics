@@ -33,7 +33,7 @@ export async function discoverImageUrl(
 ): Promise<{ thumbnailUrl: string; fullResUrl: string | null } | null> {
   try {
     const res = await fetchWithTimeout(
-      `https://graph.facebook.com/${META_API_VERSION}/${adId}?fields=creative{thumbnail_url,image_url,image_hash,object_story_spec}&access_token=${accessToken}`,
+      `https://graph.facebook.com/${META_API_VERSION}/${adId}?fields=creative{thumbnail_url,image_url,image_hash,object_story_spec,asset_feed_spec}&access_token=${accessToken}`,
       timeoutMs
     );
     if (!res.ok) {
@@ -70,6 +70,36 @@ export async function discoverImageUrl(
         }
       } else {
         await imgRes.text();
+      }
+    }
+
+    // Strategy 1b: Advantage+ / Dynamic Creative — asset_feed_spec images
+    const feedImages: any[] = creative.asset_feed_spec?.images || [];
+    for (const feedImg of feedImages) {
+      const feedHash = feedImg?.hash || feedImg?.image_hash;
+      if (feedHash) {
+        const imgRes = await fetchWithTimeout(
+          `https://graph.facebook.com/${META_API_VERSION}/${accountId}/adimages?hashes=["${feedHash}"]&fields=url,original_width,original_height&access_token=${accessToken}`,
+          timeoutMs
+        );
+        if (imgRes.ok) {
+          const imgData = await imgRes.json();
+          const images = imgData?.data;
+          if (images && images.length > 0) {
+            const fullUrl = images[0].url;
+            if (fullUrl && fullUrl.length > 100) {
+              console.log(`asset_feed_spec image_hash for ${adId}: ${images[0].original_width}px`);
+              return { thumbnailUrl: fullUrl, fullResUrl: fullUrl };
+            }
+          }
+        } else {
+          await imgRes.text();
+        }
+      }
+      // Some feed images have a direct url field
+      if (feedImg?.url) {
+        console.log(`asset_feed_spec direct URL for ${adId}`);
+        return { thumbnailUrl: feedImg.url, fullResUrl: feedImg.url };
       }
     }
 
@@ -111,6 +141,27 @@ export async function discoverImageUrl(
         }
       } else {
         await picRes.text();
+      }
+    }
+
+    // Strategy 2b: Advantage+ feed spec videos — get poster from first video
+    const feedVideos: any[] = creative.asset_feed_spec?.videos || [];
+    for (const v of feedVideos) {
+      if (v?.video_id) {
+        const picRes = await fetchWithTimeout(
+          `https://graph.facebook.com/${META_API_VERSION}/${v.video_id}/picture?redirect=false&width=1080&height=1080&access_token=${accessToken}`,
+          timeoutMs
+        );
+        if (picRes.ok) {
+          const picData = await picRes.json();
+          if (picData?.data?.url) {
+            console.log(`asset_feed_spec video poster for ${adId} (video ${v.video_id})`);
+            return { thumbnailUrl: picData.data.url, fullResUrl: picData.data.url };
+          }
+        } else {
+          await picRes.text();
+        }
+        break; // only try first video
       }
     }
 
@@ -160,7 +211,36 @@ export async function discoverImageUrl(
       if (imageUrl) return { thumbnailUrl: imageUrl, fullResUrl: imageUrl };
     }
 
-    // Strategy 5: creative.thumbnail_url is last resort (~130px placeholder from Meta)
+    // Strategy 5: Ad Preview API — extract rendered image from preview HTML
+    // Works for whitelisted ads where we can't access the source page
+    try {
+      const previewRes = await fetchWithTimeout(
+        `https://graph.facebook.com/${META_API_VERSION}/${adId}/previews?ad_format=DESKTOP_FEED_STANDARD&access_token=${accessToken}`,
+        timeoutMs
+      );
+      if (previewRes.ok) {
+        const previewData = await previewRes.json();
+        const previewBody = previewData?.data?.[0]?.body;
+        if (previewBody) {
+          // Extract the largest image src from the preview HTML
+          const imgMatches = [...previewBody.matchAll(/src="([^"]+)"/g)]
+            .map((m: RegExpMatchArray) => m[1].replace(/&amp;/g, "&"))
+            .filter((url: string) => url.includes("fbcdn") || url.includes("facebook"));
+          if (imgMatches.length > 0) {
+            // Pick the last fbcdn image (usually the main creative, not the profile pic)
+            const bestImg = imgMatches[imgMatches.length - 1];
+            console.log(`Ad Preview API image for ${adId}`);
+            return { thumbnailUrl: bestImg, fullResUrl: bestImg };
+          }
+        }
+      } else {
+        await previewRes.text();
+      }
+    } catch (e) {
+      console.log(`Preview API fallback error for ${adId}:`, e);
+    }
+
+    // Strategy 6: creative.thumbnail_url is last resort (~130px placeholder from Meta)
     if (creative.thumbnail_url) {
       console.log(`LOW-RES FALLBACK for ${adId}: using thumbnail_url (~130px) — all higher-res strategies failed`);
       return { thumbnailUrl: creative.thumbnail_url, fullResUrl: null };
