@@ -4,7 +4,7 @@ import { SyncStatusBanner } from "@/components/SyncStatusBanner";
 import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
 import { PageHeader } from "@/components/PageHeader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, User, Shield, Mail, Building2, Bell } from "lucide-react";
+import { Loader2, User, Shield, Building2 } from "lucide-react";
 
 import { ProfileInfoSection } from "@/components/user-settings/ProfileInfoSection";
 import { ChangePasswordSection } from "@/components/user-settings/ChangePasswordSection";
@@ -20,7 +20,7 @@ import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { SyncHistorySection } from "@/components/settings/SyncHistorySection";
 import { ApiKeysSection } from "@/components/settings/ApiKeysSection";
 import { useAuth } from "@/contexts/AuthContext";
-import { AlertsConfigSection } from "@/components/user-settings/AlertsConfigSection";
+
 
 const UserSettingsPage = () => {
   const s = useUserSettingsPageState();
@@ -56,9 +56,6 @@ const UserSettingsPage = () => {
             <TabsTrigger value="profile" className="font-body text-[14px] font-medium text-slate data-[state=active]:text-forest data-[state=active]:font-semibold data-[state=active]:border-b-2 data-[state=active]:border-verdant data-[state=active]:shadow-none rounded-none px-4 py-2.5 bg-transparent gap-1.5">
               <User className="h-3.5 w-3.5" />Profile
             </TabsTrigger>
-            <TabsTrigger value="alerts" className="font-body text-[14px] font-medium text-slate data-[state=active]:text-forest data-[state=active]:font-semibold data-[state=active]:border-b-2 data-[state=active]:border-verdant data-[state=active]:shadow-none rounded-none px-4 py-2.5 bg-transparent gap-1.5">
-              <Bell className="h-3.5 w-3.5" />Alerts
-            </TabsTrigger>
             {s.isBuilder && (
               <TabsTrigger value="admin" className="font-body text-[14px] font-medium text-slate data-[state=active]:text-forest data-[state=active]:font-semibold data-[state=active]:border-b-2 data-[state=active]:border-verdant data-[state=active]:shadow-none rounded-none px-4 py-2.5 bg-transparent gap-1.5">
                 <Shield className="h-3.5 w-3.5" />Admin
@@ -89,10 +86,6 @@ const UserSettingsPage = () => {
 
           </TabsContent>
 
-          {/* Alerts Tab */}
-          <TabsContent value="alerts" className="space-y-6">
-            <AlertsConfigSection />
-          </TabsContent>
 
           {/* Admin Tab */}
           {s.isBuilder && (
