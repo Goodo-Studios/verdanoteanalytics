@@ -66,7 +66,7 @@ function ExportCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="border border-border-light rounded-[8px] bg-white p-5 space-y-4">
+    <div className="border border-border-light rounded-[8px] bg-card p-5 space-y-4">
       <div className="flex items-start gap-3">
         <div className="p-2 rounded-md bg-sage-light/50 shrink-0">{icon}</div>
         <div>

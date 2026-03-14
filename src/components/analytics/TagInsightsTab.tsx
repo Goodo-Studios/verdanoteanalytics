@@ -364,7 +364,7 @@ export function TagInsightsTab({
 
 function InsightCard({ icon, title, body }: { icon: React.ReactNode; title: string; body: string }) {
   return (
-    <div className="bg-white border border-border-light rounded-[8px] p-5">
+    <div className="bg-card border border-border-light rounded-[8px] p-5">
       <div className="flex items-center gap-2 mb-2">
         {icon}
         <h3 className="font-heading text-[16px] text-forest">{title}</h3>

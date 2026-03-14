@@ -46,7 +46,7 @@ export function TagPerformanceSection({ creatives }: Props) {
   }
 
   return (
-    <div className="bg-white border border-border-light rounded-[8px] p-5">
+    <div className="bg-card border border-border-light rounded-[8px] p-5">
       <h2 className="font-heading text-[18px] text-forest mb-4">Tag Performance</h2>
       <div className="space-y-2">
         {tagGroups.map((g) => (

@@ -60,7 +60,7 @@ const UpdatePasswordPage = () => {
           </div>
         </div>
 
-        <div className="rounded-[12px] p-9 space-y-5 bg-white shadow-card border border-border-light">
+        <div className="rounded-[12px] p-9 space-y-5 bg-card shadow-card border border-border-light">
           {done ? (
             <div className="space-y-5 text-center">
               <CheckCircle className="h-10 w-10 text-verdant mx-auto" />

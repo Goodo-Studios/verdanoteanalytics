@@ -60,7 +60,7 @@ const LoginPage = () => {
         </div>
 
         {/* Login card */}
-        <div className="rounded-[12px] p-9 space-y-5 bg-white shadow-card border border-border-light">
+        <div className="rounded-[12px] p-9 space-y-5 bg-card shadow-card border border-border-light">
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
               <Label htmlFor="email" className="font-label text-[10px] font-semibold uppercase tracking-[0.08em] text-slate">

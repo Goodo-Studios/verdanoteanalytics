@@ -66,7 +66,7 @@ export function CreativesCardGrid({ creatives, onSelect, compareMode = false, co
           <div
             key={c.ad_id}
             className={cn(
-              "bg-white border rounded-card shadow-card cursor-pointer transition-[box-shadow,ring] duration-150 ease hover:shadow-card-hover relative",
+              "bg-card border rounded-card shadow-card cursor-pointer transition-[box-shadow,ring] duration-150 ease hover:shadow-card-hover relative",
               compareMode && isSelected ? "border-verdant border-2" : "border-border-light",
               isDisabled && "opacity-50 cursor-not-allowed",
               viewers && viewers.length > 0 && "ring-2 ring-primary/40",

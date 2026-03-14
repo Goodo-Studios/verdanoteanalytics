@@ -96,7 +96,7 @@ const PublicBriefPage = () => {
         {/* Sections */}
         <div className="space-y-5">
           {sections.map(([key, value]) => (
-            <div key={key} className="rounded-lg border border-border-light bg-white p-4 space-y-2">
+            <div key={key} className="rounded-lg border border-border-light bg-card p-4 space-y-2">
               <div className="flex items-center justify-between">
                 <h3 className="font-label text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   {SECTION_LABELS[key] || key}

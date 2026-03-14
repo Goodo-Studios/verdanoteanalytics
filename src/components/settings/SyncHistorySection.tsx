@@ -208,7 +208,7 @@ export function SyncHistorySection({ accountId }: { accountId?: string }) {
             <Button
               size="sm"
               variant="outline"
-              className="bg-white font-body text-[13px] font-medium"
+              className="bg-card font-body text-[13px] font-medium"
               onClick={() => syncMut.mutate({ account_id: accountId || "all" })}
               disabled={syncMut.isPending || isSyncing}
             >
