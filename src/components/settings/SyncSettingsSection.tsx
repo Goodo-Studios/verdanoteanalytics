@@ -147,7 +147,7 @@ export function SyncSettingsSection({
           </div>
           <div className="space-y-2">
             <Label className="font-body text-[14px] font-medium text-charcoal">Winner Threshold</Label>
-            <Input type="number" value={winnerKpiThreshold} onChange={(e) => setWinnerKpiThreshold(e.target.value)} step="0.1" min="0" className="bg-background font-data text-[15px] font-medium text-charcoal" />
+            <Input type="number" value={winnerKpiThreshold} onChange={(e) => setWinnerKpiThreshold(e.target.value)} step="0.1" min="0" className="bg-background font-data text-[17px] font-medium text-charcoal" />
           </div>
         </div>
         <p className="font-body text-[12px] text-sage">
