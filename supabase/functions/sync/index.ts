@@ -613,10 +613,12 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     if (phase === 2) {
       const endDate = new Date();
 
-      // ── CHANGE 2: Use incremental date range when available ──────────────
-      // If we have a last_data_sync date, only fetch data since then.
-      // Fall back to full dateRangeDays for initial syncs or missing timestamp.
-      // On resume (cursor present), skip date recalculation and use saved URL directly.
+      // ── Phase 2 ALWAYS uses the full date range ──────────────────────────
+      // Phase 2 writes aggregated totals to the creatives table (spend, roas, etc.).
+      // Using an incremental window would OVERWRITE full-period totals with partial
+      // values, causing spend discrepancies vs Meta Ads Manager.
+      // Incremental optimization is only safe for Phase 4 (daily metrics) where
+      // data is additive per-day and keyed by (ad_id, date).
       let phase2TimeRange: string;
       let phase2SinceDate: string;
       if (state.insights_cursor) {
@@ -624,26 +626,19 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         phase2TimeRange = state.insights_time_range || "";
         phase2SinceDate = state.insights_since_date || "";
         console.log(`Phase 2 resuming from cursor — time range: ${phase2TimeRange}`);
-      } else if (incrementalSinceDate) {
-        // Incremental: fetch only since last sync
-        phase2SinceDate = incrementalSinceDate;
-        phase2TimeRange = JSON.stringify({ since: phase2SinceDate, until: endDate.toISOString().split("T")[0] });
-        console.log(`Phase 2 incremental: ${phase2SinceDate} → ${endDate.toISOString().split("T")[0]}`);
       } else {
-        // Initial / full sync: use full date range
+        // Always use full date range for snapshot accuracy
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - dateRangeDays);
         phase2SinceDate = startDate.toISOString().split("T")[0];
         phase2TimeRange = JSON.stringify({ since: phase2SinceDate, until: endDate.toISOString().split("T")[0] });
-        console.log(`Phase 2 full: ${phase2SinceDate} → ${endDate.toISOString().split("T")[0]}`);
+        console.log(`Phase 2 full: ${phase2SinceDate} → ${endDate.toISOString().split("T")[0]} (always full range for snapshot accuracy)`);
       }
       // ────────────────────────────────────────────────────────────────────
 
       const insightsFields = "ad_id,spend,purchase_roas,cost_per_action_type,ctr,clicks,impressions,cpm,cpc,frequency,actions,action_values,video_avg_time_watched_actions,video_thruplay_watched_actions";
       const cursor = state.insights_cursor || null;
       let insightsCount = state.insights_count || 0;
-      // Track whether incremental query returned zero results (triggers fallback)
-      let incrementalReturnedZero = false;
 
       let nextUrl = cursor || (
         `https://graph.facebook.com/${META_API_VERSION}/${accountId}/insights?` +
@@ -658,13 +653,6 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         const result = await metaFetch(nextUrl, ctx);
         if (result.error) break;
         if (result.data) {
-          if (result.data.length === 0 && insightsCount === 0 && incrementalSinceDate && !state.insights_cursor) {
-            // Incremental query returned nothing on first page — Meta may have limited history
-            // Flag for fallback to full window
-            incrementalReturnedZero = true;
-            console.log(`Incremental query returned 0 results for ${account.name} — will fall back to full window`);
-            break;
-          }
 
           // Bulk update via DB function — single RPC call per batch instead of N individual updates
           const BATCH_SIZE = 500;
@@ -711,63 +699,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         if (nextUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
       }
 
-      // ── CHANGE 2: Fallback to full window if incremental returned nothing ──
-      if (incrementalReturnedZero && !isTimedOut()) {
-        console.log(`Falling back to full ${dateRangeDays}-day window for ${account.name}...`);
-        const fallbackStart = new Date();
-        fallbackStart.setDate(fallbackStart.getDate() - dateRangeDays);
-        const fallbackTimeRange = JSON.stringify({
-          since: fallbackStart.toISOString().split("T")[0],
-          until: endDate.toISOString().split("T")[0],
-        });
-        let fallbackUrl: string | null =
-          `https://graph.facebook.com/${META_API_VERSION}/${accountId}/insights?` +
-          `time_range=${encodeURIComponent(fallbackTimeRange)}&level=ad` +
-          `&fields=${insightsFields}` +
-          `&${attributionSetting}` +
-          `&limit=${insightsPageSize}&access_token=${encodeURIComponent(metaToken)}`;
-
-        while (fallbackUrl && !isTimedOut()) {
-          await heartbeat();
-          const result = await metaFetch(fallbackUrl, ctx);
-          if (result.error) break;
-          if (result.data && result.data.length > 0) {
-            const BATCH_SIZE = 500;
-            const metricRows = result.data.map((row: any) => ({ ad_id: row.ad_id, ...parseInsightsRow(row) }));
-
-            // Auto-create missing creatives in fallback path too
-            const fbAdIds = [...new Set(metricRows.map((r: any) => r.ad_id))];
-            const { data: fbExisting } = await supabase
-              .from("creatives").select("ad_id").eq("account_id", accountId).in("ad_id", fbAdIds);
-            const fbSet = new Set((fbExisting || []).map((e: any) => e.ad_id));
-            const fbMissing = fbAdIds.filter((id: string) => !fbSet.has(id));
-            if (fbMissing.length > 0) {
-              await supabase.from("creatives").upsert(
-                fbMissing.map((adId: string) => ({ ad_id: adId, account_id: accountId, ad_name: adId, platform: "meta", tag_source: "untagged" })),
-                { onConflict: "ad_id", ignoreDuplicates: true }
-              );
-              console.log(`  Fallback auto-created ${fbMissing.length} missing creatives`);
-            }
-
-            for (let i = 0; i < metricRows.length; i += BATCH_SIZE) {
-              const batch = metricRows.slice(i, i + BATCH_SIZE);
-              const { error } = await supabase.rpc("bulk_update_creative_metrics", { payload: JSON.stringify(batch) });
-              if (error) console.error("Phase 2 fallback RPC error:", error.message);
-              if (isTimedOut()) break;
-            }
-            insightsCount += result.data.length;
-            console.log(`  Fallback insights upserted: ${insightsCount}`);
-          }
-          fallbackUrl = result.next;
-          if (fallbackUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
-        }
-        if (fallbackUrl && isTimedOut()) {
-          console.log(`Phase 2 fallback paused at ${insightsCount} insights`);
-          await saveState(2, { insights_cursor: fallbackUrl, insights_count: insightsCount, insights_time_range: fallbackTimeRange, insights_since_date: fallbackStart.toISOString().split("T")[0] });
-          return;
-        }
-      }
-      // ────────────────────────────────────────────────────────────────────
+      // (Incremental fallback removed — Phase 2 now always uses full date range)
 
       if (nextUrl && isTimedOut()) {
         console.log(`Phase 2 paused at ${insightsCount} insights`);
