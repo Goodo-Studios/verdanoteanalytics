@@ -305,15 +305,6 @@ const CreativesPage = () => {
               <Button variant={!conceptView ? "secondary" : "ghost"} size="sm" className="rounded-r-none px-2.5 gap-1.5" onClick={() => setConceptView(false)}><List className="h-3.5 w-3.5" />Ads</Button>
               <Button variant={conceptView ? "secondary" : "ghost"} size="sm" className="rounded-l-none px-2.5 gap-1.5" onClick={() => setConceptView(true)}><Layers className="h-3.5 w-3.5" />Concepts</Button>
             </div>
-            {!conceptView && (
-              <div className="flex border border-border rounded-md">
-                <Button variant={viewMode === "card" ? "secondary" : "ghost"} size="sm" className="rounded-r-none px-2.5" onClick={() => setViewMode("card")}><LayoutGrid className="h-3.5 w-3.5" /></Button>
-                <Button variant={viewMode === "table" ? "secondary" : "ghost"} size="sm" className="px-2.5 rounded-none border-x border-border" onClick={() => setViewMode("table")}><List className="h-3.5 w-3.5" /></Button>
-                {selectedAccountId && selectedAccountId !== "all" && (
-                  <Button variant={viewMode === "timeline" ? "secondary" : "ghost"} size="sm" className="rounded-l-none px-2.5" onClick={() => setViewMode("timeline")}><CalendarDays className="h-3.5 w-3.5" /></Button>
-                )}
-              </div>
-            )}
             <Button
               size="sm"
               variant={compareMode ? "default" : "outline"}
