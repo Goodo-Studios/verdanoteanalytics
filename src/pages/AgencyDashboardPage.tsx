@@ -189,7 +189,7 @@ export default function AgencyDashboardPage() {
                     </div>
                     <div>
                       <p className="font-label text-[9px] uppercase tracking-wider text-muted-foreground">Active</p>
-                      <p className="font-data text-[14px] font-medium tabular-nums text-foreground">{active.length}</p>
+                      <p className="font-data text-[15px] font-medium tabular-nums text-foreground">{active.length}</p>
                     </div>
                   </div>
 
