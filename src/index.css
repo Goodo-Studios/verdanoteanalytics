@@ -339,7 +339,7 @@
 
   .sidebar-nav-item:hover {
     background: hsl(var(--accent));
-    color: hsl(155 56% 15%);
+    color: hsl(var(--text-heading));
   }
 
   .sidebar-nav-active {
