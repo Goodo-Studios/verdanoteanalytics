@@ -143,16 +143,32 @@ export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: Vi
 
   return (
     <div className="space-y-6">
-      {/* Insight callouts */}
-      <div className="glass-panel p-4 space-y-1.5">
-        <p className="font-body text-[13px] text-foreground">
-          Your average hook rate is <span className="font-data font-semibold text-primary">{pct(agg.avgHook)}</span>.
-          Industry benchmark is 25–35%.
-        </p>
-        <p className="font-body text-[13px] text-foreground">
-          Best hook: <span className="font-data font-semibold">{agg.bestHook.ad_name}</span> at{" "}
-          <span className="font-data font-semibold text-primary">{pct(agg.bestHook.hook_rate)}</span>
-        </p>
+      {/* Min spend control + insight callouts */}
+      <div className="glass-panel p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="space-y-1.5">
+            <p className="font-body text-[13px] text-foreground">
+              Your average hook rate is <span className="font-data font-semibold text-primary">{pct(agg.avgHook)}</span>.
+              Industry benchmark is 25–35%.
+            </p>
+            <p className="font-body text-[13px] text-foreground">
+              Best hook: <span className="font-data font-semibold">{agg.bestHook.ad_name}</span> at{" "}
+              <span className="font-data font-semibold text-primary">{pct(agg.bestHook.hook_rate)}</span>
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <label className="font-label text-[11px] uppercase tracking-wide text-muted-foreground font-semibold whitespace-nowrap flex items-center gap-1">
+              <DollarSign className="h-3 w-3" /> Min Spend
+            </label>
+            <Input
+              type="number"
+              placeholder="100"
+              value={minSpendOverride}
+              onChange={(e) => setMinSpendOverride(e.target.value)}
+              className="w-[100px] h-8 font-body text-[13px]"
+            />
+          </div>
+        </div>
       </div>
 
       {/* Metric cards */}
