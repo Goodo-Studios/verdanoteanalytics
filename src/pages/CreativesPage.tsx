@@ -409,21 +409,6 @@ const CreativesPage = () => {
             <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 hidden sm:inline-flex items-center px-1.5 py-0.5 rounded border border-border-light bg-muted text-[10px] font-mono text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">/</kbd>
           )}
         </div>
-        <Button
-          size="sm"
-          variant={advancedConditions.length > 0 ? "secondary" : "outline"}
-          onClick={() => setAdvFiltersOpen(true)}
-          className="gap-1.5 font-body text-[12px]"
-        >
-          <SlidersHorizontal className="h-3.5 w-3.5" />
-          Filters
-          {countActiveConditions(advancedConditions) > 0 && (
-            <span className="ml-0.5 inline-flex items-center justify-center h-4 min-w-[16px] rounded-full bg-primary text-primary-foreground font-data text-[10px] font-bold px-1">
-              {countActiveConditions(advancedConditions)}
-            </span>
-          )}
-        </Button>
-        
       </div>
 
       <CreativesFilters
