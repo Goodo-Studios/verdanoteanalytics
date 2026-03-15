@@ -91,11 +91,25 @@ serve(async (req) => {
       .gte("started_at", eightHoursAgo);
 
     if (failCount && failCount > 0) {
+      // Resolve account names for failed syncs
+      const failAccountIds = [...new Set((recentFails || []).map((s: any) => s.account_id))];
+      const { data: failAccounts } = await supabase
+        .from("ad_accounts")
+        .select("id, name")
+        .in("id", failAccountIds);
+      const accNameMap: Record<string, string> = {};
+      for (const a of failAccounts || []) accNameMap[a.id] = a.name;
+
       findings.push({
         severity: "warn",
         category: "sync",
         message: `${failCount} sync failure(s) in the last 8 hours`,
-        details: { sample_ids: (recentFails || []).slice(0, 5).map((s: any) => s.id) },
+        details: {
+          failures: (recentFails || []).slice(0, 5).map((s: any) => ({
+            sync_id: s.id,
+            account: accNameMap[s.account_id] || s.account_id,
+          })),
+        },
       });
     } else {
       findings.push({ severity: "pass", category: "sync", message: "No sync failures in the last 8 hours" });
