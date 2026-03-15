@@ -832,50 +832,23 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         .select("*", { count: "exact", head: true }).eq("account_id", accountId);
       const hasExistingAds = (existingCount || 0) > 0;
 
-      // ── CHANGE 2: Incremental daily breakdowns ───────────────────────────
-      // Use incremental date range for daily breakdowns too.
-      // For initial syncs: full dateRangeDays (capped at 30 for daily detail).
-      // For incremental syncs: only since last data sync (min 2 days for attribution).
+      // ── Phase 4: Always fetch full date range ─────────────────────────
+      // Daily metrics are keyed by (ad_id, date) — upserts are idempotent.
+      // Always fetching the full dateRangeDays window prevents historical gaps
+      // that occur when incremental windows miss days between syncs.
+      // This matches Phase 2's approach and ensures spend totals reconcile with Meta.
       let dailyDays: number;
       let dailySinceDate: string;
       const CHUNK_DAYS = 15;
       const endDate = new Date();
 
-      if (!state.daily_chunk_offset && incrementalSinceDate) {
-        // Incremental: compute days since last sync
-        const sinceMs = new Date(incrementalSinceDate).getTime();
-        const daysSinceSync = Math.ceil((Date.now() - sinceMs) / (1000 * 60 * 60 * 24));
-
-        // Detect new ads: if creatives were created in this sync session (after sync started),
-        // they need full daily-metrics history, not just the incremental window.
-        const syncStartedAt = syncLog.started_at;
-        const { count: newAdsCount } = await supabase
-          .from("creatives")
-          .select("*", { count: "exact", head: true })
-          .eq("account_id", accountId)
-          .gte("created_at", syncStartedAt);
-
-        if ((newAdsCount || 0) > 0) {
-          // New ads detected — use full date range to backfill their history
-          dailyDays = dateRangeDays;
-          const fullStart = new Date();
-          fullStart.setDate(fullStart.getDate() - dailyDays);
-          dailySinceDate = fullStart.toISOString().split("T")[0];
-          console.log(`Phase 4 EXPANDED to full range: ${newAdsCount} new ads discovered. Fetching ${dailyDays} days since ${dailySinceDate}`);
-        } else {
-          // Add 2 days buffer for attribution window, cap at dateRangeDays
-          dailyDays = Math.min(daysSinceSync + 2, dateRangeDays);
-          dailySinceDate = incrementalSinceDate;
-          console.log(`Phase 4 incremental: ${dailyDays} days of daily data (since ${dailySinceDate})`);
-        }
-      } else if (!state.daily_chunk_offset) {
-        // Initial/full: use the entire date_range_days window so daily metrics
-        // cover the same period as the aggregated insights (Phase 2).
+      if (!state.daily_chunk_offset) {
+        // Always use the full date_range_days window
         dailyDays = dateRangeDays;
         const fullStart = new Date();
         fullStart.setDate(fullStart.getDate() - dailyDays);
         dailySinceDate = fullStart.toISOString().split("T")[0];
-        console.log(`Phase 4 full: ${dailyDays} days of daily data`);
+        console.log(`Phase 4 full: ${dailyDays} days of daily data (always full range to prevent gaps)`);
       } else {
         // Resuming — use saved values
         dailyDays = state.daily_days || dateRangeDays;
