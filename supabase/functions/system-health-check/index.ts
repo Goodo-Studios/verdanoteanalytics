@@ -82,23 +82,23 @@ serve(async (req) => {
       findings.push({ severity: "pass", category: "freshness", message: "All active accounts synced within 7 days" });
     }
 
-    // ─── 4. Recent Sync Failures (last 24h) ─────────────────────
-    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+    // ─── 4. Recent Sync Failures (last 8h) ──────────────────────
+    const eightHoursAgo = new Date(now.getTime() - 8 * 60 * 60 * 1000).toISOString();
     const { data: recentFails, count: failCount } = await supabase
       .from("sync_logs")
       .select("id, account_id, api_errors", { count: "exact" })
       .eq("status", "failed")
-      .gte("started_at", oneDayAgo);
+      .gte("started_at", eightHoursAgo);
 
     if (failCount && failCount > 0) {
       findings.push({
         severity: "warn",
         category: "sync",
-        message: `${failCount} sync failure(s) in the last 24 hours`,
+        message: `${failCount} sync failure(s) in the last 8 hours`,
         details: { sample_ids: (recentFails || []).slice(0, 5).map((s: any) => s.id) },
       });
     } else {
-      findings.push({ severity: "pass", category: "sync", message: "No sync failures in the last 24 hours" });
+      findings.push({ severity: "pass", category: "sync", message: "No sync failures in the last 8 hours" });
     }
 
     // ─── 5. Thumbnail Coverage (accounts with <60% coverage) ────
