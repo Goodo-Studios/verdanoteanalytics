@@ -43,6 +43,7 @@ interface CreativeDetailModalProps {
 
 function MediaPreview({ creative }: { creative: any }) {
   const [imgLoaded, setImgLoaded] = useState(false);
+  const [imgError, setImgError] = useState(false);
 
   const adPreviewUrl = creative.ad_post_url || `https://www.facebook.com/ads/library/?id=${creative.ad_id}`;
 
@@ -53,17 +54,18 @@ function MediaPreview({ creative }: { creative: any }) {
 
   const hasThumbnail = !!creative.thumbnail_url;
   const isVideoAd = (creative.video_views || 0) > 0;
+  const showButton = adPreviewUrl && (imgLoaded || imgError || (thumbnailError && !thumbnailLoading));
 
   return (
     <div className="bg-muted rounded-lg flex items-center justify-center overflow-hidden relative group">
       {hasThumbnail ? (
         <div className="relative w-full">
-          {(thumbnailLoading || !imgLoaded) && (
+          {(thumbnailLoading || (!imgLoaded && !imgError)) && (
             <div className="w-full h-[300px] bg-muted rounded animate-pulse flex items-center justify-center">
               <ImageIcon className="h-8 w-8 text-muted-foreground/40" />
             </div>
           )}
-          {thumbnailError && !thumbnailLoading && (
+          {(thumbnailError || imgError) && !thumbnailLoading && (
             <div className="absolute inset-0 flex items-center justify-center bg-muted/80 z-10">
               <span className="font-body text-xs text-muted-foreground">Thumbnail unavailable</span>
             </div>
@@ -75,10 +77,11 @@ function MediaPreview({ creative }: { creative: any }) {
               imgLoaded ? "opacity-100" : "opacity-0 absolute inset-0"
             }`}
             onLoad={() => setImgLoaded(true)}
+            onError={() => setImgError(true)}
           />
 
-          {/* Persistent Preview Ad button — show when image loaded OR thumbnail errored */}
-          {adPreviewUrl && (imgLoaded || (thumbnailError && !thumbnailLoading)) && (
+          {/* Persistent Preview Ad button — show when image loaded OR errored */}
+          {showButton && (
             <a
               href={adPreviewUrl}
               target="_blank"
