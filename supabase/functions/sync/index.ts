@@ -401,7 +401,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         const upsertBatch: any[] = [];
         const metadataBatch: { ad_id: string; data: any }[] = [];
         for (const ad of ads) {
-          // Build post URL from effective_object_story_id (format: {page_id}_{post_id})
+          // Build post URL: prefer effective_object_story_id, fall back to permalink_url
           let adPostUrl: string | null = null;
           const storyId = ad.creative?.effective_object_story_id;
           if (storyId && storyId.includes("_")) {
@@ -409,6 +409,10 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             if (pageId && postId) {
               adPostUrl = `https://www.facebook.com/${pageId}/posts/${postId}/`;
             }
+          }
+          // Fallback: use permalink_url from creative if available
+          if (!adPostUrl && ad.creative?.permalink_url) {
+            adPostUrl = ad.creative.permalink_url;
           }
 
           const metadata = {
