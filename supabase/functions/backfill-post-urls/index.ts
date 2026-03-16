@@ -89,10 +89,7 @@ serve(async (req) => {
             }
           }
 
-          // Fallback to permalink_url
-          if (!postUrl && adData.creative?.permalink_url) {
-            postUrl = adData.creative.permalink_url;
-          }
+          // No other fallback available via batch lookup
 
           if (postUrl) {
             updates.push({ ad_id: adId, ad_post_url: postUrl });
