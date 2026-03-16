@@ -59,7 +59,7 @@ serve(async (req) => {
       const adIds = batch.map((c: any) => c.ad_id);
 
       // Fetch creative data for batch
-      const url = `https://graph.facebook.com/${META_API_VERSION}/?ids=${adIds.join(",")}&fields=creative{effective_object_story_id,permalink_url}&access_token=${encodeURIComponent(metaToken)}`;
+      const url = `https://graph.facebook.com/${META_API_VERSION}/?ids=${adIds.join(",")}&fields=creative{effective_object_story_id}&access_token=${encodeURIComponent(metaToken)}`;
 
       try {
         const resp = await fetch(url);
