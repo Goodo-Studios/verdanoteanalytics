@@ -44,7 +44,7 @@ interface CreativeDetailModalProps {
 function MediaPreview({ creative }: { creative: any }) {
   const [imgLoaded, setImgLoaded] = useState(false);
 
-  const adPreviewUrl = creative.ad_post_url || null;
+  const adPreviewUrl = creative.ad_post_url || `https://www.facebook.com/ads/library/?id=${creative.ad_id}`;
 
   const { url: cachedThumbnailUrl, isLoading: thumbnailLoading, error: thumbnailError } =
     useCachedMedia(creative.full_res_url || creative.thumbnail_url, {
