@@ -410,10 +410,6 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
               adPostUrl = `https://www.facebook.com/${pageId}/posts/${postId}/`;
             }
           }
-          // Fallback: use permalink_url from creative if available
-          if (!adPostUrl && ad.creative?.permalink_url) {
-            adPostUrl = ad.creative.permalink_url;
-          }
 
           const metadata = {
             ad_name: ad.name,
