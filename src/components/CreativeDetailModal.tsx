@@ -57,56 +57,50 @@ function MediaPreview({ creative }: { creative: any }) {
   const showButton = adPreviewUrl && (imgLoaded || imgError || (thumbnailError && !thumbnailLoading));
 
   return (
-    <div className="bg-muted rounded-lg flex items-center justify-center overflow-hidden relative group">
-      {hasThumbnail ? (
-        <div className="relative w-full">
-          {(thumbnailLoading || (!imgLoaded && !imgError)) && (
-            <div className="w-full h-[300px] bg-muted rounded animate-pulse flex items-center justify-center">
-              <ImageIcon className="h-8 w-8 text-muted-foreground/40" />
-            </div>
-          )}
-          {(thumbnailError || imgError) && !thumbnailLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-muted/80 z-10">
-              <span className="font-body text-xs text-muted-foreground">Thumbnail unavailable</span>
-            </div>
-          )}
-          <img
-            src={cachedThumbnailUrl}
-            alt={creative.ad_name}
-            className={`w-full max-h-[400px] object-contain transition-opacity duration-300 ${
-              imgLoaded ? "opacity-100" : "opacity-0 absolute inset-0"
-            }`}
-            onLoad={() => setImgLoaded(true)}
-            onError={() => setImgError(true)}
-          />
+    <div className="space-y-2">
+      <div className="bg-muted rounded-lg flex items-center justify-center overflow-hidden relative group min-h-[120px]">
+        {hasThumbnail ? (
+          <div className="relative w-full">
+            {(thumbnailLoading || (!imgLoaded && !imgError)) && (
+              <div className="w-full h-[300px] bg-muted rounded animate-pulse flex items-center justify-center">
+                <ImageIcon className="h-8 w-8 text-muted-foreground/40" />
+              </div>
+            )}
+            {(thumbnailError || imgError) && !thumbnailLoading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-muted/80 z-10">
+                <span className="font-body text-xs text-muted-foreground">Thumbnail unavailable</span>
+              </div>
+            )}
+            <img
+              src={cachedThumbnailUrl}
+              alt={creative.ad_name}
+              className={`w-full max-h-[400px] object-contain transition-opacity duration-300 ${
+                imgLoaded ? "opacity-100" : "opacity-0 absolute inset-0"
+              }`}
+              onLoad={() => setImgLoaded(true)}
+              onError={() => setImgError(true)}
+            />
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-2 py-12">
+            <ImageIcon className="h-8 w-8 text-muted-foreground" />
+            <span className="font-body text-[13px] text-muted-foreground">No preview available</span>
+          </div>
+        )}
+      </div>
 
-          {/* Persistent Preview Ad button — show when image loaded OR errored */}
-          {showButton && (
-            <a
-              href={adPreviewUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="absolute bottom-2 right-2 z-10 inline-flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground text-[11px] font-semibold rounded-md px-3 py-1.5 shadow-md transition-colors cursor-pointer"
-              title="Preview this ad on Facebook"
-            >
-              {isVideoAd ? <Play className="h-3.5 w-3.5" /> : <ExternalLink className="h-3.5 w-3.5" />}
-              Preview Ad
-            </a>
-          )}
-        </div>
-      ) : (
-        <div className="flex flex-col items-center gap-2 py-12">
-          <ImageIcon className="h-8 w-8 text-muted-foreground" />
-          <span className="font-body text-[13px] text-muted-foreground">No preview available</span>
-          {adPreviewUrl && (
-            <a href={adPreviewUrl} target="_blank" rel="noopener noreferrer">
-              <Button size="sm" variant="default" className="gap-1.5 text-xs mt-2">
-                {isVideoAd ? <Play className="h-3.5 w-3.5" /> : <ExternalLink className="h-3.5 w-3.5" />}
-                {isVideoAd ? "Watch on Facebook" : "View Post"}
-              </Button>
-            </a>
-          )}
-        </div>
+      {/* Preview Ad button — always visible when URL exists */}
+      {adPreviewUrl && (
+        <a
+          href={adPreviewUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground text-[12px] font-semibold rounded-md px-3 py-1.5 shadow-sm transition-colors cursor-pointer"
+          title="Preview this ad on Facebook"
+        >
+          {isVideoAd ? <Play className="h-3.5 w-3.5" /> : <ExternalLink className="h-3.5 w-3.5" />}
+          Preview Ad
+        </a>
       )}
     </div>
   );
