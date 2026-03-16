@@ -77,8 +77,8 @@ function MediaPreview({ creative }: { creative: any }) {
             onLoad={() => setImgLoaded(true)}
           />
 
-          {/* Persistent Preview Ad button */}
-          {adPreviewUrl && imgLoaded && (
+          {/* Persistent Preview Ad button — show when image loaded OR thumbnail errored */}
+          {adPreviewUrl && (imgLoaded || (thumbnailError && !thumbnailLoading)) && (
             <a
               href={adPreviewUrl}
               target="_blank"
