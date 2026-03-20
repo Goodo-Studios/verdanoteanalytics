@@ -697,8 +697,6 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
                 Paste from Clipboard
               </Button>
             )}
-              </Button>
-            )}
 
             {/* Source URL (optional) */}
             <div className="space-y-1.5">
