@@ -13,9 +13,12 @@ import { AdLibraryFoldersView } from "@/components/ad-library/AdLibraryFoldersVi
 import { AdLibraryTagsView } from "@/components/ad-library/AdLibraryTagsView";
 import { AdDetailView } from "@/components/ad-library/AdDetailView";
 import { AdLibrarySearch } from "@/components/ad-library/AdLibrarySearch";
+import { BookmarkletSetup } from "@/components/ad-library/BookmarkletSetup";
 import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import { Plus, Download } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function AdLibraryPage() {
   const [selectedBoardId, setSelectedBoardId] = useState<string | null>(null);
