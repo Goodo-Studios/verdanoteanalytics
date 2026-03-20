@@ -185,7 +185,11 @@ export function AdDetailView({ adId, onBack }: Props) {
             {isCarousel && mediaUrls.length > 1 ? (
               <div className="relative">
                 <div className="aspect-[4/3] overflow-hidden cursor-pointer" onClick={() => { setLightboxIdx(0); setLightboxOpen(true); }}>
-                  <img src={mediaUrls[lightboxIdx] || mediaUrls[0]} className="h-full w-full object-contain" alt="" />
+                  {isVideoUrl(mediaUrls[lightboxIdx]) ? (
+                    <video src={mediaUrls[lightboxIdx]} className="h-full w-full object-contain" controls playsInline />
+                  ) : (
+                    <img src={mediaUrls[lightboxIdx] || mediaUrls[0]} className="h-full w-full object-contain" alt="" />
+                  )}
                 </div>
                 {/* Carousel dots */}
                 <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
@@ -213,15 +217,21 @@ export function AdDetailView({ adId, onBack }: Props) {
                 )}
               </div>
             ) : mediaUrls.length > 0 ? (
-              <div
-                className="aspect-[4/3] overflow-hidden cursor-pointer group"
-                onClick={() => { setLightboxIdx(0); setLightboxOpen(true); }}
-              >
-                <img src={mediaUrls[0]} className="h-full w-full object-contain" alt="" />
-                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-foreground/5">
-                  <ZoomIn className="h-6 w-6 text-foreground/60" />
+              isVideoUrl(mediaUrls[0]) ? (
+                <div className="aspect-[4/3] overflow-hidden">
+                  <video src={mediaUrls[0]} className="h-full w-full object-contain" controls playsInline />
                 </div>
-              </div>
+              ) : (
+                <div
+                  className="aspect-[4/3] overflow-hidden cursor-pointer group"
+                  onClick={() => { setLightboxIdx(0); setLightboxOpen(true); }}
+                >
+                  <img src={mediaUrls[0]} className="h-full w-full object-contain" alt="" />
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-foreground/5">
+                    <ZoomIn className="h-6 w-6 text-foreground/60" />
+                  </div>
+                </div>
+              )
             ) : (
               <div className="aspect-[4/3] flex items-center justify-center">
                 <Image className="h-16 w-16 text-muted-foreground/20" />
