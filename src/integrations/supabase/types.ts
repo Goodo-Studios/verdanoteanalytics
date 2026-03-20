@@ -226,6 +226,166 @@ export type Database = {
         }
         Relationships: []
       }
+      ad_library_collection_items: {
+        Row: {
+          added_at: string
+          collection_id: string
+          id: string
+          position: number | null
+          saved_ad_id: string
+        }
+        Insert: {
+          added_at?: string
+          collection_id: string
+          id?: string
+          position?: number | null
+          saved_ad_id: string
+        }
+        Update: {
+          added_at?: string
+          collection_id?: string
+          id?: string
+          position?: number | null
+          saved_ad_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ad_library_collection_items_collection_id_fkey"
+            columns: ["collection_id"]
+            isOneToOne: false
+            referencedRelation: "ad_library_collections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ad_library_collection_items_saved_ad_id_fkey"
+            columns: ["saved_ad_id"]
+            isOneToOne: false
+            referencedRelation: "ad_library_saved_ads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ad_library_collections: {
+        Row: {
+          account_id: string | null
+          color: string | null
+          created_at: string
+          created_by: string
+          description: string | null
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          account_id?: string | null
+          color?: string | null
+          created_at?: string
+          created_by: string
+          description?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string | null
+          color?: string | null
+          created_at?: string
+          created_by?: string
+          description?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ad_library_collections_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "ad_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ad_library_saved_ads: {
+        Row: {
+          account_id: string | null
+          ad_archive_id: string | null
+          body_text: string | null
+          brand_name: string | null
+          created_at: string
+          created_by: string
+          cta_type: string | null
+          headline: string | null
+          id: string
+          is_active: boolean | null
+          landing_page_url: string | null
+          media_type: string | null
+          notes: string | null
+          page_id: string | null
+          platform: string | null
+          source: string
+          started_running: string | null
+          tags: string[] | null
+          thumbnail_url: string | null
+          updated_at: string
+          video_url: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          ad_archive_id?: string | null
+          body_text?: string | null
+          brand_name?: string | null
+          created_at?: string
+          created_by: string
+          cta_type?: string | null
+          headline?: string | null
+          id?: string
+          is_active?: boolean | null
+          landing_page_url?: string | null
+          media_type?: string | null
+          notes?: string | null
+          page_id?: string | null
+          platform?: string | null
+          source?: string
+          started_running?: string | null
+          tags?: string[] | null
+          thumbnail_url?: string | null
+          updated_at?: string
+          video_url?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          ad_archive_id?: string | null
+          body_text?: string | null
+          brand_name?: string | null
+          created_at?: string
+          created_by?: string
+          cta_type?: string | null
+          headline?: string | null
+          id?: string
+          is_active?: boolean | null
+          landing_page_url?: string | null
+          media_type?: string | null
+          notes?: string | null
+          page_id?: string | null
+          platform?: string | null
+          source?: string
+          started_running?: string | null
+          tags?: string[] | null
+          thumbnail_url?: string | null
+          updated_at?: string
+          video_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ad_library_saved_ads_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "ad_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_conversations: {
         Row: {
           account_id: string | null

@@ -35,6 +35,7 @@ const BriefsPage = lazy(() => import("./pages/BriefsPage"));
 const PublicBriefPage = lazy(() => import("./pages/PublicBriefPage"));
 const AgencyDashboardPage = lazy(() => import("./pages/AgencyDashboardPage"));
 const ContentPipelinePage = lazy(() => import("./pages/ContentPipelinePage"));
+const AdLibraryPage = lazy(() => import("./pages/AdLibraryPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -120,6 +121,7 @@ function RoleGuardedRoutes() {
           <Route path="/briefs" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <BriefsPage />} />
           
           <Route path="/pipeline" element={<ContentPipelinePage />} />
+          <Route path="/ad-library" element={isBuilder ? <AdLibraryPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>
