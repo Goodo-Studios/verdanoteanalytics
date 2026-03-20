@@ -104,11 +104,17 @@ export function AdCard({
   const adTagIds = new Set((ad.tags || []).map((t) => t.id));
   const initial = (ad.advertiser_name || "A")[0].toUpperCase();
   const hasTranscript = (ad as any).transcript_status === "completed";
-  const storedMedia = ((ad as any).stored_media || []) as { type: string; download_failed?: boolean; stored_url?: string }[];
+  const storedMedia = ((ad as any).stored_media || []) as { type: string; download_failed?: boolean; stored_url?: string; file_size_bytes?: number }[];
   const successfulStored = storedMedia.filter(m => !m.download_failed && m.stored_url);
   const hasStoredVideo = successfulStored.some(m => m.type === "video");
   const hasStoredCarousel = successfulStored.filter(m => m.type === "carousel_frame").length > 1;
   const carouselCount = successfulStored.filter(m => m.type === "carousel_frame").length;
+
+  // Detect if the thumbnail is likely a profile pic / logo instead of the actual creative
+  const thumbUrl = ad.thumbnail_url || "";
+  const isProfilePicThumb = /\/profile|\/avatar|\/logo|page_picture|p\d{2,3}x\d{2,3}|s\d{2,3}x\d{2,3}/i.test(thumbUrl);
+  const hasRealCreative = successfulStored.some(m => m.file_size_bytes && m.file_size_bytes > 50000);
+  const missingCreative = !hasRealCreative && (successfulStored.length === 0 || isProfilePicThumb) && (!ad.media_urls || ad.media_urls.length === 0);
 
   const handleCopyLandingPage = (e: React.MouseEvent) => {
     e.stopPropagation();
