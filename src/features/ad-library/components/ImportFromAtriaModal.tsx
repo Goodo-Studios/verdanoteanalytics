@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -6,10 +6,46 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
-import { Upload, FileJson, Globe, HelpCircle, Download, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { Upload, FileJson, Globe, HelpCircle, Download, CheckCircle2, AlertCircle, Loader2, Copy, Check } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+
+function AuthTokenDisplay() {
+  const [token, setToken] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setToken(data.session?.access_token || null);
+    });
+  }, []);
+
+  if (!token) return null;
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(token);
+    setCopied(true);
+    toast.success("Auth token copied to clipboard");
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-foreground">Your Auth Token</span>
+        <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs" onClick={handleCopy}>
+          {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+          {copied ? "Copied" : "Copy Token"}
+        </Button>
+      </div>
+      <code className="block text-[10px] text-muted-foreground bg-background rounded p-2 break-all max-h-16 overflow-y-auto select-all">
+        {token}
+      </code>
+      <p className="text-[10px] text-muted-foreground">Paste this when the bookmarklet prompts you. Expires in ~1 hour.</p>
+    </div>
+  );
+}
 
 interface ImportResult {
   success: boolean;
