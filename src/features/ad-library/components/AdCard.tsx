@@ -177,11 +177,31 @@ export function AdCard({
 
           {/* CC badge for transcribed videos */}
           {hasTranscript && (
-            <div className="absolute bottom-2 right-2 z-10 h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
+            <div className="absolute bottom-2 right-10 z-10 h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
               <Captions className="h-3 w-3" />
               <span className="text-[9px] font-label font-semibold">CC</span>
             </div>
           )}
+
+          {/* Media type indicator */}
+          <div className="absolute bottom-2 right-2 z-10 flex gap-1">
+            {hasStoredVideo && (
+              <div className="h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
+                <Video className="h-3 w-3" />
+              </div>
+            )}
+            {hasStoredCarousel && carouselCount > 0 && (
+              <div className="h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
+                <Layers className="h-3 w-3" />
+                <span className="text-[9px] font-label font-semibold">{carouselCount}</span>
+              </div>
+            )}
+            {!hasStoredVideo && !hasStoredCarousel && successfulStored.length > 0 && (
+              <div className="h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
+                <Image className="h-3 w-3" />
+              </div>
+            )}
+          </div>
 
           {/* Hover three-dot menu */}
           <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
