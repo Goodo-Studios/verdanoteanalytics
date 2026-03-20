@@ -90,6 +90,8 @@ export default function AgencyDashboardPage() {
     staleTime: 10 * 60 * 1000,
   });
 
+  const perAccountSpend = perAccountData.spend;
+  const perAccountRevenue = perAccountData.revenue;
   const creativesArr = Array.isArray(allCreatives) ? allCreatives : [];
 
 
