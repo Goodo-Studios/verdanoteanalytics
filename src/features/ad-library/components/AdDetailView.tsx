@@ -357,6 +357,75 @@ export function AdDetailView({ adId, onBack }: Props) {
             />
           </div>
 
+          {/* Video Transcript */}
+          {isVideo && (
+            <div className="space-y-1.5">
+              <Label className="text-[11px] text-muted-foreground font-label flex items-center gap-1.5">
+                <Captions className="h-3 w-3" /> Video Transcript
+              </Label>
+              {((ad as any).transcript_status === "processing" || isTranscribing) && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Transcribing video...
+                </div>
+              )}
+              {(ad as any).transcript_status === "completed" && transcript && !isTranscribing && (
+                <div className="space-y-2">
+                  <div className="bg-muted/40 border border-border rounded-md p-3">
+                    <Textarea
+                      value={transcript}
+                      onChange={(e) => setTranscript(e.target.value)}
+                      onBlur={() => transcript !== ((ad as any).transcript || "") && saveField("transcript", transcript)}
+                      rows={5}
+                      className="text-xs bg-transparent border-0 p-0 resize-none focus-visible:ring-0 leading-relaxed"
+                      placeholder="Transcript text..."
+                    />
+                  </div>
+                  <div className="flex gap-1.5">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-[11px] gap-1"
+                      onClick={() => {
+                        navigator.clipboard.writeText(transcript);
+                        toast.success("Transcript copied");
+                      }}
+                    >
+                      <Copy className="h-3 w-3" /> Copy Transcript
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-[11px] gap-1"
+                      onClick={triggerTranscription}
+                      disabled={isTranscribing}
+                    >
+                      <RefreshCw className="h-3 w-3" /> Re-transcribe
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {(ad as any).transcript_status === "failed" && !isTranscribing && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-destructive">Transcription failed</span>
+                  <Button variant="outline" size="sm" className="h-7 text-[11px] gap-1" onClick={triggerTranscription}>
+                    <RefreshCw className="h-3 w-3" /> Retry
+                  </Button>
+                </div>
+              )}
+              {((ad as any).transcript_status === "none" || !(ad as any).transcript_status) && !isTranscribing && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs gap-1.5 w-full"
+                  onClick={triggerTranscription}
+                >
+                  <Captions className="h-3.5 w-3.5" /> Transcribe Video
+                </Button>
+              )}
+            </div>
+          )}
+
           <Separator />
 
           {/* Metadata */}
