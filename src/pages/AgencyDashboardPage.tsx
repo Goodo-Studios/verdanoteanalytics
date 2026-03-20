@@ -95,12 +95,15 @@ export default function AgencyDashboardPage() {
   const creativesArr = Array.isArray(allCreatives) ? allCreatives : [];
 
 
-  // Portfolio metrics
+  // Portfolio metrics — use daily metrics for MTD ROAS (not lifetime creatives totals)
   const portfolioMetrics = useMemo(() => {
     const activeCreatives = creativesArr.filter((c: any) => (Number(c.spend) || 0) > 0);
-    const totalSpend = activeCreatives.reduce((s, c: any) => s + (Number(c.spend) || 0), 0);
-    const totalRevenue = activeCreatives.reduce((s, c: any) => s + (Number(c.purchase_value) || 0), 0);
-    const portfolioRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
+    // Sum MTD spend and revenue from daily metrics for accurate ROAS
+    let mtdTotalSpend = 0;
+    let mtdTotalRevenue = 0;
+    for (const [, v] of perAccountSpend) mtdTotalSpend += v;
+    for (const [, v] of perAccountRevenue) mtdTotalRevenue += v;
+    const portfolioRoas = mtdTotalSpend > 0 ? mtdTotalRevenue / mtdTotalSpend : 0;
     const aboveScale = activeCreatives.filter((c: any) => (Number(c.roas) || 0) >= 2.0).length;
     const winRate = activeCreatives.length > 0 ? aboveScale / activeCreatives.length : 0;
 
@@ -110,7 +113,7 @@ export default function AgencyDashboardPage() {
       activeCreatives: activeCreatives.length,
       winRate,
     };
-  }, [creativesArr, portfolioMtdSpend]);
+  }, [creativesArr, portfolioMtdSpend, perAccountSpend, perAccountRevenue]);
 
   // Sort accounts: needs attention first, then by MTD spend descending
   const sortedAccounts = useMemo(() => {
