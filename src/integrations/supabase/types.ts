@@ -226,165 +226,244 @@ export type Database = {
         }
         Relationships: []
       }
-      ad_library_collection_items: {
+      ad_library_ad_tags: {
         Row: {
-          added_at: string
-          collection_id: string
-          id: string
-          position: number | null
-          saved_ad_id: string
+          ad_id: string
+          tag_id: string
         }
         Insert: {
-          added_at?: string
-          collection_id: string
-          id?: string
-          position?: number | null
-          saved_ad_id: string
+          ad_id: string
+          tag_id: string
         }
         Update: {
-          added_at?: string
-          collection_id?: string
-          id?: string
-          position?: number | null
-          saved_ad_id?: string
+          ad_id?: string
+          tag_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "ad_library_collection_items_collection_id_fkey"
-            columns: ["collection_id"]
-            isOneToOne: false
-            referencedRelation: "ad_library_collections"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ad_library_collection_items_saved_ad_id_fkey"
-            columns: ["saved_ad_id"]
+            foreignKeyName: "ad_library_ad_tags_ad_id_fkey"
+            columns: ["ad_id"]
             isOneToOne: false
             referencedRelation: "ad_library_saved_ads"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "ad_library_ad_tags_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "ad_library_tags"
+            referencedColumns: ["id"]
+          },
         ]
       }
-      ad_library_collections: {
+      ad_library_board_ads: {
         Row: {
-          account_id: string | null
+          ad_id: string
+          added_at: string
+          board_id: string
+          id: string
+          position: number | null
+        }
+        Insert: {
+          ad_id: string
+          added_at?: string
+          board_id: string
+          id?: string
+          position?: number | null
+        }
+        Update: {
+          ad_id?: string
+          added_at?: string
+          board_id?: string
+          id?: string
+          position?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ad_library_board_ads_ad_id_fkey"
+            columns: ["ad_id"]
+            isOneToOne: false
+            referencedRelation: "ad_library_saved_ads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ad_library_board_ads_board_id_fkey"
+            columns: ["board_id"]
+            isOneToOne: false
+            referencedRelation: "ad_library_boards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ad_library_boards: {
+        Row: {
+          cover_image_url: string | null
+          created_at: string
+          description: string | null
+          folder_id: string | null
+          id: string
+          is_public: boolean | null
+          name: string
+          share_token: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cover_image_url?: string | null
+          created_at?: string
+          description?: string | null
+          folder_id?: string | null
+          id?: string
+          is_public?: boolean | null
+          name: string
+          share_token?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cover_image_url?: string | null
+          created_at?: string
+          description?: string | null
+          folder_id?: string | null
+          id?: string
+          is_public?: boolean | null
+          name?: string
+          share_token?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ad_library_boards_folder_id_fkey"
+            columns: ["folder_id"]
+            isOneToOne: false
+            referencedRelation: "ad_library_folders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ad_library_folders: {
+        Row: {
           color: string | null
           created_at: string
-          created_by: string
           description: string | null
           id: string
           name: string
           updated_at: string
+          user_id: string
         }
         Insert: {
-          account_id?: string | null
           color?: string | null
           created_at?: string
-          created_by: string
           description?: string | null
           id?: string
           name: string
           updated_at?: string
+          user_id: string
         }
         Update: {
-          account_id?: string | null
           color?: string | null
           created_at?: string
-          created_by?: string
           description?: string | null
           id?: string
           name?: string
           updated_at?: string
+          user_id?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "ad_library_collections_account_id_fkey"
-            columns: ["account_id"]
-            isOneToOne: false
-            referencedRelation: "ad_accounts"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       ad_library_saved_ads: {
         Row: {
-          account_id: string | null
-          ad_archive_id: string | null
+          ad_format: string | null
+          ad_id: string | null
+          ad_status: string | null
+          advertiser_name: string | null
+          advertiser_page_id: string | null
           body_text: string | null
-          brand_name: string | null
+          country_targeting: string[] | null
           created_at: string
-          created_by: string
-          cta_type: string | null
+          cta_text: string | null
           headline: string | null
           id: string
-          is_active: boolean | null
           landing_page_url: string | null
-          media_type: string | null
+          media_urls: string[] | null
           notes: string | null
-          page_id: string | null
           platform: string | null
-          source: string
+          raw_data: Json | null
+          source_url: string
           started_running: string | null
-          tags: string[] | null
           thumbnail_url: string | null
           updated_at: string
-          video_url: string | null
+          user_id: string
         }
         Insert: {
-          account_id?: string | null
-          ad_archive_id?: string | null
+          ad_format?: string | null
+          ad_id?: string | null
+          ad_status?: string | null
+          advertiser_name?: string | null
+          advertiser_page_id?: string | null
           body_text?: string | null
-          brand_name?: string | null
+          country_targeting?: string[] | null
           created_at?: string
-          created_by: string
-          cta_type?: string | null
+          cta_text?: string | null
           headline?: string | null
           id?: string
-          is_active?: boolean | null
           landing_page_url?: string | null
-          media_type?: string | null
+          media_urls?: string[] | null
           notes?: string | null
-          page_id?: string | null
           platform?: string | null
-          source?: string
+          raw_data?: Json | null
+          source_url: string
           started_running?: string | null
-          tags?: string[] | null
           thumbnail_url?: string | null
           updated_at?: string
-          video_url?: string | null
+          user_id: string
         }
         Update: {
-          account_id?: string | null
-          ad_archive_id?: string | null
+          ad_format?: string | null
+          ad_id?: string | null
+          ad_status?: string | null
+          advertiser_name?: string | null
+          advertiser_page_id?: string | null
           body_text?: string | null
-          brand_name?: string | null
+          country_targeting?: string[] | null
           created_at?: string
-          created_by?: string
-          cta_type?: string | null
+          cta_text?: string | null
           headline?: string | null
           id?: string
-          is_active?: boolean | null
           landing_page_url?: string | null
-          media_type?: string | null
+          media_urls?: string[] | null
           notes?: string | null
-          page_id?: string | null
           platform?: string | null
-          source?: string
+          raw_data?: Json | null
+          source_url?: string
           started_running?: string | null
-          tags?: string[] | null
           thumbnail_url?: string | null
           updated_at?: string
-          video_url?: string | null
+          user_id?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "ad_library_saved_ads_account_id_fkey"
-            columns: ["account_id"]
-            isOneToOne: false
-            referencedRelation: "ad_accounts"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
+      }
+      ad_library_tags: {
+        Row: {
+          color: string | null
+          id: string
+          name: string
+          user_id: string
+        }
+        Insert: {
+          color?: string | null
+          id?: string
+          name: string
+          user_id: string
+        }
+        Update: {
+          color?: string | null
+          id?: string
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       ai_conversations: {
         Row: {
@@ -2294,6 +2373,8 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      ad_is_on_public_board: { Args: { _ad_id: string }; Returns: boolean }
+      board_is_public: { Args: { _board_id: string }; Returns: boolean }
       bulk_update_creative_metadata: {
         Args: { payload: Json }
         Returns: number
@@ -2315,6 +2396,8 @@ export type Database = {
         }
         Returns: boolean
       }
+      owns_ad_library_ad: { Args: { _ad_id: string }; Returns: boolean }
+      owns_ad_library_board: { Args: { _board_id: string }; Returns: boolean }
       snapshot_prior_roas: { Args: { _account_id: string }; Returns: number }
       trigger_media_refresh: { Args: never; Returns: undefined }
     }
