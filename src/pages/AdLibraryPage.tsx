@@ -13,9 +13,12 @@ import { AdLibraryFoldersView } from "@/components/ad-library/AdLibraryFoldersVi
 import { AdLibraryTagsView } from "@/components/ad-library/AdLibraryTagsView";
 import { AdDetailView } from "@/components/ad-library/AdDetailView";
 import { AdLibrarySearch } from "@/components/ad-library/AdLibrarySearch";
+import { BookmarkletSetup } from "@/components/ad-library/BookmarkletSetup";
 import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import { Plus, Download } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function AdLibraryPage() {
   const [selectedBoardId, setSelectedBoardId] = useState<string | null>(null);
@@ -23,7 +26,7 @@ export default function AdLibraryPage() {
   const [selectedAd, setSelectedAd] = useState<AdLibrarySavedAd | null>(null);
   const [viewingBoardId, setViewingBoardId] = useState<string | null>(null);
   const [viewingAdId, setViewingAdId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"all" | "boards" | "folders" | "tags">("all");
+  const [tab, setTab] = useState<"all" | "boards" | "folders" | "tags" | "setup">("all");
 
   const { data: ads = [], isLoading } = useSavedAds({
     board_id: selectedBoardId || undefined,
@@ -38,6 +41,66 @@ export default function AdLibraryPage() {
   const handleViewDetails = useCallback((ad: AdLibrarySavedAd) => {
     setViewingAdId(ad.id);
     setSelectedAd(null);
+  }, []);
+
+  const handleExport = useCallback(async () => {
+    try {
+      // Fetch all ads with tags and board assignments
+      const { data: allAds } = await supabase
+        .from("ad_library_saved_ads" as any)
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      const { data: allTags } = await supabase
+        .from("ad_library_ad_tags" as any)
+        .select("ad_id, tag_id");
+
+      const { data: tagList } = await supabase
+        .from("ad_library_tags" as any)
+        .select("*");
+
+      const { data: boardAds } = await supabase
+        .from("ad_library_board_ads" as any)
+        .select("ad_id, board_id");
+
+      const { data: boardList } = await supabase
+        .from("ad_library_boards" as any)
+        .select("id, name");
+
+      const tagLookup: Record<string, string> = {};
+      (tagList || []).forEach((t: any) => { tagLookup[t.id] = t.name; });
+      const boardLookup: Record<string, string> = {};
+      (boardList || []).forEach((b: any) => { boardLookup[b.id] = b.name; });
+
+      const tagsByAd: Record<string, string[]> = {};
+      (allTags || []).forEach((at: any) => {
+        if (!tagsByAd[at.ad_id]) tagsByAd[at.ad_id] = [];
+        if (tagLookup[at.tag_id]) tagsByAd[at.ad_id].push(tagLookup[at.tag_id]);
+      });
+
+      const boardsByAd: Record<string, string[]> = {};
+      (boardAds || []).forEach((ba: any) => {
+        if (!boardsByAd[ba.ad_id]) boardsByAd[ba.ad_id] = [];
+        if (boardLookup[ba.board_id]) boardsByAd[ba.ad_id].push(boardLookup[ba.board_id]);
+      });
+
+      const exportData = (allAds || []).map((ad: any) => ({
+        ...ad,
+        tags: tagsByAd[ad.id] || [],
+        boards: boardsByAd[ad.id] || [],
+      }));
+
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `ad-library-export-${new Date().toISOString().split("T")[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${exportData.length} ads`);
+    } catch (e: any) {
+      toast.error("Export failed: " + e.message);
+    }
   }, []);
 
   // Keyboard shortcuts — scoped to Ad Library
@@ -133,6 +196,7 @@ export default function AdLibraryPage() {
                   <TabsTrigger value="boards" className="text-xs px-3 h-7">Boards</TabsTrigger>
                   <TabsTrigger value="folders" className="text-xs px-3 h-7">Folders</TabsTrigger>
                   <TabsTrigger value="tags" className="text-xs px-3 h-7">Tags</TabsTrigger>
+                  <TabsTrigger value="setup" className="text-xs px-3 h-7">Quick Save</TabsTrigger>
                 </TabsList>
               </Tabs>
               {tab === "all" && (
@@ -141,6 +205,9 @@ export default function AdLibraryPage() {
                   className="flex-1 max-w-sm"
                 />
               )}
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport}>
+                <Download className="h-3.5 w-3.5" /> Export
+              </Button>
               <Button onClick={() => setShowSaveModal(true)} size="sm" className="gap-1.5">
                 <Plus className="h-3.5 w-3.5" /> Save Ad
               </Button>
@@ -174,6 +241,11 @@ export default function AdLibraryPage() {
             )}
             {tab === "tags" && (
               <AdLibraryTagsView />
+            )}
+            {tab === "setup" && (
+              <div className="max-w-xl">
+                <BookmarkletSetup />
+              </div>
             )}
           </div>
         </div>
