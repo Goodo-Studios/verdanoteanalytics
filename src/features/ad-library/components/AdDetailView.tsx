@@ -379,6 +379,39 @@ export function AdDetailView({ adId, onBack }: Props) {
             )}
           </div>
 
+          {/* Missing creative warning */}
+          {looksLikeProfilePic(ad) && (
+            <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
+              <div className="text-xs text-muted-foreground flex-1">
+                <p className="font-medium text-foreground">Only a thumbnail was captured for this ad</p>
+                <p className="mt-0.5">The saved image may be a brand logo instead of the actual ad creative. Re-fetch to get the real media, or upload it manually.</p>
+                <div className="flex gap-2 mt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-[11px] gap-1"
+                    onClick={handleRefetchMedia}
+                    disabled={isRefetching || isFakeSourceUrl(ad.source_url)}
+                  >
+                    {isRefetching ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                    Re-fetch Media
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-[11px] gap-1"
+                    onClick={() => uploadInputRef.current?.click()}
+                    disabled={isUploadingCreative}
+                  >
+                    {isUploadingCreative ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                    Upload Creative
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Failed media warning */}
           {failedMedia.length > 0 && (
             <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 flex items-start gap-2">
@@ -389,6 +422,19 @@ export function AdDetailView({ adId, onBack }: Props) {
               </div>
             </div>
           )}
+
+          {/* Hidden file input for upload creative */}
+          <input
+            ref={uploadInputRef}
+            type="file"
+            accept="image/*,video/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleUploadCreative(file);
+              e.target.value = "";
+            }}
+          />
 
           {/* CTA preview */}
           {ad.cta_text && (
