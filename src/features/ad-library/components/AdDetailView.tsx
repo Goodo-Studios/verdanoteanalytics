@@ -122,6 +122,61 @@ export function AdDetailView({ adId, onBack }: Props) {
     finally { setIsTranscribing(false); }
   }, [ad, qc]);
 
+  const handleRefetchMedia = useCallback(async () => {
+    if (!ad || !ad.source_url || isFakeSourceUrl(ad.source_url)) {
+      toast.error("No valid source URL to re-fetch from");
+      return;
+    }
+    setIsRefetching(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("scrape-ad", { body: { url: ad.source_url } });
+      if (error) throw error;
+      if (data?.success && data.data) {
+        const updates: any = {};
+        if (data.data.stored_media?.length) updates.stored_media = data.data.stored_media;
+        if (data.data.thumbnail_url) updates.thumbnail_url = data.data.thumbnail_url;
+        if (data.data.media_urls?.length) updates.media_urls = data.data.media_urls;
+        if (data.data.ad_format) updates.ad_format = data.data.ad_format;
+        if (Object.keys(updates).length > 0) {
+          updateAd.mutate({ id: ad.id, ...updates } as any);
+          qc.invalidateQueries({ queryKey: ["ad-library-saved-ads"] });
+          toast.success("Media re-fetched successfully");
+        } else {
+          toast.info("No new media found");
+        }
+      } else {
+        toast.error(data?.error || "Re-fetch failed — Facebook may have blocked the request");
+      }
+    } catch (e: any) { toast.error("Re-fetch failed: " + e.message); }
+    finally { setIsRefetching(false); }
+  }, [ad, updateAd, qc]);
+
+  const handleUploadCreative = useCallback(async (file: File) => {
+    if (!ad || !user) return;
+    setIsUploadingCreative(true);
+    try {
+      const ext = file.name.split(".").pop() || "jpg";
+      const isVid = file.type.startsWith("video/");
+      const existingMedia: any[] = (ad as any).stored_media || [];
+      const position = existingMedia.length;
+      const mediaType = isVid ? "video" : "image";
+      const path = `${user.id}/${ad.id.slice(0, 8)}/${position}_${mediaType}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage.from("ad-media").upload(path, file, { upsert: true });
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage.from("ad-media").getPublicUrl(path);
+      const newItem = { original_url: "", stored_url: urlData.publicUrl, type: mediaType, mime_type: file.type, file_size_bytes: file.size, position };
+      const newMedia = [...existingMedia, newItem];
+
+      updateAd.mutate({ id: ad.id, stored_media: newMedia, thumbnail_url: urlData.publicUrl, ad_format: isVid ? "video" : ad.ad_format } as any);
+      qc.invalidateQueries({ queryKey: ["ad-library-saved-ads"] });
+      toast.success(`${isVid ? "Video" : "Image"} uploaded successfully`);
+    } catch (e: any) { toast.error("Upload failed: " + e.message); }
+    finally { setIsUploadingCreative(false); }
+  }, [ad, user, updateAd, qc]);
+
+
   if (!ad) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
