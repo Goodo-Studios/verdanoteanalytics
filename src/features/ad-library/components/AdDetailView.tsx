@@ -47,6 +47,20 @@ interface Props {
 
 const platformIcon: Record<string, typeof Facebook> = { facebook: Facebook, instagram: Instagram };
 
+/** Heuristic: does the thumbnail look like a profile pic / logo? */
+function looksLikeProfilePic(ad: any): boolean {
+  const storedMedia = (ad.stored_media || []) as any[];
+  const successfulMedia = storedMedia.filter((m: any) => !m.download_failed && m.stored_url);
+  // If we have proper stored media with videos or large files, it's fine
+  if (successfulMedia.some((m: any) => m.type === "video" || m.file_size_bytes > 50000)) return false;
+  // If no stored media and thumbnail URL looks like a profile pic
+  const thumb = ad.thumbnail_url || "";
+  if (/\/profile|\/avatar|\/logo|page_picture|p\d{2,3}x\d{2,3}|s\d{2,3}x\d{2,3}/i.test(thumb)) return true;
+  // If stored media is empty and no media_urls
+  if (successfulMedia.length === 0 && (!ad.media_urls || ad.media_urls.length === 0)) return true;
+  return false;
+}
+
 const isVideoUrl = (url: string) => /\.(mp4|webm|mov|m3u8|avi)(\?|$)/i.test(url);
 const isFakeSourceUrl = (url: string) => /^https:\/\/tryatria\.com\/saved\//i.test(url);
 
