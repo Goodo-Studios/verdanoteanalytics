@@ -4,6 +4,9 @@ import { AdCard } from "./AdCard";
 import { BulkActionBar } from "./BulkActionBar";
 import { Library } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 interface AdGridProps {
   ads: AdLibrarySavedAd[];
