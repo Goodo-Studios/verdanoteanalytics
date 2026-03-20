@@ -32,6 +32,7 @@ import {
 import {
   ArrowLeft, ExternalLink, Copy, Trash2, Calendar, Globe, Image, Video, Layers,
   Facebook, Instagram, ChevronLeft, ChevronRight, LayoutGrid, X, ZoomIn,
+  Loader2, RefreshCw, Captions,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
