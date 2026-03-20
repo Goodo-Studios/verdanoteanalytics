@@ -151,7 +151,7 @@ export function AdCard({
         }}
       >
         {/* Thumbnail / Placeholder */}
-        <div className="relative aspect-[4/3] bg-muted overflow-hidden">
+        <div className={cn("relative aspect-[4/3] bg-muted overflow-hidden", missingCreative && "border-2 border-dashed border-destructive/30")}>
           {/* Selection checkbox */}
           {(selectable || selected) && (
             <button
