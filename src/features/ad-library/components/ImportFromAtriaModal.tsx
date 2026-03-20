@@ -359,13 +359,17 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
                 <div className="flex items-center gap-3">
                   <a
                     href={bookmarkletCode}
-                    onClick={(e) => e.preventDefault()}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      void handleCopyBookmarklet();
+                    }}
                     draggable
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium cursor-grab active:cursor-grabbing shadow-sm hover:opacity-90 transition-opacity"
+                    title="Drag to bookmarks bar, or click to copy the bookmarklet code"
                   >
                     <Globe className="h-4 w-4" /> Export from Atria
                   </a>
-                  <span className="text-xs text-muted-foreground">← Drag this to your bookmarks bar</span>
+                  <span className="text-xs text-muted-foreground">← Drag this to your bookmarks bar, or click to copy</span>
                 </div>
                 <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={handleCopyBookmarklet}>
                   {bookmarkletCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
