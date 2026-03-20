@@ -170,9 +170,11 @@ export function AdDetailView({ adId, onBack }: Props) {
         <div className="flex-1 min-w-0">
           <h2 className="font-heading text-lg text-foreground truncate">{ad.advertiser_name || "Ad Detail"}</h2>
         </div>
-        <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => window.open(ad.source_url, "_blank")}>
-          <ExternalLink className="h-3.5 w-3.5" /> View Original
-        </Button>
+        {ad.source_url && !isFakeSourceUrl(ad.source_url) && (
+          <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => window.open(ad.source_url, "_blank")}>
+            <ExternalLink className="h-3.5 w-3.5" /> View Original
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
