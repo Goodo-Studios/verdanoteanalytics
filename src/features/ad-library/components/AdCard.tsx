@@ -103,6 +103,7 @@ export function AdCard({
   const FormatIcon = formatIcon[ad.ad_format || "image"] || Image;
   const adTagIds = new Set((ad.tags || []).map((t) => t.id));
   const initial = (ad.advertiser_name || "A")[0].toUpperCase();
+  const hasTranscript = (ad as any).transcript_status === "completed";
 
   const handleCopyLandingPage = (e: React.MouseEvent) => {
     e.stopPropagation();
