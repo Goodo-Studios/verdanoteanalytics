@@ -31,6 +31,7 @@ import {
   Check,
   LayoutGrid,
   Tag,
+  Video,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -51,6 +52,15 @@ interface SaveAdModalProps {
   defaultBoardId?: string;
 }
 
+interface StoredMediaLocal {
+  stored_url: string;
+  type: "image" | "video" | "carousel_frame";
+  mime_type: string;
+  file_size_bytes: number;
+  position: number;
+  original_url: string;
+}
+
 interface FormState {
   source_url: string;
   advertiser_name: string;
@@ -68,6 +78,7 @@ interface FormState {
   media_urls: string[];
   country_targeting: string[];
   raw_data: Record<string, unknown> | null;
+  stored_media: StoredMediaLocal[];
 }
 
 const INITIAL_FORM: FormState = {
@@ -87,6 +98,7 @@ const INITIAL_FORM: FormState = {
   media_urls: [],
   country_targeting: [],
   raw_data: null,
+  stored_media: [],
 };
 
 export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProps) {
@@ -168,6 +180,7 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
           media_urls: result.data!.media_urls || [],
           country_targeting: result.data!.country_targeting || [],
           raw_data: data.data || null,
+          stored_media: (data.data as any)?.stored_media || [],
         }));
         toast.success("Ad data fetched — review and save");
       } else {
@@ -191,18 +204,52 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
     setIsUploading(true);
     try {
       const ext = file.name.split(".").pop() || "jpg";
-      const path = `${user.id}/${Date.now()}.${ext}`;
+      const isVid = file.type.startsWith("video/");
+      const position = form.stored_media.length;
+      const tempId = Date.now().toString(36);
+      const mediaType: "image" | "video" | "carousel_frame" = isVid
+        ? "video"
+        : form.stored_media.filter(m => m.type === "image" || m.type === "carousel_frame").length > 0
+          ? "carousel_frame"
+          : "image";
+
+      const path = `${user.id}/${tempId}/${position}_${mediaType}.${ext}`;
       const { error: uploadError } = await supabase.storage
         .from("ad-media")
         .upload(path, file, { upsert: true });
       if (uploadError) throw uploadError;
 
-      const { data: urlData } = supabase.storage
-        .from("ad-media")
-        .getPublicUrl(path);
+      const { data: urlData } = supabase.storage.from("ad-media").getPublicUrl(path);
+      const publicUrl = urlData.publicUrl;
 
-      set("thumbnail_url", urlData.publicUrl);
-      toast.success("Image uploaded");
+      const newItem: StoredMediaLocal = {
+        stored_url: publicUrl,
+        type: mediaType,
+        mime_type: file.type,
+        file_size_bytes: file.size,
+        position,
+        original_url: "",
+      };
+
+      setForm(prev => {
+        const newMedia = [...prev.stored_media, newItem];
+        // Auto-upgrade format if multiple images
+        const imageCount = newMedia.filter(m => m.type !== "video").length;
+        const hasVideo = newMedia.some(m => m.type === "video");
+        // Re-label earlier "image" entries as "carousel_frame" if now > 1
+        if (imageCount > 1) {
+          newMedia.forEach(m => { if (m.type === "image") m.type = "carousel_frame"; });
+        }
+        const autoFormat = hasVideo ? "video" : imageCount > 1 ? "carousel" : "image";
+
+        return {
+          ...prev,
+          stored_media: newMedia,
+          thumbnail_url: prev.thumbnail_url || publicUrl,
+          ad_format: autoFormat,
+        };
+      });
+      toast.success(`${isVid ? "Video" : "Image"} uploaded`);
     } catch (e: any) {
       toast.error("Upload failed: " + e.message);
     } finally {
@@ -213,17 +260,19 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
   const handleFileDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
-      const file = e.dataTransfer.files[0];
-      if (file && (file.type.startsWith("image/") || file.type.startsWith("video/"))) {
-        uploadFile(file);
+      const files = Array.from(e.dataTransfer.files);
+      for (const file of files) {
+        if (file.type.startsWith("image/") || file.type.startsWith("video/")) {
+          uploadFile(file);
+        }
       }
     },
-    [user]
+    [user, form.stored_media.length]
   );
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) uploadFile(file);
+    const files = Array.from(e.target.files || []);
+    for (const file of files) uploadFile(file);
   };
 
   const handlePasteFromClipboard = async () => {
@@ -316,6 +365,7 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
           country_targeting: form.country_targeting,
           raw_data: form.raw_data,
           notes: form.notes || null,
+          stored_media: form.stored_media,
         } as any)
         .select()
         .single();
@@ -566,42 +616,78 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
 
           {/* Tab 2: Enter Manually */}
           <TabsContent value="manual" className="space-y-4">
-            {/* Screenshot upload zone */}
-            {!form.thumbnail_url && (
-              <div
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={handleFileDrop}
-                onClick={() => fileInputRef.current?.click()}
-                className={cn(
-                  "border-2 border-dashed border-border rounded-lg p-6 text-center cursor-pointer",
-                  "hover:border-primary/40 hover:bg-primary/5 transition-colors",
-                  isUploading && "opacity-50 pointer-events-none"
-                )}
-              >
-                {isUploading ? (
-                  <Loader2 className="h-8 w-8 text-muted-foreground mx-auto animate-spin" />
-                ) : (
-                  <Upload className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                )}
-                <p className="text-sm text-muted-foreground font-body">
-                  {isUploading
-                    ? "Uploading..."
-                    : "Drag & drop a screenshot, or click to browse"}
-                </p>
-                <p className="text-xs text-muted-foreground/60 mt-1">
-                  Images (PNG, JPG) or short videos (MP4, WebM)
-                </p>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*,video/mp4,video/webm"
-                  className="hidden"
-                  onChange={handleFileSelect}
-                />
+            {/* Uploaded media previews */}
+            {form.stored_media.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Uploaded Media ({form.stored_media.length})</Label>
+                <div className="flex gap-2 flex-wrap">
+                  {form.stored_media.map((m, i) => (
+                    <div key={i} className="relative rounded-md overflow-hidden border border-border w-20 h-20">
+                      {m.type === "video" ? (
+                        <div className="h-full w-full bg-muted flex items-center justify-center">
+                          <Video className="h-6 w-6 text-muted-foreground" />
+                        </div>
+                      ) : (
+                        <img src={m.stored_url} alt="" className="h-full w-full object-cover" />
+                      )}
+                      <button
+                        onClick={() => {
+                          setForm(prev => ({
+                            ...prev,
+                            stored_media: prev.stored_media.filter((_, idx) => idx !== i),
+                            thumbnail_url: i === 0 ? (prev.stored_media[1]?.stored_url || "") : prev.thumbnail_url,
+                          }));
+                        }}
+                        className="absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-card/80 flex items-center justify-center hover:bg-card"
+                      >
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                      <div className="absolute bottom-0.5 left-0.5 text-[8px] font-label bg-foreground/60 text-background px-1 rounded">
+                        {m.type === "video" ? "VID" : m.type === "carousel_frame" ? `#${i + 1}` : "IMG"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
-            {!form.thumbnail_url && (
+            {/* Upload zone — always show for adding more */}
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleFileDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={cn(
+                "border-2 border-dashed border-border rounded-lg p-6 text-center cursor-pointer",
+                "hover:border-primary/40 hover:bg-primary/5 transition-colors",
+                isUploading && "opacity-50 pointer-events-none"
+              )}
+            >
+              {isUploading ? (
+                <Loader2 className="h-8 w-8 text-muted-foreground mx-auto animate-spin" />
+              ) : (
+                <Upload className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+              )}
+              <p className="text-sm text-muted-foreground font-body">
+                {isUploading
+                  ? "Uploading..."
+                  : form.stored_media.length > 0
+                    ? "Add another image or video"
+                    : "Drag & drop files, or click to browse"}
+              </p>
+              <p className="text-xs text-muted-foreground/60 mt-1">
+                Images (PNG, JPG) or videos (MP4, WebM) — up to 100MB. Add multiple images for carousel.
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/mp4,video/webm,video/quicktime"
+                multiple
+                className="hidden"
+                onChange={handleFileSelect}
+              />
+            </div>
+
+            {form.stored_media.length === 0 && (
               <Button
                 variant="outline"
                 size="sm"

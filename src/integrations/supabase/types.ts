@@ -392,6 +392,7 @@ export type Database = {
           raw_data: Json | null
           source_url: string
           started_running: string | null
+          stored_media: Json
           thumbnail_url: string | null
           transcript: string | null
           transcript_status: string
@@ -417,6 +418,7 @@ export type Database = {
           raw_data?: Json | null
           source_url: string
           started_running?: string | null
+          stored_media?: Json
           thumbnail_url?: string | null
           transcript?: string | null
           transcript_status?: string
@@ -442,6 +444,7 @@ export type Database = {
           raw_data?: Json | null
           source_url?: string
           started_running?: string | null
+          stored_media?: Json
           thumbnail_url?: string | null
           transcript?: string | null
           transcript_status?: string

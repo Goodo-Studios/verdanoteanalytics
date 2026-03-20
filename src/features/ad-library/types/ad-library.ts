@@ -30,6 +30,20 @@ export interface AdLibraryBoard {
 }
 
 /** A saved ad from Facebook Ad Library or manually added */
+/** A single stored media file in Supabase Storage */
+export interface StoredMediaItem {
+  original_url: string;
+  stored_url: string;
+  type: "image" | "video" | "carousel_frame";
+  mime_type: string;
+  file_size_bytes: number;
+  width?: number;
+  height?: number;
+  position: number;
+  download_failed?: boolean;
+}
+
+/** A saved ad from Facebook Ad Library or manually added */
 export interface AdLibrarySavedAd {
   id: string;
   user_id: string;
@@ -52,6 +66,7 @@ export interface AdLibrarySavedAd {
   notes: string | null;
   transcript: string | null;
   transcript_status: "none" | "processing" | "completed" | "failed";
+  stored_media: StoredMediaItem[];
   created_at: string;
   updated_at: string;
   /** Joined client-side */

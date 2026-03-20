@@ -104,6 +104,11 @@ export function AdCard({
   const adTagIds = new Set((ad.tags || []).map((t) => t.id));
   const initial = (ad.advertiser_name || "A")[0].toUpperCase();
   const hasTranscript = (ad as any).transcript_status === "completed";
+  const storedMedia = ((ad as any).stored_media || []) as { type: string; download_failed?: boolean; stored_url?: string }[];
+  const successfulStored = storedMedia.filter(m => !m.download_failed && m.stored_url);
+  const hasStoredVideo = successfulStored.some(m => m.type === "video");
+  const hasStoredCarousel = successfulStored.filter(m => m.type === "carousel_frame").length > 1;
+  const carouselCount = successfulStored.filter(m => m.type === "carousel_frame").length;
 
   const handleCopyLandingPage = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -172,11 +177,31 @@ export function AdCard({
 
           {/* CC badge for transcribed videos */}
           {hasTranscript && (
-            <div className="absolute bottom-2 right-2 z-10 h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
+            <div className="absolute bottom-2 right-10 z-10 h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
               <Captions className="h-3 w-3" />
               <span className="text-[9px] font-label font-semibold">CC</span>
             </div>
           )}
+
+          {/* Media type indicator */}
+          <div className="absolute bottom-2 right-2 z-10 flex gap-1">
+            {hasStoredVideo && (
+              <div className="h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
+                <Video className="h-3 w-3" />
+              </div>
+            )}
+            {hasStoredCarousel && carouselCount > 0 && (
+              <div className="h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
+                <Layers className="h-3 w-3" />
+                <span className="text-[9px] font-label font-semibold">{carouselCount}</span>
+              </div>
+            )}
+            {!hasStoredVideo && !hasStoredCarousel && successfulStored.length > 0 && (
+              <div className="h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
+                <Image className="h-3 w-3" />
+              </div>
+            )}
+          </div>
 
           {/* Hover three-dot menu */}
           <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
