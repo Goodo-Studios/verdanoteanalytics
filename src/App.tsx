@@ -121,6 +121,7 @@ function RoleGuardedRoutes() {
           <Route path="/briefs" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <BriefsPage />} />
           
           <Route path="/pipeline" element={<ContentPipelinePage />} />
+          <Route path="/ad-library" element={isBuilder ? <AdLibraryPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>
