@@ -97,6 +97,7 @@ const INITIAL_FORM: FormState = {
   media_urls: [],
   country_targeting: [],
   raw_data: null,
+  stored_media: [],
 };
 
 export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProps) {
