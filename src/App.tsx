@@ -155,6 +155,11 @@ const App = () => {
                       <PublicBriefPage />
                     </Suspense>
                   } />
+                  <Route path="/shared/ad-board/:shareToken" element={
+                    <Suspense fallback={<PageFallback />}>
+                      <SharedAdBoardPage />
+                    </Suspense>
+                  } />
                   
                   {/* Root → redirect to role prefix */}
                   <Route path="/" element={<RoleRedirect />} />
