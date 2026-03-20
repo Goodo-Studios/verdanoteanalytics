@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo } from "react";
 import { useRoleNavigate } from "@/hooks/useRolePath";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
@@ -6,123 +6,49 @@ import { Button } from "@/components/ui/button";
 
 import {
   Building2, Zap, FileEdit, RefreshCw, TrendingUp, TrendingDown,
-  AlertTriangle, Trophy, ExternalLink,
+  AlertTriangle, Trophy,
 } from "lucide-react";
 import { useAccountContext } from "@/contexts/AccountContext";
-import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { useWoWTrends } from "@/hooks/useWoWTrends";
-import { useMtdSpend } from "@/hooks/useMtdSpend";
 import { useSync } from "@/hooks/useSyncApi";
 import { computeFatigue } from "@/lib/fatigueScore";
 
 import { cn } from "@/lib/utils";
-import { supabase } from "@/integrations/supabase/client";
-import { useQuery } from "@tanstack/react-query";
 import { fmt$, fmtSignedPct } from "@/lib/formatters";
+import { useAgencyDashboardData } from "@/hooks/useAgencyDashboardData";
 
 export default function AgencyDashboardPage() {
   const navigate = useRoleNavigate();
   const { accounts, setSelectedAccountId } = useAccountContext();
-  const { data: allCreatives = [] } = useAllCreatives({});
   const { data: wowTrends } = useWoWTrends();
-  const { data: portfolioMtdSpend = 0 } = useMtdSpend();
   const sync = useSync();
+  const { data: agencyData } = useAgencyDashboardData(accounts);
 
+  const creativesArr = agencyData?.creatives ?? [];
+  const perAccountSpend = agencyData?.perAccountSpend ?? new Map<string, number>();
+  const perAccountRevenue = agencyData?.perAccountRevenue ?? new Map<string, number>();
+  const priorMonthSpend = agencyData?.priorMonthSpend ?? new Map<string, number>();
+  const activeByAccount = agencyData?.activeByAccount ?? new Map<string, number>();
 
-  const { data: perAccountData = { spend: new Map<string, number>(), revenue: new Map<string, number>() } } = useQuery({
-    queryKey: ["agency-per-account-spend"],
-    queryFn: async () => {
-      const now = new Date();
-      const firstOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-      const map = new Map<string, number>();
-      const pvMap = new Map<string, number>();
-      let offset = 0;
-      const PAGE = 1000;
-      while (true) {
-        const { data, error } = await supabase
-          .from("creative_daily_metrics")
-          .select("account_id, spend, purchase_value")
-          .gte("date", firstOfMonth)
-          .range(offset, offset + PAGE - 1);
-        if (error) throw error;
-        if (!data || data.length === 0) break;
-        for (const row of data) {
-          map.set(row.account_id, (map.get(row.account_id) || 0) + (Number(row.spend) || 0));
-          pvMap.set(row.account_id, (pvMap.get(row.account_id) || 0) + (Number(row.purchase_value) || 0));
-        }
-        if (data.length < PAGE) break;
-        offset += PAGE;
-      }
-      return { spend: map, revenue: pvMap };
-    },
-    staleTime: 5 * 60 * 1000,
-  });
-
-  // Prior month spend for delta
-  const { data: priorMonthSpend = new Map<string, number>() } = useQuery({
-    queryKey: ["agency-prior-month-spend"],
-    queryFn: async () => {
-      const now = new Date();
-      const priorMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const priorEnd = new Date(now.getFullYear(), now.getMonth(), 0);
-      const from = priorMonth.toISOString().slice(0, 10);
-      const to = priorEnd.toISOString().slice(0, 10);
-      const map = new Map<string, number>();
-      let offset = 0;
-      const PAGE = 1000;
-      while (true) {
-        const { data, error } = await supabase
-          .from("creative_daily_metrics")
-          .select("account_id, spend")
-          .gte("date", from)
-          .lte("date", to)
-          .range(offset, offset + PAGE - 1);
-        if (error) throw error;
-        if (!data || data.length === 0) break;
-        for (const row of data) {
-          map.set(row.account_id, (map.get(row.account_id) || 0) + (Number(row.spend) || 0));
-        }
-        if (data.length < PAGE) break;
-        offset += PAGE;
-      }
-      return map;
-    },
-    staleTime: 10 * 60 * 1000,
-  });
-
-  const perAccountSpend = perAccountData.spend;
-  const perAccountRevenue = perAccountData.revenue;
-  const creativesArr = Array.isArray(allCreatives) ? allCreatives : [];
-
-
-  // Portfolio metrics — use daily metrics for MTD ROAS (not lifetime creatives totals)
   const portfolioMetrics = useMemo(() => {
     const activeCreatives = creativesArr.filter((c: any) => (Number(c.spend) || 0) > 0);
-    // Sum MTD spend and revenue from daily metrics for accurate ROAS
-    let mtdTotalSpend = 0;
-    let mtdTotalRevenue = 0;
-    for (const [, v] of perAccountSpend) mtdTotalSpend += v;
-    for (const [, v] of perAccountRevenue) mtdTotalRevenue += v;
-    const portfolioRoas = mtdTotalSpend > 0 ? mtdTotalRevenue / mtdTotalSpend : 0;
     const aboveScale = activeCreatives.filter((c: any) => (Number(c.roas) || 0) >= 2.0).length;
     const winRate = activeCreatives.length > 0 ? aboveScale / activeCreatives.length : 0;
 
     return {
-      mtdSpend: portfolioMtdSpend,
-      portfolioRoas,
-      activeCreatives: activeCreatives.length,
+      mtdSpend: agencyData?.portfolio.mtdSpend ?? 0,
+      portfolioRoas: agencyData?.portfolio.portfolioRoas ?? 0,
+      activeCreatives: agencyData?.portfolio.activeCreatives ?? 0,
       winRate,
     };
-  }, [creativesArr, portfolioMtdSpend, perAccountSpend, perAccountRevenue]);
+  }, [agencyData, creativesArr]);
 
-  // Sort accounts: needs attention first, then by MTD spend descending
   const sortedAccounts = useMemo(() => {
     return [...accounts].sort((a, b) => {
       return (perAccountSpend.get(b.id) || 0) - (perAccountSpend.get(a.id) || 0);
     });
   }, [accounts, perAccountSpend]);
 
-  // Top 5 creatives across all accounts by ROAS
   const topWinners = useMemo(() => {
     return [...creativesArr]
       .filter((c: any) => (Number(c.spend) || 0) >= 50 && (Number(c.roas) || 0) > 0)
@@ -133,7 +59,6 @@ export default function AgencyDashboardPage() {
   const alerts = useMemo(() => {
     const items: { id: string; label: string; detail: string; type: string }[] = [];
 
-    // High fatigue
     for (const c of creativesArr.filter((c: any) => (Number(c.spend) || 0) > 100).slice(0, 50)) {
       const f = computeFatigue(c);
       if (f.level === "high") {
