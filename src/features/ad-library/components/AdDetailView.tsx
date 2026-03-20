@@ -47,6 +47,9 @@ interface Props {
 
 const platformIcon: Record<string, typeof Facebook> = { facebook: Facebook, instagram: Instagram };
 
+const isVideoUrl = (url: string) => /\.(mp4|webm|mov|m3u8|avi)(\?|$)/i.test(url);
+const isFakeSourceUrl = (url: string) => /^https:\/\/tryatria\.com\/saved\//i.test(url);
+
 export function AdDetailView({ adId, onBack }: Props) {
   const { data: allAds = [] } = useSavedAds();
   const ad = allAds.find((a) => a.id === adId);
