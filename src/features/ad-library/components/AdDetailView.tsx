@@ -32,12 +32,13 @@ import {
 import {
   ArrowLeft, ExternalLink, Copy, Trash2, Calendar, Globe, Image, Video, Layers,
   Facebook, Instagram, ChevronLeft, ChevronRight, X, ZoomIn,
-  Loader2, RefreshCw, Captions, Download, Play, AlertTriangle,
+  Loader2, RefreshCw, Captions, Download, Play, AlertTriangle, Upload,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { useQueryClient } from "@tanstack/react-query";
 
 interface Props {
@@ -46,6 +47,20 @@ interface Props {
 }
 
 const platformIcon: Record<string, typeof Facebook> = { facebook: Facebook, instagram: Instagram };
+
+/** Heuristic: does the thumbnail look like a profile pic / logo? */
+function looksLikeProfilePic(ad: any): boolean {
+  const storedMedia = (ad.stored_media || []) as any[];
+  const successfulMedia = storedMedia.filter((m: any) => !m.download_failed && m.stored_url);
+  // If we have proper stored media with videos or large files, it's fine
+  if (successfulMedia.some((m: any) => m.type === "video" || m.file_size_bytes > 50000)) return false;
+  // If no stored media and thumbnail URL looks like a profile pic
+  const thumb = ad.thumbnail_url || "";
+  if (/\/profile|\/avatar|\/logo|page_picture|p\d{2,3}x\d{2,3}|s\d{2,3}x\d{2,3}/i.test(thumb)) return true;
+  // If stored media is empty and no media_urls
+  if (successfulMedia.length === 0 && (!ad.media_urls || ad.media_urls.length === 0)) return true;
+  return false;
+}
 
 const isVideoUrl = (url: string) => /\.(mp4|webm|mov|m3u8|avi)(\?|$)/i.test(url);
 const isFakeSourceUrl = (url: string) => /^https:\/\/tryatria\.com\/saved\//i.test(url);
@@ -60,6 +75,7 @@ export function AdDetailView({ adId, onBack }: Props) {
   const removeFromBoard = useRemoveFromBoard();
   const { data: allTags = [] } = useAdLibraryTags();
   const toggleTag = useToggleAdTag();
+  const { user } = useAuth();
   const qc = useQueryClient();
 
   const [headline, setHeadline] = useState("");
@@ -72,8 +88,10 @@ export function AdDetailView({ adId, onBack }: Props) {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [currentMediaIdx, setCurrentMediaIdx] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [isRefetching, setIsRefetching] = useState(false);
+  const [isUploadingCreative, setIsUploadingCreative] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
-
+  const uploadInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (ad) {
       setHeadline(ad.headline || "");
@@ -105,6 +123,61 @@ export function AdDetailView({ adId, onBack }: Props) {
     } catch (e: any) { toast.error("Transcription failed: " + e.message); }
     finally { setIsTranscribing(false); }
   }, [ad, qc]);
+
+  const handleRefetchMedia = useCallback(async () => {
+    if (!ad || !ad.source_url || isFakeSourceUrl(ad.source_url)) {
+      toast.error("No valid source URL to re-fetch from");
+      return;
+    }
+    setIsRefetching(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("scrape-ad", { body: { url: ad.source_url } });
+      if (error) throw error;
+      if (data?.success && data.data) {
+        const updates: any = {};
+        if (data.data.stored_media?.length) updates.stored_media = data.data.stored_media;
+        if (data.data.thumbnail_url) updates.thumbnail_url = data.data.thumbnail_url;
+        if (data.data.media_urls?.length) updates.media_urls = data.data.media_urls;
+        if (data.data.ad_format) updates.ad_format = data.data.ad_format;
+        if (Object.keys(updates).length > 0) {
+          updateAd.mutate({ id: ad.id, ...updates } as any);
+          qc.invalidateQueries({ queryKey: ["ad-library-saved-ads"] });
+          toast.success("Media re-fetched successfully");
+        } else {
+          toast.info("No new media found");
+        }
+      } else {
+        toast.error(data?.error || "Re-fetch failed — Facebook may have blocked the request");
+      }
+    } catch (e: any) { toast.error("Re-fetch failed: " + e.message); }
+    finally { setIsRefetching(false); }
+  }, [ad, updateAd, qc]);
+
+  const handleUploadCreative = useCallback(async (file: File) => {
+    if (!ad || !user) return;
+    setIsUploadingCreative(true);
+    try {
+      const ext = file.name.split(".").pop() || "jpg";
+      const isVid = file.type.startsWith("video/");
+      const existingMedia: any[] = (ad as any).stored_media || [];
+      const position = existingMedia.length;
+      const mediaType = isVid ? "video" : "image";
+      const path = `${user.id}/${ad.id.slice(0, 8)}/${position}_${mediaType}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage.from("ad-media").upload(path, file, { upsert: true });
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage.from("ad-media").getPublicUrl(path);
+      const newItem = { original_url: "", stored_url: urlData.publicUrl, type: mediaType, mime_type: file.type, file_size_bytes: file.size, position };
+      const newMedia = [...existingMedia, newItem];
+
+      updateAd.mutate({ id: ad.id, stored_media: newMedia, thumbnail_url: urlData.publicUrl, ad_format: isVid ? "video" : ad.ad_format } as any);
+      qc.invalidateQueries({ queryKey: ["ad-library-saved-ads"] });
+      toast.success(`${isVid ? "Video" : "Image"} uploaded successfully`);
+    } catch (e: any) { toast.error("Upload failed: " + e.message); }
+    finally { setIsUploadingCreative(false); }
+  }, [ad, user, updateAd, qc]);
+
 
   if (!ad) {
     return (
@@ -306,6 +379,39 @@ export function AdDetailView({ adId, onBack }: Props) {
             )}
           </div>
 
+          {/* Missing creative warning */}
+          {looksLikeProfilePic(ad) && (
+            <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
+              <div className="text-xs text-muted-foreground flex-1">
+                <p className="font-medium text-foreground">Only a thumbnail was captured for this ad</p>
+                <p className="mt-0.5">The saved image may be a brand logo instead of the actual ad creative. Re-fetch to get the real media, or upload it manually.</p>
+                <div className="flex gap-2 mt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-[11px] gap-1"
+                    onClick={handleRefetchMedia}
+                    disabled={isRefetching || isFakeSourceUrl(ad.source_url)}
+                  >
+                    {isRefetching ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                    Re-fetch Media
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-[11px] gap-1"
+                    onClick={() => uploadInputRef.current?.click()}
+                    disabled={isUploadingCreative}
+                  >
+                    {isUploadingCreative ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                    Upload Creative
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Failed media warning */}
           {failedMedia.length > 0 && (
             <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 flex items-start gap-2">
@@ -316,6 +422,19 @@ export function AdDetailView({ adId, onBack }: Props) {
               </div>
             </div>
           )}
+
+          {/* Hidden file input for upload creative */}
+          <input
+            ref={uploadInputRef}
+            type="file"
+            accept="image/*,video/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleUploadCreative(file);
+              e.target.value = "";
+            }}
+          />
 
           {/* CTA preview */}
           {ad.cta_text && (

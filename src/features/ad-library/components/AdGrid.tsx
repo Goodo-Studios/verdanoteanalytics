@@ -4,6 +4,9 @@ import { AdCard } from "./AdCard";
 import { BulkActionBar } from "./BulkActionBar";
 import { Library } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 interface AdGridProps {
   ads: AdLibrarySavedAd[];
@@ -53,7 +56,8 @@ export function AdGrid({
 }: AdGridProps) {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-
+  const [isRefetching, setIsRefetching] = useState(false);
+  const qc = useQueryClient();
   const selectionMode = selected.size > 0;
 
   const toggleSelect = useCallback((id: string) => {
@@ -109,6 +113,24 @@ export function AdGrid({
 
   const handleBulkAddTag = (tagId: string) => {
     selected.forEach((id) => onToggleTag?.(id, tagId, false));
+  };
+
+  const handleBulkRefetch = async () => {
+    const selectedAds = ads.filter(a => selected.has(a.id) && a.source_url && !/^https:\/\/tryatria\.com\/saved\//i.test(a.source_url));
+    if (selectedAds.length === 0) { toast.error("No ads with valid source URLs to re-fetch"); return; }
+    setIsRefetching(true);
+    let success = 0, fail = 0;
+    for (let i = 0; i < selectedAds.length; i++) {
+      toast.info(`Re-fetching media ${i + 1} of ${selectedAds.length}...`);
+      try {
+        const { data, error } = await supabase.functions.invoke("scrape-ad", { body: { url: selectedAds[i].source_url } });
+        if (!error && data?.success && data.data?.stored_media?.length) { success++; } else { fail++; }
+      } catch { fail++; }
+    }
+    qc.invalidateQueries({ queryKey: ["ad-library-saved-ads"] });
+    toast.success(`Re-fetched ${success} ads${fail ? `. ${fail} failed.` : ""}`);
+    setIsRefetching(false);
+    clearSelection();
   };
 
   if (!loading && ads.length === 0) {
@@ -173,6 +195,8 @@ export function AdGrid({
         onAddTag={handleBulkAddTag}
         onDelete={handleBulkDelete}
         onClear={clearSelection}
+        onRefetchMedia={handleBulkRefetch}
+        isRefetching={isRefetching}
       />
     </div>
   );

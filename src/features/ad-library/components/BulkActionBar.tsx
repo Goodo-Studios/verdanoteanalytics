@@ -16,7 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { LayoutGrid, Tag, Trash2, X, Check } from "lucide-react";
+import { LayoutGrid, Tag, Trash2, X, Check, RefreshCw, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -27,9 +27,11 @@ interface Props {
   onAddTag: (tagId: string) => void;
   onDelete: () => void;
   onClear: () => void;
+  onRefetchMedia?: () => void;
+  isRefetching?: boolean;
 }
 
-export function BulkActionBar({ count, boards, allTags, onAddToBoard, onAddTag, onDelete, onClear }: Props) {
+export function BulkActionBar({ count, boards, allTags, onAddToBoard, onAddTag, onDelete, onClear, onRefetchMedia, isRefetching }: Props) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   if (count === 0) return null;
@@ -91,6 +93,20 @@ export function BulkActionBar({ count, boards, allTags, onAddToBoard, onAddTag, 
             )}
           </PopoverContent>
         </Popover>
+
+        {/* Re-fetch Media */}
+        {onRefetchMedia && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="h-8 gap-1.5 text-xs bg-background/10 text-background hover:bg-background/20 border-0"
+            onClick={onRefetchMedia}
+            disabled={isRefetching}
+          >
+            {isRefetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            Re-fetch
+          </Button>
+        )}
 
         {/* Delete */}
         <Button

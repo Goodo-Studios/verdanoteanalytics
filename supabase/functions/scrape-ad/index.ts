@@ -9,7 +9,21 @@ const corsHeaders = {
 const CHROME_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
-const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+const MAX_FILE_SIZE = 100 * 1024 * 1024;
+
+// Patterns that indicate a profile picture / logo — NOT the ad creative
+const PROFILE_URL_PATTERNS = [
+  /\/profile/i, /\/avatar/i, /\/logo/i, /page_picture/i,
+  /p\d{2,3}x\d{2,3}/i, // e.g. p100x100, p50x50
+  /\/rsrc\.php/i, // Facebook UI assets
+  /emoji/i, /icon/i, /badge/i,
+  /s\d{2,3}x\d{2,3}/i, // e.g. s100x100
+  /\/static\//i,
+];
+
+function isProfileOrLogoUrl(url: string): boolean {
+  return PROFILE_URL_PATTERNS.some(p => p.test(url));
+}
 
 interface StoredMediaItem {
   original_url: string;
@@ -27,10 +41,6 @@ function isVideoUrl(url: string): boolean {
   return /\.(mp4|webm|mov|m3u8|avi)(\?|$)/i.test(url) || url.includes("/video/");
 }
 
-function isImageUrl(url: string): boolean {
-  return /\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(url) || url.includes("/image/");
-}
-
 function getExtensionFromUrl(url: string, contentType?: string): string {
   if (contentType?.includes("video/mp4")) return "mp4";
   if (contentType?.includes("video/webm")) return "webm";
@@ -39,7 +49,6 @@ function getExtensionFromUrl(url: string, contentType?: string): string {
   if (contentType?.includes("image/webp")) return "webp";
   if (contentType?.includes("image/gif")) return "gif";
   if (contentType?.includes("image/jpeg") || contentType?.includes("image/jpg")) return "jpg";
-
   const match = url.match(/\.(jpg|jpeg|png|webp|gif|mp4|webm|mov)(\?|$)/i);
   if (match) return match[1].toLowerCase();
   return isVideoUrl(url) ? "mp4" : "jpg";
@@ -55,32 +64,21 @@ function getMimeType(ext: string): string {
 }
 
 async function downloadAndStore(
-  supabaseAdmin: any,
-  url: string,
-  userId: string,
-  adId: string,
-  position: number,
-  mediaType: "image" | "video" | "carousel_frame"
+  supabaseAdmin: any, url: string, userId: string, adId: string, position: number, mediaType: "image" | "video" | "carousel_frame"
 ): Promise<StoredMediaItem | null> {
   try {
     if (!url || (!url.startsWith("http://") && !url.startsWith("https://"))) return null;
-
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
-    const resp = await fetch(url, {
-      signal: controller.signal,
-      headers: { "User-Agent": CHROME_UA },
-    });
+    const resp = await fetch(url, { signal: controller.signal, headers: { "User-Agent": CHROME_UA } });
     clearTimeout(timeout);
 
     if (!resp.ok) {
-      console.error(`Download failed (${resp.status}): ${url.slice(0, 100)}`);
       return { original_url: url, stored_url: "", type: mediaType, mime_type: "", file_size_bytes: 0, position, download_failed: true };
     }
 
     const contentLength = parseInt(resp.headers.get("content-length") || "0", 10);
     if (contentLength > MAX_FILE_SIZE) {
-      console.warn(`File too large (${contentLength} bytes), skipping: ${url.slice(0, 100)}`);
       return { original_url: url, stored_url: "", type: mediaType, mime_type: "", file_size_bytes: contentLength, position, download_failed: true };
     }
 
@@ -90,31 +88,19 @@ async function downloadAndStore(
     const blob = await resp.blob();
 
     if (blob.size > MAX_FILE_SIZE) {
-      console.warn(`Blob too large (${blob.size} bytes), skipping`);
       return { original_url: url, stored_url: "", type: mediaType, mime_type: mimeType, file_size_bytes: blob.size, position, download_failed: true };
     }
 
     const arrayBuf = await blob.arrayBuffer();
     const filePath = `${userId}/${adId}/${position}_${mediaType}.${ext}`;
 
-    const { error } = await supabaseAdmin.storage
-      .from("ad-media")
-      .upload(filePath, new Uint8Array(arrayBuf), { contentType: mimeType, upsert: true });
-
+    const { error } = await supabaseAdmin.storage.from("ad-media").upload(filePath, new Uint8Array(arrayBuf), { contentType: mimeType, upsert: true });
     if (error) {
-      console.error("Storage upload error:", error.message);
       return { original_url: url, stored_url: "", type: mediaType, mime_type: mimeType, file_size_bytes: blob.size, position, download_failed: true };
     }
 
     const { data: urlData } = supabaseAdmin.storage.from("ad-media").getPublicUrl(filePath);
-    return {
-      original_url: url,
-      stored_url: urlData?.publicUrl || "",
-      type: mediaType,
-      mime_type: mimeType,
-      file_size_bytes: blob.size,
-      position,
-    };
+    return { original_url: url, stored_url: urlData?.publicUrl || "", type: mediaType, mime_type: mimeType, file_size_bytes: blob.size, position };
   } catch (e) {
     console.error("downloadAndStore failed:", (e as Error).message);
     return { original_url: url, stored_url: "", type: mediaType, mime_type: "", file_size_bytes: 0, position, download_failed: true };
@@ -122,23 +108,17 @@ async function downloadAndStore(
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return json({ success: false, error: "Unauthorized" }, 401);
-    }
+    if (!authHeader?.startsWith("Bearer ")) return json({ success: false, error: "Unauthorized" }, 401);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, { global: { headers: { Authorization: authHeader } } });
     const supabaseAdmin = createClient(supabaseUrl, serviceKey);
 
     const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -154,57 +134,39 @@ Deno.serve(async (req) => {
     const adId = parsedUrl.searchParams.get("ad_id") || null;
     const country = parsedUrl.searchParams.get("country") || "US";
 
-    console.log("Scraping ad:", { pageId, adId, country });
-
     let result = null;
-    if (pageId) {
-      result = await tryMetaSearchEndpoint(pageId, adId, country);
-    }
-    if (!result) {
-      result = await tryDirectPageFetch(url);
-    }
+    if (pageId) result = await tryMetaSearchEndpoint(pageId, adId, country);
+    if (!result) result = await tryDirectPageFetch(url);
+    if (!result) return json({ success: false, error: "Could not fetch ad data. Please use the Manual Entry tab instead." });
 
-    if (!result) {
-      return json({ success: false, error: "Could not fetch ad data. Please use the Manual Entry tab instead." });
-    }
-
-    // Download and store ALL media
-    const mediaUrls = result.media_urls.filter(Boolean);
+    // Filter out profile/logo URLs from media
+    const mediaUrls = result.media_urls.filter(u => u && !isProfileOrLogoUrl(u));
     const isCarousel = result.ad_format === "carousel" || mediaUrls.filter(u => !isVideoUrl(u)).length > 1;
     const storedMedia: StoredMediaItem[] = [];
     const tempAdId = crypto.randomUUID().slice(0, 8);
 
-    // Download images/videos first, then attempt thumbnail
     for (let i = 0; i < mediaUrls.length; i++) {
       const mediaUrl = mediaUrls[i];
       let mediaType: "image" | "video" | "carousel_frame" = "image";
-      if (isVideoUrl(mediaUrl)) {
-        mediaType = "video";
-      } else if (isCarousel) {
-        mediaType = "carousel_frame";
-      }
+      if (isVideoUrl(mediaUrl)) mediaType = "video";
+      else if (isCarousel) mediaType = "carousel_frame";
 
       const stored = await downloadAndStore(supabaseAdmin, mediaUrl, user.id, tempAdId, i, mediaType);
       if (stored) storedMedia.push(stored);
     }
 
-    // If thumbnail_url is different from media_urls, also store it
-    if (result.thumbnail_url && !mediaUrls.includes(result.thumbnail_url)) {
+    // Only store thumbnail separately if it's NOT a profile pic and NOT already in mediaUrls
+    if (result.thumbnail_url && !isProfileOrLogoUrl(result.thumbnail_url) && !mediaUrls.includes(result.thumbnail_url)) {
       const thumbStored = await downloadAndStore(supabaseAdmin, result.thumbnail_url, user.id, tempAdId, storedMedia.length, "image");
       if (thumbStored) storedMedia.push(thumbStored);
     }
 
-    // Set thumbnail_url to first successfully stored image
     const firstStoredImage = storedMedia.find(m => !m.download_failed && (m.type === "image" || m.type === "carousel_frame"));
-    const finalThumbnail = firstStoredImage?.stored_url || result.thumbnail_url;
+    const finalThumbnail = firstStoredImage?.stored_url || (result.thumbnail_url && !isProfileOrLogoUrl(result.thumbnail_url) ? result.thumbnail_url : null);
 
     return json({
       success: true,
-      data: {
-        ...result,
-        thumbnail_url: finalThumbnail,
-        stored_media: storedMedia,
-      },
+      data: { ...result, thumbnail_url: finalThumbnail, stored_media: storedMedia, media_urls: mediaUrls },
     });
   } catch (e) {
     console.error("scrape-ad error:", e);
@@ -251,7 +213,6 @@ async function tryMetaSearchEndpoint(pageId: string, adId: string | null, countr
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
-
     const resp = await fetch("https://www.facebook.com/ads/library/async/search_ads/", {
       method: "POST",
       headers: {
@@ -293,25 +254,49 @@ function normalizeMetaResult(ad: any, pageId: string, country: string): ScrapeRe
   let thumbnailUrl: string | null = null;
   let adFormat = "image";
 
-  if (snapshot.images || snapshot.resized_images) {
-    const imgs = snapshot.images || snapshot.resized_images || [];
-    imgs.forEach((img: any) => {
-      const url = img.original_image_url || img.resized_image_url || img.url;
-      if (url) mediaUrls.push(url);
-    });
-    thumbnailUrl = mediaUrls[0] || null;
-  }
-
+  // 1. Extract VIDEOS first — these are the actual ad creatives
   if (snapshot.videos && snapshot.videos.length > 0) {
     adFormat = "video";
     snapshot.videos.forEach((v: any) => {
+      // Prefer HD, then SD, then any video URL
       const url = v.video_hd_url || v.video_sd_url || v.video_url;
       if (url) mediaUrls.push(url);
     });
-    thumbnailUrl = snapshot.videos[0]?.video_preview_image_url || thumbnailUrl;
+    // Video poster/preview — use as thumbnail
+    thumbnailUrl = snapshot.videos[0]?.video_preview_image_url || null;
   }
 
-  if (cards.length > 1) adFormat = "carousel";
+  // 2. Extract creative images — SKIP profile pictures
+  if (snapshot.images || snapshot.resized_images) {
+    const imgs = snapshot.images || snapshot.resized_images || [];
+    imgs.forEach((img: any) => {
+      // Prefer original_image_url (full resolution), then resized
+      const url = img.original_image_url || img.resized_image_url || img.url;
+      if (url && !isProfileOrLogoUrl(url)) {
+        mediaUrls.push(url);
+        if (!thumbnailUrl) thumbnailUrl = url;
+      }
+    });
+  }
+
+  // 3. Extract from carousel cards
+  if (cards.length > 1) {
+    adFormat = "carousel";
+    cards.forEach((card: any) => {
+      const cardImg = card.original_image_url || card.resized_image_url || card.image_url || card.url;
+      if (cardImg && !isProfileOrLogoUrl(cardImg) && !mediaUrls.includes(cardImg)) {
+        mediaUrls.push(cardImg);
+      }
+      // Carousel cards can also have videos
+      const cardVid = card.video_hd_url || card.video_sd_url || card.video_url;
+      if (cardVid && !mediaUrls.includes(cardVid)) {
+        mediaUrls.push(cardVid);
+      }
+    });
+  }
+
+  // 4. Explicitly SKIP page_profile_picture_url / page_profile_uri
+  // (these are NOT added to mediaUrls)
 
   let startedRunning: string | null = null;
   const startDate = ad.startDate || ad.start_date || snapshot.creation_time;
@@ -333,8 +318,8 @@ function normalizeMetaResult(ad: any, pageId: string, country: string): ScrapeRe
     body_text: snapshot.body?.markup?.__html || snapshot.body?.text || snapshot.body || firstCard.body || null,
     cta_text: firstCard.cta_text || snapshot.cta_text || snapshot.link_title || null,
     landing_page_url: firstCard.link_url || snapshot.link_url || snapshot.page_welcome_message || null,
-    media_urls: mediaUrls,
-    thumbnail_url: thumbnailUrl,
+    media_urls: mediaUrls.filter(u => !isProfileOrLogoUrl(u)),
+    thumbnail_url: thumbnailUrl && !isProfileOrLogoUrl(thumbnailUrl) ? thumbnailUrl : null,
     started_running: startedRunning,
     country_targeting: [country],
     raw_data: ad,
