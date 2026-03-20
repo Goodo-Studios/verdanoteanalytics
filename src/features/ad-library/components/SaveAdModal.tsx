@@ -51,6 +51,15 @@ interface SaveAdModalProps {
   defaultBoardId?: string;
 }
 
+interface StoredMediaLocal {
+  stored_url: string;
+  type: "image" | "video" | "carousel_frame";
+  mime_type: string;
+  file_size_bytes: number;
+  position: number;
+  original_url: string;
+}
+
 interface FormState {
   source_url: string;
   advertiser_name: string;
@@ -68,6 +77,7 @@ interface FormState {
   media_urls: string[];
   country_targeting: string[];
   raw_data: Record<string, unknown> | null;
+  stored_media: StoredMediaLocal[];
 }
 
 const INITIAL_FORM: FormState = {
