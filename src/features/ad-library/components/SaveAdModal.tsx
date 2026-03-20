@@ -363,6 +363,7 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
           country_targeting: form.country_targeting,
           raw_data: form.raw_data,
           notes: form.notes || null,
+          stored_media: form.stored_media,
         } as any)
         .select()
         .single();
