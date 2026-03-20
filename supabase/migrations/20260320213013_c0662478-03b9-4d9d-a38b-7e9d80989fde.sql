@@ -1,0 +1,1 @@
+DELETE FROM public.ad_library_saved_ads WHERE source_url = 'https://tryatria.com';

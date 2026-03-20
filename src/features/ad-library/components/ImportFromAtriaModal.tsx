@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -6,10 +6,46 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
-import { Upload, FileJson, Globe, HelpCircle, Download, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { Upload, FileJson, Globe, HelpCircle, Download, CheckCircle2, AlertCircle, Loader2, Copy, Check } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+
+function AuthTokenDisplay() {
+  const [token, setToken] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setToken(data.session?.access_token || null);
+    });
+  }, []);
+
+  if (!token) return null;
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(token);
+    setCopied(true);
+    toast.success("Auth token copied to clipboard");
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-foreground">Your Auth Token</span>
+        <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs" onClick={handleCopy}>
+          {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+          {copied ? "Copied" : "Copy Token"}
+        </Button>
+      </div>
+      <code className="block text-[10px] text-muted-foreground bg-background rounded p-2 break-all max-h-16 overflow-y-auto select-all">
+        {token}
+      </code>
+      <p className="text-[10px] text-muted-foreground">Paste this when the bookmarklet prompts you. Expires in ~1 hour.</p>
+    </div>
+  );
+}
 
 interface ImportResult {
   success: boolean;
@@ -199,7 +235,7 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
   }, []);
 
   // Build bookmarklet code
-  const bookmarkletCode = `javascript:void(function(){if(!location.hostname.includes('tryatria.com')&&!location.hostname.includes('atria')){alert('Please navigate to tryatria.com first');return}var ads=[];var cards=document.querySelectorAll('[class*="card"],[class*="Card"],[class*="ad-item"],[class*="AdCard"],[class*="swipe"]');if(!cards.length)cards=document.querySelectorAll('article,li[class],div[class*="grid"]>div');cards.forEach(function(c){var img=c.querySelector('img');var text=c.innerText||'';var link=c.querySelector('a[href*="facebook.com"],a[href*="tiktok.com"],a[href*="ads/library"]');ads.push({thumbnail_url:img?img.src:null,body_text:text.substring(0,500),source_url:link?link.href:'https://tryatria.com',advertiser_name:(c.querySelector('h3,h4,[class*="brand"],[class*="name"]')||{}).innerText||'Unknown',platform:'facebook'})});if(!ads.length){alert('No ads found on this page. Make sure you are on your saved ads view.');return}var d=document.createElement('div');d.style.cssText='position:fixed;top:20px;right:20px;z-index:99999;background:#18181b;color:white;padding:16px 24px;border-radius:12px;font-family:system-ui;font-size:14px;box-shadow:0 8px 32px rgba(0,0,0,.3)';d.innerHTML='Found '+ads.length+' ads. Sending to AdVault...';document.body.appendChild(d);var token=prompt('Paste your AdVault auth token (from Settings > API):');if(!token){d.remove();return}fetch('${import.meta.env.VITE_SUPABASE_URL}/functions/v1/import-ads',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({ads:ads})}).then(function(r){return r.json()}).then(function(data){d.innerHTML='<b>Done!</b> Imported '+data.imported+' ads.'+(data.skipped_duplicates?' ('+data.skipped_duplicates+' duplicates skipped)':'');setTimeout(function(){d.remove()},5000)}).catch(function(e){d.innerHTML='Import failed: '+e.message;setTimeout(function(){d.remove()},5000)})})()`;
+  const bookmarkletCode = `javascript:void(function(){if(!location.hostname.includes('tryatria.com')&&!location.hostname.includes('atria')){alert('Please navigate to tryatria.com first');return}var ads=[];var seen={};var cards=document.querySelectorAll('[class*="card"],[class*="Card"],[class*="ad-item"],[class*="AdCard"],[class*="swipe"],article,div[class*="grid"]>div');cards.forEach(function(c,idx){if(c.offsetHeight<50||c.querySelectorAll('img').length===0)return;var img=c.querySelector('img[src*="http"]');if(!img)return;var text=c.innerText||'';if(text.length<10)return;var link=c.querySelector('a[href*="facebook.com"],a[href*="tiktok.com"],a[href*="ads/library"]');var nameEl=c.querySelector('h3,h4,h2,[class*="brand"],[class*="name"],[class*="advertiser"]');var name=nameEl?nameEl.innerText.trim():'';var lines=text.split('\\n').filter(function(l){return l.trim().length>0});if(!name&&lines.length>0)name=lines[0].substring(0,60);var srcUrl=link?link.href:'https://tryatria.com/saved/'+idx+'-'+Date.now()+'-'+Math.random().toString(36).substring(2,8);if(seen[srcUrl])return;seen[srcUrl]=true;ads.push({thumbnail_url:img.src,body_text:text.substring(0,1000),source_url:srcUrl,advertiser_name:name||'Unknown',platform:'facebook'})});if(!ads.length){alert('No ads found on this page. Make sure you are on your saved ads view and have scrolled to load all ads.');return}var d=document.createElement('div');d.style.cssText='position:fixed;top:20px;right:20px;z-index:99999;background:#18181b;color:white;padding:16px 24px;border-radius:12px;font-family:system-ui;font-size:14px;box-shadow:0 8px 32px rgba(0,0,0,.3)';d.innerHTML='Found '+ads.length+' ads. Sending to AdVault...';document.body.appendChild(d);var token=prompt('Paste your AdVault auth token (from Settings > API Keys, or run this in your Verdanote console:\\nJSON.parse(localStorage.getItem(atob("c2ItdmpqbHVsaWZvdnNkandicGhtZHNoLWF1dGgtdG9rZW4=")))?.access_token');if(!token){d.remove();return}fetch('${import.meta.env.VITE_SUPABASE_URL}/functions/v1/import-ads',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({ads:ads})}).then(function(r){return r.json()}).then(function(data){d.innerHTML='<b>Done!</b> Imported '+(data.imported||0)+' ads.'+(data.skipped_duplicates?' ('+data.skipped_duplicates+' duplicates skipped)':'');setTimeout(function(){d.remove()},5000)}).catch(function(e){d.innerHTML='Import failed: '+e.message;setTimeout(function(){d.remove()},5000)})})()`;
 
   return (
     <Dialog open={isOpen} onOpenChange={() => { if (!importing) { resetState(); onClose(); } }}>
@@ -307,7 +343,6 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
               </div>
             </TabsContent>
 
-            {/* Tab 2: Browser Capture */}
             <TabsContent value="browser" className="space-y-4 mt-4">
               <p className="text-sm text-muted-foreground">
                 This bookmarklet extracts your saved ads directly from the Atria website. Works for all Atria plans.
@@ -325,12 +360,16 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
                   <span className="text-xs text-muted-foreground">← Drag this to your bookmarks bar</span>
                 </div>
               </div>
+
+              {/* Auth token display */}
+              <AuthTokenDisplay />
+
               <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside">
                 <li>Drag the button above to your browser's bookmarks bar</li>
                 <li>Go to <a href="https://tryatria.com" target="_blank" rel="noopener" className="text-primary underline">tryatria.com</a> and log in to your account</li>
                 <li>Navigate to your saved ads or swipe file</li>
                 <li>Scroll down to load all your ads, then click the bookmarklet</li>
-                <li>When prompted, paste your auth token (find it in Settings → API Keys)</li>
+                <li>When prompted, paste your auth token from the box above</li>
                 <li>The bookmarklet will extract and send your ads automatically</li>
               </ol>
               <div className="rounded-lg bg-muted/50 border border-border p-3 text-xs text-muted-foreground">
