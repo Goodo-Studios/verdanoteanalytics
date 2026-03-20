@@ -202,18 +202,52 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
     setIsUploading(true);
     try {
       const ext = file.name.split(".").pop() || "jpg";
-      const path = `${user.id}/${Date.now()}.${ext}`;
+      const isVid = file.type.startsWith("video/");
+      const position = form.stored_media.length;
+      const tempId = Date.now().toString(36);
+      const mediaType: "image" | "video" | "carousel_frame" = isVid
+        ? "video"
+        : form.stored_media.filter(m => m.type === "image" || m.type === "carousel_frame").length > 0
+          ? "carousel_frame"
+          : "image";
+
+      const path = `${user.id}/${tempId}/${position}_${mediaType}.${ext}`;
       const { error: uploadError } = await supabase.storage
         .from("ad-media")
         .upload(path, file, { upsert: true });
       if (uploadError) throw uploadError;
 
-      const { data: urlData } = supabase.storage
-        .from("ad-media")
-        .getPublicUrl(path);
+      const { data: urlData } = supabase.storage.from("ad-media").getPublicUrl(path);
+      const publicUrl = urlData.publicUrl;
 
-      set("thumbnail_url", urlData.publicUrl);
-      toast.success("Image uploaded");
+      const newItem: StoredMediaLocal = {
+        stored_url: publicUrl,
+        type: mediaType,
+        mime_type: file.type,
+        file_size_bytes: file.size,
+        position,
+        original_url: "",
+      };
+
+      setForm(prev => {
+        const newMedia = [...prev.stored_media, newItem];
+        // Auto-upgrade format if multiple images
+        const imageCount = newMedia.filter(m => m.type !== "video").length;
+        const hasVideo = newMedia.some(m => m.type === "video");
+        // Re-label earlier "image" entries as "carousel_frame" if now > 1
+        if (imageCount > 1) {
+          newMedia.forEach(m => { if (m.type === "image") m.type = "carousel_frame"; });
+        }
+        const autoFormat = hasVideo ? "video" : imageCount > 1 ? "carousel" : "image";
+
+        return {
+          ...prev,
+          stored_media: newMedia,
+          thumbnail_url: prev.thumbnail_url || publicUrl,
+          ad_format: autoFormat,
+        };
+      });
+      toast.success(`${isVid ? "Video" : "Image"} uploaded`);
     } catch (e: any) {
       toast.error("Upload failed: " + e.message);
     } finally {
@@ -224,17 +258,19 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
   const handleFileDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
-      const file = e.dataTransfer.files[0];
-      if (file && (file.type.startsWith("image/") || file.type.startsWith("video/"))) {
-        uploadFile(file);
+      const files = Array.from(e.dataTransfer.files);
+      for (const file of files) {
+        if (file.type.startsWith("image/") || file.type.startsWith("video/")) {
+          uploadFile(file);
+        }
       }
     },
-    [user]
+    [user, form.stored_media.length]
   );
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) uploadFile(file);
+    const files = Array.from(e.target.files || []);
+    for (const file of files) uploadFile(file);
   };
 
   const handlePasteFromClipboard = async () => {
