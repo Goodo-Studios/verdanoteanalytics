@@ -478,7 +478,11 @@ export function AdDetailView({ adId, onBack }: Props) {
         <DialogContent className="max-w-4xl p-0 bg-black/95 border-0">
           <div className="relative flex items-center justify-center min-h-[60vh]">
             {mediaUrls[lightboxIdx] && (
-              <img src={mediaUrls[lightboxIdx]} className="max-h-[85vh] max-w-full object-contain" alt="" />
+              isVideoUrl(mediaUrls[lightboxIdx]) ? (
+                <video src={mediaUrls[lightboxIdx]} className="max-h-[85vh] max-w-full object-contain" controls autoPlay playsInline />
+              ) : (
+                <img src={mediaUrls[lightboxIdx]} className="max-h-[85vh] max-w-full object-contain" alt="" />
+              )
             )}
             <button onClick={() => setLightboxOpen(false)} className="absolute top-4 right-4 text-white/70 hover:text-white">
               <X className="h-5 w-5" />
