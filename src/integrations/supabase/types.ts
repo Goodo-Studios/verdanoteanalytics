@@ -393,6 +393,8 @@ export type Database = {
           source_url: string
           started_running: string | null
           thumbnail_url: string | null
+          transcript: string | null
+          transcript_status: string
           updated_at: string
           user_id: string
         }
@@ -416,6 +418,8 @@ export type Database = {
           source_url: string
           started_running?: string | null
           thumbnail_url?: string | null
+          transcript?: string | null
+          transcript_status?: string
           updated_at?: string
           user_id: string
         }
@@ -439,6 +443,8 @@ export type Database = {
           source_url?: string
           started_running?: string | null
           thumbnail_url?: string | null
+          transcript?: string | null
+          transcript_status?: string
           updated_at?: string
           user_id?: string
         }

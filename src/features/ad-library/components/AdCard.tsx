@@ -41,6 +41,7 @@ import {
   Instagram,
   Calendar,
   Check,
+  Captions,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -102,6 +103,7 @@ export function AdCard({
   const FormatIcon = formatIcon[ad.ad_format || "image"] || Image;
   const adTagIds = new Set((ad.tags || []).map((t) => t.id));
   const initial = (ad.advertiser_name || "A")[0].toUpperCase();
+  const hasTranscript = (ad as any).transcript_status === "completed";
 
   const handleCopyLandingPage = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -165,6 +167,14 @@ export function AdCard({
               <span className="font-heading text-[2rem] text-primary/40 select-none">
                 {initial}
               </span>
+            </div>
+          )}
+
+          {/* CC badge for transcribed videos */}
+          {hasTranscript && (
+            <div className="absolute bottom-2 right-2 z-10 h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
+              <Captions className="h-3 w-3" />
+              <span className="text-[9px] font-label font-semibold">CC</span>
             </div>
           )}
 

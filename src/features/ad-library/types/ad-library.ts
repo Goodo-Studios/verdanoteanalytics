@@ -50,6 +50,8 @@ export interface AdLibrarySavedAd {
   country_targeting: string[];
   raw_data: Record<string, unknown> | null;
   notes: string | null;
+  transcript: string | null;
+  transcript_status: "none" | "processing" | "completed" | "failed";
   created_at: string;
   updated_at: string;
   /** Joined client-side */

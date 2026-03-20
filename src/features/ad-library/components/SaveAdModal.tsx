@@ -348,7 +348,17 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
           .insert(tagIdsToLink.map((tag_id) => ({ ad_id: adId, tag_id })) as any);
       }
 
-      // 4. Done
+      // 4. Auto-trigger transcription for video ads
+      if (form.ad_format === "video" && form.media_urls.length > 0) {
+        const videoUrl = form.media_urls.find((u) => u.match(/\.(mp4|webm|mov)/i)) || form.media_urls[0];
+        if (videoUrl) {
+          supabase.functions.invoke("transcribe-ad", {
+            body: { ad_id: adId, video_url: videoUrl },
+          }).catch((e) => console.error("Auto-transcription failed:", e));
+        }
+      }
+
+      // 5. Done
       qc.invalidateQueries({ queryKey: ["ad-library-saved-ads"] });
       qc.invalidateQueries({ queryKey: ["ad-library-ads-infinite"] });
       qc.invalidateQueries({ queryKey: ["ad-library-boards"] });

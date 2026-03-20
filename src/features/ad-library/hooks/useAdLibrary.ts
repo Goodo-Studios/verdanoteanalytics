@@ -128,7 +128,7 @@ export function useSavedAds(filters?: { board_id?: string; search?: string; tag_
 
       if (filters?.search) {
         query = query.or(
-          `advertiser_name.ilike.%${filters.search}%,headline.ilike.%${filters.search}%,body_text.ilike.%${filters.search}%`
+          `advertiser_name.ilike.%${filters.search}%,headline.ilike.%${filters.search}%,body_text.ilike.%${filters.search}%,transcript.ilike.%${filters.search}%`
         );
       }
 

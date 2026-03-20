@@ -21,6 +21,7 @@ import {
   SlidersHorizontal,
   Check,
   CalendarDays,
+  Captions,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -34,6 +35,7 @@ export interface AdLibraryFilters {
   view: "grid" | "list";
   dateFrom: string | null;
   dateTo: string | null;
+  hasTranscript: boolean;
 }
 
 export const DEFAULT_FILTERS: AdLibraryFilters = {
@@ -45,6 +47,7 @@ export const DEFAULT_FILTERS: AdLibraryFilters = {
   view: "grid",
   dateFrom: null,
   dateTo: null,
+  hasTranscript: false,
 };
 
 interface FilterToolbarProps {
@@ -79,7 +82,8 @@ export function FilterToolbar({
     (filters.platform ? 1 : 0) +
     (filters.format ? 1 : 0) +
     filters.tag_ids.length +
-    (filters.dateFrom ? 1 : 0);
+    (filters.dateFrom ? 1 : 0) +
+    (filters.hasTranscript ? 1 : 0);
 
   const clearFilter = (key: keyof AdLibraryFilters) => {
     if (key === "tag_ids") {
@@ -260,6 +264,20 @@ export function FilterToolbar({
           </PopoverContent>
         </Popover>
 
+        {/* Has Transcript toggle */}
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn(
+            "h-9 gap-1.5 text-sm font-body",
+            filters.hasTranscript && "border-primary/40 text-primary bg-primary/5"
+          )}
+          onClick={() => set("hasTranscript", !filters.hasTranscript)}
+        >
+          <Captions className="h-3.5 w-3.5" />
+          CC
+        </Button>
+
         {/* Sort */}
         <Select value={filters.sort} onValueChange={(v) => set("sort", v)}>
           <SelectTrigger className="w-[150px] h-9 text-sm">
@@ -353,6 +371,16 @@ export function FilterToolbar({
             >
               {filters.dateFrom}
               {filters.dateTo ? ` → ${filters.dateTo}` : "+"}
+              <X className="h-3 w-3" />
+            </Badge>
+          )}
+          {filters.hasTranscript && (
+            <Badge
+              variant="secondary"
+              className="text-xs gap-1 pl-2 pr-1 py-0.5 cursor-pointer hover:bg-secondary/60"
+              onClick={() => set("hasTranscript", false)}
+            >
+              Has Transcript
               <X className="h-3 w-3" />
             </Badge>
           )}
