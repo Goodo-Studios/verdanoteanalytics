@@ -242,6 +242,11 @@ export default function AdLibraryPage() {
             {tab === "tags" && (
               <AdLibraryTagsView />
             )}
+            {tab === "setup" && (
+              <div className="max-w-xl">
+                <BookmarkletSetup />
+              </div>
+            )}
           </div>
         </div>
 
