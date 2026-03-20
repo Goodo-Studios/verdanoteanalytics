@@ -264,6 +264,20 @@ export function FilterToolbar({
           </PopoverContent>
         </Popover>
 
+        {/* Has Transcript toggle */}
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn(
+            "h-9 gap-1.5 text-sm font-body",
+            filters.hasTranscript && "border-primary/40 text-primary bg-primary/5"
+          )}
+          onClick={() => set("hasTranscript", !filters.hasTranscript)}
+        >
+          <Captions className="h-3.5 w-3.5" />
+          CC
+        </Button>
+
         {/* Sort */}
         <Select value={filters.sort} onValueChange={(v) => set("sort", v)}>
           <SelectTrigger className="w-[150px] h-9 text-sm">
