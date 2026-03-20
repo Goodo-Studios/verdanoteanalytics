@@ -10,9 +10,11 @@ import { AdGrid } from "@/components/ad-library/AdGrid";
 import { BoardDetailView } from "@/components/ad-library/BoardDetailView";
 import { AdLibraryBoardsView } from "@/components/ad-library/AdLibraryBoardsView";
 import { AdLibraryFoldersView } from "@/components/ad-library/AdLibraryFoldersView";
+import { AdLibraryTagsView } from "@/components/ad-library/AdLibraryTagsView";
+import { AdDetailView } from "@/components/ad-library/AdDetailView";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Plus, Search, Library } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function AdLibraryPage() {
@@ -21,7 +23,8 @@ export default function AdLibraryPage() {
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [selectedAd, setSelectedAd] = useState<AdLibrarySavedAd | null>(null);
   const [viewingBoardId, setViewingBoardId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"all" | "boards" | "folders">("all");
+  const [viewingAdId, setViewingAdId] = useState<string | null>(null);
+  const [tab, setTab] = useState<"all" | "boards" | "folders" | "tags">("all");
 
   const { data: ads = [], isLoading } = useSavedAds({
     board_id: selectedBoardId || undefined,
@@ -34,7 +37,27 @@ export default function AdLibraryPage() {
   const toggleTag = useToggleAdTag();
   const updateAd = useUpdateSavedAd();
 
-  // If viewing a specific board detail
+  const handleViewDetails = (ad: AdLibrarySavedAd) => {
+    setViewingAdId(ad.id);
+    setSelectedAd(null);
+  };
+
+  // Full-page ad detail view
+  if (viewingAdId) {
+    return (
+      <AppLayout>
+        <div className="flex h-full">
+          <CollectionSidebar selectedBoardId={null} onSelect={() => {}} />
+          <div className="flex-1 overflow-y-auto px-6 py-6 min-w-0">
+            <AdDetailView adId={viewingAdId} onBack={() => setViewingAdId(null)} />
+          </div>
+        </div>
+        <SaveAdModal isOpen={showSaveModal} onClose={() => setShowSaveModal(false)} />
+      </AppLayout>
+    );
+  }
+
+  // Board detail view
   if (viewingBoardId) {
     return (
       <AppLayout>
@@ -47,7 +70,7 @@ export default function AdLibraryPage() {
             <BoardDetailView
               boardId={viewingBoardId}
               onBack={() => setViewingBoardId(null)}
-              onViewAdDetails={setSelectedAd}
+              onViewAdDetails={handleViewDetails}
             />
           </div>
           {selectedAd && <AdDetailPanel ad={selectedAd} onClose={() => setSelectedAd(null)} />}
@@ -77,6 +100,7 @@ export default function AdLibraryPage() {
                   <TabsTrigger value="all" className="text-xs px-3 h-7">All Ads</TabsTrigger>
                   <TabsTrigger value="boards" className="text-xs px-3 h-7">Boards</TabsTrigger>
                   <TabsTrigger value="folders" className="text-xs px-3 h-7">Folders</TabsTrigger>
+                  <TabsTrigger value="tags" className="text-xs px-3 h-7">Tags</TabsTrigger>
                 </TabsList>
               </Tabs>
               {tab === "all" && (
@@ -98,7 +122,7 @@ export default function AdLibraryPage() {
                 loading={isLoading}
                 boards={boards}
                 allTags={tags}
-                onViewDetails={setSelectedAd}
+                onViewDetails={handleViewDetails}
                 onDelete={(id) => deleteAd.mutate(id)}
                 onAddToBoard={(adId, boardId) => addToBoard.mutate({ board_id: boardId, ad_id: adId })}
                 onToggleTag={(adId, tagId, remove) => toggleTag.mutate({ ad_id: adId, tag_id: tagId, remove })}
@@ -115,6 +139,9 @@ export default function AdLibraryPage() {
             )}
             {tab === "folders" && (
               <AdLibraryFoldersView onSelectBoard={setViewingBoardId} />
+            )}
+            {tab === "tags" && (
+              <AdLibraryTagsView />
             )}
           </div>
         </div>
