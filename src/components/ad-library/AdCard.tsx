@@ -56,6 +56,9 @@ interface AdCardProps {
   onUpdateNotes?: (adId: string, notes: string) => void;
   boards?: AdLibraryBoard[];
   allTags?: { id: string; name: string; color: string }[];
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: string) => void;
 }
 
 const platformIcon: Record<string, typeof Facebook> = {
