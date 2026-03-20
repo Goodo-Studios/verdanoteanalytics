@@ -259,6 +259,7 @@ export default function AdLibraryPage() {
       </div>
 
       <SaveAdModal isOpen={showSaveModal} onClose={() => setShowSaveModal(false)} />
+      <ImportFromAtriaModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} />
     </AppLayout>
   );
 }
