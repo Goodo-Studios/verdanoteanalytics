@@ -9,6 +9,18 @@ const corsHeaders = {
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const CHROME_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
+// Patterns that indicate a profile picture / logo — NOT the ad creative
+const PROFILE_URL_PATTERNS = [
+  /\/profile/i, /\/avatar/i, /\/logo/i, /page_picture/i,
+  /p\d{2,3}x\d{2,3}/i, /s\d{2,3}x\d{2,3}/i,
+  /\/rsrc\.php/i, /emoji/i, /icon/i, /badge/i,
+  /\/static\//i, /favicon/i, /sprite/i,
+];
+
+function isProfileOrLogoUrl(url: string): boolean {
+  return PROFILE_URL_PATTERNS.some(p => p.test(url));
+}
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -169,12 +181,16 @@ Deno.serve(async (req) => {
           if (!sourceUrl) { failed++; errors.push(`Ad missing source_url at index ${i}`); continue; }
           if (existingUrls.has(sourceUrl)) { skippedDuplicates++; continue; }
 
-          const mediaUrls = uniqueStrings([
+          // Collect all media URLs, then FILTER out profile pics / logos
+          const rawMediaUrls = uniqueStrings([
             ...(Array.isArray(ad.media_urls) ? ad.media_urls : []),
             ...(Array.isArray(ad.mediaUrls) ? ad.mediaUrls : []),
             ...(Array.isArray(ad.assets) ? ad.assets : []),
             ad.media_url, ad.video_url, ad.videoUrl, ad.image_url, ad.imageUrl, ad.thumbnail_url, ad.thumbnailUrl,
+            ad.creative_url, ad.asset_url,
           ]);
+
+          const mediaUrls = rawMediaUrls.filter(u => !isProfileOrLogoUrl(u));
 
           const tempAdId = crypto.randomUUID().slice(0, 8);
           const isCarousel = mediaUrls.filter(u => !isVideoUrl(u)).length > 1;
@@ -192,8 +208,9 @@ Deno.serve(async (req) => {
           }
 
           const firstStoredImage = storedMedia.find(m => !m.download_failed && (m.type === "image" || m.type === "carousel_frame"));
-          const inferredThumb = mediaUrls.find(url => !isVideoUrl(url)) || null;
-          const thumbUrl = ad.thumbnail_url || ad.image_url || ad.thumbnail || ad.thumbnailUrl || inferredThumb;
+          const inferredThumb = mediaUrls.find(url => !isVideoUrl(url) && !isProfileOrLogoUrl(url)) || null;
+          const thumbUrl = [ad.thumbnail_url, ad.image_url, ad.thumbnail, ad.thumbnailUrl, inferredThumb]
+            .find(u => u && !isProfileOrLogoUrl(u)) || null;
           const finalThumbnail = firstStoredImage?.stored_url || thumbUrl;
 
           const inferredFormat = mediaUrls.some(isVideoUrl) ? "video" : isCarousel ? "carousel" : thumbUrl ? "image" : null;
