@@ -88,6 +88,9 @@ export function AdCard({
   onUpdateNotes,
   boards = [],
   allTags = [],
+  selectable = false,
+  selected = false,
+  onToggleSelect,
 }: AdCardProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showNoteEditor, setShowNoteEditor] = useState(false);
