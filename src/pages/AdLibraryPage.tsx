@@ -35,7 +35,7 @@ export default function AdLibraryPage() {
           <div className="px-6 pt-6 pb-4">
             <PageHeader
               title="Ad Library"
-              subtitle="Save, organize, and reference ads from across the web"
+              description="Save, organize, and reference ads from across the web"
             />
             <div className="flex items-center gap-3 mt-4">
               <div className="relative flex-1 max-w-sm">

@@ -63,7 +63,7 @@ export function AdDetailPanel({ ad, onClose }: Props) {
           {ad.brand_name && <Badge variant="secondary">{ad.brand_name}</Badge>}
           {ad.platform && <Badge variant="outline" className="uppercase text-[10px]">{ad.platform}</Badge>}
           {ad.media_type && <Badge variant="outline" className="text-[10px]">{ad.media_type}</Badge>}
-          {ad.source === "fb_ad_library" && <Badge className="bg-blue-50 text-blue-700 text-[10px]">Ad Library</Badge>}
+          {ad.source === "fb_ad_library" && <Badge className="bg-accent text-accent-foreground text-[10px]">Ad Library</Badge>}
         </div>
 
         {ad.body_text && (
