@@ -67,15 +67,23 @@ export default function AgencyDashboardPage() {
       const priorEnd = new Date(now.getFullYear(), now.getMonth(), 0);
       const from = priorMonth.toISOString().slice(0, 10);
       const to = priorEnd.toISOString().slice(0, 10);
-      const { data, error } = await supabase
-        .from("creative_daily_metrics")
-        .select("account_id, spend")
-        .gte("date", from)
-        .lte("date", to);
-      if (error) throw error;
       const map = new Map<string, number>();
-      for (const row of data || []) {
-        map.set(row.account_id, (map.get(row.account_id) || 0) + (Number(row.spend) || 0));
+      let offset = 0;
+      const PAGE = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from("creative_daily_metrics")
+          .select("account_id, spend")
+          .gte("date", from)
+          .lte("date", to)
+          .range(offset, offset + PAGE - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        for (const row of data) {
+          map.set(row.account_id, (map.get(row.account_id) || 0) + (Number(row.spend) || 0));
+        }
+        if (data.length < PAGE) break;
+        offset += PAGE;
       }
       return map;
     },
