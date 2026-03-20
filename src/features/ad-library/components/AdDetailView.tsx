@@ -63,9 +63,11 @@ export function AdDetailView({ adId, onBack }: Props) {
   const [headline, setHeadline] = useState("");
   const [bodyText, setBodyText] = useState("");
   const [notes, setNotes] = useState("");
+  const [transcript, setTranscript] = useState("");
   const [showDelete, setShowDelete] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIdx, setLightboxIdx] = useState(0);
+  const [isTranscribing, setIsTranscribing] = useState(false);
 
   // Sync state when ad changes
   useEffect(() => {
