@@ -1,0 +1,1 @@
+ALTER TABLE public.ad_library_saved_ads ADD COLUMN IF NOT EXISTS stored_media jsonb NOT NULL DEFAULT '[]'::jsonb;
