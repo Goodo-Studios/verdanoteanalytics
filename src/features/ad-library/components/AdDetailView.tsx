@@ -47,6 +47,9 @@ interface Props {
 
 const platformIcon: Record<string, typeof Facebook> = { facebook: Facebook, instagram: Instagram };
 
+const isVideoUrl = (url: string) => /\.(mp4|webm|mov|m3u8|avi)(\?|$)/i.test(url);
+const isFakeSourceUrl = (url: string) => /^https:\/\/tryatria\.com\/saved\//i.test(url);
+
 export function AdDetailView({ adId, onBack }: Props) {
   const { data: allAds = [] } = useSavedAds();
   const ad = allAds.find((a) => a.id === adId);
@@ -167,9 +170,11 @@ export function AdDetailView({ adId, onBack }: Props) {
         <div className="flex-1 min-w-0">
           <h2 className="font-heading text-lg text-foreground truncate">{ad.advertiser_name || "Ad Detail"}</h2>
         </div>
-        <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => window.open(ad.source_url, "_blank")}>
-          <ExternalLink className="h-3.5 w-3.5" /> View Original
-        </Button>
+        {ad.source_url && !isFakeSourceUrl(ad.source_url) && (
+          <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => window.open(ad.source_url, "_blank")}>
+            <ExternalLink className="h-3.5 w-3.5" /> View Original
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
@@ -180,7 +185,11 @@ export function AdDetailView({ adId, onBack }: Props) {
             {isCarousel && mediaUrls.length > 1 ? (
               <div className="relative">
                 <div className="aspect-[4/3] overflow-hidden cursor-pointer" onClick={() => { setLightboxIdx(0); setLightboxOpen(true); }}>
-                  <img src={mediaUrls[lightboxIdx] || mediaUrls[0]} className="h-full w-full object-contain" alt="" />
+                  {isVideoUrl(mediaUrls[lightboxIdx]) ? (
+                    <video src={mediaUrls[lightboxIdx]} className="h-full w-full object-contain" controls playsInline />
+                  ) : (
+                    <img src={mediaUrls[lightboxIdx] || mediaUrls[0]} className="h-full w-full object-contain" alt="" />
+                  )}
                 </div>
                 {/* Carousel dots */}
                 <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
@@ -208,15 +217,21 @@ export function AdDetailView({ adId, onBack }: Props) {
                 )}
               </div>
             ) : mediaUrls.length > 0 ? (
-              <div
-                className="aspect-[4/3] overflow-hidden cursor-pointer group"
-                onClick={() => { setLightboxIdx(0); setLightboxOpen(true); }}
-              >
-                <img src={mediaUrls[0]} className="h-full w-full object-contain" alt="" />
-                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-foreground/5">
-                  <ZoomIn className="h-6 w-6 text-foreground/60" />
+              isVideoUrl(mediaUrls[0]) ? (
+                <div className="aspect-[4/3] overflow-hidden">
+                  <video src={mediaUrls[0]} className="h-full w-full object-contain" controls playsInline />
                 </div>
-              </div>
+              ) : (
+                <div
+                  className="aspect-[4/3] overflow-hidden cursor-pointer group"
+                  onClick={() => { setLightboxIdx(0); setLightboxOpen(true); }}
+                >
+                  <img src={mediaUrls[0]} className="h-full w-full object-contain" alt="" />
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-foreground/5">
+                    <ZoomIn className="h-6 w-6 text-foreground/60" />
+                  </div>
+                </div>
+              )
             ) : (
               <div className="aspect-[4/3] flex items-center justify-center">
                 <Image className="h-16 w-16 text-muted-foreground/20" />
@@ -463,7 +478,11 @@ export function AdDetailView({ adId, onBack }: Props) {
         <DialogContent className="max-w-4xl p-0 bg-black/95 border-0">
           <div className="relative flex items-center justify-center min-h-[60vh]">
             {mediaUrls[lightboxIdx] && (
-              <img src={mediaUrls[lightboxIdx]} className="max-h-[85vh] max-w-full object-contain" alt="" />
+              isVideoUrl(mediaUrls[lightboxIdx]) ? (
+                <video src={mediaUrls[lightboxIdx]} className="max-h-[85vh] max-w-full object-contain" controls autoPlay playsInline />
+              ) : (
+                <img src={mediaUrls[lightboxIdx]} className="max-h-[85vh] max-w-full object-contain" alt="" />
+              )
             )}
             <button onClick={() => setLightboxOpen(false)} className="absolute top-4 right-4 text-white/70 hover:text-white">
               <X className="h-5 w-5" />
