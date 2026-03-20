@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { PageHeader } from "@/components/PageHeader";
 import { useSavedAds, useAdLibraryBoards, useAdLibraryTags, useDeleteSavedAd, useAddToBoard, useToggleAdTag, useUpdateSavedAd } from "@/hooks/useAdLibrary";
@@ -12,14 +12,13 @@ import { AdLibraryBoardsView } from "@/components/ad-library/AdLibraryBoardsView
 import { AdLibraryFoldersView } from "@/components/ad-library/AdLibraryFoldersView";
 import { AdLibraryTagsView } from "@/components/ad-library/AdLibraryTagsView";
 import { AdDetailView } from "@/components/ad-library/AdDetailView";
-import { Input } from "@/components/ui/input";
+import { AdLibrarySearch } from "@/components/ad-library/AdLibrarySearch";
 import { Button } from "@/components/ui/button";
-import { Plus, Search } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function AdLibraryPage() {
   const [selectedBoardId, setSelectedBoardId] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [selectedAd, setSelectedAd] = useState<AdLibrarySavedAd | null>(null);
   const [viewingBoardId, setViewingBoardId] = useState<string | null>(null);
@@ -28,7 +27,6 @@ export default function AdLibraryPage() {
 
   const { data: ads = [], isLoading } = useSavedAds({
     board_id: selectedBoardId || undefined,
-    search: search || undefined,
   });
   const { data: boards = [] } = useAdLibraryBoards();
   const { data: tags = [] } = useAdLibraryTags();
@@ -37,10 +35,44 @@ export default function AdLibraryPage() {
   const toggleTag = useToggleAdTag();
   const updateAd = useUpdateSavedAd();
 
-  const handleViewDetails = (ad: AdLibrarySavedAd) => {
+  const handleViewDetails = useCallback((ad: AdLibrarySavedAd) => {
     setViewingAdId(ad.id);
     setSelectedAd(null);
-  };
+  }, []);
+
+  // Keyboard shortcuts — scoped to Ad Library
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
+
+      // Cmd/Ctrl+K → focus search
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        (window as any).__adLibrarySearchFocus?.();
+        if (tab !== "all") setTab("all");
+        return;
+      }
+
+      // Cmd/Ctrl+S → open save modal (only when not typing)
+      if ((e.metaKey || e.ctrlKey) && e.key === "s" && !isInput) {
+        e.preventDefault();
+        setShowSaveModal(true);
+        return;
+      }
+
+      // Escape → close modals/views
+      if (e.key === "Escape") {
+        if (showSaveModal) { setShowSaveModal(false); return; }
+        if (viewingAdId) { setViewingAdId(null); return; }
+        if (viewingBoardId) { setViewingBoardId(null); return; }
+        if (selectedAd) { setSelectedAd(null); return; }
+      }
+    };
+
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [tab, showSaveModal, viewingAdId, viewingBoardId, selectedAd]);
 
   // Full-page ad detail view
   if (viewingAdId) {
@@ -104,10 +136,10 @@ export default function AdLibraryPage() {
                 </TabsList>
               </Tabs>
               {tab === "all" && (
-                <div className="relative flex-1 max-w-sm">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search saved ads..." className="pl-9 h-9 text-[13px]" />
-                </div>
+                <AdLibrarySearch
+                  onSelectAd={handleViewDetails}
+                  className="flex-1 max-w-sm"
+                />
               )}
               <Button onClick={() => setShowSaveModal(true)} size="sm" className="gap-1.5">
                 <Plus className="h-3.5 w-3.5" /> Save Ad
