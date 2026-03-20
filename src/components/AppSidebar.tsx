@@ -12,6 +12,7 @@ import {
   Tags,
   Eye,
   ListChecks,
+  Library,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
