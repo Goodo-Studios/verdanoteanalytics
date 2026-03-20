@@ -181,6 +181,16 @@ export function AdCard({
             </div>
           )}
 
+          {/* Missing creative indicator */}
+          {missingCreative && (
+            <div className="absolute inset-0 z-[5] flex items-center justify-center bg-destructive/5">
+              <div className="text-center px-3">
+                <AlertTriangle className="h-5 w-5 text-destructive/60 mx-auto mb-1" />
+                <span className="text-[10px] text-destructive/80 font-label">Missing creative</span>
+              </div>
+            </div>
+          )}
+
           {/* CC badge for transcribed videos */}
           {hasTranscript && (
             <div className="absolute bottom-2 right-10 z-10 h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
