@@ -29,7 +29,7 @@ export default function AgencyDashboardPage() {
   const sync = useSync();
 
 
-  const { data: perAccountSpend = new Map<string, number>() } = useQuery({
+  const { data: perAccountData = { spend: new Map<string, number>(), revenue: new Map<string, number>() } } = useQuery({
     queryKey: ["agency-per-account-spend"],
     queryFn: async () => {
       const now = new Date();
