@@ -14,8 +14,9 @@ import { AdLibraryTagsView } from "@/features/ad-library/components/AdLibraryTag
 import { AdDetailView } from "@/features/ad-library/components/AdDetailView";
 import { AdLibrarySearch } from "@/features/ad-library/components/AdLibrarySearch";
 import { BookmarkletSetup } from "@/features/ad-library/components/BookmarkletSetup";
+import { ImportFromAtriaModal } from "@/features/ad-library/components/ImportFromAtriaModal";
 import { Button } from "@/components/ui/button";
-import { Plus, Download } from "lucide-react";
+import { Plus, Download, Upload } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
