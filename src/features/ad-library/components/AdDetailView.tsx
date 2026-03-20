@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
-import { useSavedAds, useUpdateSavedAd, useDeleteSavedAd, useAdLibraryBoards, useAddToBoard, useRemoveFromBoard, useAdLibraryTags, useToggleAdTag } from "@/hooks/useAdLibrary";
-import type { AdLibrarySavedAd } from "@/types/ad-library";
+import { useSavedAds, useUpdateSavedAd, useDeleteSavedAd, useAdLibraryBoards, useAddToBoard, useRemoveFromBoard, useAdLibraryTags, useToggleAdTag } from "@/features/ad-library/hooks/useAdLibrary";
+import type { AdLibrarySavedAd } from "@/features/ad-library/types/ad-library";
 import { TagEditor } from "./TagEditor";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";

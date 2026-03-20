@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import type { AdLibraryBoard, AdLibrarySavedAd } from "@/types/ad-library";
+import type { AdLibraryBoard, AdLibrarySavedAd } from "@/features/ad-library/types/ad-library";
 import { AdGrid } from "./AdGrid";
 import { LayoutGrid, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";

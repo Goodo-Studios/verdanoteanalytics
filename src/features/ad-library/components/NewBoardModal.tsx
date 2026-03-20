@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useCreateBoard, useAdLibraryFolders } from "@/hooks/useAdLibrary";
+import { useCreateBoard, useAdLibraryFolders } from "@/features/ad-library/hooks/useAdLibrary";
 import {
   Dialog,
   DialogContent,

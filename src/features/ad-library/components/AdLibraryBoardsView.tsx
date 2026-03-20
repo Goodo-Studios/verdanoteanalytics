@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useAdLibraryBoards, useAdLibraryFolders, useDeleteSavedAd } from "@/hooks/useAdLibrary";
-import { useSavedAds } from "@/hooks/useAdLibrary";
-import type { AdLibraryBoard } from "@/types/ad-library";
+import { useAdLibraryBoards, useAdLibraryFolders, useDeleteSavedAd } from "@/features/ad-library/hooks/useAdLibrary";
+import { useSavedAds } from "@/features/ad-library/hooks/useAdLibrary";
+import type { AdLibraryBoard } from "@/features/ad-library/types/ad-library";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";

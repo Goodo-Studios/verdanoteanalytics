@@ -1,5 +1,5 @@
-import type { AdLibrarySavedAd } from "@/types/ad-library";
-import { useUpdateSavedAd, useAdLibraryBoards, useAddToBoard, useAdLibraryTags, useToggleAdTag } from "@/hooks/useAdLibrary";
+import type { AdLibrarySavedAd } from "@/features/ad-library/types/ad-library";
+import { useUpdateSavedAd, useAdLibraryBoards, useAddToBoard, useAdLibraryTags, useToggleAdTag } from "@/features/ad-library/hooks/useAdLibrary";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";

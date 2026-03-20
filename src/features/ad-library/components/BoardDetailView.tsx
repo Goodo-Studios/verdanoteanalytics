@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
-import { useAdLibraryBoards, useSavedAds, useRemoveFromBoard, useAddToBoard, useDeleteSavedAd, useUpdateSavedAd, useAdLibraryTags, useToggleAdTag } from "@/hooks/useAdLibrary";
-import type { AdLibrarySavedAd } from "@/types/ad-library";
+import { useAdLibraryBoards, useSavedAds, useRemoveFromBoard, useAddToBoard, useDeleteSavedAd, useUpdateSavedAd, useAdLibraryTags, useToggleAdTag } from "@/features/ad-library/hooks/useAdLibrary";
+import type { AdLibrarySavedAd } from "@/features/ad-library/types/ad-library";
 import { AdGrid } from "./AdGrid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

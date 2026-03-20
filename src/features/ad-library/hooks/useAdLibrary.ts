@@ -8,7 +8,7 @@ import type {
   AdLibrarySavedAd,
   AdLibraryTag,
   AdLibraryBoardAd,
-} from "@/types/ad-library";
+} from "@/features/ad-library/types/ad-library";
 
 // ---- Folders ----
 

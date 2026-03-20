@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAdLibraryFolders, useAdLibraryBoards, useCreateFolder } from "@/hooks/useAdLibrary";
+import { useAdLibraryFolders, useAdLibraryBoards, useCreateFolder } from "@/features/ad-library/hooks/useAdLibrary";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

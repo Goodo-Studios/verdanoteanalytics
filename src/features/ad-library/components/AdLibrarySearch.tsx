@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useSavedAds } from "@/hooks/useAdLibrary";
-import type { AdLibrarySavedAd } from "@/types/ad-library";
+import { useSavedAds } from "@/features/ad-library/hooks/useAdLibrary";
+import type { AdLibrarySavedAd } from "@/features/ad-library/types/ad-library";
 import { Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 

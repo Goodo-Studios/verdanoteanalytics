@@ -41,9 +41,9 @@ import {
   useAdLibraryTags,
   useCreateBoard,
   useCreateTag,
-} from "@/hooks/useAdLibrary";
+} from "@/features/ad-library/hooks/useAdLibrary";
 import { useQueryClient } from "@tanstack/react-query";
-import type { ScrapeAdResponse, AdLibraryBoard, AdLibraryTag } from "@/types/ad-library";
+import type { ScrapeAdResponse, AdLibraryBoard, AdLibraryTag } from "@/features/ad-library/types/ad-library";
 
 interface SaveAdModalProps {
   isOpen: boolean;

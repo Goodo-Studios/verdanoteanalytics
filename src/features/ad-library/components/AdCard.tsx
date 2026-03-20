@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { AdLibrarySavedAd, AdLibraryBoard } from "@/types/ad-library";
+import type { AdLibrarySavedAd, AdLibraryBoard } from "@/features/ad-library/types/ad-library";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from "react";
-import type { AdLibrarySavedAd, AdLibraryBoard } from "@/types/ad-library";
+import type { AdLibrarySavedAd, AdLibraryBoard } from "@/features/ad-library/types/ad-library";
 import { AdCard } from "./AdCard";
 import { BulkActionBar } from "./BulkActionBar";
 import { Library } from "lucide-react";

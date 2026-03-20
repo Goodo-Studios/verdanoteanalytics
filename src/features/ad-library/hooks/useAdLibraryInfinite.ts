@@ -1,6 +1,6 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import type { AdLibrarySavedAd, AdLibraryTag } from "@/types/ad-library";
+import type { AdLibrarySavedAd, AdLibraryTag } from "@/features/ad-library/types/ad-library";
 
 const PAGE_SIZE = 20;
 

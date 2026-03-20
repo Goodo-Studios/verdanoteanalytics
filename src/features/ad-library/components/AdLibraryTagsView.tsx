@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useAdLibraryTags } from "@/hooks/useAdLibrary";
-import { useSavedAds } from "@/hooks/useAdLibrary";
+import { useAdLibraryTags } from "@/features/ad-library/hooks/useAdLibrary";
+import { useSavedAds } from "@/features/ad-library/hooks/useAdLibrary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {

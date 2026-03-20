@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAdLibraryBoards, useAdLibraryFolders, useCreateBoard, useCreateFolder } from "@/hooks/useAdLibrary";
+import { useAdLibraryBoards, useAdLibraryFolders, useCreateBoard, useCreateFolder } from "@/features/ad-library/hooks/useAdLibrary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FolderPlus, Library, Folder, LayoutGrid, Plus } from "lucide-react";

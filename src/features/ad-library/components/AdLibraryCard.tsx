@@ -1,5 +1,5 @@
-import type { AdLibrarySavedAd } from "@/types/ad-library";
-import { useDeleteSavedAd } from "@/hooks/useAdLibrary";
+import type { AdLibrarySavedAd } from "@/features/ad-library/types/ad-library";
+import { useDeleteSavedAd } from "@/features/ad-library/hooks/useAdLibrary";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

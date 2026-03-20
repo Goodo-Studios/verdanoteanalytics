@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useAdLibraryTags, useCreateTag, useToggleAdTag } from "@/hooks/useAdLibrary";
+import { useAdLibraryTags, useCreateTag, useToggleAdTag } from "@/features/ad-library/hooks/useAdLibrary";
 import { X, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 

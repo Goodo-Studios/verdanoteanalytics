@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { AdLibraryBoard } from "@/types/ad-library";
+import type { AdLibraryBoard } from "@/features/ad-library/types/ad-library";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
