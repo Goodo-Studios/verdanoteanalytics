@@ -75,6 +75,7 @@ export function AdDetailView({ adId, onBack }: Props) {
   const removeFromBoard = useRemoveFromBoard();
   const { data: allTags = [] } = useAdLibraryTags();
   const toggleTag = useToggleAdTag();
+  const { user } = useAuth();
   const qc = useQueryClient();
 
   const [headline, setHeadline] = useState("");
