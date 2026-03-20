@@ -51,6 +51,14 @@ async function downloadAndUpload(
   }
 }
 
+function uniqueStrings(values: unknown[]): string[] {
+  return [...new Set(values.filter((value): value is string => typeof value === "string" && value.length > 0))];
+}
+
+function isVideoUrl(url: string): boolean {
+  return /\.(mp4|webm|mov|m3u8|avi)(\?|$)/i.test(url);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -165,17 +173,33 @@ Deno.serve(async (req) => {
             continue;
           }
 
-          // Download thumbnail
-          const thumbUrl = ad.thumbnail_url || ad.image_url || ad.thumbnail || null;
+          const mediaUrls = uniqueStrings([
+            ...(Array.isArray(ad.media_urls) ? ad.media_urls : []),
+            ...(Array.isArray(ad.mediaUrls) ? ad.mediaUrls : []),
+            ...(Array.isArray(ad.assets) ? ad.assets : []),
+            ad.media_url,
+            ad.video_url,
+            ad.videoUrl,
+            ad.image_url,
+            ad.imageUrl,
+            ad.thumbnail_url,
+            ad.thumbnailUrl,
+          ]);
+
+          const inferredThumb = mediaUrls.find((url) => !isVideoUrl(url)) || null;
+          const thumbUrl = ad.thumbnail_url || ad.image_url || ad.thumbnail || ad.thumbnailUrl || inferredThumb;
           let storedThumb: string | null = null;
           if (thumbUrl) {
             storedThumb = await downloadAndUpload(supabaseAdmin, thumbUrl, user.id);
           }
 
-          // Build media_urls
-          let mediaUrls: string[] = [];
-          if (Array.isArray(ad.media_urls)) mediaUrls = ad.media_urls;
-          else if (ad.media_url) mediaUrls = [ad.media_url];
+          const inferredFormat = mediaUrls.some(isVideoUrl)
+            ? "video"
+            : mediaUrls.length > 1
+              ? "carousel"
+              : thumbUrl
+                ? "image"
+                : null;
 
           const { data: saved, error: insertErr } = await supabase
             .from("ad_library_saved_ads")
@@ -187,7 +211,7 @@ Deno.serve(async (req) => {
               ad_id: ad.ad_id || ad.facebook_ad_id || null,
               platform: ad.platform || "facebook",
               ad_status: ad.ad_status || ad.status || null,
-              ad_format: ad.ad_format || ad.format || ad.type || null,
+              ad_format: ad.ad_format || ad.format || ad.type || inferredFormat,
               headline: ad.headline || ad.title || null,
               body_text: ad.body_text || ad.body || ad.text || ad.copy || null,
               cta_text: ad.cta_text || ad.cta || null,
@@ -197,7 +221,7 @@ Deno.serve(async (req) => {
               started_running: ad.started_running || ad.start_date || null,
               country_targeting: ad.country_targeting || [],
               notes: ad.notes || null,
-              raw_data: ad.raw_data || null,
+              raw_data: ad.raw_data || ad || null,
             } as any)
             .select("id")
             .single();
