@@ -97,10 +97,10 @@ export default function AgencyDashboardPage() {
               const prior = priorMonthSpend.get(acc.id) || 0;
               const spendDelta = prior > 0 ? (mtd - prior) / prior : 0;
               const accCreatives = creativesArr.filter((c: any) => c.account_id === acc.id);
-              const active = accCreatives.filter((c: any) => (Number(c.spend) || 0) > 0);
+              const activeCount = activeByAccount.get(acc.id) || 0;
               const accMtdRevenue = perAccountRevenue.get(acc.id) || 0;
               const avgRoas = mtd > 0 ? accMtdRevenue / mtd : 0;
-              const topCreative = [...active].sort((a: any, b: any) => (Number(b.roas) || 0) - (Number(a.roas) || 0))[0];
+              const topCreative = [...accCreatives].sort((a: any, b: any) => (Number(b.roas) || 0) - (Number(a.roas) || 0))[0];
               const wowTrend = topCreative ? wowTrends?.get(topCreative.ad_id) : undefined;
               const target = Number(acc.target_monthly_spend) || 0;
               const pacing = target > 0 ? mtd / target : null;
