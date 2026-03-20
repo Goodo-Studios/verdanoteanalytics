@@ -307,7 +307,6 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
               </div>
             </TabsContent>
 
-            {/* Tab 2: Browser Capture */}
             <TabsContent value="browser" className="space-y-4 mt-4">
               <p className="text-sm text-muted-foreground">
                 This bookmarklet extracts your saved ads directly from the Atria website. Works for all Atria plans.
@@ -325,12 +324,16 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
                   <span className="text-xs text-muted-foreground">← Drag this to your bookmarks bar</span>
                 </div>
               </div>
+
+              {/* Auth token display */}
+              <AuthTokenDisplay />
+
               <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside">
                 <li>Drag the button above to your browser's bookmarks bar</li>
                 <li>Go to <a href="https://tryatria.com" target="_blank" rel="noopener" className="text-primary underline">tryatria.com</a> and log in to your account</li>
                 <li>Navigate to your saved ads or swipe file</li>
                 <li>Scroll down to load all your ads, then click the bookmarklet</li>
-                <li>When prompted, paste your auth token (find it in Settings → API Keys)</li>
+                <li>When prompted, paste your auth token from the box above</li>
                 <li>The bookmarklet will extract and send your ads automatically</li>
               </ol>
               <div className="rounded-lg bg-muted/50 border border-border p-3 text-xs text-muted-foreground">
