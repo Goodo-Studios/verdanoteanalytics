@@ -84,6 +84,33 @@ export function AdDetailView({ adId, onBack }: Props) {
     updateAd.mutate({ id: ad.id, [field]: value } as any);
   }, [ad, updateAd]);
 
+  const triggerTranscription = useCallback(async () => {
+    if (!ad) return;
+    const videoUrl = ad.media_urls?.find((u) => u.match(/\.(mp4|webm|mov)/i)) || ad.media_urls?.[0] || ad.thumbnail_url;
+    if (!videoUrl) {
+      toast.error("No video URL available");
+      return;
+    }
+    setIsTranscribing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("transcribe-ad", {
+        body: { ad_id: ad.id, video_url: videoUrl },
+      });
+      if (error) throw error;
+      if (data?.success) {
+        setTranscript(data.transcript);
+        qc.invalidateQueries({ queryKey: ["ad-library-saved-ads"] });
+        toast.success("Transcription complete");
+      } else {
+        toast.error(data?.error || "Transcription failed");
+      }
+    } catch (e: any) {
+      toast.error("Transcription failed: " + e.message);
+    } finally {
+      setIsTranscribing(false);
+    }
+  }, [ad, qc]);
+
   if (!ad) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
