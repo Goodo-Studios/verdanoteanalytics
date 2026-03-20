@@ -1,6 +1,7 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import type { AdLibrarySavedAd, AdLibraryBoard } from "@/types/ad-library";
 import { AdCard } from "./AdCard";
+import { BulkActionBar } from "./BulkActionBar";
 import { Library } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -51,6 +52,30 @@ export function AdGrid({
   emptyAction,
 }: AdGridProps) {
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const selectionMode = selected.size > 0;
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => setSelected(new Set()), []);
+
+  // Escape key clears selection
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && selectionMode) {
+        clearSelection();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selectionMode, clearSelection]);
 
   const handleIntersect = useCallback(
     (entries: IntersectionObserverEntry[]) => {
@@ -71,6 +96,20 @@ export function AdGrid({
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [handleIntersect, onLoadMore]);
+
+  const handleBulkDelete = () => {
+    selected.forEach((id) => onDelete?.(id));
+    clearSelection();
+  };
+
+  const handleBulkAddToBoard = (boardId: string) => {
+    selected.forEach((id) => onAddToBoard?.(id, boardId));
+    clearSelection();
+  };
+
+  const handleBulkAddTag = (tagId: string) => {
+    selected.forEach((id) => onToggleTag?.(id, tagId, false));
+  };
 
   if (!loading && ads.length === 0) {
     return (
@@ -97,13 +136,16 @@ export function AdGrid({
           <AdCard
             key={ad.id}
             ad={ad}
-            onViewDetails={onViewDetails}
+            onViewDetails={selectionMode ? undefined : onViewDetails}
             onDelete={onDelete}
             onAddToBoard={onAddToBoard}
             onToggleTag={onToggleTag}
             onUpdateNotes={onUpdateNotes}
             boards={boards}
             allTags={allTags}
+            selectable={selectionMode}
+            selected={selected.has(ad.id)}
+            onToggleSelect={toggleSelect}
           />
         ))}
 
@@ -121,6 +163,17 @@ export function AdGrid({
           <div className="h-5 w-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
         </div>
       )}
+
+      {/* Bulk action bar */}
+      <BulkActionBar
+        count={selected.size}
+        boards={boards || []}
+        allTags={allTags || []}
+        onAddToBoard={handleBulkAddToBoard}
+        onAddTag={handleBulkAddTag}
+        onDelete={handleBulkDelete}
+        onClear={clearSelection}
+      />
     </div>
   );
 }
