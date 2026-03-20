@@ -179,6 +179,7 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
           media_urls: result.data!.media_urls || [],
           country_targeting: result.data!.country_targeting || [],
           raw_data: data.data || null,
+          stored_media: (data.data as any)?.stored_media || [],
         }));
         toast.success("Ad data fetched — review and save");
       } else {
