@@ -1,5 +1,5 @@
 import { useParams } from "react-router-dom";
-import { SharedBoardView } from "@/components/ad-library/SharedBoardView";
+import { SharedBoardView } from "@/features/ad-library/components/SharedBoardView";
 
 export default function SharedAdBoardPage() {
   const { shareToken } = useParams<{ shareToken: string }>();
