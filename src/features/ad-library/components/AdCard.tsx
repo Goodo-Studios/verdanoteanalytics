@@ -104,6 +104,11 @@ export function AdCard({
   const adTagIds = new Set((ad.tags || []).map((t) => t.id));
   const initial = (ad.advertiser_name || "A")[0].toUpperCase();
   const hasTranscript = (ad as any).transcript_status === "completed";
+  const storedMedia = ((ad as any).stored_media || []) as { type: string; download_failed?: boolean; stored_url?: string }[];
+  const successfulStored = storedMedia.filter(m => !m.download_failed && m.stored_url);
+  const hasStoredVideo = successfulStored.some(m => m.type === "video");
+  const hasStoredCarousel = successfulStored.filter(m => m.type === "carousel_frame").length > 1;
+  const carouselCount = successfulStored.filter(m => m.type === "carousel_frame").length;
 
   const handleCopyLandingPage = (e: React.MouseEvent) => {
     e.stopPropagation();
