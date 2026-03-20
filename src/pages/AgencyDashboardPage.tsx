@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useRoleNavigate } from "@/hooks/useRolePath";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
@@ -16,13 +16,19 @@ import { computeFatigue } from "@/lib/fatigueScore";
 import { cn } from "@/lib/utils";
 import { fmt$, fmtSignedPct } from "@/lib/formatters";
 import { useAgencyDashboardData } from "@/hooks/useAgencyDashboardData";
+import { DateRangeFilter } from "@/components/DateRangeFilter";
+import { subDays, format, startOfMonth } from "date-fns";
 
 export default function AgencyDashboardPage() {
   const navigate = useRoleNavigate();
   const { accounts, setSelectedAccountId } = useAccountContext();
   const { data: wowTrends } = useWoWTrends();
   const sync = useSync();
-  const { data: agencyData } = useAgencyDashboardData(accounts);
+
+  const [dateFrom, setDateFrom] = useState<string | undefined>(() => format(startOfMonth(new Date()), "yyyy-MM-dd"));
+  const [dateTo, setDateTo] = useState<string | undefined>(() => format(subDays(new Date(), 1), "yyyy-MM-dd"));
+
+  const { data: agencyData } = useAgencyDashboardData(accounts, dateFrom, dateTo);
 
   const creativesArr = agencyData?.creatives ?? [];
   const perAccountSpend = agencyData?.perAccountSpend ?? new Map<string, number>();
