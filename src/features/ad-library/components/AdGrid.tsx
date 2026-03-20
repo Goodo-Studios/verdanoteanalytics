@@ -195,6 +195,8 @@ export function AdGrid({
         onAddTag={handleBulkAddTag}
         onDelete={handleBulkDelete}
         onClear={clearSelection}
+        onRefetchMedia={handleBulkRefetch}
+        isRefetching={isRefetching}
       />
     </div>
   );
