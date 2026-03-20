@@ -34,6 +34,7 @@ export interface AdLibraryFilters {
   view: "grid" | "list";
   dateFrom: string | null;
   dateTo: string | null;
+  hasTranscript: boolean;
 }
 
 export const DEFAULT_FILTERS: AdLibraryFilters = {
@@ -45,6 +46,7 @@ export const DEFAULT_FILTERS: AdLibraryFilters = {
   view: "grid",
   dateFrom: null,
   dateTo: null,
+  hasTranscript: false,
 };
 
 interface FilterToolbarProps {
