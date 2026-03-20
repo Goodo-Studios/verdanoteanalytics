@@ -73,7 +73,7 @@ export default function AdLibraryPage() {
         {selectedAd && <AdDetailPanel ad={selectedAd} onClose={() => setSelectedAd(null)} />}
       </div>
 
-      <SaveAdModal open={showSaveModal} onOpenChange={setShowSaveModal} />
+      <SaveAdModal isOpen={showSaveModal} onClose={() => setShowSaveModal(false)} />
     </AppLayout>
   );
 }
