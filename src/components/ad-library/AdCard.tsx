@@ -56,6 +56,9 @@ interface AdCardProps {
   onUpdateNotes?: (adId: string, notes: string) => void;
   boards?: AdLibraryBoard[];
   allTags?: { id: string; name: string; color: string }[];
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: string) => void;
 }
 
 const platformIcon: Record<string, typeof Facebook> = {
@@ -85,6 +88,9 @@ export function AdCard({
   onUpdateNotes,
   boards = [],
   allTags = [],
+  selectable = false,
+  selected = false,
+  onToggleSelect,
 }: AdCardProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showNoteEditor, setShowNoteEditor] = useState(false);
@@ -120,12 +126,33 @@ export function AdCard({
           "group relative flex flex-col overflow-hidden cursor-pointer break-inside-avoid mb-4",
           "transition-all duration-200 ease-out",
           "hover:shadow-card-hover hover:scale-[1.02] hover:border-border",
-          "active:scale-[0.98]"
+          "active:scale-[0.98]",
+          selected && "ring-2 ring-primary border-primary"
         )}
-        onClick={() => onViewDetails?.(ad)}
+        onClick={() => {
+          if (selectable) {
+            onToggleSelect?.(ad.id);
+          } else {
+            onViewDetails?.(ad);
+          }
+        }}
       >
         {/* Thumbnail / Placeholder */}
         <div className="relative aspect-[4/3] bg-muted overflow-hidden">
+          {/* Selection checkbox */}
+          {(selectable || selected) && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onToggleSelect?.(ad.id); }}
+              className={cn(
+                "absolute top-2 left-2 z-10 h-6 w-6 rounded-md flex items-center justify-center transition-all duration-150",
+                selected
+                  ? "bg-primary text-primary-foreground shadow-card"
+                  : "bg-card/80 backdrop-blur-sm border border-border opacity-0 group-hover:opacity-100 hover:bg-card"
+              )}
+            >
+              {selected && <Check className="h-3.5 w-3.5" />}
+            </button>
+          )}
           {ad.thumbnail_url ? (
             <img
               src={ad.thumbnail_url}
