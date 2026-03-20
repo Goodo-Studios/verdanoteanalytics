@@ -75,6 +75,7 @@ export function AdDetailView({ adId, onBack }: Props) {
       setHeadline(ad.headline || "");
       setBodyText(ad.body_text || "");
       setNotes(ad.notes || "");
+      setTranscript((ad as any).transcript || "");
     }
   }, [ad?.id]);
 
