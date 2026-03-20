@@ -615,42 +615,78 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
 
           {/* Tab 2: Enter Manually */}
           <TabsContent value="manual" className="space-y-4">
-            {/* Screenshot upload zone */}
-            {!form.thumbnail_url && (
-              <div
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={handleFileDrop}
-                onClick={() => fileInputRef.current?.click()}
-                className={cn(
-                  "border-2 border-dashed border-border rounded-lg p-6 text-center cursor-pointer",
-                  "hover:border-primary/40 hover:bg-primary/5 transition-colors",
-                  isUploading && "opacity-50 pointer-events-none"
-                )}
-              >
-                {isUploading ? (
-                  <Loader2 className="h-8 w-8 text-muted-foreground mx-auto animate-spin" />
-                ) : (
-                  <Upload className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                )}
-                <p className="text-sm text-muted-foreground font-body">
-                  {isUploading
-                    ? "Uploading..."
-                    : "Drag & drop a screenshot, or click to browse"}
-                </p>
-                <p className="text-xs text-muted-foreground/60 mt-1">
-                  Images (PNG, JPG) or short videos (MP4, WebM)
-                </p>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*,video/mp4,video/webm"
-                  className="hidden"
-                  onChange={handleFileSelect}
-                />
+            {/* Uploaded media previews */}
+            {form.stored_media.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Uploaded Media ({form.stored_media.length})</Label>
+                <div className="flex gap-2 flex-wrap">
+                  {form.stored_media.map((m, i) => (
+                    <div key={i} className="relative rounded-md overflow-hidden border border-border w-20 h-20">
+                      {m.type === "video" ? (
+                        <div className="h-full w-full bg-muted flex items-center justify-center">
+                          <Video className="h-6 w-6 text-muted-foreground" />
+                        </div>
+                      ) : (
+                        <img src={m.stored_url} alt="" className="h-full w-full object-cover" />
+                      )}
+                      <button
+                        onClick={() => {
+                          setForm(prev => ({
+                            ...prev,
+                            stored_media: prev.stored_media.filter((_, idx) => idx !== i),
+                            thumbnail_url: i === 0 ? (prev.stored_media[1]?.stored_url || "") : prev.thumbnail_url,
+                          }));
+                        }}
+                        className="absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-card/80 flex items-center justify-center hover:bg-card"
+                      >
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                      <div className="absolute bottom-0.5 left-0.5 text-[8px] font-label bg-foreground/60 text-background px-1 rounded">
+                        {m.type === "video" ? "VID" : m.type === "carousel_frame" ? `#${i + 1}` : "IMG"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
-            {!form.thumbnail_url && (
+            {/* Upload zone — always show for adding more */}
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleFileDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={cn(
+                "border-2 border-dashed border-border rounded-lg p-6 text-center cursor-pointer",
+                "hover:border-primary/40 hover:bg-primary/5 transition-colors",
+                isUploading && "opacity-50 pointer-events-none"
+              )}
+            >
+              {isUploading ? (
+                <Loader2 className="h-8 w-8 text-muted-foreground mx-auto animate-spin" />
+              ) : (
+                <Upload className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+              )}
+              <p className="text-sm text-muted-foreground font-body">
+                {isUploading
+                  ? "Uploading..."
+                  : form.stored_media.length > 0
+                    ? "Add another image or video"
+                    : "Drag & drop files, or click to browse"}
+              </p>
+              <p className="text-xs text-muted-foreground/60 mt-1">
+                Images (PNG, JPG) or videos (MP4, WebM) — up to 100MB. Add multiple images for carousel.
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/mp4,video/webm,video/quicktime"
+                multiple
+                className="hidden"
+                onChange={handleFileSelect}
+              />
+            </div>
+
+            {form.stored_media.length === 0 && (
               <Button
                 variant="outline"
                 size="sm"
@@ -659,6 +695,8 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
               >
                 <Clipboard className="h-3.5 w-3.5" />
                 Paste from Clipboard
+              </Button>
+            )}
               </Button>
             )}
 
