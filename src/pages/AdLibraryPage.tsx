@@ -26,7 +26,7 @@ export default function AdLibraryPage() {
   const [selectedAd, setSelectedAd] = useState<AdLibrarySavedAd | null>(null);
   const [viewingBoardId, setViewingBoardId] = useState<string | null>(null);
   const [viewingAdId, setViewingAdId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"all" | "boards" | "folders" | "tags">("all");
+  const [tab, setTab] = useState<"all" | "boards" | "folders" | "tags" | "setup">("all");
 
   const { data: ads = [], isLoading } = useSavedAds({
     board_id: selectedBoardId || undefined,
