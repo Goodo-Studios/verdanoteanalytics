@@ -113,18 +113,18 @@ async function fetchCreativeMetadata(accountIds: string[]) {
   return rows;
 }
 
-export function useAgencyDashboardData(accounts: AccountLike[]) {
+export function useAgencyDashboardData(accounts: AccountLike[], dateFrom?: string, dateTo?: string) {
   const accountIds = accounts.map((account) => account.id).sort();
 
   return useQuery({
-    queryKey: ["agency-dashboard-data", accountIds],
+    queryKey: ["agency-dashboard-data", accountIds, dateFrom, dateTo],
     enabled: accountIds.length > 0,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
     queryFn: async () => {
       const now = new Date();
-      const today = now.toISOString().slice(0, 10);
-      const currentMonthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+      const today = dateTo || now.toISOString().slice(0, 10);
+      const currentMonthStart = dateFrom || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
       const priorMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       const priorEnd = new Date(now.getFullYear(), now.getMonth(), 0);
       const priorFrom = priorMonth.toISOString().slice(0, 10);
