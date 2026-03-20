@@ -86,8 +86,10 @@ export function AdDetailView({ adId, onBack }: Props) {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [currentMediaIdx, setCurrentMediaIdx] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [isRefetching, setIsRefetching] = useState(false);
+  const [isUploadingCreative, setIsUploadingCreative] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
-
+  const uploadInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (ad) {
       setHeadline(ad.headline || "");
