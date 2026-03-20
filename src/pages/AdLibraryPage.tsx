@@ -43,6 +43,66 @@ export default function AdLibraryPage() {
     setSelectedAd(null);
   }, []);
 
+  const handleExport = useCallback(async () => {
+    try {
+      // Fetch all ads with tags and board assignments
+      const { data: allAds } = await supabase
+        .from("ad_library_saved_ads" as any)
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      const { data: allTags } = await supabase
+        .from("ad_library_ad_tags" as any)
+        .select("ad_id, tag_id");
+
+      const { data: tagList } = await supabase
+        .from("ad_library_tags" as any)
+        .select("*");
+
+      const { data: boardAds } = await supabase
+        .from("ad_library_board_ads" as any)
+        .select("ad_id, board_id");
+
+      const { data: boardList } = await supabase
+        .from("ad_library_boards" as any)
+        .select("id, name");
+
+      const tagLookup: Record<string, string> = {};
+      (tagList || []).forEach((t: any) => { tagLookup[t.id] = t.name; });
+      const boardLookup: Record<string, string> = {};
+      (boardList || []).forEach((b: any) => { boardLookup[b.id] = b.name; });
+
+      const tagsByAd: Record<string, string[]> = {};
+      (allTags || []).forEach((at: any) => {
+        if (!tagsByAd[at.ad_id]) tagsByAd[at.ad_id] = [];
+        if (tagLookup[at.tag_id]) tagsByAd[at.ad_id].push(tagLookup[at.tag_id]);
+      });
+
+      const boardsByAd: Record<string, string[]> = {};
+      (boardAds || []).forEach((ba: any) => {
+        if (!boardsByAd[ba.ad_id]) boardsByAd[ba.ad_id] = [];
+        if (boardLookup[ba.board_id]) boardsByAd[ba.ad_id].push(boardLookup[ba.board_id]);
+      });
+
+      const exportData = (allAds || []).map((ad: any) => ({
+        ...ad,
+        tags: tagsByAd[ad.id] || [],
+        boards: boardsByAd[ad.id] || [],
+      }));
+
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `ad-library-export-${new Date().toISOString().split("T")[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${exportData.length} ads`);
+    } catch (e: any) {
+      toast.error("Export failed: " + e.message);
+    }
+  }, []);
+
   // Keyboard shortcuts — scoped to Ad Library
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
