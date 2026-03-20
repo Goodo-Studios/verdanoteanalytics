@@ -56,7 +56,8 @@ export function AdGrid({
 }: AdGridProps) {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-
+  const [isRefetching, setIsRefetching] = useState(false);
+  const qc = useQueryClient();
   const selectionMode = selected.size > 0;
 
   const toggleSelect = useCallback((id: string) => {
