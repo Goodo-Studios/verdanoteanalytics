@@ -81,8 +81,8 @@ interface ImportFromAtriaModalProps {
 }
 
 // CSV template columns
-const CSV_TEMPLATE = `source_url,advertiser_name,platform,ad_format,headline,body_text,cta_text,landing_page_url,started_running,tags,board_name,notes
-https://www.facebook.com/ads/library/?id=123456,Brand Name,facebook,image,My Headline,Ad body text,Shop Now,https://example.com,2025-01-15,"hook,ugc",Inspiration,Great ad`;
+const CSV_TEMPLATE = `source_url,advertiser_name,platform,ad_format,headline,body_text,cta_text,landing_page_url,started_running,tags,board_name,folder_name,notes
+https://www.facebook.com/ads/library/?id=123456,Brand Name,facebook,image,My Headline,Ad body text,Shop Now,https://example.com,2025-01-15,"hook,ugc",Inspiration,Competitor Research,Great ad`;
 
 function parseCSV(text: string): Record<string, string>[] {
   const lines = text.trim().split("\n");
