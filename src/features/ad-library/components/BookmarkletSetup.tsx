@@ -118,7 +118,7 @@ export function BookmarkletSetup() {
   const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
   const appUrl = window.location.origin;
 
-  const fbHref = token ? generateFacebookBookmarklet(supabaseUrl, token, appUrl) : "#";
+  const fbHref = generateFacebookBookmarklet(appUrl);
   const atriaHref = token ? generateAtriaBookmarklet(supabaseUrl, anonKey, token, appUrl) : "#";
   const quickSaveHref = token ? generateQuickSaveBookmarklet(supabaseUrl, anonKey, token, appUrl) : "#";
 
