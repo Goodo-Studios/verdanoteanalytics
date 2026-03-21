@@ -44,7 +44,7 @@ const clientNavItems = [
   { title: "Reports", url: "/reports", icon: FileText },
 ];
 
-export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void; onTakeTour?: () => void }) {
+export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { accounts, selectedAccountId, setSelectedAccountId, isLoading } = useAccountContext();
   const { role, isClient, isBuilder, isEmployee, user, signOut } = useAuth();
   const { isClientPreview, isEmployeePreview, previewRole, setPreviewRole } = useClientPreview();
