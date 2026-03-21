@@ -40,8 +40,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    let initialSessionHandled = false;
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      async (event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
@@ -50,20 +52,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else {
           setRole(null);
         }
-        setIsLoading(false);
+        // Only clear loading after the initial session event
+        if (event === 'INITIAL_SESSION' || initialSessionHandled) {
+          initialSessionHandled = true;
+          setIsLoading(false);
+        }
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchRole(session.user.id);
+    // Fallback: if onAuthStateChange doesn't fire INITIAL_SESSION within 3s, resolve anyway
+    const fallbackTimer = setTimeout(() => {
+      if (!initialSessionHandled) {
+        initialSessionHandled = true;
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          setSession(session);
+          setUser(session?.user ?? null);
+          if (session?.user) {
+            fetchRole(session.user.id);
+          }
+          setIsLoading(false);
+        });
       }
-      setIsLoading(false);
-    });
+    }, 3000);
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(fallbackTimer);
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {
