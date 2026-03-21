@@ -152,19 +152,19 @@ export function AdCard({
 
   const handlePlayClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!playableVideoUrl) return;
+    if (!playableVideoUrl || !videoRef.current) return;
     // Pause any other playing video
     window.dispatchEvent(new CustomEvent('verdanote-video-play', { detail: ad.id }));
-    setIsPlaying(true);
+    videoRef.current.play().catch(console.error);
   }, [playableVideoUrl, ad.id]);
 
   const handleStopVideo = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsPlaying(false);
     if (videoRef.current) {
       videoRef.current.pause();
-      videoRef.current.currentTime = 0;
+      videoRef.current.currentTime = 1;
     }
+    setIsPlaying(false);
   }, []);
 
   const handleToggleMute = useCallback((e: React.MouseEvent) => {
