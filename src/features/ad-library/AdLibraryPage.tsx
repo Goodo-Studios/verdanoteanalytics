@@ -18,7 +18,7 @@ import { BookmarkletSetup } from "@/features/ad-library/components/BookmarkletSe
 import { FilterToolbar, DEFAULT_FILTERS } from "@/features/ad-library/components/FilterToolbar";
 import type { AdLibraryFilters } from "@/features/ad-library/components/FilterToolbar";
 import { Button } from "@/components/ui/button";
-import { Plus, Download } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
