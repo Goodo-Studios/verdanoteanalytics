@@ -113,6 +113,7 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
   const [form, setForm] = useState<FormState>({ ...INITIAL_FORM });
   const [isFetching, setIsFetching] = useState(false);
   const [fetchMessage, setFetchMessage] = useState<string | null>(null);
+  const [isFacebookUrl, setIsFacebookUrl] = useState(false);
   const [showManualFields, setShowManualFields] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
