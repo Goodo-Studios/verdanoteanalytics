@@ -103,41 +103,65 @@
       const brandHref = brandLink ? (brandLink.getAttribute("href") || "") : "";
       const metaPageId = (brandHref.match(/\/brand\/(m\d+)\//) || [])[1] || null;
 
-      // Creative image (NOT the avatar)
+      // Detect video vs image ad
+      const hasVideoPlayer = !!card.querySelector('.react-player__preview, .react-player, [class*="react-player"]');
+
       let creativeImageUrl = null;
-      const allImages = card.querySelectorAll("img");
-      for (const img of allImages) {
-        const isAvatar = img.closest(".w-8, .h-8, .rounded-full");
-        if (isAvatar) continue;
+      let adId = null;
 
-        const srcset = img.getAttribute("srcset") || "";
-        const src = img.src || "";
-
-        if (srcset.includes("cdn.tryatria.com") || src.includes("cdn.tryatria.com")) {
-          // Get highest res from srcset
+      if (hasVideoPlayer) {
+        // VIDEO AD: grab the thumbnail/poster from the preview area
+        const previewImg = card.querySelector('.react-player__preview img');
+        if (previewImg) {
+          const srcset = previewImg.getAttribute("srcset") || "";
           const srcsetUrls = srcset.split(",").map((s) => s.trim().split(" ")[0]).filter(Boolean);
-          creativeImageUrl = srcsetUrls[srcsetUrls.length - 1] || src;
-          break;
+          creativeImageUrl = srcsetUrls[srcsetUrls.length - 1] || previewImg.src;
         }
-        // Fallback: any large image
-        const w = img.naturalWidth || img.width || 0;
-        const h = img.naturalHeight || img.height || 0;
-        if ((w >= 200 || h >= 200) && src && !src.includes("avatar") && !src.includes("profile")) {
-          creativeImageUrl = src;
+        // Fallback: find any CDN image that's not the avatar
+        if (!creativeImageUrl) {
+          const fallbackImg = [...card.querySelectorAll("img")].find((img) => {
+            const isAvatar = img.closest(".w-8, .h-8, .rounded-full");
+            const hasCdn = (img.src + (img.getAttribute("srcset") || "")).includes("cdn.tryatria.com");
+            return !isAvatar && hasCdn;
+          });
+          if (fallbackImg) {
+            const srcset = fallbackImg.getAttribute("srcset") || "";
+            const srcsetUrls = srcset.split(",").map((s) => s.trim().split(" ")[0]).filter(Boolean);
+            creativeImageUrl = srcsetUrls[srcsetUrls.length - 1] || fallbackImg.src;
+          }
+        }
+      } else {
+        // IMAGE AD: grab the creative image directly (NOT the small avatar)
+        const creativeImg = [...card.querySelectorAll("img")].find((img) => {
+          const isAvatar = img.closest(".w-8, .h-8, .rounded-full");
+          const hasCdn = (img.src + (img.getAttribute("srcset") || "")).includes("cdn.tryatria.com");
+          return !isAvatar && hasCdn;
+        });
+        if (creativeImg) {
+          const srcset = creativeImg.getAttribute("srcset") || "";
+          const srcsetUrls = srcset.split(",").map((s) => s.trim().split(" ")[0]).filter(Boolean);
+          creativeImageUrl = srcsetUrls[srcsetUrls.length - 1] || creativeImg.src;
+        }
+        // Fallback: any non-avatar image with reasonable size
+        if (!creativeImageUrl) {
+          const fallbackImg = [...card.querySelectorAll("img")].find((img) => {
+            const isAvatar = img.closest(".w-8, .h-8, .rounded-full");
+            const w = img.naturalWidth || img.width || 0;
+            const h = img.naturalHeight || img.height || 0;
+            return !isAvatar && (w >= 100 || h >= 100) && img.src && !img.src.includes("avatar") && !img.src.includes("profile");
+          });
+          if (fallbackImg) creativeImageUrl = fallbackImg.src;
         }
       }
 
-      // Convert to original full-res URL
+      // Convert resized URL to original full-res
       if (creativeImageUrl) {
         creativeImageUrl = getOriginalImageUrl(creativeImageUrl);
       }
 
-      // Detect video ad (react-player preview)
-      const hasVideoPlayer = !!card.querySelector('.react-player__preview, .react-player, [class*="react-player"]');
-
       // Extract ad ID from image URLs: adfiles/m{ad_id}_{hash}
       const adIdMatch = (creativeImageUrl || "").match(/adfiles\/(m\d+)_/);
-      const adId = adIdMatch ? adIdMatch[1] : null;
+      adId = adIdMatch ? adIdMatch[1] : null;
 
       // Body text
       let bodyText = "";
@@ -165,7 +189,7 @@
         bodyText,
         tags: [...new Set(tags)],
         boardName,
-        cardEl: card, // keep reference for video extraction
+        cardEl: card,
       });
     }
 
@@ -236,7 +260,7 @@
           ad_id: ad.adId || null,
           meta_page_id: ad.metaPageId || null,
           platform: "facebook",
-          ad_format: ad.videoUrl ? "video" : "image",
+          ad_format: ad.hasVideoPlayer ? "video" : "image",
           thumbnail_url: ad.creativeImageUrl || null,
           video_url: ad.videoUrl || null,
           body_text: ad.bodyText || null,
