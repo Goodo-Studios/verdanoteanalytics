@@ -260,7 +260,7 @@
           ad_id: ad.adId || null,
           meta_page_id: ad.metaPageId || null,
           platform: "facebook",
-          ad_format: ad.videoUrl ? "video" : "image",
+          ad_format: ad.hasVideoPlayer ? "video" : "image",
           thumbnail_url: ad.creativeImageUrl || null,
           video_url: ad.videoUrl || null,
           body_text: ad.bodyText || null,
