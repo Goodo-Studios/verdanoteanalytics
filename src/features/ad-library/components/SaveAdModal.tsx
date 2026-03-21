@@ -32,6 +32,7 @@ import {
   LayoutGrid,
   Tag,
   Video,
+  MonitorPlay,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -45,6 +46,7 @@ import {
 } from "@/features/ad-library/hooks/useAdLibrary";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ScrapeAdResponse, AdLibraryBoard, AdLibraryTag } from "@/features/ad-library/types/ad-library";
+import { ScreenCaptureTab, type ScreenCaptureResult } from "./ScreenCaptureTab";
 
 interface SaveAdModalProps {
   isOpen: boolean;
