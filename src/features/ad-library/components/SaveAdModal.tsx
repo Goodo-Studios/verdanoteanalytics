@@ -33,6 +33,7 @@ import {
   Tag,
   Video,
   MonitorPlay,
+  Info,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
