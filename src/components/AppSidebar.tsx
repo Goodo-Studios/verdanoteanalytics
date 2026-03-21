@@ -177,19 +177,18 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
           </button>
         </div>
       )}
-      {/* Settings + user info */}
-      <div className="px-3 pb-4 pt-1 space-y-1">
-        <NavLink
-          to={`${prefix}/settings`}
-          className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent"
-          activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
-          onClick={onNavigate}
-        >
-          <Settings className="h-4 w-4 flex-shrink-0" />
-          Settings
-        </NavLink>
-        <div className="flex items-center justify-between px-3 py-1.5">
-          <p className="font-body text-[11px] text-sage truncate min-w-0">{user?.email}</p>
+      {/* Settings + logout */}
+      <div className="px-3 pb-4 pt-1">
+        <div className="flex items-center justify-between">
+          <NavLink
+            to={`${prefix}/settings`}
+            className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent flex-1"
+            activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
+            onClick={onNavigate}
+          >
+            <Settings className="h-4 w-4 flex-shrink-0" />
+            Settings
+          </NavLink>
           <Button
             variant="ghost"
             size="sm"
