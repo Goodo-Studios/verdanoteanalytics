@@ -151,6 +151,7 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
 
   const resetState = useCallback(() => {
     setParsedAds(null);
+    setParsedOrganization(null);
     setParseError(null);
     setProgress(null);
     setResult(null);
