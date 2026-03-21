@@ -100,7 +100,6 @@ export function AdCard({
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const posterVideoRef = useRef<HTMLVideoElement>(null);
 
   const PlatformIcon = platformIcon[ad.platform || ""] || Facebook;
   const adTagIds = new Set((ad.tags || []).map((t) => t.id));
