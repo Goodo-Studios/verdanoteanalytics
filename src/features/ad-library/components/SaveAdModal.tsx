@@ -111,7 +111,8 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
   const [tab, setTab] = useState<"url" | "manual" | "capture">("url");
   const [form, setForm] = useState<FormState>({ ...INITIAL_FORM });
   const [isFetching, setIsFetching] = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [fetchMessage, setFetchMessage] = useState<string | null>(null);
+  const [showManualFields, setShowManualFields] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [captureResult, setCaptureResult] = useState<ScreenCaptureResult | null>(null);
