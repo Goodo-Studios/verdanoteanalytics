@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
-import { Upload, FileJson, Globe, HelpCircle, Download, CheckCircle2, AlertCircle, Loader2, Copy, Check } from "lucide-react";
+import { Upload, FileJson, Globe, HelpCircle, Download, CheckCircle2, AlertCircle, Loader2, Copy, Check, Video } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -54,6 +54,16 @@ interface ImportResult {
   failed: number;
   total: number;
   errors?: string[];
+  imported_ads?: Array<{ id: string; source_url: string; ad_format?: string }>;
+}
+
+interface EnrichmentState {
+  phase: "idle" | "running" | "done";
+  total: number;
+  processed: number;
+  videosFound: number;
+  imageAds: number;
+  failedFetch: number;
 }
 
 interface ImportFromAtriaModalProps {
@@ -107,6 +117,13 @@ function normalizeAds(raw: any[]): any[] {
   }));
 }
 
+const BATCH_SIZE = 3;
+const BATCH_DELAY_MS = 2000;
+
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalProps) {
   const [tab, setTab] = useState<string>("paste");
   const [jsonText, setJsonText] = useState("");
@@ -115,8 +132,10 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [enrichment, setEnrichment] = useState<EnrichmentState>({ phase: "idle", total: 0, processed: 0, videosFound: 0, imageAds: 0, failedFetch: 0 });
   const [bookmarkletCopied, setBookmarkletCopied] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const enrichmentAbortRef = useRef(false);
   const queryClient = useQueryClient();
 
   const resetState = useCallback(() => {
@@ -124,6 +143,8 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
     setParseError(null);
     setProgress(null);
     setResult(null);
+    setEnrichment({ phase: "idle", total: 0, processed: 0, videosFound: 0, imageAds: 0, failedFetch: 0 });
+    enrichmentAbortRef.current = false;
   }, []);
 
   const handleParse = useCallback(() => {
@@ -185,6 +206,114 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
     reader.readAsText(file);
   }, [resetState]);
 
+  const runEnrichment = useCallback(async (importedAds: Array<{ id: string; source_url: string; ad_format?: string }>) => {
+    const fbAds = importedAds.filter(a => a.source_url && a.source_url.includes("facebook.com/ads/library"));
+    if (fbAds.length === 0) return;
+
+    setEnrichment({ phase: "running", total: fbAds.length, processed: 0, videosFound: 0, imageAds: 0, failedFetch: 0 });
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+    let videosFound = 0;
+    let imageAds = 0;
+    let failedFetch = 0;
+
+    for (let i = 0; i < fbAds.length; i += BATCH_SIZE) {
+      if (enrichmentAbortRef.current) break;
+
+      const batch = fbAds.slice(i, i + BATCH_SIZE);
+      const promises = batch.map(async (ad) => {
+        try {
+          const scrapeResp = await fetch(`${SUPABASE_URL}/functions/v1/scrape-ad`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({ url: ad.source_url }),
+          });
+
+          if (!scrapeResp.ok) return { status: "failed" as const };
+
+          const scrapeData = await scrapeResp.json();
+          if (!scrapeData.success || !scrapeData.data) return { status: "failed" as const };
+
+          const scraped = scrapeData.data;
+          const hasVideo = scraped.ad_format === "video" ||
+            (scraped.stored_media || []).some((m: any) => m.type === "video" && !m.download_failed);
+
+          // Update the saved ad with enriched data
+          const updatePayload: Record<string, any> = {};
+
+          if (scraped.stored_media && scraped.stored_media.length > 0) {
+            updatePayload.stored_media = scraped.stored_media;
+          }
+          if (scraped.thumbnail_url) {
+            updatePayload.thumbnail_url = scraped.thumbnail_url;
+          }
+          if (scraped.ad_format) {
+            updatePayload.ad_format = scraped.ad_format;
+          }
+          if (scraped.media_urls && scraped.media_urls.length > 0) {
+            updatePayload.media_urls = scraped.media_urls;
+          }
+          // Also enrich text fields if they were empty
+          if (scraped.headline) updatePayload.headline = scraped.headline;
+          if (scraped.body_text) updatePayload.body_text = scraped.body_text;
+          if (scraped.cta_text) updatePayload.cta_text = scraped.cta_text;
+          if (scraped.landing_page_url) updatePayload.landing_page_url = scraped.landing_page_url;
+          if (scraped.advertiser_name) updatePayload.advertiser_name = scraped.advertiser_name;
+
+          if (Object.keys(updatePayload).length > 0) {
+            await supabase
+              .from("ad_library_saved_ads")
+              .update(updatePayload)
+              .eq("id", ad.id);
+          }
+
+          return { status: hasVideo ? "video" as const : "image" as const };
+        } catch {
+          return { status: "failed" as const };
+        }
+      });
+
+      const results = await Promise.all(promises);
+      results.forEach(r => {
+        if (r.status === "video") videosFound++;
+        else if (r.status === "image") imageAds++;
+        else failedFetch++;
+      });
+
+      const processed = Math.min(i + BATCH_SIZE, fbAds.length);
+      setEnrichment({
+        phase: "running",
+        total: fbAds.length,
+        processed,
+        videosFound,
+        imageAds,
+        failedFetch,
+      });
+
+      // Delay between batches (skip after last batch)
+      if (i + BATCH_SIZE < fbAds.length && !enrichmentAbortRef.current) {
+        await sleep(BATCH_DELAY_MS);
+      }
+    }
+
+    setEnrichment({
+      phase: "done",
+      total: fbAds.length,
+      processed: fbAds.length,
+      videosFound,
+      imageAds,
+      failedFetch,
+    });
+
+    queryClient.invalidateQueries({ queryKey: ["ad-library"] });
+  }, [queryClient]);
+
   const doImport = useCallback(async (ads: any[]) => {
     setImporting(true);
     setProgress(`Importing ${ads.length} ads...`);
@@ -217,13 +346,19 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
       setResult(data);
       toast.success(`Imported ${data.imported} ads`);
       queryClient.invalidateQueries({ queryKey: ["ad-library"] });
+
+      // Auto-trigger enrichment for imported ads with Facebook source URLs
+      if (data.imported_ads && data.imported_ads.length > 0) {
+        // Run enrichment in background (don't await — let the user see results)
+        runEnrichment(data.imported_ads);
+      }
     } catch (e: any) {
       toast.error("Import failed: " + e.message);
     } finally {
       setImporting(false);
       setProgress(null);
     }
-  }, [queryClient]);
+  }, [queryClient, runEnrichment]);
 
   const downloadTemplate = useCallback(() => {
     const blob = new Blob([CSV_TEMPLATE], { type: "text/csv" });
@@ -247,8 +382,10 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
     setTimeout(() => setBookmarkletCopied(false), 2000);
   }, [bookmarkletCode]);
 
+  const enrichmentPercent = enrichment.total > 0 ? Math.round((enrichment.processed / enrichment.total) * 100) : 0;
+
   return (
-    <Dialog open={isOpen} onOpenChange={() => { if (!importing) { resetState(); onClose(); } }}>
+    <Dialog open={isOpen} onOpenChange={() => { if (!importing && enrichment.phase !== "running") { enrichmentAbortRef.current = true; resetState(); onClose(); } }}>
       <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-lg">Import from Atria</DialogTitle>
@@ -257,9 +394,10 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
 
         {result ? (
           <div className="space-y-4 py-4">
+            {/* Step 1: Import Results */}
             <div className="flex items-center gap-3 text-emerald-600">
               <CheckCircle2 className="h-6 w-6" />
-              <span className="text-lg font-semibold">Import Complete</span>
+              <span className="text-lg font-semibold">Step 1: Import Complete</span>
             </div>
             <div className="grid grid-cols-3 gap-3">
               <div className="rounded-lg border border-border p-3 text-center">
@@ -280,9 +418,59 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
                 {result.errors.map((e, i) => <div key={i}>• {e}</div>)}
               </div>
             )}
-            <Button className="w-full" onClick={() => { resetState(); onClose(); }}>
-              View Imported Ads
+
+            {/* Step 2: Media Enrichment */}
+            {enrichment.phase === "running" && (
+              <div className="space-y-3 rounded-lg border border-border p-4">
+                <div className="flex items-center gap-2">
+                  <Video className="h-5 w-5 text-primary animate-pulse" />
+                  <span className="text-sm font-semibold">Step 2: Fetching full media from Facebook for {enrichment.total} ads...</span>
+                </div>
+                <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                  <div
+                    className="bg-primary h-full rounded-full transition-all duration-300"
+                    style={{ width: `${enrichmentPercent}%` }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Enriched {enrichment.processed} of {enrichment.total} ads — found {enrichment.videosFound} videos so far...
+                </p>
+              </div>
+            )}
+
+            {enrichment.phase === "done" && (
+              <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-4">
+                <div className="flex items-center gap-2 text-emerald-600">
+                  <CheckCircle2 className="h-5 w-5" />
+                  <span className="text-sm font-semibold">Step 2: Media Enrichment Complete</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Found and downloaded <strong>{enrichment.videosFound}</strong> videos.{" "}
+                  <strong>{enrichment.imageAds}</strong> ads were images (no video to fetch).{" "}
+                  {enrichment.failedFetch > 0 && (
+                    <><strong>{enrichment.failedFetch}</strong> ads could not be re-fetched (source may have expired).</>
+                  )}
+                </p>
+              </div>
+            )}
+
+            {enrichment.phase === "idle" && enrichment.total === 0 && (
+              <p className="text-xs text-muted-foreground italic">No Facebook Ad Library URLs found — skipping media enrichment.</p>
+            )}
+
+            <Button
+              className="w-full"
+              onClick={() => { enrichmentAbortRef.current = true; resetState(); onClose(); }}
+              disabled={enrichment.phase === "running"}
+              variant={enrichment.phase === "running" ? "outline" : "default"}
+            >
+              {enrichment.phase === "running" ? "Enrichment in progress..." : "View Imported Ads"}
             </Button>
+            {enrichment.phase === "running" && (
+              <p className="text-[10px] text-center text-muted-foreground">
+                You can close this modal — enrichment will continue in the background.
+              </p>
+            )}
           </div>
         ) : (
           <Tabs value={tab} onValueChange={setTab}>

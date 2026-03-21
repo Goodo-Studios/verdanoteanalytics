@@ -172,6 +172,7 @@ Deno.serve(async (req) => {
     // 4. Process ads
     let imported = 0, skippedDuplicates = 0, failed = 0;
     const errors: string[] = [];
+    const importedAds: Array<{ id: string; source_url: string; ad_format?: string }> = [];
     const BATCH = 10;
 
     for (let i = 0; i < ads.length; i += BATCH) {
@@ -279,6 +280,7 @@ Deno.serve(async (req) => {
             if (tagId) await supabase.from("ad_library_ad_tags").insert({ ad_id: saved.id, tag_id: tagId } as any).select().maybeSingle();
           }
 
+          importedAds.push({ id: saved.id, source_url: sourceUrl, ad_format: inferredFormat || undefined });
           imported++;
         } catch (e) { failed++; errors.push((e as Error).message); }
       }
@@ -288,6 +290,7 @@ Deno.serve(async (req) => {
       success: true, imported, skipped_duplicates: skippedDuplicates, failed, total: ads.length,
       boards_created: Object.keys(boardMap).length, tags_created: Object.keys(tagMap).length,
       errors: errors.slice(0, 10),
+      imported_ads: importedAds,
     });
   } catch (e) {
     console.error("import-ads error:", e);
