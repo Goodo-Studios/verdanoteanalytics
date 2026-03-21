@@ -439,7 +439,7 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
             )}
 
             {enrichment.phase === "done" && (
-              <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-4">
+              <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4">
                 <div className="flex items-center gap-2 text-emerald-600">
                   <CheckCircle2 className="h-5 w-5" />
                   <span className="text-sm font-semibold">Step 2: Media Enrichment Complete</span>
@@ -451,6 +451,22 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
                     <><strong>{enrichment.failedFetch}</strong> ads could not be re-fetched (source may have expired).</>
                   )}
                 </p>
+                {enrichment.failedFetch > 0 && (
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-1.5">
+                    <p className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                      <Video className="h-3.5 w-3.5 text-primary" />
+                      Missing video files?
+                    </p>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Facebook blocks server-side video downloads. To capture the actual video files:
+                    </p>
+                    <ul className="text-[11px] text-muted-foreground space-y-1 ml-4 list-disc">
+                      <li>Open the ad on Facebook and use our <strong>bookmarklet</strong> — it captures video directly from your browser</li>
+                      <li>Use <strong>Screen Capture</strong> in the Save Ad modal to record videos as they play</li>
+                      <li>Or keep the thumbnails — they're still useful for reference</li>
+                    </ul>
+                  </div>
+                )}
               </div>
             )}
 
