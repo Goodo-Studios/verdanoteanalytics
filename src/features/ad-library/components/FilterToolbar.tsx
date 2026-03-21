@@ -85,7 +85,8 @@ export function FilterToolbar({
     (filters.format ? 1 : 0) +
     filters.tag_ids.length +
     (filters.dateFrom ? 1 : 0) +
-    (filters.hasTranscript ? 1 : 0);
+    (filters.hasTranscript ? 1 : 0) +
+    (filters.videoMissingFile ? 1 : 0);
 
   const clearFilter = (key: keyof AdLibraryFilters) => {
     if (key === "tag_ids") {
