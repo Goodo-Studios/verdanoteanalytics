@@ -452,12 +452,27 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
             {/* Step 1: Import Results */}
             <div className="flex items-center gap-3 text-emerald-600">
               <CheckCircle2 className="h-6 w-6" />
-              <span className="text-lg font-semibold">Step 1: Import Complete</span>
+              <span className="text-lg font-semibold">Import Complete</span>
             </div>
+
+            {/* Organization stats */}
+            {result.results && (result.results.folders_created || result.results.boards_created || result.results.tags_created) ? (
+              <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1.5">
+                <p className="text-xs font-medium text-foreground">Organization imported:</p>
+                <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                  {(result.results.folders_created ?? 0) > 0 && <span>✓ {result.results.folders_created} folders</span>}
+                  {(result.results.boards_created ?? 0) > 0 && <span>✓ {result.results.boards_created} boards</span>}
+                  {(result.results.tags_created ?? 0) > 0 && <span>✓ {result.results.tags_created} tags</span>}
+                  {(result.results.board_assignments_created ?? 0) > 0 && <span>✓ {result.results.board_assignments_created} board assignments</span>}
+                  {(result.results.tag_assignments_created ?? 0) > 0 && <span>✓ {result.results.tag_assignments_created} tag assignments</span>}
+                </div>
+              </div>
+            ) : null}
+
             <div className="grid grid-cols-3 gap-3">
               <div className="rounded-lg border border-border p-3 text-center">
                 <div className="text-2xl font-bold">{result.imported}</div>
-                <div className="text-xs text-muted-foreground">Imported</div>
+                <div className="text-xs text-muted-foreground">Ads Imported</div>
               </div>
               <div className="rounded-lg border border-border p-3 text-center">
                 <div className="text-2xl font-bold">{result.skipped_duplicates}</div>
