@@ -434,7 +434,10 @@ export function AdCard({
           {/* Body text preview */}
           {ad.body_text && (
             <p className="font-body text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-              {ad.body_text}
+              {ad.body_text
+                .replace(new RegExp(`^${(ad.advertiser_name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`, 'i'), '')
+                .replace(/^Sponsored\s*/i, '')
+              }
             </p>
           )}
 
