@@ -150,8 +150,8 @@ export function AdGrid({
     <div>
       <div
         className={cn(
-          "columns-1 sm:columns-2 md:columns-3 lg:columns-4 xl:columns-5",
-          "gap-5"
+          "columns-1 sm:columns-2 lg:columns-3",
+          "gap-5 [&>*]:mb-5"
         )}
       >
         {ads.map((ad) => (
