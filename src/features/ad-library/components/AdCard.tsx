@@ -174,12 +174,26 @@ export function AdCard({
             </button>
           )}
           {ad.thumbnail_url ? (
-            <img
-              src={ad.thumbnail_url}
-              alt={ad.headline || ad.advertiser_name || "Ad"}
-              className="h-full w-full object-cover"
-              loading="lazy"
-            />
+            /\.(mp4|mov|webm)(\?|$)/i.test(ad.thumbnail_url) ? (
+              <video
+                src={ad.thumbnail_url}
+                muted
+                preload="metadata"
+                className="h-full w-full object-cover"
+                onLoadedData={(e) => {
+                  // Seek to 1 second to show a meaningful frame instead of black
+                  const v = e.currentTarget;
+                  if (v.duration > 1) v.currentTime = 1;
+                }}
+              />
+            ) : (
+              <img
+                src={ad.thumbnail_url}
+                alt={ad.headline || ad.advertiser_name || "Ad"}
+                className="h-full w-full object-cover"
+                loading="lazy"
+              />
+            )
           ) : (
             <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
               <span className="font-heading text-[2rem] text-primary/40 select-none">
