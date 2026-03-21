@@ -194,18 +194,29 @@ export function AdDetailView({ adId, onBack }: Props) {
   const failedMedia = storedMedia.filter(m => m.download_failed);
 
   // Build display media: prefer stored_media, fall back to media_urls/thumbnail
-  const displayMedia: { url: string; type: "image" | "video" | "carousel_frame"; original?: string }[] = [];
+  const displayMedia: { url: string; type: "image" | "video" | "carousel_frame" | "video_thumbnail"; original?: string }[] = [];
   if (successfulMedia.length > 0) {
-    successfulMedia.sort((a, b) => a.position - b.position).forEach(m => {
-      displayMedia.push({ url: m.stored_url, type: m.type, original: m.original_url });
+    // Sort by position, put videos first for video ads, exclude video_thumbnail from main display
+    const mainMedia = successfulMedia.filter(m => m.type !== "video_thumbnail");
+    mainMedia.sort((a, b) => {
+      // Videos come first
+      if (a.type === "video" && b.type !== "video") return -1;
+      if (b.type === "video" && a.type !== "video") return 1;
+      return a.position - b.position;
     });
-  } else {
+    mainMedia.forEach(m => {
+      displayMedia.push({ url: m.stored_url, type: m.type as any, original: m.original_url });
+    });
+  }
+  // Fall back to media_urls/thumbnail if no stored media
+  if (displayMedia.length === 0) {
     const mediaUrls = ad.media_urls?.length ? ad.media_urls : ad.thumbnail_url ? [ad.thumbnail_url] : [];
     mediaUrls.forEach(u => displayMedia.push({ url: u, type: isVideoUrl(u) ? "video" : "image" }));
   }
 
   const isVideo = ad.ad_format === "video";
-  const isCarousel = ad.ad_format === "carousel" || displayMedia.length > 1;
+  const hasStoredVideo = successfulMedia.some(m => m.type === "video");
+  const isCarousel = ad.ad_format === "carousel" || displayMedia.filter(m => m.type !== "video").length > 1;
   const adTagIds = (ad.tags || []).map((t) => t.id);
   const currentMedia = displayMedia[currentMediaIdx] || displayMedia[0];
 
