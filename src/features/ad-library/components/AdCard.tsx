@@ -99,7 +99,6 @@ export function AdCard({
   const [tagPopoverOpen, setTagPopoverOpen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
-  const [posterFrame, setPosterFrame] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const posterVideoRef = useRef<HTMLVideoElement>(null);
 
