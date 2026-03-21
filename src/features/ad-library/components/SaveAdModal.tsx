@@ -614,13 +614,16 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
           </DialogTitle>
         </DialogHeader>
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v as "url" | "manual")} className="w-full">
-          <TabsList className="w-full grid grid-cols-2 mb-4">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as "url" | "manual" | "capture")} className="w-full">
+          <TabsList className="w-full grid grid-cols-3 mb-4">
             <TabsTrigger value="url" className="gap-1.5">
               <Link className="h-3.5 w-3.5" /> Paste URL
             </TabsTrigger>
             <TabsTrigger value="manual" className="gap-1.5">
               <PenLine className="h-3.5 w-3.5" /> Enter Manually
+            </TabsTrigger>
+            <TabsTrigger value="capture" className="gap-1.5">
+              <MonitorPlay className="h-3.5 w-3.5" /> Screen Capture
             </TabsTrigger>
           </TabsList>
 
