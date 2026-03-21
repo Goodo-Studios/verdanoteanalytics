@@ -729,8 +729,23 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
               </div>
             )}
 
-            {/* Info message */}
-            {fetchMessage && !isFetching && (
+            {/* Facebook-specific banner */}
+            {isFacebookUrl && !isFetching && (
+              <div className="flex flex-col gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-sm">
+                <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  <span className="font-medium">Facebook blocks automated access to ad details</span>
+                </div>
+                <p className="text-muted-foreground">
+                  We've saved the URL and ad ID. Fill in the details below, or for a faster
+                  workflow, use the <strong className="text-foreground">Facebook Bookmarklet</strong> to save ads with
+                  one click directly from the Ads Library page.
+                </p>
+              </div>
+            )}
+
+            {/* Generic info message (non-Facebook) */}
+            {fetchMessage && !isFetching && !isFacebookUrl && (
               <div className="flex items-start gap-2 p-3 rounded-lg bg-accent/50 border border-border text-sm text-foreground">
                 <Info className="h-4 w-4 mt-0.5 shrink-0 text-primary" />
                 <span>{fetchMessage}</span>
