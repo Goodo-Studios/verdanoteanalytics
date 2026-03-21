@@ -3,10 +3,8 @@ import { AppSidebar } from "@/components/AppSidebar";
 
 import { NotificationCenter } from "@/components/NotificationCenter";
 import { PresenceAvatars } from "@/components/PresenceAvatars";
-import { OnboardingWizard } from "@/components/OnboardingWizard";
 import { CommandBar, CommandBarTrigger } from "@/components/CommandBar";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
-import { useFirstLogin } from "@/hooks/useFirstLogin";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAccountContext } from "@/contexts/AccountContext";
@@ -22,7 +20,6 @@ interface AppLayoutProps {
 export function AppLayout({ children }: AppLayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const { showOnboarding, openTour, closeTour } = useFirstLogin();
   const { theme, toggleTheme } = useTheme();
   const { accounts, selectedAccountId, setSelectedAccountId } = useAccountContext();
 
@@ -63,7 +60,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
         `}
       >
-        <AppSidebar onNavigate={() => setMobileOpen(false)} onTakeTour={openTour} />
+        <AppSidebar onNavigate={() => setMobileOpen(false)} />
       </div>
 
       {/* Main content */}
@@ -125,9 +122,6 @@ export function AppLayout({ children }: AppLayoutProps) {
       
       <CommandBar />
       <KeyboardShortcutsModal open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
-
-      {/* Onboarding wizard */}
-      <OnboardingWizard open={showOnboarding} onClose={closeTour} />
     </div>
   );
 }

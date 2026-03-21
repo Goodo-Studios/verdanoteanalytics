@@ -177,17 +177,6 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
           </button>
         </div>
       )}
-      {onTakeTour && (
-        <div className="px-3 pt-1">
-          <button
-            onClick={onTakeTour}
-            className="flex items-center gap-3 rounded-md px-3 py-2 font-body text-[12px] text-sage hover:text-forest hover:bg-accent w-full text-left transition-colors"
-          >
-            <HelpCircle className="h-3.5 w-3.5 flex-shrink-0" />
-            Take the tour
-          </button>
-        </div>
-      )}
       {/* Settings + user info */}
       <div className="px-3 pb-4 pt-1 space-y-1">
         <NavLink
