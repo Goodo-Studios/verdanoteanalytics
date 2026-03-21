@@ -142,6 +142,7 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
     setSelectedTagIds([]);
     setNewTagNames([]);
     setTab("url");
+    setCaptureResult(null);
   };
 
   // ---- Fetch Ad from URL ----
