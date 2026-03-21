@@ -293,7 +293,7 @@ export function AdCard({
 
           {/* Inline video player — always rendered for video ads to show poster frame */}
           {isVideoAd && playableVideoUrl ? (
-            <div className="relative">
+            <div className="relative" style={{ minHeight: "200px" }}>
               <video
                 ref={videoRef}
                 src={playableVideoUrl}
@@ -301,8 +301,8 @@ export function AdCard({
                 muted={isMuted}
                 playsInline
                 preload="auto"
-                className={cn("w-full object-contain bg-black", !isPlaying && "pointer-events-none")}
-                style={{ maxHeight: "500px" }}
+                className="w-full object-contain bg-black"
+                style={{ maxHeight: "500px", minHeight: "200px" }}
                 loop
                 onLoadedData={(e) => {
                   const v = e.currentTarget;
@@ -327,21 +327,29 @@ export function AdCard({
                   e.stopPropagation();
                   if (isPlaying) handlePlayClick(e);
                 }}
-                controls={isPlaying}
               />
-              {!isPlaying && thumbUrl && !videoError && (
-                <div className="absolute inset-0 z-[2] cursor-pointer" onClick={handleMediaClick}>
+              {/* Thumbnail overlay — use CSS visibility to avoid layout collapse */}
+              {thumbUrl && !videoError && (
+                <div
+                  className={cn(
+                    "absolute inset-0 z-[2] cursor-pointer transition-opacity duration-200",
+                    isPlaying ? "opacity-0 pointer-events-none" : "opacity-100"
+                  )}
+                  onClick={handleMediaClick}
+                >
                   <img
                     src={thumbUrl}
                     alt={ad.headline || ad.advertiser_name || "Ad"}
-                    className="w-full object-cover"
-                    style={{ maxHeight: "500px" }}
+                    className="w-full h-full object-cover"
                     loading="lazy"
                   />
                 </div>
               )}
-              {!isPlaying && !thumbUrl && !previewFrameReady && !videoError && (
-                <div className="absolute inset-0 z-[2] flex items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
+              {!thumbUrl && !previewFrameReady && !videoError && (
+                <div className={cn(
+                  "absolute inset-0 z-[2] flex items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5 transition-opacity duration-200",
+                  isPlaying ? "opacity-0 pointer-events-none" : "opacity-100"
+                )}>
                   <span className="font-heading text-[2rem] text-primary/40 select-none">{initial}</span>
                 </div>
               )}
@@ -363,7 +371,7 @@ export function AdCard({
                 </div>
               )}
               {/* Play button overlay when NOT playing */}
-              {!isPlaying && (
+              {!isPlaying && !videoError && (
                 <button
                   type="button"
                   onClick={handlePlayClick}
