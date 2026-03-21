@@ -234,7 +234,7 @@ Deno.serve(async (req) => {
 
           // Construct Facebook Ad Library source URL from ad_id
           let finalSourceUrl = sourceUrl;
-          if (sourceUrl.startsWith("atria-import-") && ad.ad_id) {
+          if (sourceUrl.startsWith("import-") && ad.ad_id) {
             const numericId = String(ad.ad_id).replace(/^m/, "");
             if (/^\d+$/.test(numericId)) {
               finalSourceUrl = `https://www.facebook.com/ads/library/?id=${numericId}`;
