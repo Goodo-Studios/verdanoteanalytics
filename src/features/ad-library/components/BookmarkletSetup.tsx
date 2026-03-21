@@ -198,42 +198,6 @@ export function BookmarkletSetup() {
           </div>
         </TabsContent>
 
-        {/* ── Atria exporter ── */}
-        <TabsContent value="atria" className="space-y-4">
-          <p className="font-body text-sm text-muted-foreground leading-relaxed">
-            Import entire boards from Atria with full organizational structure — boards, tags, and media files.
-          </p>
-
-          <ol className="space-y-2.5 font-body text-sm text-muted-foreground">
-            {[
-              "Drag the button below to your bookmarks bar",
-              "Go to app.tryatria.com and log in",
-              "Navigate to any board or Saved Ads view",
-              "Click the bookmark — select boards to import and wait",
-            ].map((text, i) => (
-              <li key={i} className="flex gap-2.5">
-                <span className="flex-shrink-0 h-5 w-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-semibold">{i + 1}</span>
-                <span>{text}</span>
-              </li>
-            ))}
-          </ol>
-
-          <div className="flex items-center gap-3">
-            <a
-              href={atriaHref}
-              onClick={(e) => e.preventDefault()}
-              draggable
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium text-sm shadow-md hover:shadow-lg transition-shadow cursor-grab active:cursor-grabbing select-none"
-            >
-              <Bookmark className="h-4 w-4" />
-              Export from Atria
-            </a>
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => handleCopy(atriaHref, "Atria bookmarklet")}>
-              {copied === "Atria bookmarklet" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-              {copied === "Atria bookmarklet" ? "Copied" : "Copy"}
-            </Button>
-          </div>
-        </TabsContent>
 
         {/* ── Quick Save (single page) ── */}
         <TabsContent value="quicksave" className="space-y-4">
