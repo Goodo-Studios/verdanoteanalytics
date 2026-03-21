@@ -170,9 +170,8 @@ export function BookmarkletSetup() {
           <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 flex items-start gap-3">
             <Video className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
             <p className="font-body text-xs text-muted-foreground leading-relaxed">
-              <strong className="text-foreground">Captures videos directly from your browser.</strong> Since this runs
-              on Facebook's page in your authenticated session, it can download actual video files &mdash; no server scraping needed.
-              All code is self-contained (no external scripts loaded).
+              <strong className="text-foreground">No token needed.</strong> The bookmarklet extracts ad data from the page
+              and sends it to a small Verdanote popup window that handles saving. Works as long as you&apos;re signed into Verdanote.
             </p>
           </div>
 
