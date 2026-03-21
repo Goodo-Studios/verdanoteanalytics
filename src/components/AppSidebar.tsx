@@ -33,8 +33,8 @@ const baseNavItems = [
   { title: "Creatives", url: "/creatives", icon: Zap },
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Tagging", url: "/tagging", icon: Tags },
-  { title: "Ad Library", url: "/ad-library", icon: Library },
   { title: "Reports", url: "/reports", icon: FileText },
+  { title: "Ad Library", url: "/ad-library", icon: Library },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 
