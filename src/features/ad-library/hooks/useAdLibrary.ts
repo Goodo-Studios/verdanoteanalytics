@@ -99,6 +99,68 @@ export function useCreateBoard() {
   });
 }
 
+export function useDeleteBoard() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (boardId: string) => {
+      // Remove board-ad assignments first
+      await supabase
+        .from("ad_library_board_ads" as any)
+        .delete()
+        .eq("board_id", boardId);
+      // Delete the board
+      const { error } = await supabase
+        .from("ad_library_boards" as any)
+        .delete()
+        .eq("id", boardId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ad-library-boards"] });
+      qc.invalidateQueries({ queryKey: ["ad-library-saved-ads"] });
+      toast.success("Board deleted");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export function useDeleteFolder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (folderId: string) => {
+      // Get boards in folder
+      const { data: folderBoards } = await supabase
+        .from("ad_library_boards" as any)
+        .select("id")
+        .eq("folder_id", folderId);
+      const boardIds = (folderBoards || []).map((b: any) => b.id);
+      if (boardIds.length > 0) {
+        await supabase
+          .from("ad_library_board_ads" as any)
+          .delete()
+          .in("board_id", boardIds);
+        await supabase
+          .from("ad_library_boards" as any)
+          .delete()
+          .in("id", boardIds);
+      }
+      const { error } = await supabase
+        .from("ad_library_folders" as any)
+        .delete()
+        .eq("id", folderId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ad-library-folders"] });
+      qc.invalidateQueries({ queryKey: ["ad-library-boards"] });
+      qc.invalidateQueries({ queryKey: ["ad-library-saved-ads"] });
+      toast.success("Folder deleted");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+
 // ---- Saved Ads ----
 
 export function useSavedAds(filters?: { board_id?: string; search?: string; tag_ids?: string[] }) {
