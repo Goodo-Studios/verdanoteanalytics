@@ -34,7 +34,7 @@ export interface AdLibraryBoard {
 export interface StoredMediaItem {
   original_url: string;
   stored_url: string;
-  type: "image" | "video" | "carousel_frame";
+  type: "image" | "video" | "carousel_frame" | "video_thumbnail";
   mime_type: string;
   file_size_bytes: number;
   width?: number;

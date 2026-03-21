@@ -9,7 +9,6 @@ const corsHeaders = {
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const CHROME_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
-// Patterns that indicate a profile picture / logo — NOT the ad creative
 const PROFILE_URL_PATTERNS = [
   /\/profile/i, /\/avatar/i, /\/logo/i, /page_picture/i,
   /p\d{2,3}x\d{2,3}/i, /s\d{2,3}x\d{2,3}/i,
@@ -29,7 +28,9 @@ function json(body: unknown, status = 200) {
 }
 
 function isVideoUrl(url: string): boolean {
-  return /\.(mp4|webm|mov|m3u8|avi)(\?|$)/i.test(url) || url.includes("/video/");
+  return /\.(mp4|webm|mov|m3u8|avi)(\?|$)/i.test(url) ||
+    url.includes("/video/") ||
+    /video.*\.xx\.fbcdn\.net/i.test(url);
 }
 
 function getExtensionFromUrl(url: string, contentType?: string): string {
@@ -56,7 +57,7 @@ function getMimeType(ext: string): string {
 interface StoredMediaItem {
   original_url: string;
   stored_url: string;
-  type: "image" | "video" | "carousel_frame";
+  type: "image" | "video" | "carousel_frame" | "video_thumbnail";
   mime_type: string;
   file_size_bytes: number;
   position: number;
@@ -64,12 +65,13 @@ interface StoredMediaItem {
 }
 
 async function downloadAndStore(
-  supabaseAdmin: any, url: string, userId: string, adId: string, position: number, mediaType: "image" | "video" | "carousel_frame"
+  supabaseAdmin: any, url: string, userId: string, adId: string, position: number, mediaType: "image" | "video" | "carousel_frame" | "video_thumbnail"
 ): Promise<StoredMediaItem | null> {
   try {
     if (!url || (!url.startsWith("http://") && !url.startsWith("https://"))) return null;
+    const timeoutMs = mediaType === "video" ? 60000 : 30000;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     const resp = await fetch(url, { signal: controller.signal, headers: { "User-Agent": CHROME_UA } });
     clearTimeout(timeout);
 
@@ -192,28 +194,45 @@ Deno.serve(async (req) => {
 
           const mediaUrls = rawMediaUrls.filter(u => !isProfileOrLogoUrl(u));
 
+          // Separate video and image URLs
+          const videoUrls = mediaUrls.filter(u => isVideoUrl(u));
+          const imageUrls = mediaUrls.filter(u => !isVideoUrl(u));
+
           const tempAdId = crypto.randomUUID().slice(0, 8);
-          const isCarousel = mediaUrls.filter(u => !isVideoUrl(u)).length > 1;
+          const isCarousel = imageUrls.length > 1;
           const storedMedia: StoredMediaItem[] = [];
+          let pos = 0;
 
-          // Download and store all media
-          for (let mi = 0; mi < mediaUrls.length; mi++) {
-            const mUrl = mediaUrls[mi];
-            let mType: "image" | "video" | "carousel_frame" = "image";
-            if (isVideoUrl(mUrl)) mType = "video";
-            else if (isCarousel) mType = "carousel_frame";
-
-            const stored = await downloadAndStore(supabaseAdmin, mUrl, user.id, tempAdId, mi, mType);
+          // Download videos first
+          for (const vUrl of videoUrls) {
+            const stored = await downloadAndStore(supabaseAdmin, vUrl, user.id, tempAdId, pos, "video");
             if (stored) storedMedia.push(stored);
+            pos++;
+          }
+
+          // Download images / carousel frames
+          for (const iUrl of imageUrls) {
+            const mType = isCarousel ? "carousel_frame" : "image";
+            const stored = await downloadAndStore(supabaseAdmin, iUrl, user.id, tempAdId, pos, mType as any);
+            if (stored) storedMedia.push(stored);
+            pos++;
           }
 
           const firstStoredImage = storedMedia.find(m => !m.download_failed && (m.type === "image" || m.type === "carousel_frame"));
-          const inferredThumb = mediaUrls.find(url => !isVideoUrl(url) && !isProfileOrLogoUrl(url)) || null;
+          const inferredThumb = imageUrls.find(url => !isProfileOrLogoUrl(url)) || null;
           const thumbUrl = [ad.thumbnail_url, ad.image_url, ad.thumbnail, ad.thumbnailUrl, inferredThumb]
             .find(u => u && !isProfileOrLogoUrl(u)) || null;
           const finalThumbnail = firstStoredImage?.stored_url || thumbUrl;
 
-          const inferredFormat = mediaUrls.some(isVideoUrl) ? "video" : isCarousel ? "carousel" : thumbUrl ? "image" : null;
+          // Correctly determine ad_format based on actual media found
+          let inferredFormat = ad.ad_format || ad.format || ad.type || null;
+          if (videoUrls.length > 0 && inferredFormat !== "carousel") {
+            inferredFormat = "video";
+          } else if (isCarousel) {
+            inferredFormat = "carousel";
+          } else if (!inferredFormat && imageUrls.length > 0) {
+            inferredFormat = "image";
+          }
 
           const { data: saved, error: insertErr } = await supabase
             .from("ad_library_saved_ads")
@@ -225,7 +244,7 @@ Deno.serve(async (req) => {
               ad_id: ad.ad_id || ad.facebook_ad_id || null,
               platform: ad.platform || "facebook",
               ad_status: ad.ad_status || ad.status || null,
-              ad_format: ad.ad_format || ad.format || ad.type || inferredFormat,
+              ad_format: inferredFormat,
               headline: ad.headline || ad.title || null,
               body_text: ad.body_text || ad.body || ad.text || ad.copy || null,
               cta_text: ad.cta_text || ad.cta || null,

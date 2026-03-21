@@ -194,18 +194,29 @@ export function AdDetailView({ adId, onBack }: Props) {
   const failedMedia = storedMedia.filter(m => m.download_failed);
 
   // Build display media: prefer stored_media, fall back to media_urls/thumbnail
-  const displayMedia: { url: string; type: "image" | "video" | "carousel_frame"; original?: string }[] = [];
+  const displayMedia: { url: string; type: "image" | "video" | "carousel_frame" | "video_thumbnail"; original?: string }[] = [];
   if (successfulMedia.length > 0) {
-    successfulMedia.sort((a, b) => a.position - b.position).forEach(m => {
-      displayMedia.push({ url: m.stored_url, type: m.type, original: m.original_url });
+    // Sort by position, put videos first for video ads, exclude video_thumbnail from main display
+    const mainMedia = successfulMedia.filter(m => m.type !== "video_thumbnail");
+    mainMedia.sort((a, b) => {
+      // Videos come first
+      if (a.type === "video" && b.type !== "video") return -1;
+      if (b.type === "video" && a.type !== "video") return 1;
+      return a.position - b.position;
     });
-  } else {
+    mainMedia.forEach(m => {
+      displayMedia.push({ url: m.stored_url, type: m.type as any, original: m.original_url });
+    });
+  }
+  // Fall back to media_urls/thumbnail if no stored media
+  if (displayMedia.length === 0) {
     const mediaUrls = ad.media_urls?.length ? ad.media_urls : ad.thumbnail_url ? [ad.thumbnail_url] : [];
     mediaUrls.forEach(u => displayMedia.push({ url: u, type: isVideoUrl(u) ? "video" : "image" }));
   }
 
   const isVideo = ad.ad_format === "video";
-  const isCarousel = ad.ad_format === "carousel" || displayMedia.length > 1;
+  const hasStoredVideo = successfulMedia.some(m => m.type === "video");
+  const isCarousel = ad.ad_format === "carousel" || displayMedia.filter(m => m.type !== "video").length > 1;
   const adTagIds = (ad.tags || []).map((t) => t.id);
   const currentMedia = displayMedia[currentMediaIdx] || displayMedia[0];
 
@@ -350,17 +361,72 @@ export function AdDetailView({ adId, onBack }: Props) {
 
           {/* Media action buttons */}
           <div className="flex items-center gap-2 flex-wrap">
-            {currentMedia && (
+            {/* Video-specific buttons */}
+            {isVideo && hasStoredVideo && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs"
+                  onClick={() => {
+                    const videoMedia = displayMedia.find(m => m.type === "video");
+                    if (videoMedia) handleDownload(videoMedia.url, `${ad.advertiser_name || "ad"}-video.mp4`);
+                  }}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Download Video
+                </Button>
+                {ad.thumbnail_url && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-xs"
+                    onClick={() => handleDownload(ad.thumbnail_url!, `${ad.advertiser_name || "ad"}-thumbnail.jpg`)}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Download Thumbnail
+                  </Button>
+                )}
+              </>
+            )}
+            {/* Video ad without stored video */}
+            {isVideo && !hasStoredVideo && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs border-amber-500/30 text-amber-600"
+                  onClick={handleRefetchMedia}
+                  disabled={isRefetching || isFakeSourceUrl(ad.source_url)}
+                >
+                  {isRefetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  Download Video from Source
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs"
+                  onClick={() => uploadInputRef.current?.click()}
+                  disabled={isUploadingCreative}
+                >
+                  {isUploadingCreative ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                  Upload Video Manually
+                </Button>
+              </div>
+            )}
+            {/* Image ad download */}
+            {!isVideo && currentMedia && (
               <Button
                 variant="outline"
                 size="sm"
                 className="gap-1.5 text-xs"
-                onClick={() => handleDownload(currentMedia.url, `${ad.advertiser_name || "ad"}-${currentMediaIdx}.${currentMedia.type === "video" ? "mp4" : "jpg"}`)}
+                onClick={() => handleDownload(currentMedia.url, `${ad.advertiser_name || "ad"}-${currentMediaIdx}.jpg`)}
               >
                 <Download className="h-3.5 w-3.5" />
-                Download {currentMedia.type === "video" ? "Video" : "Image"}
+                Download Image
               </Button>
             )}
+            {/* Carousel download all */}
             {isCarousel && displayMedia.length > 1 && (
               <Button
                 variant="outline"
@@ -378,6 +444,17 @@ export function AdDetailView({ adId, onBack }: Props) {
               </Button>
             )}
           </div>
+
+          {/* Video not downloaded overlay message */}
+          {isVideo && !hasStoredVideo && displayMedia.length > 0 && displayMedia[0].type !== "video" && (
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 flex items-start gap-2">
+              <Play className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
+              <div className="text-xs text-muted-foreground">
+                <p className="font-medium text-foreground">Video file not downloaded</p>
+                <p className="mt-0.5">Only the thumbnail was captured. Use "Download Video from Source" to try fetching the actual video, or upload it manually.</p>
+              </div>
+            </div>
+          )}
 
           {/* Missing creative warning */}
           {looksLikeProfilePic(ad) && (

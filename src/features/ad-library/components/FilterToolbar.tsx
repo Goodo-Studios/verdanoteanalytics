@@ -22,6 +22,7 @@ import {
   Check,
   CalendarDays,
   Captions,
+  Video,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -36,6 +37,7 @@ export interface AdLibraryFilters {
   dateFrom: string | null;
   dateTo: string | null;
   hasTranscript: boolean;
+  videoMissingFile: boolean;
 }
 
 export const DEFAULT_FILTERS: AdLibraryFilters = {
@@ -48,6 +50,7 @@ export const DEFAULT_FILTERS: AdLibraryFilters = {
   dateFrom: null,
   dateTo: null,
   hasTranscript: false,
+  videoMissingFile: false,
 };
 
 interface FilterToolbarProps {
@@ -83,7 +86,8 @@ export function FilterToolbar({
     (filters.format ? 1 : 0) +
     filters.tag_ids.length +
     (filters.dateFrom ? 1 : 0) +
-    (filters.hasTranscript ? 1 : 0);
+    (filters.hasTranscript ? 1 : 0) +
+    (filters.videoMissingFile ? 1 : 0);
 
   const clearFilter = (key: keyof AdLibraryFilters) => {
     if (key === "tag_ids") {
@@ -278,6 +282,20 @@ export function FilterToolbar({
           CC
         </Button>
 
+        {/* Video missing file filter */}
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn(
+            "h-9 gap-1.5 text-sm font-body",
+            filters.videoMissingFile && "border-amber-500/40 text-amber-600 bg-amber-500/5"
+          )}
+          onClick={() => set("videoMissingFile", !filters.videoMissingFile)}
+        >
+          <Video className="h-3.5 w-3.5" />
+          Missing Video
+        </Button>
+
         {/* Sort */}
         <Select value={filters.sort} onValueChange={(v) => set("sort", v)}>
           <SelectTrigger className="w-[150px] h-9 text-sm">
@@ -381,6 +399,16 @@ export function FilterToolbar({
               onClick={() => set("hasTranscript", false)}
             >
               Has Transcript
+              <X className="h-3 w-3" />
+            </Badge>
+          )}
+          {filters.videoMissingFile && (
+            <Badge
+              variant="secondary"
+              className="text-xs gap-1 pl-2 pr-1 py-0.5 cursor-pointer hover:bg-secondary/60"
+              onClick={() => set("videoMissingFile", false)}
+            >
+              Missing Video File
               <X className="h-3 w-3" />
             </Badge>
           )}

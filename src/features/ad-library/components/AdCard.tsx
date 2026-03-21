@@ -43,6 +43,7 @@ import {
   Check,
   Captions,
   AlertTriangle,
+  Play,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -101,6 +102,7 @@ export function AdCard({
   const [tagPopoverOpen, setTagPopoverOpen] = useState(false);
 
   const PlatformIcon = platformIcon[ad.platform || ""] || Facebook;
+  // Use ad_format to determine icon — NOT what type of file was stored
   const FormatIcon = formatIcon[ad.ad_format || "image"] || Image;
   const adTagIds = new Set((ad.tags || []).map((t) => t.id));
   const initial = (ad.advertiser_name || "A")[0].toUpperCase();
@@ -110,6 +112,10 @@ export function AdCard({
   const hasStoredVideo = successfulStored.some(m => m.type === "video");
   const hasStoredCarousel = successfulStored.filter(m => m.type === "carousel_frame").length > 1;
   const carouselCount = successfulStored.filter(m => m.type === "carousel_frame").length;
+
+  // Is this a video ad (by format) that's missing the actual video file?
+  const isVideoAd = ad.ad_format === "video";
+  const videoMissing = isVideoAd && !hasStoredVideo;
 
   // Detect if the thumbnail is likely a profile pic / logo instead of the actual creative
   const thumbUrl = ad.thumbnail_url || "";
@@ -182,6 +188,25 @@ export function AdCard({
             </div>
           )}
 
+          {/* Video play button overlay for video ads */}
+          {isVideoAd && (
+            <div className="absolute inset-0 z-[4] flex items-center justify-center pointer-events-none">
+              <div className={cn(
+                "h-12 w-12 rounded-full flex items-center justify-center",
+                hasStoredVideo
+                  ? "bg-foreground/60 text-background"
+                  : "bg-foreground/40 text-background"
+              )}>
+                <Play className="h-5 w-5 ml-0.5" fill="currentColor" />
+              </div>
+            </div>
+          )}
+
+          {/* Video missing warning dot */}
+          {videoMissing && !missingCreative && (
+            <div className="absolute top-2 right-2 z-10 h-3 w-3 rounded-full bg-amber-500 border-2 border-card" title="Video file not downloaded" />
+          )}
+
           {/* Missing creative indicator */}
           {missingCreative && (
             <div className="absolute inset-0 z-[5] flex items-center justify-center bg-destructive/5">
@@ -200,20 +225,20 @@ export function AdCard({
             </div>
           )}
 
-          {/* Media type indicator */}
+          {/* Media type indicator — based on ad_format, not stored file type */}
           <div className="absolute bottom-2 right-2 z-10 flex gap-1">
-            {hasStoredVideo && (
+            {isVideoAd && (
               <div className="h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
                 <Video className="h-3 w-3" />
               </div>
             )}
-            {hasStoredCarousel && carouselCount > 0 && (
+            {ad.ad_format === "carousel" && (
               <div className="h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
                 <Layers className="h-3 w-3" />
-                <span className="text-[9px] font-label font-semibold">{carouselCount}</span>
+                {carouselCount > 0 && <span className="text-[9px] font-label font-semibold">{carouselCount}</span>}
               </div>
             )}
-            {!hasStoredVideo && !hasStoredCarousel && successfulStored.length > 0 && (
+            {!isVideoAd && ad.ad_format !== "carousel" && successfulStored.length > 0 && (
               <div className="h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
                 <Image className="h-3 w-3" />
               </div>
@@ -350,7 +375,7 @@ export function AdCard({
         </div>
       </Card>
 
-      {/* Board picker popover (rendered outside card to avoid click issues) */}
+      {/* Board picker popover */}
       <Popover open={boardPopoverOpen} onOpenChange={setBoardPopoverOpen}>
         <PopoverTrigger asChild>
           <span className="hidden" />
@@ -456,7 +481,10 @@ export function AdCard({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => onDelete?.(ad.id)}
+              onClick={() => {
+                onDelete?.(ad.id);
+                setShowDeleteDialog(false);
+              }}
             >
               Delete
             </AlertDialogAction>
