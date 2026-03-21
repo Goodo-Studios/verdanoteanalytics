@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { PageHeader } from "@/components/PageHeader";
-import { useSavedAds, useAdLibraryBoards, useAdLibraryTags, useDeleteSavedAd, useAddToBoard, useToggleAdTag, useUpdateSavedAd } from "@/features/ad-library/hooks/useAdLibrary";
+import { useAdLibraryBoards, useAdLibraryTags, useDeleteSavedAd, useAddToBoard, useToggleAdTag, useUpdateSavedAd } from "@/features/ad-library/hooks/useAdLibrary";
+import { useAdLibraryAds } from "@/features/ad-library/hooks/useAdLibraryInfinite";
 import type { AdLibrarySavedAd } from "@/features/ad-library/types/ad-library";
 import { CollectionSidebar } from "@/features/ad-library/components/CollectionSidebar";
 import { SaveAdModal } from "@/features/ad-library/components/SaveAdModal";
@@ -12,9 +13,10 @@ import { AdLibraryBoardsView } from "@/features/ad-library/components/AdLibraryB
 import { AdLibraryFoldersView } from "@/features/ad-library/components/AdLibraryFoldersView";
 import { AdLibraryTagsView } from "@/features/ad-library/components/AdLibraryTagsView";
 import { AdDetailView } from "@/features/ad-library/components/AdDetailView";
-import { AdLibrarySearch } from "@/features/ad-library/components/AdLibrarySearch";
 import { BookmarkletSetup } from "@/features/ad-library/components/BookmarkletSetup";
 import { ImportFromAtriaModal } from "@/features/ad-library/components/ImportFromAtriaModal";
+import { FilterToolbar, DEFAULT_FILTERS } from "@/features/ad-library/components/FilterToolbar";
+import type { AdLibraryFilters } from "@/features/ad-library/components/FilterToolbar";
 import { Button } from "@/components/ui/button";
 import { Plus, Download, Upload } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -30,9 +32,39 @@ export default function AdLibraryPage() {
   const [tab, setTab] = useState<"all" | "boards" | "folders" | "tags" | "setup">("all");
   const [showImportModal, setShowImportModal] = useState(false);
 
-  const { data: ads = [], isLoading } = useSavedAds({
-    board_id: selectedBoardId || undefined,
+  // Persist sort preference
+  const [filters, setFilters] = useState<AdLibraryFilters>(() => {
+    const savedSort = localStorage.getItem("ad-library-sort");
+    return {
+      ...DEFAULT_FILTERS,
+      sort: savedSort || "recent",
+    };
   });
+
+  useEffect(() => {
+    localStorage.setItem("ad-library-sort", filters.sort);
+  }, [filters.sort]);
+
+  // Use infinite query with filters
+  const {
+    data: adsPages,
+    isLoading,
+    hasNextPage,
+    fetchNextPage,
+  } = useAdLibraryAds({
+    board_id: selectedBoardId || undefined,
+    search: filters.search || undefined,
+    platform: filters.platform,
+    format: filters.format,
+    tag_ids: filters.tag_ids.length > 0 ? filters.tag_ids : undefined,
+    sort: filters.sort,
+    dateFrom: filters.dateFrom,
+    dateTo: filters.dateTo,
+    timeFilter: filters.timeFilter,
+  });
+
+  const ads = adsPages?.pages.flat() ?? [];
+
   const { data: boards = [] } = useAdLibraryBoards();
   const { data: tags = [] } = useAdLibraryTags();
   const deleteAd = useDeleteSavedAd();
@@ -47,7 +79,6 @@ export default function AdLibraryPage() {
 
   const handleExport = useCallback(async () => {
     try {
-      // Fetch all ads with tags and board assignments
       const { data: allAds } = await supabase
         .from("ad_library_saved_ads" as any)
         .select("*")
@@ -105,28 +136,24 @@ export default function AdLibraryPage() {
     }
   }, []);
 
-  // Keyboard shortcuts — scoped to Ad Library
+  // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       const isInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
 
-      // Cmd/Ctrl+K → focus search
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
-        (window as any).__adLibrarySearchFocus?.();
         if (tab !== "all") setTab("all");
         return;
       }
 
-      // Cmd/Ctrl+S → open save modal (only when not typing)
       if ((e.metaKey || e.ctrlKey) && e.key === "s" && !isInput) {
         e.preventDefault();
         setShowSaveModal(true);
         return;
       }
 
-      // Escape → close modals/views
       if (e.key === "Escape") {
         if (showSaveModal) { setShowSaveModal(false); return; }
         if (viewingAdId) { setViewingAdId(null); return; }
@@ -201,12 +228,6 @@ export default function AdLibraryPage() {
                   <TabsTrigger value="setup" className="text-xs px-3 h-7">Quick Save</TabsTrigger>
                 </TabsList>
               </Tabs>
-              {tab === "all" && (
-                <AdLibrarySearch
-                  onSelectAd={handleViewDetails}
-                  className="flex-1 max-w-sm"
-                />
-              )}
               <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport}>
                 <Download className="h-3.5 w-3.5" /> Export
               </Button>
@@ -221,22 +242,32 @@ export default function AdLibraryPage() {
 
           <div className="flex-1 overflow-y-auto px-6 pb-6">
             {tab === "all" && (
-              <AdGrid
-                ads={ads}
-                loading={isLoading}
-                boards={boards}
-                allTags={tags}
-                onViewDetails={handleViewDetails}
-                onDelete={(id) => deleteAd.mutate(id)}
-                onAddToBoard={(adId, boardId) => addToBoard.mutate({ board_id: boardId, ad_id: adId })}
-                onToggleTag={(adId, tagId, remove) => toggleTag.mutate({ ad_id: adId, tag_id: tagId, remove })}
-                onUpdateNotes={(adId, notes) => updateAd.mutate({ id: adId, notes })}
-                emptyAction={
-                  <Button onClick={() => setShowSaveModal(true)} size="sm" className="gap-1.5">
-                    <Plus className="h-3.5 w-3.5" /> Save Your First Ad
-                  </Button>
-                }
-              />
+              <div className="space-y-4">
+                <FilterToolbar
+                  filters={filters}
+                  onFilterChange={setFilters}
+                  availableTags={tags}
+                  totalCount={ads.length}
+                />
+                <AdGrid
+                  ads={ads}
+                  loading={isLoading}
+                  hasMore={!!hasNextPage}
+                  onLoadMore={() => fetchNextPage()}
+                  boards={boards}
+                  allTags={tags}
+                  onViewDetails={handleViewDetails}
+                  onDelete={(id) => deleteAd.mutate(id)}
+                  onAddToBoard={(adId, boardId) => addToBoard.mutate({ board_id: boardId, ad_id: adId })}
+                  onToggleTag={(adId, tagId, remove) => toggleTag.mutate({ ad_id: adId, tag_id: tagId, remove })}
+                  onUpdateNotes={(adId, notes) => updateAd.mutate({ id: adId, notes })}
+                  emptyAction={
+                    <Button onClick={() => setShowSaveModal(true)} size="sm" className="gap-1.5">
+                      <Plus className="h-3.5 w-3.5" /> Save Your First Ad
+                    </Button>
+                  }
+                />
+              </div>
             )}
             {tab === "boards" && (
               <AdLibraryBoardsView onSelectBoard={setViewingBoardId} />
