@@ -177,9 +177,9 @@ export function AdCard({
   }, []);
 
   const handleMediaClick = useCallback((e: React.MouseEvent) => {
-    if (isVideoAd && (storedVideoUrl || thumbIsVideo)) {
-      // For video ads, clicking plays inline
+    if (isVideoAd && playableVideoUrl) {
       if (!isPlaying) {
+        handlePlayClick(e);
         handlePlayClick(e);
       }
     } else {
