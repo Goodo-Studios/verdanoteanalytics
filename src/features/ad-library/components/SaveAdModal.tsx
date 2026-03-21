@@ -143,6 +143,7 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
     setForm({ ...INITIAL_FORM });
     setFetchMessage(null);
     setShowManualFields(false);
+    setIsFacebookUrl(false);
     setSelectedBoardId(defaultBoardId || null);
     setSelectedTagIds([]);
     setNewTagNames([]);
