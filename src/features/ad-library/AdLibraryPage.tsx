@@ -21,7 +21,6 @@ import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 
 export default function AdLibraryPage() {
   const [selectedBoardId, setSelectedBoardId] = useState<string | null>(null);
