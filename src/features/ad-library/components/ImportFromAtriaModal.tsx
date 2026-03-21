@@ -162,19 +162,41 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
   const handleParse = useCallback(() => {
     resetState();
     try {
-      let data = JSON.parse(jsonText);
-      if (!Array.isArray(data)) {
-        if (data.ads) data = data.ads;
-        else if (data.data) data = data.data;
-        else if (data.results) data = data.results;
-        else data = [data];
+      let raw = JSON.parse(jsonText);
+      let adsData: any[];
+      let org = null;
+
+      // Detect structured format with organization
+      if (raw.organization && raw.ads) {
+        org = raw.organization;
+        adsData = raw.ads;
+      } else if (Array.isArray(raw)) {
+        adsData = raw;
+      } else if (raw.ads) {
+        adsData = raw.ads;
+        // Try to extract org from same object
+        if (raw.boards || raw.folders || raw.tags) {
+          org = {
+            folders: raw.folders || [],
+            standalone_boards: raw.boards || raw.collections || [],
+            tags: raw.tags || raw.labels || [],
+          };
+        }
+      } else if (raw.data) {
+        adsData = Array.isArray(raw.data) ? raw.data : [raw.data];
+      } else if (raw.results) {
+        adsData = Array.isArray(raw.results) ? raw.results : [raw.results];
+      } else {
+        adsData = [raw];
       }
-      const normalized = normalizeAds(data);
+
+      const normalized = normalizeAds(adsData);
       if (normalized.length === 0) {
         setParseError("No ads found in the JSON data.");
         return;
       }
       setParsedAds(normalized);
+      if (org) setParsedOrganization(org);
     } catch {
       setParseError("Invalid JSON. Please check the format and try again.");
     }
