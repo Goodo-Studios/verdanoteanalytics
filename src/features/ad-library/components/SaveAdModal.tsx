@@ -139,7 +139,8 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
 
   const reset = () => {
     setForm({ ...INITIAL_FORM });
-    setFetchError(null);
+    setFetchMessage(null);
+    setShowManualFields(false);
     setSelectedBoardId(defaultBoardId || null);
     setSelectedTagIds([]);
     setNewTagNames([]);
