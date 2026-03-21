@@ -165,11 +165,13 @@ export function AdCard({
   const isVideoAd = ad.ad_format === "video" || Boolean(playableVideoUrl);
   const [previewFrameReady, setPreviewFrameReady] = useState(Boolean(thumbUrl));
   const [videoError, setVideoError] = useState(false);
+  const [showVideoSurface, setShowVideoSurface] = useState(false);
 
   useEffect(() => {
     setPreviewFrameReady(Boolean(thumbUrl));
     setVideoError(false);
     setIsPlaying(false);
+    setShowVideoSurface(false);
   }, [thumbUrl, playableVideoUrl, ad.id]);
 
   const videoMissing = isVideoAd && !playableVideoUrl;
@@ -202,10 +204,12 @@ export function AdCard({
       setIsPlaying(false);
       return;
     }
+    setShowVideoSurface(true);
     window.dispatchEvent(new CustomEvent("verdanote-video-play", { detail: ad.id }));
     videoRef.current.play().catch((error) => {
       console.error("Video play failed:", error);
       setVideoError(true);
+      setShowVideoSurface(false);
     });
   }, [playableVideoUrl, ad.id, isPlaying]);
 
@@ -216,6 +220,7 @@ export function AdCard({
       videoRef.current.currentTime = 0.1;
     }
     setIsPlaying(false);
+    setShowVideoSurface(false);
   }, []);
 
   const handleToggleMute = useCallback((e: React.MouseEvent) => {
@@ -293,7 +298,7 @@ export function AdCard({
 
           {/* Inline video player — always rendered for video ads to show poster frame */}
           {isVideoAd && playableVideoUrl ? (
-            <div className={cn("relative bg-muted", !isPlaying && "aspect-[4/5]")} style={{ minHeight: "200px" }}>
+            <div className="relative aspect-[4/5] overflow-hidden bg-muted" style={{ minHeight: "240px" }}>
               <video
                 ref={videoRef}
                 src={playableVideoUrl}
@@ -302,10 +307,9 @@ export function AdCard({
                 playsInline
                 preload="auto"
                 className={cn(
-                  "w-full bg-black",
-                  isPlaying ? "object-contain" : "absolute inset-0 h-full object-cover"
+                  "absolute inset-0 h-full w-full bg-black transition-opacity duration-200",
+                  isPlaying ? "object-contain opacity-100" : showVideoSurface || previewFrameReady ? "object-cover opacity-100" : "object-cover opacity-0"
                 )}
-                style={isPlaying ? { maxHeight: "600px" } : undefined}
                 loop
                 onLoadedData={(e) => {
                   const v = e.currentTarget;
@@ -321,18 +325,22 @@ export function AdCard({
                 onSeeked={() => setPreviewFrameReady(true)}
                 onEnded={() => {
                   setIsPlaying(false);
+                  setShowVideoSurface(false);
                   if (videoRef.current) videoRef.current.currentTime = 0.1;
                 }}
                 onPlay={() => setIsPlaying(true)}
                 onPause={() => setIsPlaying(false)}
-                onError={() => setVideoError(true)}
+                onError={() => {
+                  setVideoError(true);
+                  setShowVideoSurface(false);
+                }}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (isPlaying) handlePlayClick(e);
                 }}
               />
               {/* Thumbnail overlay — use CSS visibility to avoid layout collapse */}
-              {thumbUrl && !videoError && (
+              {thumbUrl && !videoError && !showVideoSurface && (
                 <div
                   className={cn(
                     "absolute inset-0 z-[2] cursor-pointer transition-opacity duration-200",
@@ -348,13 +356,19 @@ export function AdCard({
                   />
                 </div>
               )}
-              {!thumbUrl && !previewFrameReady && !videoError && (
+              {!thumbUrl && !showVideoSurface && !previewFrameReady && !videoError && (
                 <div className={cn(
                   "absolute inset-0 z-[2] flex items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5 transition-opacity duration-200",
                   isPlaying ? "opacity-0 pointer-events-none" : "opacity-100"
                 )}>
                   <span className="font-heading text-[2rem] text-primary/40 select-none">{initial}</span>
                 </div>
+              )}
+              {!thumbUrl && !showVideoSurface && previewFrameReady && !videoError && (
+                <div
+                  className="absolute inset-0 z-[2] cursor-pointer bg-background/5"
+                  onClick={handleMediaClick}
+                />
               )}
               {/* Close and mute buttons when playing */}
               {isPlaying && (
