@@ -175,21 +175,32 @@ export function AdCard({
     }
   }, []);
 
+  // Pause this video if another one starts playing
+  React.useEffect(() => {
+    function handleOtherPlay(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      if (detail !== ad.id && isPlaying && videoRef.current) {
+        videoRef.current.pause();
+        setIsPlaying(false);
+      }
+    }
+    window.addEventListener('verdanote-video-play', handleOtherPlay);
+    return () => window.removeEventListener('verdanote-video-play', handleOtherPlay);
+  }, [ad.id, isPlaying]);
+
   const handleMediaClick = useCallback((e: React.MouseEvent) => {
     if (isVideoAd && playableVideoUrl) {
       if (!isPlaying) {
         handlePlayClick(e);
-        handlePlayClick(e);
       }
     } else {
-      // For image ads, clicking opens detail view
       if (selectable) {
         onToggleSelect?.(ad.id);
       } else {
         onViewDetails?.(ad);
       }
     }
-  }, [isVideoAd, storedVideoUrl, thumbIsVideo, isPlaying, selectable, ad]);
+  }, [isVideoAd, playableVideoUrl, isPlaying, selectable, ad]);
 
   const handleCardBodyClick = useCallback(() => {
     if (selectable) {
