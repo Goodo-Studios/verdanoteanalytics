@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { useAdLibraryBoards, useAdLibraryFolders, useCreateBoard, useCreateFolder, useDeleteBoard, useDeleteFolder } from "@/features/ad-library/hooks/useAdLibrary";
+import { useAdLibraryBoards, useAdLibraryFolders, useCreateBoard, useCreateFolder, useDeleteBoard, useDeleteFolder, useMoveBoard } from "@/features/ad-library/hooks/useAdLibrary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { FolderPlus, Library, Folder, LayoutGrid, Plus, MoreHorizontal, Trash2 } from "lucide-react";
+import { FolderPlus, Library, Folder, LayoutGrid, Plus, MoreHorizontal, Trash2, FolderInput, FolderOutput } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
