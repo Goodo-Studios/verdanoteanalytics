@@ -688,23 +688,16 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
               </div>
             )}
 
-            {/* Fetch error */}
-            {fetchError && (
-              <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3">
-                <p className="text-sm text-destructive">{fetchError}</p>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="mt-2 text-xs"
-                  onClick={() => { setTab("manual"); setFetchError(null); }}
-                >
-                  Switch to Manual Entry →
-                </Button>
+            {/* Info message */}
+            {fetchMessage && !isFetching && (
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-accent/50 border border-border text-sm text-foreground">
+                <Info className="h-4 w-4 mt-0.5 shrink-0 text-primary" />
+                <span>{fetchMessage}</span>
               </div>
             )}
 
-            {/* Fetched data — show editable fields */}
-            {!isFetching && !fetchError && form.advertiser_name && renderFormFields()}
+            {/* Show editable fields after any fetch attempt */}
+            {!isFetching && showManualFields && renderFormFields()}
           </TabsContent>
 
           {/* Tab 2: Enter Manually */}
