@@ -138,6 +138,7 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
   const [tab, setTab] = useState<string>("paste");
   const [jsonText, setJsonText] = useState("");
   const [parsedAds, setParsedAds] = useState<any[] | null>(null);
+  const [parsedOrganization, setParsedOrganization] = useState<any | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
