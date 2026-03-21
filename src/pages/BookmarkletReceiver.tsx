@@ -2,6 +2,11 @@ import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, CheckCircle2, XCircle, Copy, ImageIcon } from "lucide-react";
 
+function isVideoUrl(url?: string | null) {
+  if (!url) return false;
+  return /\.(mp4|mov|webm)(\?|$)/i.test(url) || /video-[^.]+\.fbcdn\.net|\/o1\/v\/t2\//i.test(url);
+}
+
 interface AdPayload {
   advertiser_name: string;
   source_url: string;
@@ -63,13 +68,20 @@ export default function BookmarkletReceiver() {
           }
         }
 
+        const normalizedMediaUrls = Array.from(
+          new Set([...(Array.isArray(ad.media_urls) ? ad.media_urls : []), ad.thumbnail_url, ad.video_url].filter(Boolean))
+        ) as string[];
+        const inferredVideoUrl = ad.video_url || normalizedMediaUrls.find(isVideoUrl) || "";
+        const inferredImageUrl = ad.thumbnail_url || normalizedMediaUrls.find((url) => !isVideoUrl(url)) || "";
+        const inferredFormat = ad.ad_format === "video" || inferredVideoUrl ? "video" : (ad.ad_format || "image");
+
         // Try to download & store media
         const storedMedia: any[] = [];
 
         // Thumbnail / main image
-        if (ad.thumbnail_url) {
+        if (inferredImageUrl) {
           try {
-            const resp = await fetch(ad.thumbnail_url);
+            const resp = await fetch(inferredImageUrl);
             if (resp.ok) {
               const blob = await resp.blob();
               if (blob.size > 1000) {
@@ -87,9 +99,9 @@ export default function BookmarkletReceiver() {
                     .getPublicUrl(path);
                   storedMedia.push({
                     type:
-                      ad.ad_format === "video" ? "video_thumbnail" : "image",
+                      inferredFormat === "video" ? "video_thumbnail" : "image",
                     stored_url: urlData.publicUrl,
-                    original_url: ad.thumbnail_url,
+                    original_url: inferredImageUrl,
                     mime_type: blob.type || "image/jpeg",
                     file_size_bytes: blob.size,
                     position: 0,
@@ -110,7 +122,7 @@ export default function BookmarkletReceiver() {
             advertiser_name: ad.advertiser_name || "Unknown",
             source_url: ad.source_url || "",
             platform: ad.platform || "facebook",
-            ad_format: ad.ad_format || "image",
+            ad_format: inferredFormat,
             headline: ad.headline || null,
             body_text: ad.body_text || null,
             cta_text: ad.cta_text || null,
@@ -120,9 +132,10 @@ export default function BookmarkletReceiver() {
               storedMedia.find(
                 (m: any) => m.type === "image" || m.type === "video_thumbnail"
               )?.stored_url ||
-              ad.thumbnail_url ||
+              inferredImageUrl ||
+              inferredVideoUrl ||
               null,
-            media_urls: ad.media_urls || [],
+            media_urls: normalizedMediaUrls,
             stored_media: storedMedia,
             notes: "Saved via Facebook bookmarklet",
           });
