@@ -121,6 +121,7 @@ function normalizeAds(raw: any[]): any[] {
     started_running: ad.started_running || ad.start_date || ad.startDate || null,
     tags: typeof ad.tags === "string" ? ad.tags.split(",").map((s: string) => s.trim()).filter(Boolean) : (ad.tags || []),
     boards: ad.boards || (ad.board_name ? [ad.board_name] : (ad.boardName ? [ad.boardName] : [])),
+    folder_name: ad.folder_name || ad.folderName || null,
     notes: ad.notes || null,
     raw_data: ad.raw_data || ad,
   }));
