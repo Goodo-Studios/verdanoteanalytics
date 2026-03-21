@@ -153,9 +153,11 @@ export function AdCard({
 
   const handlePlayClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!storedVideoUrl && !thumbIsVideo) return;
+    if (!playableVideoUrl) return;
+    // Pause any other playing video
+    window.dispatchEvent(new CustomEvent('verdanote-video-play', { detail: ad.id }));
     setIsPlaying(true);
-  }, [storedVideoUrl, thumbIsVideo]);
+  }, [playableVideoUrl, ad.id]);
 
   const handleStopVideo = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
