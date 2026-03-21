@@ -3,7 +3,7 @@
   const importUrl = config.importUrl;
 
   if (!importUrl) {
-    alert("Atria export is missing configuration. Please copy a fresh bookmarklet from AdVault.");
+    alert("Atria export is missing configuration. Please copy a fresh bookmarklet from Verdanote.");
     return;
   }
 
@@ -12,530 +12,482 @@
     return;
   }
 
+  if (!location.hostname.includes("tryatria.com") && !location.hostname.includes("atria")) {
+    alert("Please navigate to app.tryatria.com first.");
+    return;
+  }
+
   window.__ADVAULT_ATRIA_RUNNING = true;
 
-  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const unique = (arr) => arr.filter(Boolean).filter((value, index, self) => self.indexOf(value) === index);
-  const videoRe = /\.(mp4|webm|mov|m3u8|avi)(\?|$)/i;
+  const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  const PROFILE_PATTERNS = [
-    /\/profile/i, /\/avatar/i, /\/logo/i, /page_picture/i,
-    /p\d{2,3}x\d{2,3}/i, /s\d{2,3}x\d{2,3}/i,
-    /\/rsrc\.php/i, /emoji/i, /icon/i, /badge/i, /\/static\//i,
-    /favicon/i, /sprite/i,
-  ];
-
-  const isProfileUrl = (url) => {
-    if (!url) return false;
-    return PROFILE_PATTERNS.some((p) => p.test(url));
-  };
-
-  const normalizeUrl = (url) => {
-    if (!url) return null;
-    try { return new URL(url, location.href).href; } catch { return null; }
-  };
-
-  const isSmallOrProfileImg = (img) => {
-    const w = img.naturalWidth || img.width || img.offsetWidth || 0;
-    const h = img.naturalHeight || img.height || img.offsetHeight || 0;
-    if (w > 0 && h > 0 && w < 200 && h < 200) return true;
-    const style = getComputedStyle(img);
-    if (style.borderRadius === "50%" || style.borderRadius === "9999px") return true;
-    const src = img.currentSrc || img.src || "";
-    return isProfileUrl(src);
-  };
-
-  const extractCreativeMedia = (card) => {
-    const images = [];
-    const videos = [];
-    card.querySelectorAll("video").forEach((video) => {
-      const direct = normalizeUrl(video.currentSrc || video.src);
-      if (direct && !isProfileUrl(direct)) videos.push(direct);
-      video.querySelectorAll("source").forEach((source) => {
-        const src = normalizeUrl(source.src);
-        if (src && !isProfileUrl(src)) videos.push(src);
-      });
-    });
-    const allImgs = Array.from(card.querySelectorAll("img"));
-    const sizedImgs = allImgs
-      .map((img) => {
-        const w = img.naturalWidth || img.width || img.offsetWidth || 0;
-        const h = img.naturalHeight || img.height || img.offsetHeight || 0;
-        const src = normalizeUrl(img.currentSrc || img.src);
-        return { img, src, w, h, area: w * h };
-      })
-      .filter((item) => item.src && !isProfileUrl(item.src))
-      .sort((a, b) => b.area - a.area);
-    for (const item of sizedImgs) {
-      if (item.w >= 200 || item.h >= 200 || item.area === 0) {
-        images.push(item.src);
-      }
-    }
-    if (images.length === 0 && sizedImgs.length > 0) {
-      images.push(sizedImgs[0].src);
-    }
-    return { images: unique(images), videos: unique(videos) };
-  };
-
-  const flatten = (input) => {
-    if (!input) return [];
-    if (Array.isArray(input)) return input.flatMap(flatten);
-    if (typeof input === "object") {
-      const values = Object.values(input);
-      let maybeMedia = [];
-      if (typeof input.video_url === "string") maybeMedia.push(input.video_url);
-      if (typeof input.thumbnail_url === "string" && !isProfileUrl(input.thumbnail_url)) maybeMedia.push(input.thumbnail_url);
-      if (typeof input.image_url === "string" && !isProfileUrl(input.image_url)) maybeMedia.push(input.image_url);
-      if (typeof input.creative_url === "string") maybeMedia.push(input.creative_url);
-      if (typeof input.asset_url === "string") maybeMedia.push(input.asset_url);
-      if (typeof input.media_url === "string") maybeMedia.push(input.media_url);
-      if (Array.isArray(input.media_urls)) maybeMedia = maybeMedia.concat(input.media_urls.filter((u) => !isProfileUrl(u)));
-      if (Array.isArray(input.mediaUrls)) maybeMedia = maybeMedia.concat(input.mediaUrls.filter((u) => !isProfileUrl(u)));
-
-      if (typeof input.source_url === "string" || typeof input.url === "string") {
-        return [{
-          source_url: input.source_url || input.url,
-          landing_page_url: input.landing_page_url || input.destination_url || null,
-          advertiser_name: input.advertiser_name || input.brand_name || input.advertiser || "Unknown",
-          body_text: input.body_text || input.body || input.text || null,
-          platform: input.platform || "facebook",
-          ad_format: input.ad_format || input.format || (maybeMedia.some((url) => typeof url === "string" && videoRe.test(url)) ? "video" : null),
-          thumbnail_url: (input.thumbnail_url && !isProfileUrl(input.thumbnail_url)) ? input.thumbnail_url : (input.image_url && !isProfileUrl(input.image_url)) ? input.image_url : null,
-          media_urls: unique(maybeMedia.map(normalizeUrl).filter(Boolean).filter((u) => !isProfileUrl(u))),
-          boards: input.boards || input.board_ids || input.collections || [],
-          tags: input.tags || input.labels || [],
-          raw_data: input,
-        }];
-      }
-      return values.flatMap(flatten);
-    }
-    return [];
-  };
-
+  // ── UI overlay ──
   const overlay = document.createElement("div");
+  overlay.id = "advault-overlay";
   overlay.style.cssText = [
-    "position:fixed", "top:20px", "right:20px", "z-index:99999",
-    "background:#18181b", "color:white", "padding:16px 24px",
-    "border-radius:12px", "font-family:system-ui,sans-serif",
-    "font-size:14px", "box-shadow:0 8px 32px rgba(0,0,0,.3)",
-    "max-width:360px", "line-height:1.4",
+    "position:fixed", "top:20px", "right:20px", "z-index:999999",
+    "background:#18181b", "color:white", "padding:20px 24px",
+    "border-radius:14px", "font-family:system-ui,sans-serif",
+    "font-size:14px", "box-shadow:0 8px 32px rgba(0,0,0,.4)",
+    "max-width:400px", "line-height:1.5", "min-width:320px",
   ].join(";");
-  overlay.innerHTML = "Scanning Atria page…";
   document.body.appendChild(overlay);
 
-  const cleanup = () => { window.__ADVAULT_ATRIA_RUNNING = false; };
+  function setStatus(html) { overlay.innerHTML = html; }
+  function cleanup() { window.__ADVAULT_ATRIA_RUNNING = false; }
 
-  const networkAds = [];
-  const networkBoards = [];
-  const networkTags = [];
+  // ── Helpers ──
+  function getOriginalImageUrl(url) {
+    if (!url) return url;
+    // cdn.tryatria.com/_images/w:1920/q:75/plain/adfiles/xxx.jpeg → cdn.tryatria.com/adfiles/xxx.jpeg
+    return url.replace(/cdn\.tryatria\.com\/_images\/[^/]+\/[^/]+\/plain\//, "cdn.tryatria.com/");
+  }
 
-  // Intercept fetch to capture API responses with org data
-  if (!window.__ADVAULT_ATRIA_FETCH_PATCHED) {
-    window.__ADVAULT_ATRIA_FETCH_PATCHED = true;
-    const originalFetch = window.fetch;
-    window.fetch = function () {
-      return originalFetch.apply(this, arguments).then(async (response) => {
-        try {
-          const url = (arguments[0] && typeof arguments[0] === "string") ? arguments[0] : (arguments[0]?.url || "");
-          const clone = response.clone();
-          const text = await clone.text();
-          if ((text && text[0] === "{") || (text && text[0] === "[")) {
-            const data = JSON.parse(text);
-            const serialized = JSON.stringify(data);
+  // ── Step 0: Get auth token ──
+  async function getAuthToken() {
+    // Check if token was pre-configured
+    if (config.authToken) return config.authToken;
+    // Prompt user
+    const token = prompt("Paste your Verdanote auth token (copy from the Import modal):");
+    if (!token || !token.trim()) return null;
+    return token.trim();
+  }
 
-            // Capture board/collection data
-            if (/board|collection|folder|group/i.test(url) || /board|collection/i.test(serialized.substring(0, 500))) {
-              networkBoards.push(data);
-            }
-            // Capture tag data
-            if (/tag|label|categor/i.test(url) || /\"tags\"|\"labels\"/i.test(serialized.substring(0, 500))) {
-              networkTags.push(data);
-            }
-            // Capture ad data
-            if (/video_url|media_urls|thumbnail|advertiser|headline|body_text|creative_url|asset_url/i.test(serialized)) {
-              networkAds.push(data);
-            }
-          }
-        } catch { /* ignore */ }
-        return response;
+  // ── Step 1: Extract boards from sidebar ──
+  function extractBoards() {
+    const boards = [];
+    const seen = new Set();
+
+    // Atria sidebar has links to /workspace/board/{id}
+    const sidebarLinks = document.querySelectorAll('a[href*="/workspace/board/"]');
+    for (const a of sidebarLinks) {
+      const name = (a.textContent || "").trim();
+      const href = a.getAttribute("href") || "";
+      const idMatch = href.match(/\/board\/([^/?]+)/);
+      const id = idMatch ? idMatch[1] : null;
+      if (name && id && !seen.has(id)) {
+        seen.add(id);
+        boards.push({ name, id, href });
+      }
+    }
+    return boards;
+  }
+
+  // ── Step 2: Scroll to load all ads ──
+  async function scrollToLoadAll(statusPrefix) {
+    let lastHeight = 0;
+    for (let pass = 0; pass < 50; pass++) {
+      window.scrollTo(0, document.body.scrollHeight);
+      await delay(1500);
+      const newHeight = document.body.scrollHeight;
+      const cardCount = document.querySelectorAll(".detail-card").length;
+      setStatus(`${statusPrefix}<br>Scrolling… pass ${pass + 1}, found ${cardCount} ads`);
+      if (newHeight === lastHeight) break;
+      lastHeight = newHeight;
+    }
+    window.scrollTo(0, 0);
+    await delay(300);
+  }
+
+  // ── Step 3: Extract ads from current page ──
+  function extractAdsFromPage(boardName) {
+    const cards = document.querySelectorAll(".detail-card");
+    const ads = [];
+
+    for (const card of cards) {
+      // Advertiser name
+      const brandLink = card.querySelector(".detail-card-brand-title");
+      const advertiserName = brandLink ? brandLink.textContent.trim() : null;
+
+      // Meta page ID from brand link href: /workspace/brand/m{page_id}/overview
+      const brandHref = brandLink ? (brandLink.getAttribute("href") || "") : "";
+      const metaPageId = (brandHref.match(/\/brand\/(m\d+)\//) || [])[1] || null;
+
+      // Creative image (NOT the avatar)
+      let creativeImageUrl = null;
+      const allImages = card.querySelectorAll("img");
+      for (const img of allImages) {
+        const isAvatar = img.closest(".w-8, .h-8, .rounded-full");
+        if (isAvatar) continue;
+
+        const srcset = img.getAttribute("srcset") || "";
+        const src = img.src || "";
+
+        if (srcset.includes("cdn.tryatria.com") || src.includes("cdn.tryatria.com")) {
+          // Get highest res from srcset
+          const srcsetUrls = srcset.split(",").map((s) => s.trim().split(" ")[0]).filter(Boolean);
+          creativeImageUrl = srcsetUrls[srcsetUrls.length - 1] || src;
+          break;
+        }
+        // Fallback: any large image
+        const w = img.naturalWidth || img.width || 0;
+        const h = img.naturalHeight || img.height || 0;
+        if ((w >= 200 || h >= 200) && src && !src.includes("avatar") && !src.includes("profile")) {
+          creativeImageUrl = src;
+        }
+      }
+
+      // Convert to original full-res URL
+      if (creativeImageUrl) {
+        creativeImageUrl = getOriginalImageUrl(creativeImageUrl);
+      }
+
+      // Detect video ad (react-player preview)
+      const hasVideoPlayer = !!card.querySelector('.react-player__preview, .react-player, [class*="react-player"]');
+
+      // Extract ad ID from image URLs: adfiles/m{ad_id}_{hash}
+      const adIdMatch = (creativeImageUrl || "").match(/adfiles\/(m\d+)_/);
+      const adId = adIdMatch ? adIdMatch[1] : null;
+
+      // Body text
+      let bodyText = "";
+      const textEls = card.querySelectorAll('p, [class*="text"], [class*="body"], [class*="copy"]');
+      for (const el of textEls) {
+        const text = (el.textContent || "").trim();
+        if (text.length > 20 && text !== advertiserName) {
+          bodyText = text.substring(0, 2000);
+          break;
+        }
+      }
+
+      // Tags
+      const tagEls = card.querySelectorAll('[class*="tag"], [class*="chip"], [class*="badge"]');
+      const tags = [...tagEls]
+        .map((t) => (t.textContent || "").trim())
+        .filter((t) => t && t.length < 50 && !/^(image|video|carousel|active|inactive|\d+)$/i.test(t));
+
+      ads.push({
+        advertiserName,
+        metaPageId,
+        creativeImageUrl,
+        hasVideoPlayer,
+        adId,
+        bodyText,
+        tags: [...new Set(tags)],
+        boardName,
+        cardEl: card, // keep reference for video extraction
       });
+    }
+
+    return ads;
+  }
+
+  // ── Step 4: Extract video URLs by clicking play ──
+  async function extractVideoUrls(ads, statusPrefix) {
+    let videoCount = 0;
+    const videoAds = ads.filter((a) => a.hasVideoPlayer);
+
+    for (let i = 0; i < videoAds.length; i++) {
+      const ad = videoAds[i];
+      setStatus(`${statusPrefix}<br>Extracting video ${i + 1} of ${videoAds.length}...`);
+
+      const playButton = ad.cardEl.querySelector(".react-player__preview");
+      if (!playButton) continue;
+
+      // Scroll card into view
+      ad.cardEl.scrollIntoView({ behavior: "instant", block: "center" });
+      await delay(300);
+
+      // Click play
+      playButton.click();
+
+      // Wait for <video> element
+      let videoUrl = null;
+      for (let j = 0; j < 16; j++) {
+        await delay(500);
+        const video = ad.cardEl.querySelector("video");
+        if (video) {
+          const src = video.currentSrc || video.src;
+          if (src) {
+            videoUrl = src;
+            video.pause();
+            break;
+          }
+          const source = video.querySelector("source");
+          if (source && source.src) {
+            videoUrl = source.src;
+            video.pause();
+            break;
+          }
+        }
+      }
+
+      if (videoUrl) {
+        ad.videoUrl = videoUrl;
+        videoCount++;
+      }
+
+      // 1s delay between clicks to avoid overloading
+      await delay(1000);
+    }
+
+    return videoCount;
+  }
+
+  // ── Step 5: Build and send payload ──
+  async function sendToVerdanote(ads, boardName, authToken) {
+    const payload = {
+      export_source: "atria",
+      export_date: new Date().toISOString(),
+      ads: ads.map((ad) => {
+        const numericAdId = ad.adId ? ad.adId.replace(/^m/, "") : null;
+        return {
+          advertiser_name: ad.advertiserName || "Unknown",
+          ad_id: ad.adId || null,
+          meta_page_id: ad.metaPageId || null,
+          platform: "facebook",
+          ad_format: ad.videoUrl ? "video" : "image",
+          thumbnail_url: ad.creativeImageUrl || null,
+          video_url: ad.videoUrl || null,
+          body_text: ad.bodyText || null,
+          tags: ad.tags || [],
+          boards: [ad.boardName || boardName].filter(Boolean),
+          source_url: numericAdId
+            ? "https://www.facebook.com/ads/library/?id=" + numericAdId
+            : ad.creativeImageUrl
+              ? "atria-import-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8)
+              : "atria-import-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8),
+        };
+      }),
     };
-  }
 
-  // ---- Organization extraction helpers ----
-
-  function extractBoardsFromSidebar() {
-    const boards = [];
-    // Look for sidebar/nav elements that contain board listings
-    const sidebarSelectors = [
-      '[class*="sidebar"] [class*="board"]',
-      '[class*="sidebar"] [class*="collection"]',
-      '[class*="nav"] [class*="board"]',
-      '[class*="nav"] [class*="collection"]',
-      '[class*="Sidebar"]',
-      'nav [class*="list"] a',
-      '[class*="folder"]',
-      '[role="navigation"] a',
-    ];
-
-    const seenNames = new Set();
-    for (const sel of sidebarSelectors) {
-      document.querySelectorAll(sel).forEach((el) => {
-        const name = (el.textContent || "").trim();
-        if (name && name.length > 0 && name.length < 100 && !seenNames.has(name.toLowerCase())) {
-          seenNames.add(name.toLowerCase());
-          // Check for a link/URL that might contain an ID
-          const link = el.closest("a") || el.querySelector("a");
-          const href = link ? link.href : "";
-          const idMatch = href.match(/\/(?:board|collection|folder|swipe)s?\/([a-zA-Z0-9_-]+)/);
-          const sourceId = idMatch ? idMatch[1] : name.toLowerCase().replace(/\s+/g, "-");
-
-          // Check for nested items (sub-boards)
-          const subBoards = [];
-          const parentEl = el.closest('[class*="group"]') || el.parentElement;
-          if (parentEl) {
-            const children = parentEl.querySelectorAll('[class*="sub"], [class*="child"], [class*="nested"]');
-            children.forEach((child) => {
-              const childName = (child.textContent || "").trim();
-              if (childName && childName !== name && !seenNames.has(childName.toLowerCase())) {
-                seenNames.add(childName.toLowerCase());
-                const childLink = child.closest("a") || child.querySelector("a");
-                const childHref = childLink ? childLink.href : "";
-                const childIdMatch = childHref.match(/\/(?:board|collection|folder)s?\/([a-zA-Z0-9_-]+)/);
-                subBoards.push({
-                  name: childName,
-                  source_id: childIdMatch ? childIdMatch[1] : childName.toLowerCase().replace(/\s+/g, "-"),
-                });
-              }
-            });
-          }
-
-          boards.push({ name, source_id: sourceId, sub_boards: subBoards });
-        }
-      });
-    }
-    return boards;
-  }
-
-  function extractBoardsFromNetwork(networkData) {
-    const boards = [];
-    const seenIds = new Set();
-
-    function walk(obj) {
-      if (!obj || typeof obj !== "object") return;
-      if (Array.isArray(obj)) { obj.forEach(walk); return; }
-
-      // Look for board-like objects
-      const name = obj.name || obj.title || obj.board_name || obj.collection_name;
-      const id = obj.id || obj._id || obj.board_id || obj.collection_id;
-      if (name && id && !seenIds.has(String(id))) {
-        seenIds.add(String(id));
-        const subBoards = [];
-        const children = obj.sub_boards || obj.children || obj.subCollections || obj.boards || [];
-        if (Array.isArray(children)) {
-          children.forEach((child) => {
-            const childName = child.name || child.title;
-            const childId = child.id || child._id;
-            if (childName && childId && !seenIds.has(String(childId))) {
-              seenIds.add(String(childId));
-              subBoards.push({ name: childName, source_id: String(childId) });
-            }
-          });
-        }
-        boards.push({ name, source_id: String(id), sub_boards: subBoards });
-      }
-
-      Object.values(obj).forEach(walk);
-    }
-
-    networkData.forEach(walk);
-    return boards;
-  }
-
-  function extractTagsFromDOM() {
-    const tags = [];
-    const seenNames = new Set();
-
-    // Look for tag elements in filters, sidebars, or ad cards
-    const tagSelectors = [
-      '[class*="tag"]:not(html):not(head):not(body):not(script)',
-      '[class*="Tag"]:not(html):not(head):not(body):not(script)',
-      '[class*="label"]:not(label)',
-      '[class*="badge"]',
-      '[class*="chip"]',
-      '[class*="pill"]',
-    ];
-
-    for (const sel of tagSelectors) {
-      document.querySelectorAll(sel).forEach((el) => {
-        const name = (el.textContent || "").trim();
-        if (name && name.length > 0 && name.length < 50 && !seenNames.has(name.toLowerCase())) {
-          // Skip if it's just a number or too generic
-          if (/^\d+$/.test(name)) return;
-          if (/^(all|filter|sort|search|clear|reset|close|cancel)$/i.test(name)) return;
-          seenNames.add(name.toLowerCase());
-          // Try to grab color
-          const style = getComputedStyle(el);
-          const bg = style.backgroundColor;
-          let color = null;
-          if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") {
-            color = bg;
-          }
-          tags.push({ name, color });
-        }
-      });
-    }
-    return tags;
-  }
-
-  function extractTagsFromNetwork(networkData) {
-    const tags = [];
-    const seenNames = new Set();
-
-    function walk(obj) {
-      if (!obj || typeof obj !== "object") return;
-      if (Array.isArray(obj)) { obj.forEach(walk); return; }
-      const name = obj.name || obj.tag_name || obj.label;
-      if (name && typeof name === "string" && name.length < 50) {
-        const key = name.toLowerCase();
-        if (!seenNames.has(key)) {
-          seenNames.add(key);
-          tags.push({ name, color: obj.color || null });
-        }
-      }
-      Object.values(obj).forEach(walk);
-    }
-
-    networkData.forEach(walk);
-    return tags;
-  }
-
-  function extractAdTags(card) {
-    const tags = [];
-    const tagEls = card.querySelectorAll('[class*="tag"], [class*="Tag"], [class*="badge"], [class*="chip"], [class*="pill"], [class*="label"]:not(label)');
-    tagEls.forEach((el) => {
-      const name = (el.textContent || "").trim();
-      if (name && name.length > 0 && name.length < 50 && !/^\d+$/.test(name)) {
-        if (!/^(all|filter|sort|search|clear|reset|close|cancel|image|video|carousel|active|inactive)$/i.test(name)) {
-          tags.push(name);
-        }
-      }
+    const resp = await fetch(importUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + authToken,
+      },
+      body: JSON.stringify(payload),
     });
-    return unique(tags);
+
+    return resp.json();
   }
 
-  function extractAdBoardContext() {
-    // Try to determine which board/collection the current page is showing
-    const urlMatch = location.href.match(/\/(?:board|collection|folder|swipe)s?\/([a-zA-Z0-9_-]+)/);
-    if (urlMatch) return urlMatch[1];
-
-    // Look at active sidebar item
-    const activeEl = document.querySelector('[class*="sidebar"] [class*="active"]') ||
-                     document.querySelector('[class*="nav"] [class*="active"]') ||
-                     document.querySelector('[aria-current="page"]');
-    if (activeEl) {
-      const name = (activeEl.textContent || "").trim();
-      if (name) return name;
-    }
-    return null;
-  }
-
+  // ── Main flow ──
   (async () => {
     try {
-      if (!location.hostname.includes("tryatria.com") && !location.hostname.includes("atria")) {
-        alert("Please navigate to tryatria.com first.");
-        overlay.remove();
-        cleanup();
+      // Get auth token
+      setStatus("Getting authentication...");
+      const authToken = await getAuthToken();
+      if (!authToken) {
+        setStatus("❌ No auth token provided. Export cancelled.");
+        setTimeout(() => { overlay.remove(); cleanup(); }, 3000);
         return;
       }
 
-      // Step 1: Extract board structure from sidebar
-      overlay.innerHTML = "Step 1/4: Extracting boards & folders…";
+      // Extract boards
+      setStatus("Scanning boards...");
       await delay(500);
-      const domBoards = extractBoardsFromSidebar();
+      const boards = extractBoards();
 
-      // Step 2: Scroll to load all ads
-      let lastHeight = -1;
-      for (let pass = 0; pass < 10; pass += 1) {
-        window.scrollTo({ top: document.body.scrollHeight, behavior: "auto" });
-        await delay(900);
-        overlay.innerHTML = `Step 2/4: Loading ads… pass ${pass + 1}/10`;
-        if (document.body.scrollHeight === lastHeight) break;
-        lastHeight = document.body.scrollHeight;
-      }
-      window.scrollTo({ top: 0, behavior: "auto" });
-      await delay(250);
+      // Show board selection UI
+      if (boards.length > 0) {
+        // Build board selection checkboxes
+        const currentPageBoard = getCurrentBoardName();
+        const boardSelectionHtml = `
+          <div style="margin-bottom:12px;font-weight:600;font-size:16px">Select boards to import</div>
+          <div style="max-height:300px;overflow-y:auto;margin-bottom:12px">
+            <label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;border-bottom:1px solid #333">
+              <input type="checkbox" id="advault-select-all" style="width:16px;height:16px" checked>
+              <span style="font-weight:500">Select All (${boards.length} boards)</span>
+            </label>
+            ${boards.map((b, i) => `
+              <label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;border-bottom:1px solid #333">
+                <input type="checkbox" class="advault-board-cb" data-index="${i}" style="width:16px;height:16px" checked>
+                <span>${b.name}</span>
+              </label>
+            `).join("")}
+          </div>
+          ${currentPageBoard ? `<div style="font-size:12px;color:#a1a1aa;margin-bottom:12px">Current page: "${currentPageBoard}" — will also be imported if checked above.</div>` : ""}
+          <div style="display:flex;gap:8px">
+            <button id="advault-start-import" style="flex:1;padding:10px;background:#7c3aed;color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">Start Import</button>
+            <button id="advault-current-only" style="padding:10px 16px;background:#333;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer">Current Page Only</button>
+            <button id="advault-cancel" style="padding:10px 16px;background:#333;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer">Cancel</button>
+          </div>
+        `;
+        setStatus(boardSelectionHtml);
 
-      // Step 3: Extract tags
-      overlay.innerHTML = "Step 3/4: Extracting tags…";
-      const domTags = extractTagsFromDOM();
-      const networkTagsList = extractTagsFromNetwork(networkTags);
-
-      // Merge DOM + network tags
-      const allTags = [];
-      const tagSeen = new Set();
-      [...networkTagsList, ...domTags].forEach((t) => {
-        const key = t.name.toLowerCase();
-        if (!tagSeen.has(key)) {
-          tagSeen.add(key);
-          allTags.push(t);
+        // Select all toggle
+        const selectAllCb = document.getElementById("advault-select-all");
+        if (selectAllCb) {
+          selectAllCb.addEventListener("change", () => {
+            document.querySelectorAll(".advault-board-cb").forEach((cb) => { cb.checked = selectAllCb.checked; });
+          });
         }
-      });
 
-      // Merge DOM + network boards
-      const networkBoardsList = extractBoardsFromNetwork(networkBoards);
-      const allBoards = [];
-      const boardSeen = new Set();
-      [...networkBoardsList, ...domBoards].forEach((b) => {
-        const key = b.name.toLowerCase();
-        if (!boardSeen.has(key)) {
-          boardSeen.add(key);
-          allBoards.push(b);
-        }
-      });
-
-      // Step 4: Extract ads with board/tag assignments
-      overlay.innerHTML = "Step 4/4: Extracting ad data…";
-      const currentBoard = extractAdBoardContext();
-
-      const ads = [];
-      const seen = {};
-      const cards = document.querySelectorAll(
-        '[class*="card"],[class*="Card"],[class*="ad-item"],[class*="AdCard"],[class*="swipe"],article,div[class*="grid"]>div'
-      );
-
-      cards.forEach((card, index) => {
-        if (card.offsetHeight < 50) return;
-        const text = (card.innerText || "").trim();
-        const { images, videos } = extractCreativeMedia(card);
-        const media = unique(videos.concat(images));
-        const thumb = images[0] || null;
-
-        const link = card.querySelector('a[href*="facebook.com"],a[href*="tiktok.com"],a[href*="ads/library"],a[href*="instagram.com"]');
-        const landingPageLink = card.querySelector('a[href^="http"]');
-        const nameEl = card.querySelector('h1,h2,h3,h4,[class*="brand"],[class*="name"],[class*="advertiser"]');
-        let name = nameEl ? nameEl.textContent.trim() : "";
-        const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
-        if (!name && lines.length > 0) name = lines[0].substring(0, 80);
-        if (!text && media.length === 0) return;
-
-        const sourceUrl = link ? link.href : landingPageLink ? landingPageLink.href
-          : `https://tryatria.com/saved/${index}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-        if (seen[sourceUrl]) return;
-        seen[sourceUrl] = true;
-
-        // Extract tags from this ad card
-        const adTags = extractAdTags(card);
-
-        // Board assignment: current board context + any data attributes
-        const adBoards = [];
-        if (currentBoard) adBoards.push(currentBoard);
-        const boardAttr = card.getAttribute("data-board") || card.getAttribute("data-collection");
-        if (boardAttr) adBoards.push(boardAttr);
-
-        ads.push({
-          source_url: sourceUrl,
-          landing_page_url: landingPageLink && landingPageLink.href !== sourceUrl ? landingPageLink.href : null,
-          advertiser_name: name || "Unknown",
-          body_text: text.substring(0, 4000) || null,
-          platform: /tiktok/i.test(sourceUrl) ? "tiktok" : "facebook",
-          ad_format: videos.length ? "video" : media.length > 1 ? "carousel" : thumb ? "image" : null,
-          thumbnail_url: thumb,
-          media_urls: media,
-          tags: adTags,
-          boards: unique(adBoards),
-          raw_data: {
-            captured_from: "atria-bookmarklet",
-            page_url: location.href,
-            card_index: index,
-            text,
-            video_urls: videos,
-            image_urls: images,
-          },
+        // Wait for user action
+        const action = await new Promise((resolve) => {
+          document.getElementById("advault-start-import")?.addEventListener("click", () => resolve("multi"));
+          document.getElementById("advault-current-only")?.addEventListener("click", () => resolve("current"));
+          document.getElementById("advault-cancel")?.addEventListener("click", () => resolve("cancel"));
         });
-      });
 
-      // Also add ads from network interception
-      flatten(networkAds).forEach((ad) => {
-        if (!ad.source_url || seen[ad.source_url]) return;
-        seen[ad.source_url] = true;
-        ads.push(ad);
-      });
-
-      if (!ads.length && !allBoards.length) {
-        overlay.innerHTML = "No ads or boards found. Open your saved ads page and let Atria fully load first.";
-        setTimeout(() => overlay.remove(), 5000);
-        cleanup();
-        return;
-      }
-
-      // Build organization structure
-      const folders = [];
-      const standaloneBoards = [];
-      for (const board of allBoards) {
-        if (board.sub_boards && board.sub_boards.length > 0) {
-          folders.push({
-            name: board.name,
-            source_id: board.source_id,
-            boards: board.sub_boards,
-          });
-        } else {
-          standaloneBoards.push({
-            name: board.name,
-            source_id: board.source_id,
-          });
+        if (action === "cancel") {
+          overlay.remove();
+          cleanup();
+          return;
         }
+
+        if (action === "current") {
+          // Import current page only
+          await importCurrentPage(authToken);
+        } else {
+          // Multi-board import
+          const selectedBoards = [];
+          document.querySelectorAll(".advault-board-cb").forEach((cb) => {
+            if (cb.checked) {
+              const idx = parseInt(cb.getAttribute("data-index"));
+              if (!isNaN(idx) && boards[idx]) selectedBoards.push(boards[idx]);
+            }
+          });
+
+          if (selectedBoards.length === 0) {
+            setStatus("❌ No boards selected.");
+            setTimeout(() => { overlay.remove(); cleanup(); }, 3000);
+            return;
+          }
+
+          await importMultipleBoards(selectedBoards, authToken);
+        }
+      } else {
+        // No boards found, import current page
+        await importCurrentPage(authToken);
       }
-
-      const payload = {
-        export_source: "atria",
-        export_date: new Date().toISOString(),
-        organization: {
-          folders: folders,
-          standalone_boards: standaloneBoards,
-          tags: allTags,
-        },
-        ads: ads,
-      };
-
-      overlay.innerHTML = `Found ${folders.length} folders, ${standaloneBoards.length + folders.reduce((s, f) => s + f.boards.length, 0)} boards, ${allTags.length} tags, and ${ads.length} ads.<br/>Sending to Verdanote…`;
-
-      const token = prompt("Paste your Verdanote auth token (from the Import modal copy button):");
-      if (!token) {
-        overlay.remove();
-        cleanup();
-        return;
-      }
-
-      const response = await fetch(importUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok || data.success === false) {
-        throw new Error(data.error || "Import failed.");
-      }
-
-      const r = data.results || data;
-      overlay.innerHTML = `<b>Done!</b><br/>` +
-        `${r.folders_created || 0} folders, ${r.boards_created || 0} boards, ${r.tags_created || 0} tags created<br/>` +
-        `${r.ads_imported || data.imported || 0} ads imported` +
-        (r.ads_skipped_duplicate || data.skipped_duplicates ? ` (${r.ads_skipped_duplicate || data.skipped_duplicates} duplicates skipped)` : "");
-      setTimeout(() => overlay.remove(), 8000);
-      cleanup();
-    } catch (error) {
-      const message = error && error.message ? error.message : String(error);
-      overlay.innerHTML = `Import failed: ${message}`;
-      setTimeout(() => overlay.remove(), 7000);
-      alert(`Atria bookmarklet failed: ${message}`);
-      cleanup();
+    } catch (err) {
+      setStatus("❌ Error: " + (err.message || err));
+      console.error("Atria export error:", err);
+      setTimeout(() => { overlay.remove(); cleanup(); }, 5000);
     }
   })();
+
+  function getCurrentBoardName() {
+    // Try page header
+    const h1 = document.querySelector("h1, h2");
+    if (h1) {
+      const text = h1.textContent.trim();
+      if (text && text.length < 100) return text;
+    }
+    // Try active sidebar item
+    const activeLink = document.querySelector('a[href*="/workspace/board/"][class*="active"], a[href*="/workspace/board/"][aria-current="page"]');
+    if (activeLink) return activeLink.textContent.trim();
+    // URL-based
+    const urlMatch = location.pathname.match(/\/board\/([^/?]+)/);
+    if (urlMatch) return decodeURIComponent(urlMatch[1]);
+    return "Saved Ads";
+  }
+
+  async function importCurrentPage(authToken) {
+    const boardName = getCurrentBoardName();
+    setStatus(`<div style="font-weight:600">Importing: ${boardName}</div>Scrolling to load all ads...`);
+
+    await scrollToLoadAll(`<div style="font-weight:600">Importing: ${boardName}</div>`);
+
+    const ads = extractAdsFromPage(boardName);
+    setStatus(`<div style="font-weight:600">Importing: ${boardName}</div>Found ${ads.length} ads. Extracting videos...`);
+
+    const videoCount = await extractVideoUrls(ads, `<div style="font-weight:600">Importing: ${boardName}</div>`);
+
+    setStatus(`<div style="font-weight:600">Importing: ${boardName}</div>Sending ${ads.length} ads (${videoCount} videos) to Verdanote...`);
+
+    const result = await sendToVerdanote(ads, boardName, authToken);
+
+    showFinalResults([{ boardName, adCount: ads.length, videoCount, result }]);
+  }
+
+  async function importMultipleBoards(boards, authToken) {
+    const allResults = [];
+    let totalAds = 0;
+    let totalVideos = 0;
+
+    for (let bi = 0; bi < boards.length; bi++) {
+      const board = boards[bi];
+      const prefix = `<div style="font-weight:600;margin-bottom:4px">Board ${bi + 1} of ${boards.length}: ${board.name}</div>`;
+
+      setStatus(prefix + "Navigating to board...");
+
+      // Navigate to the board
+      const boardUrl = new URL(board.href, location.origin).href;
+      window.location.href = boardUrl;
+
+      // Wait for page to load
+      await delay(3000);
+
+      // Wait for detail-cards to appear
+      for (let w = 0; w < 20; w++) {
+        if (document.querySelectorAll(".detail-card").length > 0) break;
+        await delay(500);
+      }
+
+      // Re-attach overlay (page navigation may remove it)
+      if (!document.getElementById("advault-overlay")) {
+        document.body.appendChild(overlay);
+      }
+
+      // Scroll to load all
+      await scrollToLoadAll(prefix);
+
+      // Extract ads
+      const ads = extractAdsFromPage(board.name);
+      setStatus(prefix + `Found ${ads.length} ads. Extracting videos...`);
+
+      // Extract video URLs
+      const videoCount = await extractVideoUrls(ads, prefix);
+
+      // Send to Verdanote
+      setStatus(prefix + `Sending ${ads.length} ads (${videoCount} videos) to Verdanote...`);
+      const result = await sendToVerdanote(ads, board.name, authToken);
+
+      totalAds += ads.length;
+      totalVideos += videoCount;
+      allResults.push({ boardName: board.name, adCount: ads.length, videoCount, result });
+
+      // Brief pause between boards
+      await delay(1000);
+    }
+
+    showFinalResults(allResults);
+  }
+
+  function showFinalResults(results) {
+    let totalImported = 0;
+    let totalSkipped = 0;
+    let totalFailed = 0;
+    let totalVideos = 0;
+
+    const boardLines = results.map((r) => {
+      const imp = r.result?.imported || 0;
+      const skip = r.result?.skipped_duplicates || 0;
+      totalImported += imp;
+      totalSkipped += skip;
+      totalFailed += r.result?.failed || 0;
+      totalVideos += r.videoCount || 0;
+      return `<div style="padding:4px 0;border-bottom:1px solid #333">
+        <span style="color:#a78bfa">✓</span> ${r.boardName}: ${imp} imported${skip > 0 ? `, ${skip} duplicates` : ""}
+      </div>`;
+    }).join("");
+
+    setStatus(`
+      <div style="font-size:18px;font-weight:700;margin-bottom:8px">🎉 Import Complete!</div>
+      <div style="display:flex;gap:12px;margin-bottom:12px">
+        <div style="text-align:center;flex:1;background:#222;padding:8px;border-radius:8px">
+          <div style="font-size:24px;font-weight:700">${totalImported}</div>
+          <div style="font-size:11px;color:#a1a1aa">Ads Imported</div>
+        </div>
+        <div style="text-align:center;flex:1;background:#222;padding:8px;border-radius:8px">
+          <div style="font-size:24px;font-weight:700">${totalVideos}</div>
+          <div style="font-size:11px;color:#a1a1aa">Videos Found</div>
+        </div>
+        <div style="text-align:center;flex:1;background:#222;padding:8px;border-radius:8px">
+          <div style="font-size:24px;font-weight:700">${results.length}</div>
+          <div style="font-size:11px;color:#a1a1aa">Boards</div>
+        </div>
+      </div>
+      <div style="max-height:200px;overflow-y:auto;margin-bottom:12px;font-size:13px">${boardLines}</div>
+      ${totalSkipped > 0 ? `<div style="font-size:12px;color:#a1a1aa;margin-bottom:8px">${totalSkipped} duplicate ads were skipped.</div>` : ""}
+      ${totalFailed > 0 ? `<div style="font-size:12px;color:#ef4444;margin-bottom:8px">${totalFailed} ads failed to import.</div>` : ""}
+      <div style="font-size:12px;color:#a1a1aa;margin-bottom:12px">Videos and images are being downloaded from Atria's CDN to your library. Go to Verdanote to see them.</div>
+      <button onclick="document.getElementById('advault-overlay').remove()" style="width:100%;padding:10px;background:#7c3aed;color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">Done</button>
+    `);
+    cleanup();
+  }
 })();
