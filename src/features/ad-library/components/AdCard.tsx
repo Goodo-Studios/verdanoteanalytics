@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import type { AdLibrarySavedAd, AdLibraryBoard } from "@/features/ad-library/types/ad-library";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -44,6 +44,9 @@ import {
   Captions,
   AlertTriangle,
   Play,
+  X,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -67,12 +70,6 @@ interface AdCardProps {
 const platformIcon: Record<string, typeof Facebook> = {
   facebook: Facebook,
   instagram: Instagram,
-};
-
-const formatIcon: Record<string, typeof Image> = {
-  image: Image,
-  video: Video,
-  carousel: Layers,
 };
 
 const platformColors: Record<string, string> = {
@@ -100,10 +97,11 @@ export function AdCard({
   const [noteValue, setNoteValue] = useState(ad.notes || "");
   const [boardPopoverOpen, setBoardPopoverOpen] = useState(false);
   const [tagPopoverOpen, setTagPopoverOpen] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const PlatformIcon = platformIcon[ad.platform || ""] || Facebook;
-  // Use ad_format to determine icon — NOT what type of file was stored
-  const FormatIcon = formatIcon[ad.ad_format || "image"] || Image;
   const adTagIds = new Set((ad.tags || []).map((t) => t.id));
   const initial = (ad.advertiser_name || "A")[0].toUpperCase();
   const hasTranscript = (ad as any).transcript_status === "completed";
@@ -113,15 +111,18 @@ export function AdCard({
   const hasStoredCarousel = successfulStored.filter(m => m.type === "carousel_frame").length > 1;
   const carouselCount = successfulStored.filter(m => m.type === "carousel_frame").length;
 
-  // Is this a video ad (by format) that's missing the actual video file?
   const isVideoAd = ad.ad_format === "video";
   const videoMissing = isVideoAd && !hasStoredVideo;
 
-  // Detect if the thumbnail is likely a profile pic / logo instead of the actual creative
   const thumbUrl = ad.thumbnail_url || "";
   const isProfilePicThumb = /\/profile|\/avatar|\/logo|page_picture|p\d{2,3}x\d{2,3}|s\d{2,3}x\d{2,3}/i.test(thumbUrl);
   const hasRealCreative = successfulStored.some(m => m.file_size_bytes && m.file_size_bytes > 50000);
   const missingCreative = !hasRealCreative && (successfulStored.length === 0 || isProfilePicThumb) && (!ad.media_urls || ad.media_urls.length === 0);
+
+  // Get the stored video URL for inline playback
+  const storedVideoUrl = successfulStored.find(m => m.type === "video")?.stored_url;
+  // For video thumbnail, check if thumbnail_url is itself a video file
+  const thumbIsVideo = /\.(mp4|mov|webm)(\?|$)/i.test(thumbUrl);
 
   const handleCopyLandingPage = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -139,32 +140,79 @@ export function AdCard({
     toast.success("Note saved");
   };
 
+  const handlePlayClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!storedVideoUrl && !thumbIsVideo) return;
+    setIsPlaying(true);
+  }, [storedVideoUrl, thumbIsVideo]);
+
+  const handleStopVideo = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsPlaying(false);
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.currentTime = 0;
+    }
+  }, []);
+
+  const handleToggleMute = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsMuted(prev => !prev);
+    if (videoRef.current) {
+      videoRef.current.muted = !videoRef.current.muted;
+    }
+  }, []);
+
+  const handleMediaClick = useCallback((e: React.MouseEvent) => {
+    if (isVideoAd && (storedVideoUrl || thumbIsVideo)) {
+      // For video ads, clicking plays inline
+      if (!isPlaying) {
+        handlePlayClick(e);
+      }
+    } else {
+      // For image ads, clicking opens detail view
+      if (selectable) {
+        onToggleSelect?.(ad.id);
+      } else {
+        onViewDetails?.(ad);
+      }
+    }
+  }, [isVideoAd, storedVideoUrl, thumbIsVideo, isPlaying, selectable, ad]);
+
+  const handleCardBodyClick = useCallback(() => {
+    if (selectable) {
+      onToggleSelect?.(ad.id);
+    } else {
+      onViewDetails?.(ad);
+    }
+  }, [selectable, ad]);
+
+  const playableVideoUrl = storedVideoUrl || (thumbIsVideo ? thumbUrl : null);
+
   return (
     <>
       <Card
         className={cn(
-          "group relative flex flex-col overflow-hidden cursor-pointer break-inside-avoid mb-4",
-          "transition-all duration-200 ease-out",
-          "hover:shadow-card-hover hover:scale-[1.02] hover:border-border",
-          "active:scale-[0.98]",
+          "group relative flex flex-col overflow-hidden break-inside-avoid mb-4",
+          "transition-all duration-200 ease-out border-border/50",
+          "hover:shadow-card-hover hover:border-border",
           selected && "ring-2 ring-primary border-primary"
         )}
-        onClick={() => {
-          if (selectable) {
-            onToggleSelect?.(ad.id);
-          } else {
-            onViewDetails?.(ad);
-          }
-        }}
       >
-        {/* Thumbnail / Placeholder */}
-        <div className={cn("relative aspect-[4/3] bg-muted overflow-hidden", missingCreative && "border-2 border-dashed border-destructive/30")}>
+        {/* ── Media Area ── */}
+        <div
+          className={cn(
+            "relative bg-muted overflow-hidden cursor-pointer",
+            missingCreative && "border-b-2 border-dashed border-destructive/30"
+          )}
+          onClick={handleMediaClick}
+        >
           {/* Selection checkbox */}
           {(selectable || selected) && (
             <button
               onClick={(e) => { e.stopPropagation(); onToggleSelect?.(ad.id); }}
               className={cn(
-                "absolute top-2 left-2 z-10 h-6 w-6 rounded-md flex items-center justify-center transition-all duration-150",
+                "absolute top-2 left-2 z-20 h-6 w-6 rounded-md flex items-center justify-center transition-all duration-150",
                 selected
                   ? "bg-primary text-primary-foreground shadow-card"
                   : "bg-card/80 backdrop-blur-sm border border-border opacity-0 group-hover:opacity-100 hover:bg-card"
@@ -173,183 +221,200 @@ export function AdCard({
               {selected && <Check className="h-3.5 w-3.5" />}
             </button>
           )}
-          {ad.thumbnail_url ? (
-            /\.(mp4|mov|webm)(\?|$)/i.test(ad.thumbnail_url) ? (
+
+          {/* Inline video player */}
+          {isPlaying && playableVideoUrl ? (
+            <div className="relative">
               <video
-                src={ad.thumbnail_url}
-                muted
-                preload="metadata"
-                className="h-full w-full object-cover"
-                onLoadedData={(e) => {
-                  // Seek to 1 second to show a meaningful frame instead of black
-                  const v = e.currentTarget;
-                  if (v.duration > 1) v.currentTime = 1;
-                }}
+                ref={videoRef}
+                src={playableVideoUrl}
+                autoPlay
+                muted={isMuted}
+                playsInline
+                controls
+                className="w-full"
+                style={{ maxHeight: "500px" }}
+                onEnded={() => setIsPlaying(false)}
+                onClick={(e) => e.stopPropagation()}
               />
-            ) : (
-              <img
-                src={ad.thumbnail_url}
-                alt={ad.headline || ad.advertiser_name || "Ad"}
-                className="h-full w-full object-cover"
-                loading="lazy"
-              />
-            )
+              {/* Close and mute buttons */}
+              <div className="absolute top-2 right-2 z-20 flex gap-1.5">
+                <button
+                  onClick={handleToggleMute}
+                  className="h-7 w-7 rounded-full bg-foreground/70 text-background flex items-center justify-center hover:bg-foreground/90 transition-colors"
+                >
+                  {isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+                </button>
+                <button
+                  onClick={handleStopVideo}
+                  className="h-7 w-7 rounded-full bg-foreground/70 text-background flex items-center justify-center hover:bg-foreground/90 transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
           ) : (
-            <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
-              <span className="font-heading text-[2rem] text-primary/40 select-none">
-                {initial}
-              </span>
-            </div>
-          )}
+            <>
+              {/* Thumbnail / poster */}
+              {thumbUrl ? (
+                thumbIsVideo ? (
+                  <video
+                    src={thumbUrl}
+                    muted
+                    preload="metadata"
+                    className="w-full object-contain"
+                    style={{ maxHeight: "500px" }}
+                    onLoadedData={(e) => {
+                      const v = e.currentTarget;
+                      if (v.duration > 1) v.currentTime = 1;
+                    }}
+                  />
+                ) : (
+                  <img
+                    src={thumbUrl}
+                    alt={ad.headline || ad.advertiser_name || "Ad"}
+                    className="w-full object-contain"
+                    style={{ maxHeight: "500px" }}
+                    loading="lazy"
+                  />
+                )
+              ) : (
+                <div className="aspect-[4/3] flex items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
+                  <span className="font-heading text-[2rem] text-primary/40 select-none">
+                    {initial}
+                  </span>
+                </div>
+              )}
 
-          {/* Video play button overlay for video ads */}
-          {isVideoAd && (
-            <div className="absolute inset-0 z-[4] flex items-center justify-center pointer-events-none">
-              <div className={cn(
-                "h-12 w-12 rounded-full flex items-center justify-center",
-                hasStoredVideo
-                  ? "bg-foreground/60 text-background"
-                  : "bg-foreground/40 text-background"
-              )}>
-                <Play className="h-5 w-5 ml-0.5" fill="currentColor" />
-              </div>
-            </div>
-          )}
+              {/* Video play button overlay */}
+              {isVideoAd && !isPlaying && (
+                <div className="absolute inset-0 z-[4] flex items-center justify-center">
+                  <div className={cn(
+                    "h-14 w-14 rounded-full flex items-center justify-center transition-all duration-200",
+                    "bg-background/80 backdrop-blur-sm shadow-lg",
+                    "group-hover:bg-background/95 group-hover:scale-110",
+                    hasStoredVideo || thumbIsVideo ? "text-foreground" : "text-muted-foreground"
+                  )}>
+                    <Play className="h-6 w-6 ml-0.5" fill="currentColor" />
+                  </div>
+                </div>
+              )}
 
-          {/* Video missing warning dot */}
-          {videoMissing && !missingCreative && (
-            <div className="absolute top-2 right-2 z-10 h-3 w-3 rounded-full bg-amber-500 border-2 border-card" title="Video file not downloaded" />
-          )}
+              {/* Video missing warning dot */}
+              {videoMissing && !missingCreative && (
+                <div className="absolute top-2 right-2 z-10 h-3 w-3 rounded-full bg-amber-500 border-2 border-card" title="Video file not downloaded" />
+              )}
 
-          {/* Missing creative indicator */}
-          {missingCreative && (
-            <div className="absolute inset-0 z-[5] flex items-center justify-center bg-destructive/5">
-              <div className="text-center px-3">
-                <AlertTriangle className="h-5 w-5 text-destructive/60 mx-auto mb-1" />
-                <span className="text-[10px] text-destructive/80 font-label">Missing creative</span>
-              </div>
-            </div>
-          )}
+              {/* Missing creative indicator */}
+              {missingCreative && (
+                <div className="absolute inset-0 z-[5] flex items-center justify-center bg-destructive/5">
+                  <div className="text-center px-3">
+                    <AlertTriangle className="h-5 w-5 text-destructive/60 mx-auto mb-1" />
+                    <span className="text-[10px] text-destructive/80 font-label">Missing creative</span>
+                  </div>
+                </div>
+              )}
 
-          {/* CC badge for transcribed videos */}
-          {hasTranscript && (
-            <div className="absolute bottom-2 right-10 z-10 h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
-              <Captions className="h-3 w-3" />
-              <span className="text-[9px] font-label font-semibold">CC</span>
-            </div>
-          )}
+              {/* Bottom-right badges */}
+              <div className="absolute bottom-2 right-2 z-10 flex gap-1">
+                {hasTranscript && (
+                  <div className="h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
+                    <Captions className="h-3 w-3" />
+                    <span className="text-[9px] font-label font-semibold">CC</span>
+                  </div>
+                )}
+                {isVideoAd && (
+                  <div className="h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
+                    <Video className="h-3 w-3" />
+                  </div>
+                )}
+                {ad.ad_format === "carousel" && (
+                  <div className="h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
+                    <Layers className="h-3 w-3" />
+                    {carouselCount > 0 && <span className="text-[9px] font-label font-semibold">{carouselCount}</span>}
+                  </div>
+                )}
+              </div>
 
-          {/* Media type indicator — based on ad_format, not stored file type */}
-          <div className="absolute bottom-2 right-2 z-10 flex gap-1">
-            {isVideoAd && (
-              <div className="h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
-                <Video className="h-3 w-3" />
-              </div>
-            )}
-            {ad.ad_format === "carousel" && (
-              <div className="h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
-                <Layers className="h-3 w-3" />
-                {carouselCount > 0 && <span className="text-[9px] font-label font-semibold">{carouselCount}</span>}
-              </div>
-            )}
-            {!isVideoAd && ad.ad_format !== "carousel" && successfulStored.length > 0 && (
-              <div className="h-5 px-1.5 rounded bg-foreground/70 text-background flex items-center gap-0.5">
-                <Image className="h-3 w-3" />
-              </div>
-            )}
-          </div>
+              {/* Platform badge bottom-left */}
+              {ad.platform && (
+                <div className="absolute bottom-2 left-2 z-10">
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "text-[10px] px-1.5 py-0 font-label uppercase tracking-wider gap-1 border backdrop-blur-sm bg-card/80",
+                      platformColors[ad.platform] || "bg-muted text-muted-foreground border-border"
+                    )}
+                  >
+                    <PlatformIcon className="h-2.5 w-2.5" />
+                    {ad.platform}
+                  </Badge>
+                </div>
+              )}
+            </>
+          )}
 
           {/* Hover three-dot menu */}
-          <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="h-7 w-7 p-0 rounded-md shadow-card bg-card/90 backdrop-blur-sm hover:bg-card"
+          {!isPlaying && (
+            <div className="absolute top-2 right-2 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="h-7 w-7 p-0 rounded-full shadow-card bg-card/90 backdrop-blur-sm hover:bg-card"
+                  >
+                    <MoreVertical className="h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="w-48"
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  <MoreVertical className="h-3.5 w-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="w-48"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <DropdownMenuItem onClick={() => onViewDetails?.(ad)}>
-                  <Eye className="h-3.5 w-3.5 mr-2" /> View Details
-                </DropdownMenuItem>
-
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setBoardPopoverOpen(true);
-                  }}
-                >
-                  <LayoutGrid className="h-3.5 w-3.5 mr-2" /> Add to Board
-                </DropdownMenuItem>
-
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setTagPopoverOpen(true);
-                  }}
-                >
-                  <Tag className="h-3.5 w-3.5 mr-2" /> Edit Tags
-                </DropdownMenuItem>
-
-                <DropdownMenuItem onClick={() => setShowNoteEditor(true)}>
-                  <StickyNote className="h-3.5 w-3.5 mr-2" /> Add Note
-                </DropdownMenuItem>
-
-                <DropdownMenuItem onClick={handleCopyLandingPage}>
-                  <Copy className="h-3.5 w-3.5 mr-2" /> Copy Landing Page URL
-                </DropdownMenuItem>
-
-                <DropdownMenuSeparator />
-
-                <DropdownMenuItem
-                  className="text-destructive focus:text-destructive"
-                  onClick={() => setShowDeleteDialog(true)}
-                >
-                  <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+                  <DropdownMenuItem onClick={() => onViewDetails?.(ad)}>
+                    <Eye className="h-3.5 w-3.5 mr-2" /> View Details
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={(e) => { e.preventDefault(); setBoardPopoverOpen(true); }}
+                  >
+                    <LayoutGrid className="h-3.5 w-3.5 mr-2" /> Add to Board
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={(e) => { e.preventDefault(); setTagPopoverOpen(true); }}
+                  >
+                    <Tag className="h-3.5 w-3.5 mr-2" /> Edit Tags
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setShowNoteEditor(true)}>
+                    <StickyNote className="h-3.5 w-3.5 mr-2" /> Add Note
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleCopyLandingPage}>
+                    <Copy className="h-3.5 w-3.5 mr-2" /> Copy Landing Page URL
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => setShowDeleteDialog(true)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )}
         </div>
 
-        {/* Card body */}
-        <div className="flex flex-col gap-2 p-3">
-          {/* Advertiser name */}
-          {ad.advertiser_name && (
-            <p className="font-body text-sm font-medium text-foreground truncate">
-              {ad.advertiser_name}
-            </p>
-          )}
-
-          {/* Platform + Format badges */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {ad.platform && (
-              <Badge
-                variant="outline"
-                className={cn(
-                  "text-[10px] px-1.5 py-0 font-label uppercase tracking-wider gap-1 border",
-                  platformColors[ad.platform] || "bg-muted text-muted-foreground border-border"
-                )}
-              >
-                <PlatformIcon className="h-2.5 w-2.5" />
-                {ad.platform}
-              </Badge>
-            )}
-            {ad.ad_format && (
-              <Badge
-                variant="outline"
-                className="text-[10px] px-1.5 py-0 font-label capitalize gap-1 bg-muted/50 text-muted-foreground border-border"
-              >
-                <FormatIcon className="h-2.5 w-2.5" />
-                {ad.ad_format}
-              </Badge>
+        {/* ── Info Section ── */}
+        <div className="flex flex-col gap-2 p-3 cursor-pointer" onClick={handleCardBodyClick}>
+          {/* Row 1: Avatar + Advertiser name */}
+          <div className="flex items-center gap-2">
+            <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <span className="text-[11px] font-heading font-bold text-primary">{initial}</span>
+            </div>
+            {ad.advertiser_name && (
+              <p className="font-body text-sm font-semibold text-foreground truncate">
+                {ad.advertiser_name}
+              </p>
             )}
           </div>
 
@@ -379,13 +444,18 @@ export function AdCard({
             </div>
           )}
 
-          {/* Bottom row: date */}
-          {ad.started_running && (
-            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-label pt-1 border-t border-border-light mt-1">
-              <Calendar className="h-3 w-3" />
-              <span>Started {format(new Date(ad.started_running), "MMM d, yyyy")}</span>
-            </div>
-          )}
+          {/* Bottom row: date + format */}
+          <div className="flex items-center justify-between text-[10px] text-muted-foreground font-label pt-1 border-t border-border/50 mt-0.5">
+            {ad.started_running ? (
+              <div className="flex items-center gap-1">
+                <Calendar className="h-3 w-3" />
+                <span>{format(new Date(ad.started_running), "MMM d, yyyy")}</span>
+              </div>
+            ) : <span />}
+            {ad.ad_format && (
+              <span className="uppercase tracking-wider">{ad.ad_format}</span>
+            )}
+          </div>
         </div>
       </Card>
 
@@ -463,7 +533,7 @@ export function AdCard({
       <AlertDialog open={showNoteEditor} onOpenChange={setShowNoteEditor}>
         <AlertDialogContent onClick={(e) => e.stopPropagation()}>
           <AlertDialogHeader>
-            <AlertDialogTitle className="font-heading text-forest">Add Note</AlertDialogTitle>
+            <AlertDialogTitle className="font-heading text-foreground">Add Note</AlertDialogTitle>
             <AlertDialogDescription className="text-muted-foreground text-xs">
               Personal notes about this ad
             </AlertDialogDescription>
@@ -486,7 +556,7 @@ export function AdCard({
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent onClick={(e) => e.stopPropagation()}>
           <AlertDialogHeader>
-            <AlertDialogTitle className="font-heading text-forest">Delete Ad?</AlertDialogTitle>
+            <AlertDialogTitle className="font-heading text-foreground">Delete Ad?</AlertDialogTitle>
             <AlertDialogDescription className="text-muted-foreground text-sm">
               This will permanently remove this ad from your library and all boards.
             </AlertDialogDescription>
