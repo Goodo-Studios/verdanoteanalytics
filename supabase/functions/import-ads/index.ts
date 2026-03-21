@@ -9,17 +9,6 @@ const corsHeaders = {
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const CHROME_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
-const PROFILE_URL_PATTERNS = [
-  /\/profile/i, /\/avatar/i, /\/logo/i, /page_picture/i,
-  /p\d{2,3}x\d{2,3}/i, /s\d{2,3}x\d{2,3}/i,
-  /\/rsrc\.php/i, /emoji/i, /icon/i, /badge/i,
-  /\/static\//i, /favicon/i, /sprite/i,
-];
-
-function isProfileOrLogoUrl(url: string): boolean {
-  return PROFILE_URL_PATTERNS.some(p => p.test(url));
-}
-
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -27,25 +16,17 @@ function json(body: unknown, status = 200) {
   });
 }
 
-function isVideoUrl(url: string): boolean {
-  return /\.(mp4|webm|mov|m3u8|avi)(\?|$)/i.test(url) ||
-    url.includes("/video/") ||
-    /video.*\.xx\.fbcdn\.net/i.test(url);
+function getExtFromUrl(url: string, ct?: string): string {
+  if (ct?.includes("video/mp4")) return "mp4";
+  if (ct?.includes("video/webm")) return "webm";
+  if (ct?.includes("image/png")) return "png";
+  if (ct?.includes("image/webp")) return "webp";
+  if (ct?.includes("image/jpeg")) return "jpg";
+  const m = url.match(/\.(jpg|jpeg|png|webp|gif|mp4|webm|mov)(\?|$)/i);
+  return m ? m[1].toLowerCase() : "jpg";
 }
 
-function getExtensionFromUrl(url: string, contentType?: string): string {
-  if (contentType?.includes("video/mp4")) return "mp4";
-  if (contentType?.includes("video/webm")) return "webm";
-  if (contentType?.includes("image/png")) return "png";
-  if (contentType?.includes("image/webp")) return "webp";
-  if (contentType?.includes("image/gif")) return "gif";
-  if (contentType?.includes("image/jpeg")) return "jpg";
-  const match = url.match(/\.(jpg|jpeg|png|webp|gif|mp4|webm|mov)(\?|$)/i);
-  if (match) return match[1].toLowerCase();
-  return isVideoUrl(url) ? "mp4" : "jpg";
-}
-
-function getMimeType(ext: string): string {
+function getMime(ext: string): string {
   const map: Record<string, string> = {
     jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
     webp: "image/webp", gif: "image/gif",
@@ -65,7 +46,8 @@ interface StoredMediaItem {
 }
 
 async function downloadAndStore(
-  supabaseAdmin: any, url: string, userId: string, adId: string, position: number, mediaType: "image" | "video" | "carousel_frame" | "video_thumbnail"
+  admin: any, url: string, userId: string, adId: string, position: number,
+  mediaType: "image" | "video" | "carousel_frame" | "video_thumbnail"
 ): Promise<StoredMediaItem | null> {
   try {
     if (!url || (!url.startsWith("http://") && !url.startsWith("https://"))) return null;
@@ -75,39 +57,37 @@ async function downloadAndStore(
     const resp = await fetch(url, { signal: controller.signal, headers: { "User-Agent": CHROME_UA } });
     clearTimeout(timeout);
 
-    if (!resp.ok) return { original_url: url, stored_url: "", type: mediaType, mime_type: "", file_size_bytes: 0, position, download_failed: true };
+    if (!resp.ok) {
+      console.error(`Download failed (${resp.status}) for ${url}`);
+      return { original_url: url, stored_url: "", type: mediaType, mime_type: "", file_size_bytes: 0, position, download_failed: true };
+    }
 
-    const contentType = resp.headers.get("content-type") || "";
-    const ext = getExtensionFromUrl(url, contentType);
-    const mimeType = getMimeType(ext);
+    const ct = resp.headers.get("content-type") || "";
+    const ext = getExtFromUrl(url, ct);
+    const mime = getMime(ext);
     const blob = await resp.blob();
 
     if (blob.size > MAX_FILE_SIZE) {
-      return { original_url: url, stored_url: "", type: mediaType, mime_type: mimeType, file_size_bytes: blob.size, position, download_failed: true };
+      return { original_url: url, stored_url: "", type: mediaType, mime_type: mime, file_size_bytes: blob.size, position, download_failed: true };
     }
 
-    const arrayBuf = await blob.arrayBuffer();
-    const filePath = `${userId}/${adId}/${position}_${mediaType}.${ext}`;
+    const buf = await blob.arrayBuffer();
+    const path = `${userId}/${adId}/${position}_${mediaType}.${ext}`;
+    const { error } = await admin.storage.from("ad-media").upload(path, new Uint8Array(buf), { contentType: mime, upsert: true });
 
-    const { error } = await supabaseAdmin.storage.from("ad-media").upload(filePath, new Uint8Array(arrayBuf), { contentType: mimeType, upsert: true });
     if (error) {
-      console.error("Storage upload error:", error.message);
-      return { original_url: url, stored_url: "", type: mediaType, mime_type: mimeType, file_size_bytes: blob.size, position, download_failed: true };
+      console.error("Upload error:", error.message);
+      return { original_url: url, stored_url: "", type: mediaType, mime_type: mime, file_size_bytes: blob.size, position, download_failed: true };
     }
 
-    const { data: urlData } = supabaseAdmin.storage.from("ad-media").getPublicUrl(filePath);
-    return { original_url: url, stored_url: urlData?.publicUrl || "", type: mediaType, mime_type: mimeType, file_size_bytes: blob.size, position };
+    const { data: urlData } = admin.storage.from("ad-media").getPublicUrl(path);
+    return { original_url: url, stored_url: urlData?.publicUrl || "", type: mediaType, mime_type: mime, file_size_bytes: blob.size, position };
   } catch (e) {
     console.error("downloadAndStore failed:", (e as Error).message);
     return { original_url: url, stored_url: "", type: mediaType, mime_type: "", file_size_bytes: 0, position, download_failed: true };
   }
 }
 
-function uniqueStrings(values: unknown[]): string[] {
-  return [...new Set(values.filter((value): value is string => typeof value === "string" && value.length > 0))];
-}
-
-// Default tag colors
 const TAG_COLORS = ["#8b5cf6", "#f59e0b", "#10b981", "#3b82f6", "#ef4444", "#ec4899", "#06b6d4", "#84cc16"];
 
 Deno.serve(async (req) => {
@@ -118,119 +98,41 @@ Deno.serve(async (req) => {
     if (!authHeader?.startsWith("Bearer ")) return json({ success: false, error: "Unauthorized" }, 401);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, { global: { headers: { Authorization: authHeader } } });
-    const supabaseAdmin = createClient(supabaseUrl, serviceKey);
+    const supabase = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authHeader } } });
+    const admin = createClient(supabaseUrl, serviceKey);
 
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) return json({ success: false, error: "Unauthorized" }, 401);
+    const { data: { user }, error: userErr } = await supabase.auth.getUser();
+    if (userErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
 
     const body = await req.json();
-
-    // Support both flat format (legacy) and structured format (with organization)
-    const organization = body.organization || null;
     const ads: any[] = body.ads || [];
-    const legacyBoardNames: string[] = body.boards || [];
-    const legacyTagNames: string[] = body.tags || [];
-
     if (!Array.isArray(ads) || ads.length === 0) return json({ success: false, error: "No ads provided" }, 400);
 
-    // ---- Phase 1: Create folders ----
-    let foldersCreated = 0;
-    const folderMap: Record<string, string> = {}; // source_id/name -> our folder ID
-
-    if (organization?.folders) {
-      const { data: existingFolders } = await supabase.from("ad_library_folders").select("id, name");
-      const existingFolderMap: Record<string, string> = {};
-      for (const f of existingFolders || []) existingFolderMap[f.name.toLowerCase()] = f.id;
-
-      for (const folder of organization.folders) {
-        const key = folder.name.toLowerCase();
-        if (existingFolderMap[key]) {
-          folderMap[folder.source_id || key] = existingFolderMap[key];
-          folderMap[key] = existingFolderMap[key];
-        } else {
-          const { data: newFolder } = await supabase
-            .from("ad_library_folders")
-            .insert({ name: folder.name, user_id: user.id } as any)
-            .select("id")
-            .single();
-          if (newFolder) {
-            folderMap[folder.source_id || key] = newFolder.id;
-            folderMap[key] = newFolder.id;
-            foldersCreated++;
-          }
-        }
-      }
-    }
-
-    // ---- Phase 2: Create boards ----
+    // ── Phase 1: Create boards from board names ──
     let boardsCreated = 0;
-    const boardMap: Record<string, string> = {}; // source_id/name -> our board ID
+    const boardMap: Record<string, string> = {}; // name (lowercase) → board ID
 
-    const { data: existingBoards } = await supabase.from("ad_library_boards").select("id, name, folder_id");
-    for (const b of existingBoards || []) {
-      boardMap[b.name.toLowerCase()] = b.id;
-    }
+    const { data: existingBoards } = await supabase.from("ad_library_boards").select("id, name");
+    for (const b of existingBoards || []) boardMap[b.name.toLowerCase()] = b.id;
 
-    // Boards inside folders (sub-boards)
-    if (organization?.folders) {
-      for (const folder of organization.folders) {
-        const folderId = folderMap[folder.source_id || folder.name.toLowerCase()];
-        const boards = folder.boards || [];
-        for (const board of boards) {
-          const key = board.name.toLowerCase();
-          if (!boardMap[key]) {
-            const { data: newBoard } = await supabase
-              .from("ad_library_boards")
-              .insert({ name: board.name, user_id: user.id, folder_id: folderId || null } as any)
-              .select("id")
-              .single();
-            if (newBoard) {
-              boardMap[key] = newBoard.id;
-              if (board.source_id) boardMap[board.source_id] = newBoard.id;
-              boardsCreated++;
-            }
-          } else if (board.source_id) {
-            boardMap[board.source_id] = boardMap[key];
-          }
-        }
+    // Collect all board names from ads
+    const allBoardNames = new Set<string>();
+    for (const ad of ads) {
+      const boards: string[] = ad.boards || (ad.board_name ? [ad.board_name] : []);
+      for (const name of boards) {
+        if (name && typeof name === "string") allBoardNames.add(name);
       }
     }
 
-    // Standalone boards
-    if (organization?.standalone_boards) {
-      for (const board of organization.standalone_boards) {
-        const key = board.name.toLowerCase();
-        if (!boardMap[key]) {
-          const { data: newBoard } = await supabase
-            .from("ad_library_boards")
-            .insert({ name: board.name, user_id: user.id } as any)
-            .select("id")
-            .single();
-          if (newBoard) {
-            boardMap[key] = newBoard.id;
-            if (board.source_id) boardMap[board.source_id] = newBoard.id;
-            boardsCreated++;
-          }
-        } else if (board.source_id) {
-          boardMap[board.source_id] = boardMap[key];
-        }
-      }
-    }
-
-    // Legacy flat board names (from older payload format or CSV)
-    const allBoardNames = new Set<string>([...legacyBoardNames, ...ads.flatMap((a: any) => a.boards || [])]);
     for (const name of allBoardNames) {
-      if (!name) continue;
-      const key = typeof name === "string" ? name.toLowerCase() : String(name);
-      // Try to resolve by source_id first, then by name
+      const key = name.toLowerCase();
       if (!boardMap[key]) {
         const { data: newBoard } = await supabase
           .from("ad_library_boards")
-          .insert({ name: typeof name === "string" ? name : String(name), user_id: user.id } as any)
+          .insert({ name, user_id: user.id } as any)
           .select("id")
           .single();
         if (newBoard) {
@@ -240,49 +142,25 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ---- Phase 3: Create tags ----
+    // ── Phase 2: Create tags ──
     let tagsCreated = 0;
-    const tagMap: Record<string, string> = {}; // name (lowercase) -> our tag ID
+    const tagMap: Record<string, string> = {};
 
     const { data: existingTags } = await supabase.from("ad_library_tags").select("id, name");
     for (const t of existingTags || []) tagMap[t.name.toLowerCase()] = t.id;
 
-    // Organization tags
-    if (organization?.tags) {
-      let colorIdx = 0;
-      for (const tag of organization.tags) {
-        const key = tag.name.toLowerCase();
-        if (!tagMap[key]) {
-          const color = tag.color || TAG_COLORS[colorIdx % TAG_COLORS.length];
-          colorIdx++;
-          const { data: newTag } = await supabase
-            .from("ad_library_tags")
-            .insert({ name: tag.name, user_id: user.id, color } as any)
-            .select("id")
-            .single();
-          if (newTag) {
-            tagMap[key] = newTag.id;
-            tagsCreated++;
-          }
-        }
-      }
+    const allTagNames = new Set<string>();
+    for (const ad of ads) {
+      const tags: string[] = Array.isArray(ad.tags) ? ad.tags : (typeof ad.tags === "string" ? ad.tags.split(",").map((s: string) => s.trim()) : []);
+      for (const t of tags) { if (t) allTagNames.add(t); }
     }
 
-    // Legacy flat tag names + tags from ads
-    const allTagNames = new Set<string>([
-      ...legacyTagNames,
-      ...ads.flatMap((a: any) => {
-        if (typeof a.tags === "string") return a.tags.split(",").map((s: string) => s.trim());
-        return a.tags || [];
-      }),
-    ]);
-    let colorIdx2 = tagsCreated;
+    let colorIdx = 0;
     for (const name of allTagNames) {
-      if (!name) continue;
       const key = name.toLowerCase();
       if (!tagMap[key]) {
-        const color = TAG_COLORS[colorIdx2 % TAG_COLORS.length];
-        colorIdx2++;
+        const color = TAG_COLORS[colorIdx % TAG_COLORS.length];
+        colorIdx++;
         const { data: newTag } = await supabase
           .from("ad_library_tags")
           .insert({ name, user_id: user.id, color } as any)
@@ -295,141 +173,147 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ---- Phase 4: Import ads with assignments ----
+    // ── Phase 3: Import ads ──
     const { data: existingAds } = await supabase.from("ad_library_saved_ads").select("source_url");
     const existingUrls = new Set((existingAds || []).map((a: any) => a.source_url));
 
-    let adsImported = 0, adsSkippedDuplicate = 0, adsFailed = 0;
+    let adsImported = 0, adsSkipped = 0, adsFailed = 0;
+    let videosDownloaded = 0, imagesDownloaded = 0, videosFailed = 0;
     let boardAssignments = 0, tagAssignments = 0;
     const errors: string[] = [];
     const importedAds: Array<{ id: string; source_url: string; ad_format?: string }> = [];
-    const BATCH = 10;
 
+    // Process in batches of 3 (videos are large)
+    const BATCH = 3;
     for (let i = 0; i < ads.length; i += BATCH) {
       const batch = ads.slice(i, i + BATCH);
 
       for (const ad of batch) {
         try {
-          const sourceUrl = ad.source_url || ad.url || ad.link || "";
-          if (!sourceUrl) { adsFailed++; errors.push(`Ad missing source_url at index ${i}`); continue; }
-          if (existingUrls.has(sourceUrl)) { adsSkippedDuplicate++; continue; }
-
-          const rawMediaUrls = uniqueStrings([
-            ...(Array.isArray(ad.media_urls) ? ad.media_urls : []),
-            ...(Array.isArray(ad.mediaUrls) ? ad.mediaUrls : []),
-            ...(Array.isArray(ad.assets) ? ad.assets : []),
-            ad.media_url, ad.video_url, ad.videoUrl, ad.image_url, ad.imageUrl, ad.thumbnail_url, ad.thumbnailUrl,
-            ad.creative_url, ad.asset_url,
-          ]);
-
-          const mediaUrls = rawMediaUrls.filter(u => !isProfileOrLogoUrl(u));
-          const videoUrls = mediaUrls.filter(u => isVideoUrl(u));
-          const imageUrls = mediaUrls.filter(u => !isVideoUrl(u));
+          const sourceUrl = ad.source_url || "";
+          if (!sourceUrl) { adsFailed++; continue; }
+          if (existingUrls.has(sourceUrl)) { adsSkipped++; continue; }
 
           const tempAdId = crypto.randomUUID().slice(0, 8);
-          const isCarousel = imageUrls.length > 1;
           const storedMedia: StoredMediaItem[] = [];
           let pos = 0;
 
-          for (const vUrl of videoUrls) {
-            const stored = await downloadAndStore(supabaseAdmin, vUrl, user.id, tempAdId, pos, "video");
-            if (stored) storedMedia.push(stored);
-            pos++;
-          }
-          for (const iUrl of imageUrls) {
-            const mType = isCarousel ? "carousel_frame" : "image";
-            const stored = await downloadAndStore(supabaseAdmin, iUrl, user.id, tempAdId, pos, mType as any);
-            if (stored) storedMedia.push(stored);
-            pos++;
+          // Download video from Atria CDN (publicly accessible)
+          const videoUrl = ad.video_url || null;
+          if (videoUrl && typeof videoUrl === "string" && videoUrl.includes("cdn.tryatria.com")) {
+            const stored = await downloadAndStore(admin, videoUrl, user.id, tempAdId, pos, "video");
+            if (stored) {
+              storedMedia.push(stored);
+              if (!stored.download_failed) videosDownloaded++;
+              else videosFailed++;
+              pos++;
+            }
           }
 
-          const firstStoredImage = storedMedia.find(m => !m.download_failed && (m.type === "image" || m.type === "carousel_frame"));
-          const thumbUrl = [ad.thumbnail_url, ad.image_url, ad.thumbnail, ad.thumbnailUrl]
-            .find(u => u && !isProfileOrLogoUrl(u)) || null;
-          const finalThumbnail = firstStoredImage?.stored_url || thumbUrl;
+          // Download thumbnail/image from Atria CDN
+          const thumbUrl = ad.thumbnail_url || null;
+          if (thumbUrl && typeof thumbUrl === "string") {
+            const mediaType = videoUrl ? "video_thumbnail" as const : "image" as const;
+            const stored = await downloadAndStore(admin, thumbUrl, user.id, tempAdId, pos, mediaType);
+            if (stored) {
+              storedMedia.push(stored);
+              if (!stored.download_failed) imagesDownloaded++;
+              pos++;
+            }
+          }
 
-          let inferredFormat = ad.ad_format || ad.format || ad.type || null;
-          if (videoUrls.length > 0 && inferredFormat !== "carousel") inferredFormat = "video";
-          else if (isCarousel) inferredFormat = "carousel";
-          else if (!inferredFormat && imageUrls.length > 0) inferredFormat = "image";
+          // Determine format
+          const adFormat = videoUrl ? "video" : (ad.ad_format || "image");
+
+          // Determine thumbnail for card display
+          const firstSuccessful = storedMedia.find(m => !m.download_failed);
+          const finalThumb = firstSuccessful?.stored_url || thumbUrl || null;
+
+          // Build media_urls for reference
+          const mediaUrls = [videoUrl, thumbUrl].filter(Boolean) as string[];
+
+          // Construct Facebook Ad Library source URL from ad_id
+          let finalSourceUrl = sourceUrl;
+          if (sourceUrl.startsWith("atria-import-") && ad.ad_id) {
+            const numericId = String(ad.ad_id).replace(/^m/, "");
+            if (/^\d+$/.test(numericId)) {
+              finalSourceUrl = `https://www.facebook.com/ads/library/?id=${numericId}`;
+            }
+          }
 
           const { data: saved, error: insertErr } = await supabase
             .from("ad_library_saved_ads")
             .insert({
               user_id: user.id,
-              source_url: sourceUrl,
-              advertiser_name: ad.advertiser_name || ad.brand_name || ad.advertiser || null,
-              advertiser_page_id: ad.advertiser_page_id || ad.page_id || null,
-              ad_id: ad.ad_id || ad.facebook_ad_id || null,
+              source_url: finalSourceUrl,
+              advertiser_name: ad.advertiser_name || null,
+              advertiser_page_id: ad.meta_page_id || ad.advertiser_page_id || null,
+              ad_id: ad.ad_id || null,
               platform: ad.platform || "facebook",
-              ad_status: ad.ad_status || ad.status || null,
-              ad_format: inferredFormat,
-              headline: ad.headline || ad.title || null,
-              body_text: ad.body_text || ad.body || ad.text || ad.copy || null,
-              cta_text: ad.cta_text || ad.cta || null,
-              landing_page_url: ad.landing_page_url || ad.landing_page || ad.destination_url || null,
+              ad_format: adFormat,
+              headline: ad.headline || null,
+              body_text: ad.body_text || null,
+              cta_text: ad.cta_text || null,
+              landing_page_url: ad.landing_page_url || null,
               media_urls: mediaUrls,
-              thumbnail_url: finalThumbnail,
-              started_running: ad.started_running || ad.start_date || null,
-              country_targeting: ad.country_targeting || [],
-              notes: ad.notes || null,
-              raw_data: ad.raw_data || ad || null,
+              thumbnail_url: finalThumb,
               stored_media: storedMedia,
+              notes: ad.notes || null,
             } as any)
             .select("id")
             .single();
 
-          if (insertErr || !saved) { adsFailed++; errors.push(`Insert failed: ${insertErr?.message || "unknown"}`); continue; }
-          existingUrls.add(sourceUrl);
+          if (insertErr || !saved) {
+            adsFailed++;
+            errors.push(insertErr?.message || "Insert failed");
+            continue;
+          }
 
-          // Board associations — resolve by source_id first, then by name
+          existingUrls.add(finalSourceUrl);
+
+          // Board assignments
           const adBoards: string[] = ad.boards || (ad.board_name ? [ad.board_name] : []);
-          for (const bRef of adBoards) {
-            const boardId = boardMap[bRef] || boardMap[bRef.toLowerCase?.()] || boardMap[String(bRef).toLowerCase()];
+          for (const bName of adBoards) {
+            const boardId = boardMap[bName.toLowerCase()];
             if (boardId) {
-              const { error: baErr } = await supabase
-                .from("ad_library_board_ads")
-                .insert({ board_id: boardId, ad_id: saved.id } as any)
-                .select()
-                .maybeSingle();
-              if (!baErr) boardAssignments++;
+              await supabase.from("ad_library_board_ads").insert({ board_id: boardId, ad_id: saved.id } as any);
+              boardAssignments++;
             }
           }
 
-          // Tag associations
-          let adTags: string[] = [];
-          if (typeof ad.tags === "string") adTags = ad.tags.split(",").map((s: string) => s.trim()).filter(Boolean);
-          else if (Array.isArray(ad.tags)) adTags = ad.tags;
+          // Tag assignments
+          const adTags: string[] = Array.isArray(ad.tags) ? ad.tags : [];
           for (const tName of adTags) {
             const tagId = tagMap[tName.toLowerCase()];
             if (tagId) {
-              const { error: taErr } = await supabase
-                .from("ad_library_ad_tags")
-                .insert({ ad_id: saved.id, tag_id: tagId } as any)
-                .select()
-                .maybeSingle();
-              if (!taErr) tagAssignments++;
+              await supabase.from("ad_library_ad_tags").insert({ ad_id: saved.id, tag_id: tagId } as any);
+              tagAssignments++;
             }
           }
 
-          importedAds.push({ id: saved.id, source_url: sourceUrl, ad_format: inferredFormat || undefined });
+          importedAds.push({ id: saved.id, source_url: finalSourceUrl, ad_format: adFormat });
           adsImported++;
-        } catch (e) { adsFailed++; errors.push((e as Error).message); }
+        } catch (e) {
+          adsFailed++;
+          errors.push((e as Error).message);
+        }
       }
     }
 
     return json({
       success: true,
       imported: adsImported,
-      skipped_duplicates: adsSkippedDuplicate,
+      skipped_duplicates: adsSkipped,
       failed: adsFailed,
       total: ads.length,
+      videos_downloaded: videosDownloaded,
+      images_downloaded: imagesDownloaded,
+      video_download_failed: videosFailed,
       results: {
-        folders_created: foldersCreated,
         boards_created: boardsCreated,
         tags_created: tagsCreated,
         ads_imported: adsImported,
-        ads_skipped_duplicate: adsSkippedDuplicate,
+        ads_skipped_duplicate: adsSkipped,
         board_assignments_created: boardAssignments,
         tag_assignments_created: tagAssignments,
       },
