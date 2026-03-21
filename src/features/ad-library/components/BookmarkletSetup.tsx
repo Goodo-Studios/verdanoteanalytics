@@ -115,7 +115,6 @@ export function BookmarkletSetup() {
   const appUrl = window.location.origin;
 
   const fbHref = generateFacebookBookmarklet(appUrl);
-  const atriaHref = token ? generateAtriaBookmarklet(supabaseUrl, anonKey, token, appUrl) : "#";
   const quickSaveHref = token ? generateQuickSaveBookmarklet(supabaseUrl, anonKey, token, appUrl) : "#";
 
   const handleCopy = (href: string, label: string) => {
