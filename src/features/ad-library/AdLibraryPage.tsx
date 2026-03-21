@@ -14,7 +14,7 @@ import { AdLibraryFoldersView } from "@/features/ad-library/components/AdLibrary
 import { AdLibraryTagsView } from "@/features/ad-library/components/AdLibraryTagsView";
 import { AdDetailView } from "@/features/ad-library/components/AdDetailView";
 import { BookmarkletSetup } from "@/features/ad-library/components/BookmarkletSetup";
-import { ImportFromAtriaModal } from "@/features/ad-library/components/ImportFromAtriaModal";
+
 import { FilterToolbar, DEFAULT_FILTERS } from "@/features/ad-library/components/FilterToolbar";
 import type { AdLibraryFilters } from "@/features/ad-library/components/FilterToolbar";
 import { Button } from "@/components/ui/button";
