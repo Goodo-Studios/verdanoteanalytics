@@ -100,7 +100,6 @@ export function AdCard({
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const posterVideoRef = useRef<HTMLVideoElement>(null);
 
   const PlatformIcon = platformIcon[ad.platform || ""] || Facebook;
   const adTagIds = new Set((ad.tags || []).map((t) => t.id));
@@ -152,19 +151,19 @@ export function AdCard({
 
   const handlePlayClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!playableVideoUrl) return;
+    if (!playableVideoUrl || !videoRef.current) return;
     // Pause any other playing video
     window.dispatchEvent(new CustomEvent('verdanote-video-play', { detail: ad.id }));
-    setIsPlaying(true);
+    videoRef.current.play().catch(console.error);
   }, [playableVideoUrl, ad.id]);
 
   const handleStopVideo = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsPlaying(false);
     if (videoRef.current) {
       videoRef.current.pause();
-      videoRef.current.currentTime = 0;
+      videoRef.current.currentTime = 1;
     }
+    setIsPlaying(false);
   }, []);
 
   const handleToggleMute = useCallback((e: React.MouseEvent) => {
@@ -245,40 +244,64 @@ export function AdCard({
             </button>
           )}
 
-          {/* Inline video player */}
-          {isPlaying && playableVideoUrl ? (
+          {/* Inline video player — always rendered for video ads to show poster frame */}
+          {isVideoAd && playableVideoUrl ? (
             <div className="relative">
               <video
                 ref={videoRef}
                 src={playableVideoUrl}
-                autoPlay
                 muted={isMuted}
                 playsInline
-                controls
-                className="w-full"
+                preload="auto"
+                className="w-full object-contain"
                 style={{ maxHeight: "500px" }}
-                onEnded={() => setIsPlaying(false)}
+                onLoadedData={(e) => {
+                  const v = e.currentTarget;
+                  if (!isPlaying && v.duration > 1) v.currentTime = 1;
+                }}
+                onEnded={() => {
+                  setIsPlaying(false);
+                  if (videoRef.current) videoRef.current.currentTime = 1;
+                }}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
                 onClick={(e) => e.stopPropagation()}
+                controls={isPlaying}
               />
-              {/* Close and mute buttons */}
-              <div className="absolute top-2 right-2 z-20 flex gap-1.5">
-                <button
-                  onClick={handleToggleMute}
-                  className="h-7 w-7 rounded-full bg-foreground/70 text-background flex items-center justify-center hover:bg-foreground/90 transition-colors"
-                >
-                  {isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
-                </button>
-                <button
-                  onClick={handleStopVideo}
-                  className="h-7 w-7 rounded-full bg-foreground/70 text-background flex items-center justify-center hover:bg-foreground/90 transition-colors"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
+              {/* Close and mute buttons when playing */}
+              {isPlaying && (
+                <div className="absolute top-2 right-2 z-20 flex gap-1.5">
+                  <button
+                    onClick={handleToggleMute}
+                    className="h-7 w-7 rounded-full bg-foreground/70 text-background flex items-center justify-center hover:bg-foreground/90 transition-colors"
+                  >
+                    {isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+                  </button>
+                  <button
+                    onClick={handleStopVideo}
+                    className="h-7 w-7 rounded-full bg-foreground/70 text-background flex items-center justify-center hover:bg-foreground/90 transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+              {/* Play button overlay when NOT playing */}
+              {!isPlaying && (
+                <div className="absolute inset-0 z-[4] flex items-center justify-center">
+                  <div className={cn(
+                    "h-14 w-14 rounded-full flex items-center justify-center transition-all duration-200",
+                    "bg-background/80 backdrop-blur-sm shadow-lg",
+                    "group-hover:bg-background/95 group-hover:scale-110",
+                    "text-foreground"
+                  )}>
+                    <Play className="h-6 w-6 ml-0.5" fill="currentColor" />
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <>
-              {/* Thumbnail / poster */}
+              {/* Image thumbnail */}
               {thumbUrl ? (
                 <img
                   src={thumbUrl}
@@ -287,45 +310,12 @@ export function AdCard({
                   style={{ maxHeight: "500px" }}
                   loading="lazy"
                 />
-              ) : playableVideoUrl ? (
-                /* No image thumbnail but we have video — render hidden video to grab a frame */
-                <video
-                  ref={posterVideoRef}
-                  src={playableVideoUrl}
-                  muted
-                  preload="metadata"
-                  className="w-full object-contain"
-                  style={{ maxHeight: "500px" }}
-                  onLoadedData={(e) => {
-                    const v = e.currentTarget;
-                    if (v.duration > 1) v.currentTime = 1;
-                  }}
-                />
               ) : (
                 <div className="aspect-[4/3] flex items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
                   <span className="font-heading text-[2rem] text-primary/40 select-none">
                     {initial}
                   </span>
                 </div>
-              )}
-
-              {/* Video play button overlay */}
-              {isVideoAd && !isPlaying && (
-                <div className="absolute inset-0 z-[4] flex items-center justify-center">
-                  <div className={cn(
-                    "h-14 w-14 rounded-full flex items-center justify-center transition-all duration-200",
-                    "bg-background/80 backdrop-blur-sm shadow-lg",
-                    "group-hover:bg-background/95 group-hover:scale-110",
-                    playableVideoUrl ? "text-foreground" : "text-muted-foreground"
-                  )}>
-                    <Play className="h-6 w-6 ml-0.5" fill="currentColor" />
-                  </div>
-                </div>
-              )}
-
-              {/* Video missing warning dot */}
-              {videoMissing && !missingCreative && (
-                <div className="absolute top-2 right-2 z-10 h-3 w-3 rounded-full bg-amber-500 border-2 border-card" title="Video file not downloaded" />
               )}
 
               {/* Missing creative indicator */}
@@ -444,7 +434,10 @@ export function AdCard({
           {/* Body text preview */}
           {ad.body_text && (
             <p className="font-body text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-              {ad.body_text}
+              {ad.body_text
+                .replace(new RegExp(`^${(ad.advertiser_name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`, 'i'), '')
+                .replace(/^Sponsored\s*/i, '')
+              }
             </p>
           )}
 
