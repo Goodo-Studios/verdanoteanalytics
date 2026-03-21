@@ -37,6 +37,7 @@ const AgencyDashboardPage = lazy(() => import("./pages/AgencyDashboardPage"));
 const ContentPipelinePage = lazy(() => import("./pages/ContentPipelinePage"));
 const AdLibraryPage = lazy(() => import("./pages/AdLibraryPage"));
 const SharedAdBoardPage = lazy(() => import("./pages/SharedAdBoardPage"));
+const BookmarkletReceiver = lazy(() => import("./pages/BookmarkletReceiver"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -158,6 +159,11 @@ const App = () => {
                   <Route path="/shared/ad-board/:shareToken" element={
                     <Suspense fallback={<PageFallback />}>
                       <SharedAdBoardPage />
+                    </Suspense>
+                  } />
+                  <Route path="/bookmarklet-receiver" element={
+                    <Suspense fallback={<PageFallback />}>
+                      <BookmarkletReceiver />
                     </Suspense>
                   } />
                   
