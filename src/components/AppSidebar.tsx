@@ -1,7 +1,6 @@
 
 import { useNavigate, useLocation } from "react-router-dom";
 import { NavLink } from "@/components/NavLink";
-import { HelpCircle } from "lucide-react";
 import {
   Settings,
   LayoutGrid,
