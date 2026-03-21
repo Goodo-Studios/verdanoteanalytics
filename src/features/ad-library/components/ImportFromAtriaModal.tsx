@@ -348,7 +348,7 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
     queryClient.invalidateQueries({ queryKey: ["ad-library"] });
   }, [queryClient]);
 
-  const doImport = useCallback(async (ads: any[]) => {
+  const doImport = useCallback(async (ads: any[], organization?: any) => {
     setImporting(true);
     setProgress(`Importing ${ads.length} ads...`);
     setResult(null);
@@ -356,6 +356,27 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { toast.error("Please log in first"); return; }
+
+      // Build organization from CSV folder_name/board_name if not provided
+      let org = organization || parsedOrganization || null;
+      if (!org) {
+        const folderNames = [...new Set(ads.map(a => a.folder_name).filter(Boolean))];
+        const boardNames = [...new Set(ads.flatMap(a => a.boards || []))];
+        if (folderNames.length > 0 || boardNames.length > 0) {
+          const folders: any[] = [];
+          const standalone: any[] = [];
+          for (const fn of folderNames) {
+            const boardsInFolder = [...new Set(ads.filter(a => a.folder_name === fn).flatMap(a => a.boards || []))];
+            folders.push({ name: fn, source_id: fn.toLowerCase().replace(/\s+/g, "-"), boards: boardsInFolder.map(b => ({ name: b, source_id: b.toLowerCase().replace(/\s+/g, "-") })) });
+          }
+          for (const bn of boardNames) {
+            if (!folders.some(f => f.boards.some((b: any) => b.name === bn))) {
+              standalone.push({ name: bn, source_id: bn.toLowerCase().replace(/\s+/g, "-") });
+            }
+          }
+          org = { folders, standalone_boards: standalone, tags: [] };
+        }
+      }
 
       const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
       const resp = await fetch(`${SUPABASE_URL}/functions/v1/import-ads`, {
@@ -366,9 +387,11 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
         },
         body: JSON.stringify({
           ads,
+          organization: org,
           boards: [...new Set(ads.flatMap(a => a.boards || []))],
           tags: [...new Set(ads.flatMap(a => a.tags || []))],
         }),
+      });
       });
 
       const data = await resp.json();
