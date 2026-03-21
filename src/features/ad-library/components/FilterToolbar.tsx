@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -23,9 +24,11 @@ import {
   CalendarDays,
   Captions,
   Video,
+  Clock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 export interface AdLibraryFilters {
   search: string;
@@ -38,6 +41,7 @@ export interface AdLibraryFilters {
   dateTo: string | null;
   hasTranscript: boolean;
   videoMissingFile: boolean;
+  timeFilter: string;
 }
 
 export const DEFAULT_FILTERS: AdLibraryFilters = {
@@ -45,12 +49,13 @@ export const DEFAULT_FILTERS: AdLibraryFilters = {
   platform: null,
   format: null,
   tag_ids: [],
-  sort: "newest",
+  sort: "recent",
   view: "grid",
   dateFrom: null,
   dateTo: null,
   hasTranscript: false,
   videoMissingFile: false,
+  timeFilter: "all",
 };
 
 interface FilterToolbarProps {
@@ -63,11 +68,47 @@ interface FilterToolbarProps {
 const PLATFORMS = ["facebook", "instagram", "tiktok", "youtube", "other"];
 const FORMATS = ["image", "video", "carousel"];
 const SORT_OPTIONS = [
-  { value: "newest", label: "Newest First" },
+  { value: "recent", label: "Recently Saved" },
   { value: "oldest", label: "Oldest First" },
-  { value: "advertiser_asc", label: "Advertiser A-Z" },
-  { value: "started_running", label: "Started Running" },
+  { value: "name-asc", label: "Advertiser A–Z" },
+  { value: "name-desc", label: "Advertiser Z–A" },
+  { value: "start-date-new", label: "Start Date (Newest)" },
+  { value: "start-date-old", label: "Start Date (Oldest)" },
 ];
+const TIME_FILTER_OPTIONS = [
+  { value: "all", label: "All Time" },
+  { value: "session", label: "This Session" },
+  { value: "hour", label: "Last Hour" },
+  { value: "today", label: "Today" },
+  { value: "week", label: "Last 7 Days" },
+  { value: "month", label: "Last 30 Days" },
+];
+
+export function getTimeCutoff(timeFilter: string): string | null {
+  if (timeFilter === "all") return null;
+  const now = new Date();
+  let cutoff: Date;
+  switch (timeFilter) {
+    case "session":
+      cutoff = new Date(now.getTime() - 15 * 60 * 1000);
+      break;
+    case "hour":
+      cutoff = new Date(now.getTime() - 60 * 60 * 1000);
+      break;
+    case "today":
+      cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      break;
+    case "week":
+      cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      break;
+    case "month":
+      cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      break;
+    default:
+      return null;
+  }
+  return cutoff.toISOString();
+}
 
 export function FilterToolbar({
   filters,
@@ -77,6 +118,25 @@ export function FilterToolbar({
 }: FilterToolbarProps) {
   const [tagPopoverOpen, setTagPopoverOpen] = useState(false);
   const [datePopoverOpen, setDatePopoverOpen] = useState(false);
+  const [recentCount, setRecentCount] = useState(0);
+  const { user } = useAuth();
+
+  // Check for recent saves (last 15 minutes)
+  useEffect(() => {
+    if (!user) return;
+    async function checkRecent() {
+      const cutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+      const { count } = await supabase
+        .from("ad_library_saved_ads" as any)
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user!.id)
+        .gte("created_at", cutoff);
+      setRecentCount(count || 0);
+    }
+    checkRecent();
+    const interval = setInterval(checkRecent, 30000);
+    return () => clearInterval(interval);
+  }, [user]);
 
   const set = <K extends keyof AdLibraryFilters>(key: K, val: AdLibraryFilters[K]) =>
     onFilterChange({ ...filters, [key]: val });
@@ -87,13 +147,16 @@ export function FilterToolbar({
     filters.tag_ids.length +
     (filters.dateFrom ? 1 : 0) +
     (filters.hasTranscript ? 1 : 0) +
-    (filters.videoMissingFile ? 1 : 0);
+    (filters.videoMissingFile ? 1 : 0) +
+    (filters.timeFilter !== "all" ? 1 : 0);
 
   const clearFilter = (key: keyof AdLibraryFilters) => {
     if (key === "tag_ids") {
       set("tag_ids", []);
     } else if (key === "dateFrom") {
       onFilterChange({ ...filters, dateFrom: null, dateTo: null });
+    } else if (key === "timeFilter") {
+      set("timeFilter", "all");
     } else {
       set(key, null as any);
     }
@@ -125,6 +188,37 @@ export function FilterToolbar({
             className="pl-9 h-9 text-sm"
           />
         </div>
+
+        {/* Recently saved badge */}
+        {recentCount > 0 && (
+          <button
+            onClick={() => {
+              onFilterChange({ ...filters, timeFilter: "session", sort: "recent" });
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition-colors"
+          >
+            <span className="w-2 h-2 bg-primary rounded-full animate-pulse" />
+            {recentCount} just saved
+          </button>
+        )}
+
+        {/* Time filter */}
+        <Select
+          value={filters.timeFilter}
+          onValueChange={(v) => set("timeFilter", v)}
+        >
+          <SelectTrigger className="w-[140px] h-9 text-sm">
+            <Clock className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {TIME_FILTER_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         {/* Platform */}
         <Select
@@ -298,7 +392,7 @@ export function FilterToolbar({
 
         {/* Sort */}
         <Select value={filters.sort} onValueChange={(v) => set("sort", v)}>
-          <SelectTrigger className="w-[150px] h-9 text-sm">
+          <SelectTrigger className="w-[170px] h-9 text-sm">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -350,6 +444,16 @@ export function FilterToolbar({
           <span className="text-[11px] text-muted-foreground font-label uppercase tracking-wider mr-1">
             Active:
           </span>
+          {filters.timeFilter !== "all" && (
+            <Badge
+              variant="secondary"
+              className="text-xs gap-1 pl-2 pr-1 py-0.5 cursor-pointer hover:bg-secondary/60"
+              onClick={() => clearFilter("timeFilter")}
+            >
+              {TIME_FILTER_OPTIONS.find((o) => o.value === filters.timeFilter)?.label}
+              <X className="h-3 w-3" />
+            </Badge>
+          )}
           {filters.platform && (
             <Badge
               variant="secondary"
