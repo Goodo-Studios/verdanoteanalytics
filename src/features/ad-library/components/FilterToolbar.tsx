@@ -22,6 +22,7 @@ import {
   Check,
   CalendarDays,
   Captions,
+  Video,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
