@@ -176,7 +176,7 @@ export function AdCard({
   }, []);
 
   // Pause this video if another one starts playing
-  React.useEffect(() => {
+  useEffect(() => {
     function handleOtherPlay(e: Event) {
       const detail = (e as CustomEvent).detail;
       if (detail !== ad.id && isPlaying && videoRef.current) {
