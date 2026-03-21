@@ -63,7 +63,7 @@ function looksLikeProfilePic(ad: any): boolean {
 }
 
 const isVideoUrl = (url: string) => /\.(mp4|webm|mov|m3u8|avi)(\?|$)/i.test(url);
-const isFakeSourceUrl = (url: string) => /^https:\/\/tryatria\.com\/saved\//i.test(url);
+const isFakeSourceUrl = (url: string) => /^https:\/\/imported\.local\/saved\//i.test(url);
 
 export function AdDetailView({ adId, onBack }: Props) {
   const { data: allAds = [] } = useSavedAds();

@@ -198,9 +198,9 @@ Deno.serve(async (req) => {
           const storedMedia: StoredMediaItem[] = [];
           let pos = 0;
 
-          // Download video from Atria CDN (publicly accessible)
+          // Download video if URL provided
           const videoUrl = ad.video_url || null;
-          if (videoUrl && typeof videoUrl === "string" && videoUrl.includes("cdn.tryatria.com")) {
+          if (videoUrl && typeof videoUrl === "string" && videoUrl.startsWith("http")) {
             const stored = await downloadAndStore(admin, videoUrl, user.id, tempAdId, pos, "video");
             if (stored) {
               storedMedia.push(stored);
@@ -210,7 +210,7 @@ Deno.serve(async (req) => {
             }
           }
 
-          // Download thumbnail/image from Atria CDN
+          // Download thumbnail/image
           const thumbUrl = ad.thumbnail_url || null;
           if (thumbUrl && typeof thumbUrl === "string") {
             const mediaType = videoUrl ? "video_thumbnail" as const : "image" as const;
@@ -234,7 +234,7 @@ Deno.serve(async (req) => {
 
           // Construct Facebook Ad Library source URL from ad_id
           let finalSourceUrl = sourceUrl;
-          if (sourceUrl.startsWith("atria-import-") && ad.ad_id) {
+          if (sourceUrl.startsWith("import-") && ad.ad_id) {
             const numericId = String(ad.ad_id).replace(/^m/, "");
             if (/^\d+$/.test(numericId)) {
               finalSourceUrl = `https://www.facebook.com/ads/library/?id=${numericId}`;

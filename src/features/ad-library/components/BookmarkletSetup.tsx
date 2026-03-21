@@ -52,10 +52,6 @@ inject();
   return `javascript:${encodeURIComponent(code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\n\s*/g, "").replace(/\s{2,}/g, " ").trim())}`;
 }
 
-function generateAtriaBookmarklet(supabaseUrl: string, anonKey: string, token: string, appUrl: string) {
-  const code = `(function(){window.__ADVAULT_ATRIA_CONFIG={importUrl:'${supabaseUrl}/functions/v1/import-ads',authToken:'${token}'};var s=document.createElement('script');s.src='${appUrl}/atria-export-bookmarklet.js?t='+Date.now();document.head.appendChild(s);})();`;
-  return `javascript:${encodeURIComponent(code)}`;
-}
 
 function generateQuickSaveBookmarklet(supabaseUrl: string, anonKey: string, token: string, appUrl: string) {
   const code = `
@@ -119,7 +115,6 @@ export function BookmarkletSetup() {
   const appUrl = window.location.origin;
 
   const fbHref = generateFacebookBookmarklet(appUrl);
-  const atriaHref = token ? generateAtriaBookmarklet(supabaseUrl, anonKey, token, appUrl) : "#";
   const quickSaveHref = token ? generateQuickSaveBookmarklet(supabaseUrl, anonKey, token, appUrl) : "#";
 
   const handleCopy = (href: string, label: string) => {
@@ -153,12 +148,9 @@ export function BookmarkletSetup() {
       </div>
 
       <Tabs defaultValue="facebook" className="w-full">
-        <TabsList className="w-full grid grid-cols-3 mb-4">
+        <TabsList className="w-full grid grid-cols-2 mb-4">
           <TabsTrigger value="facebook" className="gap-1.5 text-xs">
             <Facebook className="h-3.5 w-3.5" /> Facebook
-          </TabsTrigger>
-          <TabsTrigger value="atria" className="gap-1.5 text-xs">
-            Atria
           </TabsTrigger>
           <TabsTrigger value="quicksave" className="gap-1.5 text-xs">
             Quick Save
@@ -206,42 +198,6 @@ export function BookmarkletSetup() {
           </div>
         </TabsContent>
 
-        {/* ── Atria exporter ── */}
-        <TabsContent value="atria" className="space-y-4">
-          <p className="font-body text-sm text-muted-foreground leading-relaxed">
-            Import entire boards from Atria with full organizational structure — boards, tags, and media files.
-          </p>
-
-          <ol className="space-y-2.5 font-body text-sm text-muted-foreground">
-            {[
-              "Drag the button below to your bookmarks bar",
-              "Go to app.tryatria.com and log in",
-              "Navigate to any board or Saved Ads view",
-              "Click the bookmark — select boards to import and wait",
-            ].map((text, i) => (
-              <li key={i} className="flex gap-2.5">
-                <span className="flex-shrink-0 h-5 w-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-semibold">{i + 1}</span>
-                <span>{text}</span>
-              </li>
-            ))}
-          </ol>
-
-          <div className="flex items-center gap-3">
-            <a
-              href={atriaHref}
-              onClick={(e) => e.preventDefault()}
-              draggable
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium text-sm shadow-md hover:shadow-lg transition-shadow cursor-grab active:cursor-grabbing select-none"
-            >
-              <Bookmark className="h-4 w-4" />
-              Export from Atria
-            </a>
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => handleCopy(atriaHref, "Atria bookmarklet")}>
-              {copied === "Atria bookmarklet" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-              {copied === "Atria bookmarklet" ? "Copied" : "Copy"}
-            </Button>
-          </div>
-        </TabsContent>
 
         {/* ── Quick Save (single page) ── */}
         <TabsContent value="quicksave" className="space-y-4">
@@ -270,7 +226,7 @@ export function BookmarkletSetup() {
       <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
         <p className="font-body text-xs text-muted-foreground leading-relaxed">
           <strong className="text-foreground">Facebook bookmarklet:</strong> No token refresh needed — it uses your active Verdanote session.
-          <strong className="text-foreground ml-1">Atria &amp; Quick Save:</strong> These use your session token which expires periodically.
+          <strong className="text-foreground ml-1">Quick Save:</strong> Uses your session token which expires periodically.
           If saving fails, click "Refresh Token" above and re-drag the bookmarklet.
         </p>
       </div>

@@ -14,11 +14,11 @@ import { AdLibraryFoldersView } from "@/features/ad-library/components/AdLibrary
 import { AdLibraryTagsView } from "@/features/ad-library/components/AdLibraryTagsView";
 import { AdDetailView } from "@/features/ad-library/components/AdDetailView";
 import { BookmarkletSetup } from "@/features/ad-library/components/BookmarkletSetup";
-import { ImportFromAtriaModal } from "@/features/ad-library/components/ImportFromAtriaModal";
+
 import { FilterToolbar, DEFAULT_FILTERS } from "@/features/ad-library/components/FilterToolbar";
 import type { AdLibraryFilters } from "@/features/ad-library/components/FilterToolbar";
 import { Button } from "@/components/ui/button";
-import { Plus, Download, Upload } from "lucide-react";
+import { Plus, Download } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -30,7 +30,7 @@ export default function AdLibraryPage() {
   const [viewingBoardId, setViewingBoardId] = useState<string | null>(null);
   const [viewingAdId, setViewingAdId] = useState<string | null>(null);
   const [tab, setTab] = useState<"all" | "boards" | "folders" | "tags" | "setup">("all");
-  const [showImportModal, setShowImportModal] = useState(false);
+  
 
   // Persist sort preference
   const [filters, setFilters] = useState<AdLibraryFilters>(() => {
@@ -231,9 +231,6 @@ export default function AdLibraryPage() {
               <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport}>
                 <Download className="h-3.5 w-3.5" /> Export
               </Button>
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowImportModal(true)}>
-                <Upload className="h-3.5 w-3.5" /> Import
-              </Button>
               <Button onClick={() => setShowSaveModal(true)} size="sm" className="gap-1.5">
                 <Plus className="h-3.5 w-3.5" /> Save Ad
               </Button>
@@ -290,7 +287,7 @@ export default function AdLibraryPage() {
       </div>
 
       <SaveAdModal isOpen={showSaveModal} onClose={() => setShowSaveModal(false)} />
-      <ImportFromAtriaModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} />
+      
     </AppLayout>
   );
 }
