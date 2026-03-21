@@ -160,8 +160,26 @@ export function useDeleteFolder() {
   });
 }
 
+export function useMoveBoard() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ boardId, folderId }: { boardId: string; folderId: string | null }) => {
+      const { error } = await supabase
+        .from("ad_library_boards" as any)
+        .update({ folder_id: folderId } as any)
+        .eq("id", boardId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ad-library-boards"] });
+      toast.success("Board moved");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
 
 // ---- Saved Ads ----
+
 
 export function useSavedAds(filters?: { board_id?: string; search?: string; tag_ids?: string[] }) {
   return useQuery<AdLibrarySavedAd[]>({
