@@ -226,7 +226,7 @@ export function BookmarkletSetup() {
       <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
         <p className="font-body text-xs text-muted-foreground leading-relaxed">
           <strong className="text-foreground">Facebook bookmarklet:</strong> No token refresh needed — it uses your active Verdanote session.
-          <strong className="text-foreground ml-1">Atria &amp; Quick Save:</strong> These use your session token which expires periodically.
+          <strong className="text-foreground ml-1">Quick Save:</strong> Uses your session token which expires periodically.
           If saving fails, click "Refresh Token" above and re-drag the bookmarklet.
         </p>
       </div>
