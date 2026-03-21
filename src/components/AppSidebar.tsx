@@ -1,7 +1,6 @@
 
 import { useNavigate, useLocation } from "react-router-dom";
 import { NavLink } from "@/components/NavLink";
-import { HelpCircle } from "lucide-react";
 import {
   Settings,
   LayoutGrid,
@@ -45,7 +44,7 @@ const clientNavItems = [
   { title: "Reports", url: "/reports", icon: FileText },
 ];
 
-export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void; onTakeTour?: () => void }) {
+export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { accounts, selectedAccountId, setSelectedAccountId, isLoading } = useAccountContext();
   const { role, isClient, isBuilder, isEmployee, user, signOut } = useAuth();
   const { isClientPreview, isEmployeePreview, previewRole, setPreviewRole } = useClientPreview();
@@ -175,17 +174,6 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
           >
             <Eye className="h-4 w-4 flex-shrink-0" />
             Exit {previewRole === "client" ? "Client" : "Employee"} View
-          </button>
-        </div>
-      )}
-      {onTakeTour && (
-        <div className="px-3 pt-1">
-          <button
-            onClick={onTakeTour}
-            className="flex items-center gap-3 rounded-md px-3 py-2 font-body text-[12px] text-sage hover:text-forest hover:bg-accent w-full text-left transition-colors"
-          >
-            <HelpCircle className="h-3.5 w-3.5 flex-shrink-0" />
-            Take the tour
           </button>
         </div>
       )}
