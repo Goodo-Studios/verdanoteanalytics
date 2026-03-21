@@ -392,7 +392,6 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
           tags: [...new Set(ads.flatMap(a => a.tags || []))],
         }),
       });
-      });
 
       const data = await resp.json();
       if (!resp.ok || !data.success) {
@@ -406,7 +405,6 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
 
       // Auto-trigger enrichment for imported ads with Facebook source URLs
       if (data.imported_ads && data.imported_ads.length > 0) {
-        // Run enrichment in background (don't await — let the user see results)
         runEnrichment(data.imported_ads);
       }
     } catch (e: any) {
@@ -415,7 +413,7 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
       setImporting(false);
       setProgress(null);
     }
-  }, [queryClient, runEnrichment]);
+  }, [queryClient, runEnrichment, parsedOrganization]);
 
   const downloadTemplate = useCallback(() => {
     const blob = new Blob([CSV_TEMPLATE], { type: "text/csv" });
