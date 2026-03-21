@@ -268,27 +268,27 @@ export function AdCard({
             <>
               {/* Thumbnail / poster */}
               {thumbUrl ? (
-                thumbIsVideo ? (
-                  <video
-                    src={thumbUrl}
-                    muted
-                    preload="metadata"
-                    className="w-full object-contain"
-                    style={{ maxHeight: "500px" }}
-                    onLoadedData={(e) => {
-                      const v = e.currentTarget;
-                      if (v.duration > 1) v.currentTime = 1;
-                    }}
-                  />
-                ) : (
-                  <img
-                    src={thumbUrl}
-                    alt={ad.headline || ad.advertiser_name || "Ad"}
-                    className="w-full object-contain"
-                    style={{ maxHeight: "500px" }}
-                    loading="lazy"
-                  />
-                )
+                <img
+                  src={thumbUrl}
+                  alt={ad.headline || ad.advertiser_name || "Ad"}
+                  className="w-full object-contain"
+                  style={{ maxHeight: "500px" }}
+                  loading="lazy"
+                />
+              ) : playableVideoUrl ? (
+                /* No image thumbnail but we have video — render hidden video to grab a frame */
+                <video
+                  ref={posterVideoRef}
+                  src={playableVideoUrl}
+                  muted
+                  preload="metadata"
+                  className="w-full object-contain"
+                  style={{ maxHeight: "500px" }}
+                  onLoadedData={(e) => {
+                    const v = e.currentTarget;
+                    if (v.duration > 1) v.currentTime = 1;
+                  }}
+                />
               ) : (
                 <div className="aspect-[4/3] flex items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
                   <span className="font-heading text-[2rem] text-primary/40 select-none">
