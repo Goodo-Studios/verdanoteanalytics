@@ -107,6 +107,9 @@ function uniqueStrings(values: unknown[]): string[] {
   return [...new Set(values.filter((value): value is string => typeof value === "string" && value.length > 0))];
 }
 
+// Default tag colors
+const TAG_COLORS = ["#8b5cf6", "#f59e0b", "#10b981", "#3b82f6", "#ef4444", "#ec4899", "#06b6d4", "#84cc16"];
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -125,52 +128,179 @@ Deno.serve(async (req) => {
     if (userError || !user) return json({ success: false, error: "Unauthorized" }, 401);
 
     const body = await req.json();
-    const { ads = [], boards: boardNames = [], tags: tagNames = [] } = body;
+
+    // Support both flat format (legacy) and structured format (with organization)
+    const organization = body.organization || null;
+    const ads: any[] = body.ads || [];
+    const legacyBoardNames: string[] = body.boards || [];
+    const legacyTagNames: string[] = body.tags || [];
 
     if (!Array.isArray(ads) || ads.length === 0) return json({ success: false, error: "No ads provided" }, 400);
 
-    // 1. Resolve boards
-    const { data: existingBoards } = await supabase.from("ad_library_boards").select("id, name");
-    const boardMap: Record<string, string> = {};
-    for (const b of existingBoards || []) boardMap[b.name.toLowerCase()] = b.id;
+    // ---- Phase 1: Create folders ----
+    let foldersCreated = 0;
+    const folderMap: Record<string, string> = {}; // source_id/name -> our folder ID
 
-    const allBoardNames = new Set<string>([...boardNames, ...ads.flatMap((a: any) => a.boards || [])]);
-    for (const name of allBoardNames) {
-      if (!name) continue;
-      const key = name.toLowerCase();
-      if (!boardMap[key]) {
-        const { data: newBoard } = await supabase.from("ad_library_boards").insert({ name, user_id: user.id }).select("id").single();
-        if (newBoard) boardMap[key] = newBoard.id;
+    if (organization?.folders) {
+      const { data: existingFolders } = await supabase.from("ad_library_folders").select("id, name");
+      const existingFolderMap: Record<string, string> = {};
+      for (const f of existingFolders || []) existingFolderMap[f.name.toLowerCase()] = f.id;
+
+      for (const folder of organization.folders) {
+        const key = folder.name.toLowerCase();
+        if (existingFolderMap[key]) {
+          folderMap[folder.source_id || key] = existingFolderMap[key];
+          folderMap[key] = existingFolderMap[key];
+        } else {
+          const { data: newFolder } = await supabase
+            .from("ad_library_folders")
+            .insert({ name: folder.name, user_id: user.id } as any)
+            .select("id")
+            .single();
+          if (newFolder) {
+            folderMap[folder.source_id || key] = newFolder.id;
+            folderMap[key] = newFolder.id;
+            foldersCreated++;
+          }
+        }
       }
     }
 
-    // 2. Resolve tags
+    // ---- Phase 2: Create boards ----
+    let boardsCreated = 0;
+    const boardMap: Record<string, string> = {}; // source_id/name -> our board ID
+
+    const { data: existingBoards } = await supabase.from("ad_library_boards").select("id, name, folder_id");
+    for (const b of existingBoards || []) {
+      boardMap[b.name.toLowerCase()] = b.id;
+    }
+
+    // Boards inside folders (sub-boards)
+    if (organization?.folders) {
+      for (const folder of organization.folders) {
+        const folderId = folderMap[folder.source_id || folder.name.toLowerCase()];
+        const boards = folder.boards || [];
+        for (const board of boards) {
+          const key = board.name.toLowerCase();
+          if (!boardMap[key]) {
+            const { data: newBoard } = await supabase
+              .from("ad_library_boards")
+              .insert({ name: board.name, user_id: user.id, folder_id: folderId || null } as any)
+              .select("id")
+              .single();
+            if (newBoard) {
+              boardMap[key] = newBoard.id;
+              if (board.source_id) boardMap[board.source_id] = newBoard.id;
+              boardsCreated++;
+            }
+          } else if (board.source_id) {
+            boardMap[board.source_id] = boardMap[key];
+          }
+        }
+      }
+    }
+
+    // Standalone boards
+    if (organization?.standalone_boards) {
+      for (const board of organization.standalone_boards) {
+        const key = board.name.toLowerCase();
+        if (!boardMap[key]) {
+          const { data: newBoard } = await supabase
+            .from("ad_library_boards")
+            .insert({ name: board.name, user_id: user.id } as any)
+            .select("id")
+            .single();
+          if (newBoard) {
+            boardMap[key] = newBoard.id;
+            if (board.source_id) boardMap[board.source_id] = newBoard.id;
+            boardsCreated++;
+          }
+        } else if (board.source_id) {
+          boardMap[board.source_id] = boardMap[key];
+        }
+      }
+    }
+
+    // Legacy flat board names (from older payload format or CSV)
+    const allBoardNames = new Set<string>([...legacyBoardNames, ...ads.flatMap((a: any) => a.boards || [])]);
+    for (const name of allBoardNames) {
+      if (!name) continue;
+      const key = typeof name === "string" ? name.toLowerCase() : String(name);
+      // Try to resolve by source_id first, then by name
+      if (!boardMap[key]) {
+        const { data: newBoard } = await supabase
+          .from("ad_library_boards")
+          .insert({ name: typeof name === "string" ? name : String(name), user_id: user.id } as any)
+          .select("id")
+          .single();
+        if (newBoard) {
+          boardMap[key] = newBoard.id;
+          boardsCreated++;
+        }
+      }
+    }
+
+    // ---- Phase 3: Create tags ----
+    let tagsCreated = 0;
+    const tagMap: Record<string, string> = {}; // name (lowercase) -> our tag ID
+
     const { data: existingTags } = await supabase.from("ad_library_tags").select("id, name");
-    const tagMap: Record<string, string> = {};
     for (const t of existingTags || []) tagMap[t.name.toLowerCase()] = t.id;
 
+    // Organization tags
+    if (organization?.tags) {
+      let colorIdx = 0;
+      for (const tag of organization.tags) {
+        const key = tag.name.toLowerCase();
+        if (!tagMap[key]) {
+          const color = tag.color || TAG_COLORS[colorIdx % TAG_COLORS.length];
+          colorIdx++;
+          const { data: newTag } = await supabase
+            .from("ad_library_tags")
+            .insert({ name: tag.name, user_id: user.id, color } as any)
+            .select("id")
+            .single();
+          if (newTag) {
+            tagMap[key] = newTag.id;
+            tagsCreated++;
+          }
+        }
+      }
+    }
+
+    // Legacy flat tag names + tags from ads
     const allTagNames = new Set<string>([
-      ...tagNames,
+      ...legacyTagNames,
       ...ads.flatMap((a: any) => {
         if (typeof a.tags === "string") return a.tags.split(",").map((s: string) => s.trim());
         return a.tags || [];
       }),
     ]);
+    let colorIdx2 = tagsCreated;
     for (const name of allTagNames) {
       if (!name) continue;
       const key = name.toLowerCase();
       if (!tagMap[key]) {
-        const { data: newTag } = await supabase.from("ad_library_tags").insert({ name, user_id: user.id }).select("id").single();
-        if (newTag) tagMap[key] = newTag.id;
+        const color = TAG_COLORS[colorIdx2 % TAG_COLORS.length];
+        colorIdx2++;
+        const { data: newTag } = await supabase
+          .from("ad_library_tags")
+          .insert({ name, user_id: user.id, color } as any)
+          .select("id")
+          .single();
+        if (newTag) {
+          tagMap[key] = newTag.id;
+          tagsCreated++;
+        }
       }
     }
 
-    // 3. Dedup
+    // ---- Phase 4: Import ads with assignments ----
     const { data: existingAds } = await supabase.from("ad_library_saved_ads").select("source_url");
     const existingUrls = new Set((existingAds || []).map((a: any) => a.source_url));
 
-    // 4. Process ads
-    let imported = 0, skippedDuplicates = 0, failed = 0;
+    let adsImported = 0, adsSkippedDuplicate = 0, adsFailed = 0;
+    let boardAssignments = 0, tagAssignments = 0;
     const errors: string[] = [];
     const importedAds: Array<{ id: string; source_url: string; ad_format?: string }> = [];
     const BATCH = 10;
@@ -181,10 +311,9 @@ Deno.serve(async (req) => {
       for (const ad of batch) {
         try {
           const sourceUrl = ad.source_url || ad.url || ad.link || "";
-          if (!sourceUrl) { failed++; errors.push(`Ad missing source_url at index ${i}`); continue; }
-          if (existingUrls.has(sourceUrl)) { skippedDuplicates++; continue; }
+          if (!sourceUrl) { adsFailed++; errors.push(`Ad missing source_url at index ${i}`); continue; }
+          if (existingUrls.has(sourceUrl)) { adsSkippedDuplicate++; continue; }
 
-          // Collect all media URLs, then FILTER out profile pics / logos
           const rawMediaUrls = uniqueStrings([
             ...(Array.isArray(ad.media_urls) ? ad.media_urls : []),
             ...(Array.isArray(ad.mediaUrls) ? ad.mediaUrls : []),
@@ -194,8 +323,6 @@ Deno.serve(async (req) => {
           ]);
 
           const mediaUrls = rawMediaUrls.filter(u => !isProfileOrLogoUrl(u));
-
-          // Separate video and image URLs
           const videoUrls = mediaUrls.filter(u => isVideoUrl(u));
           const imageUrls = mediaUrls.filter(u => !isVideoUrl(u));
 
@@ -204,14 +331,11 @@ Deno.serve(async (req) => {
           const storedMedia: StoredMediaItem[] = [];
           let pos = 0;
 
-          // Download videos first
           for (const vUrl of videoUrls) {
             const stored = await downloadAndStore(supabaseAdmin, vUrl, user.id, tempAdId, pos, "video");
             if (stored) storedMedia.push(stored);
             pos++;
           }
-
-          // Download images / carousel frames
           for (const iUrl of imageUrls) {
             const mType = isCarousel ? "carousel_frame" : "image";
             const stored = await downloadAndStore(supabaseAdmin, iUrl, user.id, tempAdId, pos, mType as any);
@@ -220,20 +344,14 @@ Deno.serve(async (req) => {
           }
 
           const firstStoredImage = storedMedia.find(m => !m.download_failed && (m.type === "image" || m.type === "carousel_frame"));
-          const inferredThumb = imageUrls.find(url => !isProfileOrLogoUrl(url)) || null;
-          const thumbUrl = [ad.thumbnail_url, ad.image_url, ad.thumbnail, ad.thumbnailUrl, inferredThumb]
+          const thumbUrl = [ad.thumbnail_url, ad.image_url, ad.thumbnail, ad.thumbnailUrl]
             .find(u => u && !isProfileOrLogoUrl(u)) || null;
           const finalThumbnail = firstStoredImage?.stored_url || thumbUrl;
 
-          // Correctly determine ad_format based on actual media found
           let inferredFormat = ad.ad_format || ad.format || ad.type || null;
-          if (videoUrls.length > 0 && inferredFormat !== "carousel") {
-            inferredFormat = "video";
-          } else if (isCarousel) {
-            inferredFormat = "carousel";
-          } else if (!inferredFormat && imageUrls.length > 0) {
-            inferredFormat = "image";
-          }
+          if (videoUrls.length > 0 && inferredFormat !== "carousel") inferredFormat = "video";
+          else if (isCarousel) inferredFormat = "carousel";
+          else if (!inferredFormat && imageUrls.length > 0) inferredFormat = "image";
 
           const { data: saved, error: insertErr } = await supabase
             .from("ad_library_saved_ads")
@@ -261,14 +379,21 @@ Deno.serve(async (req) => {
             .select("id")
             .single();
 
-          if (insertErr || !saved) { failed++; errors.push(`Insert failed: ${insertErr?.message || "unknown"}`); continue; }
+          if (insertErr || !saved) { adsFailed++; errors.push(`Insert failed: ${insertErr?.message || "unknown"}`); continue; }
           existingUrls.add(sourceUrl);
 
-          // Board associations
+          // Board associations — resolve by source_id first, then by name
           const adBoards: string[] = ad.boards || (ad.board_name ? [ad.board_name] : []);
-          for (const bName of adBoards) {
-            const boardId = boardMap[bName.toLowerCase()];
-            if (boardId) await supabase.from("ad_library_board_ads").insert({ board_id: boardId, ad_id: saved.id } as any).select().maybeSingle();
+          for (const bRef of adBoards) {
+            const boardId = boardMap[bRef] || boardMap[bRef.toLowerCase?.()] || boardMap[String(bRef).toLowerCase()];
+            if (boardId) {
+              const { error: baErr } = await supabase
+                .from("ad_library_board_ads")
+                .insert({ board_id: boardId, ad_id: saved.id } as any)
+                .select()
+                .maybeSingle();
+              if (!baErr) boardAssignments++;
+            }
           }
 
           // Tag associations
@@ -277,18 +402,37 @@ Deno.serve(async (req) => {
           else if (Array.isArray(ad.tags)) adTags = ad.tags;
           for (const tName of adTags) {
             const tagId = tagMap[tName.toLowerCase()];
-            if (tagId) await supabase.from("ad_library_ad_tags").insert({ ad_id: saved.id, tag_id: tagId } as any).select().maybeSingle();
+            if (tagId) {
+              const { error: taErr } = await supabase
+                .from("ad_library_ad_tags")
+                .insert({ ad_id: saved.id, tag_id: tagId } as any)
+                .select()
+                .maybeSingle();
+              if (!taErr) tagAssignments++;
+            }
           }
 
           importedAds.push({ id: saved.id, source_url: sourceUrl, ad_format: inferredFormat || undefined });
-          imported++;
-        } catch (e) { failed++; errors.push((e as Error).message); }
+          adsImported++;
+        } catch (e) { adsFailed++; errors.push((e as Error).message); }
       }
     }
 
     return json({
-      success: true, imported, skipped_duplicates: skippedDuplicates, failed, total: ads.length,
-      boards_created: Object.keys(boardMap).length, tags_created: Object.keys(tagMap).length,
+      success: true,
+      imported: adsImported,
+      skipped_duplicates: adsSkippedDuplicate,
+      failed: adsFailed,
+      total: ads.length,
+      results: {
+        folders_created: foldersCreated,
+        boards_created: boardsCreated,
+        tags_created: tagsCreated,
+        ads_imported: adsImported,
+        ads_skipped_duplicate: adsSkippedDuplicate,
+        board_assignments_created: boardAssignments,
+        tag_assignments_created: tagAssignments,
+      },
       errors: errors.slice(0, 10),
       imported_ads: importedAds,
     });
