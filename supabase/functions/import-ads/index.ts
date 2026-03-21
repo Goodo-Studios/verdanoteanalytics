@@ -198,9 +198,9 @@ Deno.serve(async (req) => {
           const storedMedia: StoredMediaItem[] = [];
           let pos = 0;
 
-          // Download video from Atria CDN (publicly accessible)
+          // Download video if URL provided
           const videoUrl = ad.video_url || null;
-          if (videoUrl && typeof videoUrl === "string" && videoUrl.includes("cdn.tryatria.com")) {
+          if (videoUrl && typeof videoUrl === "string" && videoUrl.startsWith("http")) {
             const stored = await downloadAndStore(admin, videoUrl, user.id, tempAdId, pos, "video");
             if (stored) {
               storedMedia.push(stored);
