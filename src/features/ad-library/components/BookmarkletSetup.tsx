@@ -52,10 +52,6 @@ inject();
   return `javascript:${encodeURIComponent(code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\n\s*/g, "").replace(/\s{2,}/g, " ").trim())}`;
 }
 
-function generateAtriaBookmarklet(supabaseUrl: string, anonKey: string, token: string, appUrl: string) {
-  const code = `(function(){window.__ADVAULT_ATRIA_CONFIG={importUrl:'${supabaseUrl}/functions/v1/import-ads',authToken:'${token}'};var s=document.createElement('script');s.src='${appUrl}/atria-export-bookmarklet.js?t='+Date.now();document.head.appendChild(s);})();`;
-  return `javascript:${encodeURIComponent(code)}`;
-}
 
 function generateQuickSaveBookmarklet(supabaseUrl: string, anonKey: string, token: string, appUrl: string) {
   const code = `
