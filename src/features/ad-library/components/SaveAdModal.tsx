@@ -160,6 +160,27 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
     return "other";
   };
 
+  const isFacebookAdsLibraryUrl = (url: string): boolean => {
+    try {
+      const parsed = new URL(url);
+      return (
+        parsed.hostname.match(/^(www\.|m\.)?facebook\.com$/) !== null &&
+        parsed.pathname.includes("/ads/library") &&
+        parsed.searchParams.has("id")
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  const extractFacebookAdId = (url: string): string | null => {
+    try {
+      return new URL(url).searchParams.get("id");
+    } catch {
+      return null;
+    }
+  };
+
   const handleFetch = async () => {
     const url = form.source_url.trim();
     if (!url) return;
@@ -167,6 +188,27 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
     setIsFetching(true);
     setFetchMessage(null);
     setShowManualFields(false);
+    setIsFacebookUrl(false);
+
+    // Facebook Ads Library URL — skip Edge Function entirely
+    if (isFacebookAdsLibraryUrl(url)) {
+      const adId = extractFacebookAdId(url);
+      setForm((prev) => ({
+        ...prev,
+        source_url: url,
+        platform: "facebook",
+        ad_id: adId || "",
+      }));
+      setIsFacebookUrl(true);
+      setShowManualFields(true);
+      setIsFetching(false);
+      // Auto-focus advertiser name after render
+      setTimeout(() => {
+        const nameInput = document.querySelector<HTMLInputElement>('input[placeholder="e.g. Nike"]');
+        nameInput?.focus();
+      }, 100);
+      return;
+    }
 
     try {
       const { data, error } = await supabase.functions.invoke("scrape-ad", {
@@ -174,7 +216,6 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
       });
 
       if (error) {
-        // Edge Function invocation failed — fall through to manual
         console.error("Edge function error:", error);
         setForm((prev) => ({ ...prev, source_url: url, platform: detectPlatform(url) }));
         setFetchMessage("Could not auto-fetch ad details. No worries — you can fill them in manually below.");
@@ -183,7 +224,6 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
       }
 
       if (data?.partial) {
-        // Partial data — pre-fill what we got
         setForm((prev) => ({ ...prev, ...data.data, source_url: url }));
         setFetchMessage(data.message || "Some details could not be fetched automatically. Please fill in the rest below.");
         setShowManualFields(true);
@@ -191,7 +231,6 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
       }
 
       if (data?.success && data?.data) {
-        // Full success
         setForm((prev) => ({
           ...prev,
           advertiser_name: data.data.advertiser_name || prev.advertiser_name,
@@ -215,7 +254,6 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
         return;
       }
 
-      // Unexpected response shape
       setForm((prev) => ({ ...prev, source_url: url, platform: detectPlatform(url) }));
       setFetchMessage("Could not parse the response. You can fill in the details manually.");
       setShowManualFields(true);
