@@ -60,14 +60,24 @@ Deno.serve(async (req) => {
       adRecord.started_running = extracted_data.started_running || null;
       adRecord.raw_data = extracted_data.raw || null;
 
-      // Try to cache first media URL
-      if (extracted_data.thumbnail_url || (extracted_data.media_urls && extracted_data.media_urls.length > 0)) {
-        const imageUrl = extracted_data.thumbnail_url || extracted_data.media_urls[0];
-        try {
-          const cached = await cacheThumbnail(supabase, imageUrl, user.id);
-          if (cached) adRecord.thumbnail_url = cached;
-        } catch (e) {
-          console.error("Thumbnail cache failed:", e);
+      // If bookmarklet already captured and uploaded video/media, use stored_media directly
+      if (extracted_data.stored_media && Array.isArray(extracted_data.stored_media) && extracted_data.stored_media.length > 0) {
+        adRecord.stored_media = extracted_data.stored_media;
+        // Set thumbnail from first image in stored_media if not already set
+        if (!adRecord.thumbnail_url) {
+          const firstImg = extracted_data.stored_media.find((m: any) => m.type !== "video");
+          if (firstImg) adRecord.thumbnail_url = firstImg.stored_url;
+        }
+      } else {
+        // Try to cache first media URL as thumbnail
+        if (extracted_data.thumbnail_url || (extracted_data.media_urls && extracted_data.media_urls.length > 0)) {
+          const imageUrl = extracted_data.thumbnail_url || extracted_data.media_urls[0];
+          try {
+            const cached = await cacheThumbnail(supabase, imageUrl, user.id);
+            if (cached) adRecord.thumbnail_url = cached;
+          } catch (e) {
+            console.error("Thumbnail cache failed:", e);
+          }
         }
       }
     }

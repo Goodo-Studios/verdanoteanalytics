@@ -32,6 +32,7 @@ import {
   LayoutGrid,
   Tag,
   Video,
+  MonitorPlay,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -45,6 +46,7 @@ import {
 } from "@/features/ad-library/hooks/useAdLibrary";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ScrapeAdResponse, AdLibraryBoard, AdLibraryTag } from "@/features/ad-library/types/ad-library";
+import { ScreenCaptureTab, type ScreenCaptureResult } from "./ScreenCaptureTab";
 
 interface SaveAdModalProps {
   isOpen: boolean;
@@ -105,12 +107,13 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
   const { user } = useAuth();
   const qc = useQueryClient();
 
-  const [tab, setTab] = useState<"url" | "manual">("url");
+  const [tab, setTab] = useState<"url" | "manual" | "capture">("url");
   const [form, setForm] = useState<FormState>({ ...INITIAL_FORM });
   const [isFetching, setIsFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [captureResult, setCaptureResult] = useState<ScreenCaptureResult | null>(null);
 
   // Organization
   const [selectedBoardId, setSelectedBoardId] = useState<string | null>(defaultBoardId || null);
@@ -139,6 +142,7 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
     setSelectedTagIds([]);
     setNewTagNames([]);
     setTab("url");
+    setCaptureResult(null);
   };
 
   // ---- Fetch Ad from URL ----
@@ -339,33 +343,95 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
       toast.error("Please add at least an advertiser name or a screenshot");
       return;
     }
+    if (tab === "capture" && !captureResult) {
+      toast.error("Please record a video first");
+      return;
+    }
 
     if (!user) return;
     setIsSaving(true);
 
     try {
+      let finalForm = { ...form };
+
+      // Handle screen capture upload
+      if (tab === "capture" && captureResult) {
+        const adTempId = Date.now().toString(36);
+
+        // Upload video blob directly to storage
+        const videoPath = `${user.id}/${adTempId}/video.webm`;
+        const { error: videoUpErr } = await supabase.storage
+          .from("ad-media")
+          .upload(videoPath, captureResult.videoBlob, {
+            contentType: "video/webm",
+            upsert: true,
+          });
+        if (videoUpErr) throw videoUpErr;
+
+        const { data: videoUrlData } = supabase.storage
+          .from("ad-media")
+          .getPublicUrl(videoPath);
+
+        // Upload thumbnail
+        const thumbPath = `${user.id}/${adTempId}/thumbnail.jpg`;
+        const { error: thumbUpErr } = await supabase.storage
+          .from("ad-media")
+          .upload(thumbPath, captureResult.thumbnailBlob, {
+            contentType: "image/jpeg",
+            upsert: true,
+          });
+        if (thumbUpErr) throw thumbUpErr;
+
+        const { data: thumbUrlData } = supabase.storage
+          .from("ad-media")
+          .getPublicUrl(thumbPath);
+
+        finalForm.ad_format = "video";
+        finalForm.thumbnail_url = thumbUrlData.publicUrl;
+        finalForm.stored_media = [
+          {
+            original_url: "",
+            stored_url: videoUrlData.publicUrl,
+            type: "video",
+            mime_type: "video/webm",
+            file_size_bytes: captureResult.videoBlob.size,
+            position: 0,
+          },
+          {
+            original_url: "",
+            stored_url: thumbUrlData.publicUrl,
+            type: "image",
+            mime_type: "image/jpeg",
+            file_size_bytes: captureResult.thumbnailBlob.size,
+            position: 1,
+          },
+        ];
+        if (!finalForm.source_url) {
+          finalForm.source_url = `screen-capture-${adTempId}`;
+        }
+      }
       // 1. Insert saved ad
       const { data: savedAd, error: adError } = await supabase
         .from("ad_library_saved_ads" as any)
         .insert({
           user_id: user.id,
-          source_url: form.source_url || `manual-${Date.now()}`,
-          advertiser_name: form.advertiser_name || null,
-          advertiser_page_id: form.advertiser_page_id || null,
-          ad_id: form.ad_id || null,
-          platform: form.platform,
-          ad_format: form.ad_format || null,
-          headline: form.headline || null,
-          body_text: form.body_text || null,
-          cta_text: form.cta_text || null,
-          landing_page_url: form.landing_page_url || null,
-          thumbnail_url: form.thumbnail_url || null,
-          started_running: form.started_running || null,
-          media_urls: form.media_urls,
-          country_targeting: form.country_targeting,
-          raw_data: form.raw_data,
-          notes: form.notes || null,
-          stored_media: form.stored_media,
+          source_url: finalForm.source_url || `manual-${Date.now()}`,
+          advertiser_name: finalForm.advertiser_name || null,
+          advertiser_page_id: finalForm.advertiser_page_id || null,
+          ad_id: finalForm.ad_id || null,
+          platform: finalForm.platform,
+          ad_format: finalForm.ad_format || null,
+          headline: finalForm.headline || null,
+          body_text: finalForm.body_text || null,
+          cta_text: finalForm.cta_text || null,
+          landing_page_url: finalForm.landing_page_url || null,
+          thumbnail_url: finalForm.thumbnail_url || null,
+          started_running: finalForm.started_running || null,
+          media_urls: finalForm.media_urls,
+          country_targeting: finalForm.country_targeting,
+          raw_data: finalForm.raw_data,
+          notes: finalForm.notes || null,
+          stored_media: finalForm.stored_media,
         } as any)
         .select()
         .single();
@@ -548,13 +614,16 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
           </DialogTitle>
         </DialogHeader>
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v as "url" | "manual")} className="w-full">
-          <TabsList className="w-full grid grid-cols-2 mb-4">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as "url" | "manual" | "capture")} className="w-full">
+          <TabsList className="w-full grid grid-cols-3 mb-4">
             <TabsTrigger value="url" className="gap-1.5">
               <Link className="h-3.5 w-3.5" /> Paste URL
             </TabsTrigger>
             <TabsTrigger value="manual" className="gap-1.5">
               <PenLine className="h-3.5 w-3.5" /> Enter Manually
+            </TabsTrigger>
+            <TabsTrigger value="capture" className="gap-1.5">
+              <MonitorPlay className="h-3.5 w-3.5" /> Screen Capture
             </TabsTrigger>
           </TabsList>
 
@@ -712,6 +781,24 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
             </div>
 
             {renderFormFields()}
+          </TabsContent>
+
+          {/* Tab 3: Screen Capture */}
+          <TabsContent value="capture" className="space-y-4">
+            <ScreenCaptureTab
+              onCapture={(result) => setCaptureResult(result)}
+              form={{
+                source_url: form.source_url,
+                advertiser_name: form.advertiser_name,
+                headline: form.headline,
+                body_text: form.body_text,
+                cta_text: form.cta_text,
+                landing_page_url: form.landing_page_url,
+                platform: form.platform,
+                started_running: form.started_running,
+              }}
+              onFormChange={(key, value) => set(key as keyof FormState, value)}
+            />
           </TabsContent>
         </Tabs>
 
