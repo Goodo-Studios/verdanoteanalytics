@@ -55,6 +55,15 @@ interface ImportResult {
   total: number;
   errors?: string[];
   imported_ads?: Array<{ id: string; source_url: string; ad_format?: string }>;
+  results?: {
+    folders_created?: number;
+    boards_created?: number;
+    tags_created?: number;
+    ads_imported?: number;
+    ads_skipped_duplicate?: number;
+    board_assignments_created?: number;
+    tag_assignments_created?: number;
+  };
 }
 
 interface EnrichmentState {
@@ -72,8 +81,8 @@ interface ImportFromAtriaModalProps {
 }
 
 // CSV template columns
-const CSV_TEMPLATE = `source_url,advertiser_name,platform,ad_format,headline,body_text,cta_text,landing_page_url,started_running,tags,board_name,notes
-https://www.facebook.com/ads/library/?id=123456,Brand Name,facebook,image,My Headline,Ad body text,Shop Now,https://example.com,2025-01-15,"hook,ugc",Inspiration,Great ad`;
+const CSV_TEMPLATE = `source_url,advertiser_name,platform,ad_format,headline,body_text,cta_text,landing_page_url,started_running,tags,board_name,folder_name,notes
+https://www.facebook.com/ads/library/?id=123456,Brand Name,facebook,image,My Headline,Ad body text,Shop Now,https://example.com,2025-01-15,"hook,ugc",Inspiration,Competitor Research,Great ad`;
 
 function parseCSV(text: string): Record<string, string>[] {
   const lines = text.trim().split("\n");
@@ -112,6 +121,7 @@ function normalizeAds(raw: any[]): any[] {
     started_running: ad.started_running || ad.start_date || ad.startDate || null,
     tags: typeof ad.tags === "string" ? ad.tags.split(",").map((s: string) => s.trim()).filter(Boolean) : (ad.tags || []),
     boards: ad.boards || (ad.board_name ? [ad.board_name] : (ad.boardName ? [ad.boardName] : [])),
+    folder_name: ad.folder_name || ad.folderName || null,
     notes: ad.notes || null,
     raw_data: ad.raw_data || ad,
   }));
@@ -128,6 +138,7 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
   const [tab, setTab] = useState<string>("paste");
   const [jsonText, setJsonText] = useState("");
   const [parsedAds, setParsedAds] = useState<any[] | null>(null);
+  const [parsedOrganization, setParsedOrganization] = useState<any | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
@@ -140,6 +151,7 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
 
   const resetState = useCallback(() => {
     setParsedAds(null);
+    setParsedOrganization(null);
     setParseError(null);
     setProgress(null);
     setResult(null);
@@ -150,19 +162,41 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
   const handleParse = useCallback(() => {
     resetState();
     try {
-      let data = JSON.parse(jsonText);
-      if (!Array.isArray(data)) {
-        if (data.ads) data = data.ads;
-        else if (data.data) data = data.data;
-        else if (data.results) data = data.results;
-        else data = [data];
+      let raw = JSON.parse(jsonText);
+      let adsData: any[];
+      let org = null;
+
+      // Detect structured format with organization
+      if (raw.organization && raw.ads) {
+        org = raw.organization;
+        adsData = raw.ads;
+      } else if (Array.isArray(raw)) {
+        adsData = raw;
+      } else if (raw.ads) {
+        adsData = raw.ads;
+        // Try to extract org from same object
+        if (raw.boards || raw.folders || raw.tags) {
+          org = {
+            folders: raw.folders || [],
+            standalone_boards: raw.boards || raw.collections || [],
+            tags: raw.tags || raw.labels || [],
+          };
+        }
+      } else if (raw.data) {
+        adsData = Array.isArray(raw.data) ? raw.data : [raw.data];
+      } else if (raw.results) {
+        adsData = Array.isArray(raw.results) ? raw.results : [raw.results];
+      } else {
+        adsData = [raw];
       }
-      const normalized = normalizeAds(data);
+
+      const normalized = normalizeAds(adsData);
       if (normalized.length === 0) {
         setParseError("No ads found in the JSON data.");
         return;
       }
       setParsedAds(normalized);
+      if (org) setParsedOrganization(org);
     } catch {
       setParseError("Invalid JSON. Please check the format and try again.");
     }
@@ -314,7 +348,7 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
     queryClient.invalidateQueries({ queryKey: ["ad-library"] });
   }, [queryClient]);
 
-  const doImport = useCallback(async (ads: any[]) => {
+  const doImport = useCallback(async (ads: any[], organization?: any) => {
     setImporting(true);
     setProgress(`Importing ${ads.length} ads...`);
     setResult(null);
@@ -322,6 +356,27 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { toast.error("Please log in first"); return; }
+
+      // Build organization from CSV folder_name/board_name if not provided
+      let org = organization || parsedOrganization || null;
+      if (!org) {
+        const folderNames = [...new Set(ads.map(a => a.folder_name).filter(Boolean))];
+        const boardNames = [...new Set(ads.flatMap(a => a.boards || []))];
+        if (folderNames.length > 0 || boardNames.length > 0) {
+          const folders: any[] = [];
+          const standalone: any[] = [];
+          for (const fn of folderNames) {
+            const boardsInFolder = [...new Set(ads.filter(a => a.folder_name === fn).flatMap(a => a.boards || []))];
+            folders.push({ name: fn, source_id: fn.toLowerCase().replace(/\s+/g, "-"), boards: boardsInFolder.map(b => ({ name: b, source_id: b.toLowerCase().replace(/\s+/g, "-") })) });
+          }
+          for (const bn of boardNames) {
+            if (!folders.some(f => f.boards.some((b: any) => b.name === bn))) {
+              standalone.push({ name: bn, source_id: bn.toLowerCase().replace(/\s+/g, "-") });
+            }
+          }
+          org = { folders, standalone_boards: standalone, tags: [] };
+        }
+      }
 
       const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
       const resp = await fetch(`${SUPABASE_URL}/functions/v1/import-ads`, {
@@ -332,6 +387,7 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
         },
         body: JSON.stringify({
           ads,
+          organization: org,
           boards: [...new Set(ads.flatMap(a => a.boards || []))],
           tags: [...new Set(ads.flatMap(a => a.tags || []))],
         }),
@@ -349,7 +405,6 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
 
       // Auto-trigger enrichment for imported ads with Facebook source URLs
       if (data.imported_ads && data.imported_ads.length > 0) {
-        // Run enrichment in background (don't await — let the user see results)
         runEnrichment(data.imported_ads);
       }
     } catch (e: any) {
@@ -358,7 +413,7 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
       setImporting(false);
       setProgress(null);
     }
-  }, [queryClient, runEnrichment]);
+  }, [queryClient, runEnrichment, parsedOrganization]);
 
   const downloadTemplate = useCallback(() => {
     const blob = new Blob([CSV_TEMPLATE], { type: "text/csv" });
@@ -397,12 +452,27 @@ export function ImportFromAtriaModal({ isOpen, onClose }: ImportFromAtriaModalPr
             {/* Step 1: Import Results */}
             <div className="flex items-center gap-3 text-emerald-600">
               <CheckCircle2 className="h-6 w-6" />
-              <span className="text-lg font-semibold">Step 1: Import Complete</span>
+              <span className="text-lg font-semibold">Import Complete</span>
             </div>
+
+            {/* Organization stats */}
+            {result.results && (result.results.folders_created || result.results.boards_created || result.results.tags_created) ? (
+              <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1.5">
+                <p className="text-xs font-medium text-foreground">Organization imported:</p>
+                <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                  {(result.results.folders_created ?? 0) > 0 && <span>✓ {result.results.folders_created} folders</span>}
+                  {(result.results.boards_created ?? 0) > 0 && <span>✓ {result.results.boards_created} boards</span>}
+                  {(result.results.tags_created ?? 0) > 0 && <span>✓ {result.results.tags_created} tags</span>}
+                  {(result.results.board_assignments_created ?? 0) > 0 && <span>✓ {result.results.board_assignments_created} board assignments</span>}
+                  {(result.results.tag_assignments_created ?? 0) > 0 && <span>✓ {result.results.tag_assignments_created} tag assignments</span>}
+                </div>
+              </div>
+            ) : null}
+
             <div className="grid grid-cols-3 gap-3">
               <div className="rounded-lg border border-border p-3 text-center">
                 <div className="text-2xl font-bold">{result.imported}</div>
-                <div className="text-xs text-muted-foreground">Imported</div>
+                <div className="text-xs text-muted-foreground">Ads Imported</div>
               </div>
               <div className="rounded-lg border border-border p-3 text-center">
                 <div className="text-2xl font-bold">{result.skipped_duplicates}</div>
