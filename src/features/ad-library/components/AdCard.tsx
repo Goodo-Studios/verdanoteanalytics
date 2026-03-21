@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import type { AdLibrarySavedAd, AdLibraryBoard } from "@/features/ad-library/types/ad-library";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -100,29 +100,39 @@ export function AdCard({
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const posterVideoRef = useRef<HTMLVideoElement>(null);
 
   const PlatformIcon = platformIcon[ad.platform || ""] || Facebook;
   const adTagIds = new Set((ad.tags || []).map((t) => t.id));
   const initial = (ad.advertiser_name || "A")[0].toUpperCase();
   const hasTranscript = (ad as any).transcript_status === "completed";
-  const storedMedia = ((ad as any).stored_media || []) as { type: string; download_failed?: boolean; stored_url?: string; file_size_bytes?: number }[];
-  const successfulStored = storedMedia.filter(m => !m.download_failed && m.stored_url);
+  const storedMedia = ((ad as any).stored_media || []) as { type: string; download_failed?: boolean; stored_url?: string; url?: string; file_size_bytes?: number }[];
+  const successfulStored = storedMedia.filter(m => !m.download_failed && (m.stored_url || m.url));
   const hasStoredVideo = successfulStored.some(m => m.type === "video");
   const hasStoredCarousel = successfulStored.filter(m => m.type === "carousel_frame").length > 1;
   const carouselCount = successfulStored.filter(m => m.type === "carousel_frame").length;
 
   const isVideoAd = ad.ad_format === "video";
-  const videoMissing = isVideoAd && !hasStoredVideo;
 
-  const thumbUrl = ad.thumbnail_url || "";
-  const isProfilePicThumb = /\/profile|\/avatar|\/logo|page_picture|p\d{2,3}x\d{2,3}|s\d{2,3}x\d{2,3}/i.test(thumbUrl);
+  const rawThumbUrl = ad.thumbnail_url || "";
+  const thumbIsVideo = /\.(mp4|mov|webm)(\?|$)/i.test(rawThumbUrl);
+
+  // Get stored video URL - check both stored_url and url fields
+  const storedVideoEntry = successfulStored.find(m => m.type === "video");
+  const storedVideoUrl = storedVideoEntry?.stored_url || storedVideoEntry?.url;
+  // Get stored image URL for thumbnail
+  const storedImageEntry = successfulStored.find(m => m.type === "image" || m.type === "video_thumbnail");
+  const storedImageUrl = storedImageEntry?.stored_url || storedImageEntry?.url;
+
+  // Determine the best thumbnail: prefer stored image, then thumbnail_url if it's an image
+  const thumbUrl = storedImageUrl || (thumbIsVideo ? "" : rawThumbUrl);
+  // The playable video URL
+  const playableVideoUrl = storedVideoUrl || (thumbIsVideo ? rawThumbUrl : null);
+
+  const videoMissing = isVideoAd && !playableVideoUrl;
+  const isProfilePicThumb = /\/profile|\/avatar|\/logo|page_picture|p\d{2,3}x\d{2,3}|s\d{2,3}x\d{2,3}/i.test(rawThumbUrl);
   const hasRealCreative = successfulStored.some(m => m.file_size_bytes && m.file_size_bytes > 50000);
-  const missingCreative = !hasRealCreative && (successfulStored.length === 0 || isProfilePicThumb) && (!ad.media_urls || ad.media_urls.length === 0);
-
-  // Get the stored video URL for inline playback
-  const storedVideoUrl = successfulStored.find(m => m.type === "video")?.stored_url;
-  // For video thumbnail, check if thumbnail_url is itself a video file
-  const thumbIsVideo = /\.(mp4|mov|webm)(\?|$)/i.test(thumbUrl);
+  const missingCreative = !hasRealCreative && (successfulStored.length === 0 || isProfilePicThumb) && (!ad.media_urls || ad.media_urls.length === 0) && !playableVideoUrl;
 
   const handleCopyLandingPage = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -142,9 +152,11 @@ export function AdCard({
 
   const handlePlayClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!storedVideoUrl && !thumbIsVideo) return;
+    if (!playableVideoUrl) return;
+    // Pause any other playing video
+    window.dispatchEvent(new CustomEvent('verdanote-video-play', { detail: ad.id }));
     setIsPlaying(true);
-  }, [storedVideoUrl, thumbIsVideo]);
+  }, [playableVideoUrl, ad.id]);
 
   const handleStopVideo = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -163,21 +175,32 @@ export function AdCard({
     }
   }, []);
 
+  // Pause this video if another one starts playing
+  useEffect(() => {
+    function handleOtherPlay(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      if (detail !== ad.id && isPlaying && videoRef.current) {
+        videoRef.current.pause();
+        setIsPlaying(false);
+      }
+    }
+    window.addEventListener('verdanote-video-play', handleOtherPlay);
+    return () => window.removeEventListener('verdanote-video-play', handleOtherPlay);
+  }, [ad.id, isPlaying]);
+
   const handleMediaClick = useCallback((e: React.MouseEvent) => {
-    if (isVideoAd && (storedVideoUrl || thumbIsVideo)) {
-      // For video ads, clicking plays inline
+    if (isVideoAd && playableVideoUrl) {
       if (!isPlaying) {
         handlePlayClick(e);
       }
     } else {
-      // For image ads, clicking opens detail view
       if (selectable) {
         onToggleSelect?.(ad.id);
       } else {
         onViewDetails?.(ad);
       }
     }
-  }, [isVideoAd, storedVideoUrl, thumbIsVideo, isPlaying, selectable, ad]);
+  }, [isVideoAd, playableVideoUrl, isPlaying, selectable, ad]);
 
   const handleCardBodyClick = useCallback(() => {
     if (selectable) {
@@ -187,7 +210,7 @@ export function AdCard({
     }
   }, [selectable, ad]);
 
-  const playableVideoUrl = storedVideoUrl || (thumbIsVideo ? thumbUrl : null);
+  // playableVideoUrl is computed above with storedVideoUrl
 
   return (
     <>
@@ -257,27 +280,27 @@ export function AdCard({
             <>
               {/* Thumbnail / poster */}
               {thumbUrl ? (
-                thumbIsVideo ? (
-                  <video
-                    src={thumbUrl}
-                    muted
-                    preload="metadata"
-                    className="w-full object-contain"
-                    style={{ maxHeight: "500px" }}
-                    onLoadedData={(e) => {
-                      const v = e.currentTarget;
-                      if (v.duration > 1) v.currentTime = 1;
-                    }}
-                  />
-                ) : (
-                  <img
-                    src={thumbUrl}
-                    alt={ad.headline || ad.advertiser_name || "Ad"}
-                    className="w-full object-contain"
-                    style={{ maxHeight: "500px" }}
-                    loading="lazy"
-                  />
-                )
+                <img
+                  src={thumbUrl}
+                  alt={ad.headline || ad.advertiser_name || "Ad"}
+                  className="w-full object-contain"
+                  style={{ maxHeight: "500px" }}
+                  loading="lazy"
+                />
+              ) : playableVideoUrl ? (
+                /* No image thumbnail but we have video — render hidden video to grab a frame */
+                <video
+                  ref={posterVideoRef}
+                  src={playableVideoUrl}
+                  muted
+                  preload="metadata"
+                  className="w-full object-contain"
+                  style={{ maxHeight: "500px" }}
+                  onLoadedData={(e) => {
+                    const v = e.currentTarget;
+                    if (v.duration > 1) v.currentTime = 1;
+                  }}
+                />
               ) : (
                 <div className="aspect-[4/3] flex items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
                   <span className="font-heading text-[2rem] text-primary/40 select-none">
@@ -293,7 +316,7 @@ export function AdCard({
                     "h-14 w-14 rounded-full flex items-center justify-center transition-all duration-200",
                     "bg-background/80 backdrop-blur-sm shadow-lg",
                     "group-hover:bg-background/95 group-hover:scale-110",
-                    hasStoredVideo || thumbIsVideo ? "text-foreground" : "text-muted-foreground"
+                    playableVideoUrl ? "text-foreground" : "text-muted-foreground"
                   )}>
                     <Play className="h-6 w-6 ml-0.5" fill="currentColor" />
                   </div>
