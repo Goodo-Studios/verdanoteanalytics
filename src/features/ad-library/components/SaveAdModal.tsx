@@ -782,6 +782,24 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
 
             {renderFormFields()}
           </TabsContent>
+
+          {/* Tab 3: Screen Capture */}
+          <TabsContent value="capture" className="space-y-4">
+            <ScreenCaptureTab
+              onCapture={(result) => setCaptureResult(result)}
+              form={{
+                source_url: form.source_url,
+                advertiser_name: form.advertiser_name,
+                headline: form.headline,
+                body_text: form.body_text,
+                cta_text: form.cta_text,
+                landing_page_url: form.landing_page_url,
+                platform: form.platform,
+                started_running: form.started_running,
+              }}
+              onFormChange={(key, value) => set(key as keyof FormState, value)}
+            />
+          </TabsContent>
         </Tabs>
 
         {/* ---- Organization Section ---- */}
