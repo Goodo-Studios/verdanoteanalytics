@@ -172,6 +172,7 @@ Deno.serve(async (req) => {
     // 4. Process ads
     let imported = 0, skippedDuplicates = 0, failed = 0;
     const errors: string[] = [];
+    const importedAds: Array<{ id: string; source_url: string; ad_format?: string }> = [];
     const BATCH = 10;
 
     for (let i = 0; i < ads.length; i += BATCH) {
