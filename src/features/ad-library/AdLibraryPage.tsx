@@ -18,10 +18,9 @@ import { BookmarkletSetup } from "@/features/ad-library/components/BookmarkletSe
 import { FilterToolbar, DEFAULT_FILTERS } from "@/features/ad-library/components/FilterToolbar";
 import type { AdLibraryFilters } from "@/features/ad-library/components/FilterToolbar";
 import { Button } from "@/components/ui/button";
-import { Plus, Download } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 
 export default function AdLibraryPage() {
   const [selectedBoardId, setSelectedBoardId] = useState<string | null>(null);
@@ -77,64 +76,6 @@ export default function AdLibraryPage() {
     setSelectedAd(null);
   }, []);
 
-  const handleExport = useCallback(async () => {
-    try {
-      const { data: allAds } = await supabase
-        .from("ad_library_saved_ads" as any)
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      const { data: allTags } = await supabase
-        .from("ad_library_ad_tags" as any)
-        .select("ad_id, tag_id");
-
-      const { data: tagList } = await supabase
-        .from("ad_library_tags" as any)
-        .select("*");
-
-      const { data: boardAds } = await supabase
-        .from("ad_library_board_ads" as any)
-        .select("ad_id, board_id");
-
-      const { data: boardList } = await supabase
-        .from("ad_library_boards" as any)
-        .select("id, name");
-
-      const tagLookup: Record<string, string> = {};
-      (tagList || []).forEach((t: any) => { tagLookup[t.id] = t.name; });
-      const boardLookup: Record<string, string> = {};
-      (boardList || []).forEach((b: any) => { boardLookup[b.id] = b.name; });
-
-      const tagsByAd: Record<string, string[]> = {};
-      (allTags || []).forEach((at: any) => {
-        if (!tagsByAd[at.ad_id]) tagsByAd[at.ad_id] = [];
-        if (tagLookup[at.tag_id]) tagsByAd[at.ad_id].push(tagLookup[at.tag_id]);
-      });
-
-      const boardsByAd: Record<string, string[]> = {};
-      (boardAds || []).forEach((ba: any) => {
-        if (!boardsByAd[ba.ad_id]) boardsByAd[ba.ad_id] = [];
-        if (boardLookup[ba.board_id]) boardsByAd[ba.ad_id].push(boardLookup[ba.board_id]);
-      });
-
-      const exportData = (allAds || []).map((ad: any) => ({
-        ...ad,
-        tags: tagsByAd[ad.id] || [],
-        boards: boardsByAd[ad.id] || [],
-      }));
-
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `ad-library-export-${new Date().toISOString().split("T")[0]}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success(`Exported ${exportData.length} ads`);
-    } catch (e: any) {
-      toast.error("Export failed: " + e.message);
-    }
-  }, []);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -228,9 +169,6 @@ export default function AdLibraryPage() {
                   <TabsTrigger value="setup" className="text-xs px-3 h-7">Quick Save</TabsTrigger>
                 </TabsList>
               </Tabs>
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport}>
-                <Download className="h-3.5 w-3.5" /> Export
-              </Button>
               <Button onClick={() => setShowSaveModal(true)} size="sm" className="gap-1.5">
                 <Plus className="h-3.5 w-3.5" /> Save Ad
               </Button>
