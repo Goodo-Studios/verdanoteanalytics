@@ -293,7 +293,7 @@ export function AdCard({
 
           {/* Inline video player — always rendered for video ads to show poster frame */}
           {isVideoAd && playableVideoUrl ? (
-            <div className="relative" style={{ minHeight: "200px" }}>
+            <div className={cn("relative bg-muted", !isPlaying && "aspect-[4/5]")} style={{ minHeight: "200px" }}>
               <video
                 ref={videoRef}
                 src={playableVideoUrl}
@@ -301,8 +301,11 @@ export function AdCard({
                 muted={isMuted}
                 playsInline
                 preload="auto"
-                className="w-full object-contain bg-black"
-                style={{ maxHeight: "500px", minHeight: "200px" }}
+                className={cn(
+                  "w-full bg-black",
+                  isPlaying ? "object-contain" : "absolute inset-0 h-full object-cover"
+                )}
+                style={isPlaying ? { maxHeight: "600px" } : undefined}
                 loop
                 onLoadedData={(e) => {
                   const v = e.currentTarget;
