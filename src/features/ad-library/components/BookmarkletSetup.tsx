@@ -148,12 +148,9 @@ export function BookmarkletSetup() {
       </div>
 
       <Tabs defaultValue="facebook" className="w-full">
-        <TabsList className="w-full grid grid-cols-3 mb-4">
+        <TabsList className="w-full grid grid-cols-2 mb-4">
           <TabsTrigger value="facebook" className="gap-1.5 text-xs">
             <Facebook className="h-3.5 w-3.5" /> Facebook
-          </TabsTrigger>
-          <TabsTrigger value="atria" className="gap-1.5 text-xs">
-            Atria
           </TabsTrigger>
           <TabsTrigger value="quicksave" className="gap-1.5 text-xs">
             Quick Save
