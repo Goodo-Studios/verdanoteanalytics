@@ -184,7 +184,7 @@ export function ScreenCaptureTab({ onCapture, form, onFormChange }: ScreenCaptur
                   Record any video ad directly from your screen
                 </p>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Navigate to the ad on Facebook, Atria, or any other source in another tab.
+                  Navigate to the ad on Facebook or any other source in another tab.
                   Then click Start to record the video as it plays.
                 </p>
               </div>

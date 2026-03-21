@@ -116,7 +116,7 @@ export function AdGrid({
   };
 
   const handleBulkRefetch = async () => {
-    const selectedAds = ads.filter(a => selected.has(a.id) && a.source_url && !/^https:\/\/tryatria\.com\/saved\//i.test(a.source_url));
+    const selectedAds = ads.filter(a => selected.has(a.id) && a.source_url && !/^https:\/\/imported\.local\/saved\//i.test(a.source_url));
     if (selectedAds.length === 0) { toast.error("No ads with valid source URLs to re-fetch"); return; }
     setIsRefetching(true);
     let success = 0, fail = 0;
