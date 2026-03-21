@@ -24,6 +24,7 @@ export function CollectionSidebar({ selectedBoardId, onSelect }: Props) {
   const createFolder = useCreateFolder();
   const deleteBoard = useDeleteBoard();
   const deleteFolder = useDeleteFolder();
+  const moveBoard = useMoveBoard();
   const [showNewBoard, setShowNewBoard] = useState(false);
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [newName, setNewName] = useState("");
