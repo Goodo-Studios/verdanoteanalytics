@@ -161,6 +161,11 @@ const App = () => {
                       <SharedAdBoardPage />
                     </Suspense>
                   } />
+                  <Route path="/bookmarklet-receiver" element={
+                    <Suspense fallback={<PageFallback />}>
+                      <BookmarkletReceiver />
+                    </Suspense>
+                  } />
                   
                   {/* Root → redirect to role prefix */}
                   <Route path="/" element={<RoleRedirect />} />
