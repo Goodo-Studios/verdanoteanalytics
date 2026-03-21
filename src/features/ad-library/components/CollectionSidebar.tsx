@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { useAdLibraryBoards, useAdLibraryFolders, useCreateBoard, useCreateFolder, useDeleteBoard, useDeleteFolder } from "@/features/ad-library/hooks/useAdLibrary";
+import { useAdLibraryBoards, useAdLibraryFolders, useCreateBoard, useCreateFolder, useDeleteBoard, useDeleteFolder, useMoveBoard } from "@/features/ad-library/hooks/useAdLibrary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { FolderPlus, Library, Folder, LayoutGrid, Plus, MoreHorizontal, Trash2 } from "lucide-react";
+import { FolderPlus, Library, Folder, LayoutGrid, Plus, MoreHorizontal, Trash2, FolderInput, FolderOutput } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -24,6 +24,7 @@ export function CollectionSidebar({ selectedBoardId, onSelect }: Props) {
   const createFolder = useCreateFolder();
   const deleteBoard = useDeleteBoard();
   const deleteFolder = useDeleteFolder();
+  const moveBoard = useMoveBoard();
   const [showNewBoard, setShowNewBoard] = useState(false);
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [newName, setNewName] = useState("");
@@ -150,7 +151,32 @@ export function CollectionSidebar({ selectedBoardId, onSelect }: Props) {
                         <MoreHorizontal className="h-3 w-3" />
                       </button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="min-w-[140px]">
+                    <DropdownMenuContent align="start" className="min-w-[160px]">
+                      {folders.length > 0 && (
+                        <>
+                          <DropdownMenuSub>
+                            <DropdownMenuSubTrigger>
+                              <FolderInput className="h-3.5 w-3.5 mr-2" />
+                              Move to Folder
+                            </DropdownMenuSubTrigger>
+                            <DropdownMenuSubContent className="min-w-[140px]">
+                              {folders.filter(f => f.id !== board.folder_id).map(f => (
+                                <DropdownMenuItem key={f.id} onClick={() => moveBoard.mutate({ boardId: board.id, folderId: f.id })}>
+                                  <Folder className="h-3.5 w-3.5 mr-2" />
+                                  {f.name}
+                                </DropdownMenuItem>
+                              ))}
+                              {board.folder_id && (
+                                <DropdownMenuItem onClick={() => moveBoard.mutate({ boardId: board.id, folderId: null })}>
+                                  <FolderOutput className="h-3.5 w-3.5 mr-2" />
+                                  Remove from Folder
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuSubContent>
+                          </DropdownMenuSub>
+                          <DropdownMenuSeparator />
+                        </>
+                      )}
                       <DropdownMenuItem
                         onClick={() => setDeletingBoard({ id: board.id, name: board.name, ad_count: board.ad_count ?? 0 })}
                         className="text-destructive focus:text-destructive"
@@ -207,7 +233,26 @@ export function CollectionSidebar({ selectedBoardId, onSelect }: Props) {
                   <MoreHorizontal className="h-3 w-3" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="min-w-[140px]">
+              <DropdownMenuContent align="start" className="min-w-[160px]">
+                {folders.length > 0 && (
+                  <>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <FolderInput className="h-3.5 w-3.5 mr-2" />
+                        Move to Folder
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="min-w-[140px]">
+                        {folders.map(f => (
+                          <DropdownMenuItem key={f.id} onClick={() => moveBoard.mutate({ boardId: board.id, folderId: f.id })}>
+                            <Folder className="h-3.5 w-3.5 mr-2" />
+                            {f.name}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
                 <DropdownMenuItem
                   onClick={() => setDeletingBoard({ id: board.id, name: board.name, ad_count: board.ad_count ?? 0 })}
                   className="text-destructive focus:text-destructive"
