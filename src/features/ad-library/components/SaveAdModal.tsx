@@ -149,57 +149,78 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
   };
 
   // ---- Fetch Ad from URL ----
+  const detectPlatform = (url: string): string => {
+    if (url.includes("facebook.com") || url.includes("fb.com")) return "facebook";
+    if (url.includes("instagram.com")) return "instagram";
+    if (url.includes("tiktok.com")) return "tiktok";
+    if (url.includes("youtube.com") || url.includes("youtu.be")) return "youtube";
+    return "other";
+  };
+
   const handleFetch = async () => {
     const url = form.source_url.trim();
     if (!url) return;
 
-    if (!url.includes("facebook.com/ads/library")) {
-      toast.error("Please paste a Facebook Ads Library URL");
-      return;
-    }
-
     setIsFetching(true);
-    setFetchError(null);
+    setFetchMessage(null);
+    setShowManualFields(false);
 
     try {
       const { data, error } = await supabase.functions.invoke("scrape-ad", {
         body: { url },
       });
 
-      if (error) throw new Error(error.message);
+      if (error) {
+        // Edge Function invocation failed — fall through to manual
+        console.error("Edge function error:", error);
+        setForm((prev) => ({ ...prev, source_url: url, platform: detectPlatform(url) }));
+        setFetchMessage("Could not auto-fetch ad details. No worries — you can fill them in manually below.");
+        setShowManualFields(true);
+        return;
+      }
 
-      const result = data as ScrapeAdResponse;
+      if (data?.partial) {
+        // Partial data — pre-fill what we got
+        setForm((prev) => ({ ...prev, ...data.data, source_url: url }));
+        setFetchMessage(data.message || "Some details could not be fetched automatically. Please fill in the rest below.");
+        setShowManualFields(true);
+        return;
+      }
 
-      if (result.success && result.data) {
+      if (data?.success && data?.data) {
+        // Full success
         setForm((prev) => ({
           ...prev,
-          advertiser_name: result.data!.advertiser_name || prev.advertiser_name,
-          advertiser_page_id: result.data!.advertiser_page_id || "",
-          ad_id: result.data!.ad_id || "",
-          headline: result.data!.headline || "",
-          body_text: result.data!.body_text || "",
-          cta_text: result.data!.cta_text || "",
-          thumbnail_url: result.data!.thumbnail_url || "",
-          landing_page_url: result.data!.landing_page_url || "",
-          ad_format: result.data!.ad_format || "image",
-          platform: result.data!.platform || "facebook",
-          started_running: result.data!.started_running || "",
-          media_urls: result.data!.media_urls || [],
-          country_targeting: result.data!.country_targeting || [],
+          advertiser_name: data.data.advertiser_name || prev.advertiser_name,
+          advertiser_page_id: data.data.advertiser_page_id || "",
+          ad_id: data.data.ad_id || "",
+          headline: data.data.headline || "",
+          body_text: data.data.body_text || "",
+          cta_text: data.data.cta_text || "",
+          thumbnail_url: data.data.thumbnail_url || "",
+          landing_page_url: data.data.landing_page_url || "",
+          ad_format: data.data.ad_format || "image",
+          platform: data.data.platform || "facebook",
+          started_running: data.data.started_running || "",
+          media_urls: data.data.media_urls || [],
+          country_targeting: data.data.country_targeting || [],
           raw_data: data.data || null,
-          stored_media: (data.data as any)?.stored_media || [],
+          stored_media: data.data?.stored_media || [],
         }));
-        toast.success("Ad data fetched — review and save");
-      } else {
-        setFetchError(
-          result.error ||
-            "Could not fetch ad data. You can screenshot the ad and use the Manual Entry tab."
-        );
+        setFetchMessage("Ad details fetched! Review and save below.");
+        setShowManualFields(true);
+        return;
       }
-    } catch (e: any) {
-      setFetchError(
-        "Facebook blocked this request. You can screenshot the ad and enter it manually — takes just a few seconds."
-      );
+
+      // Unexpected response shape
+      setForm((prev) => ({ ...prev, source_url: url, platform: detectPlatform(url) }));
+      setFetchMessage("Could not parse the response. You can fill in the details manually.");
+      setShowManualFields(true);
+    } catch (err: any) {
+      console.error("Unexpected error:", err);
+      setForm((prev) => ({ ...prev, source_url: url, platform: detectPlatform(url) }));
+      setFetchMessage("Something went wrong. You can still save this ad by filling in the details below.");
+      setShowManualFields(true);
     } finally {
       setIsFetching(false);
     }
