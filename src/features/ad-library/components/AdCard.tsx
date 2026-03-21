@@ -198,7 +198,7 @@ export function AdCard({
     }
   }, [selectable, ad]);
 
-  const playableVideoUrl = storedVideoUrl || (thumbIsVideo ? thumbUrl : null);
+  // playableVideoUrl is computed above with storedVideoUrl
 
   return (
     <>
