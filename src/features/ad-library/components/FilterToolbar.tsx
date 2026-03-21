@@ -281,6 +281,20 @@ export function FilterToolbar({
           CC
         </Button>
 
+        {/* Video missing file filter */}
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn(
+            "h-9 gap-1.5 text-sm font-body",
+            filters.videoMissingFile && "border-amber-500/40 text-amber-600 bg-amber-500/5"
+          )}
+          onClick={() => set("videoMissingFile", !filters.videoMissingFile)}
+        >
+          <Video className="h-3.5 w-3.5" />
+          Missing Video
+        </Button>
+
         {/* Sort */}
         <Select value={filters.sort} onValueChange={(v) => set("sort", v)}>
           <SelectTrigger className="w-[150px] h-9 text-sm">
