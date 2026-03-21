@@ -107,12 +107,13 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
   const { user } = useAuth();
   const qc = useQueryClient();
 
-  const [tab, setTab] = useState<"url" | "manual">("url");
+  const [tab, setTab] = useState<"url" | "manual" | "capture">("url");
   const [form, setForm] = useState<FormState>({ ...INITIAL_FORM });
   const [isFetching, setIsFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [captureResult, setCaptureResult] = useState<ScreenCaptureResult | null>(null);
 
   // Organization
   const [selectedBoardId, setSelectedBoardId] = useState<string | null>(defaultBoardId || null);
