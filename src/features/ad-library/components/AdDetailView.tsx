@@ -361,17 +361,72 @@ export function AdDetailView({ adId, onBack }: Props) {
 
           {/* Media action buttons */}
           <div className="flex items-center gap-2 flex-wrap">
-            {currentMedia && (
+            {/* Video-specific buttons */}
+            {isVideo && hasStoredVideo && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs"
+                  onClick={() => {
+                    const videoMedia = displayMedia.find(m => m.type === "video");
+                    if (videoMedia) handleDownload(videoMedia.url, `${ad.advertiser_name || "ad"}-video.mp4`);
+                  }}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Download Video
+                </Button>
+                {ad.thumbnail_url && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-xs"
+                    onClick={() => handleDownload(ad.thumbnail_url!, `${ad.advertiser_name || "ad"}-thumbnail.jpg`)}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Download Thumbnail
+                  </Button>
+                )}
+              </>
+            )}
+            {/* Video ad without stored video */}
+            {isVideo && !hasStoredVideo && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs border-amber-500/30 text-amber-600"
+                  onClick={handleRefetchMedia}
+                  disabled={isRefetching || isFakeSourceUrl(ad.source_url)}
+                >
+                  {isRefetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  Download Video from Source
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs"
+                  onClick={() => uploadInputRef.current?.click()}
+                  disabled={isUploadingCreative}
+                >
+                  {isUploadingCreative ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                  Upload Video Manually
+                </Button>
+              </div>
+            )}
+            {/* Image ad download */}
+            {!isVideo && currentMedia && (
               <Button
                 variant="outline"
                 size="sm"
                 className="gap-1.5 text-xs"
-                onClick={() => handleDownload(currentMedia.url, `${ad.advertiser_name || "ad"}-${currentMediaIdx}.${currentMedia.type === "video" ? "mp4" : "jpg"}`)}
+                onClick={() => handleDownload(currentMedia.url, `${ad.advertiser_name || "ad"}-${currentMediaIdx}.jpg`)}
               >
                 <Download className="h-3.5 w-3.5" />
-                Download {currentMedia.type === "video" ? "Video" : "Image"}
+                Download Image
               </Button>
             )}
+            {/* Carousel download all */}
             {isCarousel && displayMedia.length > 1 && (
               <Button
                 variant="outline"
@@ -389,6 +444,17 @@ export function AdDetailView({ adId, onBack }: Props) {
               </Button>
             )}
           </div>
+
+          {/* Video not downloaded overlay message */}
+          {isVideo && !hasStoredVideo && displayMedia.length > 0 && displayMedia[0].type !== "video" && (
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 flex items-start gap-2">
+              <Play className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
+              <div className="text-xs text-muted-foreground">
+                <p className="font-medium text-foreground">Video file not downloaded</p>
+                <p className="mt-0.5">Only the thumbnail was captured. Use "Download Video from Source" to try fetching the actual video, or upload it manually.</p>
+              </div>
+            </div>
+          )}
 
           {/* Missing creative warning */}
           {looksLikeProfilePic(ad) && (

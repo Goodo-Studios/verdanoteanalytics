@@ -402,6 +402,16 @@ export function FilterToolbar({
               <X className="h-3 w-3" />
             </Badge>
           )}
+          {filters.videoMissingFile && (
+            <Badge
+              variant="secondary"
+              className="text-xs gap-1 pl-2 pr-1 py-0.5 cursor-pointer hover:bg-secondary/60"
+              onClick={() => set("videoMissingFile", false)}
+            >
+              Missing Video File
+              <X className="h-3 w-3" />
+            </Badge>
+          )}
           <Button
             variant="ghost"
             size="sm"

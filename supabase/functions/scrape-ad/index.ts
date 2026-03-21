@@ -11,14 +11,10 @@ const CHROME_UA =
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 
-// Patterns that indicate a profile picture / logo — NOT the ad creative
 const PROFILE_URL_PATTERNS = [
   /\/profile/i, /\/avatar/i, /\/logo/i, /page_picture/i,
-  /p\d{2,3}x\d{2,3}/i, // e.g. p100x100, p50x50
-  /\/rsrc\.php/i, // Facebook UI assets
-  /emoji/i, /icon/i, /badge/i,
-  /s\d{2,3}x\d{2,3}/i, // e.g. s100x100
-  /\/static\//i,
+  /p\d{2,3}x\d{2,3}/i, /s\d{2,3}x\d{2,3}/i,
+  /\/rsrc\.php/i, /emoji/i, /icon/i, /badge/i, /\/static\//i,
 ];
 
 function isProfileOrLogoUrl(url: string): boolean {
@@ -28,7 +24,7 @@ function isProfileOrLogoUrl(url: string): boolean {
 interface StoredMediaItem {
   original_url: string;
   stored_url: string;
-  type: "image" | "video" | "carousel_frame";
+  type: "image" | "video" | "carousel_frame" | "video_thumbnail";
   mime_type: string;
   file_size_bytes: number;
   width?: number;
@@ -38,7 +34,9 @@ interface StoredMediaItem {
 }
 
 function isVideoUrl(url: string): boolean {
-  return /\.(mp4|webm|mov|m3u8|avi)(\?|$)/i.test(url) || url.includes("/video/");
+  return /\.(mp4|webm|mov|m3u8|avi)(\?|$)/i.test(url) ||
+    url.includes("/video/") ||
+    /video.*\.xx\.fbcdn\.net/i.test(url);
 }
 
 function getExtensionFromUrl(url: string, contentType?: string): string {
@@ -64,12 +62,13 @@ function getMimeType(ext: string): string {
 }
 
 async function downloadAndStore(
-  supabaseAdmin: any, url: string, userId: string, adId: string, position: number, mediaType: "image" | "video" | "carousel_frame"
+  supabaseAdmin: any, url: string, userId: string, adId: string, position: number, mediaType: "image" | "video" | "carousel_frame" | "video_thumbnail"
 ): Promise<StoredMediaItem | null> {
   try {
     if (!url || (!url.startsWith("http://") && !url.startsWith("https://"))) return null;
+    const timeoutMs = mediaType === "video" ? 60000 : 30000;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     const resp = await fetch(url, { signal: controller.signal, headers: { "User-Agent": CHROME_UA } });
     clearTimeout(timeout);
 
@@ -139,34 +138,50 @@ Deno.serve(async (req) => {
     if (!result) result = await tryDirectPageFetch(url);
     if (!result) return json({ success: false, error: "Could not fetch ad data. Please use the Manual Entry tab instead." });
 
-    // Filter out profile/logo URLs from media
-    const mediaUrls = result.media_urls.filter(u => u && !isProfileOrLogoUrl(u));
-    const isCarousel = result.ad_format === "carousel" || mediaUrls.filter(u => !isVideoUrl(u)).length > 1;
+    // Separate video URLs from image URLs
+    const allMediaUrls = result.media_urls.filter(u => u && !isProfileOrLogoUrl(u));
+    const videoUrls = allMediaUrls.filter(u => isVideoUrl(u));
+    const imageUrls = allMediaUrls.filter(u => !isVideoUrl(u));
+
     const storedMedia: StoredMediaItem[] = [];
     const tempAdId = crypto.randomUUID().slice(0, 8);
+    let pos = 0;
 
-    for (let i = 0; i < mediaUrls.length; i++) {
-      const mediaUrl = mediaUrls[i];
-      let mediaType: "image" | "video" | "carousel_frame" = "image";
-      if (isVideoUrl(mediaUrl)) mediaType = "video";
-      else if (isCarousel) mediaType = "carousel_frame";
-
-      const stored = await downloadAndStore(supabaseAdmin, mediaUrl, user.id, tempAdId, i, mediaType);
+    // 1. Download VIDEO files first (these are the actual creative for video ads)
+    for (const videoUrl of videoUrls) {
+      const stored = await downloadAndStore(supabaseAdmin, videoUrl, user.id, tempAdId, pos, "video");
       if (stored) storedMedia.push(stored);
+      pos++;
     }
 
-    // Only store thumbnail separately if it's NOT a profile pic and NOT already in mediaUrls
-    if (result.thumbnail_url && !isProfileOrLogoUrl(result.thumbnail_url) && !mediaUrls.includes(result.thumbnail_url)) {
-      const thumbStored = await downloadAndStore(supabaseAdmin, result.thumbnail_url, user.id, tempAdId, storedMedia.length, "image");
+    // 2. Download images / carousel frames
+    const isCarousel = result.ad_format === "carousel" || imageUrls.length > 1;
+    for (const imgUrl of imageUrls) {
+      const mediaType = isCarousel ? "carousel_frame" : "image";
+      const stored = await downloadAndStore(supabaseAdmin, imgUrl, user.id, tempAdId, pos, mediaType as any);
+      if (stored) storedMedia.push(stored);
+      pos++;
+    }
+
+    // 3. Download thumbnail/poster separately if it's a video ad and we have a poster URL
+    if (result.thumbnail_url && !isProfileOrLogoUrl(result.thumbnail_url) && !allMediaUrls.includes(result.thumbnail_url)) {
+      const thumbStored = await downloadAndStore(supabaseAdmin, result.thumbnail_url, user.id, tempAdId, pos, "video_thumbnail");
       if (thumbStored) storedMedia.push(thumbStored);
     }
 
-    const firstStoredImage = storedMedia.find(m => !m.download_failed && (m.type === "image" || m.type === "carousel_frame"));
+    // Determine thumbnail: prefer first stored image/carousel_frame, then video_thumbnail
+    const firstStoredImage = storedMedia.find(m => !m.download_failed && (m.type === "image" || m.type === "carousel_frame" || m.type === "video_thumbnail"));
     const finalThumbnail = firstStoredImage?.stored_url || (result.thumbnail_url && !isProfileOrLogoUrl(result.thumbnail_url) ? result.thumbnail_url : null);
+
+    // Correct ad_format: if we found video URLs, it's a video ad
+    let adFormat = result.ad_format;
+    if (videoUrls.length > 0 && adFormat !== "carousel") {
+      adFormat = "video";
+    }
 
     return json({
       success: true,
-      data: { ...result, thumbnail_url: finalThumbnail, stored_media: storedMedia, media_urls: mediaUrls },
+      data: { ...result, ad_format: adFormat, thumbnail_url: finalThumbnail, stored_media: storedMedia, media_urls: allMediaUrls },
     });
   } catch (e) {
     console.error("scrape-ad error:", e);
@@ -245,6 +260,40 @@ async function tryMetaSearchEndpoint(pageId: string, adId: string | null, countr
   }
 }
 
+/** Deep-search an object for any URLs matching video patterns */
+function extractVideoUrlsDeep(obj: any, depth = 0): string[] {
+  if (depth > 8 || !obj) return [];
+  const urls: string[] = [];
+
+  if (typeof obj === "string") {
+    if (isVideoUrl(obj) && obj.startsWith("http")) urls.push(obj);
+    return urls;
+  }
+
+  if (Array.isArray(obj)) {
+    for (const item of obj) urls.push(...extractVideoUrlsDeep(item, depth + 1));
+    return urls;
+  }
+
+  if (typeof obj === "object") {
+    // Check known video fields first
+    const videoFields = ["video_hd_url", "video_sd_url", "video_url", "video_source", "src", "source"];
+    for (const field of videoFields) {
+      if (typeof obj[field] === "string" && obj[field].startsWith("http")) {
+        if (isVideoUrl(obj[field]) || field.startsWith("video")) {
+          urls.push(obj[field]);
+        }
+      }
+    }
+    // Recurse into sub-objects
+    for (const key of Object.keys(obj)) {
+      if (key === "page_profile_picture_url" || key === "page_profile_uri") continue;
+      urls.push(...extractVideoUrlsDeep(obj[key], depth + 1));
+    }
+  }
+  return urls;
+}
+
 function normalizeMetaResult(ad: any, pageId: string, country: string): ScrapeResult {
   const snapshot = ad.snapshot || ad;
   const cards = snapshot.cards || snapshot.creative_cards || [];
@@ -254,25 +303,32 @@ function normalizeMetaResult(ad: any, pageId: string, country: string): ScrapeRe
   let thumbnailUrl: string | null = null;
   let adFormat = "image";
 
-  // 1. Extract VIDEOS first — these are the actual ad creatives
+  // 1. Extract VIDEOS first — deep-search the entire ad object for video URLs
+  const deepVideoUrls = [...new Set(extractVideoUrlsDeep(ad))].filter(u => !isProfileOrLogoUrl(u));
+
+  // Also check specific known fields
   if (snapshot.videos && snapshot.videos.length > 0) {
-    adFormat = "video";
     snapshot.videos.forEach((v: any) => {
-      // Prefer HD, then SD, then any video URL
       const url = v.video_hd_url || v.video_sd_url || v.video_url;
-      if (url) mediaUrls.push(url);
+      if (url && !deepVideoUrls.includes(url)) deepVideoUrls.unshift(url);
+      // Video poster/preview
+      const poster = v.video_preview_image_url || v.poster || v.thumbnail_src;
+      if (poster && !isProfileOrLogoUrl(poster) && !thumbnailUrl) thumbnailUrl = poster;
     });
-    // Video poster/preview — use as thumbnail
-    thumbnailUrl = snapshot.videos[0]?.video_preview_image_url || null;
+  }
+
+  if (deepVideoUrls.length > 0) {
+    adFormat = "video";
+    // Prefer HD > SD > other; deduplicate
+    deepVideoUrls.forEach(u => { if (!mediaUrls.includes(u)) mediaUrls.push(u); });
   }
 
   // 2. Extract creative images — SKIP profile pictures
   if (snapshot.images || snapshot.resized_images) {
     const imgs = snapshot.images || snapshot.resized_images || [];
     imgs.forEach((img: any) => {
-      // Prefer original_image_url (full resolution), then resized
       const url = img.original_image_url || img.resized_image_url || img.url;
-      if (url && !isProfileOrLogoUrl(url)) {
+      if (url && !isProfileOrLogoUrl(url) && !mediaUrls.includes(url)) {
         mediaUrls.push(url);
         if (!thumbnailUrl) thumbnailUrl = url;
       }
@@ -287,7 +343,6 @@ function normalizeMetaResult(ad: any, pageId: string, country: string): ScrapeRe
       if (cardImg && !isProfileOrLogoUrl(cardImg) && !mediaUrls.includes(cardImg)) {
         mediaUrls.push(cardImg);
       }
-      // Carousel cards can also have videos
       const cardVid = card.video_hd_url || card.video_sd_url || card.video_url;
       if (cardVid && !mediaUrls.includes(cardVid)) {
         mediaUrls.push(cardVid);
@@ -295,8 +350,17 @@ function normalizeMetaResult(ad: any, pageId: string, country: string): ScrapeRe
     });
   }
 
-  // 4. Explicitly SKIP page_profile_picture_url / page_profile_uri
-  // (these are NOT added to mediaUrls)
+  // 4. Look for video poster/thumbnail if we detected video but don't have a thumbnail yet
+  if (adFormat === "video" && !thumbnailUrl) {
+    const posterFields = ["video_preview_image_url", "video_poster", "thumbnail_src", "poster"];
+    for (const field of posterFields) {
+      const val = snapshot[field] || ad[field];
+      if (val && typeof val === "string" && !isProfileOrLogoUrl(val)) {
+        thumbnailUrl = val;
+        break;
+      }
+    }
+  }
 
   let startedRunning: string | null = null;
   const startDate = ad.startDate || ad.start_date || snapshot.creation_time;
@@ -360,6 +424,26 @@ async function tryDirectPageFetch(url: string): Promise<ScrapeResult | null> {
 }
 
 function extractFromHtml(html: string): ScrapeResult | null {
+  // Extract video URLs from HTML
+  const videoMatches: string[] = [];
+  const videoTagRegex = /<(?:video|source)[^>]*src=["']([^"']+\.(?:mp4|webm|mov)[^"']*)/gi;
+  let vMatch;
+  while ((vMatch = videoTagRegex.exec(html)) !== null) {
+    if (!isProfileOrLogoUrl(vMatch[1])) videoMatches.push(vMatch[1]);
+  }
+  // Facebook video CDN URLs
+  const fbVideoRegex = /https?:\/\/video[^"'\s]*\.xx\.fbcdn\.net\/[^"'\s]+/g;
+  let fbMatch;
+  while ((fbMatch = fbVideoRegex.exec(html)) !== null) {
+    if (!videoMatches.includes(fbMatch[0])) videoMatches.push(fbMatch[0]);
+  }
+  // .mp4 URLs from scontent
+  const scontentMp4 = /https?:\/\/scontent[^"'\s]*\.xx\.fbcdn\.net\/[^"'\s]*\.mp4[^"'\s]*/g;
+  let scMatch;
+  while ((scMatch = scontentMp4.exec(html)) !== null) {
+    if (!videoMatches.includes(scMatch[0])) videoMatches.push(scMatch[0]);
+  }
+
   const patterns = [/"adcard":\s*(\{[^}]+\})/i, /"snapshot":\s*(\{[\s\S]*?\})\s*[,}]/i, /adArchiveID['"]\s*:\s*['"]([\d]+)['"]/i];
   for (const pattern of patterns) {
     const match = html.match(pattern);
@@ -367,18 +451,33 @@ function extractFromHtml(html: string): ScrapeResult | null {
       try {
         const data = JSON.parse(match[1]);
         if (data.body || data.page_name || data.title) {
+          const hasVideo = videoMatches.length > 0 || data.video_hd_url || data.video_sd_url;
           return {
             advertiser_name: data.page_name || null, advertiser_page_id: data.page_id || null,
             ad_id: data.adArchiveID || data.ad_archive_id || null, platform: "facebook",
-            ad_status: null, ad_format: data.ad_format || null, headline: data.title || null,
+            ad_status: null,
+            ad_format: hasVideo ? "video" : (data.ad_format || null),
+            headline: data.title || null,
             body_text: typeof data.body === "string" ? data.body : data.body?.text || null,
             cta_text: data.cta_text || null, landing_page_url: data.link_url || null,
-            media_urls: [], thumbnail_url: null, started_running: null,
+            media_urls: videoMatches,
+            thumbnail_url: null, started_running: null,
             country_targeting: [], raw_data: data,
           };
         }
       } catch { /* ignore */ }
     }
   }
+
+  // If we found video URLs but no structured data, return them
+  if (videoMatches.length > 0) {
+    return {
+      advertiser_name: null, advertiser_page_id: null, ad_id: null, platform: "facebook",
+      ad_status: null, ad_format: "video", headline: null, body_text: null, cta_text: null,
+      landing_page_url: null, media_urls: videoMatches, thumbnail_url: null,
+      started_running: null, country_targeting: [], raw_data: {},
+    };
+  }
+
   return null;
 }
