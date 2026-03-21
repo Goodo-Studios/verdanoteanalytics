@@ -99,30 +99,41 @@ export function AdCard({
   const [tagPopoverOpen, setTagPopoverOpen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
+  const [posterFrame, setPosterFrame] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const posterVideoRef = useRef<HTMLVideoElement>(null);
 
   const PlatformIcon = platformIcon[ad.platform || ""] || Facebook;
   const adTagIds = new Set((ad.tags || []).map((t) => t.id));
   const initial = (ad.advertiser_name || "A")[0].toUpperCase();
   const hasTranscript = (ad as any).transcript_status === "completed";
-  const storedMedia = ((ad as any).stored_media || []) as { type: string; download_failed?: boolean; stored_url?: string; file_size_bytes?: number }[];
-  const successfulStored = storedMedia.filter(m => !m.download_failed && m.stored_url);
+  const storedMedia = ((ad as any).stored_media || []) as { type: string; download_failed?: boolean; stored_url?: string; url?: string; file_size_bytes?: number }[];
+  const successfulStored = storedMedia.filter(m => !m.download_failed && (m.stored_url || m.url));
   const hasStoredVideo = successfulStored.some(m => m.type === "video");
   const hasStoredCarousel = successfulStored.filter(m => m.type === "carousel_frame").length > 1;
   const carouselCount = successfulStored.filter(m => m.type === "carousel_frame").length;
 
   const isVideoAd = ad.ad_format === "video";
-  const videoMissing = isVideoAd && !hasStoredVideo;
 
-  const thumbUrl = ad.thumbnail_url || "";
-  const isProfilePicThumb = /\/profile|\/avatar|\/logo|page_picture|p\d{2,3}x\d{2,3}|s\d{2,3}x\d{2,3}/i.test(thumbUrl);
+  const rawThumbUrl = ad.thumbnail_url || "";
+  const thumbIsVideo = /\.(mp4|mov|webm)(\?|$)/i.test(rawThumbUrl);
+
+  // Get stored video URL - check both stored_url and url fields
+  const storedVideoEntry = successfulStored.find(m => m.type === "video");
+  const storedVideoUrl = storedVideoEntry?.stored_url || storedVideoEntry?.url;
+  // Get stored image URL for thumbnail
+  const storedImageEntry = successfulStored.find(m => m.type === "image" || m.type === "video_thumbnail");
+  const storedImageUrl = storedImageEntry?.stored_url || storedImageEntry?.url;
+
+  // Determine the best thumbnail: prefer stored image, then thumbnail_url if it's an image
+  const thumbUrl = storedImageUrl || (thumbIsVideo ? "" : rawThumbUrl);
+  // The playable video URL
+  const playableVideoUrl = storedVideoUrl || (thumbIsVideo ? rawThumbUrl : null);
+
+  const videoMissing = isVideoAd && !playableVideoUrl;
+  const isProfilePicThumb = /\/profile|\/avatar|\/logo|page_picture|p\d{2,3}x\d{2,3}|s\d{2,3}x\d{2,3}/i.test(rawThumbUrl);
   const hasRealCreative = successfulStored.some(m => m.file_size_bytes && m.file_size_bytes > 50000);
-  const missingCreative = !hasRealCreative && (successfulStored.length === 0 || isProfilePicThumb) && (!ad.media_urls || ad.media_urls.length === 0);
-
-  // Get the stored video URL for inline playback
-  const storedVideoUrl = successfulStored.find(m => m.type === "video")?.stored_url;
-  // For video thumbnail, check if thumbnail_url is itself a video file
-  const thumbIsVideo = /\.(mp4|mov|webm)(\?|$)/i.test(thumbUrl);
+  const missingCreative = !hasRealCreative && (successfulStored.length === 0 || isProfilePicThumb) && (!ad.media_urls || ad.media_urls.length === 0) && !playableVideoUrl;
 
   const handleCopyLandingPage = (e: React.MouseEvent) => {
     e.stopPropagation();
