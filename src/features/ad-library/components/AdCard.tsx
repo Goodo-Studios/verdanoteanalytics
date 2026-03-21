@@ -316,7 +316,7 @@ export function AdCard({
                     "h-14 w-14 rounded-full flex items-center justify-center transition-all duration-200",
                     "bg-background/80 backdrop-blur-sm shadow-lg",
                     "group-hover:bg-background/95 group-hover:scale-110",
-                    hasStoredVideo || thumbIsVideo ? "text-foreground" : "text-muted-foreground"
+                    playableVideoUrl ? "text-foreground" : "text-muted-foreground"
                   )}>
                     <Play className="h-6 w-6 ml-0.5" fill="currentColor" />
                   </div>
