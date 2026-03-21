@@ -343,11 +343,73 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
       toast.error("Please add at least an advertiser name or a screenshot");
       return;
     }
+    if (tab === "capture" && !captureResult) {
+      toast.error("Please record a video first");
+      return;
+    }
 
     if (!user) return;
     setIsSaving(true);
 
     try {
+      let finalForm = { ...form };
+
+      // Handle screen capture upload
+      if (tab === "capture" && captureResult) {
+        const adTempId = Date.now().toString(36);
+
+        // Upload video blob directly to storage
+        const videoPath = `${user.id}/${adTempId}/video.webm`;
+        const { error: videoUpErr } = await supabase.storage
+          .from("ad-media")
+          .upload(videoPath, captureResult.videoBlob, {
+            contentType: "video/webm",
+            upsert: true,
+          });
+        if (videoUpErr) throw videoUpErr;
+
+        const { data: videoUrlData } = supabase.storage
+          .from("ad-media")
+          .getPublicUrl(videoPath);
+
+        // Upload thumbnail
+        const thumbPath = `${user.id}/${adTempId}/thumbnail.jpg`;
+        const { error: thumbUpErr } = await supabase.storage
+          .from("ad-media")
+          .upload(thumbPath, captureResult.thumbnailBlob, {
+            contentType: "image/jpeg",
+            upsert: true,
+          });
+        if (thumbUpErr) throw thumbUpErr;
+
+        const { data: thumbUrlData } = supabase.storage
+          .from("ad-media")
+          .getPublicUrl(thumbPath);
+
+        finalForm.ad_format = "video";
+        finalForm.thumbnail_url = thumbUrlData.publicUrl;
+        finalForm.stored_media = [
+          {
+            original_url: "",
+            stored_url: videoUrlData.publicUrl,
+            type: "video",
+            mime_type: "video/webm",
+            file_size_bytes: captureResult.videoBlob.size,
+            position: 0,
+          },
+          {
+            original_url: "",
+            stored_url: thumbUrlData.publicUrl,
+            type: "image",
+            mime_type: "image/jpeg",
+            file_size_bytes: captureResult.thumbnailBlob.size,
+            position: 1,
+          },
+        ];
+        if (!finalForm.source_url) {
+          finalForm.source_url = `screen-capture-${adTempId}`;
+        }
+      }
       // 1. Insert saved ad
       const { data: savedAd, error: adError } = await supabase
         .from("ad_library_saved_ads" as any)
