@@ -7,300 +7,49 @@ import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 /* ────────────────────────────────────────────────────────
-   Facebook bookmarklet — fully inlined, no external scripts.
-   Facebook CSP blocks loading external JS so everything
-   must live inside the javascript: URL.
+   Facebook bookmarklet — popup relay pattern.
+   The bookmarklet only reads the DOM and opens a popup window
+   to our app. No network requests from Facebook's page (CSP safe).
+   Auth is handled by the popup using the user's existing session.
    ──────────────────────────────────────────────────────── */
-function generateFacebookBookmarklet(supabaseUrl: string, token: string, appUrl: string) {
-  // The entire saver script is inlined.  We use single-quotes inside the
-  // template and avoid backticks so the result can safely live in an href.
+function generateFacebookBookmarklet(appUrl: string) {
   const code = `(function(){
-if(window.__vnActive){alert('Verdanote saver is already active.');return;}
+if(window.__vnActive){alert('Verdanote saver is already running.');return;}
+if(!location.hostname.match(/facebook\\.com/)&&!location.hostname.match(/fb\\.com/)){alert('Navigate to Facebook Ads Library first.');return;}
 window.__vnActive=true;
-var S='${supabaseUrl}',T='${token}',A='${appUrl}';
-var delay=function(ms){return new Promise(function(r){setTimeout(r,ms);});};
-
-/* ── toolbar ── */
-var tb=document.createElement('div');
-tb.id='vn-tb';
+var APP='${appUrl}';
+var popup=null;
+function openPopup(){if(popup&&!popup.closed)return popup;popup=window.open(APP+'/bookmarklet-receiver','vn_saver','width=420,height=620,scrollbars=yes,resizable=yes');return popup;}
+var tb=document.createElement('div');tb.id='vn-tb';
 tb.style.cssText='position:fixed;top:0;left:0;right:0;z-index:999999;background:#1a1a2e;color:#fff;padding:8px 16px;display:flex;align-items:center;justify-content:space-between;font-family:-apple-system,sans-serif;font-size:14px;box-shadow:0 4px 24px rgba(0,0,0,.3);';
-tb.innerHTML='<div style="display:flex;align-items:center;gap:10px"><span style="font-weight:700;color:#a78bfa">Verdanote</span><span id="vn-status" style="color:#a1a1aa">Scanning for ads\\u2026</span></div><div style="display:flex;gap:8px"><button id="vn-sa" style="background:#7c3aed;color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px">Save All Visible</button><button id="vn-x" style="background:transparent;color:#a1a1aa;border:none;padding:6px 10px;cursor:pointer;font-size:15px">\\u2715</button></div>';
-document.body.appendChild(tb);
-document.body.style.marginTop=tb.offsetHeight+'px';
-
-document.getElementById('vn-x').onclick=function(){
-  tb.remove();document.body.style.marginTop='';
-  document.querySelectorAll('.vn-btn').forEach(function(b){b.remove();});
-  window.__vnActive=false;
-};
-
-/* ── find ad cards ── */
-function findCards(){
-  var cards=[],seen=new Set();
-  var spans=document.querySelectorAll('span');
-  for(var i=0;i<spans.length;i++){
-    if(/Library ID/i.test(spans[i].textContent)){
-      var el=spans[i];
-      for(var j=0;j<10;j++){
-        if(!el.parentElement)break;
-        el=el.parentElement;
-        if(el.offsetHeight>200&&el.offsetWidth>250&&!seen.has(el)){
-          seen.add(el);cards.push(el);break;
-        }
-      }
-    }
-  }
-  if(cards.length===0){
-    var links=document.querySelectorAll('a[href*="/ads/library/?id="]');
-    for(var i=0;i<links.length;i++){
-      var el=links[i];
-      for(var j=0;j<10;j++){
-        if(!el.parentElement)break;
-        el=el.parentElement;
-        if(el.offsetHeight>200&&el.offsetWidth>250&&!seen.has(el)){
-          seen.add(el);cards.push(el);break;
-        }
-      }
-    }
-  }
-  return cards;
-}
-
-/* ── decode fb redirect links ── */
-function decodeFb(href){
-  if(!href)return null;
-  try{
-    if(href.indexOf('l.facebook.com')>-1||href.indexOf('lm.facebook.com')>-1){
-      return decodeURIComponent(new URL(href).searchParams.get('u')||href);
-    }
-    return href;
-  }catch(e){return href;}
-}
-
-/* ── extract data from one card ── */
-function extract(card){
-  var d={platform:'facebook',ad_format:'image',advertiser_name:null,body_text:null,headline:null,cta_text:null,landing_page_url:null,started_running:null,source_url:null,thumbnail_url:null,media_urls:[],stored_media:[]};
-
-  /* source url */
-  var dl=card.querySelector('a[href*="/ads/library/?id="]');
-  d.source_url=dl?dl.href:location.href;
-
-  /* advertiser */
-  var pLinks=card.querySelectorAll('a[href*="facebook.com/"]');
-  for(var i=0;i<pLinks.length;i++){
-    var t=pLinks[i].textContent.trim();
-    if(t&&t.length>1&&t.length<100&&t.indexOf('Ad Library')<0&&pLinks[i].href.indexOf('/ads/library')<0){d.advertiser_name=t;break;}
-  }
-  if(!d.advertiser_name){var h=card.querySelector('h2,h3,[role="heading"]');if(h)d.advertiser_name=h.textContent.trim();}
-
-  /* expand see-more */
-  var btns=card.querySelectorAll('div[role="button"]');
-  for(var i=0;i<btns.length;i++){if(/see more/i.test(btns[i].textContent)){try{btns[i].click();}catch(e){}}}
-
-  /* body text */
-  var longest='';
-  var els=card.querySelectorAll('div,span,p');
-  for(var i=0;i<els.length;i++){
-    var t=els[i].textContent.trim();
-    if(t.length>longest.length&&t.length>30&&t.length<5000&&t!==d.advertiser_name&&!/^(Started running|Active since|Inactive)/i.test(t)){longest=t;}
-  }
-  d.body_text=longest.substring(0,2000)||null;
-
-  /* date */
-  var dm=card.textContent.match(/Started running on\\s+([A-Za-z]+ \\d{1,2},?\\s*\\d{4})/i);
-  if(dm){try{var dt=new Date(dm[1]);if(!isNaN(dt.getTime()))d.started_running=dt.toISOString().split('T')[0];}catch(e){}}
-
-  /* cta */
-  var ctas=['Shop Now','Learn More','Sign Up','Download','Book Now','Get Offer','Subscribe','Apply Now','Watch More','Order Now','Contact Us','Install Now'];
-  var cBtns=card.querySelectorAll('a,button,[role="button"]');
-  for(var i=0;i<cBtns.length;i++){var ct=cBtns[i].textContent.trim();for(var j=0;j<ctas.length;j++){if(ct.toLowerCase().indexOf(ctas[j].toLowerCase())>-1){d.cta_text=ct;break;}}if(d.cta_text)break;}
-
-  /* landing page */
-  var oLinks=card.querySelectorAll('a[href*="l.facebook.com"],a[href*="lm.facebook.com"]');
-  for(var i=0;i<oLinks.length;i++){var dec=decodeFb(oLinks[i].href);if(dec&&dec.indexOf('facebook.com')<0){d.landing_page_url=dec;break;}}
-
-  /* video */
-  var vid=card.querySelector('video');
-  if(vid){
-    d.ad_format='video';
-    var vurl=vid.currentSrc||vid.src;
-    if(!vurl){var src=card.querySelector('video source');if(src&&src.src)vurl=src.src;}
-    if(vurl)d.media_urls.push(vurl);
-  }
-
-  /* images — skip small avatars */
-  var imgs=card.querySelectorAll('img');
-  var bestImg=null,bestSize=0;
-  for(var i=0;i<imgs.length;i++){
-    var w=imgs[i].naturalWidth||imgs[i].width||0;
-    var h=imgs[i].naturalHeight||imgs[i].height||0;
-    if(w<100&&h<100)continue;
-    var par=imgs[i].parentElement;
-    var br=par?getComputedStyle(par).borderRadius:'';
-    if(br==='50%'||br==='9999px')continue;
-    if(imgs[i].src){d.media_urls.push(imgs[i].src);var sz=w*h;if(sz>bestSize){bestSize=sz;bestImg=imgs[i].src;}}
-  }
-  d.thumbnail_url=bestImg||null;
-  return d;
-}
-
-/* ── try to trigger video playback ── */
-async function loadVideo(card){
-  var v=card.querySelector('video');
-  if(v&&(v.currentSrc||v.src))return;
-  var pbs=card.querySelectorAll('[aria-label*="Play"],[aria-label*="play"],[role="button"]');
-  for(var i=0;i<pbs.length;i++){
-    var lbl=(pbs[i].getAttribute('aria-label')||pbs[i].textContent||'').toLowerCase();
-    if(lbl.indexOf('play')>-1){pbs[i].click();break;}
-  }
-  for(var i=0;i<12;i++){
-    await delay(500);
-    v=card.querySelector('video');
-    if(v&&(v.currentSrc||v.src))return;
-  }
-}
-
-/* ── upload blob to storage from browser ── */
-async function uploadBlob(blob,adId,name,contentType){
-  var path=encodeURIComponent(adId+'/'+name);
-  var resp=await fetch(S+'/storage/v1/object/ad-media/'+path,{
-    method:'POST',
-    headers:{'Authorization':'Bearer '+T,'Content-Type':contentType,'x-upsert':'true'},
-    body:blob
-  });
-  if(!resp.ok)return null;
-  return S+'/storage/v1/object/public/ad-media/'+adId+'/'+name;
-}
-
-/* ── save one ad ── */
-async function saveAd(card,btn){
-  btn.textContent='Saving\\u2026';btn.style.background='#6366f1';btn.disabled=true;
-  try{
-    await loadVideo(card);
-    var d=extract(card);
-    var adId=Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-    var storedMedia=[];
-
-    /* upload video blob from browser context */
-    var vidUrl=null;
-    if(d.ad_format==='video'){
-      var vidSrc=card.querySelector('video');
-      var vurl=vidSrc?(vidSrc.currentSrc||vidSrc.src):null;
-      if(vurl){
-        btn.textContent='Downloading video\\u2026';
-        try{
-          var vr=await fetch(vurl);
-          if(vr.ok){
-            var vblob=await vr.blob();
-            if(vblob.size>1000&&vblob.size<200*1024*1024){
-              btn.textContent='Uploading video ('+Math.round(vblob.size/1024/1024)+'MB)\\u2026';
-              var ext=(vblob.type||'').indexOf('mp4')>-1?'mp4':'webm';
-              var storedUrl=await uploadBlob(vblob,adId,'video.'+ext,vblob.type||'video/mp4');
-              if(storedUrl){storedMedia.push({original_url:vurl,stored_url:storedUrl,type:'video',mime_type:vblob.type||'video/mp4',file_size_bytes:vblob.size,position:0});}
-            }
-          }
-        }catch(e){console.error('VN video err',e);}
-      }
-    }
-
-    /* upload thumbnail / main image */
-    var imgUrl=d.thumbnail_url||(d.media_urls.length?d.media_urls[0]:null);
-    if(imgUrl){
-      try{
-        var ir=await fetch(imgUrl);
-        if(ir.ok){
-          var iblob=await ir.blob();
-          if(iblob.size>1000){
-            var iext=(iblob.type||'').indexOf('png')>-1?'png':'jpg';
-            var iStored=await uploadBlob(iblob,adId,'thumbnail.'+iext,iblob.type||'image/jpeg');
-            if(iStored){
-              storedMedia.push({original_url:imgUrl,stored_url:iStored,type:d.ad_format==='video'?'video_thumbnail':'image',mime_type:iblob.type||'image/jpeg',file_size_bytes:iblob.size,position:storedMedia.length});
-              d.thumbnail_url=iStored;
-            }
-          }
-        }
-      }catch(e){console.error('VN img err',e);}
-    }
-
-    d.stored_media=storedMedia;
-
-    /* send to quick-save */
-    var resp=await fetch(S+'/functions/v1/quick-save',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+T},
-      body:JSON.stringify({url:d.source_url,extracted_data:d})
-    });
-    var result=await resp.json();
-    if(result.success){
-      btn.textContent=result.duplicate?'Already saved':'Saved \\u2713';
-      btn.style.background=result.duplicate?'#1e40af':'#059669';
-      return true;
-    }else{
-      btn.textContent='Failed';btn.style.background='#991b1b';return false;
-    }
-  }catch(e){
-    console.error('VN save err',e);
-    btn.textContent='Error';btn.style.background='#991b1b';return false;
-  }
-}
-
-/* ── inject save buttons ── */
-function inject(){
-  var cards=findCards();
-  if(cards.length===0){
-    setTimeout(function(){
-      cards=findCards();
-      if(cards.length===0){document.getElementById('vn-status').textContent='No ads found. Make sure ads are visible on this page.';return;}
-      addBtns(cards);
-    },2500);
-    return;
-  }
-  addBtns(cards);
-}
-
-function addBtns(cards){
-  cards.forEach(function(card){
-    if(card.querySelector('.vn-btn'))return;
-    var cs=getComputedStyle(card);if(cs.position==='static')card.style.position='relative';
-    var b=document.createElement('button');
-    b.className='vn-btn';
-    b.textContent='Save';
-    b.style.cssText='position:absolute;top:8px;right:8px;z-index:99999;background:#059669;color:#fff;border:none;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:-apple-system,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.25);';
-    b.onclick=function(e){e.stopPropagation();e.preventDefault();saveAd(card,b);};
-    card.appendChild(b);
-  });
-  document.getElementById('vn-status').textContent='Ad Saver Active \\u2014 '+cards.length+' ads found';
-}
-
-/* save all */
-document.getElementById('vn-sa').onclick=async function(){
-  var cards=findCards();if(cards.length===0){alert('No ads found.');return;}
-  this.disabled=true;this.textContent='Saving\\u2026';
-  var ok=0,fail=0;
-  for(var i=0;i<cards.length;i++){
-    document.getElementById('vn-status').textContent='Saving '+(i+1)+' of '+cards.length+'\\u2026';
-    var btn=cards[i].querySelector('.vn-btn');
-    if(btn&&(btn.textContent==='Saved \\u2713'||btn.textContent==='Already saved'))continue;
-    if(!btn){btn=document.createElement('button');btn.className='vn-btn';btn.style.cssText='display:none';cards[i].appendChild(btn);}
-    var r=await saveAd(cards[i],btn);
-    if(r)ok++;else fail++;
-    await delay(800);
-  }
-  document.getElementById('vn-status').textContent='Done! '+ok+' saved'+(fail?' ('+fail+' failed)':'');
-  this.textContent='Done';
-};
-
-/* re-scan on scroll */
-var scrollTimer;
-window.addEventListener('scroll',function(){
-  clearTimeout(scrollTimer);
-  scrollTimer=setTimeout(inject,1500);
-});
-
+tb.innerHTML='<div style="display:flex;align-items:center;gap:10px"><span style="font-weight:700;color:#a78bfa">Verdanote</span><span id="vn-st" style="color:#a1a1aa">Scanning\\u2026</span></div><div style="display:flex;gap:8px"><button id="vn-sa" style="background:#7c3aed;color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px">Save All Visible</button><button id="vn-x" style="background:transparent;color:#a1a1aa;border:none;padding:6px 10px;cursor:pointer;font-size:15px">\\u2715</button></div>';
+document.body.appendChild(tb);document.body.style.marginTop=tb.offsetHeight+'px';
+document.getElementById('vn-x').onclick=function(){tb.remove();document.body.style.marginTop='';document.querySelectorAll('.vn-btn').forEach(function(b){b.remove();});window.__vnActive=false;};
+function decodeFb(h){if(!h)return null;try{if(h.indexOf('l.facebook.com')>-1||h.indexOf('lm.facebook.com')>-1)return decodeURIComponent(new URL(h).searchParams.get('u')||h);return h;}catch(e){return h;}}
+function findCards(){var cards=[],seen=new Set();var spans=document.querySelectorAll('span');for(var i=0;i<spans.length;i++){if(/Library ID/i.test(spans[i].textContent)){var el=spans[i];for(var j=0;j<10;j++){if(!el.parentElement)break;el=el.parentElement;if(el.offsetHeight>200&&el.offsetWidth>250&&!seen.has(el)){seen.add(el);cards.push(el);break;}}}}if(cards.length===0){var links=document.querySelectorAll('a[href*="/ads/library/?id="]');for(var i=0;i<links.length;i++){var el=links[i];for(var j=0;j<10;j++){if(!el.parentElement)break;el=el.parentElement;if(el.offsetHeight>200&&el.offsetWidth>250&&!seen.has(el)){seen.add(el);cards.push(el);break;}}}}return cards;}
+function extract(card){var d={platform:'facebook',ad_format:'image',advertiser_name:null,body_text:null,headline:null,cta_text:null,landing_page_url:null,started_running:null,source_url:null,thumbnail_url:null,media_urls:[],library_id:''};
+var dl=card.querySelector('a[href*="/ads/library/?id="]');d.source_url=dl?dl.href:location.href;
+try{d.library_id=new URL(d.source_url).searchParams.get('id')||'';}catch(e){}
+var pLinks=card.querySelectorAll('a[href*="facebook.com/"]');for(var i=0;i<pLinks.length;i++){var t=pLinks[i].textContent.trim();if(t&&t.length>1&&t.length<100&&t.indexOf('Ad Library')<0&&pLinks[i].href.indexOf('/ads/library')<0){d.advertiser_name=t;break;}}
+if(!d.advertiser_name){var h=card.querySelector('h2,h3,[role="heading"]');if(h)d.advertiser_name=h.textContent.trim();}
+var btns=card.querySelectorAll('div[role="button"]');for(var i=0;i<btns.length;i++){if(/see more/i.test(btns[i].textContent)){try{btns[i].click();}catch(e){}}}
+var longest='';var els=card.querySelectorAll('div,span,p');for(var i=0;i<els.length;i++){var t=els[i].textContent.trim();if(t.length>longest.length&&t.length>30&&t.length<5000&&t!==d.advertiser_name&&!/^(Started running|Active since|Inactive)/i.test(t)){longest=t;}}d.body_text=longest.substring(0,2000)||null;
+var dm=card.textContent.match(/Started running on\\s+([A-Za-z]+ \\d{1,2},?\\s*\\d{4})/i);if(dm){try{var dt=new Date(dm[1]);if(!isNaN(dt.getTime()))d.started_running=dt.toISOString().split('T')[0];}catch(e){}}
+var ctas=['Shop Now','Learn More','Sign Up','Download','Book Now','Get Offer','Subscribe','Apply Now','Watch More','Order Now','Contact Us','Install Now'];var cBtns=card.querySelectorAll('a,button,[role="button"]');for(var i=0;i<cBtns.length;i++){var ct=cBtns[i].textContent.trim();for(var j=0;j<ctas.length;j++){if(ct.toLowerCase().indexOf(ctas[j].toLowerCase())>-1){d.cta_text=ct;break;}}if(d.cta_text)break;}
+var oLinks=card.querySelectorAll('a[href*="l.facebook.com"],a[href*="lm.facebook.com"]');for(var i=0;i<oLinks.length;i++){var dec=decodeFb(oLinks[i].href);if(dec&&dec.indexOf('facebook.com')<0){d.landing_page_url=dec;break;}}
+var vid=card.querySelector('video');if(vid){d.ad_format='video';var vurl=vid.currentSrc||vid.src;if(!vurl){var src=card.querySelector('video source');if(src&&src.src)vurl=src.src;}if(vurl)d.media_urls.push(vurl);}
+var imgs=card.querySelectorAll('img');var bestImg=null,bestSize=0;for(var i=0;i<imgs.length;i++){var w=imgs[i].naturalWidth||imgs[i].width||0;var h2=imgs[i].naturalHeight||imgs[i].height||0;if(w<100&&h2<100)continue;var par=imgs[i].parentElement;var br=par?getComputedStyle(par).borderRadius:'';if(br==='50%'||br==='9999px')continue;if(imgs[i].src){d.media_urls.push(imgs[i].src);var sz=w*h2;if(sz>bestSize){bestSize=sz;bestImg=imgs[i].src;}}}
+d.thumbnail_url=bestImg||null;return d;}
+function sendToPopup(ads){var p=openPopup();if(!p){alert('Popup blocked! Allow popups for Facebook, then try again.');return;}var attempts=0;var iv=setInterval(function(){attempts++;if(attempts>40){clearInterval(iv);alert('Popup did not load. Make sure you are signed into Verdanote.');return;}try{p.postMessage({type:'VERDANOTE_SAVE_AD',ads:ads},'*');}catch(e){}},500);window.addEventListener('message',function handler(ev){if(ev.data&&ev.data.type==='VERDANOTE_SAVE_COMPLETE'){clearInterval(iv);window.removeEventListener('message',handler);}});}
+function saveOne(card,btn){btn.textContent='Sending\\u2026';btn.style.background='#6366f1';var data=extract(card);if(!data.library_id&&!data.advertiser_name){btn.textContent='No data';btn.style.background='#ef4444';return;}sendToPopup([data]);btn.textContent='Sent \\u2713';btn.style.background='#059669';}
+function inject(){var cards=findCards();if(cards.length===0){setTimeout(function(){cards=findCards();if(cards.length===0){document.getElementById('vn-st').textContent='No ads found on this page.';return;}addBtns(cards);},2500);return;}addBtns(cards);}
+function addBtns(cards){cards.forEach(function(card){if(card.querySelector('.vn-btn'))return;var cs=getComputedStyle(card);if(cs.position==='static')card.style.position='relative';var b=document.createElement('button');b.className='vn-btn';b.textContent='Save';b.style.cssText='position:absolute;top:8px;right:8px;z-index:99999;background:#059669;color:#fff;border:none;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:-apple-system,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.25);';b.onmouseenter=function(){b.style.background='#047857';};b.onmouseleave=function(){b.style.background='#059669';};b.onclick=function(e){e.stopPropagation();e.preventDefault();saveOne(card,b);};card.appendChild(b);});document.getElementById('vn-st').textContent='Ad Saver Active \\u2014 '+cards.length+' ads found';}
+document.getElementById('vn-sa').onclick=function(){var cards=findCards();if(cards.length===0){alert('No ads found.');return;}var allData=[];cards.forEach(function(c){var data=extract(c);if(data.library_id||data.advertiser_name)allData.push(data);});if(allData.length===0){alert('Could not extract ad data.');return;}this.textContent='Sending '+allData.length+'\\u2026';this.style.background='#fbbf24';sendToPopup(allData);var self=this;setTimeout(function(){self.textContent='Sent '+allData.length+' \\u2713';self.style.background='#059669';cards.forEach(function(c){var b=c.querySelector('.vn-btn');if(b){b.textContent='Sent \\u2713';b.style.background='#059669';}});},1500);};
+var st;window.addEventListener('scroll',function(){clearTimeout(st);st=setTimeout(inject,1500);});
 inject();
 })();`;
 
-  return `javascript:${encodeURIComponent(code.replace(/\n\s*/g, ""))}`;
+  return `javascript:${encodeURIComponent(code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\n\s*/g, "").replace(/\s{2,}/g, " ").trim())}`;
 }
 
 function generateAtriaBookmarklet(supabaseUrl: string, anonKey: string, token: string, appUrl: string) {
