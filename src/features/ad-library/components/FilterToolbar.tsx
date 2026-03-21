@@ -36,6 +36,7 @@ export interface AdLibraryFilters {
   dateFrom: string | null;
   dateTo: string | null;
   hasTranscript: boolean;
+  videoMissingFile: boolean;
 }
 
 export const DEFAULT_FILTERS: AdLibraryFilters = {
@@ -48,6 +49,7 @@ export const DEFAULT_FILTERS: AdLibraryFilters = {
   dateFrom: null,
   dateTo: null,
   hasTranscript: false,
+  videoMissingFile: false,
 };
 
 interface FilterToolbarProps {
