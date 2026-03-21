@@ -1,6 +1,7 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { AdLibrarySavedAd, AdLibraryTag } from "@/features/ad-library/types/ad-library";
+import { getTimeCutoff } from "@/features/ad-library/components/FilterToolbar";
 
 const PAGE_SIZE = 20;
 
@@ -13,6 +14,7 @@ export interface AdLibraryQueryFilters {
   sort?: string;
   dateFrom?: string | null;
   dateTo?: string | null;
+  timeFilter?: string;
 }
 
 export function useAdLibraryAds(filters: AdLibraryQueryFilters = {}) {
@@ -55,13 +57,21 @@ export function useAdLibraryAds(filters: AdLibraryQueryFilters = {}) {
         case "oldest":
           query = query.order("created_at", { ascending: true });
           break;
+        case "name-asc":
         case "advertiser_asc":
           query = query.order("advertiser_name", { ascending: true, nullsFirst: false });
           break;
+        case "name-desc":
+          query = query.order("advertiser_name", { ascending: false, nullsFirst: false });
+          break;
+        case "start-date-new":
         case "started_running":
           query = query.order("started_running", { ascending: false, nullsFirst: false });
           break;
-        default:
+        case "start-date-old":
+          query = query.order("started_running", { ascending: true, nullsFirst: false });
+          break;
+        default: // "recent"
           query = query.order("created_at", { ascending: false });
       }
 
@@ -93,6 +103,14 @@ export function useAdLibraryAds(filters: AdLibraryQueryFilters = {}) {
       }
       if (filters.dateTo) {
         query = query.lte("started_running", filters.dateTo);
+      }
+
+      // Time filter (filter by created_at)
+      if (filters.timeFilter && filters.timeFilter !== "all") {
+        const cutoff = getTimeCutoff(filters.timeFilter);
+        if (cutoff) {
+          query = query.gte("created_at", cutoff);
+        }
       }
 
       // Pagination
