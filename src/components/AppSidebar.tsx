@@ -35,7 +35,6 @@ const baseNavItems = [
   { title: "Tagging", url: "/tagging", icon: Tags },
   { title: "Reports", url: "/reports", icon: FileText },
   { title: "Ad Library", url: "/ad-library", icon: Library },
-  { title: "Settings", url: "/settings", icon: Settings },
 ];
 
 const clientNavItems = [
@@ -44,7 +43,6 @@ const clientNavItems = [
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
   { title: "Reports", url: "/reports", icon: FileText },
-  { title: "Settings", url: "/settings", icon: Settings },
 ];
 
 export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void; onTakeTour?: () => void }) {
@@ -167,10 +165,10 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
         ))}
       </nav>
 
-      <div className="mx-5 border-t border-input" />
+      <div className="mx-3 border-t border-input" />
       {/* Preview mode indicator for builders */}
       {isBuilder && previewRole && (
-        <div className="px-3 pb-1">
+        <div className="px-3 py-1">
           <button
             onClick={() => { setPreviewRole(null); navigate(`/builder/`); }}
             className="flex items-center gap-3 rounded-md px-3 py-2 font-body text-[13px] w-full text-left text-[#92730F] bg-gold-light/50 font-medium transition-hover"
@@ -180,22 +178,8 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
           </button>
         </div>
       )}
-      <div className="px-5 pb-2 pt-1 flex items-center justify-between">
-        <div className="min-w-0">
-          <p className="font-body text-[11px] text-sage truncate">{user?.email}</p>
-        </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 w-7 p-0 rounded-md text-muted-foreground hover:text-foreground"
-          onClick={signOut}
-          title="Sign out"
-        >
-          <LogOut className="h-3.5 w-3.5" />
-        </Button>
-      </div>
       {onTakeTour && (
-        <div className="px-3 pb-4">
+        <div className="px-3 pt-1">
           <button
             onClick={onTakeTour}
             className="flex items-center gap-3 rounded-md px-3 py-2 font-body text-[12px] text-sage hover:text-forest hover:bg-accent w-full text-left transition-colors"
@@ -205,6 +189,30 @@ export function AppSidebar({ onNavigate, onTakeTour }: { onNavigate?: () => void
           </button>
         </div>
       )}
+      {/* Settings + user info */}
+      <div className="px-3 pb-4 pt-1 space-y-1">
+        <NavLink
+          to={`${prefix}/settings`}
+          className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent"
+          activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
+          onClick={onNavigate}
+        >
+          <Settings className="h-4 w-4 flex-shrink-0" />
+          Settings
+        </NavLink>
+        <div className="flex items-center justify-between px-3 py-1.5">
+          <p className="font-body text-[11px] text-sage truncate min-w-0">{user?.email}</p>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0 rounded-md text-muted-foreground hover:text-foreground flex-shrink-0"
+            onClick={signOut}
+            title="Sign out"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
     </aside>
   );
 }
