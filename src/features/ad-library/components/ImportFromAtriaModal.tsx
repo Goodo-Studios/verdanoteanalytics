@@ -55,6 +55,15 @@ interface ImportResult {
   total: number;
   errors?: string[];
   imported_ads?: Array<{ id: string; source_url: string; ad_format?: string }>;
+  results?: {
+    folders_created?: number;
+    boards_created?: number;
+    tags_created?: number;
+    ads_imported?: number;
+    ads_skipped_duplicate?: number;
+    board_assignments_created?: number;
+    tag_assignments_created?: number;
+  };
 }
 
 interface EnrichmentState {
