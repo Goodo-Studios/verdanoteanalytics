@@ -210,7 +210,7 @@ Deno.serve(async (req) => {
             }
           }
 
-          // Download thumbnail/image from Atria CDN
+          // Download thumbnail/image
           const thumbUrl = ad.thumbnail_url || null;
           if (thumbUrl && typeof thumbUrl === "string") {
             const mediaType = videoUrl ? "video_thumbnail" as const : "image" as const;
