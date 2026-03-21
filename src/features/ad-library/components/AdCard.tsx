@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import type { AdLibrarySavedAd, AdLibraryBoard } from "@/features/ad-library/types/ad-library";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -78,6 +78,45 @@ const platformColors: Record<string, string> = {
   tiktok: "bg-foreground/5 text-foreground border-foreground/10",
 };
 
+type StoredMediaLike = {
+  type: string;
+  download_failed?: boolean;
+  stored_url?: string;
+  url?: string;
+  file_size_bytes?: number;
+};
+
+function isVideoFile(url?: string | null) {
+  if (!url) return false;
+  return /\.(mp4|mov|webm)(\?|$)/i.test(url) || /video-[^.]+\.fbcdn\.net|\/o1\/v\/t2\//i.test(url);
+}
+
+function parseStoredMedia(value: unknown): StoredMediaLike[] {
+  if (Array.isArray(value)) return value as StoredMediaLike[];
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? (parsed as StoredMediaLike[]) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function cleanBodyText(text?: string | null, advertiserName?: string | null) {
+  if (!text) return "";
+
+  let cleaned = text;
+  if (advertiserName) {
+    const escaped = advertiserName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    cleaned = cleaned.replace(new RegExp(`^${escaped}\\s*Sponsored\\s*`, "i"), "");
+    cleaned = cleaned.replace(new RegExp(`^${escaped}\\s*`, "i"), "");
+  }
+
+  return cleaned.replace(/^Sponsored\s*/i, "").trim();
+}
+
 export function AdCard({
   ad,
   onViewDetails,
@@ -105,28 +144,33 @@ export function AdCard({
   const adTagIds = new Set((ad.tags || []).map((t) => t.id));
   const initial = (ad.advertiser_name || "A")[0].toUpperCase();
   const hasTranscript = (ad as any).transcript_status === "completed";
-  const storedMedia = ((ad as any).stored_media || []) as { type: string; download_failed?: boolean; stored_url?: string; url?: string; file_size_bytes?: number }[];
+  const storedMedia = useMemo(() => parseStoredMedia((ad as any).stored_media), [(ad as any).stored_media]);
   const successfulStored = storedMedia.filter(m => !m.download_failed && (m.stored_url || m.url));
   const hasStoredVideo = successfulStored.some(m => m.type === "video");
   const hasStoredCarousel = successfulStored.filter(m => m.type === "carousel_frame").length > 1;
   const carouselCount = successfulStored.filter(m => m.type === "carousel_frame").length;
-
-  const isVideoAd = ad.ad_format === "video";
-
   const rawThumbUrl = ad.thumbnail_url || "";
-  const thumbIsVideo = /\.(mp4|mov|webm)(\?|$)/i.test(rawThumbUrl);
+  const mediaUrls = useMemo(() => (Array.isArray(ad.media_urls) ? ad.media_urls.filter(Boolean) : []), [ad.media_urls]);
+  const thumbIsVideo = isVideoFile(rawThumbUrl);
 
-  // Get stored video URL - check both stored_url and url fields
   const storedVideoEntry = successfulStored.find(m => m.type === "video");
   const storedVideoUrl = storedVideoEntry?.stored_url || storedVideoEntry?.url;
-  // Get stored image URL for thumbnail
-  const storedImageEntry = successfulStored.find(m => m.type === "image" || m.type === "video_thumbnail");
+  const storedImageEntry = successfulStored.find(m => m.type === "image" || m.type === "video_thumbnail" || m.type === "carousel_frame");
   const storedImageUrl = storedImageEntry?.stored_url || storedImageEntry?.url;
+  const directVideoUrl = typeof (ad as any).video_url === "string" ? (ad as any).video_url : "";
+  const mediaVideoUrl = mediaUrls.find(isVideoFile) || "";
+  const mediaImageUrl = mediaUrls.find((url) => !isVideoFile(url)) || "";
+  const playableVideoUrl = storedVideoUrl || directVideoUrl || mediaVideoUrl || (thumbIsVideo ? rawThumbUrl : null);
+  const thumbUrl = storedImageUrl || (!thumbIsVideo ? rawThumbUrl : "") || mediaImageUrl || null;
+  const isVideoAd = ad.ad_format === "video" || Boolean(playableVideoUrl);
+  const [previewFrameReady, setPreviewFrameReady] = useState(Boolean(thumbUrl));
+  const [videoError, setVideoError] = useState(false);
 
-  // Determine the best thumbnail: prefer stored image, then thumbnail_url if it's an image
-  const thumbUrl = storedImageUrl || (thumbIsVideo ? "" : rawThumbUrl);
-  // The playable video URL
-  const playableVideoUrl = storedVideoUrl || (thumbIsVideo ? rawThumbUrl : null);
+  useEffect(() => {
+    setPreviewFrameReady(Boolean(thumbUrl));
+    setVideoError(false);
+    setIsPlaying(false);
+  }, [thumbUrl, playableVideoUrl, ad.id]);
 
   const videoMissing = isVideoAd && !playableVideoUrl;
   const isProfilePicThumb = /\/profile|\/avatar|\/logo|page_picture|p\d{2,3}x\d{2,3}|s\d{2,3}x\d{2,3}/i.test(rawThumbUrl);
@@ -151,17 +195,25 @@ export function AdCard({
 
   const handlePlayClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
+    e.preventDefault();
     if (!playableVideoUrl || !videoRef.current) return;
-    // Pause any other playing video
-    window.dispatchEvent(new CustomEvent('verdanote-video-play', { detail: ad.id }));
-    videoRef.current.play().catch(console.error);
-  }, [playableVideoUrl, ad.id]);
+    if (isPlaying) {
+      videoRef.current.pause();
+      setIsPlaying(false);
+      return;
+    }
+    window.dispatchEvent(new CustomEvent("verdanote-video-play", { detail: ad.id }));
+    videoRef.current.play().catch((error) => {
+      console.error("Video play failed:", error);
+      setVideoError(true);
+    });
+  }, [playableVideoUrl, ad.id, isPlaying]);
 
   const handleStopVideo = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     if (videoRef.current) {
       videoRef.current.pause();
-      videoRef.current.currentTime = 1;
+      videoRef.current.currentTime = 0.1;
     }
     setIsPlaying(false);
   }, []);
@@ -188,18 +240,13 @@ export function AdCard({
   }, [ad.id, isPlaying]);
 
   const handleMediaClick = useCallback((e: React.MouseEvent) => {
-    if (isVideoAd && playableVideoUrl) {
-      if (!isPlaying) {
-        handlePlayClick(e);
-      }
+    e.stopPropagation();
+    if (selectable) {
+      onToggleSelect?.(ad.id);
     } else {
-      if (selectable) {
-        onToggleSelect?.(ad.id);
-      } else {
-        onViewDetails?.(ad);
-      }
+      onViewDetails?.(ad);
     }
-  }, [isVideoAd, playableVideoUrl, isPlaying, selectable, ad]);
+  }, [selectable, onToggleSelect, onViewDetails, ad]);
 
   const handleCardBodyClick = useCallback(() => {
     if (selectable) {
@@ -250,24 +297,54 @@ export function AdCard({
               <video
                 ref={videoRef}
                 src={playableVideoUrl}
+                poster={thumbUrl || undefined}
                 muted={isMuted}
                 playsInline
                 preload="auto"
-                className="w-full object-contain"
+                className={cn("w-full object-contain bg-black", !isPlaying && "pointer-events-none")}
                 style={{ maxHeight: "500px" }}
+                loop
                 onLoadedData={(e) => {
                   const v = e.currentTarget;
-                  if (!isPlaying && v.duration > 1) v.currentTime = 1;
+                  if (!thumbUrl && !isPlaying && !previewFrameReady && v.duration > 0.2) {
+                    try {
+                      v.currentTime = Math.min(1, Math.max(0.1, v.duration * 0.1));
+                    } catch {
+                      // ignore
+                    }
+                  }
+                  setPreviewFrameReady(true);
                 }}
+                onSeeked={() => setPreviewFrameReady(true)}
                 onEnded={() => {
                   setIsPlaying(false);
-                  if (videoRef.current) videoRef.current.currentTime = 1;
+                  if (videoRef.current) videoRef.current.currentTime = 0.1;
                 }}
                 onPlay={() => setIsPlaying(true)}
                 onPause={() => setIsPlaying(false)}
-                onClick={(e) => e.stopPropagation()}
+                onError={() => setVideoError(true)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isPlaying) handlePlayClick(e);
+                }}
                 controls={isPlaying}
               />
+              {!isPlaying && thumbUrl && !videoError && (
+                <div className="absolute inset-0 z-[2] cursor-pointer" onClick={handleMediaClick}>
+                  <img
+                    src={thumbUrl}
+                    alt={ad.headline || ad.advertiser_name || "Ad"}
+                    className="w-full object-cover"
+                    style={{ maxHeight: "500px" }}
+                    loading="lazy"
+                  />
+                </div>
+              )}
+              {!isPlaying && !thumbUrl && !previewFrameReady && !videoError && (
+                <div className="absolute inset-0 z-[2] flex items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
+                  <span className="font-heading text-[2rem] text-primary/40 select-none">{initial}</span>
+                </div>
+              )}
               {/* Close and mute buttons when playing */}
               {isPlaying && (
                 <div className="absolute top-2 right-2 z-20 flex gap-1.5">
@@ -287,7 +364,12 @@ export function AdCard({
               )}
               {/* Play button overlay when NOT playing */}
               {!isPlaying && (
-                <div className="absolute inset-0 z-[4] flex items-center justify-center">
+                <button
+                  type="button"
+                  onClick={handlePlayClick}
+                  className="absolute inset-0 z-[4] flex items-center justify-center"
+                  style={{ background: thumbUrl || previewFrameReady ? "rgba(0,0,0,0.18)" : "rgba(0,0,0,0.28)" }}
+                >
                   <div className={cn(
                     "h-14 w-14 rounded-full flex items-center justify-center transition-all duration-200",
                     "bg-background/80 backdrop-blur-sm shadow-lg",
@@ -296,6 +378,12 @@ export function AdCard({
                   )}>
                     <Play className="h-6 w-6 ml-0.5" fill="currentColor" />
                   </div>
+                </button>
+              )}
+              {videoError && !isPlaying && (
+                <div className="absolute inset-0 z-[5] flex flex-col items-center justify-center gap-2 bg-muted/90 cursor-pointer" onClick={handleMediaClick}>
+                  <Play className="h-8 w-8 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground font-body">Open to view</span>
                 </div>
               )}
             </div>
@@ -434,10 +522,7 @@ export function AdCard({
           {/* Body text preview */}
           {ad.body_text && (
             <p className="font-body text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-              {ad.body_text
-                .replace(new RegExp(`^${(ad.advertiser_name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`, 'i'), '')
-                .replace(/^Sponsored\s*/i, '')
-              }
+              {cleanBodyText(ad.body_text, ad.advertiser_name)}
             </p>
           )}
 
