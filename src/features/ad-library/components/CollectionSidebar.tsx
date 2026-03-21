@@ -233,7 +233,26 @@ export function CollectionSidebar({ selectedBoardId, onSelect }: Props) {
                   <MoreHorizontal className="h-3 w-3" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="min-w-[140px]">
+              <DropdownMenuContent align="start" className="min-w-[160px]">
+                {folders.length > 0 && (
+                  <>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <FolderInput className="h-3.5 w-3.5 mr-2" />
+                        Move to Folder
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="min-w-[140px]">
+                        {folders.map(f => (
+                          <DropdownMenuItem key={f.id} onClick={() => moveBoard.mutate({ boardId: board.id, folderId: f.id })}>
+                            <Folder className="h-3.5 w-3.5 mr-2" />
+                            {f.name}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
                 <DropdownMenuItem
                   onClick={() => setDeletingBoard({ id: board.id, name: board.name, ad_count: board.ad_count ?? 0 })}
                   className="text-destructive focus:text-destructive"
