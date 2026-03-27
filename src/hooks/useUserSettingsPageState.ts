@@ -50,6 +50,7 @@ export function useUserSettingsPageState() {
   const { data: users } = useUsers();
   const createUser = useCreateUser();
   const deleteUser = useDeleteUser();
+  const updateUser = useUpdateUser();
 
   const existingIds = new Set((accounts || []).map((a: any) => a.id));
 
