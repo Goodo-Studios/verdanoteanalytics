@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Users, UserPlus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -11,9 +12,10 @@ interface UserManagementSectionProps {
   accounts: any[];
   onCreateUser: () => void;
   onDeleteUser: (userId: string) => void;
+  onUpdateRole: (userId: string, role: string) => void;
 }
 
-export function UserManagementSection({ users, accounts, onCreateUser, onDeleteUser }: UserManagementSectionProps) {
+export function UserManagementSection({ users, accounts, onCreateUser, onDeleteUser, onUpdateRole }: UserManagementSectionProps) {
   return (
     <section className="glass-panel p-6 space-y-4">
       <div className="flex items-center justify-between">
@@ -54,10 +56,16 @@ export function UserManagementSection({ users, accounts, onCreateUser, onDeleteU
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge className={cn(
-                      "font-label text-[10px] font-semibold rounded-[4px] tracking-wide px-2 py-0.5 border-0 capitalize",
-                      u.role === "client" ? "bg-gold-light text-[#92730F]" : "bg-sage-light text-forest"
-                    )}>{u.role || "none"}</Badge>
+                    <Select value={u.role || "none"} onValueChange={(val) => onUpdateRole(u.user_id, val)}>
+                      <SelectTrigger className="w-[120px] h-8 text-[12px] font-body bg-background">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="client">Client</SelectItem>
+                        <SelectItem value="employee">Employee</SelectItem>
+                        <SelectItem value="builder">Builder</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </TableCell>
                   <TableCell>
                     {u.account_ids?.length > 0 ? (
