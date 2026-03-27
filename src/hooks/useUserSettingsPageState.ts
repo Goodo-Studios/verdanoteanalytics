@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { useSettings, useTestMeta } from "@/hooks/useSettingsApi";
 import { useAccounts, useAddAccount, useDeleteAccount, useRenameAccount } from "@/hooks/useAccountsApi";
 import { useSync, useRefreshMedia } from "@/hooks/useSyncApi";
-import { useUsers, useCreateUser, useDeleteUser } from "@/hooks/useUsersApi";
+import { useUsers, useCreateUser, useDeleteUser, useUpdateUser } from "@/hooks/useUsersApi";
 
 export function useUserSettingsPageState() {
   const { user, role, isBuilder } = useAuth();
