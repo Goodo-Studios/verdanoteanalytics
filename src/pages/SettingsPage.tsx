@@ -251,6 +251,7 @@ const SettingsPage = () => {
             accounts={userState.accounts}
             onCreateUser={() => userState.setShowCreateUser(true)}
             onDeleteUser={userState.setShowDeleteUserConfirm}
+            onUpdateRole={(userId, role) => userState.updateUser.mutate({ userId, role })}
           />
           <SyncScheduleSection
             accounts={accountState.accounts}
