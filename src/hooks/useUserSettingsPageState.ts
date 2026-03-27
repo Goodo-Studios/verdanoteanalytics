@@ -199,6 +199,6 @@ export function useUserSettingsPageState() {
     newUserName, setNewUserName, newUserRole, setNewUserRole,
     newUserAccountIds, setNewUserAccountIds,
     handleCreateUser, createUser,
-    showDeleteUserConfirm, setShowDeleteUserConfirm, deleteUser,
+    showDeleteUserConfirm, setShowDeleteUserConfirm, deleteUser, updateUser,
   };
 }
