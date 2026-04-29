@@ -417,6 +417,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             campaign_name: ad.campaign?.name || null,
             adset_name: ad.adset?.name || null,
             ad_post_url: adPostUrl,
+            created_time: ad.created_time || null,
           };
           if (taggedAdIds.has(ad.id)) {
             metadataBatch.push({ ad_id: ad.id, data: metadata });
@@ -529,7 +530,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           // Fetch ads for this campaign
           let nextUrl: string | null = campCursor || (
             `https://graph.facebook.com/${META_API_VERSION}/${campaign.id}/ads?` +
-            `fields=id,name,status,campaign{name},adset{name},creative{effective_object_story_id}` +
+            `fields=id,name,status,created_time,campaign{name},adset{name},creative{effective_object_story_id}` +
             `&filtering=${deliveredFilter}` +
             `&limit=200&access_token=${encodeURIComponent(metaToken)}`
           );
