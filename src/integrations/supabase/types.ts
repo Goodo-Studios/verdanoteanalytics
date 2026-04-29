@@ -1111,6 +1111,7 @@ export type Database = {
           cpc: number | null
           cpm: number | null
           created_at: string
+          created_time: string | null
           creator_id: string | null
           ctr: number | null
           frequency: number | null
@@ -1166,6 +1167,7 @@ export type Database = {
           cpc?: number | null
           cpm?: number | null
           created_at?: string
+          created_time?: string | null
           creator_id?: string | null
           ctr?: number | null
           frequency?: number | null
@@ -1221,6 +1223,7 @@ export type Database = {
           cpc?: number | null
           cpm?: number | null
           created_at?: string
+          created_time?: string | null
           creator_id?: string | null
           ctr?: number | null
           frequency?: number | null
