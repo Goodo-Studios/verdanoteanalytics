@@ -417,6 +417,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             campaign_name: ad.campaign?.name || null,
             adset_name: ad.adset?.name || null,
             ad_post_url: adPostUrl,
+            created_time: ad.created_time || null,
           };
           if (taggedAdIds.has(ad.id)) {
             metadataBatch.push({ ad_id: ad.id, data: metadata });
