@@ -17,24 +17,56 @@ serve(async (req) => {
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Find accounts due for sync
+    // Atomically claim accounts due for sync by advancing next_sync_at before processing.
+    // Using UPDATE...RETURNING ensures only one concurrent invocation claims each account,
+    // preventing duplicate syncs from at-least-once cron delivery.
+    // We advance by 6 hours (the minimum sync cadence) as a claim placeholder;
+    // the correct next_sync_at is recalculated and written after the sync completes.
     const now = new Date().toISOString();
-    const { data: dueAccounts, error: queryError } = await supabase
-      .from("ad_accounts")
-      .select("id, name, sync_frequency, sync_hour, sync_timezone, next_sync_at, last_synced_at")
-      .neq("sync_frequency", "manual")
-      .eq("is_active", true)
-      .or(`next_sync_at.is.null,next_sync_at.lte.${now}`);
+    const { data: dueAccounts, error: queryError } = await supabase.rpc(
+      "claim_due_sync_accounts",
+      { cutoff: now }
+    );
 
-    if (queryError) {
-      console.error("Error querying accounts:", queryError);
+    // Fallback: if the RPC isn't available, use a raw query approach via the REST API
+    // (the rpc call above requires a matching Postgres function; see migration notes).
+    // As an inline alternative that works with the JS client, we use two steps but
+    // guard with a unique constraint / advisory lock pattern via a direct SQL approach:
+    // We fetch then immediately UPDATE with a WHERE next_sync_at = <fetched value> to
+    // simulate CAS (compare-and-swap). However, the cleanest production path is the RPC.
+    // For now, if the RPC fails (function not found), fall through to the legacy path with a warning.
+    if (queryError && queryError.code !== "PGRST202") {
+      console.error("Error claiming accounts:", queryError);
       return new Response(JSON.stringify({ error: queryError.message }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    if (!dueAccounts || dueAccounts.length === 0) {
+    // If RPC not found, fall back to atomic UPDATE via raw SQL through supabase-js
+    let claimedAccounts = dueAccounts;
+    if (queryError?.code === "PGRST202") {
+      console.warn("claim_due_sync_accounts RPC not found, using inline UPDATE...RETURNING");
+      // 6 hours in the future as a safe claim window (minimum sync cadence)
+      const claimUntil = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
+      const { data: updated, error: updateError } = await supabase
+        .from("ad_accounts")
+        .update({ next_sync_at: claimUntil })
+        .neq("sync_frequency", "manual")
+        .eq("is_active", true)
+        .or(`next_sync_at.is.null,next_sync_at.lte.${now}`)
+        .select("id, name, sync_frequency, sync_hour, sync_timezone, next_sync_at, last_synced_at");
+      if (updateError) {
+        console.error("Error claiming accounts via UPDATE:", updateError);
+        return new Response(JSON.stringify({ error: updateError.message }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      claimedAccounts = updated;
+    }
+
+    if (!claimedAccounts || claimedAccounts.length === 0) {
       return new Response(JSON.stringify({ triggered: 0, message: "No accounts due for sync" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -42,7 +74,7 @@ serve(async (req) => {
 
     const triggered: string[] = [];
 
-    for (const account of dueAccounts) {
+    for (const account of claimedAccounts) {
       try {
         // Trigger sync via the existing sync edge function
         const syncResp = await fetch(`${supabaseUrl}/functions/v1/sync`, {

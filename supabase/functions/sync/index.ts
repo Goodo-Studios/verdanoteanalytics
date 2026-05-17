@@ -1380,9 +1380,9 @@ serve(async (req) => {
 
   // Auth: validate user token or cron anon key
   // The Supabase gateway validates the JWT/apikey before the function runs.
-  // For user-initiated actions (sync start, cancel), we additionally verify role.
-  // For cron paths (continue, history), gateway auth is sufficient.
-  const isCronSafePath = path === "continue" || path.startsWith("history");
+  // For user-initiated actions (sync start, cancel, history), we additionally verify role.
+  // Only /continue (self-invoked with service role key) bypasses additional auth checks.
+  const isCronSafePath = path === "continue";
   if (!isCronSafePath) {
     const authHeader = req.headers.get("authorization");
     if (!authHeader) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
