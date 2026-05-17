@@ -21,82 +21,50 @@ export interface DailyTrendPoint {
   cost_per_atc: number;
 }
 
-export function useDailyTrends(accountId?: string) {
+export function useDailyTrends(
+  accountId?: string,
+  dateRange?: { from: string; to: string }
+) {
   return useQuery<DailyTrendPoint[]>({
-    queryKey: ["daily-trends", accountId || "all"],
+    queryKey: ["daily-trends", accountId || "all", dateRange?.from, dateRange?.to],
+    staleTime: 5 * 60 * 1000,
     queryFn: async () => {
-      let query = supabase
-        .from("creative_daily_metrics")
-        .select("date, spend, impressions, clicks, purchases, purchase_value, adds_to_cart, video_views, frequency, account_id, ad_id")
-        .order("date", { ascending: true });
+      const { data, error } = await supabase.rpc("get_daily_trends", {
+        p_account_id: accountId && accountId !== "all" ? accountId : null,
+        p_from: dateRange?.from ?? null,
+        p_to: dateRange?.to ?? null,
+      });
 
-      if (accountId && accountId !== "all") {
-        query = query.eq("account_id", accountId);
-      }
+      if (error) throw error;
+      if (!data) return [];
 
-      // Fetch in chunks to handle large datasets
-      const allRows: any[] = [];
-      let offset = 0;
-      const PAGE = 1000;
-      while (true) {
-        const { data, error } = await query.range(offset, offset + PAGE - 1);
-        if (error) throw error;
-        if (!data || data.length === 0) break;
-        allRows.push(...data);
-        if (data.length < PAGE) break;
-        offset += PAGE;
-      }
+      return (data as any[]).map((row) => {
+        const spend = Number(row.spend) || 0;
+        const impressions = Number(row.impressions) || 0;
+        const clicks = Number(row.clicks) || 0;
+        const purchases = Number(row.purchases) || 0;
+        const purchase_value = Number(row.purchase_value) || 0;
+        const adds_to_cart = Number(row.adds_to_cart) || 0;
 
-      // Aggregate by date
-      const byDate: Record<string, {
-        spend: number; impressions: number; clicks: number; purchases: number;
-        purchase_value: number; adds_to_cart: number; video_views: number;
-        frequencySum: number; frequencyCount: number; adIds: Set<string>;
-      }> = {};
-
-      for (const row of allRows) {
-        if (!byDate[row.date]) {
-          byDate[row.date] = {
-            spend: 0, impressions: 0, clicks: 0, purchases: 0,
-            purchase_value: 0, adds_to_cart: 0, video_views: 0,
-            frequencySum: 0, frequencyCount: 0, adIds: new Set(),
-          };
-        }
-        const d = byDate[row.date];
-        d.spend += Number(row.spend) || 0;
-        d.impressions += Number(row.impressions) || 0;
-        d.clicks += Number(row.clicks) || 0;
-        d.purchases += Number(row.purchases) || 0;
-        d.purchase_value += Number(row.purchase_value) || 0;
-        d.adds_to_cart += Number(row.adds_to_cart) || 0;
-        d.video_views += Number(row.video_views) || 0;
-        if (row.frequency != null && Number(row.frequency) > 0) {
-          d.frequencySum += Number(row.frequency);
-          d.frequencyCount += 1;
-        }
-        if (row.ad_id) d.adIds.add(row.ad_id);
-      }
-
-      return Object.entries(byDate)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, d]) => ({
-          date,
-          spend: d.spend,
-          impressions: d.impressions,
-          clicks: d.clicks,
-          purchases: d.purchases,
-          purchase_value: d.purchase_value,
-          adds_to_cart: d.adds_to_cart,
-          video_views: d.video_views,
-          frequency: d.frequencyCount > 0 ? d.frequencySum / d.frequencyCount : 0,
-          activeAdCount: d.adIds.size,
-          ctr: d.impressions > 0 ? (d.clicks / d.impressions) * 100 : 0,
-          cpm: d.impressions > 0 ? (d.spend / d.impressions) * 1000 : 0,
-          cpc: d.clicks > 0 ? d.spend / d.clicks : 0,
-          cpa: d.purchases > 0 ? d.spend / d.purchases : 0,
-          roas: d.spend > 0 ? d.purchase_value / d.spend : 0,
-          cost_per_atc: d.adds_to_cart > 0 ? d.spend / d.adds_to_cart : 0,
-        }));
+        return {
+          date: row.trend_date as string,
+          spend,
+          impressions,
+          clicks,
+          purchases,
+          purchase_value,
+          adds_to_cart,
+          video_views: Number(row.video_views) || 0,
+          frequency: Number(row.avg_frequency) || 0,
+          activeAdCount: Number(row.active_ad_count) || 0,
+          ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
+          cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
+          cpc: clicks > 0 ? spend / clicks : 0,
+          cpa: purchases > 0 ? spend / purchases : 0,
+          roas: spend > 0 ? purchase_value / spend : 0,
+          cost_per_atc: adds_to_cart > 0 ? spend / adds_to_cart : 0,
+        };
+      });
     },
   });
 }

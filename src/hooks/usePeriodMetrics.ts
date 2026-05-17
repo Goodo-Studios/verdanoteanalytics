@@ -17,7 +17,8 @@ export interface PeriodMetrics {
 
 /**
  * Aggregates metrics from creative_daily_metrics for a specific date range.
- * This produces accurate period totals (unlike creatives table which is a snapshot).
+ * Uses the get_period_metrics Postgres RPC to perform a single server-side SUM()
+ * instead of fetching and aggregating rows client-side.
  */
 export function usePeriodMetrics(opts: {
   accountId?: string;
@@ -30,55 +31,40 @@ export function usePeriodMetrics(opts: {
   return useQuery<PeriodMetrics>({
     queryKey: ["period-metrics", accountId || "all", dateFrom, dateTo],
     enabled: enabled && !!dateFrom && !!dateTo,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 2 * 60 * 1000,
     refetchOnWindowFocus: false,
     queryFn: async () => {
-      // Fetch daily metrics in pages of 1000
-      const allRows: any[] = [];
-      let offset = 0;
-      const PAGE = 1000;
+      const { data, error } = await supabase.rpc("get_period_metrics", {
+        p_account_id: accountId && accountId !== "all" ? accountId : null,
+        p_from: dateFrom!,
+        p_to: dateTo!,
+      });
 
-      while (true) {
-        let query = supabase
-          .from("creative_daily_metrics")
-          .select("ad_id, spend, impressions, clicks, purchases, purchase_value, adds_to_cart, video_views")
-          .gte("date", dateFrom!)
-          .lte("date", dateTo!)
-          .range(offset, offset + PAGE - 1);
+      if (error) throw error;
 
-        if (accountId && accountId !== "all") {
-          query = query.eq("account_id", accountId);
-        }
-
-        const { data, error } = await query;
-        if (error) throw error;
-        if (!data || data.length === 0) break;
-        allRows.push(...data);
-        if (data.length < PAGE) break;
-        offset += PAGE;
+      // RPC returns a single-row TABLE result; Supabase wraps it as an array
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row) {
+        return {
+          totalSpend: 0,
+          totalImpressions: 0,
+          totalClicks: 0,
+          totalPurchases: 0,
+          totalPurchaseValue: 0,
+          totalAddsToCart: 0,
+          totalVideoViews: 0,
+          activeCount: 0,
+          avgRoas: 0,
+          avgCpa: 0,
+          avgCtr: 0,
+        };
       }
 
-      // Aggregate totals and track unique active ads
-      let totalSpend = 0;
-      let totalImpressions = 0;
-      let totalClicks = 0;
-      let totalPurchases = 0;
-      let totalPurchaseValue = 0;
-      let totalAddsToCart = 0;
-      let totalVideoViews = 0;
-      const activeAdIds = new Set<string>();
-
-      for (const row of allRows) {
-        const spend = Number(row.spend) || 0;
-        totalSpend += spend;
-        totalImpressions += Number(row.impressions) || 0;
-        totalClicks += Number(row.clicks) || 0;
-        totalPurchases += Number(row.purchases) || 0;
-        totalPurchaseValue += Number(row.purchase_value) || 0;
-        totalAddsToCart += Number(row.adds_to_cart) || 0;
-        totalVideoViews += Number(row.video_views) || 0;
-        if (spend > 0) activeAdIds.add(row.ad_id);
-      }
+      const totalSpend = Number(row.total_spend) || 0;
+      const totalImpressions = Number(row.total_impressions) || 0;
+      const totalClicks = Number(row.total_clicks) || 0;
+      const totalPurchases = Number(row.total_purchases) || 0;
+      const totalPurchaseValue = Number(row.total_purchase_value) || 0;
 
       return {
         totalSpend,
@@ -86,9 +72,9 @@ export function usePeriodMetrics(opts: {
         totalClicks,
         totalPurchases,
         totalPurchaseValue,
-        totalAddsToCart,
-        totalVideoViews,
-        activeCount: activeAdIds.size,
+        totalAddsToCart: Number(row.total_adds_to_cart) || 0,
+        totalVideoViews: Number(row.total_video_views) || 0,
+        activeCount: Number(row.active_count) || 0,
         avgRoas: totalSpend > 0 ? totalPurchaseValue / totalSpend : 0,
         avgCpa: totalPurchases > 0 ? totalSpend / totalPurchases : 0,
         avgCtr: totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0,
