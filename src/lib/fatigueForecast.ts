@@ -121,10 +121,10 @@ export function computeFatigueForecast(dailyRows: any[]): FatigueForecast | null
     return { historical, projected, slope, currentScore, daysToWarning: null, daysToCritical: null, status: "stable" };
   }
 
-  // Calculate days to thresholds from last data point
-  const currentTrend = slope * lastDay + intercept;
-  const daysToWarning = Math.ceil((WARNING_THRESHOLD - currentTrend) / slope);
-  const daysToCritical = Math.ceil((CRITICAL_THRESHOLD - currentTrend) / slope);
+  // Calculate days to thresholds from last data point using actual current score,
+  // not the regression value at lastDay (which lags noisy data and can suppress valid warnings)
+  const daysToWarning = Math.ceil((WARNING_THRESHOLD - currentScore) / slope);
+  const daysToCritical = Math.ceil((CRITICAL_THRESHOLD - currentScore) / slope);
 
   const projected = buildProjection(lastDay, slope, intercept, 14);
 

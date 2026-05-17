@@ -98,7 +98,9 @@ export function computeFatigueMap(
     for (const [adId, dates] of byAd) {
       const sorted = [...new Set(dates)].sort().reverse();
       let count = 0;
-      const today = new Date();
+      // Use the max date in the dataset as "today" to avoid timezone issues
+      // (e.g. at 4pm PST / midnight UTC, new Date() would be "tomorrow" relative to the latest UTC data row)
+      const today = new Date(Math.max(...sorted.map(d => new Date(d).getTime())));
       for (let i = 0; i < sorted.length; i++) {
         const expected = new Date(today);
         expected.setDate(expected.getDate() - i);
