@@ -32,12 +32,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [role, setRole] = useState<AppRole | null>(null);
+  const [roleResolved, setRoleResolved] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchRole = async (userId: string) => {
     const { data } = await supabase.rpc("get_user_role", { _user_id: userId });
     setRole((data as AppRole) || null);
+    setRoleResolved(true);
   };
+
+  // Clear loading only once both session is known AND role is resolved
+  useEffect(() => {
+    if (roleResolved) {
+      setIsLoading(false);
+    }
+  }, [roleResolved]);
 
   useEffect(() => {
     let initialSessionHandled = false;
@@ -48,14 +57,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(session?.user ?? null);
         if (session?.user) {
           // Use setTimeout to avoid Supabase deadlock
+          // isLoading stays true until fetchRole completes and sets roleResolved=true
           setTimeout(() => fetchRole(session.user.id), 0);
         } else {
+          // No user — role is inherently resolved (null)
           setRole(null);
+          setRoleResolved(true);
         }
-        // Only clear loading after the initial session event
-        if (event === 'INITIAL_SESSION' || initialSessionHandled) {
+        // Only act on the initial session event; subsequent events (SIGNED_IN, etc.)
+        // do not need to touch loading state here — roleResolved effect handles it
+        if (event === 'INITIAL_SESSION') {
           initialSessionHandled = true;
-          setIsLoading(false);
+          // If there is no user, loading was already cleared above via roleResolved.
+          // If there is a user, loading clears once fetchRole resolves.
         }
       }
     );
@@ -69,8 +83,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(session?.user ?? null);
           if (session?.user) {
             fetchRole(session.user.id);
+          } else {
+            setRole(null);
+            setRoleResolved(true);
           }
-          setIsLoading(false);
         });
       }
     }, 3000);

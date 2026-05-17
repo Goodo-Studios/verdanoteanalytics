@@ -24,9 +24,18 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const { isClient, user } = useAuth();
   const needsAccountFilter = isClient;
   const [linkedAccountIds, setLinkedAccountIds] = useState<string[] | null>(null);
-  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(() => {
-    return localStorage.getItem("selectedAccountId");
-  });
+  // Initialize to null — load from namespaced key once user is known (see effect below)
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+
+  // Load namespaced account selection when user changes; clear when user logs out
+  useEffect(() => {
+    if (user) {
+      const stored = localStorage.getItem(`selectedAccountId_${user.id}`);
+      setSelectedAccountId(stored ?? null);
+    } else {
+      setSelectedAccountId(null);
+    }
+  }, [user?.id]);
 
   // Fetch linked accounts for clients
   useEffect(() => {
@@ -73,14 +82,15 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     }
   }, [accounts, isLoading, selectedAccountId, isClient]);
 
-  // Persist selection
+  // Persist selection under namespaced key (no-op when user is not yet known)
   useEffect(() => {
+    if (!user) return;
     if (selectedAccountId) {
-      localStorage.setItem("selectedAccountId", selectedAccountId);
+      localStorage.setItem(`selectedAccountId_${user.id}`, selectedAccountId);
     } else {
-      localStorage.removeItem("selectedAccountId");
+      localStorage.removeItem(`selectedAccountId_${user.id}`);
     }
-  }, [selectedAccountId]);
+  }, [selectedAccountId, user?.id]);
 
   const selectedAccount = (accounts || []).find((a: any) => a.id === selectedAccountId) || null;
 
