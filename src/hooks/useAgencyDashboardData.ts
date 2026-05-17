@@ -1,8 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
-const PAGE_SIZE = 1000;
-
 type AccountLike = { id: string };
 
 type CreativeRow = {
@@ -16,103 +14,6 @@ type CreativeRow = {
   frequency?: number | null;
 };
 
-type CurrentMetricRow = {
-  account_id: string;
-  ad_id: string;
-  spend: number | null;
-  purchase_value: number | null;
-  impressions: number | null;
-  frequency: number | null;
-};
-
-type PriorMetricRow = {
-  account_id: string;
-  spend: number | null;
-};
-
-type CreativeMetaRow = {
-  ad_id: string;
-  account_id: string;
-  ad_name: string | null;
-  thumbnail_url: string | null;
-};
-
-async function fetchCurrentMetricRows(accountIds: string[], dateFrom: string, dateTo: string) {
-  const rows: CurrentMetricRow[] = [];
-  let offset = 0;
-
-  while (true) {
-    const { data, error } = await supabase
-      .from("creative_daily_metrics")
-      .select("account_id, ad_id, spend, purchase_value, impressions, frequency")
-      .in("account_id", accountIds)
-      .gte("date", dateFrom)
-      .lte("date", dateTo)
-      .order("account_id", { ascending: true })
-      .order("ad_id", { ascending: true })
-      .order("date", { ascending: true })
-      .range(offset, offset + PAGE_SIZE - 1);
-
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-
-    rows.push(...data);
-    if (data.length < PAGE_SIZE) break;
-    offset += PAGE_SIZE;
-  }
-
-  return rows;
-}
-
-async function fetchPriorMetricRows(accountIds: string[], dateFrom: string, dateTo: string) {
-  const rows: PriorMetricRow[] = [];
-  let offset = 0;
-
-  while (true) {
-    const { data, error } = await supabase
-      .from("creative_daily_metrics")
-      .select("account_id, spend")
-      .in("account_id", accountIds)
-      .gte("date", dateFrom)
-      .lte("date", dateTo)
-      .order("account_id", { ascending: true })
-      .order("date", { ascending: true })
-      .range(offset, offset + PAGE_SIZE - 1);
-
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-
-    rows.push(...data);
-    if (data.length < PAGE_SIZE) break;
-    offset += PAGE_SIZE;
-  }
-
-  return rows;
-}
-
-async function fetchCreativeMetadata(accountIds: string[]) {
-  const rows: CreativeMetaRow[] = [];
-  let offset = 0;
-
-  while (true) {
-    const { data, error } = await supabase
-      .from("creatives")
-      .select("ad_id, account_id, ad_name, thumbnail_url")
-      .in("account_id", accountIds)
-      .order("ad_id", { ascending: true })
-      .range(offset, offset + PAGE_SIZE - 1);
-
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-
-    rows.push(...data);
-    if (data.length < PAGE_SIZE) break;
-    offset += PAGE_SIZE;
-  }
-
-  return rows;
-}
-
 export function useAgencyDashboardData(accounts: AccountLike[], dateFrom?: string, dateTo?: string) {
   const accountIds = accounts.map((account) => account.id).sort();
 
@@ -123,98 +24,85 @@ export function useAgencyDashboardData(accounts: AccountLike[], dateFrom?: strin
     refetchOnWindowFocus: false,
     queryFn: async () => {
       const now = new Date();
-      const today = dateTo || now.toISOString().slice(0, 10);
-      const currentMonthStart = dateFrom || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+      const pFrom = dateFrom ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+      const pTo   = dateTo   ?? now.toISOString().slice(0, 10);
+
+      // Prior month date range for MoM spend comparison
       const priorMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const priorEnd = new Date(now.getFullYear(), now.getMonth(), 0);
-      const priorFrom = priorMonth.toISOString().slice(0, 10);
-      const priorTo = priorEnd.toISOString().slice(0, 10);
+      const priorEnd   = new Date(now.getFullYear(), now.getMonth(), 0);
+      const priorFrom  = priorMonth.toISOString().slice(0, 10);
+      const priorTo    = priorEnd.toISOString().slice(0, 10);
 
-      const [currentRows, priorRows, creativeMetaRows] = await Promise.all([
-        fetchCurrentMetricRows(accountIds, currentMonthStart, today),
-        fetchPriorMetricRows(accountIds, priorFrom, priorTo),
-        fetchCreativeMetadata(accountIds),
-      ]);
+      const { data, error } = await supabase.rpc("get_agency_dashboard_summary", {
+        p_from:       pFrom,
+        p_to:         pTo,
+        p_prior_from: priorFrom,
+        p_prior_to:   priorTo,
+      });
 
-      const perAccountSpend = new Map<string, number>();
+      if (error) throw error;
+
+      // The RPC returns one row per (account, ad) combination.
+      // Re-build the Maps and creative array the dashboard components expect.
+      const perAccountSpend   = new Map<string, number>();
       const perAccountRevenue = new Map<string, number>();
-      const priorMonthSpend = new Map<string, number>();
-      const activeByAccountSets = new Map<string, Set<string>>();
-      const adAggregates = new Map<string, {
+      const priorMonthSpend   = new Map<string, number>();
+      const activeByAccount   = new Map<string, number>();
+
+      // Collect per-ad aggregates; account-level fields repeat per row so we
+      // only need to set them once per account_id.
+      const seenAccounts = new Set<string>();
+      const adMap = new Map<string, {
         ad_id: string;
         account_id: string;
+        ad_name: string | null;
+        thumbnail_url: string | null;
         spend: number;
         purchase_value: number;
         impressions: number;
         frequencyWeighted: number;
         frequencyImpressions: number;
       }>();
-      const creativeMetaMap = new Map<string, CreativeMetaRow>();
 
-      for (const row of creativeMetaRows) {
-        creativeMetaMap.set(row.ad_id, row);
-      }
-
-      for (const row of currentRows) {
-        const spend = Number(row.spend) || 0;
-        const purchaseValue = Number(row.purchase_value) || 0;
-        const impressions = Number(row.impressions) || 0;
-        const frequency = Number(row.frequency) || 0;
-
-        perAccountSpend.set(row.account_id, (perAccountSpend.get(row.account_id) || 0) + spend);
-        perAccountRevenue.set(row.account_id, (perAccountRevenue.get(row.account_id) || 0) + purchaseValue);
-
-        if (spend > 0) {
-          if (!activeByAccountSets.has(row.account_id)) activeByAccountSets.set(row.account_id, new Set<string>());
-          activeByAccountSets.get(row.account_id)!.add(row.ad_id);
+      for (const row of data ?? []) {
+        if (!seenAccounts.has(row.account_id)) {
+          seenAccounts.add(row.account_id);
+          perAccountSpend.set(row.account_id,   Number(row.period_spend)   || 0);
+          perAccountRevenue.set(row.account_id, Number(row.period_revenue) || 0);
+          priorMonthSpend.set(row.account_id,   Number(row.prior_spend)    || 0);
+          activeByAccount.set(row.account_id,   Number(row.active_ad_count) || 0);
         }
 
-        const existing = adAggregates.get(row.ad_id) ?? {
-          ad_id: row.ad_id,
-          account_id: row.account_id,
-          spend: 0,
-          purchase_value: 0,
-          impressions: 0,
-          frequencyWeighted: 0,
-          frequencyImpressions: 0,
-        };
-
-        existing.spend += spend;
-        existing.purchase_value += purchaseValue;
-        existing.impressions += impressions;
-        if (frequency > 0 && impressions > 0) {
-          existing.frequencyWeighted += frequency * impressions;
-          existing.frequencyImpressions += impressions;
+        if (row.ad_id) {
+          adMap.set(row.ad_id, {
+            ad_id:                row.ad_id,
+            account_id:           row.account_id,
+            ad_name:              row.ad_name ?? null,
+            thumbnail_url:        row.thumbnail_url ?? null,
+            spend:                Number(row.ad_spend)              || 0,
+            purchase_value:       Number(row.ad_purchase_value)     || 0,
+            impressions:          Number(row.ad_impressions)        || 0,
+            frequencyWeighted:    Number(row.ad_frequency_weighted)     || 0,
+            frequencyImpressions: Number(row.ad_frequency_impressions)  || 0,
+          });
         }
-        adAggregates.set(row.ad_id, existing);
       }
 
-      for (const row of priorRows) {
-        const spend = Number(row.spend) || 0;
-        priorMonthSpend.set(row.account_id, (priorMonthSpend.get(row.account_id) || 0) + spend);
-      }
+      const creatives: CreativeRow[] = Array.from(adMap.values()).map((agg) => ({
+        ad_id:         agg.ad_id,
+        account_id:    agg.account_id,
+        ad_name:       agg.ad_name ?? agg.ad_id,
+        thumbnail_url: agg.thumbnail_url,
+        spend:         agg.spend,
+        purchase_value: agg.purchase_value,
+        roas:          agg.spend > 0 ? agg.purchase_value / agg.spend : 0,
+        frequency:     agg.frequencyImpressions > 0
+                         ? agg.frequencyWeighted / agg.frequencyImpressions
+                         : 0,
+      }));
 
-      const activeByAccount = new Map<string, number>();
-      for (const [accountId, adIds] of activeByAccountSets) {
-        activeByAccount.set(accountId, adIds.size);
-      }
-
-      const creatives: CreativeRow[] = Array.from(adAggregates.values()).map((aggregate) => {
-        const meta = creativeMetaMap.get(aggregate.ad_id);
-        return {
-          ad_id: aggregate.ad_id,
-          account_id: aggregate.account_id,
-          ad_name: meta?.ad_name ?? aggregate.ad_id,
-          thumbnail_url: meta?.thumbnail_url ?? null,
-          spend: aggregate.spend,
-          purchase_value: aggregate.purchase_value,
-          roas: aggregate.spend > 0 ? aggregate.purchase_value / aggregate.spend : 0,
-          frequency: aggregate.frequencyImpressions > 0 ? aggregate.frequencyWeighted / aggregate.frequencyImpressions : 0,
-        };
-      });
-
-      const mtdSpend = Array.from(perAccountSpend.values()).reduce((sum, value) => sum + value, 0);
-      const mtdRevenue = Array.from(perAccountRevenue.values()).reduce((sum, value) => sum + value, 0);
+      const mtdSpend   = Array.from(perAccountSpend.values()).reduce((s, v) => s + v, 0);
+      const mtdRevenue = Array.from(perAccountRevenue.values()).reduce((s, v) => s + v, 0);
 
       return {
         creatives,
@@ -224,7 +112,7 @@ export function useAgencyDashboardData(accounts: AccountLike[], dateFrom?: strin
         activeByAccount,
         portfolio: {
           mtdSpend,
-          portfolioRoas: mtdSpend > 0 ? mtdRevenue / mtdSpend : 0,
+          portfolioRoas:   mtdSpend > 0 ? mtdRevenue / mtdSpend : 0,
           activeCreatives: creatives.length,
         },
       };
