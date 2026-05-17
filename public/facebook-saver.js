@@ -4,7 +4,14 @@
   // ── Config (injected by loader bookmarklet) ──
   const cfg = window.__VERDANOTE_FB_CONFIG || {};
   const SUPABASE_URL = cfg.supabaseUrl;
+  // TODO: Replace with a single-use upload token from the Verdanote backend instead of the session JWT.
+  // Risk: the session JWT is readable by any other script running in the same facebook.com page context
+  // (extensions, injected scripts, etc.). A short-lived upload token scoped only to storage writes
+  // would eliminate this exposure window.
   const AUTH_TOKEN = cfg.authToken;
+  // Minimize JWT exposure window: remove it from the global config object immediately after reading.
+  // The local AUTH_TOKEN const above still holds the value for this session's network calls.
+  delete window.__VERDANOTE_FB_CONFIG.authToken;
   const APP_URL = cfg.appUrl || "";
 
   if (!SUPABASE_URL || !AUTH_TOKEN) {
@@ -572,11 +579,30 @@
           <div style="font-size:11px;color:#a1a1aa">Duplicates</div>
         </div>
       </div>
-      ${APP_URL ? `<a href="${APP_URL}/builder/ad-library" target="_blank" style="color:#a78bfa;text-decoration:underline;font-size:13px">Open Verdanote Ad Library →</a>` : ""}
-      <div style="margin-top:12px">
-        <button onclick="this.closest('#vn-progress').remove()" style="background:#333;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px">Close</button>
-      </div>
     `;
+
+    if (APP_URL) {
+      const adLibLink = document.createElement("a");
+      // Validate APP_URL starts with https:// to prevent javascript: or data: XSS
+      adLibLink.href = APP_URL.startsWith("https://") ? APP_URL + "/builder/ad-library" : "#";
+      adLibLink.target = "_blank";
+      adLibLink.rel = "noopener noreferrer";
+      adLibLink.style.cssText = "color:#a78bfa;text-decoration:underline;font-size:13px";
+      adLibLink.textContent = "Open Verdanote Ad Library →";
+      progress.appendChild(adLibLink);
+    }
+
+    const closeWrap = document.createElement("div");
+    closeWrap.style.marginTop = "12px";
+    const closeBtn = document.createElement("button");
+    closeBtn.style.cssText = "background:#333;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px";
+    closeBtn.textContent = "Close";
+    closeBtn.addEventListener("click", function () {
+      const panel = document.getElementById("vn-progress");
+      if (panel) panel.remove();
+    });
+    closeWrap.appendChild(closeBtn);
+    progress.appendChild(closeWrap);
   }
 
   document.getElementById("vn-save-all").addEventListener("click", saveAllVisible);
