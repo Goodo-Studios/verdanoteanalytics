@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAdLibraryTags } from "@/features/ad-library/hooks/useAdLibrary";
-import { useSavedAds } from "@/features/ad-library/hooks/useAdLibrary";
+import { useAdLibraryAds } from "@/features/ad-library/hooks/useAdLibraryInfinite";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -31,7 +31,8 @@ const TAG_COLORS = [
 
 export function AdLibraryTagsView({ onFilterByTag }: Props) {
   const { data: tags = [], isLoading } = useAdLibraryTags();
-  const { data: allAds = [] } = useSavedAds();
+  const { data: adsPages } = useAdLibraryAds();
+  const allAds = adsPages?.pages.flat() ?? [];
   const qc = useQueryClient();
 
   const [editingId, setEditingId] = useState<string | null>(null);

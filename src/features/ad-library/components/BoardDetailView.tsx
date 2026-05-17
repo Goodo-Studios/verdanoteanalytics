@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
-import { useAdLibraryBoards, useSavedAds, useRemoveFromBoard, useAddToBoard, useDeleteSavedAd, useUpdateSavedAd, useAdLibraryTags, useToggleAdTag } from "@/features/ad-library/hooks/useAdLibrary";
+import { useAdLibraryBoards, useRemoveFromBoard, useAddToBoard, useDeleteSavedAd, useUpdateSavedAd, useAdLibraryTags, useToggleAdTag } from "@/features/ad-library/hooks/useAdLibrary";
+import { useAdLibraryAds } from "@/features/ad-library/hooks/useAdLibraryInfinite";
 import type { AdLibrarySavedAd } from "@/features/ad-library/types/ad-library";
 import { AdGrid } from "./AdGrid";
 import { Button } from "@/components/ui/button";
@@ -36,8 +37,10 @@ interface Props {
 export function BoardDetailView({ boardId, onBack, onViewAdDetails }: Props) {
   const { data: boards = [] } = useAdLibraryBoards();
   const board = boards.find((b) => b.id === boardId);
-  const { data: boardAds = [], isLoading } = useSavedAds({ board_id: boardId });
-  const { data: allAds = [] } = useSavedAds();
+  const { data: boardAdsPages, isLoading } = useAdLibraryAds({ board_id: boardId });
+  const boardAds = boardAdsPages?.pages.flat() ?? [];
+  const { data: allAdsPages } = useAdLibraryAds();
+  const allAds = allAdsPages?.pages.flat() ?? [];
   const { data: allTags = [] } = useAdLibraryTags();
   const removeFromBoard = useRemoveFromBoard();
   const addToBoard = useAddToBoard();

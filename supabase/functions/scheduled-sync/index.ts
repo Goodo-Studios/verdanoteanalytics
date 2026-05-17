@@ -11,7 +11,6 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
     // Atomically claim accounts due for sync by advancing next_sync_at before processing.
@@ -73,12 +72,13 @@ serve(async (req) => {
 
     for (const account of claimedAccounts) {
       try {
-        // Trigger sync via the existing sync edge function
+        // Trigger sync via the existing sync edge function using the service role key
+        // so the child invocation has the correct privilege level.
         const syncResp = await fetch(`${supabaseUrl}/functions/v1/sync`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${anonKey}`,
+            "Authorization": `Bearer ${serviceKey}`,
           },
           body: JSON.stringify({
             account_id: account.id,
@@ -88,7 +88,7 @@ serve(async (req) => {
 
         if (!syncResp.ok) {
           const errText = await syncResp.text();
-          console.error(`Failed to trigger sync for ${account.name}: ${errText}`);
+          console.error(`Failed to trigger sync for account_id=${account.id} name=${account.name}: ${errText}`);
           continue;
         }
 
@@ -104,7 +104,7 @@ serve(async (req) => {
         triggered.push(account.id);
         console.log(`Triggered sync for ${account.name}, next at ${nextSync.toISOString()}`);
       } catch (e) {
-        console.error(`Error processing ${account.name}:`, e);
+        console.error(`Error processing account_id=${account.id} name=${account.name}:`, e);
       }
     }
 

@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { withApiAuth, corsHeaders } from "../_shared/api-auth.ts";
 
+// NOTE: In-memory rate limiting — resets on cold start. For durable limiting, replace with Postgres atomic counter or Upstash Redis.
 // Simple in-memory rate limiter: 100 req/min per key prefix
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT = 100;

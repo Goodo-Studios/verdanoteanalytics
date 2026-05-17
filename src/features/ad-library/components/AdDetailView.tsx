@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { useSavedAds, useUpdateSavedAd, useDeleteSavedAd, useAdLibraryBoards, useAddToBoard, useRemoveFromBoard, useAdLibraryTags, useToggleAdTag } from "@/features/ad-library/hooks/useAdLibrary";
+import { useUpdateSavedAd, useDeleteSavedAd, useAdLibraryBoards, useAddToBoard, useRemoveFromBoard, useAdLibraryTags, useToggleAdTag } from "@/features/ad-library/hooks/useAdLibrary";
+import { useAdLibraryAds } from "@/features/ad-library/hooks/useAdLibraryInfinite";
 import type { AdLibrarySavedAd, StoredMediaItem } from "@/features/ad-library/types/ad-library";
 import { TagEditor } from "./TagEditor";
 import { Button } from "@/components/ui/button";
@@ -66,8 +67,8 @@ const isVideoUrl = (url: string) => /\.(mp4|webm|mov|m3u8|avi)(\?|$)/i.test(url)
 const isFakeSourceUrl = (url: string) => /^https:\/\/imported\.local\/saved\//i.test(url);
 
 export function AdDetailView({ adId, onBack }: Props) {
-  const { data: allAds = [] } = useSavedAds();
-  const ad = allAds.find((a) => a.id === adId);
+  const { data: allAdsPages } = useAdLibraryAds();
+  const ad = allAdsPages?.pages.flat().find((a) => a.id === adId);
   const updateAd = useUpdateSavedAd();
   const deleteAd = useDeleteSavedAd();
   const { data: boards = [] } = useAdLibraryBoards();

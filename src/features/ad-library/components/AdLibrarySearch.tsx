@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useSavedAds } from "@/features/ad-library/hooks/useAdLibrary";
+import { useAdLibraryAds } from "@/features/ad-library/hooks/useAdLibraryInfinite";
 import type { AdLibrarySavedAd } from "@/features/ad-library/types/ad-library";
 import { Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -21,9 +21,10 @@ export function AdLibrarySearch({ onSelectAd, className }: Props) {
     return () => clearTimeout(timer);
   }, [query]);
 
-  const { data: results = [] } = useSavedAds(
-    debouncedQuery.length >= 2 ? { search: debouncedQuery } : undefined
+  const { data: resultsPages } = useAdLibraryAds(
+    debouncedQuery.length >= 2 ? { search: debouncedQuery } : {}
   );
+  const results = resultsPages?.pages.flat() ?? [];
 
   const showDropdown = focused && debouncedQuery.length >= 2 && results.length > 0;
 

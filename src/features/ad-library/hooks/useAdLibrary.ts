@@ -7,7 +7,6 @@ import type {
   AdLibraryBoard,
   AdLibrarySavedAd,
   AdLibraryTag,
-  AdLibraryBoardAd,
 } from "@/features/ad-library/types/ad-library";
 
 // ---- Folders ----
@@ -17,7 +16,7 @@ export function useAdLibraryFolders() {
     queryKey: ["ad-library-folders"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("ad_library_folders" as any)
+        .from("ad_library_folders")
         .select("*")
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -32,8 +31,8 @@ export function useCreateFolder() {
   return useMutation({
     mutationFn: async (folder: { name: string; description?: string; color?: string }) => {
       const { data, error } = await supabase
-        .from("ad_library_folders" as any)
-        .insert({ ...folder, user_id: user!.id } as any)
+        .from("ad_library_folders")
+        .insert({ ...folder, user_id: user!.id })
         .select()
         .single();
       if (error) throw error;
@@ -54,7 +53,7 @@ export function useAdLibraryBoards(folderId?: string | null) {
     queryKey: ["ad-library-boards", folderId],
     queryFn: async () => {
       let query = supabase
-        .from("ad_library_boards" as any)
+        .from("ad_library_boards")
         .select("*")
         .order("created_at", { ascending: false });
       if (folderId) query = query.eq("folder_id", folderId);
@@ -63,10 +62,10 @@ export function useAdLibraryBoards(folderId?: string | null) {
 
       // Get ad counts
       const { data: items } = await supabase
-        .from("ad_library_board_ads" as any)
+        .from("ad_library_board_ads")
         .select("board_id");
       const countMap: Record<string, number> = {};
-      (items || []).forEach((i: any) => {
+      (items || []).forEach((i) => {
         countMap[i.board_id] = (countMap[i.board_id] || 0) + 1;
       });
 
@@ -84,8 +83,8 @@ export function useCreateBoard() {
   return useMutation({
     mutationFn: async (board: { name: string; description?: string; folder_id?: string }) => {
       const { data, error } = await supabase
-        .from("ad_library_boards" as any)
-        .insert({ ...board, user_id: user!.id } as any)
+        .from("ad_library_boards")
+        .insert({ ...board, user_id: user!.id })
         .select()
         .single();
       if (error) throw error;
@@ -105,12 +104,12 @@ export function useDeleteBoard() {
     mutationFn: async (boardId: string) => {
       // Remove board-ad assignments first
       await supabase
-        .from("ad_library_board_ads" as any)
+        .from("ad_library_board_ads")
         .delete()
         .eq("board_id", boardId);
       // Delete the board
       const { error } = await supabase
-        .from("ad_library_boards" as any)
+        .from("ad_library_boards")
         .delete()
         .eq("id", boardId);
       if (error) throw error;
@@ -130,22 +129,22 @@ export function useDeleteFolder() {
     mutationFn: async (folderId: string) => {
       // Get boards in folder
       const { data: folderBoards } = await supabase
-        .from("ad_library_boards" as any)
+        .from("ad_library_boards")
         .select("id")
         .eq("folder_id", folderId);
-      const boardIds = (folderBoards || []).map((b: any) => b.id);
+      const boardIds = (folderBoards || []).map((b) => b.id);
       if (boardIds.length > 0) {
         await supabase
-          .from("ad_library_board_ads" as any)
+          .from("ad_library_board_ads")
           .delete()
           .in("board_id", boardIds);
         await supabase
-          .from("ad_library_boards" as any)
+          .from("ad_library_boards")
           .delete()
           .in("id", boardIds);
       }
       const { error } = await supabase
-        .from("ad_library_folders" as any)
+        .from("ad_library_folders")
         .delete()
         .eq("id", folderId);
       if (error) throw error;
@@ -165,8 +164,8 @@ export function useMoveBoard() {
   return useMutation({
     mutationFn: async ({ boardId, folderId }: { boardId: string; folderId: string | null }) => {
       const { error } = await supabase
-        .from("ad_library_boards" as any)
-        .update({ folder_id: folderId } as any)
+        .from("ad_library_boards")
+        .update({ folder_id: folderId })
         .eq("id", boardId);
       if (error) throw error;
     },
@@ -180,84 +179,14 @@ export function useMoveBoard() {
 
 // ---- Saved Ads ----
 
-
-export function useSavedAds(filters?: { board_id?: string; search?: string; tag_ids?: string[] }) {
-  return useQuery<AdLibrarySavedAd[]>({
-    queryKey: ["ad-library-saved-ads", filters],
-    queryFn: async () => {
-      // If filtering by board, get the ad IDs first
-      let adIdsInBoard: string[] | null = null;
-      if (filters?.board_id) {
-        const { data: boardAds } = await supabase
-          .from("ad_library_board_ads" as any)
-          .select("ad_id")
-          .eq("board_id", filters.board_id)
-          .order("position", { ascending: true });
-        adIdsInBoard = (boardAds || []).map((ba: any) => ba.ad_id);
-        if (adIdsInBoard.length === 0) return [];
-      }
-
-      let query = supabase
-        .from("ad_library_saved_ads" as any)
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (adIdsInBoard) {
-        query = query.in("id", adIdsInBoard);
-      }
-
-      if (filters?.search) {
-        query = query.or(
-          `advertiser_name.ilike.%${filters.search}%,headline.ilike.%${filters.search}%,body_text.ilike.%${filters.search}%,transcript.ilike.%${filters.search}%`
-        );
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      // Join tags
-      const adIds = (data || []).map((d: any) => d.id);
-      let tagMap: Record<string, AdLibraryTag[]> = {};
-
-      if (adIds.length > 0) {
-        const { data: adTags } = await supabase
-          .from("ad_library_ad_tags" as any)
-          .select("ad_id, tag_id")
-          .in("ad_id", adIds);
-
-        if (adTags && adTags.length > 0) {
-          const tagIds = [...new Set((adTags as any[]).map((at) => at.tag_id))];
-          const { data: tags } = await supabase
-            .from("ad_library_tags" as any)
-            .select("*")
-            .in("id", tagIds);
-
-          const tagLookup: Record<string, AdLibraryTag> = {};
-          (tags || []).forEach((t: any) => { tagLookup[t.id] = t as AdLibraryTag; });
-
-          (adTags as any[]).forEach((at) => {
-            if (!tagMap[at.ad_id]) tagMap[at.ad_id] = [];
-            if (tagLookup[at.tag_id]) tagMap[at.ad_id].push(tagLookup[at.tag_id]);
-          });
-        }
-      }
-
-      return (data as unknown as AdLibrarySavedAd[]).map((ad) => ({
-        ...ad,
-        tags: tagMap[ad.id] || [],
-      }));
-    },
-  });
-}
-
 export function useSaveAd() {
   const qc = useQueryClient();
   const { user } = useAuth();
   return useMutation({
     mutationFn: async (ad: Partial<AdLibrarySavedAd> & { source_url: string }) => {
       const { data, error } = await supabase
-        .from("ad_library_saved_ads" as any)
-        .insert({ ...ad, user_id: user!.id } as any)
+        .from("ad_library_saved_ads")
+        .insert({ ...ad, user_id: user!.id })
         .select()
         .single();
       if (error) throw error;
@@ -276,8 +205,8 @@ export function useUpdateSavedAd() {
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<AdLibrarySavedAd> & { id: string }) => {
       const { error } = await supabase
-        .from("ad_library_saved_ads" as any)
-        .update(updates as any)
+        .from("ad_library_saved_ads")
+        .update(updates)
         .eq("id", id);
       if (error) throw error;
     },
@@ -294,7 +223,7 @@ export function useDeleteSavedAd() {
   return useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase
-        .from("ad_library_saved_ads" as any)
+        .from("ad_library_saved_ads")
         .delete()
         .eq("id", id);
       if (error) throw error;
@@ -314,8 +243,8 @@ export function useAddToBoard() {
   return useMutation({
     mutationFn: async ({ board_id, ad_id }: { board_id: string; ad_id: string }) => {
       const { error } = await supabase
-        .from("ad_library_board_ads" as any)
-        .insert({ board_id, ad_id } as any);
+        .from("ad_library_board_ads")
+        .insert({ board_id, ad_id });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -332,7 +261,7 @@ export function useRemoveFromBoard() {
   return useMutation({
     mutationFn: async ({ board_id, ad_id }: { board_id: string; ad_id: string }) => {
       const { error } = await supabase
-        .from("ad_library_board_ads" as any)
+        .from("ad_library_board_ads")
         .delete()
         .eq("board_id", board_id)
         .eq("ad_id", ad_id);
@@ -352,7 +281,7 @@ export function useAdLibraryTags() {
     queryKey: ["ad-library-tags"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("ad_library_tags" as any)
+        .from("ad_library_tags")
         .select("*")
         .order("name");
       if (error) throw error;
@@ -367,8 +296,8 @@ export function useCreateTag() {
   return useMutation({
     mutationFn: async (tag: { name: string; color?: string }) => {
       const { data, error } = await supabase
-        .from("ad_library_tags" as any)
-        .insert({ ...tag, user_id: user!.id } as any)
+        .from("ad_library_tags")
+        .insert({ ...tag, user_id: user!.id })
         .select()
         .single();
       if (error) throw error;
@@ -388,15 +317,15 @@ export function useToggleAdTag() {
     mutationFn: async ({ ad_id, tag_id, remove }: { ad_id: string; tag_id: string; remove?: boolean }) => {
       if (remove) {
         const { error } = await supabase
-          .from("ad_library_ad_tags" as any)
+          .from("ad_library_ad_tags")
           .delete()
           .eq("ad_id", ad_id)
           .eq("tag_id", tag_id);
         if (error) throw error;
       } else {
         const { error } = await supabase
-          .from("ad_library_ad_tags" as any)
-          .insert({ ad_id, tag_id } as any);
+          .from("ad_library_ad_tags")
+          .insert({ ad_id, tag_id });
         if (error) throw error;
       }
     },

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAdLibraryBoards, useAdLibraryFolders, useDeleteSavedAd } from "@/features/ad-library/hooks/useAdLibrary";
-import { useSavedAds } from "@/features/ad-library/hooks/useAdLibrary";
+import { useAdLibraryAds } from "@/features/ad-library/hooks/useAdLibraryInfinite";
 import type { AdLibraryBoard } from "@/features/ad-library/types/ad-library";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -35,7 +35,8 @@ interface Props {
 }
 
 function BoardCoverMosaic({ boardId }: { boardId: string }) {
-  const { data: ads = [] } = useSavedAds({ board_id: boardId });
+  const { data: adsPages } = useAdLibraryAds({ board_id: boardId });
+  const ads = adsPages?.pages.flat() ?? [];
   const thumbs = ads.slice(0, 4).map((a) => a.thumbnail_url).filter(Boolean);
 
   if (thumbs.length === 0) {
