@@ -18,6 +18,28 @@ function checkRateLimit(keyId: string): boolean {
   return bucket.count <= RATE_LIMIT;
 }
 
+// Returns true if the userId is allowed to access the given accountId.
+// Builders and employees have global access; clients must have a user_accounts row.
+async function verifyAccountOwnership(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  accountId: string
+): Promise<boolean> {
+  // Check user role — builders and employees can access any account
+  const { data: role } = await supabase.rpc("get_user_role", { _user_id: userId });
+  if (role === "builder" || role === "employee") return true;
+
+  // For clients (and any unrecognised role), verify the user_accounts link
+  const { data, error } = await supabase
+    .from("user_accounts")
+    .select("1")
+    .eq("user_id", userId)
+    .eq("account_id", accountId)
+    .maybeSingle();
+
+  return !error && data !== null;
+}
+
 serve(withApiAuth(async (req, { userId, permissions, keyId }) => {
   // Rate limit
   if (!checkRateLimit(keyId)) {
@@ -74,6 +96,16 @@ serve(withApiAuth(async (req, { userId, permissions, keyId }) => {
       }
 
       const accountId = url.searchParams.get("account_id");
+
+      if (accountId) {
+        const allowed = await verifyAccountOwnership(supabase, userId, accountId);
+        if (!allowed) {
+          return new Response(JSON.stringify({ error: "Access denied" }), {
+            status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+
       const limit = Math.min(parseInt(url.searchParams.get("limit") || "100"), 500);
       const offset = parseInt(url.searchParams.get("offset") || "0");
       const minRoas = url.searchParams.get("min_roas");
@@ -99,6 +131,15 @@ serve(withApiAuth(async (req, { userId, permissions, keyId }) => {
     // GET /api/metrics
     if (resource === "metrics" && req.method === "GET") {
       const accountId = url.searchParams.get("account_id");
+
+      if (accountId) {
+        const allowed = await verifyAccountOwnership(supabase, userId, accountId);
+        if (!allowed) {
+          return new Response(JSON.stringify({ error: "Access denied" }), {
+            status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
 
       const { data, error } = await supabase.rpc("get_account_metrics", {
         p_account_id: accountId || null,
@@ -154,6 +195,13 @@ serve(withApiAuth(async (req, { userId, permissions, keyId }) => {
       if (!accountId) {
         return new Response(JSON.stringify({ error: "account_id is required" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const allowed = await verifyAccountOwnership(supabase, userId, accountId);
+      if (!allowed) {
+        return new Response(JSON.stringify({ error: "Access denied" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
@@ -222,6 +270,13 @@ serve(withApiAuth(async (req, { userId, permissions, keyId }) => {
       if (!accountId) {
         return new Response(JSON.stringify({ error: "account_id is required" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const allowed = await verifyAccountOwnership(supabase, userId, accountId);
+      if (!allowed) {
+        return new Response(JSON.stringify({ error: "Access denied" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
