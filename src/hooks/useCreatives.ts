@@ -14,7 +14,16 @@ export function useCreatives(filters: Record<string, string> = {}, page = 0) {
     queryKey: ["creatives", qs],
     queryFn: async () => {
       const result = await apiFetch("creatives", qs ? `?${qs}` : "");
-      if (Array.isArray(result)) return { data: result, total: result.length };
+      if (Array.isArray(result)) {
+        // Legacy API response: bare array without a total count.
+        // Using result.length as total would cap pagination to the first page,
+        // so return a sentinel to let pagination continue until a short page is returned.
+        console.warn(
+          "[useCreatives] API returned bare array (legacy format) — total unknown, using sentinel 999999. " +
+          "Update the API to return { data, total } to fix this warning."
+        );
+        return { data: result, total: 999999 };
+      }
       return result;
     },
   });
