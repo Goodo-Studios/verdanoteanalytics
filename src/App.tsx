@@ -35,7 +35,7 @@ const BriefsPage = lazy(() => import("./pages/BriefsPage"));
 const PublicBriefPage = lazy(() => import("./pages/PublicBriefPage"));
 const AgencyDashboardPage = lazy(() => import("./pages/AgencyDashboardPage"));
 const ContentPipelinePage = lazy(() => import("./pages/ContentPipelinePage"));
-const AdLibraryPage = lazy(() => import("./pages/AdLibraryPage"));
+const AdLibraryPage = lazy(() => import("./features/ad-library/AdLibraryPage"));
 const SharedAdBoardPage = lazy(() => import("./pages/SharedAdBoardPage"));
 const BookmarkletReceiver = lazy(() => import("./pages/BookmarkletReceiver"));
 const NotFound = lazy(() => import("./pages/NotFound"));
