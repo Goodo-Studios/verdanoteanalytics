@@ -28,11 +28,11 @@ export function useAdLibraryAds(filters: AdLibraryQueryFilters = {}) {
       let adIdsInBoard: string[] | null = null;
       if (filters.board_id) {
         const { data: boardAds } = await supabase
-          .from("ad_library_board_ads" as any)
+          .from("ad_library_board_ads")
           .select("ad_id")
           .eq("board_id", filters.board_id)
           .order("position", { ascending: true });
-        adIdsInBoard = (boardAds || []).map((ba: any) => ba.ad_id);
+        adIdsInBoard = (boardAds || []).map((ba) => ba.ad_id);
         if (adIdsInBoard.length === 0) return [];
       }
 
@@ -40,16 +40,16 @@ export function useAdLibraryAds(filters: AdLibraryQueryFilters = {}) {
       let adIdsWithTags: string[] | null = null;
       if (filters.tag_ids && filters.tag_ids.length > 0) {
         const { data: adTags } = await supabase
-          .from("ad_library_ad_tags" as any)
+          .from("ad_library_ad_tags")
           .select("ad_id")
           .in("tag_id", filters.tag_ids);
-        adIdsWithTags = [...new Set((adTags || []).map((at: any) => at.ad_id))];
+        adIdsWithTags = [...new Set((adTags || []).map((at) => at.ad_id))];
         if (adIdsWithTags.length === 0) return [];
       }
 
       // Build main query
       let query = supabase
-        .from("ad_library_saved_ads" as any)
+        .from("ad_library_saved_ads")
         .select("*");
 
       // Apply sort
@@ -120,28 +120,28 @@ export function useAdLibraryAds(filters: AdLibraryQueryFilters = {}) {
       if (error) throw error;
 
       // Join tags
-      const adIds = (data || []).map((d: any) => d.id);
+      const adIds = (data || []).map((d) => d.id);
       let tagMap: Record<string, AdLibraryTag[]> = {};
 
       if (adIds.length > 0) {
         const { data: adTagRows } = await supabase
-          .from("ad_library_ad_tags" as any)
+          .from("ad_library_ad_tags")
           .select("ad_id, tag_id")
           .in("ad_id", adIds);
 
         if (adTagRows && adTagRows.length > 0) {
-          const tagIds = [...new Set((adTagRows as any[]).map((at) => at.tag_id))];
+          const tagIds = [...new Set(adTagRows.map((at) => at.tag_id))];
           const { data: tags } = await supabase
-            .from("ad_library_tags" as any)
+            .from("ad_library_tags")
             .select("*")
             .in("id", tagIds);
 
           const tagLookup: Record<string, AdLibraryTag> = {};
-          (tags || []).forEach((t: any) => {
-            tagLookup[t.id] = t as AdLibraryTag;
+          (tags || []).forEach((t) => {
+            tagLookup[t.id] = t as unknown as AdLibraryTag;
           });
 
-          (adTagRows as any[]).forEach((at) => {
+          adTagRows.forEach((at) => {
             if (!tagMap[at.ad_id]) tagMap[at.ad_id] = [];
             if (tagLookup[at.tag_id]) tagMap[at.ad_id].push(tagLookup[at.tag_id]);
           });

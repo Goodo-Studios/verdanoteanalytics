@@ -64,6 +64,254 @@ export type Database = {
           },
         ]
       }
+      ad_library_ad_tags: {
+        Row: {
+          ad_id: string
+          tag_id: string
+        }
+        Insert: {
+          ad_id: string
+          tag_id: string
+        }
+        Update: {
+          ad_id?: string
+          tag_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ad_library_ad_tags_ad_id_fkey"
+            columns: ["ad_id"]
+            isOneToOne: false
+            referencedRelation: "ad_library_saved_ads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ad_library_ad_tags_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "ad_library_tags"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ad_library_board_ads: {
+        Row: {
+          ad_id: string
+          added_at: string
+          board_id: string
+          id: string
+          position: number | null
+        }
+        Insert: {
+          ad_id: string
+          added_at?: string
+          board_id: string
+          id?: string
+          position?: number | null
+        }
+        Update: {
+          ad_id?: string
+          added_at?: string
+          board_id?: string
+          id?: string
+          position?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ad_library_board_ads_board_id_fkey"
+            columns: ["board_id"]
+            isOneToOne: false
+            referencedRelation: "ad_library_boards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ad_library_board_ads_ad_id_fkey"
+            columns: ["ad_id"]
+            isOneToOne: false
+            referencedRelation: "ad_library_saved_ads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ad_library_boards: {
+        Row: {
+          cover_image_url: string | null
+          created_at: string
+          description: string | null
+          folder_id: string | null
+          id: string
+          is_public: boolean | null
+          name: string
+          share_token: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cover_image_url?: string | null
+          created_at?: string
+          description?: string | null
+          folder_id?: string | null
+          id?: string
+          is_public?: boolean | null
+          name: string
+          share_token?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cover_image_url?: string | null
+          created_at?: string
+          description?: string | null
+          folder_id?: string | null
+          id?: string
+          is_public?: boolean | null
+          name?: string
+          share_token?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ad_library_boards_folder_id_fkey"
+            columns: ["folder_id"]
+            isOneToOne: false
+            referencedRelation: "ad_library_folders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ad_library_folders: {
+        Row: {
+          color: string | null
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      ad_library_saved_ads: {
+        Row: {
+          ad_format: string | null
+          ad_id: string | null
+          ad_status: string | null
+          advertiser_name: string | null
+          advertiser_page_id: string | null
+          body_text: string | null
+          country_targeting: string[] | null
+          created_at: string
+          cta_text: string | null
+          headline: string | null
+          id: string
+          landing_page_url: string | null
+          media_urls: string[] | null
+          notes: string | null
+          platform: string | null
+          raw_data: Json | null
+          source_url: string
+          started_running: string | null
+          stored_media: Json
+          thumbnail_url: string | null
+          transcript: string | null
+          transcript_status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          ad_format?: string | null
+          ad_id?: string | null
+          ad_status?: string | null
+          advertiser_name?: string | null
+          advertiser_page_id?: string | null
+          body_text?: string | null
+          country_targeting?: string[] | null
+          created_at?: string
+          cta_text?: string | null
+          headline?: string | null
+          id?: string
+          landing_page_url?: string | null
+          media_urls?: string[] | null
+          notes?: string | null
+          platform?: string | null
+          raw_data?: Json | null
+          source_url: string
+          started_running?: string | null
+          stored_media?: Json
+          thumbnail_url?: string | null
+          transcript?: string | null
+          transcript_status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          ad_format?: string | null
+          ad_id?: string | null
+          ad_status?: string | null
+          advertiser_name?: string | null
+          advertiser_page_id?: string | null
+          body_text?: string | null
+          country_targeting?: string[] | null
+          created_at?: string
+          cta_text?: string | null
+          headline?: string | null
+          id?: string
+          landing_page_url?: string | null
+          media_urls?: string[] | null
+          notes?: string | null
+          platform?: string | null
+          raw_data?: Json | null
+          source_url?: string
+          started_running?: string | null
+          stored_media?: Json
+          thumbnail_url?: string | null
+          transcript?: string | null
+          transcript_status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      ad_library_tags: {
+        Row: {
+          color: string | null
+          id: string
+          name: string
+          user_id: string
+        }
+        Insert: {
+          color?: string | null
+          id?: string
+          name: string
+          user_id: string
+        }
+        Update: {
+          color?: string | null
+          id?: string
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       ad_accounts: {
         Row: {
           attribution_model: string | null
