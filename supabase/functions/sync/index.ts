@@ -648,7 +648,11 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       while (nextUrl && !isTimedOut()) {
         await heartbeat();
         const result = await metaFetch(nextUrl, ctx);
-        if (result.error) break;
+        if (result.error) {
+          ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Phase 2 pagination error: ${result.error.message}` });
+          await saveState(2, { insights_cursor: nextUrl, insights_count: insightsCount, insights_time_range: phase2TimeRange, insights_since_date: phase2SinceDate });
+          break;
+        }
         if (result.data) {
 
           // Bulk update via DB function — single RPC call per batch instead of N individual updates
@@ -895,7 +899,12 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         while (nextUrl && !isTimedOut()) {
           await heartbeat();
           const result = await metaFetch(nextUrl, ctx);
-          if (result.error) { nextUrl = null; break; }
+          if (result.error) {
+            ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Phase 4 chunk error: ${result.error.message}` });
+            nextUrl = null;
+            await saveState(4, { daily_chunk_offset: currentChunk, daily_cursor: null, daily_days: dailyDays, daily_since_date: dailySinceDate });
+            break;
+          }
           if (result.data && result.data.length > 0) {
             // For large accounts (NDC has 18k+ creatives), loading all ad_ids into memory
             // is slow and the Set can't survive JSON serialization across resumes.
@@ -1029,10 +1038,15 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             break;
           }
           const chunk = tagUpdates.slice(i, i + 200);
-          await Promise.all(chunk.map(row => {
+          const results = await Promise.allSettled(chunk.map(row => {
             const { ad_id, ...fields } = row;
             return supabase.from("creatives").update(fields).eq("ad_id", ad_id);
           }));
+          results.forEach((r, idx) => {
+            if (r.status === "rejected") {
+              ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Auto-tag failed for row ${i + idx}: ${r.reason}` });
+            }
+          });
         }
         if (tagUpdates.length > 0) console.log(`  Auto-tagged ${tagUpdates.length} creatives from ad names`);
       } catch (autoErr) {
