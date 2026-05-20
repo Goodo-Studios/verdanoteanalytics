@@ -1,13 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useMutationWithToast } from "./useMutationWithToast";
+import { useAuth } from "@/contexts/AuthContext";
 import type { Account } from "@/types/account";
 
 export function useAccounts(userId?: string | null) {
+  const { user } = useAuth();
+  const effectiveUserId = userId !== undefined ? userId : user?.id;
   return useQuery<Account[]>({
-    queryKey: ["accounts", userId],
+    queryKey: ["accounts", effectiveUserId],
     queryFn: () => apiFetch("accounts"),
-    enabled: !!userId,
+    enabled: !!effectiveUserId,
   });
 }
 
