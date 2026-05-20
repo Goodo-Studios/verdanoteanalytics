@@ -3,9 +3,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 
 
-const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
-const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const OPENROUTER_MODEL = Deno.env.get("OPENROUTER_MODEL") ?? "anthropic/claude-3.5-sonnet";
+const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+const ANTHROPIC_MODEL = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-haiku-4-5-20251001";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -98,19 +98,18 @@ Examples of tone:
 
 Return ONLY a JSON array of 3 strings, no other text. Example: ["insight 1", "insight 2", "insight 3"]`;
 
-    const aiResponse = await fetch(OPENROUTER_URL, {
+    const aiResponse = await fetch(ANTHROPIC_URL, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+        "x-api-key": ANTHROPIC_API_KEY!,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://verdanote.com",
-        "X-Title": "Verdanote",
+        "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: OPENROUTER_MODEL,
+        model: ANTHROPIC_MODEL,
         max_tokens: 1024,
+        system: "You output only valid JSON arrays. No markdown, no code fences.",
         messages: [
-          { role: "system", content: "You output only valid JSON arrays. No markdown, no code fences." },
           { role: "user", content: prompt },
         ],
       }),
@@ -130,7 +129,7 @@ Return ONLY a JSON array of 3 strings, no other text. Example: ["insight 1", "in
     }
 
     const aiData = await aiResponse.json();
-    let raw = aiData.choices?.[0]?.message?.content ?? "[]";
+    let raw = aiData.content?.[0]?.text ?? "[]";
     
     // Strip markdown fences if present
     raw = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();

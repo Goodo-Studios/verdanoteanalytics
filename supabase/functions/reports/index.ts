@@ -2,9 +2,9 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 
-const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
-const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const OPENROUTER_MODEL = Deno.env.get("OPENROUTER_MODEL") ?? "anthropic/claude-3.5-sonnet";
+const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+const ANTHROPIC_MODEL = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-haiku-4-5-20251001";
 
 
 function spendWeightedPercentile(items: { value: number; spend: number }[], pct: number): number {
@@ -411,49 +411,42 @@ serve(async (req) => {
 
       // AI insights
       let aiInsights: string[] = [];
-      if (OPENROUTER_API_KEY && allCreatives.length > 0) {
+      if (ANTHROPIC_API_KEY && allCreatives.length > 0) {
         try {
           const accountSummaries = Object.entries(accountData).map(([id, d]: [string, any]) =>
             `${d.name}: $${d.spend.toFixed(0)} spend, ${d.roas.toFixed(2)}x ROAS, ${d.win_rate.toFixed(0)}% win rate, ${d.creative_count} creatives`
           ).join("\n");
 
-          const aiResp = await fetch(OPENROUTER_URL, {
+          const aiResp = await fetch(ANTHROPIC_URL, {
             method: "POST",
             headers: {
-              "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+              "x-api-key": ANTHROPIC_API_KEY,
               "Content-Type": "application/json",
-              "HTTP-Referer": "https://verdanote.com",
-              "X-Title": "Verdanote",
+              "anthropic-version": "2023-06-01",
             },
             body: JSON.stringify({
-              model: OPENROUTER_MODEL,
+              model: ANTHROPIC_MODEL,
               max_tokens: 1024,
+              system: "You are a creative performance analyst reviewing a multi-account portfolio. Return exactly 3-5 bullet points. Each bullet is a plain-English cross-account insight or recommendation. Focus on patterns across accounts, format comparisons, and strategic recommendations. No markdown.",
               messages: [
-                { role: "system", content: "You are a creative performance analyst reviewing a multi-account portfolio. Return exactly 3-5 bullet points as a JSON array of strings. Each bullet is a plain-English cross-account insight or recommendation. Focus on patterns across accounts, format comparisons, and strategic recommendations. No markdown." },
                 { role: "user", content: `Portfolio: ${account_ids.length} accounts. Period: ${dateStart} to ${dateEnd}. Total spend: $${portfolioSpend.toFixed(0)}. Blended ROAS: ${portfolioRoas.toFixed(2)}x. Total creatives: ${portfolioCreativeCount}.\n\nAccount breakdown:\n${accountSummaries}\n\nTop winners: ${JSON.stringify(portfolioWinners)}` },
               ],
               tools: [{
-                type: "function",
-                function: {
-                  name: "return_insights",
-                  description: "Return 3-5 portfolio-level insight bullets",
-                  parameters: {
-                    type: "object",
-                    properties: { insights: { type: "array", items: { type: "string" } } },
-                    required: ["insights"],
-                  },
+                name: "return_insights",
+                description: "Return 3-5 portfolio-level insight bullets",
+                input_schema: {
+                  type: "object",
+                  properties: { insights: { type: "array", items: { type: "string" } } },
+                  required: ["insights"],
                 },
               }],
-              tool_choice: { type: "function", function: { name: "return_insights" } },
+              tool_choice: { type: "tool", name: "return_insights" },
             }),
           });
           if (aiResp.ok) {
             const aiData = await aiResp.json();
-            const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
-            if (toolCall?.function?.arguments) {
-              const parsed = JSON.parse(toolCall.function.arguments);
-              if (parsed.insights) aiInsights = parsed.insights;
-            }
+            const toolUse = aiData.content?.find((b: any) => b.type === "tool_use" && b.name === "return_insights");
+            if (toolUse?.input?.insights) aiInsights = toolUse.input.insights;
           }
         } catch (aiErr) {
           console.error("Portfolio AI insights error:", aiErr);
@@ -557,49 +550,42 @@ serve(async (req) => {
 
           // Generate AI performance highlights
           let aiHighlights: string[] = [];
-          if (OPENROUTER_API_KEY && list.length > 0) {
+          if (ANTHROPIC_API_KEY && list.length > 0) {
             try {
               const top10 = sorted.slice(0, 10).map(c => ({
                 name: c.ad_name, roas: Number(c.roas || 0).toFixed(2), spend: Number(c.spend || 0).toFixed(0),
                 cpa: Number(c.cpa || 0).toFixed(2), ctr: Number(c.ctr || 0).toFixed(2),
               }));
-              const aiResp = await fetch(OPENROUTER_URL, {
+              const aiResp = await fetch(ANTHROPIC_URL, {
                 method: "POST",
                 headers: {
-                  "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+                  "x-api-key": ANTHROPIC_API_KEY,
                   "Content-Type": "application/json",
-                  "HTTP-Referer": "https://verdanote.com",
-                  "X-Title": "Verdanote",
+                  "anthropic-version": "2023-06-01",
                 },
                 body: JSON.stringify({
-                  model: OPENROUTER_MODEL,
+                  model: ANTHROPIC_MODEL,
                   max_tokens: 1024,
+                  system: "You are a creative performance analyst. Return exactly 3-5 bullet points. Each bullet is a plain-English performance highlight. No markdown.",
                   messages: [
-                    { role: "system", content: "You are a creative performance analyst. Return exactly 3-5 bullet points as a JSON array of strings. Each bullet is a plain-English performance highlight. No markdown." },
                     { role: "user", content: `Account: ${accountName}. Period: ${monthName} ${year}. Total spend: $${totalSpend.toFixed(0)}. Blended ROAS: ${avgField("roas").toFixed(2)}x. Win rate: ${winRate.toFixed(0)}%. Creatives: ${list.length}. Top performers: ${JSON.stringify(top10)}` },
                   ],
                   tools: [{
-                    type: "function",
-                    function: {
-                      name: "return_highlights",
-                      description: "Return 3-5 performance highlight bullets",
-                      parameters: {
-                        type: "object",
-                        properties: { highlights: { type: "array", items: { type: "string" } } },
-                        required: ["highlights"],
-                      },
+                    name: "return_highlights",
+                    description: "Return 3-5 performance highlight bullets",
+                    input_schema: {
+                      type: "object",
+                      properties: { highlights: { type: "array", items: { type: "string" } } },
+                      required: ["highlights"],
                     },
                   }],
-                  tool_choice: { type: "function", function: { name: "return_highlights" } },
+                  tool_choice: { type: "tool", name: "return_highlights" },
                 }),
               });
               if (aiResp.ok) {
                 const aiData = await aiResp.json();
-                const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
-                if (toolCall?.function?.arguments) {
-                  const parsed = JSON.parse(toolCall.function.arguments);
-                  if (parsed.highlights) aiHighlights = parsed.highlights;
-                }
+                const toolUse = aiData.content?.find((b: any) => b.type === "tool_use" && b.name === "return_highlights");
+                if (toolUse?.input?.highlights) aiHighlights = toolUse.input.highlights;
               }
             } catch (aiErr) {
               console.error("AI highlights error for", accountId, aiErr);
