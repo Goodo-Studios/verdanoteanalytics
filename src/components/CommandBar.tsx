@@ -128,7 +128,7 @@ export function CommandBar() {
       items.push({
         id: "copy-share-link", label: "Copy Share Link", subtitle: "Portfolio link", icon: <Link2 className="h-4 w-4" />,
         action: () => {
-          const acc = accounts.find((a: any) => a.id === currentAccountId);
+          const acc = accounts.find((a) => a.id === currentAccountId);
           if (acc?.portfolio_slug) { navigator.clipboard.writeText(`${window.location.origin}/portfolio/${acc.portfolio_slug}`); toast.success("Portfolio link copied"); }
           else { toast.info("No portfolio slug set"); }
           setOpen(false);
@@ -137,7 +137,7 @@ export function CommandBar() {
     }
 
     if (accounts.length > 1 && currentAccountId) {
-      const currentIdx = accounts.findIndex((a: any) => a.id === currentAccountId);
+      const currentIdx = accounts.findIndex((a) => a.id === currentAccountId);
       const nextAcc = accounts[(currentIdx + 1) % accounts.length];
       if (nextAcc) {
         items.push({ id: "switch-account", label: `Switch to ${nextAcc.name}`, icon: <ArrowRightLeft className="h-4 w-4" />, action: () => { setOpen(false); setSelectedAccountId(nextAcc.id); toast.success(`Switched to ${nextAcc.name}`); }, group: "actions" });

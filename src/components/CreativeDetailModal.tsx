@@ -27,13 +27,16 @@ import type { FatigueResult } from "@/lib/fatigueScore";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
+
+type Creative = Database["public"]["Tables"]["creatives"]["Row"];
 import { toast } from "sonner";
 import { useAllCreatives } from "@/hooks/useAllCreatives";
 
 
 
 interface CreativeDetailModalProps {
-  creative: any;
+  creative: Creative;
   open: boolean;
   onClose: () => void;
   wowTrends?: Map<string, WoWTrend>;
@@ -41,7 +44,7 @@ interface CreativeDetailModalProps {
   fatigueMap?: Map<string, FatigueResult>;
 }
 
-function MediaPreview({ creative }: { creative: any }) {
+function MediaPreview({ creative }: { creative: Creative }) {
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgError, setImgError] = useState(false);
   const [videoError, setVideoError] = useState(false);
@@ -174,8 +177,8 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
       setCodaBriefOpen(false);
       setBriefNote("");
       setBriefTaskName("");
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to create brief in Coda");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to create brief in Coda");
     } finally {
       setPushing(false);
     }
