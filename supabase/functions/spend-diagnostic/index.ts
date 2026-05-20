@@ -164,7 +164,7 @@ serve(async (req) => {
     let dailyImpressions = 0;
     let dailyPurchases = 0;
     let dailyPurchaseValue = 0;
-    let dailyAdIds = new Set<string>();
+    const dailyAdIds = new Set<string>();
     let dailyOffset = 0;
 
     while (true) {

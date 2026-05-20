@@ -121,7 +121,7 @@ export function useAdLibraryAds(filters: AdLibraryQueryFilters = {}) {
 
       // Join tags
       const adIds = (data || []).map((d) => d.id);
-      let tagMap: Record<string, AdLibraryTag[]> = {};
+      const tagMap: Record<string, AdLibraryTag[]> = {};
 
       if (adIds.length > 0) {
         const { data: adTagRows } = await supabase

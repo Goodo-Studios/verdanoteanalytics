@@ -346,7 +346,7 @@ serve(async (req) => {
 
       // Aggregate data per account
       const accountData: Record<string, any> = {};
-      let allCreatives: any[] = [];
+      const allCreatives: any[] = [];
 
       for (const accountId of account_ids) {
         const list = await aggregateDailyMetrics(supabase, accountId, dateStart, dateEnd);

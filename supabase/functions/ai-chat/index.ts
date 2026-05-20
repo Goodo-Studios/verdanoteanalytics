@@ -254,7 +254,7 @@ You MUST respond in EXACTLY this markdown format — no deviations:
 ### 💡 What to Make Next
 [2-3 specific creative concepts to produce, each with: concept name, format (UGC/static/video), hook approach, and why based on the data]`;
 
-    case "competitive_debrief":
+    case "competitive_debrief": {
       const industry = accountSettings?.industry_category || "General DTC";
       const targetRoas = accountSettings?.target_roas || 2.0;
       const targetCpa = accountSettings?.target_cpa;
@@ -297,7 +297,9 @@ Respond in this structure:
 ### 🎯 Strategic Recommendations
 [3-4 specific creative strategy recommendations to close gaps and double down on strengths. Be actionable.]`;
 
-    case "concept_planner":
+    }
+
+    case "concept_planner": {
       const product = modeInputs?.product || "";
       const audience = modeInputs?.audience || "";
       const goal = modeInputs?.goal || "";
@@ -333,6 +335,8 @@ You MUST output EXACTLY 3 concepts in this format:
 
 ### Production Notes
 [2-3 sentences on shoot requirements, talent needs, and estimated production timeline]`;
+
+    }
 
     default: // free_chat
       return `You are Verdanote AI, an expert creative performance analyst for Meta advertising.

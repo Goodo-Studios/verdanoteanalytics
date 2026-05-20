@@ -70,7 +70,7 @@ export function CreativesTimeline({ creatives, gradeMap, onSelect }: CreativesTi
     }
 
     // Sort by spend, take top 8 + "Other"
-    let sorted = Object.values(campMap).sort((a, b) => b.totalSpend - a.totalSpend);
+    const sorted = Object.values(campMap).sort((a, b) => b.totalSpend - a.totalSpend);
     let campaigns: { name: string; items: any[] }[];
     if (sorted.length > 9) {
       const top8 = sorted.slice(0, 8);

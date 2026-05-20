@@ -36,7 +36,7 @@ serve(async (req) => {
 
       // Attach saved ad counts
       const ids = (competitors || []).map((c: any) => c.id);
-      let adCounts: Record<string, number> = {};
+      const adCounts: Record<string, number> = {};
       if (ids.length > 0) {
         const { data: ads } = await supabase
           .from("competitor_ads")

@@ -417,7 +417,7 @@ export function SaveAdModal({ isOpen, onClose, defaultBoardId }: SaveAdModalProp
     setIsSaving(true);
 
     try {
-      let finalForm = { ...form };
+      const finalForm = { ...form };
 
       // Handle screen capture upload
       if (tab === "capture" && captureResult) {

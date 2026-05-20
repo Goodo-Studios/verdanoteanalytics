@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22c55e"/>
+      <stop offset="100%" stop-color="#16a34a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- Subtle grid lines -->
+  <g stroke="#ffffff" stroke-opacity="0.04" stroke-width="1">
+    <line x1="0" y1="105" x2="1200" y2="105"/>
+    <line x1="0" y1="210" x2="1200" y2="210"/>
+    <line x1="0" y1="315" x2="1200" y2="315"/>
+    <line x1="0" y1="420" x2="1200" y2="420"/>
+    <line x1="0" y1="525" x2="1200" y2="525"/>
+    <line x1="200" y1="0" x2="200" y2="630"/>
+    <line x1="400" y1="0" x2="400" y2="630"/>
+    <line x1="600" y1="0" x2="600" y2="630"/>
+    <line x1="800" y1="0" x2="800" y2="630"/>
+    <line x1="1000" y1="0" x2="1000" y2="630"/>
+  </g>
+
+  <!-- Green accent bar -->
+  <rect x="80" y="230" width="6" height="80" rx="3" fill="url(#accent)"/>
+
+  <!-- Wordmark -->
+  <text x="110" y="292" font-family="system-ui, -apple-system, sans-serif" font-size="64" font-weight="700" fill="#ffffff" letter-spacing="-2">Verdanote</text>
+
+  <!-- Tagline -->
+  <text x="110" y="340" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="400" fill="#94a3b8">Creative Intelligence for DTC Brands</text>
+
+  <!-- Bottom label -->
+  <text x="110" y="530" font-family="system-ui, -apple-system, sans-serif" font-size="18" fill="#475569">verdanote.com</text>
+
+  <!-- Decorative chart bars (right side) -->
+  <g opacity="0.15">
+    <rect x="820" y="430" width="40" height="100" rx="4" fill="#22c55e"/>
+    <rect x="875" y="380" width="40" height="150" rx="4" fill="#22c55e"/>
+    <rect x="930" y="310" width="40" height="220" rx="4" fill="#22c55e"/>
+    <rect x="985" y="350" width="40" height="180" rx="4" fill="#22c55e"/>
+    <rect x="1040" y="270" width="40" height="260" rx="4" fill="#22c55e"/>
+    <rect x="1095" y="310" width="40" height="220" rx="4" fill="#22c55e"/>
+  </g>
+</svg>
