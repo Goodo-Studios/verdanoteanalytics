@@ -2,13 +2,14 @@ import { createContext, useContext, useState, ReactNode, useEffect } from "react
 import { useAccounts } from "@/hooks/useAccountsApi";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import type { Account } from "@/types/account";
 
 interface AccountContextType {
   selectedAccountId: string | null;
   setSelectedAccountId: (id: string | null) => void;
-  accounts: any[];
+  accounts: Account[];
   isLoading: boolean;
-  selectedAccount: any | null;
+  selectedAccount: Account | null;
 }
 
 const AccountContext = createContext<AccountContextType>({
@@ -45,7 +46,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         .select("account_id")
         .eq("user_id", user.id)
         .then(({ data }) => {
-          setLinkedAccountIds((data || []).map((d: any) => d.account_id));
+          setLinkedAccountIds((data || []).map((d) => d.account_id));
         });
     } else {
       setLinkedAccountIds(null);
@@ -54,7 +55,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
 
   // Filter accounts for clients
   const accounts = needsAccountFilter && linkedAccountIds
-    ? (allAccounts || []).filter((a: any) => linkedAccountIds.includes(a.id))
+    ? (allAccounts || []).filter((a) => linkedAccountIds.includes(a.id))
     : (allAccounts || []);
 
   const isLoading = accountsLoading || (needsAccountFilter && linkedAccountIds === null);
@@ -65,7 +66,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
 
     // Validate current selection exists in actual accounts (or is "all")
     if (selectedAccountId && selectedAccountId !== "all") {
-      const exists = accounts.some((a: any) => a.id === selectedAccountId);
+      const exists = accounts.some((a) => a.id === selectedAccountId);
       if (!exists) {
         console.warn(`Stale account ID "${selectedAccountId}" not found — resetting`);
         setSelectedAccountId(accounts[0].id);
@@ -92,7 +93,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     }
   }, [selectedAccountId, user?.id]);
 
-  const selectedAccount = (accounts || []).find((a: any) => a.id === selectedAccountId) || null;
+  const selectedAccount = (accounts || []).find((a) => a.id === selectedAccountId) || null;
 
   return (
     <AccountContext.Provider value={{ selectedAccountId, setSelectedAccountId, accounts: accounts || [], isLoading, selectedAccount }}>

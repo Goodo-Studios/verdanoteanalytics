@@ -22,3 +22,14 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.vercel
+
+# Supabase CLI local state (not needed in repo)
+supabase/.temp/
+
+# Local env with test credentials (never commit)
+.env.local
+
+# Playwright
+playwright-report/
+test-results/

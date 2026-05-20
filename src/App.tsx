@@ -11,6 +11,7 @@ import { useRolePrefix } from "@/hooks/useRolePath";
 import { Loader2 } from "lucide-react";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { lazy, Suspense } from "react";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 // Critical pages — loaded eagerly (auth flow)
 import LoginPage from "./pages/LoginPage";
@@ -141,6 +142,7 @@ const App = () => {
           <ClientPreviewContext.Provider value={clientPreview}>
             <TooltipProvider>
               <Sonner />
+              <ErrorBoundary>
               <BrowserRouter>
                 <Routes>
                   <Route path="/login" element={<LoginPage />} />
@@ -177,6 +179,7 @@ const App = () => {
                   <Route path="/:role/*" element={<RoleGuardedRoutes />} />
                 </Routes>
               </BrowserRouter>
+              </ErrorBoundary>
             </TooltipProvider>
           </ClientPreviewContext.Provider>
         </AuthProvider>

@@ -49,51 +49,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [roleResolved]);
 
   useEffect(() => {
-    let initialSessionHandled = false;
+    // Seed initial state from cached session immediately — avoids the 3-second
+    // spinner caused by calling getSession() inside onAuthStateChange, which
+    // can deadlock Supabase's internal auth queue on cold load.
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchRole(session.user.id);
+      } else {
+        setRole(null);
+        setRoleResolved(true);
+      }
+    });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        // INITIAL_SESSION is already handled above via getSession() — skip it
+        if (event === "INITIAL_SESSION") return;
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
-          // Use setTimeout to avoid Supabase deadlock
-          // isLoading stays true until fetchRole completes and sets roleResolved=true
           setTimeout(() => fetchRole(session.user.id), 0);
         } else {
-          // No user — role is inherently resolved (null)
           setRole(null);
           setRoleResolved(true);
-        }
-        // Only act on the initial session event; subsequent events (SIGNED_IN, etc.)
-        // do not need to touch loading state here — roleResolved effect handles it
-        if (event === 'INITIAL_SESSION') {
-          initialSessionHandled = true;
-          // If there is no user, loading was already cleared above via roleResolved.
-          // If there is a user, loading clears once fetchRole resolves.
         }
       }
     );
 
-    // Fallback: if onAuthStateChange doesn't fire INITIAL_SESSION within 3s, resolve anyway
-    const fallbackTimer = setTimeout(() => {
-      if (!initialSessionHandled) {
-        initialSessionHandled = true;
-        supabase.auth.getSession().then(({ data: { session } }) => {
-          setSession(session);
-          setUser(session?.user ?? null);
-          if (session?.user) {
-            fetchRole(session.user.id);
-          } else {
-            setRole(null);
-            setRoleResolved(true);
-          }
-        });
-      }
-    }, 3000);
-
     return () => {
       subscription.unsubscribe();
-      clearTimeout(fallbackTimer);
     };
   }, []);
 
