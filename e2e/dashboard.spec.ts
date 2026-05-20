@@ -60,10 +60,10 @@ test.describe("Dashboard — authenticated", () => {
     const prefix = url.match(/\/(builder|employee|client)/)?.[0] ?? "/builder";
     await page.goto(`${prefix}/`);
 
-    // Either metric cards or their skeletons should appear
-    const metricArea = page.locator(
-      "[class*='MetricCard'], [class*='metric-card'], [class*='skeleton'], [class*='Skeleton']"
-    );
+    // Either metric cards (text labels) or their loading skeletons (glass-panel) should appear.
+    // MetricCard uses Tailwind utility classes only — no component-named CSS class in the DOM.
+    // MetricCardSkeleton wraps each card in a glass-panel div while data loads.
+    const metricArea = page.locator(".glass-panel").or(page.locator("text=Total Spend"));
     await expect(metricArea.first()).toBeVisible({ timeout: 12_000 });
   });
 

@@ -27,6 +27,14 @@ async function loginAndGoToSettings(page: import("@playwright/test").Page) {
   await expect(page).toHaveURL(/\/settings/);
 }
 
+// MetaConnectionSection lives in the Admin tab, visible only to builder role.
+async function goToAdminTab(page: import("@playwright/test").Page) {
+  const adminTab = page.getByRole("button", { name: /admin/i });
+  if (await adminTab.isVisible()) {
+    await adminTab.click();
+  }
+}
+
 test.describe("Settings page", () => {
   test.skip(!hasCredentials, "Set PLAYWRIGHT_TEST_EMAIL and PLAYWRIGHT_TEST_PASSWORD to run");
 
@@ -37,12 +45,14 @@ test.describe("Settings page", () => {
 
   test("Meta Connection section is visible", async ({ page }) => {
     await loginAndGoToSettings(page);
+    await goToAdminTab(page);
 
     await expect(page.getByText(/meta connection/i)).toBeVisible({ timeout: 10_000 });
   });
 
   test("Meta token input field exists and accepts text", async ({ page }) => {
     await loginAndGoToSettings(page);
+    await goToAdminTab(page);
 
     const tokenInput = page.locator("#meta-token");
     await expect(tokenInput).toBeVisible({ timeout: 10_000 });
@@ -54,6 +64,7 @@ test.describe("Settings page", () => {
 
   test("Save Token button is present and clickable", async ({ page }) => {
     await loginAndGoToSettings(page);
+    await goToAdminTab(page);
 
     await page.locator("#meta-token").fill("EAAtest123");
 
@@ -64,6 +75,7 @@ test.describe("Settings page", () => {
 
   test("Test Connection button is present and clickable", async ({ page }) => {
     await loginAndGoToSettings(page);
+    await goToAdminTab(page);
 
     const testBtn = page.getByRole("button", { name: /test connection/i });
     await expect(testBtn).toBeVisible({ timeout: 10_000 });
@@ -72,6 +84,7 @@ test.describe("Settings page", () => {
 
   test("clicking Test Connection shows a loading or result state", async ({ page }) => {
     await loginAndGoToSettings(page);
+    await goToAdminTab(page);
 
     const testBtn = page.getByRole("button", { name: /test connection/i });
     await expect(testBtn).toBeVisible({ timeout: 10_000 });
