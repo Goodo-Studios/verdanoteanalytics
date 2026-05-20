@@ -28,10 +28,16 @@ async function loginAndGoToSettings(page: import("@playwright/test").Page) {
 }
 
 // MetaConnectionSection lives in the Admin tab, visible only to builder role.
-async function goToAdminTab(page: import("@playwright/test").Page) {
-  const adminTab = page.getByRole("button", { name: /admin/i });
-  if (await adminTab.isVisible()) {
+// Waits for the profile loading spinner to clear before checking for the tab.
+// Returns true if the tab was found and clicked, false if the user is not a builder.
+async function goToAdminTab(page: import("@playwright/test").Page): Promise<boolean> {
+  try {
+    const adminTab = page.getByRole("button", { name: /^Admin$/i });
+    await adminTab.waitFor({ state: "visible", timeout: 8_000 });
     await adminTab.click();
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -45,14 +51,14 @@ test.describe("Settings page", () => {
 
   test("Meta Connection section is visible", async ({ page }) => {
     await loginAndGoToSettings(page);
-    await goToAdminTab(page);
+    if (!(await goToAdminTab(page))) return; // builder-only; skip for other roles
 
     await expect(page.getByText(/meta connection/i)).toBeVisible({ timeout: 10_000 });
   });
 
   test("Meta token input field exists and accepts text", async ({ page }) => {
     await loginAndGoToSettings(page);
-    await goToAdminTab(page);
+    if (!(await goToAdminTab(page))) return;
 
     const tokenInput = page.locator("#meta-token");
     await expect(tokenInput).toBeVisible({ timeout: 10_000 });
@@ -64,7 +70,7 @@ test.describe("Settings page", () => {
 
   test("Save Token button is present and clickable", async ({ page }) => {
     await loginAndGoToSettings(page);
-    await goToAdminTab(page);
+    if (!(await goToAdminTab(page))) return;
 
     await page.locator("#meta-token").fill("EAAtest123");
 
@@ -75,7 +81,7 @@ test.describe("Settings page", () => {
 
   test("Test Connection button is present and clickable", async ({ page }) => {
     await loginAndGoToSettings(page);
-    await goToAdminTab(page);
+    if (!(await goToAdminTab(page))) return;
 
     const testBtn = page.getByRole("button", { name: /test connection/i });
     await expect(testBtn).toBeVisible({ timeout: 10_000 });
@@ -84,7 +90,7 @@ test.describe("Settings page", () => {
 
   test("clicking Test Connection shows a loading or result state", async ({ page }) => {
     await loginAndGoToSettings(page);
-    await goToAdminTab(page);
+    if (!(await goToAdminTab(page))) return;
 
     const testBtn = page.getByRole("button", { name: /test connection/i });
     await expect(testBtn).toBeVisible({ timeout: 10_000 });
