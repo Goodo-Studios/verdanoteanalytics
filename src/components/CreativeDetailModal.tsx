@@ -44,6 +44,8 @@ interface CreativeDetailModalProps {
 function MediaPreview({ creative }: { creative: any }) {
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const [videoError, setVideoError] = useState(false);
+  const [videoLoading, setVideoLoading] = useState(true);
 
   const adPreviewUrl = creative.ad_post_url || `https://www.facebook.com/ads/library/?id=${creative.ad_id}`;
 
@@ -58,13 +60,26 @@ function MediaPreview({ creative }: { creative: any }) {
   return (
     <div className="space-y-2">
       <div className="bg-muted rounded-lg flex items-center justify-center overflow-hidden relative group min-h-[120px]">
-        {hasVideoUrl ? (
-          <video
-            src={creative.video_url}
-            controls
-            className="w-full max-h-[400px] object-contain rounded-lg"
-            poster={cachedThumbnailUrl || undefined}
-          />
+        {hasVideoUrl && !videoError ? (
+          <div className="relative w-full">
+            {videoLoading && (
+              <div className="w-full h-[300px] bg-muted rounded animate-pulse flex items-center justify-center">
+                <Loader2 className="h-8 w-8 text-muted-foreground/40 animate-spin" />
+              </div>
+            )}
+            <video
+              key={creative.video_url}
+              src={creative.video_url}
+              controls
+              className={`w-full max-h-[400px] object-contain rounded-lg transition-opacity duration-300 ${
+                videoLoading ? "opacity-0 absolute inset-0" : "opacity-100"
+              }`}
+              poster={cachedThumbnailUrl || undefined}
+              onLoadStart={() => setVideoLoading(true)}
+              onCanPlay={() => setVideoLoading(false)}
+              onError={() => { setVideoError(true); setVideoLoading(false); }}
+            />
+          </div>
         ) : hasThumbnail ? (
           <div className="relative w-full">
             {(thumbnailLoading || (!imgLoaded && !imgError)) && (
@@ -75,6 +90,13 @@ function MediaPreview({ creative }: { creative: any }) {
             {(thumbnailError || imgError) && !thumbnailLoading && (
               <div className="absolute inset-0 flex items-center justify-center bg-muted/80 z-10">
                 <span className="font-body text-xs text-muted-foreground">Thumbnail unavailable</span>
+              </div>
+            )}
+            {videoError && !imgError && imgLoaded && (
+              <div className="absolute top-2 left-2 z-10">
+                <span className="bg-black/60 text-white font-label text-[10px] font-semibold px-2 py-0.5 rounded">
+                  Video unavailable
+                </span>
               </div>
             )}
             <img

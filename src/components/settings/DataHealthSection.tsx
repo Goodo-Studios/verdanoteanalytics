@@ -17,6 +17,8 @@ interface AccountHealth {
   with_spend: number;
   thumb_coverage: number;
   video_coverage: number;
+  video_fill_rate: number;
+  video_ads_total: number;
   last_sync_status: string | null;
 }
 
@@ -34,7 +36,7 @@ function useDataHealth() {
       // Fetch creative coverage stats per account
       const { data: creatives, error: crErr } = await supabase
         .from("creatives")
-        .select("account_id, spend, thumbnail_url, video_url");
+        .select("account_id, spend, thumbnail_url, video_url, ad_format");
       if (crErr) throw crErr;
 
       // Fetch last sync status per account
@@ -52,9 +54,9 @@ function useDataHealth() {
       }
 
       // Aggregate per account
-      const stats: Record<string, { withSpend: number; withThumb: number; withVideo: number }> = {};
+      const stats: Record<string, { withSpend: number; withThumb: number; withVideo: number; videoAdsTotal: number; videoAdsWithUrl: number }> = {};
       for (const c of creatives || []) {
-        if (!stats[c.account_id]) stats[c.account_id] = { withSpend: 0, withThumb: 0, withVideo: 0 };
+        if (!stats[c.account_id]) stats[c.account_id] = { withSpend: 0, withThumb: 0, withVideo: 0, videoAdsTotal: 0, videoAdsWithUrl: 0 };
         const hasSpend = (c.spend || 0) > 0;
         if (hasSpend) {
           stats[c.account_id].withSpend++;
@@ -65,10 +67,16 @@ function useDataHealth() {
             stats[c.account_id].withVideo++;
           }
         }
+        if (c.ad_format === "video") {
+          stats[c.account_id].videoAdsTotal++;
+          if (c.video_url && c.video_url !== "no-video") {
+            stats[c.account_id].videoAdsWithUrl++;
+          }
+        }
       }
 
       return (accounts || []).map((acc): AccountHealth => {
-        const s = stats[acc.id] || { withSpend: 0, withThumb: 0, withVideo: 0 };
+        const s = stats[acc.id] || { withSpend: 0, withThumb: 0, withVideo: 0, videoAdsTotal: 0, videoAdsWithUrl: 0 };
         return {
           id: acc.id,
           name: acc.name,
@@ -77,6 +85,8 @@ function useDataHealth() {
           with_spend: s.withSpend,
           thumb_coverage: s.withSpend > 0 ? (s.withThumb / s.withSpend) * 100 : 0,
           video_coverage: s.withSpend > 0 ? (s.withVideo / s.withSpend) * 100 : 0,
+          video_fill_rate: s.videoAdsTotal > 0 ? (s.videoAdsWithUrl / s.videoAdsTotal) * 100 : 0,
+          video_ads_total: s.videoAdsTotal,
           last_sync_status: lastSyncStatus[acc.id] || null,
         };
       });
@@ -175,6 +185,7 @@ export function DataHealthSection() {
               <TableHead className="font-label text-[11px] uppercase tracking-wide text-slate text-right">w/ Spend</TableHead>
               <TableHead className="font-label text-[11px] uppercase tracking-wide text-slate text-right">Thumbnails</TableHead>
               <TableHead className="font-label text-[11px] uppercase tracking-wide text-slate text-right">Videos</TableHead>
+              <TableHead className="font-label text-[11px] uppercase tracking-wide text-slate text-right" title="Of all video-format ads, % with a populated video_url">Fill Rate</TableHead>
               <TableHead className="font-label text-[11px] uppercase tracking-wide text-slate">Last Sync</TableHead>
               <TableHead className="font-label text-[11px] uppercase tracking-wide text-slate">Status</TableHead>
               <TableHead className="font-label text-[11px] uppercase tracking-wide text-slate"></TableHead>
@@ -188,6 +199,16 @@ export function DataHealthSection() {
                 <TableCell className="font-data text-[17px] text-charcoal text-right">{row.with_spend}</TableCell>
                 <TableCell className="text-right"><CoverageCell pct={row.thumb_coverage} /></TableCell>
                 <TableCell className="text-right"><CoverageCell pct={row.video_coverage} /></TableCell>
+                <TableCell className="text-right">
+                  {row.video_ads_total > 0 ? (
+                    <span className="font-body text-[12px] text-muted-foreground">
+                      <CoverageCell pct={row.video_fill_rate} />
+                      <span className="block font-data text-[10px] text-muted-foreground/60">{row.video_ads_total} video ads</span>
+                    </span>
+                  ) : (
+                    <span className="font-data text-[12px] text-muted-foreground/40">—</span>
+                  )}
+                </TableCell>
                 <TableCell className="font-data text-[12px] text-slate">{formatDate(row.last_synced_at)}</TableCell>
                 <TableCell><SyncStatusBadge status={row.last_sync_status} /></TableCell>
                 <TableCell>
