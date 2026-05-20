@@ -122,7 +122,7 @@ Return ONLY a JSON array of 3 strings, no other text. Example: ["insight 1", "in
           status, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      console.error("OpenRouter error:", status, await aiResponse.text());
+      console.error("Anthropic API error:", status, await aiResponse.text());
       return new Response(JSON.stringify({ insights: [] }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
