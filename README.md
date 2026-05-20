@@ -57,9 +57,15 @@ To deploy a single function:
 supabase functions deploy <function-name>
 ```
 
-To deploy all functions:
+To deploy every function (required whenever `supabase/functions/_shared/` changes — each function bundles its own snapshot of `_shared/` at deploy time):
 ```sh
-supabase functions deploy
+./scripts/deploy-functions.sh
+```
+
+After any deploy, verify CORS preflight + auth gates with the smoke test:
+```sh
+./scripts/smoke-test.sh
+# or override the project: SUPABASE_URL=https://... ./scripts/smoke-test.sh
 ```
 
 To set secrets used by edge functions:

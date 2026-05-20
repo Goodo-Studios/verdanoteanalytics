@@ -17,7 +17,8 @@ supabase functions deploy
 Set these before deploying:
 
 ```bash
-supabase secrets set ANTHROPIC_API_KEY=<key>
+supabase secrets set ANTHROPIC_API_KEY=<key>      # client-insights, reports
+supabase secrets set OPENROUTER_API_KEY=<key>     # ai-chat
 supabase secrets set APP_URL=https://<your-domain>
 supabase secrets set RESEND_API_KEY=<key>         # for digest emails
 supabase secrets set META_ACCESS_TOKEN=<token>    # for Meta/Facebook sync
@@ -54,9 +55,14 @@ supabase secrets set META_ACCESS_TOKEN=<token>    # for Meta/Facebook sync
 | `ai-chat` | User action | Conversational AI chat about creative performance. Accepts messages array + account context; returns streaming or batch Claude response. |
 | `client-insights` | User action | Generates 3 plain-English performance insights for a client dashboard using Claude. |
 | `reports` | User action | Builds a full performance report for an account. Calls Claude for AI-generated insights and highlights, formats data, and returns HTML/JSON. |
-| `analyze-creative` | User action | Uses Claude to analyze a single creative's ad copy, visual structure, and performance signal. |
 
-**AI model:** All AI calls use `claude-sonnet-4-6` via the Anthropic Messages API (`https://api.anthropic.com/v1/messages`). Requires `ANTHROPIC_API_KEY` secret.
+**AI providers (mixed):**
+
+| Function | Provider | Default model | Required secret | Override env |
+|---|---|---|---|---|
+| `ai-chat` | OpenRouter (`https://openrouter.ai/api/v1/chat/completions`) | `anthropic/claude-3.5-sonnet` | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL` |
+| `client-insights` | Anthropic Messages API (`https://api.anthropic.com/v1/messages`) | `claude-haiku-4-5-20251001` | `ANTHROPIC_API_KEY` | `ANTHROPIC_MODEL` |
+| `reports` | Anthropic Messages API (`https://api.anthropic.com/v1/messages`) | `claude-haiku-4-5-20251001` | `ANTHROPIC_API_KEY` | `ANTHROPIC_MODEL` |
 
 ### Reports & Digests
 
