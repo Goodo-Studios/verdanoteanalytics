@@ -65,7 +65,7 @@ serve(async (req) => {
       });
     }
 
-    // PUT /settings — save settings (no longer saves meta token to DB)
+    // PUT /settings — save settings
     if (req.method === "PUT" && !path) {
       const body = await req.json();
       const updates: { key: string; value: string }[] = [];
@@ -73,7 +73,6 @@ serve(async (req) => {
       for (const [key, value] of Object.entries(body)) {
         if (typeof value === "string") {
           if (value.startsWith("****")) continue;
-          if (key === "meta_access_token") continue; // Token is managed via secrets
           updates.push({ key, value });
         }
       }

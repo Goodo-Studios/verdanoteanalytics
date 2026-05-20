@@ -235,7 +235,7 @@ const SettingsPage = () => {
       {/* Admin Tab */}
       {safeActiveTab === "admin" && effectiveIsBuilder && (
         <div className="max-w-2xl space-y-8">
-          <MetaConnectionSection metaStatus={userState.metaStatus} metaUser={userState.metaUser} onTestConnection={userState.handleTestConnection} />
+          <MetaConnectionSection metaStatus={userState.metaStatus} metaUser={userState.metaUser} onTestConnection={userState.handleTestConnection} onSaveToken={userState.handleSaveToken} isSavingToken={userState.isSavingToken} />
           <AdAccountsSection
             accounts={userState.accounts}
             syncPending={userState.sync.isPending || isSyncing}

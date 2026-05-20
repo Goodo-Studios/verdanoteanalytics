@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { useSettings, useTestMeta } from "@/hooks/useSettingsApi";
+import { useSettings, useTestMeta, useSaveSettings } from "@/hooks/useSettingsApi";
 import { useAccounts, useAddAccount, useDeleteAccount, useRenameAccount } from "@/hooks/useAccountsApi";
 import { useSync, useRefreshMedia } from "@/hooks/useSyncApi";
 import { useUsers, useCreateUser, useDeleteUser, useUpdateUser } from "@/hooks/useUsersApi";
@@ -40,6 +40,7 @@ export function useUserSettingsPageState() {
   // API hooks
   const { data: settings } = useSettings();
   const testMeta = useTestMeta();
+  const saveSettings = useSaveSettings();
   const { data: rawAccounts } = useAccounts();
   const accounts = [...(rawAccounts || [])].sort((a: any, b: any) => a.name.localeCompare(b.name));
   const addAccount = useAddAccount();
@@ -106,10 +107,10 @@ export function useUserSettingsPageState() {
     }
   }, [newPassword, confirmPassword]);
 
-  const handleTestConnection = useCallback(async () => {
+  const handleTestConnection = useCallback(async (token?: string) => {
     setMetaStatus("testing");
     try {
-      const result = await testMeta.mutateAsync(undefined);
+      const result = await testMeta.mutateAsync(token);
       if (result.connected) {
         setMetaStatus("connected");
         setMetaUser(result.user?.name || null);
@@ -124,6 +125,11 @@ export function useUserSettingsPageState() {
       toast.error(e.message);
     }
   }, [testMeta]);
+
+  const handleSaveToken = useCallback(async (token: string) => {
+    if (!token) return;
+    await saveSettings.mutateAsync({ meta_access_token: token });
+  }, [saveSettings]);
 
   const handleOpenAddModal = useCallback(async () => {
     setShowAddModal(true);
@@ -184,7 +190,7 @@ export function useUserSettingsPageState() {
     savingProfile, savingPassword,
     handleSaveProfile, handleChangePassword,
     // Meta connection
-    metaStatus, metaUser, handleTestConnection,
+    metaStatus, metaUser, handleTestConnection, handleSaveToken, isSavingToken: saveSettings.isPending,
     // Accounts
     accounts, existingIds,
     showAddModal, setShowAddModal, availableAccounts, loadingAccounts,
