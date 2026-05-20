@@ -1,16 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useMutationWithToast } from "./useMutationWithToast";
-import { useAuth } from "@/contexts/AuthContext";
 import type { Account } from "@/types/account";
 
 export function useAccounts(userId?: string | null) {
-  const { user } = useAuth();
-  const effectiveUserId = userId !== undefined ? userId : user?.id;
   return useQuery<Account[]>({
-    queryKey: ["accounts", effectiveUserId],
+    queryKey: ["accounts", userId ?? "all"],
     queryFn: () => apiFetch("accounts"),
-    enabled: !!effectiveUserId,
+    // Only block when userId is explicitly null (AccountContext knows user is absent)
+    enabled: userId !== null,
   });
 }
 
