@@ -3,8 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 
 
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-const AI_GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -97,25 +97,25 @@ Examples of tone:
 
 Return ONLY a JSON array of 3 strings, no other text. Example: ["insight 1", "insight 2", "insight 3"]`;
 
-    const aiResponse = await fetch(AI_GATEWAY, {
+    const aiResponse = await fetch(ANTHROPIC_API_URL, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        "x-api-key": ANTHROPIC_API_KEY!,
+        "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash-lite",
-        messages: [
-          { role: "system", content: "You output only valid JSON arrays. No markdown, no code fences." },
-          { role: "user", content: prompt },
-        ],
+        model: "claude-sonnet-4-6",
+        max_tokens: 1024,
+        system: "You output only valid JSON arrays. No markdown, no code fences.",
+        messages: [{ role: "user", content: prompt }],
       }),
     });
 
     if (!aiResponse.ok) {
       const status = aiResponse.status;
-      if (status === 429 || status === 402) {
-        return new Response(JSON.stringify({ error: status === 429 ? "Rate limited" : "Credits exhausted" }), {
+      if (status === 429) {
+        return new Response(JSON.stringify({ error: "Rate limited" }), {
           status, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -126,7 +126,7 @@ Return ONLY a JSON array of 3 strings, no other text. Example: ["insight 1", "in
     }
 
     const aiData = await aiResponse.json();
-    let raw = aiData.choices?.[0]?.message?.content ?? "[]";
+    let raw = aiData.content?.[0]?.text ?? "[]";
     
     // Strip markdown fences if present
     raw = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();

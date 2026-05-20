@@ -3,8 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 
 
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-const AI_GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 
 type AnalysisMode = "free_chat" | "weekly_brief" | "competitive_debrief" | "concept_planner";
 
@@ -72,22 +72,24 @@ serve(async (req) => {
 
     const systemPrompt = buildSystemPrompt(contextData, mode as AnalysisMode, accountSettings, modeInputs);
 
-    // Build messages array for AI
+    // Build messages array for AI (system prompt is top-level in Anthropic API, not a message)
     const aiMessages = [
-      { role: "system", content: systemPrompt },
       ...existingMessages,
       { role: "user", content: message },
     ];
 
-    // Call Lovable AI
-    const aiResponse = await fetch(AI_GATEWAY, {
+    // Call Anthropic API
+    const aiResponse = await fetch(ANTHROPIC_API_URL, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        "x-api-key": ANTHROPIC_API_KEY!,
+        "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "claude-sonnet-4-6",
+        max_tokens: 4096,
+        system: systemPrompt,
         messages: aiMessages,
       }),
     });
@@ -99,12 +101,6 @@ serve(async (req) => {
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      if (aiResponse.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "AI credits exhausted. Please top up your workspace." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
       const errText = await aiResponse.text();
       console.error("AI gateway error:", aiResponse.status, errText);
       return new Response(JSON.stringify({ error: "AI service error" }), {
@@ -114,7 +110,7 @@ serve(async (req) => {
     }
 
     const aiData = await aiResponse.json();
-    const answer = aiData.choices?.[0]?.message?.content ?? "Sorry, I could not generate a response.";
+    const answer = aiData.content?.[0]?.text ?? "Sorry, I could not generate a response.";
 
     // Persist conversation
     const updatedMessages = [

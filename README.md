@@ -1,73 +1,94 @@
-# Welcome to your Lovable project
+# Verdanote Analytics
 
-## Project info
+Meta ad creative analytics platform for DTC brands. Analyze, tag, grade, and optimize creatives with win-rate analysis, kill/scale recommendations, and AI-powered insights.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Stack
 
-## How can I edit this code?
+- **Frontend**: React 18 + TypeScript + Vite + shadcn/ui + Tailwind CSS
+- **Backend**: Supabase Edge Functions (Deno)
+- **Database**: Supabase / Postgres
+- **Auth**: Supabase Auth with role-based access (builder / employee / client)
+- **Charts**: Recharts
+- **Deployment**: Vercel (frontend) + Supabase (backend + DB)
 
-There are several ways of editing your application.
+## Environment Variables
 
-**Use Lovable**
+Create a `.env.local` file in the project root (see `.env.example`):
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+```
+VITE_SUPABASE_URL=your_supabase_project_url
+VITE_SUPABASE_PUBLISHABLE_KEY=your_supabase_anon_key
 ```
 
-**Edit a file directly in GitHub**
+## Local Development
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```sh
+# Install dependencies
+npm install
 
-**Use GitHub Codespaces**
+# Start dev server (runs on port 8080)
+npm run dev
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+# Type check
+npx tsc --noEmit
 
-## What technologies are used for this project?
+# Lint
+npm run lint
 
-This project is built with:
+# Run tests
+npm run test
+```
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Deployment
 
-## How can I deploy this project?
+The frontend deploys automatically to Vercel on every push to `main`.
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+To deploy manually:
+```sh
+vercel --prod
+```
 
-## Can I connect a custom domain to my Lovable project?
+## Edge Functions
 
-Yes, you can!
+Edge functions live in `supabase/functions/`. Each is a standalone Deno module.
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+To deploy a single function:
+```sh
+supabase functions deploy <function-name>
+```
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+To deploy all functions:
+```sh
+supabase functions deploy
+```
+
+To set secrets used by edge functions:
+```sh
+supabase secrets set ANTHROPIC_API_KEY=your_key
+supabase secrets set APP_URL=https://your-domain.com
+```
+
+## Roles
+
+Three roles are enforced at the URL level and validated against the database:
+
+| Role | URL prefix | Access |
+|---|---|---|
+| builder | `/builder/` | Full access — all accounts, all data |
+| employee | `/employee/` | Internal view — assigned accounts |
+| client | `/client/` | Client portal — own account only |
+
+Role is resolved via the `get_user_role` Postgres RPC on login.
+
+## Key Edge Functions
+
+| Function | Purpose |
+|---|---|
+| `ai-chat` | AI assistant (weekly brief, competitive debrief, concept planner) |
+| `client-insights` | AI-generated client performance insights |
+| `reports` | AI-generated performance reports |
+| `creatives` | Fetch and filter ad creatives with pagination |
+| `sync` | Meta Marketing API sync — pulls ad data into DB |
+| `enrich-thumbnails` | Downloads Meta ad thumbnails → Supabase Storage |
+| `send-digest` | Sends scheduled email digests |
+| `scheduled-reports` | Cron-triggered report generation |

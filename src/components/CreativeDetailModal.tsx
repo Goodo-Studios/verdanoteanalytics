@@ -4,7 +4,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, ExternalLink, Play, Video, FileEdit, MessageSquare, GitBranch, Loader2 } from "lucide-react";
+import { Image as ImageIcon, ExternalLink, FileEdit, MessageSquare, GitBranch, Loader2 } from "lucide-react";
 import { useState, forwardRef } from "react";
 import { useCachedMedia } from "@/hooks/useCachedMedia";
 
@@ -53,13 +53,19 @@ function MediaPreview({ creative }: { creative: any }) {
     });
 
   const hasThumbnail = !!creative.thumbnail_url;
-  const isVideoAd = (creative.video_views || 0) > 0;
-  const showButton = adPreviewUrl && (imgLoaded || imgError || (thumbnailError && !thumbnailLoading));
+  const hasVideoUrl = !!creative.video_url;
 
   return (
     <div className="space-y-2">
       <div className="bg-muted rounded-lg flex items-center justify-center overflow-hidden relative group min-h-[120px]">
-        {hasThumbnail ? (
+        {hasVideoUrl ? (
+          <video
+            src={creative.video_url}
+            controls
+            className="w-full max-h-[400px] object-contain rounded-lg"
+            poster={cachedThumbnailUrl || undefined}
+          />
+        ) : hasThumbnail ? (
           <div className="relative w-full">
             {(thumbnailLoading || (!imgLoaded && !imgError)) && (
               <div className="w-full h-[300px] bg-muted rounded animate-pulse flex items-center justify-center">
@@ -89,17 +95,17 @@ function MediaPreview({ creative }: { creative: any }) {
         )}
       </div>
 
-      {/* Preview Ad button — always visible when URL exists */}
+      {/* View on Facebook — always shown as a secondary link */}
       {adPreviewUrl && (
         <a
           href={adPreviewUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground text-[12px] font-semibold rounded-md px-3 py-1.5 shadow-sm transition-colors cursor-pointer"
-          title="Preview this ad on Facebook"
+          title="View this ad on Facebook"
         >
-          {isVideoAd ? <Play className="h-3.5 w-3.5" /> : <ExternalLink className="h-3.5 w-3.5" />}
-          Preview Ad
+          <ExternalLink className="h-3.5 w-3.5" />
+          {hasVideoUrl ? "View on Facebook" : "Preview Ad"}
         </a>
       )}
     </div>

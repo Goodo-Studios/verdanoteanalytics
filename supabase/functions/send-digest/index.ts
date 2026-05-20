@@ -181,7 +181,7 @@ Deno.serve(async (req) => {
       `);
     }
 
-    const siteUrl = req.headers.get("origin") || "https://verdanoteanalytics.lovable.app";
+    const siteUrl = req.headers.get("origin") || Deno.env.get("APP_URL") || "https://verdanote.com";
 
     const html = `<!DOCTYPE html>
 <html>
