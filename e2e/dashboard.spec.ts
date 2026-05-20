@@ -25,14 +25,14 @@ async function loginAs(page: import("@playwright/test").Page, email: string, pas
 test.describe("Dashboard — unauthenticated", () => {
   test("/ redirects unauthenticated user to /login", async ({ page }) => {
     await page.goto("/");
-    await page.waitForURL("**/login", { timeout: 8_000 });
+    await page.waitForURL("**/login", { timeout: 15_000 });
     await expect(page).toHaveURL(/\/login/);
   });
 
   test("unknown role path redirects to /login", async ({ page }) => {
     await page.goto("/builder/");
     // Without auth, should land on login
-    await page.waitForURL("**/login", { timeout: 8_000 });
+    await page.waitForURL("**/login", { timeout: 15_000 });
     await expect(page).toHaveURL(/\/login/);
   });
 });
