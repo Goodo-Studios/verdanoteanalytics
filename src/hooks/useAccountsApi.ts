@@ -3,8 +3,12 @@ import { apiFetch } from "@/lib/api";
 import { useMutationWithToast } from "./useMutationWithToast";
 import type { Account } from "@/types/account";
 
-export function useAccounts() {
-  return useQuery<Account[]>({ queryKey: ["accounts"], queryFn: () => apiFetch("accounts") });
+export function useAccounts(userId?: string | null) {
+  return useQuery<Account[]>({
+    queryKey: ["accounts", userId],
+    queryFn: () => apiFetch("accounts"),
+    enabled: !!userId,
+  });
 }
 
 export function useAddAccount() {

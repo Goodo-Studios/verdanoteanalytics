@@ -21,8 +21,8 @@ const AccountContext = createContext<AccountContextType>({
 });
 
 export function AccountProvider({ children }: { children: ReactNode }) {
-  const { data: allAccounts, isLoading: accountsLoading } = useAccounts();
   const { isClient, user } = useAuth();
+  const { data: allAccounts, isLoading: accountsLoading } = useAccounts(user?.id);
   const needsAccountFilter = isClient;
   const [linkedAccountIds, setLinkedAccountIds] = useState<string[] | null>(null);
   // Initialize to null — load from namespaced key once user is known (see effect below)
