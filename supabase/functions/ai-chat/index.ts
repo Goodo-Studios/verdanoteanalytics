@@ -3,8 +3,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 
 
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
-const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
+const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_MODEL = Deno.env.get("OPENROUTER_MODEL") ?? "anthropic/claude-3.5-sonnet";
 
 type AnalysisMode = "free_chat" | "weekly_brief" | "competitive_debrief" | "concept_planner";
 
@@ -72,24 +73,24 @@ serve(async (req) => {
 
     const systemPrompt = buildSystemPrompt(contextData, mode as AnalysisMode, accountSettings, modeInputs);
 
-    // Build messages array for AI (system prompt is top-level in Anthropic API, not a message)
+    // Build messages array for AI — system prompt is the first message in OpenAI-compatible format
     const aiMessages = [
+      { role: "system", content: systemPrompt },
       ...existingMessages,
       { role: "user", content: message },
     ];
 
-    // Call Anthropic API
-    const aiResponse = await fetch(ANTHROPIC_API_URL, {
+    const aiResponse = await fetch(OPENROUTER_URL, {
       method: "POST",
       headers: {
-        "x-api-key": ANTHROPIC_API_KEY!,
-        "anthropic-version": "2023-06-01",
+        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
         "Content-Type": "application/json",
+        "HTTP-Referer": "https://verdanote.com",
+        "X-Title": "Verdanote",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
+        model: OPENROUTER_MODEL,
         max_tokens: 4096,
-        system: systemPrompt,
         messages: aiMessages,
       }),
     });
@@ -102,7 +103,7 @@ serve(async (req) => {
         );
       }
       const errText = await aiResponse.text();
-      console.error("AI gateway error:", aiResponse.status, errText);
+      console.error("OpenRouter error:", aiResponse.status, errText);
       return new Response(JSON.stringify({ error: "AI service error" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -110,7 +111,7 @@ serve(async (req) => {
     }
 
     const aiData = await aiResponse.json();
-    const answer = aiData.content?.[0]?.text ?? "Sorry, I could not generate a response.";
+    const answer = aiData.choices?.[0]?.message?.content ?? "Sorry, I could not generate a response.";
 
     // Persist conversation
     const updatedMessages = [
