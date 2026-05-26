@@ -8,7 +8,6 @@ import {
 } from "../_shared/media-discovery.ts";
 
 
-const META_ACCESS_TOKEN = Deno.env.get("META_ACCESS_TOKEN")!;
 const SUPABASE_URL_ENV = Deno.env.get("SUPABASE_URL") || "";
 const BATCH_SIZE = 20;
 const TIME_BUDGET_MS = 115_000;
@@ -76,6 +75,19 @@ serve(async (req) => {
 
     const scope = url.searchParams.get("scope") || "all";
 
+    // Resolve Meta access token — env var first, then settings table fallback (same as sync function)
+    let metaAccessToken = Deno.env.get("META_ACCESS_TOKEN") || null;
+    if (!metaAccessToken) {
+      const { data: tokenRow } = await supabase.from("settings").select("value").eq("key", "meta_access_token").single();
+      metaAccessToken = tokenRow?.value || null;
+    }
+    if (!metaAccessToken) {
+      return new Response(
+        JSON.stringify({ error: "No Meta access token configured" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Concurrency guard — scoped to the specific account when account_id is provided,
     // so a sync-triggered per-account run isn't blocked by a concurrent cron run on a different account.
     let guardQuery = supabase.from("media_refresh_logs").select("id").eq("status", "running");
@@ -89,7 +101,7 @@ serve(async (req) => {
     }
 
     if (scope === "discover" || scope === "all") {
-      await runDiscovery(supabase, accountFilter);
+      await runDiscovery(supabase, accountFilter, metaAccessToken);
     }
 
     if (scope === "cache" || scope === "all") {
@@ -112,7 +124,7 @@ serve(async (req) => {
 /**
  * Phase 1: Discover CDN URLs for creatives with null thumbnail_url.
  */
-async function runDiscovery(supabase: any, accountFilter: string | null) {
+async function runDiscovery(supabase: any, accountFilter: string | null, metaAccessToken: string) {
   let query = supabase
     .from("creatives")
     .select("ad_id, account_id")
@@ -159,7 +171,7 @@ async function runDiscovery(supabase: any, accountFilter: string | null) {
     const batch = items.slice(i, i + BATCH_SIZE);
     const results = await Promise.allSettled(
       batch.map(async (c: any) => {
-        const result = await discoverImageUrl(c.ad_id, c.account_id, META_ACCESS_TOKEN, 8_000);
+        const result = await discoverImageUrl(c.ad_id, c.account_id, metaAccessToken, 8_000);
         if (result) {
           await supabase.from("creatives").update({ thumbnail_url: result.thumbnailUrl }).eq("ad_id", c.ad_id);
           return "enriched";

@@ -5,7 +5,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Button } from "@/components/ui/button";
 import { Image as ImageIcon, ExternalLink, FileEdit, MessageSquare, GitBranch, Loader2 } from "lucide-react";
-import { useState, forwardRef } from "react";
+import { useState, forwardRef, useEffect } from "react";
 import { useCachedMedia } from "@/hooks/useCachedMedia";
 
 import { CreativeMetrics } from "@/components/creative-detail/CreativeMetrics";
@@ -32,6 +32,7 @@ import type { Database } from "@/integrations/supabase/types";
 type Creative = Database["public"]["Tables"]["creatives"]["Row"];
 import { toast } from "sonner";
 import { useAllCreatives } from "@/hooks/useAllCreatives";
+import { useQueryClient } from "@tanstack/react-query";
 
 
 
@@ -44,7 +45,7 @@ interface CreativeDetailModalProps {
   fatigueMap?: Map<string, FatigueResult>;
 }
 
-function MediaPreview({ creative }: { creative: Creative }) {
+function MediaPreview({ creative, caching = false }: { creative: Creative; caching?: boolean }) {
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgError, setImgError] = useState(false);
   const [videoError, setVideoError] = useState(false);
@@ -57,8 +58,11 @@ function MediaPreview({ creative }: { creative: Creative }) {
       placeholderUrl: "/placeholder-creative.png",
     });
 
-  const hasThumbnail = !!creative.thumbnail_url;
-  const hasVideoUrl = !!creative.video_url;
+  const hasThumbnail = !!(
+    (creative.thumbnail_url && creative.thumbnail_url !== "no-thumbnail") ||
+    (creative.full_res_url && creative.full_res_url !== "no-thumbnail")
+  );
+  const hasVideoUrl = !!(creative.video_url && creative.video_url !== "no-video");
 
   return (
     <div className="space-y-2">
@@ -112,6 +116,11 @@ function MediaPreview({ creative }: { creative: Creative }) {
               onError={() => setImgError(true)}
             />
           </div>
+        ) : caching ? (
+          <div className="w-full h-[300px] bg-muted rounded animate-pulse flex flex-col items-center justify-center gap-2">
+            <Loader2 className="h-8 w-8 text-muted-foreground/40 animate-spin" />
+            <span className="font-body text-[12px] text-muted-foreground">Fetching ad media...</span>
+          </div>
         ) : (
           <div className="flex flex-col items-center gap-2 py-12">
             <ImageIcon className="h-8 w-8 text-muted-foreground" />
@@ -139,16 +148,57 @@ function MediaPreview({ creative }: { creative: Creative }) {
 export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModalProps>(function CreativeDetailModal({ creative, open, onClose, wowTrends, gradeMap, fatigueMap }, ref) {
   const { isBuilder, isEmployee, user } = useAuth();
   const { selectedAccount } = useAccountContext();
+  const queryClient = useQueryClient();
   const canEdit = isBuilder || isEmployee;
   const [codaBriefOpen, setCodaBriefOpen] = useState(false);
   const [briefTaskName, setBriefTaskName] = useState("");
   const [briefNote, setBriefNote] = useState("");
   const [pushing, setPushing] = useState(false);
+  const [cachedMedia, setCachedMedia] = useState<{
+    thumbnail_url?: string | null;
+    full_res_url?: string | null;
+    video_url?: string | null;
+  } | null>(null);
+  const [caching, setCaching] = useState(false);
 
   // Fetch all creatives once at modal level — passed down to avoid duplicate fetches
   const { data: allCreatives = [] } = useAllCreatives({ account_id: creative?.account_id });
 
+  // On-demand media caching: fire when modal opens with no stored media
+  useEffect(() => {
+    if (!open || !creative) return;
+    setCachedMedia(null);
+    const hasThumb = !!(
+      (creative.thumbnail_url && creative.thumbnail_url !== "no-thumbnail") ||
+      (creative.full_res_url && creative.full_res_url !== "no-thumbnail")
+    );
+    const hasVideo = !!(creative.video_url && creative.video_url !== "no-video");
+    if (hasThumb || hasVideo) return;
+    // Sentinels mean discovery was already attempted — skip
+    if (creative.thumbnail_url === "no-thumbnail" || creative.video_url === "no-video") return;
+    setCaching(true);
+    supabase.functions
+      .invoke("cache-creative-image", {
+        body: { ad_id: creative.ad_id, account_id: creative.account_id },
+      })
+      .then(({ data, error }) => {
+        if (!error && data) {
+          setCachedMedia({
+            thumbnail_url: data.thumbnail_url ?? null,
+            full_res_url: data.full_res_url ?? null,
+            video_url: data.video_url ?? null,
+          });
+          queryClient.invalidateQueries({ queryKey: ["creatives"] });
+        }
+      })
+      .finally(() => setCaching(false));
+  }, [open, creative?.ad_id]);
+
   if (!creative) return null;
+
+  const displayCreative: Creative = cachedMedia
+    ? { ...creative, ...(Object.fromEntries(Object.entries(cachedMedia).filter(([, v]) => v != null)) as Partial<Creative>) }
+    : creative;
   const fatigue = fatigueMap?.get(creative.ad_id);
 
   const creativeLink = creative ? `https://www.facebook.com/ads/library/?id=${creative.ad_id}` : "";
@@ -200,7 +250,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
         </DialogHeader>
 
         {/* Media preview */}
-        <MediaPreview creative={creative} />
+        <MediaPreview creative={displayCreative} caching={caching} />
 
         <Tabs defaultValue="details" className="w-full">
           <TabsList className="w-full">
