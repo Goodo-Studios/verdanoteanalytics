@@ -76,12 +76,11 @@ serve(async (req) => {
 
     const scope = url.searchParams.get("scope") || "all";
 
-    // Concurrency guard
-    const { data: running } = await supabase
-      .from("media_refresh_logs")
-      .select("id")
-      .eq("status", "running")
-      .limit(1);
+    // Concurrency guard — scoped to the specific account when account_id is provided,
+    // so a sync-triggered per-account run isn't blocked by a concurrent cron run on a different account.
+    let guardQuery = supabase.from("media_refresh_logs").select("id").eq("status", "running");
+    if (accountFilter) guardQuery = guardQuery.eq("account_id", accountFilter);
+    const { data: running } = await guardQuery.limit(1);
     if (running && running.length > 0) {
       return new Response(
         JSON.stringify({ skipped: true, reason: "media_refresh_running" }),

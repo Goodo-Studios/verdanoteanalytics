@@ -689,7 +689,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
 
           for (let i = 0; i < metricRows.length; i += BATCH_SIZE) {
             const batch = metricRows.slice(i, i + BATCH_SIZE);
-            const { error } = await supabase.rpc("bulk_update_creative_metrics", { payload: JSON.stringify(batch) });
+            const { error } = await supabase.rpc("bulk_update_creative_metrics", { payload: batch });
             if (error) console.error("Phase 2 bulk RPC error:", error.message);
             if (isTimedOut()) break;
           }
