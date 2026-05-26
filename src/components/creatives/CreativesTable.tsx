@@ -1,5 +1,4 @@
-import { useCallback, useRef, useState } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useCallback, useState } from "react";
 import { GradeBadge } from "./GradeBadge";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -56,7 +55,7 @@ function CreativeCell({ c }: { c: any }) {
       </div>
       <div className="min-w-0">
         <div className="font-body text-[13px] font-medium text-charcoal truncate">{c.ad_name}</div>
-        <div className="font-body text-[11px] text-sage">{c.unique_code}</div>
+        <div className="font-body text-[11px] text-sage truncate">{c.unique_code}</div>
       </div>
     </div>
   );
@@ -105,14 +104,6 @@ export function CreativesTable({
   const [dragSourceKey, setDragSourceKey] = useState<string | null>(null);
   const [dragTargetKey, setDragTargetKey] = useState<string | null>(null);
 
-  const parentRef = useRef<HTMLDivElement>(null);
-  const rowVirtualizer = useVirtualizer({
-    count: creatives.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 56,
-    overscan: 10,
-  });
-
   const handleColumnDrop = useCallback((targetKey: string) => {
     if (dragSourceKey && dragSourceKey !== targetKey) {
       const newOrder = [...columnOrder];
@@ -151,7 +142,6 @@ export function CreativesTable({
 
   return (
     <div
-      ref={parentRef}
       className="glass-panel overflow-x-auto -mx-4 sm:mx-0"
       style={{ height: "600px", overflowY: "auto" }}
     >
@@ -171,30 +161,14 @@ export function CreativesTable({
             {columnOrder.filter(k => visibleCols.has(k)).map(renderHead)}
           </TableRow>
         </TableHeader>
-        <TableBody
-          style={{
-            height: `${rowVirtualizer.getTotalSize()}px`,
-            position: "relative",
-          }}
-        >
-          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-            const c = creatives[virtualRow.index];
+        <TableBody>
+          {creatives.map((c) => {
             const isSelected = compareIds.has(c.ad_id);
             const isDisabled = compareMode && !isSelected && compareIds.size >= 3;
             const isBulkSelected = bulkMode && bulkSelectedIds!.has(c.ad_id);
             return (
               <TableRow
                 key={c.ad_id}
-                data-index={virtualRow.index}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  transform: `translateY(${virtualRow.start}px)`,
-                  display: "table",
-                  tableLayout: "fixed",
-                }}
                 className={cn(
                   "cursor-pointer hover:bg-accent/50 border-b border-border-light",
                   compareMode && isSelected && "bg-sage-light/50 border-l-[3px] border-l-verdant",
