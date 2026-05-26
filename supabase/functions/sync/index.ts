@@ -156,7 +156,7 @@ const HEARTBEAT_INTERVAL_MS = 20 * 1000;
 // HTTP POST to /sync/continue so the next phase starts immediately instead of
 // waiting for the cron tick (~1 min). This eliminates the race condition where
 // cleanup-stuck-syncs marks a sync as "stuck" before the cron re-invokes it.
-async function selfContinue(): Promise<void> {
+async function selfContinue(claimId: string): Promise<void> {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -171,7 +171,7 @@ async function selfContinue(): Promise<void> {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${serviceKey}`,
       },
-      body: JSON.stringify({ time: new Date().toISOString() }),
+      body: JSON.stringify({ time: new Date().toISOString(), claim_id: claimId }),
     }).catch((err) => {
       console.warn("selfContinue fetch error (non-fatal):", err);
     });
@@ -1465,6 +1465,9 @@ serve(async (req) => {
 
     // ─── POST /sync/continue ───────────────────────────────────────────
     if (req.method === "POST" && path === "continue") {
+      const body = await req.json().catch(() => ({}));
+      const incomingClaimId: string | null = body.claim_id ?? null;
+
       const { data: runningSyncs } = await supabase.from("sync_logs")
         .select("*")
         .eq("status", "running")
@@ -1495,28 +1498,31 @@ serve(async (req) => {
         return new Response(JSON.stringify({ error: "No Meta token" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // Atomic claim: update last_activity only if status is STILL 'running'.
-      // This is a compare-and-swap — if the sync was already completed/failed by a concurrent
-      // caller, the WHERE status='running' filter prevents the update from matching, and
-      // .single() returns null. Stale selfContinue calls lose the race and exit cleanly.
-      const { data: claimed } = await supabase.from("sync_logs")
-        .update({ sync_state: { ...syncLog.sync_state, last_activity: new Date().toISOString() } })
-        .eq("id", syncLog.id)
-        .eq("status", "running")
-        .select("id, status, current_phase, sync_state, account_id, date_range_start, date_range_end, sync_type")
-        .single();
+      // DB-level mutex: atomic claim via claim_sync_continue RPC.
+      // Two concurrent callers both pass the status='running' check above; the RPC's WHERE
+      // requires an exact claim_id match (chain continuation) or accepts a null claim
+      // only when no active claim exists or last_activity went stale (>90s).
+      // Postgres serializes concurrent UPDATEs on the same row, so only one caller wins.
+      const newClaimId = crypto.randomUUID();
+      const { data: claimResult, error: claimError } = await supabase.rpc("claim_sync_continue", {
+        p_sync_id: syncLog.id,
+        p_old_claim: incomingClaimId,
+        p_new_claim: newClaimId,
+      });
 
-      if (!claimed) {
-        console.log(`Sync ${syncLog.id} atomic claim failed — no longer running, skipping stale continue`);
-        await promoteNextQueued(supabase);
-        return new Response(JSON.stringify({ skipped: syncLog.id, reason: "no_longer_running" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (claimError || !claimResult || claimResult.length === 0) {
+        const reason = claimError ? `rpc_error: ${claimError.message}` : "claim_lost";
+        console.log(`Sync ${syncLog.id} claim failed (${reason}) — concurrent caller won or stale continue`);
+        return new Response(JSON.stringify({ skipped: syncLog.id, reason }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
+
+      const claimed = claimResult[0];
 
       await runSyncPhase(supabase, claimed, metaToken);
 
       // Auto-continue: fire unconditionally so the next phase of the current sync (if still
       // running) OR the next promoted queued sync gets picked up immediately.
-      await selfContinue();
+      await selfContinue(newClaimId);
 
       return new Response(JSON.stringify({ continued: syncLog.id, phase: syncLog.current_phase }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -1606,9 +1612,11 @@ serve(async (req) => {
           .limit(1);
 
         if (oldest?.length) {
-          // Atomically promote only if still queued (prevents race condition)
+          const initialClaimId = crypto.randomUUID();
+          // Atomically promote only if still queued (prevents race condition).
+          // Seed claim_id so /continue callers must pass it for chain continuation.
           const { data: promoted, error: promoteErr } = await supabase.from("sync_logs")
-            .update({ status: "running", sync_state: { ...oldest[0].sync_state, last_activity: new Date().toISOString() } })
+            .update({ status: "running", sync_state: { ...oldest[0].sync_state, last_activity: new Date().toISOString(), claim_id: initialClaimId } })
             .eq("id", oldest[0].id)
             .eq("status", "queued")  // only if still queued
             .select()
@@ -1622,7 +1630,7 @@ serve(async (req) => {
             const { data: postCheck } = await supabase.from("sync_logs")
               .select("status").eq("id", promoted.id).single();
             if (postCheck?.status === "running") {
-              await selfContinue();
+              await selfContinue(initialClaimId);
             }
           }
         }
