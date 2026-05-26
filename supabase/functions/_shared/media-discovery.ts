@@ -371,14 +371,28 @@ export async function discoverVideoUrl(
     // Path 6: effective_object_story_id → post video
     const storyId = creative.effective_object_story_id;
     if (storyId) {
-      const postRes = await fetchWithTimeout(
-        `https://graph.facebook.com/${META_API_VERSION}/${storyId}?fields=attachments{media,media_type}&access_token=${accessToken}`,
+      // 6a: Try post-level source field first (video posts often expose this directly)
+      const postSourceRes = await fetchWithTimeout(
+        `https://graph.facebook.com/${META_API_VERSION}/${storyId}?fields=source,attachments{media,media_type,subattachments{media,media_type}}&access_token=${accessToken}`,
         timeoutMs
       );
-      if (postRes.ok) {
-        const postData = await postRes.json();
+      if (postSourceRes.ok) {
+        const postData = await postSourceRes.json();
+
+        // Direct source on the post object (common for native video posts)
+        if (postData?.source && postData.source.includes("video")) {
+          console.log(`Got video source directly from post for ${adId}`);
+          return postData.source;
+        }
+
         const attachments: any[] = postData?.attachments?.data || [];
         for (const att of attachments) {
+          // Some video posts expose the playable URL directly on media.source
+          if (att?.media?.source) {
+            console.log(`Got video from attachment media.source for ${adId}`);
+            return att.media.source;
+          }
+          // Standard path: media.video.id → fetch source
           const videoId = att?.media?.video?.id;
           if (videoId) {
             const vidRes = await fetchWithTimeout(
@@ -393,7 +407,31 @@ export async function discoverVideoUrl(
               }
             }
           }
+          // Check subattachments (carousel / album posts)
+          const subattachments: any[] = att?.subattachments?.data || [];
+          for (const sub of subattachments) {
+            if (sub?.media?.source) {
+              console.log(`Got video from subattachment media.source for ${adId}`);
+              return sub.media.source;
+            }
+            const subVideoId = sub?.media?.video?.id;
+            if (subVideoId) {
+              const vidRes = await fetchWithTimeout(
+                `https://graph.facebook.com/${META_API_VERSION}/${subVideoId}?fields=source&access_token=${accessToken}`,
+                timeoutMs
+              );
+              if (vidRes.ok) {
+                const vidData = await vidRes.json();
+                if (vidData?.source) {
+                  console.log(`Got video via subattachment video_id for ${adId}`);
+                  return vidData.source;
+                }
+              }
+            }
+          }
         }
+      } else {
+        await postSourceRes.text();
       }
     }
 

@@ -1411,13 +1411,16 @@ serve(async (req) => {
 
     // Check if this is a cron/anon-key call: the Supabase gateway already validates the JWT,
     // so if the token decodes to role=anon, it's a valid cron call.
+    // Also accept new-format publishable keys (sb_publishable_*) — same trust level as anon JWT.
     let isAnonKey = false;
     try {
       const payload = JSON.parse(atob(authToken.split(".")[1]));
       isAnonKey = payload.role === "anon";
     } catch (_) { /* not a JWT */ }
 
-    if (!isAnonKey) {
+    const isPublishableKey = authToken.startsWith("sb_publishable_");
+
+    if (!isAnonKey && !isPublishableKey) {
       const { data: { user }, error: authError } = await supabase.auth.getUser(authToken);
       if (authError || !user) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       const { data: userRole } = await supabase.from("user_roles").select("role").eq("user_id", user.id).single();
@@ -1492,11 +1495,24 @@ serve(async (req) => {
         return new Response(JSON.stringify({ error: "No Meta token" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      await supabase.from("sync_logs").update({
-        sync_state: { ...syncLog.sync_state, last_activity: new Date().toISOString() },
-      }).eq("id", syncLog.id);
+      // Atomic claim: update last_activity only if status is STILL 'running'.
+      // This is a compare-and-swap — if the sync was already completed/failed by a concurrent
+      // caller, the WHERE status='running' filter prevents the update from matching, and
+      // .single() returns null. Stale selfContinue calls lose the race and exit cleanly.
+      const { data: claimed } = await supabase.from("sync_logs")
+        .update({ sync_state: { ...syncLog.sync_state, last_activity: new Date().toISOString() } })
+        .eq("id", syncLog.id)
+        .eq("status", "running")
+        .select("id, status, current_phase, sync_state, account_id, date_range_start, date_range_end, sync_type")
+        .single();
 
-      await runSyncPhase(supabase, syncLog, metaToken);
+      if (!claimed) {
+        console.log(`Sync ${syncLog.id} atomic claim failed — no longer running, skipping stale continue`);
+        await promoteNextQueued(supabase);
+        return new Response(JSON.stringify({ skipped: syncLog.id, reason: "no_longer_running" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      await runSyncPhase(supabase, claimed, metaToken);
 
       // Auto-continue: fire unconditionally so the next phase of the current sync (if still
       // running) OR the next promoted queued sync gets picked up immediately.

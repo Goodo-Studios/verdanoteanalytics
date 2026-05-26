@@ -53,8 +53,15 @@ function MediaPreview({ creative, caching = false }: { creative: Creative; cachi
 
   const adPreviewUrl = creative.ad_post_url || `https://www.facebook.com/ads/library/?id=${creative.ad_id}`;
 
+  // Filter out sentinel strings before passing to useCachedMedia — "no-thumbnail" is truthy
+  // and would be passed as a URL to fetch, causing a load error even when thumbnail_url is valid.
+  const rawThumbnailUrl =
+    (creative.full_res_url && creative.full_res_url !== "no-thumbnail" ? creative.full_res_url : null) ||
+    (creative.thumbnail_url && creative.thumbnail_url !== "no-thumbnail" ? creative.thumbnail_url : null) ||
+    null;
+
   const { url: cachedThumbnailUrl, isLoading: thumbnailLoading, error: thumbnailError } =
-    useCachedMedia(creative.full_res_url || creative.thumbnail_url, {
+    useCachedMedia(rawThumbnailUrl, {
       placeholderUrl: "/placeholder-creative.png",
     });
 
@@ -64,13 +71,28 @@ function MediaPreview({ creative, caching = false }: { creative: Creative; cachi
   );
   const hasVideoUrl = !!(creative.video_url && creative.video_url !== "no-video");
 
+  // True while we don't yet have media dimensions to size the container by
+  const isLoading = hasVideoUrl
+    ? videoLoading && !videoError
+    : hasThumbnail
+    ? thumbnailLoading || (!imgLoaded && !imgError)
+    : false;
+
   return (
     <div className="space-y-2">
-      <div className="bg-muted rounded-lg flex items-center justify-center overflow-hidden relative group min-h-[120px]">
+      {/*
+        Container sizes itself to the natural media dimensions.
+        - max-w-[480px] + mx-auto: caps landscape width; portrait content will be narrower
+        - max-h-[600px] on the media: prevents very tall portrait ads from overflowing
+        - min-h-[300px] only shown while loading so the skeleton has room
+        Skeleton uses absolute inset-0; once media loads it drops out and the
+        container collapses to the real image/video size.
+      */}
+      <div className={`bg-muted rounded-lg overflow-hidden relative flex items-center justify-center w-full max-w-[480px] mx-auto${isLoading || caching || (!hasVideoUrl && !hasThumbnail) ? " min-h-[300px]" : ""}`}>
         {hasVideoUrl && !videoError ? (
-          <div className="relative w-full">
+          <>
             {videoLoading && (
-              <div className="w-full h-[300px] bg-muted rounded animate-pulse flex items-center justify-center">
+              <div className="absolute inset-0 bg-muted animate-pulse flex items-center justify-center">
                 <Loader2 className="h-8 w-8 text-muted-foreground/40 animate-spin" />
               </div>
             )}
@@ -78,19 +100,19 @@ function MediaPreview({ creative, caching = false }: { creative: Creative; cachi
               key={creative.video_url}
               src={creative.video_url}
               controls
-              className={`w-full max-h-[400px] object-contain rounded-lg transition-opacity duration-300 ${
-                videoLoading ? "opacity-0 absolute inset-0" : "opacity-100"
+              className={`max-w-full max-h-[600px] w-auto h-auto block transition-opacity duration-300 ${
+                videoLoading ? "opacity-0 absolute" : "opacity-100"
               }`}
               poster={cachedThumbnailUrl || undefined}
               onLoadStart={() => setVideoLoading(true)}
               onCanPlay={() => setVideoLoading(false)}
               onError={() => { setVideoError(true); setVideoLoading(false); }}
             />
-          </div>
+          </>
         ) : hasThumbnail ? (
-          <div className="relative w-full">
+          <>
             {(thumbnailLoading || (!imgLoaded && !imgError)) && (
-              <div className="w-full h-[300px] bg-muted rounded animate-pulse flex items-center justify-center">
+              <div className="absolute inset-0 bg-muted animate-pulse flex items-center justify-center">
                 <ImageIcon className="h-8 w-8 text-muted-foreground/40" />
               </div>
             )}
@@ -109,20 +131,20 @@ function MediaPreview({ creative, caching = false }: { creative: Creative; cachi
             <img
               src={cachedThumbnailUrl}
               alt={creative.ad_name}
-              className={`w-full max-h-[400px] object-contain transition-opacity duration-300 ${
-                imgLoaded ? "opacity-100" : "opacity-0 absolute inset-0"
+              className={`max-w-full max-h-[600px] w-auto h-auto block transition-opacity duration-300 ${
+                imgLoaded ? "opacity-100" : "opacity-0 absolute"
               }`}
               onLoad={() => setImgLoaded(true)}
               onError={() => setImgError(true)}
             />
-          </div>
+          </>
         ) : caching ? (
-          <div className="w-full h-[300px] bg-muted rounded animate-pulse flex flex-col items-center justify-center gap-2">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
             <Loader2 className="h-8 w-8 text-muted-foreground/40 animate-spin" />
             <span className="font-body text-[12px] text-muted-foreground">Fetching ad media...</span>
           </div>
         ) : (
-          <div className="flex flex-col items-center gap-2 py-12">
+          <div className="flex flex-col items-center justify-center gap-2">
             <ImageIcon className="h-8 w-8 text-muted-foreground" />
             <span className="font-body text-[13px] text-muted-foreground">No preview available</span>
           </div>
@@ -175,7 +197,12 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
     const hasVideo = !!(creative.video_url && creative.video_url !== "no-video");
     if (hasThumb || hasVideo) return;
     // Sentinels mean discovery was already attempted — skip
-    if (creative.thumbnail_url === "no-thumbnail" || creative.video_url === "no-video") return;
+    // Must check full_res_url too: it can be "no-thumbnail" even when thumbnail_url is null.
+    if (
+      creative.thumbnail_url === "no-thumbnail" ||
+      creative.full_res_url === "no-thumbnail" ||
+      creative.video_url === "no-video"
+    ) return;
     setCaching(true);
     supabase.functions
       .invoke("cache-creative-image", {
@@ -249,8 +276,8 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
           </DialogTitle>
         </DialogHeader>
 
-        {/* Media preview */}
-        <MediaPreview creative={displayCreative} caching={caching} />
+        {/* Media preview — key resets loading state when switching creatives */}
+        <MediaPreview key={creative.ad_id} creative={displayCreative} caching={caching} />
 
         <Tabs defaultValue="details" className="w-full">
           <TabsList className="w-full">

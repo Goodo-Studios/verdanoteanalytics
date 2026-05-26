@@ -3,8 +3,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
   discoverImageUrl,
+  discoverVideoUrl,
   fetchWithTimeout,
   NO_THUMB_SENTINEL,
+  NO_VIDEO_SENTINEL,
 } from "../_shared/media-discovery.ts";
 
 
@@ -105,6 +107,18 @@ serve(async (req) => {
     }
 
     if (scope === "cache" || scope === "all") {
+      await runCaching(supabase, accountFilter);
+    }
+
+    if (scope === "video" || scope === "all") {
+      await runVideoDiscovery(supabase, accountFilter, metaAccessToken);
+    }
+
+    // force: re-run discovery on sentineled creatives (thumbnail_url = 'no-thumbnail')
+    // Use this to recover from runs that happened when the Meta token was expired.
+    if (scope === "force") {
+      await runForcedRediscovery(supabase, accountFilter, metaAccessToken);
+      await runVideoRediscovery(supabase, accountFilter, metaAccessToken);
       await runCaching(supabase, accountFilter);
     }
 
@@ -261,4 +275,188 @@ async function runCaching(supabase: any, accountFilter: string | null) {
   }
 
   console.log(`Caching done: ${cached} cached, ${failed} failed`);
+}
+
+/**
+ * Phase 3: Discover video source URLs for creatives with null video_url.
+ * Uses the same priority ordering as image discovery (high-spend first).
+ */
+async function runVideoDiscovery(supabase: any, accountFilter: string | null, metaAccessToken: string) {
+  let query = supabase
+    .from("creatives")
+    .select("ad_id, account_id")
+    .is("video_url", null)
+    .gt("impressions", 0);
+  if (accountFilter) query = query.eq("account_id", accountFilter);
+
+  const { data: withSpend } = await query
+    .gt("spend", 0)
+    .order("spend", { ascending: false })
+    .limit(MAX_ITEMS);
+
+  let items = withSpend || [];
+
+  if (items.length < MAX_ITEMS) {
+    const remaining = MAX_ITEMS - items.length;
+    let zeroQuery = supabase
+      .from("creatives")
+      .select("ad_id, account_id")
+      .is("video_url", null)
+      .gt("impressions", 0)
+      .or("spend.is.null,spend.eq.0");
+    if (accountFilter) zeroQuery = zeroQuery.eq("account_id", accountFilter);
+    const { data: zeroSpend } = await zeroQuery.limit(remaining);
+    if (zeroSpend) items = [...items, ...zeroSpend];
+  }
+
+  if (items.length === 0) {
+    console.log("Video discovery: No null-video_url creatives to enrich.");
+    return;
+  }
+
+  console.log(`Video discovery: ${items.length} creatives to check (account: ${accountFilter || "all"})`);
+
+  const startTime = Date.now();
+  let found = 0, sentinel = 0;
+
+  for (let i = 0; i < items.length; i += BATCH_SIZE) {
+    if (Date.now() - startTime > TIME_BUDGET_MS) {
+      console.log(`Video discovery budget exceeded at item ${i}. Skipping rest.`);
+      break;
+    }
+
+    const batch = items.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map(async (c: any) => {
+        const videoUrl = await discoverVideoUrl(c.ad_id, metaAccessToken, 8_000);
+        if (videoUrl) {
+          await supabase.from("creatives").update({ video_url: videoUrl }).eq("ad_id", c.ad_id);
+          return "found";
+        } else {
+          await supabase.from("creatives").update({ video_url: NO_VIDEO_SENTINEL }).eq("ad_id", c.ad_id);
+          return "sentinel";
+        }
+      })
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        if (r.value === "found") found++;
+        else sentinel++;
+      }
+    }
+  }
+
+  console.log(`Video discovery done: ${found} found, ${sentinel} sentinel`);
+}
+
+/**
+ * Force re-discovery: re-run image discovery on creatives that were previously
+ * sentineled (thumbnail_url = 'no-thumbnail'), e.g. from a bad-token run.
+ * Clears the sentinel first so runCaching can pick them up afterwards.
+ */
+async function runForcedRediscovery(supabase: any, accountFilter: string | null, metaAccessToken: string) {
+  let query = supabase
+    .from("creatives")
+    .select("ad_id, account_id")
+    .eq("thumbnail_url", NO_THUMB_SENTINEL)
+    .gt("impressions", 0);
+  if (accountFilter) query = query.eq("account_id", accountFilter);
+
+  const { data: items } = await query
+    .order("spend", { ascending: false })
+    .limit(MAX_ITEMS);
+
+  if (!items?.length) {
+    console.log("Force rediscovery: No sentineled image creatives found.");
+    return;
+  }
+
+  console.log(`Force rediscovery: ${items.length} sentineled image creatives (account: ${accountFilter || "all"})`);
+
+  const startTime = Date.now();
+  let enriched = 0, sentinel = 0;
+
+  for (let i = 0; i < items.length; i += BATCH_SIZE) {
+    if (Date.now() - startTime > TIME_BUDGET_MS) {
+      console.log(`Force rediscovery budget exceeded at item ${i}.`);
+      break;
+    }
+
+    const batch = items.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map(async (c: any) => {
+        const result = await discoverImageUrl(c.ad_id, c.account_id, metaAccessToken, 8_000);
+        if (result) {
+          await supabase.from("creatives")
+            .update({ thumbnail_url: result.thumbnailUrl, full_res_url: result.fullResUrl || result.thumbnailUrl, thumbnail_storage_path: null })
+            .eq("ad_id", c.ad_id);
+          return "enriched";
+        }
+        // Leave sentinel in place — still no image available
+        return "sentinel";
+      })
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        if (r.value === "enriched") enriched++;
+        else sentinel++;
+      }
+    }
+  }
+
+  console.log(`Force rediscovery done: ${enriched} recovered, ${sentinel} still no image`);
+}
+
+/**
+ * Force re-discovery for videos: re-run video discovery on creatives that were
+ * previously sentineled (video_url = 'no-video').
+ */
+async function runVideoRediscovery(supabase: any, accountFilter: string | null, metaAccessToken: string) {
+  let query = supabase
+    .from("creatives")
+    .select("ad_id, account_id")
+    .eq("video_url", NO_VIDEO_SENTINEL)
+    .gt("impressions", 0);
+  if (accountFilter) query = query.eq("account_id", accountFilter);
+
+  const { data: items } = await query
+    .order("spend", { ascending: false })
+    .limit(MAX_ITEMS);
+
+  if (!items?.length) {
+    console.log("Video rediscovery: No sentineled video creatives found.");
+    return;
+  }
+
+  console.log(`Video rediscovery: ${items.length} sentineled video creatives (account: ${accountFilter || "all"})`);
+
+  const startTime = Date.now();
+  let found = 0, sentinel = 0;
+
+  for (let i = 0; i < items.length; i += BATCH_SIZE) {
+    if (Date.now() - startTime > TIME_BUDGET_MS) {
+      console.log(`Video rediscovery budget exceeded at item ${i}.`);
+      break;
+    }
+
+    const batch = items.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map(async (c: any) => {
+        const videoUrl = await discoverVideoUrl(c.ad_id, metaAccessToken, 8_000);
+        if (videoUrl) {
+          await supabase.from("creatives").update({ video_url: videoUrl }).eq("ad_id", c.ad_id);
+          return "found";
+        }
+        return "sentinel";
+      })
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        if (r.value === "found") found++;
+        else sentinel++;
+      }
+    }
+  }
+
+  console.log(`Video rediscovery done: ${found} recovered, ${sentinel} still no video`);
 }

@@ -42,7 +42,7 @@ function CreativeCell({ c }: { c: any }) {
   return (
     <div className="flex items-center gap-2.5 max-w-[280px]">
       <div className="h-10 w-10 rounded bg-muted flex-shrink-0 overflow-hidden flex items-center justify-center">
-        {c.thumbnail_url ? (
+        {c.thumbnail_url && c.thumbnail_url !== "no-thumbnail" ? (
           <img
             src={url}
             alt=""

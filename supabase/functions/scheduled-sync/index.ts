@@ -62,7 +62,32 @@ serve(async (req) => {
       claimedAccounts = updated;
     }
 
+    // ── Queue heartbeat: advance stalled sync queue even when no accounts are scheduled ──
+    // When no accounts are due, check if there are queued sync_logs waiting. If so, fire
+    // /sync/continue to advance the queue past the inter-account cooldown gap.
     if (!claimedAccounts || claimedAccounts.length === 0) {
+      const { data: queuedSyncs } = await supabase
+        .from("sync_logs")
+        .select("id")
+        .in("status", ["queued", "running"])
+        .limit(1);
+
+      if (queuedSyncs?.length) {
+        console.log("No accounts due — advancing stalled sync queue via /continue");
+        try {
+          await fetch(`${supabaseUrl}/functions/v1/sync/continue`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+            body: JSON.stringify({ source: "scheduled-sync-heartbeat" }),
+          });
+        } catch (e) {
+          console.warn("Queue heartbeat continue failed (non-fatal):", e);
+        }
+        return new Response(JSON.stringify({ triggered: 0, message: "No accounts due — queue heartbeat fired" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       return new Response(JSON.stringify({ triggered: 0, message: "No accounts due for sync" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -107,6 +132,15 @@ serve(async (req) => {
         console.error(`Error processing account_id=${account.id} name=${account.name}:`, e);
       }
     }
+
+    // After triggering scheduled accounts, also fire /continue to advance any queued jobs.
+    try {
+      await fetch(`${supabaseUrl}/functions/v1/sync/continue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+        body: JSON.stringify({ source: "scheduled-sync-post-trigger" }),
+      });
+    } catch (_) { /* non-fatal */ }
 
     return new Response(
       JSON.stringify({ triggered: triggered.length, accounts: triggered }),

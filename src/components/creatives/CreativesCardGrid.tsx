@@ -102,7 +102,7 @@ export function CreativesCardGrid({ creatives, onSelect, compareMode = false, co
 
             {/* Thumbnail */}
             <div className="bg-muted rounded-t-card aspect-[4/3] flex items-center justify-center overflow-hidden relative">
-              {c.thumbnail_url ? (
+              {c.thumbnail_url && c.thumbnail_url !== "no-thumbnail" ? (
                 <CardThumbnail src={c.thumbnail_url} alt={c.ad_name || ""} />
               ) : (
                 <LayoutGrid className="h-6 w-6 text-muted-foreground" />
