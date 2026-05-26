@@ -1355,6 +1355,17 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         console.log("  Skipping post-sync audit — budget exceeded");
       }
 
+      // Fire-and-forget media enrichment — runs independently after data sync is fresh
+      fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/enrich-thumbnails`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({ account_id: accountId }),
+      }).catch((e: Error) => console.error("enrich-thumbnails fire-and-forget error:", e.message));
+      console.log(`  Media enrichment triggered for account ${accountId}`);
+
       const finalStatus = (JSON.parse(syncLog.api_errors || "[]")).length > 0 ? "completed_with_errors" : "completed";
       // Save audit result to sync_state for visibility
       await saveState(5, { audit: auditResult }, finalStatus);
