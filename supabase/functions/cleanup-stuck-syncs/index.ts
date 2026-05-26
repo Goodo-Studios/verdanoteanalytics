@@ -72,7 +72,19 @@ serve(async (_req) => {
     const isWallClockExpired = startedAt < new Date(twoHoursAgo).getTime();
     const retryCount = s.sync_state?.retry_count ?? 0;
 
-    if (!isWallClockExpired && s.current_phase > 1 && retryCount < MAX_RETRIES) {
+    // A phase-1 sync is retryable if it has no real Meta API errors —
+    // only cleanup/requeue bookkeeping messages, meaning it was a dropped
+    // selfContinue rather than a genuine permission or data failure.
+    const hasRealApiErrors = parseErrors(s.api_errors).some(
+      (e: any) =>
+        !e.message.includes("Auto-requeued") && !e.message.includes("auto-cleanup")
+    );
+
+    if (
+      !isWallClockExpired &&
+      retryCount < MAX_RETRIES &&
+      (s.current_phase > 1 || !hasRealApiErrors)
+    ) {
       retryable.push(s);
     } else {
       terminal.push(s);
