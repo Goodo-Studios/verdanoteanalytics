@@ -119,3 +119,24 @@ verify_jwt = true
 # Apify webhook receiver — Apify calls this directly, no Supabase JWT.
 [functions.vault-viral-webhook]
 verify_jwt = false
+
+# ─── Slack import edge functions (ported from Creative Vault, US-011) ────────
+# slack_connections is user-scoped (auth.uid()) — each user connects their own
+# Slack workspace and selects channels to monitor.
+# Secret names mirror Creative Vault verbatim:
+#   SLACK_CLIENT_ID, SLACK_CLIENT_SECRET, SLACK_SIGNING_SECRET.
+
+# User-facing connect endpoint — called from frontend with the user JWT.
+# Validates the bot token via slack.com/api/auth.test and stores the connection.
+[functions.vault-slack-connect]
+verify_jwt = true
+
+# Slack Events API webhook — Slack calls this directly. Auth is HMAC over the
+# X-Slack-Signature header (verified against signing_secret), so no JWT.
+[functions.vault-slack-events]
+verify_jwt = false
+
+# Backfill a Slack channel's history into the user's vault — called from
+# frontend with the user JWT.
+[functions.vault-slack-import]
+verify_jwt = true
