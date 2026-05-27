@@ -43,6 +43,7 @@ const VaultItemDetailPage = lazy(() => import("./features/vault/ItemDetailPage")
 const BoardsPage = lazy(() => import("./features/vault/BoardsPage"));
 const BoardDetailPage = lazy(() => import("./features/vault/BoardDetailPage"));
 const HooksPage = lazy(() => import("./features/vault/HooksPage"));
+const ViralFeedPage = lazy(() => import("./features/vault/ViralFeedPage"));
 const SharedAdBoardPage = lazy(() => import("./pages/SharedAdBoardPage"));
 const BookmarkletReceiver = lazy(() => import("./pages/BookmarkletReceiver"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -134,6 +135,8 @@ function RoleGuardedRoutes() {
           <Route path="/ad-library/boards" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <BoardsPage />} />
           <Route path="/ad-library/boards/:id" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <BoardDetailPage />} />
           <Route path="/ad-library/hooks" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <HooksPage />} />
+          <Route path="/viral-feed" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <ViralFeedPage />} />
+          <Route path="/ad-library/viral" element={<Navigate to={`${prefix}/viral-feed`} replace />} />
           <Route path="/ad-library/:id" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <VaultItemDetailPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
