@@ -248,6 +248,29 @@ export default function ItemDetailPage() {
     onError: () => toast.error("Failed to save"),
   });
 
+  const toggleHookSaved = useMutation({
+    mutationFn: async ({
+      field,
+      value,
+    }: {
+      field: "hook_verbal_saved" | "hook_text_saved";
+      value: boolean;
+    }) => {
+      const { error } = await supabase
+        .from("inspiration_items")
+        .update({ [field]: value })
+        .eq("id", id!);
+      if (error) throw error;
+    },
+    onSuccess: (_, { value }) => {
+      queryClient.invalidateQueries({ queryKey: ["vault-item", id] });
+      // Bust the hooks page cache so the new star shows up immediately.
+      queryClient.invalidateQueries({ queryKey: ["vault-hooks"] });
+      toast.success(value ? "Hook saved to library" : "Removed from library");
+    },
+    onError: () => toast.error("Failed to update hook"),
+  });
+
   if (isLoading) {
     return (
       <AppLayout>
@@ -534,6 +557,11 @@ export default function ItemDetailPage() {
                 {frameworkRow ? (
                   <FrameworkPanel
                     framework={frameworkRow}
+                    hookVerbalSaved={data.hook_verbal_saved}
+                    hookTextSaved={data.hook_text_saved}
+                    onToggleHookStar={(field, value) =>
+                      toggleHookSaved.mutate({ field, value })
+                    }
                     onSave={(field, value) => {
                       if (frameworkRow?.id) {
                         saveFrameworkField.mutate({

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "./CopyButton";
 
@@ -22,6 +23,15 @@ interface Props {
   framework: FrameworkRow;
   /** Called on blur when a field has changed. Parent is responsible for saving. */
   onSave?: (field: keyof FrameworkRow, value: string) => void;
+  /** Whether the verbal hook is currently starred into the Hook Library. */
+  hookVerbalSaved?: boolean;
+  /** Whether the on-screen text hook is currently starred into the Hook Library. */
+  hookTextSaved?: boolean;
+  /** Called when the user toggles a hook star. */
+  onToggleHookStar?: (
+    field: "hook_verbal_saved" | "hook_text_saved",
+    value: boolean,
+  ) => void;
 }
 
 const HOOK_TYPE_LABELS: Record<string, string> = {
@@ -58,6 +68,8 @@ function Section({
   content,
   mono,
   onSave,
+  starred,
+  onStar,
 }: {
   label: string;
   badge?: string;
@@ -65,6 +77,9 @@ function Section({
   content?: string | null;
   mono?: boolean;
   onSave?: (value: string) => void;
+  /** Current star state — when provided a star button renders in the header. */
+  starred?: boolean;
+  onStar?: () => void;
 }) {
   const [draft, setDraft] = useState(content ?? "");
 
@@ -91,7 +106,24 @@ function Section({
             </span>
           )}
         </div>
-        <CopyButton text={draft} />
+        <div className="flex items-center gap-1">
+          {onStar !== undefined && (
+            <button
+              type="button"
+              onClick={onStar}
+              title={starred ? "Remove from Hook Library" : "Save to Hook Library"}
+              className={cn(
+                "p-1 rounded hover:bg-muted-foreground/10 transition-colors",
+                starred ? "text-amber-500" : "text-muted-foreground",
+              )}
+            >
+              <Star
+                className={cn("w-3.5 h-3.5", starred && "fill-amber-500")}
+              />
+            </button>
+          )}
+          <CopyButton text={draft} />
+        </div>
       </div>
 
       {onSave ? (
@@ -122,7 +154,13 @@ function Section({
   );
 }
 
-export function FrameworkPanel({ framework, onSave }: Props) {
+export function FrameworkPanel({
+  framework,
+  onSave,
+  hookVerbalSaved = false,
+  hookTextSaved = false,
+  onToggleHookStar,
+}: Props) {
   const hookLabel = framework.hook_type
     ? HOOK_TYPE_LABELS[framework.hook_type] ?? framework.hook_type
     : undefined;
@@ -165,10 +203,40 @@ export function FrameworkPanel({ framework, onSave }: Props) {
       </div>
 
       <div className="space-y-5">
+        {/* Verbal hook — what the creator says in the first 3s */}
+        {(framework.hook_verbal || onToggleHookStar) && (
+          <Section
+            label="Verbal Hook"
+            badge={hookLabel}
+            badgeColor={hookColor}
+            content={framework.hook_verbal}
+            onSave={onSave ? (v) => onSave("hook_verbal", v) : undefined}
+            starred={hookVerbalSaved}
+            onStar={
+              onToggleHookStar
+                ? () => onToggleHookStar("hook_verbal_saved", !hookVerbalSaved)
+                : undefined
+            }
+          />
+        )}
+
+        {/* On-screen text hook */}
+        {(framework.hook_text || onToggleHookStar) && (
+          <Section
+            label="On-screen Text Hook"
+            content={framework.hook_text}
+            onSave={onSave ? (v) => onSave("hook_text", v) : undefined}
+            starred={hookTextSaved}
+            onStar={
+              onToggleHookStar
+                ? () => onToggleHookStar("hook_text_saved", !hookTextSaved)
+                : undefined
+            }
+          />
+        )}
+
         <Section
-          label="Hook (0–3s)"
-          badge={hookLabel}
-          badgeColor={hookColor}
+          label="Hook Formula (0–3s)"
           content={framework.hook_formula}
           onSave={onSave ? (v) => onSave("hook_formula", v) : undefined}
         />
