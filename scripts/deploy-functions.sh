@@ -11,7 +11,6 @@ FUNCTIONS=(
   accounts
   ai-chat
   api
-  api-auth
   backfill-post-urls
   cleanup-stuck-media
   cleanup-stuck-syncs
@@ -55,7 +54,7 @@ if [[ -n "${SUPABASE_PROJECT_ID:-}" ]]; then
 fi
 
 for fn in "${FUNCTIONS[@]}"; do
-  if supabase functions deploy "$fn" "${DEPLOY_ARGS[@]}" 2>&1; then
+  if supabase functions deploy "$fn" "${DEPLOY_ARGS[@]+"${DEPLOY_ARGS[@]}"}" 2>&1; then
     echo "✓ $fn"
     ((PASSED++)) || true
   else
