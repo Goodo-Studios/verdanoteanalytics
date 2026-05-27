@@ -79,14 +79,14 @@ export const ACTOR_CONFIGS: Record<string, ActorConfig> = {
   },
   facebook_ad: {
     // apify~facebook-ads-scraper: official Apify actor for Meta Ad Library.
-    // Input: startUrls accepts the full Ad Library URL including query params (?id=, country=, etc.).
+    // Input: startUrls requires { url } objects (not bare strings) — actor validates .url property.
     // Output: 57 fields per ad; video/image URLs are flat indexed columns (videoUrl1, imageUrl1-5).
     // CDN URLs (*.fbcdn.net) are time-limited — vault-extract-webhook must download within ~5 min
     // of actor completion. actor does NOT store to Apify KV, so isApifyStorage will be false.
     // apiRunOptions.memory: Facebook ad pages are heavier than TikTok — 2048 MB recommended.
     // Field names validated against E2E smoke test in US-004.
     actorId: "apify~facebook-ads-scraper",
-    buildInput: (url) => ({ startUrls: [url] }),
+    buildInput: (url) => ({ startUrls: [{ url }] }),
     apiRunOptions: { memory: 2048 },
     extractVideoUrl: (item) =>
       item?.videoUrl1 ??
