@@ -186,23 +186,17 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
   // Fetch all creatives once at modal level — passed down to avoid duplicate fetches
   const { data: allCreatives = [] } = useAllCreatives({ account_id: creative?.account_id });
 
-  // On-demand media caching: fire when modal opens with no stored media
+  // On-demand media caching: fire when modal opens with no video stored.
+  // We only need to trigger caching when video_url is null — cache-creative-image
+  // has its own skipImage guard so it won't redo thumbnail work already in storage.
   useEffect(() => {
     if (!open || !creative) return;
     setCachedMedia(null);
-    const hasThumb = !!(
-      (creative.thumbnail_url && creative.thumbnail_url !== "no-thumbnail") ||
-      (creative.full_res_url && creative.full_res_url !== "no-thumbnail")
-    );
     const hasVideo = !!(creative.video_url && creative.video_url !== "no-video");
-    if (hasThumb || hasVideo) return;
-    // Sentinels mean discovery was already attempted — skip
-    // Must check full_res_url too: it can be "no-thumbnail" even when thumbnail_url is null.
-    if (
-      creative.thumbnail_url === "no-thumbnail" ||
-      creative.full_res_url === "no-thumbnail" ||
-      creative.video_url === "no-video"
-    ) return;
+    // Already have a playable video — nothing to do
+    if (hasVideo) return;
+    // Sentinel means discovery was already attempted and found nothing — skip
+    if (creative.video_url === "no-video") return;
     setCaching(true);
     supabase.functions
       .invoke("cache-creative-image", {

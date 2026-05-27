@@ -10,13 +10,6 @@ export function fmt$(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
-/** Format a dollar amount without abbreviation (integer) */
-export function fmt$Int(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}k`;
-  return `$${n.toFixed(0)}`;
-}
-
 /** Format a nullable number with optional prefix/suffix — used in reports and tables */
 export function fmtMetric(v: number | null | undefined, prefix = "", suffix = "", decimals = 2): string {
   if (v === null || v === undefined) return "—";

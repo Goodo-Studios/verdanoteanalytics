@@ -598,7 +598,6 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         return;
       }
 
-      // (flat sweep path removed — campaign-by-campaign is always used now)
       return;
     }
 
@@ -699,8 +698,6 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         nextUrl = result.next;
         if (nextUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
       }
-
-      // (Incremental fallback removed — Phase 2 now always uses full date range)
 
       if (nextUrl && isTimedOut()) {
         console.log(`Phase 2 paused at ${insightsCount} insights`);
@@ -1635,8 +1632,6 @@ serve(async (req) => {
           }
         }
       }
-
-      // Dead code removed — created.length is guaranteed > 0 here (checked at line 1394)
 
       return new Response(JSON.stringify({ started: created }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }

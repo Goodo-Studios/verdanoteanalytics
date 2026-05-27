@@ -37,6 +37,7 @@ supabase secrets set META_ACCESS_TOKEN=<token>    # for Meta/Facebook sync
 | `enrich-thumbnails` | Post-sync | Downloads thumbnail images from Meta CDN and uploads them to Supabase Storage |
 | `refresh-thumbnails` | Manual | Re-fetches thumbnails for creatives that have stale or missing media |
 | `fetch-thumbnail` | On-demand | Fetches a single creative's thumbnail by ad ID |
+| `cache-creative-image` | On-demand (modal open) | Downloads a single creative's thumbnail/video from Meta and caches it in Supabase Storage. Invoked by the `CreativeDetailModal` when a creative has a `null` thumbnail, so the next view shows it without re-hitting Meta. Uses `_shared/media-discovery.ts` for URL resolution. |
 | `backfill-post-urls` | One-time | Backfills `ad_post_url` for existing creatives that were synced before the field was added |
 
 ### Creatives API
@@ -119,6 +120,8 @@ supabase secrets set META_ACCESS_TOKEN=<token>    # for Meta/Facebook sync
 | File | Purpose |
 |---|---|
 | `cors.ts` | Standard CORS headers returned by all functions |
+| `api-auth.ts` | Shared auth helpers — validates the calling user's session/role and exposes a `hashKey` SHA-256 utility used by API-style endpoints |
+| `media-discovery.ts` | Meta Graph API v22.0 media URL resolver. Provides `discoverImageUrl` / `discoverVideoUrl` / `fetchWithTimeout` and the `NO_THUMB_SENTINEL` / `NO_VIDEO_SENTINEL` markers used to short-circuit known-empty creatives. Consumed by `refresh-thumbnails`, `enrich-thumbnails`, `fetch-thumbnail`, and `cache-creative-image`. |
 
 ---
 
