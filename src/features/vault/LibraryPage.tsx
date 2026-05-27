@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, Slack, Star, Trash2, Vault, Search, X } from "lucide-react";
+import { Loader2, Plus, Star, Trash2, Vault, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout } from "@/components/AppLayout";
 import { PageHeader } from "@/components/PageHeader";
@@ -9,7 +9,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { InspirationCard } from "./components/InspirationCard";
 import { CaptureModal } from "./components/CaptureModal";
-import { SlackConnect } from "./components/SlackConnect";
 import {
   FilterToolbar,
   type VaultSort,
@@ -38,7 +37,6 @@ export default function LibraryPage() {
   const queryClient = useQueryClient();
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [slackOpen, setSlackOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [platform, setPlatform] = useState<VaultPlatformFilter>("all");
@@ -241,16 +239,10 @@ export default function LibraryPage() {
           title="Library"
           description="Your saved ads, videos, and inspiration — automatically transcribed and analyzed."
           actions={
-            <div className="flex items-center gap-2">
-              <Button onClick={() => setSlackOpen(true)} size="sm" variant="outline">
-                <Slack className="w-4 h-4 mr-1" />
-                Slack
-              </Button>
-              <Button onClick={() => setModalOpen(true)} size="sm">
-                <Plus className="w-4 h-4 mr-1" />
-                Add
-              </Button>
-            </div>
+            <Button onClick={() => setModalOpen(true)} size="sm">
+              <Plus className="w-4 h-4 mr-1" />
+              Add
+            </Button>
           }
         />
 
@@ -340,8 +332,6 @@ export default function LibraryPage() {
         onOpenChange={setModalOpen}
         onItemCreated={handleItemCreated}
       />
-
-      <SlackConnect open={slackOpen} onOpenChange={setSlackOpen} />
 
       {selectedIds.size > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 bg-background border border-border rounded-full shadow-xl px-5 py-3 animate-in slide-in-from-bottom-4">
