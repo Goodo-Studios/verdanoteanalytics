@@ -29,6 +29,8 @@ supabase/.temp/
 
 # Local env with test credentials (never commit)
 .env.local
+.env.vercel
+.env.vercel.prod
 
 # Playwright
 playwright-report/

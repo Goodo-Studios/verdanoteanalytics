@@ -312,10 +312,9 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
   const isLargeAccount = creativeCount > 3000;
   const insightsPageSize = isLargeAccount ? 200 : 500;
   const interRequestDelayMs = isLargeAccount ? 300 : 150;
-  // Always use campaign-by-campaign fetching for Phase 1 — it's more resilient
+  // Phase 1 always uses campaign-by-campaign fetching — it's more resilient
   // against Meta API errors and supports resumable cursors per campaign
-  const useCampaignBypassPhase1 = true;
-  console.log(`Account size: ${creativeCount} creatives — page_size=${insightsPageSize}, delay=${interRequestDelayMs}ms, campaign-by-campaign=${useCampaignBypassPhase1}`);
+  console.log(`Account size: ${creativeCount} creatives — page_size=${insightsPageSize}, delay=${interRequestDelayMs}ms`);
 
   console.log(`\n━━━ Phase ${phase} for ${account.name} (${accountId}) ━━━`);
 
@@ -442,162 +441,157 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         { field: "impressions", operator: "GREATER_THAN", value: "0" }
       ]));
 
-      // ── Campaign-by-campaign path (default for all accounts) ────────
-      if (useCampaignBypassPhase1) {
-        // Step 1: fetch all campaigns (or resume from saved list)
-        let campaigns: { id: string; name: string }[] = state.campaigns || [];
+      // ── Campaign-by-campaign fetch ──────────────────────────────────
+      // Step 1: fetch all campaigns (or resume from saved list)
+      let campaigns: { id: string; name: string }[] = state.campaigns || [];
 
-        if (campaigns.length === 0) {
-          console.log("Phase 1 (large): fetching campaign list...");
-          // Filter out DELETED and ARCHIVED campaigns to reduce API calls
-          const campStatusFilter = encodeURIComponent(JSON.stringify([
-            { field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED"] }
-          ]));
-          let campUrl: string | null =
-            `https://graph.facebook.com/${META_API_VERSION}/${accountId}/campaigns?` +
-            `fields=id,name&filtering=${campStatusFilter}&limit=200&access_token=${encodeURIComponent(metaToken)}`;
-          while (campUrl && !isTimedOut()) {
-            const result = await metaFetch(campUrl, ctx);
-            if (result.error) {
-              console.error("Failed to fetch campaigns — will retry next continue");
-              await saveState(1, { campaigns: [], creatives_fetched: fetchedCount });
-              return;
-            }
-            campaigns.push(...(result.data || []).map((c: any) => ({ id: c.id, name: c.name })));
-            campUrl = result.next;
-            if (campUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
+      if (campaigns.length === 0) {
+        console.log("Phase 1 (large): fetching campaign list...");
+        // Filter out DELETED and ARCHIVED campaigns to reduce API calls
+        const campStatusFilter = encodeURIComponent(JSON.stringify([
+          { field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED"] }
+        ]));
+        let campUrl: string | null =
+          `https://graph.facebook.com/${META_API_VERSION}/${accountId}/campaigns?` +
+          `fields=id,name&filtering=${campStatusFilter}&limit=200&access_token=${encodeURIComponent(metaToken)}`;
+        while (campUrl && !isTimedOut()) {
+          const result = await metaFetch(campUrl, ctx);
+          if (result.error) {
+            console.error("Failed to fetch campaigns — will retry next continue");
+            await saveState(1, { campaigns: [], creatives_fetched: fetchedCount });
+            return;
           }
-          console.log(`  Found ${campaigns.length} ACTIVE/PAUSED campaigns`);
-
-          // ── Spend-based pre-filter: only keep campaigns with spend in the date window ──
-          // This dramatically reduces API calls for accounts with many paused/inactive campaigns.
-          if (campaigns.length > 0 && !isTimedOut()) {
-            const filterEndDate = new Date().toISOString().split("T")[0];
-            const filterStartDate = incrementalSinceDate || (() => {
-              const d = new Date();
-              d.setDate(d.getDate() - dateRangeDays);
-              return d.toISOString().split("T")[0];
-            })();
-            const spendTimeRange = JSON.stringify({ since: filterStartDate, until: filterEndDate });
-            const campaignIds = campaigns.map(c => c.id);
-            const activeSet = new Set<string>();
-
-            // Fetch campaign-level insights (spend only) — one paginated call covers all campaigns
-            let spendUrl: string | null =
-              `https://graph.facebook.com/${META_API_VERSION}/${accountId}/insights?` +
-              `time_range=${encodeURIComponent(spendTimeRange)}&level=campaign` +
-              `&fields=campaign_id,spend&limit=500&access_token=${encodeURIComponent(metaToken)}`;
-            while (spendUrl && !isTimedOut()) {
-              const result = await metaFetch(spendUrl, ctx);
-              if (result.error) {
-                console.warn("Spend pre-filter failed — proceeding with all campaigns");
-                activeSet.clear();
-                break;
-              }
-              for (const row of result.data || []) {
-                if (parseFloat(row.spend || "0") > 0) {
-                  activeSet.add(row.campaign_id);
-                }
-              }
-              spendUrl = result.next;
-              if (spendUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
-            }
-
-            if (activeSet.size > 0) {
-              const before = campaigns.length;
-              campaigns = campaigns.filter(c => activeSet.has(c.id));
-              console.log(`  Spend filter: ${campaigns.length}/${before} campaigns had spend since ${filterStartDate}`);
-            }
-          }
+          campaigns.push(...(result.data || []).map((c: any) => ({ id: c.id, name: c.name })));
+          campUrl = result.next;
+          if (campUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
         }
+        console.log(`  Found ${campaigns.length} ACTIVE/PAUSED campaigns`);
 
-        // Step 2: iterate campaigns, resuming from saved index
-        let campIdx = state.campaign_index || 0;
-        let campCursor: string | null = state.campaign_cursor || null;
+        // ── Spend-based pre-filter: only keep campaigns with spend in the date window ──
+        // This dramatically reduces API calls for accounts with many paused/inactive campaigns.
+        if (campaigns.length > 0 && !isTimedOut()) {
+          const filterEndDate = new Date().toISOString().split("T")[0];
+          const filterStartDate = incrementalSinceDate || (() => {
+            const d = new Date();
+            d.setDate(d.getDate() - dateRangeDays);
+            return d.toISOString().split("T")[0];
+          })();
+          const spendTimeRange = JSON.stringify({ since: filterStartDate, until: filterEndDate });
+          const activeSet = new Set<string>();
 
-        while (campIdx < campaigns.length && !isTimedOut()) {
-          await heartbeat();
-          const campaign = campaigns[campIdx];
-
-          // Check cancellation per campaign
-          const { data: sc } = await supabase.from("sync_logs").select("status").eq("id", syncLog.id).single();
-          if (sc?.status === "cancelled") return;
-
-          // Fetch ads for this campaign
-          let nextUrl: string | null = campCursor || (
-            `https://graph.facebook.com/${META_API_VERSION}/${campaign.id}/ads?` +
-            `fields=id,name,status,created_time,campaign{name},adset{name},creative{effective_object_story_id}` +
-            `&filtering=${deliveredFilter}` +
-            `&limit=200&access_token=${encodeURIComponent(metaToken)}`
-          );
-          campCursor = null; // reset for next campaign
-
-          let campFetched = 0;
-          let campError = false;
-
-          while (nextUrl && !isTimedOut()) {
-            const result = await metaFetch(nextUrl, ctx);
+          // Fetch campaign-level insights (spend only) — one paginated call covers all campaigns
+          let spendUrl: string | null =
+            `https://graph.facebook.com/${META_API_VERSION}/${accountId}/insights?` +
+            `time_range=${encodeURIComponent(spendTimeRange)}&level=campaign` +
+            `&fields=campaign_id,spend&limit=500&access_token=${encodeURIComponent(metaToken)}`;
+          while (spendUrl && !isTimedOut()) {
+            const result = await metaFetch(spendUrl, ctx);
             if (result.error) {
-              // Error on this campaign — log it, skip to next campaign
-              // (don't abort the whole phase — other campaigns are independent)
-              ctx.apiErrors.push({
-                timestamp: new Date().toISOString(),
-                message: `Ad fetch failed for campaign ${campaign.id} (${campaign.name}) — skipping`,
-              });
-              console.warn(`  Campaign ${campaign.name} errored — skipping`);
-              campError = true;
+              console.warn("Spend pre-filter failed — proceeding with all campaigns");
+              activeSet.clear();
               break;
             }
-            // Rate-limited timeout: save the retriable URL as cursor so we resume this exact page
-            if (result.rateLimited && result.retriableUrl) {
-              console.log(`Phase 1 paused (rate-limited) mid-campaign ${campIdx + 1}/${campaigns.length} at ${fetchedCount} total ads`);
-              await saveState(1, {
-                campaigns,
-                campaign_index: campIdx,
-                campaign_cursor: result.retriableUrl,
-                creatives_fetched: fetchedCount,
-              });
-              return;
+            for (const row of result.data || []) {
+              if (parseFloat(row.spend || "0") > 0) {
+                activeSet.add(row.campaign_id);
+              }
             }
-            if (result.data && result.data.length > 0) {
-              await upsertAds(result.data);
-              campFetched += result.data.length;
-              fetchedCount += result.data.length;
-            }
-            nextUrl = result.next;
-            if (nextUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
+            spendUrl = result.next;
+            if (spendUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
           }
 
-          if (nextUrl && isTimedOut()) {
-            // Timed out mid-campaign (not rate-limited) — save cursor and resume this campaign next invocation
-            console.log(`Phase 1 paused mid-campaign ${campIdx + 1}/${campaigns.length} at ${fetchedCount} total ads`);
+          if (activeSet.size > 0) {
+            const before = campaigns.length;
+            campaigns = campaigns.filter(c => activeSet.has(c.id));
+            console.log(`  Spend filter: ${campaigns.length}/${before} campaigns had spend since ${filterStartDate}`);
+          }
+        }
+      }
+
+      // Step 2: iterate campaigns, resuming from saved index
+      let campIdx = state.campaign_index || 0;
+      let campCursor: string | null = state.campaign_cursor || null;
+
+      while (campIdx < campaigns.length && !isTimedOut()) {
+        await heartbeat();
+        const campaign = campaigns[campIdx];
+
+        // Check cancellation per campaign
+        const { data: sc } = await supabase.from("sync_logs").select("status").eq("id", syncLog.id).single();
+        if (sc?.status === "cancelled") return;
+
+        // Fetch ads for this campaign
+        let nextUrl: string | null = campCursor || (
+          `https://graph.facebook.com/${META_API_VERSION}/${campaign.id}/ads?` +
+          `fields=id,name,status,created_time,campaign{name},adset{name},creative{effective_object_story_id}` +
+          `&filtering=${deliveredFilter}` +
+          `&limit=200&access_token=${encodeURIComponent(metaToken)}`
+        );
+        campCursor = null; // reset for next campaign
+
+        let campFetched = 0;
+        let campError = false;
+
+        while (nextUrl && !isTimedOut()) {
+          const result = await metaFetch(nextUrl, ctx);
+          if (result.error) {
+            // Error on this campaign — log it, skip to next campaign
+            // (don't abort the whole phase — other campaigns are independent)
+            ctx.apiErrors.push({
+              timestamp: new Date().toISOString(),
+              message: `Ad fetch failed for campaign ${campaign.id} (${campaign.name}) — skipping`,
+            });
+            console.warn(`  Campaign ${campaign.name} errored — skipping`);
+            campError = true;
+            break;
+          }
+          // Rate-limited timeout: save the retriable URL as cursor so we resume this exact page
+          if (result.rateLimited && result.retriableUrl) {
+            console.log(`Phase 1 paused (rate-limited) mid-campaign ${campIdx + 1}/${campaigns.length} at ${fetchedCount} total ads`);
             await saveState(1, {
               campaigns,
               campaign_index: campIdx,
-              campaign_cursor: nextUrl,
+              campaign_cursor: result.retriableUrl,
               creatives_fetched: fetchedCount,
             });
             return;
           }
-
-          if (!campError) {
-            console.log(`  Campaign ${campIdx + 1}/${campaigns.length} (${campaign.name}): ${campFetched} ads`);
+          if (result.data && result.data.length > 0) {
+            await upsertAds(result.data);
+            campFetched += result.data.length;
+            fetchedCount += result.data.length;
           }
-
-          campIdx++;
+          nextUrl = result.next;
+          if (nextUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
         }
 
-        if (campIdx >= campaigns.length) {
-          console.log(`Phase 1 complete (campaign-by-campaign): ${fetchedCount} ads across ${campaigns.length} campaigns`);
-          await saveState(2, { campaigns: null, campaign_index: null, campaign_cursor: null, ads_cursor: null, creatives_fetched: fetchedCount });
-        } else {
-          // Timed out between campaigns
-          console.log(`Phase 1 paused between campaigns at index ${campIdx}`);
-          await saveState(1, { campaigns, campaign_index: campIdx, campaign_cursor: null, creatives_fetched: fetchedCount });
+        if (nextUrl && isTimedOut()) {
+          // Timed out mid-campaign (not rate-limited) — save cursor and resume this campaign next invocation
+          console.log(`Phase 1 paused mid-campaign ${campIdx + 1}/${campaigns.length} at ${fetchedCount} total ads`);
+          await saveState(1, {
+            campaigns,
+            campaign_index: campIdx,
+            campaign_cursor: nextUrl,
+            creatives_fetched: fetchedCount,
+          });
+          return;
         }
-        return;
+
+        if (!campError) {
+          console.log(`  Campaign ${campIdx + 1}/${campaigns.length} (${campaign.name}): ${campFetched} ads`);
+        }
+
+        campIdx++;
       }
 
+      if (campIdx >= campaigns.length) {
+        console.log(`Phase 1 complete (campaign-by-campaign): ${fetchedCount} ads across ${campaigns.length} campaigns`);
+        await saveState(2, { campaigns: null, campaign_index: null, campaign_cursor: null, ads_cursor: null, creatives_fetched: fetchedCount });
+      } else {
+        // Timed out between campaigns
+        console.log(`Phase 1 paused between campaigns at index ${campIdx}`);
+        await saveState(1, { campaigns, campaign_index: campIdx, campaign_cursor: null, creatives_fetched: fetchedCount });
+      }
       return;
     }
 
