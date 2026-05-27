@@ -74,3 +74,28 @@ verify_jwt = true
 
 [functions.vault-search]
 verify_jwt = true
+
+# ─── AI analysis edge functions (ported from Creative Vault, US-003) ──────────
+# Pipeline: vault-transcribe → vault-analyze (chained via EdgeRuntime.waitUntil),
+# with vault-embed run separately for semantic search and vault-frame-analyze
+# called from the browser for per-frame visual inspection.
+
+# Transcription with Groq Whisper. Called internally from vault-extract with
+# service-role bearer — no end-user JWT.
+[functions.vault-transcribe]
+verify_jwt = false
+
+# Claude script cleanup + framework extraction + brand metadata. Called
+# internally from vault-transcribe with service-role bearer — no end-user JWT.
+[functions.vault-analyze]
+verify_jwt = false
+
+# OpenAI embeddings (512-dim) over title + framework + transcript. Called
+# internally by background triggers — no end-user JWT.
+[functions.vault-embed]
+verify_jwt = false
+
+# Frame-by-frame Claude vision analysis. Verifies the user JWT inside the
+# function (anon-key client) so verify_jwt stays false here.
+[functions.vault-frame-analyze]
+verify_jwt = false
