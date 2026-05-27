@@ -45,7 +45,6 @@ Deno.serve(async (req) => {
       .from("inspiration_items")
       .insert({
         user_id: user.id,
-        saved_by: user.id,
         source_url: url ?? null,
         platform,
         file_path: file_path ?? null,
@@ -74,7 +73,8 @@ Deno.serve(async (req) => {
 
     return json({ item_id: item.id });
   } catch (err) {
-    console.error("vault-save error:", err);
-    return json({ error: String(err) }, 500);
+    const msg = err instanceof Error ? err.message : JSON.stringify(err);
+    console.error("vault-save error:", msg);
+    return json({ error: msg }, 500);
   }
 });
