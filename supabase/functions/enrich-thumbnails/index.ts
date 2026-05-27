@@ -4,6 +4,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import {
   discoverImageUrl,
   discoverVideoUrl,
+  fetchAccountVideoMap,
   fetchWithTimeout,
   NO_THUMB_SENTINEL,
   NO_VIDEO_SENTINEL,
@@ -110,8 +111,16 @@ serve(async (req) => {
       await runCaching(supabase, accountFilter);
     }
 
-    if (scope === "video" || scope === "all") {
+    if (scope === "video") {
       await runVideoDiscovery(supabase, accountFilter, metaAccessToken);
+    }
+
+    if (scope === "all") {
+      // Unified pass: discover videos for new creatives (null) AND retry a small
+      // batch of sentinels — one account-video-map build covers both, avoiding
+      // the double-pagination cost of running runVideoDiscovery + runVideoRediscovery
+      // sequentially on the same accounts.
+      await runVideoDiscoveryFull(supabase, accountFilter, metaAccessToken);
     }
 
     // force: re-run discovery on sentineled creatives (thumbnail_url = 'no-thumbnail')
@@ -285,7 +294,8 @@ async function runCaching(supabase: any, accountFilter: string | null) {
 
 /**
  * Phase 3: Discover video source URLs for creatives with null video_url.
- * Uses the same priority ordering as image discovery (high-spend first).
+ * Groups creatives by account so the account video library map is built once
+ * per account — this is the key fix for (#10) page-permission errors.
  */
 async function runVideoDiscovery(supabase: any, accountFilter: string | null, metaAccessToken: string) {
   let query = supabase
@@ -322,32 +332,50 @@ async function runVideoDiscovery(supabase: any, accountFilter: string | null, me
 
   console.log(`Video discovery: ${items.length} creatives to check (account: ${accountFilter || "all"})`);
 
+  // Group by account_id so we build the video library map once per account.
+  const byAccount = new Map<string, any[]>();
+  for (const c of items) {
+    const arr = byAccount.get(c.account_id) || [];
+    arr.push(c);
+    byAccount.set(c.account_id, arr);
+  }
+
   const startTime = Date.now();
   let found = 0, sentinel = 0;
 
-  for (let i = 0; i < items.length; i += BATCH_SIZE) {
+  for (const [accountId, accountCreatives] of byAccount) {
     if (Date.now() - startTime > TIME_BUDGET_MS) {
-      console.log(`Video discovery budget exceeded at item ${i}. Skipping rest.`);
+      console.log("Video discovery budget exceeded. Skipping remaining accounts.");
       break;
     }
 
-    const batch = items.slice(i, i + BATCH_SIZE);
-    const results = await Promise.allSettled(
-      batch.map(async (c: any) => {
-        const videoUrl = await discoverVideoUrl(c.ad_id, metaAccessToken, 8_000);
-        if (videoUrl) {
-          await supabase.from("creatives").update({ video_url: videoUrl }).eq("ad_id", c.ad_id);
-          return "found";
-        } else {
-          await supabase.from("creatives").update({ video_url: NO_VIDEO_SENTINEL }).eq("ad_id", c.ad_id);
-          return "sentinel";
+    // Build account video library map — one API pagination per account, reused for all its creatives.
+    const accountVideoMap = await fetchAccountVideoMap(accountId, metaAccessToken);
+
+    for (let i = 0; i < accountCreatives.length; i += BATCH_SIZE) {
+      if (Date.now() - startTime > TIME_BUDGET_MS) {
+        console.log(`Video discovery budget exceeded at item ${i}. Skipping rest.`);
+        break;
+      }
+
+      const batch = accountCreatives.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(async (c: any) => {
+          const videoUrl = await discoverVideoUrl(c.ad_id, metaAccessToken, 8_000, accountVideoMap);
+          if (videoUrl) {
+            await supabase.from("creatives").update({ video_url: videoUrl }).eq("ad_id", c.ad_id);
+            return "found";
+          } else {
+            await supabase.from("creatives").update({ video_url: NO_VIDEO_SENTINEL }).eq("ad_id", c.ad_id);
+            return "sentinel";
+          }
+        })
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled") {
+          if (r.value === "found") found++;
+          else sentinel++;
         }
-      })
-    );
-    for (const r of results) {
-      if (r.status === "fulfilled") {
-        if (r.value === "found") found++;
-        else sentinel++;
       }
     }
   }
@@ -416,6 +444,7 @@ async function runForcedRediscovery(supabase: any, accountFilter: string | null,
 /**
  * Force re-discovery for videos: re-run video discovery on creatives that were
  * previously sentineled (video_url = 'no-video').
+ * Groups by account and builds the video library map once per account.
  */
 async function runVideoRediscovery(supabase: any, accountFilter: string | null, metaAccessToken: string) {
   let query = supabase
@@ -436,33 +465,185 @@ async function runVideoRediscovery(supabase: any, accountFilter: string | null, 
 
   console.log(`Video rediscovery: ${items.length} sentineled video creatives (account: ${accountFilter || "all"})`);
 
+  // Group by account_id so we build the video library map once per account.
+  const byAccount = new Map<string, any[]>();
+  for (const c of items) {
+    const arr = byAccount.get(c.account_id) || [];
+    arr.push(c);
+    byAccount.set(c.account_id, arr);
+  }
+
   const startTime = Date.now();
   let found = 0, sentinel = 0;
 
-  for (let i = 0; i < items.length; i += BATCH_SIZE) {
+  for (const [accountId, accountCreatives] of byAccount) {
     if (Date.now() - startTime > TIME_BUDGET_MS) {
-      console.log(`Video rediscovery budget exceeded at item ${i}.`);
+      console.log("Video rediscovery budget exceeded. Skipping remaining accounts.");
       break;
     }
 
-    const batch = items.slice(i, i + BATCH_SIZE);
-    const results = await Promise.allSettled(
-      batch.map(async (c: any) => {
-        const videoUrl = await discoverVideoUrl(c.ad_id, metaAccessToken, 8_000);
-        if (videoUrl) {
-          await supabase.from("creatives").update({ video_url: videoUrl }).eq("ad_id", c.ad_id);
-          return "found";
+    // Build account video library map — one API pagination per account.
+    const accountVideoMap = await fetchAccountVideoMap(accountId, metaAccessToken);
+
+    for (let i = 0; i < accountCreatives.length; i += BATCH_SIZE) {
+      if (Date.now() - startTime > TIME_BUDGET_MS) {
+        console.log(`Video rediscovery budget exceeded at item ${i}.`);
+        break;
+      }
+
+      const batch = accountCreatives.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(async (c: any) => {
+          const videoUrl = await discoverVideoUrl(c.ad_id, metaAccessToken, 8_000, accountVideoMap);
+          if (videoUrl) {
+            await supabase.from("creatives").update({ video_url: videoUrl }).eq("ad_id", c.ad_id);
+            return "found";
+          }
+          return "sentinel";
+        })
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled") {
+          if (r.value === "found") found++;
+          else sentinel++;
         }
-        return "sentinel";
-      })
-    );
-    for (const r of results) {
-      if (r.status === "fulfilled") {
-        if (r.value === "found") found++;
-        else sentinel++;
       }
     }
   }
 
   console.log(`Video rediscovery done: ${found} recovered, ${sentinel} still no video`);
+}
+
+/**
+ * Unified video discovery pass for scope=all (sync-triggered runs).
+ *
+ * Combines null-video discovery and sentinel retry into a single pass so the
+ * account video library map is built only once per account. Without this,
+ * running runVideoDiscovery + runVideoRediscovery sequentially would paginate
+ * each account's advideos endpoint twice, eating the time budget for large accounts.
+ *
+ * Strategy:
+ *  - Up to MAX_ITEMS new creatives (video_url IS NULL, ordered by spend desc)
+ *  - Up to SENTINEL_RETRY_LIMIT recently-sentineled creatives (video_url = 'no-video')
+ *    as a lighter background pass to catch transient failures from prior runs
+ *  - One fetchAccountVideoMap call per account covers both sets
+ *  - Null items: write URL on success, write sentinel on failure (same as runVideoDiscovery)
+ *  - Sentinel items: write URL on success, leave sentinel intact on failure (no-op)
+ */
+const SENTINEL_RETRY_LIMIT = 200;
+
+async function runVideoDiscoveryFull(supabase: any, accountFilter: string | null, metaAccessToken: string) {
+  // ── Fetch null-video creatives (high priority — new creatives) ────────────
+  let nullQuery = supabase
+    .from("creatives")
+    .select("ad_id, account_id")
+    .is("video_url", null)
+    .gt("impressions", 0);
+  if (accountFilter) nullQuery = nullQuery.eq("account_id", accountFilter);
+
+  const { data: withSpend } = await nullQuery
+    .gt("spend", 0)
+    .order("spend", { ascending: false })
+    .limit(MAX_ITEMS);
+
+  let nullItems: Array<{ ad_id: string; account_id: string }> = withSpend || [];
+
+  if (nullItems.length < MAX_ITEMS) {
+    const remaining = MAX_ITEMS - nullItems.length;
+    let zeroQuery = supabase
+      .from("creatives")
+      .select("ad_id, account_id")
+      .is("video_url", null)
+      .gt("impressions", 0)
+      .or("spend.is.null,spend.eq.0");
+    if (accountFilter) zeroQuery = zeroQuery.eq("account_id", accountFilter);
+    const { data: zeroSpend } = await zeroQuery.limit(remaining);
+    if (zeroSpend) nullItems = [...nullItems, ...zeroSpend];
+  }
+
+  // ── Fetch sentinel creatives (lower priority — retry transient failures) ──
+  let sentinelQuery = supabase
+    .from("creatives")
+    .select("ad_id, account_id")
+    .eq("video_url", NO_VIDEO_SENTINEL)
+    .gt("impressions", 0)
+    .gt("spend", 0);
+  if (accountFilter) sentinelQuery = sentinelQuery.eq("account_id", accountFilter);
+
+  const { data: sentinelItems } = await sentinelQuery
+    .order("spend", { ascending: false })
+    .limit(SENTINEL_RETRY_LIMIT);
+
+  const retrySet = new Set((sentinelItems || []).map((c: any) => c.ad_id));
+  const allItems = [
+    ...nullItems.map((c: any) => ({ ...c, isRetry: false })),
+    ...(sentinelItems || []).map((c: any) => ({ ...c, isRetry: true })),
+  ];
+
+  if (allItems.length === 0) {
+    console.log("Video discovery (full): Nothing to process.");
+    return;
+  }
+
+  console.log(
+    `Video discovery (full): ${nullItems.length} new + ${retrySet.size} sentinel retries` +
+    ` (account: ${accountFilter || "all"})`
+  );
+
+  // ── Group by account — build map once per account ─────────────────────────
+  const byAccount = new Map<string, Array<{ ad_id: string; account_id: string; isRetry: boolean }>>();
+  for (const c of allItems) {
+    const arr = byAccount.get(c.account_id) || [];
+    arr.push(c);
+    byAccount.set(c.account_id, arr);
+  }
+
+  const startTime = Date.now();
+  let found = 0, newSentinel = 0, retryRecovered = 0;
+
+  for (const [accountId, accountCreatives] of byAccount) {
+    if (Date.now() - startTime > TIME_BUDGET_MS) {
+      console.log("Video discovery (full) budget exceeded. Skipping remaining accounts.");
+      break;
+    }
+
+    // Single map build per account covers both null and retry creatives.
+    const accountVideoMap = await fetchAccountVideoMap(accountId, metaAccessToken);
+
+    for (let i = 0; i < accountCreatives.length; i += BATCH_SIZE) {
+      if (Date.now() - startTime > TIME_BUDGET_MS) {
+        console.log(`Video discovery (full) budget exceeded at item ${i}.`);
+        break;
+      }
+
+      const batch = accountCreatives.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(async (c) => {
+          const videoUrl = await discoverVideoUrl(c.ad_id, metaAccessToken, 8_000, accountVideoMap);
+          if (videoUrl) {
+            await supabase.from("creatives").update({ video_url: videoUrl }).eq("ad_id", c.ad_id);
+            return c.isRetry ? "retry-recovered" : "found";
+          } else if (!c.isRetry) {
+            // New creative, no video found — write sentinel so we don't retry on every sync.
+            await supabase.from("creatives").update({ video_url: NO_VIDEO_SENTINEL }).eq("ad_id", c.ad_id);
+            return "sentinel";
+          }
+          // Sentinel retry that still found nothing — leave as-is.
+          return "retry-miss";
+        })
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled") {
+          if (r.value === "found") found++;
+          else if (r.value === "sentinel") newSentinel++;
+          else if (r.value === "retry-recovered") retryRecovered++;
+        }
+      }
+    }
+  }
+
+  console.log(
+    `Video discovery (full) done: ${found} new found, ${newSentinel} new sentinel,` +
+    ` ${retryRecovered} sentinels recovered`
+  );
 }
