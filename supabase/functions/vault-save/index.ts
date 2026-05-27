@@ -32,6 +32,13 @@ Deno.serve(async (req) => {
     const platform = explicitPlatform ?? (url ? detectPlatform(url) : "upload");
     const isVideo = !mime_type || mime_type.startsWith("video/");
 
+    let adArchiveId: string | null = null;
+    if (platform === "facebook_ad" && url) {
+      try {
+        adArchiveId = new URL(url).searchParams.get("id");
+      } catch { /* ignore malformed URLs */ }
+    }
+
     // Insert the item — user-scoped only, no workspace_id.
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
     const { data: item, error: insertError } = await adminClient
@@ -44,6 +51,7 @@ Deno.serve(async (req) => {
         file_path: file_path ?? null,
         thumbnail_url: thumbnail_url ?? null,
         brand_name: brand_name ?? null,
+        ad_archive_id: adArchiveId,
         status: url ? "extracting" : (isVideo ? "transcribing" : "analyzing"),
       })
       .select()
