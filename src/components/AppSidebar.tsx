@@ -1,4 +1,5 @@
 
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { NavLink } from "@/components/NavLink";
 import {
@@ -12,6 +13,10 @@ import {
   Eye,
   ListChecks,
   Library,
+  ChevronRight,
+  Vault,
+  Flame,
+  ClipboardList,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
@@ -27,22 +32,146 @@ import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { Button } from "@/components/ui/button";
 
-const baseNavItems = [
-  { title: "Overview", url: "/", icon: LayoutGrid },
-  { title: "Creatives", url: "/creatives", icon: Zap },
-  { title: "Analytics", url: "/analytics", icon: BarChart3 },
-  { title: "Tagging", url: "/tagging", icon: Tags },
-  { title: "Reports", url: "/reports", icon: FileText },
-  { title: "Ad Library", url: "/ad-library", icon: Library },
+type NavItem = {
+  title: string;
+  url: string;
+  icon: typeof LayoutGrid;
+};
+
+type NavSection = {
+  id: string;
+  label: string;
+  items: NavItem[];
+};
+
+// Builder sections — Creative Analytics + Creative Vault
+const builderSections: NavSection[] = [
+  {
+    id: "creative-analytics",
+    label: "Creative Analytics",
+    items: [
+      { title: "Overview", url: "/", icon: LayoutGrid },
+      { title: "Creatives", url: "/creatives", icon: Zap },
+      { title: "Analytics", url: "/analytics", icon: BarChart3 },
+      { title: "Tagging", url: "/tagging", icon: Tags },
+      { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
+      { title: "Briefs", url: "/briefs", icon: ClipboardList },
+      { title: "Reports", url: "/reports", icon: FileText },
+    ],
+  },
+  {
+    id: "creative-vault",
+    label: "Creative Vault",
+    items: [
+      { title: "Library", url: "/ad-library", icon: Library },
+      { title: "Viral Feed", url: "/viral-feed", icon: Flame },
+      { title: "Boards", url: "/boards", icon: Vault },
+      { title: "Hooks", url: "/hooks", icon: Zap },
+    ],
+  },
 ];
 
-const clientNavItems = [
+const clientNavItems: NavItem[] = [
   { title: "Overview", url: "/", icon: LayoutGrid },
   { title: "Creatives", url: "/creatives", icon: Zap },
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
   { title: "Reports", url: "/reports", icon: FileText },
 ];
+
+const agencyNavItems: NavItem[] = [
+  { title: "Overview", url: "/agency", icon: LayoutGrid },
+];
+
+const STORAGE_KEY = "verdanote.sidebar.sectionsCollapsed";
+
+function readCollapsedFromStorage(): Record<string, boolean> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "object" && parsed !== null ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeCollapsedToStorage(state: Record<string, boolean>) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    /* ignore quota / privacy-mode errors */
+  }
+}
+
+/** Returns true if the current route path matches any item in the section. */
+function sectionContainsActiveRoute(
+  section: NavSection,
+  prefix: string,
+  pathname: string,
+): boolean {
+  return section.items.some((item) => {
+    const fullPath = `${prefix}${item.url}`;
+    if (item.url === "/") {
+      return pathname === fullPath || pathname === `${prefix}`;
+    }
+    return pathname === fullPath || pathname.startsWith(`${fullPath}/`);
+  });
+}
+
+interface SectionGroupProps {
+  section: NavSection;
+  prefix: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  onNavigate?: () => void;
+}
+
+function SectionGroup({
+  section,
+  prefix,
+  collapsed,
+  onToggle,
+  onNavigate,
+}: SectionGroupProps) {
+  return (
+    <div className="space-y-1">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        aria-controls={`sidebar-section-${section.id}`}
+        className="flex items-center w-full px-2 py-1 font-label text-[9px] uppercase tracking-[0.1em] text-sage hover:text-forest transition-colors"
+      >
+        <ChevronRight
+          className={`h-3 w-3 mr-1.5 transition-transform duration-150 ${
+            collapsed ? "" : "rotate-90"
+          }`}
+        />
+        <span className="flex-1 text-left">{section.label}</span>
+      </button>
+      {!collapsed && (
+        <div id={`sidebar-section-${section.id}`} className="space-y-1">
+          {section.items.map((item) => (
+            <NavLink
+              key={item.url}
+              to={`${prefix}${item.url}`}
+              end={item.url === "/"}
+              className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent"
+              activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
+              onClick={onNavigate}
+            >
+              <item.icon className="h-4 w-4 flex-shrink-0" />
+              {item.title}
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { accounts, selectedAccountId, setSelectedAccountId, isLoading } = useAccountContext();
@@ -57,16 +186,44 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const effectiveEmployee = isEmployeePreview;
 
   const showSwitcher = !effectiveClient || accounts.length > 1;
-  
-  const agencyNavItems = [
-    { title: "Overview", url: "/agency", icon: LayoutGrid },
-  ];
 
-  const navItems = isAgencyView
-    ? agencyNavItems
-    : effectiveClient
-    ? clientNavItems
-    : baseNavItems;
+  // Collapse state for sections — persisted to localStorage
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() =>
+    readCollapsedFromStorage(),
+  );
+
+  // Auto-expand a section if it contains the active route
+  useEffect(() => {
+    if (effectiveClient || isAgencyView) return;
+    const updates: Record<string, boolean> = {};
+    let changed = false;
+    for (const section of builderSections) {
+      if (
+        collapsed[section.id] &&
+        sectionContainsActiveRoute(section, prefix, location.pathname)
+      ) {
+        updates[section.id] = false;
+        changed = true;
+      }
+    }
+    if (changed) {
+      setCollapsed((prev) => {
+        const next = { ...prev, ...updates };
+        writeCollapsedToStorage(next);
+        return next;
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname, prefix, effectiveClient, isAgencyView]);
+
+  const toggleSection = (id: string) => {
+    setCollapsed((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      writeCollapsedToStorage(next);
+      return next;
+    });
+  };
+
 
   const handleAccountChange = (value: string) => {
     setSelectedAccountId(value);
@@ -95,6 +252,13 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
     const newPrefix = r === "client" ? "/client" : r === "employee" ? "/employee" : "/builder";
     navigate(`${newPrefix}/`);
   };
+
+  // Flat nav (client + agency views) — no section grouping
+  const flatNavItems = useMemo<NavItem[] | null>(() => {
+    if (isAgencyView) return agencyNavItems;
+    if (effectiveClient) return clientNavItems;
+    return null;
+  }, [isAgencyView, effectiveClient]);
 
   return (
     <aside className="flex h-screen w-56 flex-col bg-background border-r border-input">
@@ -148,20 +312,35 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
-        {navItems.map((item) => (
-          <NavLink
-            key={item.url}
-            to={`${prefix}${item.url}`}
-            end={item.url === "/"}
-            className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent"
-            activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
-            onClick={onNavigate}
-          >
-            <item.icon className="h-4 w-4 flex-shrink-0" />
-            {item.title}
-          </NavLink>
-        ))}
+      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-3">
+        {flatNavItems ? (
+          <div className="space-y-1">
+            {flatNavItems.map((item) => (
+              <NavLink
+                key={item.url}
+                to={`${prefix}${item.url}`}
+                end={item.url === "/"}
+                className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent"
+                activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
+                onClick={onNavigate}
+              >
+                <item.icon className="h-4 w-4 flex-shrink-0" />
+                {item.title}
+              </NavLink>
+            ))}
+          </div>
+        ) : (
+          builderSections.map((section) => (
+            <SectionGroup
+              key={section.id}
+              section={section}
+              prefix={prefix}
+              collapsed={!!collapsed[section.id]}
+              onToggle={() => toggleSection(section.id)}
+              onNavigate={onNavigate}
+            />
+          ))
+        )}
       </nav>
 
       <div className="mx-3 border-t border-input" />
