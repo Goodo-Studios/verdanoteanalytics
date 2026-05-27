@@ -4,6 +4,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import {
   discoverImageUrl,
   discoverVideoUrl,
+  fetchAccountVideoMap,
   fetchWithTimeout,
   NO_THUMB_SENTINEL,
   NO_VIDEO_SENTINEL,
@@ -127,22 +128,36 @@ serve(async (req) => {
 
   // ── Video ────────────────────────────────────────────────────────────────
   // Skip if already in storage, or confirmed no video.
-  // Re-run for null (never tried) or stale CDN URLs.
   const skipVideo =
     creative.video_url === NO_VIDEO_SENTINEL ||
     isStorageUrl(creative.video_url);
 
   if (!skipVideo) {
-    console.log(`[${ad_id}] Discovering video...`);
-    const videoUrl = await discoverVideoUrl(ad_id, META_ACCESS_TOKEN);
-    if (videoUrl && videoUrl !== NO_VIDEO_SENTINEL) {
+    if (creative.video_url) {
+      // Already have a CDN URL — just try to upload it to storage (no rediscovery).
+      // If upload fails, preserve the existing CDN URL rather than writing a sentinel.
+      console.log(`[${ad_id}] Caching existing CDN video URL to storage...`);
       const storageUrl = await downloadAndCache(
-        supabase, VIDEO_BUCKET, account_id, ad_id, videoUrl, "video"
+        supabase, VIDEO_BUCKET, account_id, ad_id, creative.video_url, "video"
       );
-      // Use storage URL if download succeeded, otherwise fall back to CDN URL
-      updates.video_url = storageUrl ?? videoUrl;
+      if (storageUrl) updates.video_url = storageUrl;
+      // No else — leave CDN URL intact if download/upload fails.
     } else {
-      updates.video_url = NO_VIDEO_SENTINEL;
+      // No URL yet — run full discovery then cache.
+      console.log(`[${ad_id}] Discovering video...`);
+      // Build account video map so page-owned videos are discoverable despite (#10) permission errors.
+      const accountVideoMap = await fetchAccountVideoMap(account_id, META_ACCESS_TOKEN);
+      const videoUrl = await discoverVideoUrl(ad_id, META_ACCESS_TOKEN, 30_000, accountVideoMap);
+      if (videoUrl && videoUrl !== NO_VIDEO_SENTINEL) {
+        const storageUrl = await downloadAndCache(
+          supabase, VIDEO_BUCKET, account_id, ad_id, videoUrl, "video"
+        );
+        // Use storage URL if download succeeded, otherwise fall back to CDN URL
+        updates.video_url = storageUrl ?? videoUrl;
+      } else {
+        // Only set sentinel for null video_url (never tried before) — discovery found nothing
+        updates.video_url = NO_VIDEO_SENTINEL;
+      }
     }
   }
 

@@ -229,7 +229,7 @@ export default function ViralFeedPage() {
     queryKey: ["viral-feed", platform, sortMode],
     queryFn: async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let q = (supabase as any)
+      let q = supabase
         .from("viral_feed_items")
         .select("*")
         .order(sortOrder.column, { ascending: sortOrder.ascending, nullsFirst: false });
@@ -263,7 +263,7 @@ export default function ViralFeedPage() {
     staleTime: 30_000,
     queryFn: async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from("inspiration_items")
         .select("source_url")
         .eq("user_id", user!.id);
@@ -360,7 +360,7 @@ export default function ViralFeedPage() {
       setSavingIds((prev) => new Set(prev).add(item.id));
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: inserted, error: insertErr } = await (supabase as any)
+      const { data: inserted, error: insertErr } = await supabase
         .from("inspiration_items")
         .insert({
           user_id: userId,
@@ -385,7 +385,7 @@ export default function ViralFeedPage() {
       }).catch(console.error);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase as any)
+      await supabase
         .from("viral_feed_items")
         .update({ is_saved: true, saved_item_id: newItemId })
         .eq("id", item.id);

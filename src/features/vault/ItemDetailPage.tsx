@@ -71,7 +71,7 @@ export default function ItemDetailPage() {
     enabled: !!id && !!user,
     queryFn: async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("inspiration_items")
         .select(
           `*,
@@ -119,14 +119,14 @@ export default function ItemDetailPage() {
       setReanalyzeInFlight(true);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: delErr } = await (supabase as any)
+      const { error: delErr } = await supabase
         .from("inspiration_frameworks")
         .delete()
         .eq("item_id", id);
       if (delErr) throw delErr;
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: statusData, error: statusErr } = await (supabase as any)
+      const { data: statusData, error: statusErr } = await supabase
         .from("inspiration_items")
         .update({ status: "analyzing", error_message: null })
         .eq("id", id)

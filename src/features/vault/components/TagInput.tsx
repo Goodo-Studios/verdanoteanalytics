@@ -21,7 +21,7 @@ export function TagInput({ itemId }: TagInputProps) {
     queryKey: ["vault-item-tags", itemId],
     queryFn: async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("inspiration_tags")
         .select("tag")
         .eq("item_id", itemId);
@@ -33,7 +33,7 @@ export function TagInput({ itemId }: TagInputProps) {
   const addTag = useMutation({
     mutationFn: async (tag: string) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("inspiration_tags")
         .upsert({ item_id: itemId, tag });
       if (error) throw error;
@@ -47,7 +47,7 @@ export function TagInput({ itemId }: TagInputProps) {
   const removeTag = useMutation({
     mutationFn: async (tag: string) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("inspiration_tags")
         .delete()
         .eq("item_id", itemId)

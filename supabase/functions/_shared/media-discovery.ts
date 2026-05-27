@@ -298,13 +298,59 @@ export async function discoverPreviewUrl(
 }
 
 /**
+ * Build a map of video_id → source_url from the ad account's video library.
+ *
+ * Why this exists: Direct GET /{video_id}?fields=source fails with (#10) for
+ * page-owned videos because the `source` field requires pages_read_engagement,
+ * which a system-user token with only ads_management does not have.
+ * However, GET /{accountId}/advideos?fields=id,source succeeds for the same
+ * videos because the account-edge context satisfies the permission check.
+ *
+ * Build this map once per account before processing its creatives, then pass
+ * it into discoverVideoUrl so it skips the failing direct-node call.
+ */
+export async function fetchAccountVideoMap(
+  accountId: string,
+  accessToken: string,
+  maxPages = 50
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  let afterCursor: string | null = null;
+
+  for (let page = 0; page < maxPages; page++) {
+    const cursorParam = afterCursor ? `&after=${encodeURIComponent(afterCursor)}` : "";
+    const url = `https://graph.facebook.com/${META_API_VERSION}/${accountId}/advideos?fields=id,source&limit=100${cursorParam}&access_token=${accessToken}`;
+    try {
+      const res = await fetchWithTimeout(url, 30_000);
+      if (!res.ok) { await res.text(); break; }
+      const data = await res.json();
+      const videos: any[] = data?.data || [];
+      for (const v of videos) {
+        if (v?.id && v?.source) map.set(v.id, v.source);
+      }
+      afterCursor = data?.paging?.cursors?.after ?? null;
+      if (!afterCursor || !data?.paging?.next) break;
+    } catch {
+      break;
+    }
+  }
+
+  console.log(`Account video map: ${map.size} videos for ${accountId}`);
+  return map;
+}
+
+/**
  * Discover a video source URL from Meta Graph API.
  * Covers all known creative formats (standard, carousel, DPA, Advantage+, whitelisted).
+ *
+ * Pass an accountVideoMap (from fetchAccountVideoMap) to enable reliable lookup
+ * for page-owned videos where direct /{video_id}?fields=source is permission-blocked.
  */
 export async function discoverVideoUrl(
   adId: string,
   accessToken: string,
-  timeoutMs = 30_000
+  timeoutMs = 30_000,
+  accountVideoMap?: Map<string, string>
 ): Promise<string | null> {
   try {
     const res = await fetchWithTimeout(
@@ -353,8 +399,17 @@ export async function discoverVideoUrl(
       if (v?.video_id) videoIds.push(v.video_id);
     }
 
-    // Try fetching source from all collected video_ids
+    // Try fetching source from all collected video_ids.
+    // Map lookup first (avoids #10 permission errors on page-owned videos);
+    // direct API call as fallback (works for ad-account-owned videos).
     for (const vid of [...new Set(videoIds)]) {
+      if (accountVideoMap) {
+        const mapped = accountVideoMap.get(vid);
+        if (mapped) {
+          console.log(`Got video source from account library map for ${adId} (video ${vid})`);
+          return mapped;
+        }
+      }
       const vidRes = await fetchWithTimeout(
         `https://graph.facebook.com/${META_API_VERSION}/${vid}?fields=source&access_token=${accessToken}`,
         timeoutMs
@@ -451,6 +506,13 @@ export async function discoverVideoUrl(
         }
         for (const vid of [...new Set(fallbackIds)]) {
           if (videoIds.includes(vid)) continue;
+          if (accountVideoMap) {
+            const mapped = accountVideoMap.get(vid);
+            if (mapped) {
+              console.log(`Got video via adcreatives fallback (map) for ${adId}`);
+              return mapped;
+            }
+          }
           const vidRes = await fetchWithTimeout(
             `https://graph.facebook.com/${META_API_VERSION}/${vid}?fields=source&access_token=${accessToken}`,
             timeoutMs

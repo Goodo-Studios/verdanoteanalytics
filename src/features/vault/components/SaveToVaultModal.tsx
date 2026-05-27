@@ -41,18 +41,18 @@ export function SaveToVaultModal({ itemId, initialTags = [], initialNotes = "", 
 
       // Replace tags: delete existing, insert new set (small N, simpler than diff).
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase as any).from("inspiration_tags").delete().eq("item_id", itemId);
+      await supabase.from("inspiration_tags").delete().eq("item_id", itemId);
 
       if (parsedTags.length > 0) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { error } = await (supabase as any)
+        const { error } = await supabase
           .from("inspiration_tags")
           .insert(parsedTags.map((tag) => ({ item_id: itemId, tag })));
         if (error) throw error;
       }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: noteErr } = await (supabase as any)
+      const { error: noteErr } = await supabase
         .from("inspiration_items")
         .update({ ad_body_text: notes.trim() || null })
         .eq("id", itemId);

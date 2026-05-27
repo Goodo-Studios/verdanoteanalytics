@@ -37,7 +37,7 @@ export function AddToBoardModal({ itemId, open, onOpenChange }: Props) {
     enabled: !!user && open,
     queryFn: async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("boards")
         .select("*")
         .eq("user_id", user!.id)
@@ -52,7 +52,7 @@ export function AddToBoardModal({ itemId, open, onOpenChange }: Props) {
     enabled: !!itemId && open,
     queryFn: async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("board_items")
         .select("board_id")
         .eq("item_id", itemId!);
@@ -67,7 +67,7 @@ export function AddToBoardModal({ itemId, open, onOpenChange }: Props) {
       const alreadyIn = memberBoardIds.includes(boardId);
       if (alreadyIn) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { error } = await (supabase as any)
+        const { error } = await supabase
           .from("board_items")
           .delete()
           .eq("board_id", boardId)
@@ -75,7 +75,7 @@ export function AddToBoardModal({ itemId, open, onOpenChange }: Props) {
         if (error) throw error;
       } else {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { error } = await (supabase as any)
+        const { error } = await supabase
           .from("board_items")
           .insert({ board_id: boardId, item_id: itemId });
         if (error) throw error;

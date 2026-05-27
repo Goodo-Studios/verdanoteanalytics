@@ -67,7 +67,7 @@ export default function LibraryPage() {
   const { mutate: bulkDelete, isPending: isDeleting } = useMutation({
     mutationFn: async (ids: string[]) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("inspiration_items")
         .delete()
         .in("id", ids);
@@ -85,7 +85,7 @@ export default function LibraryPage() {
   const { mutate: deleteOne } = useMutation({
     mutationFn: async (id: string) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("inspiration_items")
         .delete()
         .eq("id", id);
@@ -102,7 +102,7 @@ export default function LibraryPage() {
   const { mutate: toggleFeatured } = useMutation({
     mutationFn: async ({ id, featured }: { id: string; featured: boolean }) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("inspiration_items")
         .update({ is_featured: featured })
         .eq("id", id);
@@ -130,7 +130,7 @@ export default function LibraryPage() {
     enabled: !!user,
     queryFn: async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("inspiration_tags")
         .select("tag, inspiration_items!inner(user_id)")
         .eq("inspiration_items.user_id", user!.id);
@@ -147,7 +147,7 @@ export default function LibraryPage() {
       let tagItemIds: string[] | null = null;
       if (activeTag) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { data: tagRows, error: tagErr } = await (supabase as any)
+        const { data: tagRows, error: tagErr } = await supabase
           .from("inspiration_tags")
           .select("item_id")
           .eq("tag", activeTag);
@@ -157,7 +157,7 @@ export default function LibraryPage() {
       }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let q = (supabase as any)
+      let q = supabase
         .from("inspiration_items")
         .select(
           `*,

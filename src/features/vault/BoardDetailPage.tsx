@@ -61,7 +61,7 @@ export default function BoardDetailPage() {
     enabled: !!id && !!user,
     queryFn: async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("boards")
         .select("*")
         .eq("id", id!)
@@ -78,7 +78,7 @@ export default function BoardDetailPage() {
     enabled: !!id && !!user,
     queryFn: async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("board_items")
         .select(
           `*,
@@ -98,7 +98,7 @@ export default function BoardDetailPage() {
   const deleteBoard = useMutation({
     mutationFn: async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("boards")
         .delete()
         .eq("id", id!);
@@ -116,7 +116,7 @@ export default function BoardDetailPage() {
   const removeItem = useMutation({
     mutationFn: async (boardItemId: string) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("board_items")
         .delete()
         .eq("id", boardItemId);

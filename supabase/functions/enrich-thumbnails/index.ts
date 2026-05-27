@@ -109,6 +109,7 @@ serve(async (req) => {
 
     if (scope === "cache" || scope === "all") {
       await runCaching(supabase, accountFilter);
+      await runVideoCaching(supabase, accountFilter);
     }
 
     if (scope === "video") {
@@ -116,11 +117,7 @@ serve(async (req) => {
     }
 
     if (scope === "all") {
-      // Unified pass: discover videos for new creatives (null) AND retry a small
-      // batch of sentinels — one account-video-map build covers both, avoiding
-      // the double-pagination cost of running runVideoDiscovery + runVideoRediscovery
-      // sequentially on the same accounts.
-      await runVideoDiscoveryFull(supabase, accountFilter, metaAccessToken);
+      await runVideoDiscovery(supabase, accountFilter, metaAccessToken);
     }
 
     // force: re-run discovery on sentineled creatives (thumbnail_url = 'no-thumbnail')
@@ -515,135 +512,98 @@ async function runVideoRediscovery(supabase: any, accountFilter: string | null, 
 }
 
 /**
- * Unified video discovery pass for scope=all (sync-triggered runs).
+ * Download a video and upload it to Supabase Storage (ad-videos bucket).
+ * Returns the permanent public URL, or null on any failure.
  *
- * Combines null-video discovery and sentinel retry into a single pass so the
- * account video library map is built only once per account. Without this,
- * running runVideoDiscovery + runVideoRediscovery sequentially would paginate
- * each account's advideos endpoint twice, eating the time budget for large accounts.
- *
- * Strategy:
- *  - Up to MAX_ITEMS new creatives (video_url IS NULL, ordered by spend desc)
- *  - Up to SENTINEL_RETRY_LIMIT recently-sentineled creatives (video_url = 'no-video')
- *    as a lighter background pass to catch transient failures from prior runs
- *  - One fetchAccountVideoMap call per account covers both sets
- *  - Null items: write URL on success, write sentinel on failure (same as runVideoDiscovery)
- *  - Sentinel items: write URL on success, leave sentinel intact on failure (no-op)
+ * Sequential callers only — videos can be 50 MB+; parallel downloads exhaust
+ * Deno's 256 MB memory limit.
  */
-const SENTINEL_RETRY_LIMIT = 200;
+async function cacheVideoToStorage(
+  supabase: any,
+  videoUrl: string,
+  accountId: string,
+  adId: string
+): Promise<string | null> {
+  try {
+    const res = await fetchWithTimeout(videoUrl, 60_000); // generous timeout for large files
+    if (!res.ok) { await res.text(); return null; }
 
-async function runVideoDiscoveryFull(supabase: any, accountFilter: string | null, metaAccessToken: string) {
-  // ── Fetch null-video creatives (high priority — new creatives) ────────────
-  let nullQuery = supabase
-    .from("creatives")
-    .select("ad_id, account_id")
-    .is("video_url", null)
-    .gt("impressions", 0);
-  if (accountFilter) nullQuery = nullQuery.eq("account_id", accountFilter);
+    const contentType = res.headers.get("content-type") || "video/mp4";
+    const storagePath = `${accountId}/${adId}.mp4`;
 
-  const { data: withSpend } = await nullQuery
-    .gt("spend", 0)
-    .order("spend", { ascending: false })
-    .limit(MAX_ITEMS);
+    const blob = await res.blob();
+    const arrayBuffer = await blob.arrayBuffer();
+    const uint8 = new Uint8Array(arrayBuffer);
 
-  let nullItems: Array<{ ad_id: string; account_id: string }> = withSpend || [];
+    const { error: uploadError } = await supabase.storage
+      .from("ad-videos")
+      .upload(storagePath, uint8, { contentType, upsert: true });
 
-  if (nullItems.length < MAX_ITEMS) {
-    const remaining = MAX_ITEMS - nullItems.length;
-    let zeroQuery = supabase
-      .from("creatives")
-      .select("ad_id, account_id")
-      .is("video_url", null)
-      .gt("impressions", 0)
-      .or("spend.is.null,spend.eq.0");
-    if (accountFilter) zeroQuery = zeroQuery.eq("account_id", accountFilter);
-    const { data: zeroSpend } = await zeroQuery.limit(remaining);
-    if (zeroSpend) nullItems = [...nullItems, ...zeroSpend];
+    if (uploadError) {
+      console.error(`Video storage upload error for ${adId}:`, uploadError.message);
+      return null;
+    }
+
+    const { data: publicData } = supabase.storage.from("ad-videos").getPublicUrl(storagePath);
+    return publicData?.publicUrl ||
+      `${SUPABASE_URL_ENV}/storage/v1/object/public/ad-videos/${storagePath}`;
+  } catch (e) {
+    console.error(`Cache video to storage error for ${adId}:`, e);
+    return null;
   }
+}
 
-  // ── Fetch sentinel creatives (lower priority — retry transient failures) ──
-  let sentinelQuery = supabase
+/**
+ * Phase 4: Cache CDN video URLs to permanent Supabase Storage.
+ *
+ * Targets creatives with a live CDN video_url (not null, not sentinel, not already
+ * a storage URL). Processes a small batch sequentially — videos are large files and
+ * parallel downloads would hit Deno's 256 MB memory cap.
+ *
+ * Once cached, video_url is updated to the storage URL so subsequent syncs skip the
+ * row (the storage-URL check in the query excludes already-cached items).
+ */
+const VIDEO_CACHE_LIMIT = 20;
+
+async function runVideoCaching(supabase: any, accountFilter: string | null) {
+  let query = supabase
     .from("creatives")
-    .select("ad_id, account_id")
-    .eq("video_url", NO_VIDEO_SENTINEL)
-    .gt("impressions", 0)
-    .gt("spend", 0);
-  if (accountFilter) sentinelQuery = sentinelQuery.eq("account_id", accountFilter);
+    .select("ad_id, account_id, video_url")
+    .not("video_url", "is", null)
+    .neq("video_url", NO_VIDEO_SENTINEL)
+    .not("video_url", "like", "%/storage/v1/object/public/%")
+    .gt("impressions", 0);
+  if (accountFilter) query = query.eq("account_id", accountFilter);
 
-  const { data: sentinelItems } = await sentinelQuery
+  const { data: items } = await query
     .order("spend", { ascending: false })
-    .limit(SENTINEL_RETRY_LIMIT);
+    .limit(VIDEO_CACHE_LIMIT);
 
-  const retrySet = new Set((sentinelItems || []).map((c: any) => c.ad_id));
-  const allItems = [
-    ...nullItems.map((c: any) => ({ ...c, isRetry: false })),
-    ...(sentinelItems || []).map((c: any) => ({ ...c, isRetry: true })),
-  ];
-
-  if (allItems.length === 0) {
-    console.log("Video discovery (full): Nothing to process.");
+  if (!items?.length) {
+    console.log("Video caching: No CDN video URLs need storage caching.");
     return;
   }
 
-  console.log(
-    `Video discovery (full): ${nullItems.length} new + ${retrySet.size} sentinel retries` +
-    ` (account: ${accountFilter || "all"})`
-  );
-
-  // ── Group by account — build map once per account ─────────────────────────
-  const byAccount = new Map<string, Array<{ ad_id: string; account_id: string; isRetry: boolean }>>();
-  for (const c of allItems) {
-    const arr = byAccount.get(c.account_id) || [];
-    arr.push(c);
-    byAccount.set(c.account_id, arr);
-  }
+  console.log(`Video caching: ${items.length} CDN video URLs to cache (account: ${accountFilter || "all"})`);
 
   const startTime = Date.now();
-  let found = 0, newSentinel = 0, retryRecovered = 0;
+  let cached = 0, failed = 0;
 
-  for (const [accountId, accountCreatives] of byAccount) {
+  // Sequential — videos can be 50 MB+; parallel downloads exhaust Deno's 256 MB memory limit.
+  for (const c of items) {
     if (Date.now() - startTime > TIME_BUDGET_MS) {
-      console.log("Video discovery (full) budget exceeded. Skipping remaining accounts.");
+      console.log("Video caching budget exceeded.");
       break;
     }
 
-    // Single map build per account covers both null and retry creatives.
-    const accountVideoMap = await fetchAccountVideoMap(accountId, metaAccessToken);
-
-    for (let i = 0; i < accountCreatives.length; i += BATCH_SIZE) {
-      if (Date.now() - startTime > TIME_BUDGET_MS) {
-        console.log(`Video discovery (full) budget exceeded at item ${i}.`);
-        break;
-      }
-
-      const batch = accountCreatives.slice(i, i + BATCH_SIZE);
-      const results = await Promise.allSettled(
-        batch.map(async (c) => {
-          const videoUrl = await discoverVideoUrl(c.ad_id, metaAccessToken, 8_000, accountVideoMap);
-          if (videoUrl) {
-            await supabase.from("creatives").update({ video_url: videoUrl }).eq("ad_id", c.ad_id);
-            return c.isRetry ? "retry-recovered" : "found";
-          } else if (!c.isRetry) {
-            // New creative, no video found — write sentinel so we don't retry on every sync.
-            await supabase.from("creatives").update({ video_url: NO_VIDEO_SENTINEL }).eq("ad_id", c.ad_id);
-            return "sentinel";
-          }
-          // Sentinel retry that still found nothing — leave as-is.
-          return "retry-miss";
-        })
-      );
-      for (const r of results) {
-        if (r.status === "fulfilled") {
-          if (r.value === "found") found++;
-          else if (r.value === "sentinel") newSentinel++;
-          else if (r.value === "retry-recovered") retryRecovered++;
-        }
-      }
+    const storageUrl = await cacheVideoToStorage(supabase, c.video_url, c.account_id, c.ad_id);
+    if (storageUrl) {
+      await supabase.from("creatives").update({ video_url: storageUrl }).eq("ad_id", c.ad_id);
+      cached++;
+    } else {
+      failed++;
     }
   }
 
-  console.log(
-    `Video discovery (full) done: ${found} new found, ${newSentinel} new sentinel,` +
-    ` ${retryRecovered} sentinels recovered`
-  );
+  console.log(`Video caching done: ${cached} cached, ${failed} failed`);
 }

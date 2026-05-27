@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.1"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -64,254 +64,6 @@ export type Database = {
           },
         ]
       }
-      ad_library_ad_tags: {
-        Row: {
-          ad_id: string
-          tag_id: string
-        }
-        Insert: {
-          ad_id: string
-          tag_id: string
-        }
-        Update: {
-          ad_id?: string
-          tag_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ad_library_ad_tags_ad_id_fkey"
-            columns: ["ad_id"]
-            isOneToOne: false
-            referencedRelation: "ad_library_saved_ads"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ad_library_ad_tags_tag_id_fkey"
-            columns: ["tag_id"]
-            isOneToOne: false
-            referencedRelation: "ad_library_tags"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      ad_library_board_ads: {
-        Row: {
-          ad_id: string
-          added_at: string
-          board_id: string
-          id: string
-          position: number | null
-        }
-        Insert: {
-          ad_id: string
-          added_at?: string
-          board_id: string
-          id?: string
-          position?: number | null
-        }
-        Update: {
-          ad_id?: string
-          added_at?: string
-          board_id?: string
-          id?: string
-          position?: number | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ad_library_board_ads_board_id_fkey"
-            columns: ["board_id"]
-            isOneToOne: false
-            referencedRelation: "ad_library_boards"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ad_library_board_ads_ad_id_fkey"
-            columns: ["ad_id"]
-            isOneToOne: false
-            referencedRelation: "ad_library_saved_ads"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      ad_library_boards: {
-        Row: {
-          cover_image_url: string | null
-          created_at: string
-          description: string | null
-          folder_id: string | null
-          id: string
-          is_public: boolean | null
-          name: string
-          share_token: string | null
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          cover_image_url?: string | null
-          created_at?: string
-          description?: string | null
-          folder_id?: string | null
-          id?: string
-          is_public?: boolean | null
-          name: string
-          share_token?: string | null
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          cover_image_url?: string | null
-          created_at?: string
-          description?: string | null
-          folder_id?: string | null
-          id?: string
-          is_public?: boolean | null
-          name?: string
-          share_token?: string | null
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ad_library_boards_folder_id_fkey"
-            columns: ["folder_id"]
-            isOneToOne: false
-            referencedRelation: "ad_library_folders"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      ad_library_folders: {
-        Row: {
-          color: string | null
-          created_at: string
-          description: string | null
-          id: string
-          name: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          color?: string | null
-          created_at?: string
-          description?: string | null
-          id?: string
-          name: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          color?: string | null
-          created_at?: string
-          description?: string | null
-          id?: string
-          name?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      ad_library_saved_ads: {
-        Row: {
-          ad_format: string | null
-          ad_id: string | null
-          ad_status: string | null
-          advertiser_name: string | null
-          advertiser_page_id: string | null
-          body_text: string | null
-          country_targeting: string[] | null
-          created_at: string
-          cta_text: string | null
-          headline: string | null
-          id: string
-          landing_page_url: string | null
-          media_urls: string[] | null
-          notes: string | null
-          platform: string | null
-          raw_data: Json | null
-          source_url: string
-          started_running: string | null
-          stored_media: Json
-          thumbnail_url: string | null
-          transcript: string | null
-          transcript_status: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          ad_format?: string | null
-          ad_id?: string | null
-          ad_status?: string | null
-          advertiser_name?: string | null
-          advertiser_page_id?: string | null
-          body_text?: string | null
-          country_targeting?: string[] | null
-          created_at?: string
-          cta_text?: string | null
-          headline?: string | null
-          id?: string
-          landing_page_url?: string | null
-          media_urls?: string[] | null
-          notes?: string | null
-          platform?: string | null
-          raw_data?: Json | null
-          source_url: string
-          started_running?: string | null
-          stored_media?: Json
-          thumbnail_url?: string | null
-          transcript?: string | null
-          transcript_status?: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          ad_format?: string | null
-          ad_id?: string | null
-          ad_status?: string | null
-          advertiser_name?: string | null
-          advertiser_page_id?: string | null
-          body_text?: string | null
-          country_targeting?: string[] | null
-          created_at?: string
-          cta_text?: string | null
-          headline?: string | null
-          id?: string
-          landing_page_url?: string | null
-          media_urls?: string[] | null
-          notes?: string | null
-          platform?: string | null
-          raw_data?: Json | null
-          source_url?: string
-          started_running?: string | null
-          stored_media?: Json
-          thumbnail_url?: string | null
-          transcript?: string | null
-          transcript_status?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      ad_library_tags: {
-        Row: {
-          color: string | null
-          id: string
-          name: string
-          user_id: string
-        }
-        Insert: {
-          color?: string | null
-          id?: string
-          name: string
-          user_id: string
-        }
-        Update: {
-          color?: string | null
-          id?: string
-          name?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       ad_accounts: {
         Row: {
           attribution_model: string | null
@@ -357,7 +109,6 @@ export type Database = {
           target_roas: number | null
           tiktok_access_token: string | null
           tiktok_advertiser_id: string | null
-          total_spend: number | null
           untagged_count: number
           updated_at: string
           view_window: number | null
@@ -410,7 +161,6 @@ export type Database = {
           target_roas?: number | null
           tiktok_access_token?: string | null
           tiktok_advertiser_id?: string | null
-          total_spend?: number | null
           untagged_count?: number
           updated_at?: string
           view_window?: number | null
@@ -463,7 +213,6 @@ export type Database = {
           target_roas?: number | null
           tiktok_access_token?: string | null
           tiktok_advertiser_id?: string | null
-          total_spend?: number | null
           untagged_count?: number
           updated_at?: string
           view_window?: number | null
@@ -864,6 +613,69 @@ export type Database = {
           last_used_at?: string | null
           name?: string
           permissions?: string[] | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      board_items: {
+        Row: {
+          added_at: string
+          board_id: string
+          id: string
+          item_id: string
+          note: string | null
+        }
+        Insert: {
+          added_at?: string
+          board_id: string
+          id?: string
+          item_id: string
+          note?: string | null
+        }
+        Update: {
+          added_at?: string
+          board_id?: string
+          id?: string
+          item_id?: string
+          note?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "board_items_board_id_fkey"
+            columns: ["board_id"]
+            isOneToOne: false
+            referencedRelation: "boards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "board_items_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "inspiration_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      boards: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
           user_id?: string
         }
         Relationships: []
@@ -1650,6 +1462,236 @@ export type Database = {
         }
         Relationships: []
       }
+      inspiration_frameworks: {
+        Row: {
+          copywriting_framework: string | null
+          created_at: string
+          cta_formula: string | null
+          cta_type: string | null
+          fill_in_blank_script: string | null
+          framework_json: Json | null
+          hook_formula: string | null
+          hook_text: string | null
+          hook_type: string | null
+          hook_verbal: string | null
+          id: string
+          item_id: string
+          value_structure: string | null
+        }
+        Insert: {
+          copywriting_framework?: string | null
+          created_at?: string
+          cta_formula?: string | null
+          cta_type?: string | null
+          fill_in_blank_script?: string | null
+          framework_json?: Json | null
+          hook_formula?: string | null
+          hook_text?: string | null
+          hook_type?: string | null
+          hook_verbal?: string | null
+          id?: string
+          item_id: string
+          value_structure?: string | null
+        }
+        Update: {
+          copywriting_framework?: string | null
+          created_at?: string
+          cta_formula?: string | null
+          cta_type?: string | null
+          fill_in_blank_script?: string | null
+          framework_json?: Json | null
+          hook_formula?: string | null
+          hook_text?: string | null
+          hook_type?: string | null
+          hook_verbal?: string | null
+          id?: string
+          item_id?: string
+          value_structure?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inspiration_frameworks_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "inspiration_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      inspiration_items: {
+        Row: {
+          ad_archive_id: string | null
+          ad_body_text: string | null
+          ad_format: string | null
+          brand_name: string | null
+          created_at: string
+          creator_handle: string | null
+          error_message: string | null
+          file_path: string | null
+          hook_text_saved: boolean
+          hook_verbal_saved: boolean
+          hook_visual_saved: boolean
+          id: string
+          industry: string | null
+          is_featured: boolean
+          platform: string | null
+          script_analysis: string | null
+          source_url: string | null
+          status: string
+          target_audience: string | null
+          thumbnail_path: string | null
+          thumbnail_url: string | null
+          title: string | null
+          user_id: string
+          video_url: string | null
+          visual_analysis: string | null
+        }
+        Insert: {
+          ad_archive_id?: string | null
+          ad_body_text?: string | null
+          ad_format?: string | null
+          brand_name?: string | null
+          created_at?: string
+          creator_handle?: string | null
+          error_message?: string | null
+          file_path?: string | null
+          hook_text_saved?: boolean
+          hook_verbal_saved?: boolean
+          hook_visual_saved?: boolean
+          id?: string
+          industry?: string | null
+          is_featured?: boolean
+          platform?: string | null
+          script_analysis?: string | null
+          source_url?: string | null
+          status?: string
+          target_audience?: string | null
+          thumbnail_path?: string | null
+          thumbnail_url?: string | null
+          title?: string | null
+          user_id: string
+          video_url?: string | null
+          visual_analysis?: string | null
+        }
+        Update: {
+          ad_archive_id?: string | null
+          ad_body_text?: string | null
+          ad_format?: string | null
+          brand_name?: string | null
+          created_at?: string
+          creator_handle?: string | null
+          error_message?: string | null
+          file_path?: string | null
+          hook_text_saved?: boolean
+          hook_verbal_saved?: boolean
+          hook_visual_saved?: boolean
+          id?: string
+          industry?: string | null
+          is_featured?: boolean
+          platform?: string | null
+          script_analysis?: string | null
+          source_url?: string | null
+          status?: string
+          target_audience?: string | null
+          thumbnail_path?: string | null
+          thumbnail_url?: string | null
+          title?: string | null
+          user_id?: string
+          video_url?: string | null
+          visual_analysis?: string | null
+        }
+        Relationships: []
+      }
+      inspiration_tags: {
+        Row: {
+          item_id: string
+          tag: string
+        }
+        Insert: {
+          item_id: string
+          tag: string
+        }
+        Update: {
+          item_id?: string
+          tag?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inspiration_tags_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "inspiration_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      inspiration_transcripts: {
+        Row: {
+          cleaned_script: string | null
+          created_at: string
+          duration_seconds: number | null
+          id: string
+          item_id: string
+          raw_transcript: string | null
+          word_count: number | null
+        }
+        Insert: {
+          cleaned_script?: string | null
+          created_at?: string
+          duration_seconds?: number | null
+          id?: string
+          item_id: string
+          raw_transcript?: string | null
+          word_count?: number | null
+        }
+        Update: {
+          cleaned_script?: string | null
+          created_at?: string
+          duration_seconds?: number | null
+          id?: string
+          item_id?: string
+          raw_transcript?: string | null
+          word_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inspiration_transcripts_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "inspiration_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      item_embeddings: {
+        Row: {
+          created_at: string
+          embedding: string | null
+          item_id: string
+          model: string
+        }
+        Insert: {
+          created_at?: string
+          embedding?: string | null
+          item_id: string
+          model?: string
+        }
+        Update: {
+          created_at?: string
+          embedding?: string | null
+          item_id?: string
+          model?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "item_embeddings_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: true
+            referencedRelation: "inspiration_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       media_refresh_logs: {
         Row: {
           account_id: string
@@ -2306,6 +2348,36 @@ export type Database = {
         }
         Relationships: []
       }
+      slack_connections: {
+        Row: {
+          bot_token: string
+          created_at: string
+          id: string
+          signing_secret: string
+          team_id: string
+          team_name: string
+          user_id: string
+        }
+        Insert: {
+          bot_token: string
+          created_at?: string
+          id?: string
+          signing_secret: string
+          team_id: string
+          team_name: string
+          user_id: string
+        }
+        Update: {
+          bot_token?: string
+          created_at?: string
+          id?: string
+          signing_secret?: string
+          team_id?: string
+          team_name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       split_test_variants: {
         Row: {
           ad_id: string
@@ -2529,6 +2601,71 @@ export type Database = {
         }
         Relationships: []
       }
+      viral_feed_items: {
+        Row: {
+          category: string | null
+          creator_handle: string | null
+          description: string | null
+          fetched_at: string
+          first_seen_at: string
+          id: string
+          is_saved: boolean
+          like_count: number | null
+          platform: string
+          saved_item_id: string | null
+          search_query: string
+          share_count: number | null
+          source_url: string
+          thumbnail_url: string | null
+          title: string | null
+          view_count: number | null
+        }
+        Insert: {
+          category?: string | null
+          creator_handle?: string | null
+          description?: string | null
+          fetched_at?: string
+          first_seen_at?: string
+          id?: string
+          is_saved?: boolean
+          like_count?: number | null
+          platform: string
+          saved_item_id?: string | null
+          search_query?: string
+          share_count?: number | null
+          source_url: string
+          thumbnail_url?: string | null
+          title?: string | null
+          view_count?: number | null
+        }
+        Update: {
+          category?: string | null
+          creator_handle?: string | null
+          description?: string | null
+          fetched_at?: string
+          first_seen_at?: string
+          id?: string
+          is_saved?: boolean
+          like_count?: number | null
+          platform?: string
+          saved_item_id?: string | null
+          search_query?: string
+          share_count?: number | null
+          source_url?: string
+          thumbnail_url?: string | null
+          title?: string | null
+          view_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "viral_feed_items_saved_item_id_fkey"
+            columns: ["saved_item_id"]
+            isOneToOne: false
+            referencedRelation: "inspiration_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       webhooks: {
         Row: {
           account_ids: string[] | null
@@ -2640,9 +2777,103 @@ export type Database = {
         Returns: number
       }
       bulk_update_creative_metrics: { Args: { payload: Json }; Returns: number }
+      claim_due_sync_accounts: {
+        Args: { cutoff: string }
+        Returns: {
+          id: string
+          last_synced_at: string
+          name: string
+          next_sync_at: string
+          sync_frequency: string
+          sync_hour: number
+          sync_timezone: string
+        }[]
+      }
+      claim_sync_continue: {
+        Args: { p_new_claim: string; p_old_claim: string; p_sync_id: string }
+        Returns: {
+          account_id: string
+          api_errors: string | null
+          completed_at: string | null
+          creatives_fetched: number | null
+          creatives_upserted: number | null
+          current_phase: number
+          date_range_end: string | null
+          date_range_start: string | null
+          duration_ms: number | null
+          id: number
+          meta_api_calls: number | null
+          started_at: string
+          status: string
+          sync_state: Json
+          sync_type: string
+          tags_csv_matched: number | null
+          tags_manual_preserved: number | null
+          tags_parsed: number | null
+          tags_untagged: number | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "sync_logs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       create_api_key: {
         Args: { api_key: string; key_name: string }
         Returns: string
+      }
+      get_account_metrics: { Args: { p_account_id?: string }; Returns: Json }
+      get_agency_dashboard_summary: {
+        Args: {
+          p_from?: string
+          p_prior_from?: string
+          p_prior_to?: string
+          p_to?: string
+        }
+        Returns: {
+          account_id: string
+          active_ad_count: number
+          ad_frequency_impressions: number
+          ad_frequency_weighted: number
+          ad_id: string
+          ad_impressions: number
+          ad_name: string
+          ad_purchase_value: number
+          ad_spend: number
+          period_revenue: number
+          period_spend: number
+          prior_spend: number
+          thumbnail_url: string
+        }[]
+      }
+      get_daily_trends: {
+        Args: { p_account_id?: string; p_from?: string; p_to?: string }
+        Returns: {
+          active_ad_count: number
+          adds_to_cart: number
+          avg_frequency: number
+          clicks: number
+          impressions: number
+          purchase_value: number
+          purchases: number
+          spend: number
+          trend_date: string
+          video_views: number
+        }[]
+      }
+      get_period_metrics: {
+        Args: { p_account_id?: string; p_from?: string; p_to?: string }
+        Returns: {
+          active_count: number
+          total_adds_to_cart: number
+          total_clicks: number
+          total_impressions: number
+          total_purchase_value: number
+          total_purchases: number
+          total_spend: number
+          total_video_views: number
+        }[]
       }
       get_user_account_ids: { Args: { _user_id: string }; Returns: string[] }
       get_user_role: {
@@ -2656,10 +2887,25 @@ export type Database = {
         }
         Returns: boolean
       }
+      match_items: {
+        Args: {
+          match_count?: number
+          match_threshold?: number
+          query_embedding: string
+        }
+        Returns: {
+          item_id: string
+          similarity: number
+        }[]
+      }
       owns_ad_library_ad: { Args: { _ad_id: string }; Returns: boolean }
       owns_ad_library_board: { Args: { _board_id: string }; Returns: boolean }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
       snapshot_prior_roas: { Args: { _account_id: string }; Returns: number }
       trigger_media_refresh: { Args: never; Returns: undefined }
+      vault_owns_board: { Args: { _board_id: string }; Returns: boolean }
+      vault_visible_item_ids: { Args: never; Returns: string[] }
     }
     Enums: {
       app_role: "builder" | "employee" | "client" | "editor"

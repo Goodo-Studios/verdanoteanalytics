@@ -35,7 +35,7 @@ export function SlackConnect({ open, onOpenChange }: Props) {
     queryKey: ["slack-connection"],
     enabled: open,
     queryFn: async () => {
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from("slack_connections")
         .select("id, team_id, team_name, created_at")
         .order("created_at", { ascending: false })
@@ -78,7 +78,7 @@ export function SlackConnect({ open, onOpenChange }: Props) {
   const disconnect = useMutation({
     mutationFn: async () => {
       if (!connection) throw new Error("No connection to remove");
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("slack_connections")
         .delete()
         .eq("id", connection.id);

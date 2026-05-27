@@ -108,7 +108,7 @@ export default function HooksPage() {
     enabled: !!user,
     queryFn: async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("inspiration_frameworks")
         .select(
           `id, item_id, hook_type, hook_formula, fill_in_blank_script, created_at,

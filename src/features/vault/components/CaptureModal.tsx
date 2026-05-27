@@ -60,7 +60,7 @@ export function CaptureModal({ open, onOpenChange, onItemCreated }: Props) {
 
     if (parsedTags.length > 0) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("inspiration_tags")
         .upsert(parsedTags.map((tag) => ({ item_id: itemId, tag })), {
           onConflict: "item_id,tag",
@@ -70,7 +70,7 @@ export function CaptureModal({ open, onOpenChange, onItemCreated }: Props) {
 
     if (notes.trim()) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase as any)
+      await supabase
         .from("inspiration_items")
         .update({ ad_body_text: notes.trim() })
         .eq("id", itemId);
