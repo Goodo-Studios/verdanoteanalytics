@@ -36,7 +36,9 @@ const BriefsPage = lazy(() => import("./pages/BriefsPage"));
 const PublicBriefPage = lazy(() => import("./pages/PublicBriefPage"));
 const AgencyDashboardPage = lazy(() => import("./pages/AgencyDashboardPage"));
 const ContentPipelinePage = lazy(() => import("./pages/ContentPipelinePage"));
-const AdLibraryPage = lazy(() => import("./features/ad-library/AdLibraryPage"));
+// Old Ad Library is replaced by the Creative Vault Library page (US-006).
+// The old page lives at features/ad-library/AdLibraryPage.tsx and is no longer routed.
+const AdLibraryPage = lazy(() => import("./features/vault/LibraryPage"));
 const SharedAdBoardPage = lazy(() => import("./pages/SharedAdBoardPage"));
 const BookmarkletReceiver = lazy(() => import("./pages/BookmarkletReceiver"));
 const NotFound = lazy(() => import("./pages/NotFound"));
