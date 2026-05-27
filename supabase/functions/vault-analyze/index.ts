@@ -11,7 +11,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 
-const CLAUDE_MODEL = "claude-sonnet-4-6";
+const SONNET_MODEL = "claude-sonnet-4-6";   // framework extraction (vision + complex JSON)
+const HAIKU_MODEL  = "claude-haiku-4-5-20251001"; // all other calls (cheaper)
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
 const CLEAN_SCRIPT_PROMPT = `You are editing a raw speech-to-text transcript from a short-form social video.
@@ -106,6 +107,7 @@ async function callClaude(
   apiKey: string,
   system: string,
   userContent: string | unknown[],
+  model = HAIKU_MODEL,
 ): Promise<string> {
   const res = await fetch(ANTHROPIC_URL, {
     method: "POST",
@@ -115,7 +117,7 @@ async function callClaude(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: CLAUDE_MODEL,
+      model,
       max_tokens: 2048,
       system,
       messages: [
@@ -231,6 +233,7 @@ Deno.serve(async (req) => {
       anthropicKey,
       FRAMEWORK_PROMPT,
       frameworkUserContent,
+      SONNET_MODEL, // vision + complex JSON schema — keep on Sonnet
     );
 
     let frameworkJson: Record<string, unknown> = {};
