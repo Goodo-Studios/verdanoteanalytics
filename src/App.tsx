@@ -39,6 +39,7 @@ const ContentPipelinePage = lazy(() => import("./pages/ContentPipelinePage"));
 // Old Ad Library is replaced by the Creative Vault Library page (US-006).
 // The old page lives at features/ad-library/AdLibraryPage.tsx and is no longer routed.
 const AdLibraryPage = lazy(() => import("./features/vault/LibraryPage"));
+const VaultItemDetailPage = lazy(() => import("./features/vault/ItemDetailPage"));
 const SharedAdBoardPage = lazy(() => import("./pages/SharedAdBoardPage"));
 const BookmarkletReceiver = lazy(() => import("./pages/BookmarkletReceiver"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -127,6 +128,7 @@ function RoleGuardedRoutes() {
           
           <Route path="/pipeline" element={<ContentPipelinePage />} />
           <Route path="/ad-library" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <AdLibraryPage />} />
+          <Route path="/ad-library/:id" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <VaultItemDetailPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>
