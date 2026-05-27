@@ -99,3 +99,23 @@ verify_jwt = false
 # function (anon-key client) so verify_jwt stays false here.
 [functions.vault-frame-analyze]
 verify_jwt = false
+
+# ─── Viral feed edge functions (ported from Creative Vault, US-004) ──────────
+# Global viral feed — viral_feed_items has no workspace_id column. The weekly
+# cron is registered via pg_cron in migration 20260527000003_viral_feed_cron.sql
+# (Sunday 07:00 UTC) — same pattern as the rest of the Verdanote cron jobs.
+# Secret names mirror Creative Vault verbatim:
+#   APIFY_TOKEN, ANTHROPIC_API_KEY, CRON_SERVICE_ROLE_KEY (optional).
+
+# Cron orchestrator — invoked by pg_cron with the service role key.
+[functions.vault-viral-cron]
+verify_jwt = false
+
+# User-facing viral feed refresh — called from frontend with user JWT, or
+# internally by vault-viral-cron with the service role key.
+[functions.vault-viral-refresh]
+verify_jwt = true
+
+# Apify webhook receiver — Apify calls this directly, no Supabase JWT.
+[functions.vault-viral-webhook]
+verify_jwt = false
