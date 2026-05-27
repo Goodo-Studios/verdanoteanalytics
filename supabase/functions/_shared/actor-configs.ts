@@ -88,32 +88,43 @@ export const ACTOR_CONFIGS: Record<string, ActorConfig> = {
     actorId: "apify~facebook-ads-scraper",
     buildInput: (url) => ({ startUrls: [{ url }] }),
     apiRunOptions: { memory: 2048 },
-    extractVideoUrl: (item) =>
-      item?.videoUrl1 ??
-      item?.videoUrl ??
-      item?.video_hd_url ??
-      item?.video_sd_url ??
-      null,
-    extractThumbnailUrl: (item) =>
-      item?.imageUrl1 ??
-      item?.thumbnailUrl ??
-      item?.thumbnail_url ??
-      item?.snapshot_url ??
-      null,
+    extractVideoUrl: (item) => {
+      // v2 output: video data lives under snapshot.videos[]
+      const snapVideos = item?.snapshot?.videos;
+      if (Array.isArray(snapVideos) && snapVideos.length > 0) {
+        return snapVideos[0]?.video_hd_url ?? snapVideos[0]?.video_sd_url ?? null;
+      }
+      // v1 flat output fallback
+      return item?.videoUrl1 ?? item?.videoUrl ?? item?.video_hd_url ?? item?.video_sd_url ?? null;
+    },
+    extractThumbnailUrl: (item) => {
+      // v2: snapshot.images[] or snapshot.videos[].video_preview_image_url
+      const snapImages = item?.snapshot?.images;
+      if (Array.isArray(snapImages) && snapImages.length > 0) {
+        return snapImages[0]?.original_image_url ?? snapImages[0]?.resized_image_url ?? null;
+      }
+      const snapVideos = item?.snapshot?.videos;
+      if (Array.isArray(snapVideos) && snapVideos.length > 0) {
+        return snapVideos[0]?.video_preview_image_url ?? null;
+      }
+      // v1 flat fallback
+      return item?.imageUrl1 ?? item?.thumbnailUrl ?? item?.thumbnail_url ?? item?.snapshot_url ?? null;
+    },
     extractCreatorHandle: (item) =>
-      item?.pageName ??
-      item?.page_name ??
-      item?.advertiserName ??
-      null,
+      item?.pageName ?? item?.page_name ?? item?.advertiserName ?? null,
     extractTitle: (item) => {
-      const text =
+      // v2: snapshot.body.text or snapshot.cards[0].body or snapshot.caption
+      const snapText =
+        item?.snapshot?.body?.text ??
+        item?.snapshot?.cards?.[0]?.body ??
+        item?.snapshot?.caption ??
         item?.adBodyText ??
         item?.bodyText ??
         item?.body ??
         item?.title ??
         item?.headline ??
         "";
-      return typeof text === "string" && text.length > 0 ? text.slice(0, 120) : null;
+      return typeof snapText === "string" && snapText.length > 0 ? snapText.slice(0, 120) : null;
     },
   },
   twitter: {
