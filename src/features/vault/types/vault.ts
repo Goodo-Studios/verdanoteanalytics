@@ -118,6 +118,7 @@ export const VAULT_PLATFORMS = [
   "instagram",
   "youtube",
   "twitter",
+  "facebook_ad",
   "upload",
 ] as const;
 export type VaultPlatformFilter = (typeof VAULT_PLATFORMS)[number];

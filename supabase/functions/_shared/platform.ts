@@ -5,6 +5,7 @@ export const PLATFORM_MAP: Record<string, string> = {
   "youtu.be": "youtube",
   "twitter.com": "twitter",
   "x.com": "twitter",
+  "facebook.com": "facebook_ad",
 };
 
 export const VIDEO_PLATFORMS = [
@@ -14,10 +15,11 @@ export const VIDEO_PLATFORMS = [
   "youtu.be",
   "twitter.com",
   "x.com",
+  "facebook.com/ads/library",
 ];
 
 export const VIDEO_URL_PATTERN =
-  /https?:\/\/(www\.)?(tiktok\.com|instagram\.com|youtube\.com\/shorts|youtu\.be|twitter\.com|x\.com)[^\s><"'|]*/g;
+  /https?:\/\/(www\.)?(tiktok\.com|instagram\.com|youtube\.com\/shorts|youtu\.be|twitter\.com|x\.com|facebook\.com\/ads\/library)[^\s><"'|]*/g;
 
 export function detectPlatform(url: string): string {
   try {
