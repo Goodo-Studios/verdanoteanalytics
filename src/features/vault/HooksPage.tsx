@@ -24,7 +24,6 @@ interface HookEntry {
   itemId: string;
   kind: "verbal" | "text" | "visual";
   hookText: string;
-  hookType: string | null;
   item: {
     id: string;
     title: string | null;
@@ -34,23 +33,6 @@ interface HookEntry {
   };
   createdAt: string;
 }
-
-const HOOK_TYPE_LABELS: Record<string, string> = {
-  bold_claim: "Bold Claim",
-  pattern_interrupt: "Pattern Interrupt",
-  honest_admission: "Honest Admission",
-  question: "Question",
-  other: "Other",
-};
-
-const HOOK_TYPE_COLORS: Record<string, string> = {
-  bold_claim: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
-  pattern_interrupt:
-    "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
-  honest_admission: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  question: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  other: "bg-muted text-muted-foreground",
-};
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -99,9 +81,7 @@ export default function HooksPage() {
   const prefix = useRolePrefix();
   const queryClient = useQueryClient();
   const [searchInput, setSearchInput] = useState("");
-  const [hookType, setHookType] = useState<string>("all");
   const [kindFilter, setKindFilter] = useState<"all" | "verbal" | "text" | "visual">("all");
-  const [sort, setSort] = useState<"newest" | "type">("newest");
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: items = [], isLoading } = useQuery<any[]>({
@@ -114,7 +94,7 @@ export default function HooksPage() {
         .select(
           `id, title, brand_name, thumbnail_url, platform, created_at,
            hook_verbal_saved, hook_text_saved, hook_visual_saved,
-           inspiration_frameworks(id, hook_verbal, hook_text, hook_visual, hook_type)`,
+           inspiration_frameworks(id, hook_verbal, hook_text, hook_visual)`,
         )
         .eq("user_id", user!.id)
         .or("hook_verbal_saved.eq.true,hook_text_saved.eq.true,hook_visual_saved.eq.true")
@@ -144,7 +124,6 @@ export default function HooksPage() {
           itemId: item.id,
           kind: "verbal",
           hookText: fw.hook_verbal,
-          hookType: fw.hook_type ?? null,
           item: itemMeta,
           createdAt: item.created_at,
         });
@@ -155,7 +134,6 @@ export default function HooksPage() {
           itemId: item.id,
           kind: "text",
           hookText: fw.hook_text,
-          hookType: fw.hook_type ?? null,
           item: itemMeta,
           createdAt: item.created_at,
         });
@@ -166,7 +144,6 @@ export default function HooksPage() {
           itemId: item.id,
           kind: "visual",
           hookText: fw.hook_visual,
-          hookType: fw.hook_type ?? null,
           item: itemMeta,
           createdAt: item.created_at,
         });
@@ -199,21 +176,9 @@ export default function HooksPage() {
     onError: () => toast.error("Failed to remove hook"),
   });
 
-  // Distinct hook_type values in the current set for the filter dropdown.
-  const availableTypes = useMemo(() => {
-    const set = new Set<string>();
-    allRows.forEach((r) => {
-      if (r.hookType) set.add(r.hookType);
-    });
-    return [...set].sort();
-  }, [allRows]);
-
   const filtered = useMemo(() => {
     const q = searchInput.trim().toLowerCase();
     let out = allRows;
-    if (hookType !== "all") {
-      out = out.filter((r) => (r.hookType ?? "other") === hookType);
-    }
     if (kindFilter !== "all") {
       out = out.filter((r) => r.kind === kindFilter);
     }
@@ -226,16 +191,8 @@ export default function HooksPage() {
         );
       });
     }
-    if (sort === "type") {
-      out = [...out].sort((a, b) => {
-        const aType = a.hookType ?? "zzz";
-        const bType = b.hookType ?? "zzz";
-        if (aType !== bType) return aType.localeCompare(bType);
-        return (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
-      });
-    }
     return out;
-  }, [allRows, searchInput, hookType, kindFilter, sort]);
+  }, [allRows, searchInput, kindFilter]);
 
   return (
     <AppLayout>
@@ -278,30 +235,6 @@ export default function HooksPage() {
               <SelectItem value="visual">Visual</SelectItem>
             </SelectContent>
           </Select>
-
-          <Select value={hookType} onValueChange={setHookType}>
-            <SelectTrigger className="w-full sm:w-48">
-              <SelectValue placeholder="All types" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All types</SelectItem>
-              {availableTypes.map((t) => (
-                <SelectItem key={t} value={t}>
-                  {HOOK_TYPE_LABELS[t] ?? t}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select value={sort} onValueChange={(v) => setSort(v as "newest" | "type")}>
-            <SelectTrigger className="w-full sm:w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="newest">Newest</SelectItem>
-              <SelectItem value="type">By type</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
 
         {/* Results */}
@@ -317,7 +250,7 @@ export default function HooksPage() {
             <p className="text-xs text-muted-foreground max-w-md mx-auto">
               Open any item in your library, go to the Framework tab, and click
               the <Star className="inline w-3.5 h-3.5 mb-0.5" /> star next to a
-              verbal or on-screen text hook to add it here.
+              verbal, on-screen text, or visual hook to add it here.
             </p>
             <Link
               to={`${prefix}/ad-library`}
@@ -332,7 +265,6 @@ export default function HooksPage() {
             <button
               onClick={() => {
                 setSearchInput("");
-                setHookType("all");
                 setKindFilter("all");
               }}
               type="button"
@@ -344,9 +276,6 @@ export default function HooksPage() {
         ) : (
           <div className="space-y-3">
             {filtered.map((row) => {
-              const type = row.hookType ?? "other";
-              const typeColor = HOOK_TYPE_COLORS[type] ?? HOOK_TYPE_COLORS.other;
-              const typeLabel = HOOK_TYPE_LABELS[type] ?? type;
               const item = row.item;
               const starField =
                 row.kind === "verbal"
@@ -388,12 +317,6 @@ export default function HooksPage() {
                       {/* Hook kind badge */}
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
                         {row.kind === "verbal" ? "Verbal" : row.kind === "visual" ? "Visual" : "On-screen Text"}
-                      </span>
-                      {/* Hook type badge */}
-                      <span
-                        className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${typeColor}`}
-                      >
-                        {typeLabel}
                       </span>
                       {item.brand_name && (
                         <span className="text-[10px] text-muted-foreground">

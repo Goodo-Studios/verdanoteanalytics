@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { NavLink } from "@/components/NavLink";
 import {
@@ -127,6 +127,8 @@ interface SectionGroupProps {
   collapsed: boolean;
   onToggle: () => void;
   onNavigate?: () => void;
+  /** Optional content rendered between the section header and the nav items. */
+  children?: ReactNode;
 }
 
 function SectionGroup({
@@ -135,6 +137,7 @@ function SectionGroup({
   collapsed,
   onToggle,
   onNavigate,
+  children,
 }: SectionGroupProps) {
   return (
     <div className="space-y-1">
@@ -154,6 +157,7 @@ function SectionGroup({
       </button>
       {!collapsed && (
         <div id={`sidebar-section-${section.id}`} className="space-y-1">
+          {children}
           {section.items.map((item) => (
             <NavLink
               key={item.url}
@@ -288,47 +292,47 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       )}
 
-      {/* Account Switcher */}
-      <div className="px-3 pt-2 pb-2 space-y-1.5">
-        <p className="font-label text-[9px] uppercase tracking-[0.1em] text-sage px-2">Account</p>
-        {showSwitcher && accounts.length > 0 && (
-          <Select value={selectedAccountId || ""} onValueChange={handleAccountChange}>
-            <SelectTrigger className="w-full h-9 font-body text-[13px] font-medium text-charcoal border border-input bg-background rounded-md [&>svg]:text-sage">
-              <SelectValue placeholder="Select account" />
-            </SelectTrigger>
-            <SelectContent className="bg-white border border-border-light rounded-[8px] shadow-modal">
-              {isBuilder && !effectiveClient && <SelectItem value="all" className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">Agency View</SelectItem>}
-              {[...accounts].sort((a, b) => a.name.localeCompare(b.name)).map((acc) => (
-                <SelectItem key={acc.id} value={acc.id} className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">
-                  {acc.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-        {effectiveClient && accounts.length === 1 && (
-          <p className="font-body text-[13px] font-medium text-charcoal px-2 truncate">{accounts[0].name}</p>
-        )}
-      </div>
-
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-3">
         {flatNavItems ? (
-          <div className="space-y-1">
-            {flatNavItems.map((item) => (
-              <NavLink
-                key={item.url}
-                to={`${prefix}${item.url}`}
-                end={item.url === "/"}
-                className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent"
-                activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
-                onClick={onNavigate}
-              >
-                <item.icon className="h-4 w-4 flex-shrink-0" />
-                {item.title}
-              </NavLink>
-            ))}
-          </div>
+          <>
+            {/* Account switcher above flat nav (client / agency views) */}
+            <div className="space-y-1.5 pb-1">
+              {showSwitcher && accounts.length > 0 && (
+                <Select value={selectedAccountId || ""} onValueChange={handleAccountChange}>
+                  <SelectTrigger className="w-full h-9 font-body text-[13px] font-medium text-charcoal border border-input bg-background rounded-md [&>svg]:text-sage">
+                    <SelectValue placeholder="Select account" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white border border-border-light rounded-[8px] shadow-modal">
+                    {isBuilder && !effectiveClient && <SelectItem value="all" className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">Agency View</SelectItem>}
+                    {[...accounts].sort((a, b) => a.name.localeCompare(b.name)).map((acc) => (
+                      <SelectItem key={acc.id} value={acc.id} className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">
+                        {acc.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              {effectiveClient && accounts.length === 1 && (
+                <p className="font-body text-[13px] font-medium text-charcoal px-2 truncate">{accounts[0].name}</p>
+              )}
+            </div>
+            <div className="space-y-1">
+              {flatNavItems.map((item) => (
+                <NavLink
+                  key={item.url}
+                  to={`${prefix}${item.url}`}
+                  end={item.url === "/"}
+                  className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent"
+                  activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
+                  onClick={onNavigate}
+                >
+                  <item.icon className="h-4 w-4 flex-shrink-0" />
+                  {item.title}
+                </NavLink>
+              ))}
+            </div>
+          </>
         ) : (
           builderSections.map((section) => (
             <SectionGroup
@@ -338,7 +342,31 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
               collapsed={!!collapsed[section.id]}
               onToggle={() => toggleSection(section.id)}
               onNavigate={onNavigate}
-            />
+            >
+              {/* Account switcher lives inside the Creative Analytics fold */}
+              {section.id === "creative-analytics" && (
+                <div className="px-1 pb-2 pt-0.5">
+                  {showSwitcher && accounts.length > 0 && (
+                    <Select value={selectedAccountId || ""} onValueChange={handleAccountChange}>
+                      <SelectTrigger className="w-full h-9 font-body text-[13px] font-medium text-charcoal border border-input bg-background rounded-md [&>svg]:text-sage">
+                        <SelectValue placeholder="Select account" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-white border border-border-light rounded-[8px] shadow-modal">
+                        {isBuilder && !effectiveClient && <SelectItem value="all" className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">Agency View</SelectItem>}
+                        {[...accounts].sort((a, b) => a.name.localeCompare(b.name)).map((acc) => (
+                          <SelectItem key={acc.id} value={acc.id} className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">
+                            {acc.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {effectiveClient && accounts.length === 1 && (
+                    <p className="font-body text-[13px] font-medium text-charcoal px-2 truncate">{accounts[0].name}</p>
+                  )}
+                </div>
+              )}
+            </SectionGroup>
           ))
         )}
       </nav>
