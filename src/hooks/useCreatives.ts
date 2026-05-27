@@ -32,15 +32,6 @@ export function useUpdateCreative() {
   });
 }
 
-export function useBulkUntag() {
-  return useMutationWithToast({
-    mutationFn: (adIds: string[]) =>
-      apiFetch("creatives", "bulk-untag", { method: "POST", body: JSON.stringify({ ad_ids: adIds }) }),
-    invalidateKeys: [["creatives"], ["accounts"]],
-    successMessage: "Creatives marked as untagged",
-  });
-}
-
 export function useAutoTagPreview() {
   return useMutationWithToast({
     mutationFn: (accountId: string) =>
@@ -59,23 +50,3 @@ export function useAutoTagApply() {
   });
 }
 
-export function useAnalyzeCreative() {
-  return useMutationWithToast({
-    mutationFn: (adId: string) =>
-      apiFetch("analyze-creative", "", { method: "POST", body: JSON.stringify({ ad_id: adId }) }),
-    invalidateKeys: [["creatives"]],
-    successMessage: "AI analysis complete",
-    errorMessage: "Analysis failed",
-  });
-}
-
-export function useBulkAnalyze() {
-  return useMutationWithToast({
-    mutationFn: (limit?: number) =>
-      apiFetch("analyze-creative", "", { method: "POST", body: JSON.stringify({ bulk: true, limit: limit || 20 }) }),
-    invalidateKeys: [["creatives"]],
-    successMessage: (data: any) => `Analyzed ${data.analyzed} creatives`,
-    successDescription: (data: any) => data.errors > 0 ? `${data.errors} errors occurred` : undefined,
-    errorMessage: "Bulk analysis failed",
-  });
-}

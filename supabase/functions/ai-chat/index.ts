@@ -58,7 +58,7 @@ serve(async (req) => {
     }
 
     // Fetch creative context data
-    const contextData = await fetchCreativeContext(supabase, accountId, user.id);
+    const contextData = await fetchCreativeContext(supabase, accountId);
 
     // Fetch account settings for competitive debrief
     let accountSettings: any = null;
@@ -151,7 +151,7 @@ serve(async (req) => {
   }
 });
 
-async function fetchCreativeContext(supabase: any, accountId: string | null, userId: string) {
+async function fetchCreativeContext(supabase: any, accountId: string | null) {
   let creativesQuery = supabase
     .from("creatives")
     .select("ad_name, spend, roas, cpa, ctr, thumb_stop_rate, hold_rate, ad_type, tag_source, hook, theme, product, style, ad_status, person, unique_code, created_at")
