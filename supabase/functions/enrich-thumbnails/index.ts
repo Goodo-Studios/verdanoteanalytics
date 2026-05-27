@@ -122,6 +122,12 @@ serve(async (req) => {
       await runCaching(supabase, accountFilter);
     }
 
+    // force-video: re-run video discovery only, for creatives with no-video sentinel.
+    // Lighter than scope=force — only touches video_url, avoids memory limit on large accounts.
+    if (scope === "force-video") {
+      await runVideoRediscovery(supabase, accountFilter, metaAccessToken);
+    }
+
     return new Response(
       JSON.stringify({ status: "completed", scope }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
