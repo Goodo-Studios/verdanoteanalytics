@@ -12,19 +12,10 @@ verify_jwt = false
 [functions.creatives]
 verify_jwt = false
 
-[functions.analyze-creative]
-verify_jwt = false
-
 [functions.reports]
 verify_jwt = false
 
 [functions.user-management]
-verify_jwt = false
-
-[functions.bootstrap-builder]
-verify_jwt = false
-
-[functions.ai-insights]
 verify_jwt = false
 
 [functions.scheduled-reports]
@@ -46,9 +37,6 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.api]
-verify_jwt = false
-
-[functions.api-auth]
 verify_jwt = false
 
 [functions.scheduled-sync]
