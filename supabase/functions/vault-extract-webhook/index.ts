@@ -84,7 +84,8 @@ Deno.serve(async (req) => {
     if (!videoUrl) {
       // Metadata-only platforms: Instagram image/carousel posts have no videoUrl,
       // and YouTube CDN is not downloadable. Save the thumbnail + title and mark ready.
-      const METADATA_ONLY_PLATFORMS = ["instagram", "youtube", "twitter"];
+      // facebook_ad image-only: save metadata + ad copy, then kick off vault-analyze.
+      const METADATA_ONLY_PLATFORMS = ["instagram", "youtube", "twitter", "facebook_ad"];
       if (METADATA_ONLY_PLATFORMS.includes(item.platform ?? "")) {
         const thumbnailUrl = config.extractThumbnailUrl(items[0]);
         const creatorHandle = config.extractCreatorHandle(items[0]);

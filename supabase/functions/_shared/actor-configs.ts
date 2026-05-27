@@ -89,23 +89,25 @@ export const ACTOR_CONFIGS: Record<string, ActorConfig> = {
     buildInput: (url) => ({ startUrls: [{ url }] }),
     apiRunOptions: { memory: 2048 },
     extractVideoUrl: (item) => {
-      // v2 output: video data lives under snapshot.videos[]
+      // v2 output: video data lives under snapshot.videos[] with camelCase fields
       const snapVideos = item?.snapshot?.videos;
       if (Array.isArray(snapVideos) && snapVideos.length > 0) {
-        return snapVideos[0]?.video_hd_url ?? snapVideos[0]?.video_sd_url ?? null;
+        return snapVideos[0]?.videoHdUrl ?? snapVideos[0]?.videoSdUrl ??
+               snapVideos[0]?.video_hd_url ?? snapVideos[0]?.video_sd_url ?? null;
       }
       // v1 flat output fallback
       return item?.videoUrl1 ?? item?.videoUrl ?? item?.video_hd_url ?? item?.video_sd_url ?? null;
     },
     extractThumbnailUrl: (item) => {
-      // v2: snapshot.images[] or snapshot.videos[].video_preview_image_url
+      // v2: snapshot.images[] or snapshot.videos[].videoPreviewImageUrl (camelCase)
       const snapImages = item?.snapshot?.images;
       if (Array.isArray(snapImages) && snapImages.length > 0) {
-        return snapImages[0]?.original_image_url ?? snapImages[0]?.resized_image_url ?? null;
+        return snapImages[0]?.originalImageUrl ?? snapImages[0]?.original_image_url ??
+               snapImages[0]?.resizedImageUrl ?? snapImages[0]?.resized_image_url ?? null;
       }
       const snapVideos = item?.snapshot?.videos;
       if (Array.isArray(snapVideos) && snapVideos.length > 0) {
-        return snapVideos[0]?.video_preview_image_url ?? null;
+        return snapVideos[0]?.videoPreviewImageUrl ?? snapVideos[0]?.video_preview_image_url ?? null;
       }
       // v1 flat fallback
       return item?.imageUrl1 ?? item?.thumbnailUrl ?? item?.thumbnail_url ?? item?.snapshot_url ?? null;
