@@ -11,8 +11,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 
-const CLAUDE_MODEL = "anthropic/claude-sonnet-4-6";
-const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const CLAUDE_MODEL = "claude-sonnet-4-6";
+const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
 const CLEAN_SCRIPT_PROMPT = `You are editing a raw speech-to-text transcript from a short-form social video.
 
@@ -107,18 +107,18 @@ async function callClaude(
   system: string,
   userContent: string | unknown[],
 ): Promise<string> {
-  const res = await fetch(OPENROUTER_URL, {
+  const res = await fetch(ANTHROPIC_URL, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${apiKey}`,
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
       "Content-Type": "application/json",
-      "X-Title": "Verdanote",
     },
     body: JSON.stringify({
       model: CLAUDE_MODEL,
       max_tokens: 2048,
+      system,
       messages: [
-        { role: "system", content: system },
         { role: "user", content: userContent },
       ],
     }),
@@ -126,11 +126,11 @@ async function callClaude(
 
   if (!res.ok) {
     const errText = await res.text();
-    throw new Error(`OpenRouter API error ${res.status}: ${errText}`);
+    throw new Error(`Anthropic API error ${res.status}: ${errText}`);
   }
 
   const data = await res.json();
-  return data.choices?.[0]?.message?.content ?? "";
+  return data.content?.[0]?.text ?? "";
 }
 
 async function fetchImageAsDataUrl(url: string): Promise<string | null> {
@@ -161,10 +161,10 @@ Deno.serve(async (req) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const openrouterKey = Deno.env.get("OPENROUTER_API_KEY");
+  const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
   const db = createClient(supabaseUrl, serviceRoleKey);
 
-  if (!openrouterKey) return json({ error: "OPENROUTER_API_KEY not configured" }, 500);
+  if (!anthropicKey) return json({ error: "ANTHROPIC_API_KEY not configured" }, 500);
 
   let itemId = "";
   try {
@@ -199,7 +199,7 @@ Deno.serve(async (req) => {
 
     if (!cleanedScript) {
       cleanedScript = await callClaude(
-        openrouterKey,
+        anthropicKey,
         CLEAN_SCRIPT_PROMPT,
         transcriptRow.raw_transcript,
       );
@@ -216,14 +216,19 @@ Deno.serve(async (req) => {
 
     // Call 2: extract framework JSON — pass thumbnail as vision input when available
     const frameworkUserContent = thumbnailDataUrl
-      ? [
-          { type: "image_url", image_url: { url: thumbnailDataUrl, detail: "low" } },
-          { type: "text", text: `Here is the video script:\n\n${cleanedScript}` },
-        ]
+      ? (() => {
+          const [header, base64Data] = thumbnailDataUrl.split(",");
+          const mediaType = (header.match(/data:([^;]+)/)?.[1] ?? "image/jpeg") as
+            "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+          return [
+            { type: "image", source: { type: "base64", media_type: mediaType, data: base64Data } },
+            { type: "text", text: `Here is the video script:\n\n${cleanedScript}` },
+          ];
+        })()
       : cleanedScript;
 
     const frameworkText = await callClaude(
-      openrouterKey,
+      anthropicKey,
       FRAMEWORK_PROMPT,
       frameworkUserContent,
     );
@@ -257,7 +262,7 @@ Deno.serve(async (req) => {
     // Calls 3–5 in parallel: brand metadata, script analysis, visual analysis
     const [brandResult, scriptAnalysisText, visualAnalysisText] = await Promise.allSettled([
       (async (): Promise<Record<string, string | null>> => {
-        const brandText = await callClaude(openrouterKey, BRAND_META_PROMPT, cleanedScript);
+        const brandText = await callClaude(anthropicKey, BRAND_META_PROMPT, cleanedScript);
         try {
           return JSON.parse(brandText);
         } catch {
@@ -268,8 +273,8 @@ Deno.serve(async (req) => {
           return {};
         }
       })(),
-      callClaude(openrouterKey, SCRIPT_ANALYSIS_PROMPT, cleanedScript),
-      callClaude(openrouterKey, VISUAL_ANALYSIS_PROMPT, cleanedScript),
+      callClaude(anthropicKey, SCRIPT_ANALYSIS_PROMPT, cleanedScript),
+      callClaude(anthropicKey, VISUAL_ANALYSIS_PROMPT, cleanedScript),
     ]);
 
     const brandMeta: Record<string, string | null> =
