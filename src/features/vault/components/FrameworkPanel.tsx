@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
+import { CopyButton } from "./CopyButton";
 
 /** Inspiration framework row shape — broader than `InspirationFramework` in
  * `types/vault.ts` to surface the full set of columns we display. */
@@ -18,6 +20,8 @@ export interface FrameworkRow {
 
 interface Props {
   framework: FrameworkRow;
+  /** Called on blur when a field has changed. Parent is responsible for saving. */
+  onSave?: (field: keyof FrameworkRow, value: string) => void;
 }
 
 const HOOK_TYPE_LABELS: Record<string, string> = {
@@ -53,49 +57,72 @@ function Section({
   badgeColor,
   content,
   mono,
+  onSave,
 }: {
   label: string;
   badge?: string;
   badgeColor?: string;
   content?: string | null;
   mono?: boolean;
+  onSave?: (value: string) => void;
 }) {
+  const [draft, setDraft] = useState(content ?? "");
+
+  // Keep draft in sync when parent data refreshes (e.g. re-analyze)
+  useEffect(() => {
+    setDraft(content ?? "");
+  }, [content]);
+
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {label}
-        </span>
-        {badge && (
-          <span
-            className={cn(
-              "text-xs font-medium px-2 py-0.5 rounded-full",
-              badgeColor,
-            )}
-          >
-            {badge}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {label}
           </span>
-        )}
+          {badge && (
+            <span
+              className={cn(
+                "text-xs font-medium px-2 py-0.5 rounded-full",
+                badgeColor,
+              )}
+            >
+              {badge}
+            </span>
+          )}
+        </div>
+        <CopyButton text={draft} />
       </div>
-      <p
-        className={cn(
-          "text-sm leading-relaxed bg-muted rounded-lg p-3",
-          mono && "font-mono text-xs whitespace-pre-wrap",
-          !content && "text-muted-foreground italic",
-        )}
-      >
-        {content || "—"}
-      </p>
+
+      {onSave ? (
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => {
+            if (draft !== (content ?? "")) onSave(draft);
+          }}
+          placeholder="—"
+          className={cn(
+            "w-full min-h-[80px] text-sm leading-relaxed bg-muted rounded-lg p-3 border-0 focus:outline-none focus:ring-2 focus:ring-primary/30 resize-y",
+            mono && "font-mono text-xs",
+          )}
+        />
+      ) : (
+        <p
+          className={cn(
+            "text-sm leading-relaxed bg-muted rounded-lg p-3",
+            mono && "font-mono text-xs whitespace-pre-wrap",
+            !content && "text-muted-foreground italic",
+          )}
+        >
+          {content || "—"}
+        </p>
+      )}
     </div>
   );
 }
 
-/** Read-only framework display for an inspiration item.
- *
- * Mirrors the Creative Vault component's structure but drops inline editing —
- * Verdanote's US-007 only requires reading the framework; edits land via
- * Re-analyze, which regenerates the row from the source. */
-export function FrameworkPanel({ framework }: Props) {
+export function FrameworkPanel({ framework, onSave }: Props) {
   const hookLabel = framework.hook_type
     ? HOOK_TYPE_LABELS[framework.hook_type] ?? framework.hook_type
     : undefined;
@@ -143,19 +170,23 @@ export function FrameworkPanel({ framework }: Props) {
           badge={hookLabel}
           badgeColor={hookColor}
           content={framework.hook_formula}
+          onSave={onSave ? (v) => onSave("hook_formula", v) : undefined}
         />
         <Section
           label="Value Delivery (3–50s)"
           content={framework.value_structure}
+          onSave={onSave ? (v) => onSave("value_structure", v) : undefined}
         />
         <Section
           label={`CTA (50–60s)${framework.cta_type ? ` · ${framework.cta_type}` : ""}`}
           content={framework.cta_formula}
+          onSave={onSave ? (v) => onSave("cta_formula", v) : undefined}
         />
         <Section
           label="Fill-in-the-blank Script"
           content={framework.fill_in_blank_script}
           mono
+          onSave={onSave ? (v) => onSave("fill_in_blank_script", v) : undefined}
         />
       </div>
     </div>

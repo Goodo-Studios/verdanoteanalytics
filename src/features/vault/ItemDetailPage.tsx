@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Tabs from "@radix-ui/react-tabs";
@@ -27,6 +27,7 @@ import { useItemStatus } from "./hooks/useItemStatus";
 import { FrameworkPanel, type FrameworkRow } from "./components/FrameworkPanel";
 import { TagInput } from "./components/TagInput";
 import { AddToBoardModal } from "./components/AddToBoardModal";
+import { CopyButton } from "./components/CopyButton";
 
 interface TranscriptRow {
   id: string;
@@ -65,6 +66,22 @@ export default function ItemDetailPage() {
   // before the item row's status flips on the server.
   const [reanalyzeInFlight, setReanalyzeInFlight] = useState(false);
   const [addToBoardOpen, setAddToBoardOpen] = useState(false);
+
+  // ── Editable field drafts ───────────────────────────────────────────────────
+  const [scriptDraft, setScriptDraft] = useState("");
+  const [scriptAnalysisDraft, setScriptAnalysisDraft] = useState("");
+  const [visualAnalysisDraft, setVisualAnalysisDraft] = useState("");
+  const hasInitialized = useRef(false);
+
+  // Initialise once when query data first resolves; don't overwrite user edits.
+  useEffect(() => {
+    if (!data || hasInitialized.current) return;
+    const tr = data.inspiration_transcripts?.[0];
+    setScriptDraft(tr?.cleaned_script ?? "");
+    setScriptAnalysisDraft(data.script_analysis ?? "");
+    setVisualAnalysisDraft(data.visual_analysis ?? "");
+    hasInitialized.current = true;
+  }, [data]);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["vault-item", id],
@@ -164,6 +181,71 @@ export default function ItemDetailPage() {
       setReanalyzeInFlight(false);
       toast.error(err instanceof Error ? err.message : "Re-analyze failed");
     },
+  });
+
+  const saveScript = useMutation({
+    mutationFn: async ({
+      transcriptId,
+      value,
+    }: {
+      transcriptId: string;
+      value: string;
+    }) => {
+      const { error } = await supabase
+        .from("inspiration_transcripts")
+        .update({ cleaned_script: value })
+        .eq("id", transcriptId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vault-item", id] });
+      toast.success("Saved");
+    },
+    onError: () => toast.error("Failed to save"),
+  });
+
+  const saveItemField = useMutation({
+    mutationFn: async ({
+      field,
+      value,
+    }: {
+      field: "script_analysis" | "visual_analysis";
+      value: string;
+    }) => {
+      const { error } = await supabase
+        .from("inspiration_items")
+        .update({ [field]: value })
+        .eq("id", id!);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vault-item", id] });
+      toast.success("Saved");
+    },
+    onError: () => toast.error("Failed to save"),
+  });
+
+  const saveFrameworkField = useMutation({
+    mutationFn: async ({
+      frameworkId,
+      field,
+      value,
+    }: {
+      frameworkId: string;
+      field: string;
+      value: string;
+    }) => {
+      const { error } = await supabase
+        .from("inspiration_frameworks")
+        .update({ [field]: value })
+        .eq("id", frameworkId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vault-item", id] });
+      toast.success("Saved");
+    },
+    onError: () => toast.error("Failed to save"),
   });
 
   if (isLoading) {
@@ -404,13 +486,28 @@ export default function ItemDetailPage() {
               <Tabs.Content value="script">
                 {transcriptRow ? (
                   <div className="space-y-2">
-                    <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-foreground bg-muted rounded-lg p-4">
-                      {transcriptRow.cleaned_script || (
-                        <span className="text-muted-foreground italic">
-                          No script extracted yet.
-                        </span>
-                      )}
-                    </pre>
+                    <div className="relative">
+                      <div className="absolute top-2 right-2 z-10">
+                        <CopyButton text={scriptDraft} />
+                      </div>
+                      <textarea
+                        value={scriptDraft}
+                        onChange={(e) => setScriptDraft(e.target.value)}
+                        onBlur={() => {
+                          if (
+                            transcriptRow?.id &&
+                            scriptDraft !== (transcriptRow.cleaned_script ?? "")
+                          ) {
+                            saveScript.mutate({
+                              transcriptId: transcriptRow.id,
+                              value: scriptDraft,
+                            });
+                          }
+                        }}
+                        placeholder="No script extracted yet."
+                        className="w-full min-h-[300px] font-sans text-sm leading-relaxed text-foreground bg-muted rounded-lg p-4 pr-9 border-0 focus:outline-none focus:ring-2 focus:ring-primary/30 resize-y"
+                      />
+                    </div>
                     {(transcriptRow.duration_seconds ||
                       transcriptRow.word_count) && (
                       <p className="text-xs text-muted-foreground">
@@ -435,7 +532,18 @@ export default function ItemDetailPage() {
 
               <Tabs.Content value="framework">
                 {frameworkRow ? (
-                  <FrameworkPanel framework={frameworkRow} />
+                  <FrameworkPanel
+                    framework={frameworkRow}
+                    onSave={(field, value) => {
+                      if (frameworkRow?.id) {
+                        saveFrameworkField.mutate({
+                          frameworkId: frameworkRow.id,
+                          field,
+                          value,
+                        });
+                      }
+                    }}
+                  />
                 ) : isProcessing ? (
                   <div className="flex items-center gap-2 text-muted-foreground text-sm">
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -451,35 +559,53 @@ export default function ItemDetailPage() {
               <Tabs.Content value="analysis">
                 <div className="space-y-6">
                   <div className="space-y-2">
-                    <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                      Script Analysis
-                    </h3>
-                    <p
-                      className={cn(
-                        "text-sm leading-relaxed whitespace-pre-wrap rounded-lg bg-muted p-4",
-                        data.script_analysis
-                          ? "text-foreground"
-                          : "text-muted-foreground italic",
-                      )}
-                    >
-                      {data.script_analysis || "No script analysis yet."}
-                    </p>
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                        Script Analysis
+                      </h3>
+                      <CopyButton text={scriptAnalysisDraft} />
+                    </div>
+                    <textarea
+                      value={scriptAnalysisDraft}
+                      onChange={(e) => setScriptAnalysisDraft(e.target.value)}
+                      onBlur={() => {
+                        if (
+                          scriptAnalysisDraft !== (data.script_analysis ?? "")
+                        ) {
+                          saveItemField.mutate({
+                            field: "script_analysis",
+                            value: scriptAnalysisDraft,
+                          });
+                        }
+                      }}
+                      placeholder="No script analysis yet."
+                      className="w-full min-h-[180px] text-sm leading-relaxed whitespace-pre-wrap rounded-lg bg-muted p-4 border-0 focus:outline-none focus:ring-2 focus:ring-primary/30 resize-y"
+                    />
                   </div>
 
                   <div className="space-y-2">
-                    <h3 className="text-xs font-semibold uppercase tracking-widest text-sky-600 dark:text-sky-400">
-                      Visual Analysis
-                    </h3>
-                    <p
-                      className={cn(
-                        "text-sm leading-relaxed whitespace-pre-wrap rounded-lg bg-muted p-4 border border-sky-200 dark:border-sky-900",
-                        data.visual_analysis
-                          ? "text-foreground"
-                          : "text-muted-foreground italic",
-                      )}
-                    >
-                      {data.visual_analysis || "No visual analysis yet."}
-                    </p>
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-semibold uppercase tracking-widest text-sky-600 dark:text-sky-400">
+                        Visual Analysis
+                      </h3>
+                      <CopyButton text={visualAnalysisDraft} />
+                    </div>
+                    <textarea
+                      value={visualAnalysisDraft}
+                      onChange={(e) => setVisualAnalysisDraft(e.target.value)}
+                      onBlur={() => {
+                        if (
+                          visualAnalysisDraft !== (data.visual_analysis ?? "")
+                        ) {
+                          saveItemField.mutate({
+                            field: "visual_analysis",
+                            value: visualAnalysisDraft,
+                          });
+                        }
+                      }}
+                      placeholder="No visual analysis yet."
+                      className="w-full min-h-[180px] text-sm leading-relaxed whitespace-pre-wrap rounded-lg bg-muted p-4 border border-sky-200 dark:border-sky-900 focus:outline-none focus:ring-2 focus:ring-primary/30 resize-y"
+                    />
                   </div>
                 </div>
               </Tabs.Content>
