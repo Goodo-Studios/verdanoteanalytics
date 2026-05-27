@@ -77,6 +77,45 @@ export const ACTOR_CONFIGS: Record<string, ActorConfig> = {
     extractCreatorHandle: (item) => item?.uploader ?? item?.channelName ?? null,
     extractTitle: (item) => item?.title ?? null,
   },
+  facebook_ad: {
+    // apify~facebook-ads-scraper: official Apify actor for Meta Ad Library.
+    // Input: startUrls accepts the full Ad Library URL including query params (?id=, country=, etc.).
+    // Output: 57 fields per ad; video/image URLs are flat indexed columns (videoUrl1, imageUrl1-5).
+    // CDN URLs (*.fbcdn.net) are time-limited — vault-extract-webhook must download within ~5 min
+    // of actor completion. actor does NOT store to Apify KV, so isApifyStorage will be false.
+    // apiRunOptions.memory: Facebook ad pages are heavier than TikTok — 2048 MB recommended.
+    // Field names validated against E2E smoke test in US-004.
+    actorId: "apify~facebook-ads-scraper",
+    buildInput: (url) => ({ startUrls: [url] }),
+    apiRunOptions: { memory: 2048 },
+    extractVideoUrl: (item) =>
+      item?.videoUrl1 ??
+      item?.videoUrl ??
+      item?.video_hd_url ??
+      item?.video_sd_url ??
+      null,
+    extractThumbnailUrl: (item) =>
+      item?.imageUrl1 ??
+      item?.thumbnailUrl ??
+      item?.thumbnail_url ??
+      item?.snapshot_url ??
+      null,
+    extractCreatorHandle: (item) =>
+      item?.pageName ??
+      item?.page_name ??
+      item?.advertiserName ??
+      null,
+    extractTitle: (item) => {
+      const text =
+        item?.adBodyText ??
+        item?.bodyText ??
+        item?.body ??
+        item?.title ??
+        item?.headline ??
+        "";
+      return typeof text === "string" && text.length > 0 ? text.slice(0, 120) : null;
+    },
+  },
   twitter: {
     // apidojo~tweet-scraper: actively maintained, no special permission approval needed.
     // Input: startUrls as plain strings (not { url } objects like quacker used).
