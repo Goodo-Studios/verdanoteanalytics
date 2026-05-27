@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Loader2, AlertCircle, MoreHorizontal, Check, Star, Trash2 } from "lucide-react";
+import { Loader2, AlertCircle, MoreHorizontal, Check, Star, Trash2, LayoutGrid } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { cn } from "@/lib/utils";
 import { useRolePrefix } from "@/hooks/useRolePath";
@@ -12,6 +12,7 @@ import {
   VAULT_PROCESSING_STATUSES,
   type InspirationItem,
 } from "../types/vault";
+import { AddToBoardModal } from "./AddToBoardModal";
 
 interface Props {
   item: InspirationItem;
@@ -43,6 +44,7 @@ export function InspirationCard({
   const [signedThumbnailUrl, setSignedThumbnailUrl] = useState<string | null>(null);
   const [firstFrameUrl, setFirstFrameUrl] = useState<string | null>(null);
   const [thumbnailError, setThumbnailError] = useState(false);
+  const [addToBoardOpen, setAddToBoardOpen] = useState(false);
 
   const isImageFile = /\.(jpg|jpeg|png|gif|webp|avif)$/i.test(item.file_path ?? "");
 
@@ -278,6 +280,13 @@ export function InspirationCard({
                   {item.is_featured ? "Unfeature" : "Feature"}
                 </DropdownMenu.Item>
               )}
+              <DropdownMenu.Item
+                className="flex items-center gap-2 px-2 py-1.5 text-sm rounded cursor-pointer hover:bg-muted transition-colors outline-none"
+                onSelect={() => setAddToBoardOpen(true)}
+              >
+                <LayoutGrid className="w-3.5 h-3.5 text-muted-foreground" />
+                Add to board
+              </DropdownMenu.Item>
               {onDelete && (
                 <DropdownMenu.Item
                   className="flex items-center gap-2 px-2 py-1.5 text-sm rounded cursor-pointer hover:bg-muted transition-colors outline-none text-destructive"
@@ -291,6 +300,12 @@ export function InspirationCard({
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
       </div>
+
+      <AddToBoardModal
+        itemId={item.id}
+        open={addToBoardOpen}
+        onOpenChange={setAddToBoardOpen}
+      />
     </div>
   );
 }

@@ -65,7 +65,7 @@ const builderSections: NavSection[] = [
     items: [
       { title: "Library", url: "/ad-library", icon: Library },
       { title: "Viral Feed", url: "/viral-feed", icon: Flame },
-      { title: "Boards", url: "/boards", icon: Vault },
+      { title: "Boards", url: "/ad-library/boards", icon: Vault },
       { title: "Hooks", url: "/hooks", icon: Zap },
     ],
   },

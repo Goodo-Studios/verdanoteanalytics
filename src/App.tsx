@@ -40,6 +40,8 @@ const ContentPipelinePage = lazy(() => import("./pages/ContentPipelinePage"));
 // The old page lives at features/ad-library/AdLibraryPage.tsx and is no longer routed.
 const AdLibraryPage = lazy(() => import("./features/vault/LibraryPage"));
 const VaultItemDetailPage = lazy(() => import("./features/vault/ItemDetailPage"));
+const BoardsPage = lazy(() => import("./features/vault/BoardsPage"));
+const BoardDetailPage = lazy(() => import("./features/vault/BoardDetailPage"));
 const SharedAdBoardPage = lazy(() => import("./pages/SharedAdBoardPage"));
 const BookmarkletReceiver = lazy(() => import("./pages/BookmarkletReceiver"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -128,6 +130,8 @@ function RoleGuardedRoutes() {
           
           <Route path="/pipeline" element={<ContentPipelinePage />} />
           <Route path="/ad-library" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <AdLibraryPage />} />
+          <Route path="/ad-library/boards" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <BoardsPage />} />
+          <Route path="/ad-library/boards/:id" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <BoardDetailPage />} />
           <Route path="/ad-library/:id" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <VaultItemDetailPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>

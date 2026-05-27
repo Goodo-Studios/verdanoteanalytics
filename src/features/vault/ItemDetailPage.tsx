@@ -6,6 +6,7 @@ import {
   AlertCircle,
   ArrowLeft,
   ExternalLink,
+  LayoutGrid,
   Loader2,
   RefreshCw,
 } from "lucide-react";
@@ -25,6 +26,7 @@ import {
 import { useItemStatus } from "./hooks/useItemStatus";
 import { FrameworkPanel, type FrameworkRow } from "./components/FrameworkPanel";
 import { TagInput } from "./components/TagInput";
+import { AddToBoardModal } from "./components/AddToBoardModal";
 
 interface TranscriptRow {
   id: string;
@@ -62,6 +64,7 @@ export default function ItemDetailPage() {
   // Local optimistic flag so the re-analyze button disables immediately even
   // before the item row's status flips on the server.
   const [reanalyzeInFlight, setReanalyzeInFlight] = useState(false);
+  const [addToBoardOpen, setAddToBoardOpen] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["vault-item", id],
@@ -362,6 +365,14 @@ export default function ItemDetailPage() {
                     ? "Re-analyze"
                     : "Run analysis"}
               </button>
+              <button
+                onClick={() => setAddToBoardOpen(true)}
+                aria-label="Add to board"
+                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                Add to board
+              </button>
               {!frameworkRow && !isProcessing && (
                 <span className="text-xs text-muted-foreground">
                   No framework yet — click to run vault-analyze.
@@ -476,6 +487,12 @@ export default function ItemDetailPage() {
           </div>
         </div>
       </div>
+
+      <AddToBoardModal
+        itemId={data.id}
+        open={addToBoardOpen}
+        onOpenChange={setAddToBoardOpen}
+      />
     </AppLayout>
   );
 }
