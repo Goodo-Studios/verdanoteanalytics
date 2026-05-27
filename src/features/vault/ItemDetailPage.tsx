@@ -73,16 +73,6 @@ export default function ItemDetailPage() {
   const [visualAnalysisDraft, setVisualAnalysisDraft] = useState("");
   const hasInitialized = useRef(false);
 
-  // Initialise once when query data first resolves; don't overwrite user edits.
-  useEffect(() => {
-    if (!data || hasInitialized.current) return;
-    const tr = data.inspiration_transcripts?.[0];
-    setScriptDraft(tr?.cleaned_script ?? "");
-    setScriptAnalysisDraft(data.script_analysis ?? "");
-    setVisualAnalysisDraft(data.visual_analysis ?? "");
-    hasInitialized.current = true;
-  }, [data]);
-
   const { data, isLoading, error } = useQuery({
     queryKey: ["vault-item", id],
     enabled: !!id && !!user,
@@ -101,6 +91,17 @@ export default function ItemDetailPage() {
       return data as ItemDetail;
     },
   });
+
+  // Initialise once when query data first resolves; don't overwrite user edits.
+  // NOTE: must be declared after `data` to avoid a temporal dead zone crash.
+  useEffect(() => {
+    if (!data || hasInitialized.current) return;
+    const tr = data.inspiration_transcripts?.[0];
+    setScriptDraft(tr?.cleaned_script ?? "");
+    setScriptAnalysisDraft(data.script_analysis ?? "");
+    setVisualAnalysisDraft(data.visual_analysis ?? "");
+    hasInitialized.current = true;
+  }, [data]);
 
   const isProcessing = data ? VAULT_PROCESSING_STATUSES.has(data.status) : false;
   // Poll while the item is mid-pipeline so Transcript/Framework/Analysis tabs
