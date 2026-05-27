@@ -50,3 +50,27 @@ verify_jwt = false
 
 [functions.system-health-check]
 verify_jwt = false
+
+# ─── Vault edge functions (ported from Creative Vault, US-002) ───────────────
+# User-scoped only — RLS gates by auth.uid() = inspiration_items.user_id.
+
+[functions.vault-save]
+verify_jwt = true
+
+[functions.vault-ads]
+verify_jwt = true
+
+# vault-extract is invoked internally by vault-save with the service-role bearer
+# and never directly from the browser — no JWT verification needed.
+[functions.vault-extract]
+verify_jwt = false
+
+# Apify webhook receiver — Apify calls this directly, no JWT.
+[functions.vault-extract-webhook]
+verify_jwt = false
+
+[functions.vault-status]
+verify_jwt = true
+
+[functions.vault-search]
+verify_jwt = true
