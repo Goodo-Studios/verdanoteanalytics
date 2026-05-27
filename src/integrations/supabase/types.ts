@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       account_context: {
@@ -1474,6 +1499,7 @@ export type Database = {
           hook_text: string | null
           hook_type: string | null
           hook_verbal: string | null
+          hook_visual: string | null
           id: string
           item_id: string
           value_structure: string | null
@@ -1489,6 +1515,7 @@ export type Database = {
           hook_text?: string | null
           hook_type?: string | null
           hook_verbal?: string | null
+          hook_visual?: string | null
           id?: string
           item_id: string
           value_structure?: string | null
@@ -1504,6 +1531,7 @@ export type Database = {
           hook_text?: string | null
           hook_type?: string | null
           hook_verbal?: string | null
+          hook_visual?: string | null
           id?: string
           item_id?: string
           value_structure?: string | null
@@ -3034,6 +3062,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       app_role: ["builder", "employee", "client", "editor"],

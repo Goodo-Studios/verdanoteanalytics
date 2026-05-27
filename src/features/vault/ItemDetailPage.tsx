@@ -254,7 +254,7 @@ export default function ItemDetailPage() {
       field,
       value,
     }: {
-      field: "hook_verbal_saved" | "hook_text_saved";
+      field: "hook_verbal_saved" | "hook_text_saved" | "hook_visual_saved";
       value: boolean;
     }) => {
       const { error } = await supabase
@@ -560,6 +560,7 @@ export default function ItemDetailPage() {
                     framework={frameworkRow}
                     hookVerbalSaved={data.hook_verbal_saved}
                     hookTextSaved={data.hook_text_saved}
+                    hookVisualSaved={data.hook_visual_saved}
                     onToggleHookStar={(field, value) =>
                       toggleHookSaved.mutate({ field, value })
                     }

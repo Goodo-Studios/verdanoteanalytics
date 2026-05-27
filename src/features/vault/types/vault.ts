@@ -59,6 +59,7 @@ export interface InspirationFramework {
   item_id: string;
   hook_verbal: string | null;
   hook_text: string | null;
+  hook_visual: string | null;
   hook_formula: string | null;
   copywriting_framework: string | null;
 }

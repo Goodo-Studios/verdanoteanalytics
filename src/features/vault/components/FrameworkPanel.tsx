@@ -11,6 +11,7 @@ export interface FrameworkRow {
   hook_type?: string | null;
   hook_verbal?: string | null;
   hook_text?: string | null;
+  hook_visual?: string | null;
   hook_formula?: string | null;
   value_structure?: string | null;
   cta_type?: string | null;
@@ -27,9 +28,11 @@ interface Props {
   hookVerbalSaved?: boolean;
   /** Whether the on-screen text hook is currently starred into the Hook Library. */
   hookTextSaved?: boolean;
+  /** Whether the visual hook is currently starred into the Hook Library. */
+  hookVisualSaved?: boolean;
   /** Called when the user toggles a hook star. */
   onToggleHookStar?: (
-    field: "hook_verbal_saved" | "hook_text_saved",
+    field: "hook_verbal_saved" | "hook_text_saved" | "hook_visual_saved",
     value: boolean,
   ) => void;
 }
@@ -159,6 +162,7 @@ export function FrameworkPanel({
   onSave,
   hookVerbalSaved = false,
   hookTextSaved = false,
+  hookVisualSaved = false,
   onToggleHookStar,
 }: Props) {
   const hookLabel = framework.hook_type
@@ -230,6 +234,21 @@ export function FrameworkPanel({
             onStar={
               onToggleHookStar
                 ? () => onToggleHookStar("hook_text_saved", !hookTextSaved)
+                : undefined
+            }
+          />
+        )}
+
+        {/* Visual hook — what the viewer sees in the first 3s */}
+        {(framework.hook_visual || onToggleHookStar) && (
+          <Section
+            label="Visual Hook"
+            content={framework.hook_visual}
+            onSave={onSave ? (v) => onSave("hook_visual", v) : undefined}
+            starred={hookVisualSaved}
+            onStar={
+              onToggleHookStar
+                ? () => onToggleHookStar("hook_visual_saved", !hookVisualSaved)
                 : undefined
             }
           />

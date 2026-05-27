@@ -17,12 +17,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
 
-/** A single starred hook entry — one item can produce two (verbal + text). */
+/** A single starred hook entry — one item can produce up to three (verbal, text, visual). */
 interface HookEntry {
   /** Unique key for React rendering: `{itemId}-{kind}` */
   key: string;
   itemId: string;
-  kind: "verbal" | "text";
+  kind: "verbal" | "text" | "visual";
   hookText: string;
   hookType: string | null;
   item: {
@@ -100,7 +100,7 @@ export default function HooksPage() {
   const queryClient = useQueryClient();
   const [searchInput, setSearchInput] = useState("");
   const [hookType, setHookType] = useState<string>("all");
-  const [kindFilter, setKindFilter] = useState<"all" | "verbal" | "text">("all");
+  const [kindFilter, setKindFilter] = useState<"all" | "verbal" | "text" | "visual">("all");
   const [sort, setSort] = useState<"newest" | "type">("newest");
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -113,11 +113,11 @@ export default function HooksPage() {
         .from("inspiration_items")
         .select(
           `id, title, brand_name, thumbnail_url, platform, created_at,
-           hook_verbal_saved, hook_text_saved,
-           inspiration_frameworks(id, hook_verbal, hook_text, hook_type)`,
+           hook_verbal_saved, hook_text_saved, hook_visual_saved,
+           inspiration_frameworks(id, hook_verbal, hook_text, hook_visual, hook_type)`,
         )
         .eq("user_id", user!.id)
-        .or("hook_verbal_saved.eq.true,hook_text_saved.eq.true")
+        .or("hook_verbal_saved.eq.true,hook_text_saved.eq.true,hook_visual_saved.eq.true")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data ?? [];
@@ -160,6 +160,17 @@ export default function HooksPage() {
           createdAt: item.created_at,
         });
       }
+      if (item.hook_visual_saved && fw?.hook_visual) {
+        entries.push({
+          key: `${item.id}-visual`,
+          itemId: item.id,
+          kind: "visual",
+          hookText: fw.hook_visual,
+          hookType: fw.hook_type ?? null,
+          item: itemMeta,
+          createdAt: item.created_at,
+        });
+      }
     }
     return entries;
   }, [items]);
@@ -170,7 +181,7 @@ export default function HooksPage() {
       field,
     }: {
       itemId: string;
-      field: "hook_verbal_saved" | "hook_text_saved";
+      field: "hook_verbal_saved" | "hook_text_saved" | "hook_visual_saved";
     }) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error } = await (supabase as any)
@@ -256,7 +267,7 @@ export default function HooksPage() {
             )}
           </div>
 
-          <Select value={kindFilter} onValueChange={(v) => setKindFilter(v as "all" | "verbal" | "text")}>
+          <Select value={kindFilter} onValueChange={(v) => setKindFilter(v as "all" | "verbal" | "text" | "visual")}>
             <SelectTrigger className="w-full sm:w-44">
               <SelectValue placeholder="All kinds" />
             </SelectTrigger>
@@ -264,6 +275,7 @@ export default function HooksPage() {
               <SelectItem value="all">All kinds</SelectItem>
               <SelectItem value="verbal">Verbal</SelectItem>
               <SelectItem value="text">On-screen text</SelectItem>
+              <SelectItem value="visual">Visual</SelectItem>
             </SelectContent>
           </Select>
 
@@ -337,7 +349,11 @@ export default function HooksPage() {
               const typeLabel = HOOK_TYPE_LABELS[type] ?? type;
               const item = row.item;
               const starField =
-                row.kind === "verbal" ? "hook_verbal_saved" : "hook_text_saved";
+                row.kind === "verbal"
+                  ? "hook_verbal_saved"
+                  : row.kind === "visual"
+                    ? "hook_visual_saved"
+                    : "hook_text_saved";
 
               return (
                 <div
@@ -371,7 +387,7 @@ export default function HooksPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                       {/* Hook kind badge */}
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                        {row.kind === "verbal" ? "Verbal" : "On-screen Text"}
+                        {row.kind === "verbal" ? "Verbal" : row.kind === "visual" ? "Visual" : "On-screen Text"}
                       </span>
                       {/* Hook type badge */}
                       <span
