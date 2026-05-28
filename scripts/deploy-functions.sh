@@ -12,6 +12,7 @@ FUNCTIONS=(
   ai-chat
   api
   backfill-post-urls
+  cache-creative-image
   cleanup-stuck-media
   cleanup-stuck-syncs
   clear-media-cache
@@ -37,6 +38,22 @@ FUNCTIONS=(
   system-health-check
   transcribe-ad
   user-management
+  vault-ads
+  vault-analyze
+  vault-embed
+  vault-extract
+  vault-extract-webhook
+  vault-frame-analyze
+  vault-save
+  vault-search
+  vault-slack-connect
+  vault-slack-events
+  vault-slack-import
+  vault-status
+  vault-transcribe
+  vault-viral-cron
+  vault-viral-refresh
+  vault-viral-webhook
   webhooks-dispatch
 )
 
