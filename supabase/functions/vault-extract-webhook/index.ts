@@ -80,6 +80,19 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Detect actor-level error responses. The facebook-ads-scraper (and some other actors)
+    // return a single item with {url, error, errorDescription} when the ad is expired,
+    // private, or not found — rather than returning an empty dataset.
+    const firstItem = items[0] as Record<string, unknown>;
+    if (firstItem?.error) {
+      throw new Error(
+        `Could not retrieve this ad (${String(firstItem.error)}). ` +
+        `${firstItem.errorDescription ? String(firstItem.errorDescription) + " " : ""}` +
+        `The ad may have expired or been removed from the Ad Library. ` +
+        `Try a different ad URL, or use the Upload tab if you have the video file.`
+      );
+    }
+
     const videoUrl = config.extractVideoUrl(items[0]);
     if (!videoUrl) {
       // Metadata-only platforms: Instagram image/carousel posts have no videoUrl,
