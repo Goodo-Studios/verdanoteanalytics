@@ -47,7 +47,6 @@ supabase secrets set META_ACCESS_TOKEN=<token>    # for Meta/Facebook sync
 | `creatives` | GET / PUT | Main creatives endpoint. GET supports filtering, pagination, and date-range aggregation. PUT updates tags/notes on a single creative. |
 | `accounts` | GET / POST / PUT / DELETE | CRUD for `ad_accounts`. Also handles name-mapping uploads. |
 | `api` | GET | General-purpose data query endpoint used by the frontend for various reads. |
-| `api-auth` | GET | Auth-aware API proxy that validates the calling user's session and role before forwarding to `api`. |
 
 ### AI Features
 
@@ -64,6 +63,7 @@ supabase secrets set META_ACCESS_TOKEN=<token>    # for Meta/Facebook sync
 | `ai-chat` | OpenRouter (`https://openrouter.ai/api/v1/chat/completions`) | `anthropic/claude-3.5-sonnet` | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL` |
 | `client-insights` | Anthropic Messages API (`https://api.anthropic.com/v1/messages`) | `claude-haiku-4-5-20251001` | `ANTHROPIC_API_KEY` | `ANTHROPIC_MODEL` |
 | `reports` | Anthropic Messages API (`https://api.anthropic.com/v1/messages`) | `claude-haiku-4-5-20251001` | `ANTHROPIC_API_KEY` | `ANTHROPIC_MODEL` |
+| `vault-analyze` | Anthropic Messages API | Haiku for 4 of 5 calls (transcript clean, brand metadata, script analysis, visual analysis); `claude-sonnet-4-6` for framework extraction (vision + complex JSON schema) | `ANTHROPIC_API_KEY` | — |
 
 ### Reports & Digests
 
@@ -79,6 +79,29 @@ supabase secrets set META_ACCESS_TOKEN=<token>    # for Meta/Facebook sync
 |---|---|---|
 | `create-coda-brief` | User action | Creates a creative brief row in a Coda doc via the Coda API. |
 | `sync-coda-tasks` | User action | Syncs brief tasks from Coda back into Verdanote's `briefs` table. |
+
+### Creative Vault
+
+The Vault is a creative-inspiration library: paste a TikTok, Instagram, YouTube, or Facebook Ad Library URL and the pipeline downloads the video, transcribes it, runs framework analysis (hook, copy, visuals), and surfaces it in the Library UI. Functions chain together via webhook callbacks — see `_shared/actor-configs.ts` for the platform-specific Apify wiring.
+
+| Function | Trigger | Purpose |
+|---|---|---|
+| `vault-save` | User action | Entry point. Detects platform from the URL, kicks off `vault-extract`, and inserts an `inspiration_items` row with status `extracting`. For `facebook_ad` URLs, also extracts `ad_archive_id` from `?id=` query param. |
+| `vault-extract` | Internal | Submits the URL to the configured Apify actor for the detected platform and returns the run ID. |
+| `vault-extract-webhook` | Apify webhook | Receives Apify run completion, downloads the video to the `inspiration-media` storage bucket, and advances the item to `transcribing`. Detects actor-level error responses (not just HTTP-level failures). |
+| `vault-transcribe` | Internal | Calls a speech-to-text model on the downloaded video and writes the cleaned transcript. Short-circuits to `analyzing` for image-only ads. |
+| `vault-analyze` | Internal | Five-call Anthropic pipeline that produces transcript cleanup, brand metadata, framework extraction (PAS / AIDA / etc.), script analysis, and visual analysis. Uses Haiku for 4 of 5 calls; Sonnet only for framework extraction. |
+| `vault-frame-analyze` | Internal | Per-frame visual analysis pass using vision-capable Claude on extracted video frames. |
+| `vault-embed` | Internal | Generates vector embeddings for the cleaned transcript so items are searchable via `vault-search`. |
+| `vault-search` | User action | Semantic search across the user's saved inspiration items. |
+| `vault-status` | Polling | Returns the current pipeline status for a single item (`extracting`, `transcribing`, `analyzing`, `ready`, `error`). |
+| `vault-ads` | User action | Fetches saved/inspiration ads for the Library UI with filtering and pagination. |
+| `vault-viral-cron` | Cron | Scheduled refresh of the viral feed across configured trending sources. |
+| `vault-viral-refresh` | User action | On-demand refresh trigger for the viral feed. |
+| `vault-viral-webhook` | Apify webhook | Receives viral-feed scrape completions and upserts ads into the viral feed. |
+| `vault-slack-connect` | OAuth | Connects a Slack workspace so shared ad links are auto-imported into the user's vault. |
+| `vault-slack-events` | Slack events | Inbound webhook receiver for Slack `message` events containing ad URLs. |
+| `vault-slack-import` | Internal | Worker that processes Slack-shared URLs through the standard `vault-save` pipeline. |
 
 ### Ad Library & Research
 
@@ -122,6 +145,9 @@ supabase secrets set META_ACCESS_TOKEN=<token>    # for Meta/Facebook sync
 | `cors.ts` | Standard CORS headers returned by all functions |
 | `api-auth.ts` | Shared auth helpers — validates the calling user's session/role and exposes a `hashKey` SHA-256 utility used by API-style endpoints |
 | `media-discovery.ts` | Meta Graph API v22.0 media URL resolver. Provides `discoverImageUrl` / `discoverVideoUrl` / `fetchWithTimeout` and the `NO_THUMB_SENTINEL` / `NO_VIDEO_SENTINEL` markers used to short-circuit known-empty creatives. Consumed by `refresh-thumbnails`, `enrich-thumbnails`, `fetch-thumbnail`, and `cache-creative-image`. |
+| `platform.ts` | URL → platform detection for the Vault. Owns `PLATFORM_MAP`, `VIDEO_PLATFORMS`, `VIDEO_URL_PATTERN`, and `detectPlatform(url)`. Add a new platform here first before wiring it elsewhere. |
+| `actor-configs.ts` | Apify actor registry for the Vault. `ACTOR_CONFIGS[platform]` returns `{ actorId, buildInput, extractVideoUrl, extractThumbnailUrl, extractCreatorHandle, extractTitle, apiRunOptions }`. New ingestion platforms drop in here without touching `vault-extract` / `vault-extract-webhook`. |
+| `trending-configs.ts` | Per-source configs for the viral feed scraper — controls which Apify actors `vault-viral-cron` invokes and how results map to `viral_items` rows. |
 
 ---
 
