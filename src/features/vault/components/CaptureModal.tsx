@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { Upload, Link as LinkIcon, Loader2, X } from "lucide-react";
+import { Upload, Link as LinkIcon, Loader2, X, CheckCircle2, AlertCircle } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Tabs from "@radix-ui/react-tabs";
 import { supabase } from "@/integrations/supabase/client";
@@ -26,6 +26,11 @@ export function CaptureModal({ open, onOpenChange, onItemCreated }: Props) {
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [fileQueue, setFileQueue] = useState<Array<{
+    name: string;
+    status: "pending" | "uploading" | "done" | "error";
+    error?: string;
+  }>>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const callFunction = async (name: string, body: Record<string, unknown>) => {
@@ -82,6 +87,7 @@ export function CaptureModal({ open, onOpenChange, onItemCreated }: Props) {
     setBrandName("");
     setTags("");
     setNotes("");
+    setFileQueue([]);
   };
 
   const handleUrlSubmit = async (e: React.FormEvent) => {
@@ -160,63 +166,105 @@ export function CaptureModal({ open, onOpenChange, onItemCreated }: Props) {
     });
   };
 
-  const handleFile = async (file: File) => {
-    if (!file.type.startsWith("video/") && !file.type.startsWith("image/")) {
+  /** Upload a single file to storage and register it in the vault. */
+  const uploadSingleFile = async (file: File) => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session) throw new Error("Not authenticated");
+
+    const ext = file.name.split(".").pop();
+    const ts = Date.now();
+    const path = `uploads/${session.user.id}/${ts}.${ext}`;
+
+    const isVideo = file.type.startsWith("video/");
+    const [uploadResult, thumbnailBlob] = await Promise.all([
+      supabase.storage.from("inspiration-media").upload(path, file),
+      isVideo ? generateVideoThumbnail(file) : Promise.resolve(null),
+    ]);
+
+    if (uploadResult.error) throw uploadResult.error;
+
+    let thumbnailUrl: string | null = null;
+    if (thumbnailBlob) {
+      const thumbPath = `thumbnails/${session.user.id}/${ts}.jpg`;
+      const { error: thumbErr } = await supabase.storage
+        .from("inspiration-media")
+        .upload(thumbPath, thumbnailBlob, { contentType: "image/jpeg" });
+      if (!thumbErr) {
+        const { data: signed } = await supabase.storage
+          .from("inspiration-media")
+          .createSignedUrl(thumbPath, 365 * 24 * 60 * 60);
+        thumbnailUrl = signed?.signedUrl ?? null;
+      }
+    }
+
+    const result = await callFunction("vault-save", {
+      file_path: path,
+      platform: "upload",
+      mime_type: file.type,
+      brand_name: brandName.trim() || null,
+      thumbnail_url: thumbnailUrl,
+    });
+    await attachTagsAndNotes(result.item_id);
+    onItemCreated(result.item_id);
+  };
+
+  /** Handle one or more files — validates, shows per-file progress, uploads sequentially. */
+  const handleFiles = async (rawFiles: File[]) => {
+    const files = rawFiles.filter(
+      (f) => f.type.startsWith("video/") || f.type.startsWith("image/"),
+    );
+    if (!files.length) {
       toast.error("Only video and image files are supported");
       return;
     }
+    if (files.length < rawFiles.length) {
+      toast.warning(
+        `${rawFiles.length - files.length} file(s) skipped — only video and image files are supported`,
+      );
+    }
 
     setLoading(true);
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session) throw new Error("Not authenticated");
+    setFileQueue(files.map((f) => ({ name: f.name, status: "pending" })));
 
-      const ext = file.name.split(".").pop();
-      const ts = Date.now();
-      const path = `uploads/${session.user.id}/${ts}.${ext}`;
+    let successCount = 0;
+    let errorCount = 0;
 
-      const isVideo = file.type.startsWith("video/");
-      const [uploadResult, thumbnailBlob] = await Promise.all([
-        supabase.storage.from("inspiration-media").upload(path, file),
-        isVideo ? generateVideoThumbnail(file) : Promise.resolve(null),
-      ]);
-
-      if (uploadResult.error) throw uploadResult.error;
-
-      let thumbnailUrl: string | null = null;
-      if (thumbnailBlob) {
-        const thumbPath = `thumbnails/${session.user.id}/${ts}.jpg`;
-        const { error: thumbErr } = await supabase.storage
-          .from("inspiration-media")
-          .upload(thumbPath, thumbnailBlob, { contentType: "image/jpeg" });
-        if (!thumbErr) {
-          const { data: signed } = await supabase.storage
-            .from("inspiration-media")
-            .createSignedUrl(thumbPath, 365 * 24 * 60 * 60);
-          thumbnailUrl = signed?.signedUrl ?? null;
-        }
+    for (let i = 0; i < files.length; i++) {
+      setFileQueue((prev) =>
+        prev.map((item, idx) => (idx === i ? { ...item, status: "uploading" } : item)),
+      );
+      try {
+        await uploadSingleFile(files[i]);
+        successCount++;
+        setFileQueue((prev) =>
+          prev.map((item, idx) => (idx === i ? { ...item, status: "done" } : item)),
+        );
+      } catch (err) {
+        errorCount++;
+        const msg = err instanceof Error ? err.message : "Upload failed";
+        setFileQueue((prev) =>
+          prev.map((item, idx) => (idx === i ? { ...item, status: "error", error: msg } : item)),
+        );
       }
-
-      const result = await callFunction("vault-save", {
-        file_path: path,
-        platform: "upload",
-        mime_type: file.type,
-        brand_name: brandName.trim() || null,
-        thumbnail_url: thumbnailUrl,
-      });
-      await attachTagsAndNotes(result.item_id);
-
-      onItemCreated(result.item_id);
-      toast.success("Uploaded! Processing in the background…");
-      reset();
-      onOpenChange(false);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Upload failed");
-    } finally {
-      setLoading(false);
     }
+
+    setLoading(false);
+
+    if (successCount > 0)
+      toast.success(
+        successCount === 1
+          ? "Uploaded! Processing in the background…"
+          : `${successCount} files uploaded! Processing in the background…`,
+      );
+    if (errorCount > 0)
+      toast.error(
+        errorCount === 1 ? "1 file failed to upload" : `${errorCount} files failed to upload`,
+      );
+
+    reset();
+    onOpenChange(false);
   };
 
   return (
@@ -312,44 +360,78 @@ export function CaptureModal({ open, onOpenChange, onItemCreated }: Props) {
             </Tabs.Content>
 
             <Tabs.Content value="upload">
-              <div
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragOver(true);
-                }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDragOver(false);
-                  const file = e.dataTransfer.files[0];
-                  if (file) handleFile(file);
-                }}
-                onClick={() => fileRef.current?.click()}
-                className={cn(
-                  "border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors",
-                  dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50",
-                )}
-              >
-                {loading ? (
-                  <Loader2 className="w-8 h-8 animate-spin mx-auto text-muted-foreground" />
-                ) : (
-                  <>
-                    <Upload className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-                    <p className="text-sm font-medium">Drop a file or click to browse</p>
-                    <p className="text-xs text-muted-foreground mt-1">Video or image files</p>
-                  </>
-                )}
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="video/*,image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleFile(file);
+              {fileQueue.length > 0 ? (
+                <div className="space-y-2 py-1">
+                  <p className="text-xs text-muted-foreground mb-3">
+                    {loading
+                      ? `Uploading ${fileQueue.filter((q) => q.status === "done").length + 1} of ${fileQueue.length}…`
+                      : "Upload complete"}
+                  </p>
+                  {fileQueue.map((item, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      {item.status === "pending" && (
+                        <div className="w-4 h-4 rounded-full border-2 border-border flex-shrink-0" />
+                      )}
+                      {item.status === "uploading" && (
+                        <Loader2 className="w-4 h-4 animate-spin text-primary flex-shrink-0" />
+                      )}
+                      {item.status === "done" && (
+                        <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                      )}
+                      {item.status === "error" && (
+                        <AlertCircle className="w-4 h-4 text-destructive flex-shrink-0" />
+                      )}
+                      <span
+                        className={cn(
+                          "truncate flex-1 text-sm",
+                          item.status === "error" && "text-destructive",
+                          item.status === "done" && "text-muted-foreground",
+                        )}
+                        title={item.error ?? item.name}
+                      >
+                        {item.name}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragOver(true);
                   }}
-                />
-              </div>
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOver(false);
+                    const files = Array.from(e.dataTransfer.files);
+                    if (files.length) handleFiles(files);
+                  }}
+                  onClick={() => fileRef.current?.click()}
+                  className={cn(
+                    "border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors",
+                    dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50",
+                  )}
+                >
+                  <Upload className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
+                  <p className="text-sm font-medium">Drop files or click to browse</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Video or image files · select multiple
+                  </p>
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="video/*,image/*"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files ?? []);
+                      if (files.length) handleFiles(files);
+                      e.target.value = "";
+                    }}
+                  />
+                </div>
+              )}
             </Tabs.Content>
           </Tabs.Root>
         </Dialog.Content>
