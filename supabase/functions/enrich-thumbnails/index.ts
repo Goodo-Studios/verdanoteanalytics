@@ -58,7 +58,7 @@ async function cacheToStorage(
   }
 }
 
-serve(async (req) => {
+export async function handler(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const supabase = createClient(
@@ -145,17 +145,28 @@ serve(async (req) => {
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
-});
+}
+
+// Register the HTTP handler in production. Guarded so that unit tests can import
+// the phase functions below without `serve()` starting a listener on import.
+if (!Deno.env.get("ENRICH_NO_SERVE")) {
+  serve(handler);
+}
 
 /**
  * Phase 1: Discover CDN URLs for creatives with null thumbnail_url.
+ *
+ * NOTE: media-selection queries intentionally do NOT filter on `impressions > 0`.
+ * Creatives with 0/null impressions are still rendered in the ad library, so they
+ * must get thumbnails/videos too — otherwise they show as permanently broken cards.
+ * Each row is processed once then skipped via its own skip-gate (thumbnail_url IS NULL,
+ * thumbnail_storage_path IS NULL, etc.), so removing the gate is bounded, one-time work.
  */
-async function runDiscovery(supabase: any, accountFilter: string | null, metaAccessToken: string) {
+export async function runDiscovery(supabase: any, accountFilter: string | null, metaAccessToken: string) {
   let query = supabase
     .from("creatives")
     .select("ad_id, account_id")
-    .is("thumbnail_url", null)
-    .gt("impressions", 0);
+    .is("thumbnail_url", null);
   if (accountFilter) query = query.eq("account_id", accountFilter);
 
   const { data: withSpend } = await query
@@ -171,7 +182,6 @@ async function runDiscovery(supabase: any, accountFilter: string | null, metaAcc
       .from("creatives")
       .select("ad_id, account_id")
       .is("thumbnail_url", null)
-      .gt("impressions", 0)
       .or("spend.is.null,spend.eq.0");
     if (accountFilter) zeroQuery = zeroQuery.eq("account_id", accountFilter);
     const { data: zeroSpend } = await zeroQuery.limit(remaining);
@@ -222,14 +232,13 @@ async function runDiscovery(supabase: any, accountFilter: string | null, metaAcc
  * Phase 2: Cache CDN thumbnail URLs to permanent Supabase Storage.
  * FIX: No longer overwrites full_res_url with same compressed storage URL.
  */
-async function runCaching(supabase: any, accountFilter: string | null) {
+export async function runCaching(supabase: any, accountFilter: string | null) {
   let query = supabase
     .from("creatives")
     .select("ad_id, account_id, thumbnail_url, full_res_url")
     .not("thumbnail_url", "is", null)
     .neq("thumbnail_url", NO_THUMB_SENTINEL)
-    .is("thumbnail_storage_path", null)
-    .gt("impressions", 0);
+    .is("thumbnail_storage_path", null);
   if (accountFilter) query = query.eq("account_id", accountFilter);
 
   const { data: items } = await query
@@ -294,12 +303,11 @@ async function runCaching(supabase: any, accountFilter: string | null) {
  * Groups creatives by account so the account video library map is built once
  * per account — this is the key fix for (#10) page-permission errors.
  */
-async function runVideoDiscovery(supabase: any, accountFilter: string | null, metaAccessToken: string) {
+export async function runVideoDiscovery(supabase: any, accountFilter: string | null, metaAccessToken: string) {
   let query = supabase
     .from("creatives")
     .select("ad_id, account_id")
-    .is("video_url", null)
-    .gt("impressions", 0);
+    .is("video_url", null);
   if (accountFilter) query = query.eq("account_id", accountFilter);
 
   const { data: withSpend } = await query
@@ -315,7 +323,6 @@ async function runVideoDiscovery(supabase: any, accountFilter: string | null, me
       .from("creatives")
       .select("ad_id, account_id")
       .is("video_url", null)
-      .gt("impressions", 0)
       .or("spend.is.null,spend.eq.0");
     if (accountFilter) zeroQuery = zeroQuery.eq("account_id", accountFilter);
     const { data: zeroSpend } = await zeroQuery.limit(remaining);
@@ -385,12 +392,11 @@ async function runVideoDiscovery(supabase: any, accountFilter: string | null, me
  * sentineled (thumbnail_url = 'no-thumbnail'), e.g. from a bad-token run.
  * Clears the sentinel first so runCaching can pick them up afterwards.
  */
-async function runForcedRediscovery(supabase: any, accountFilter: string | null, metaAccessToken: string) {
+export async function runForcedRediscovery(supabase: any, accountFilter: string | null, metaAccessToken: string) {
   let query = supabase
     .from("creatives")
     .select("ad_id, account_id")
-    .eq("thumbnail_url", NO_THUMB_SENTINEL)
-    .gt("impressions", 0);
+    .eq("thumbnail_url", NO_THUMB_SENTINEL);
   if (accountFilter) query = query.eq("account_id", accountFilter);
 
   const { data: items } = await query
@@ -443,12 +449,11 @@ async function runForcedRediscovery(supabase: any, accountFilter: string | null,
  * previously sentineled (video_url = 'no-video').
  * Groups by account and builds the video library map once per account.
  */
-async function runVideoRediscovery(supabase: any, accountFilter: string | null, metaAccessToken: string) {
+export async function runVideoRediscovery(supabase: any, accountFilter: string | null, metaAccessToken: string) {
   let query = supabase
     .from("creatives")
     .select("ad_id, account_id")
-    .eq("video_url", NO_VIDEO_SENTINEL)
-    .gt("impressions", 0);
+    .eq("video_url", NO_VIDEO_SENTINEL);
   if (accountFilter) query = query.eq("account_id", accountFilter);
 
   const { data: items } = await query
@@ -565,14 +570,13 @@ async function cacheVideoToStorage(
  */
 const VIDEO_CACHE_LIMIT = 20;
 
-async function runVideoCaching(supabase: any, accountFilter: string | null) {
+export async function runVideoCaching(supabase: any, accountFilter: string | null) {
   let query = supabase
     .from("creatives")
     .select("ad_id, account_id, video_url")
     .not("video_url", "is", null)
     .neq("video_url", NO_VIDEO_SENTINEL)
-    .not("video_url", "like", "%/storage/v1/object/public/%")
-    .gt("impressions", 0);
+    .not("video_url", "like", "%/storage/v1/object/public/%");
   if (accountFilter) query = query.eq("account_id", accountFilter);
 
   const { data: items } = await query
