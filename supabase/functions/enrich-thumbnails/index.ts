@@ -15,6 +15,47 @@ const SUPABASE_URL_ENV = Deno.env.get("SUPABASE_URL") || "";
 const BATCH_SIZE = 20;
 const TIME_BUDGET_MS = 115_000;
 const MAX_ITEMS = 1000;
+// Memory-safe cap for video caching. An edge function has ~256 MB; the old code buffered
+// the entire file via blob().arrayBuffer() (plus a transient copy) before any size check,
+// which OOM'd the worker on large videos (546 WORKER_RESOURCE_LIMIT). We now stream-read
+// with an early abort so a single video never exceeds this footprint; oversized videos
+// keep their live CDN url (still playable) instead of being cached.
+const MAX_VIDEO_SIZE = 80 * 1024 * 1024;
+
+/**
+ * Read a Response body into memory but ABORT as soon as it exceeds `maxBytes`.
+ * Returns the bytes, or null if the file is over the cap.
+ */
+async function readBodyCapped(resp: Response, maxBytes: number): Promise<Uint8Array | null> {
+  const lenHeader = resp.headers.get("content-length");
+  if (lenHeader && Number(lenHeader) > maxBytes) {
+    await resp.body?.cancel().catch(() => {});
+    return null;
+  }
+  const reader = resp.body?.getReader();
+  if (!reader) {
+    const buf = new Uint8Array(await resp.arrayBuffer());
+    return buf.byteLength > maxBytes ? null : buf;
+  }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => {});
+        return null;
+      }
+      chunks.push(value);
+    }
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) { out.set(c, offset); offset += c.byteLength; }
+  return out;
+}
 
 /**
  * Download an image and upload it to Supabase Storage (ad-thumbnails bucket).
@@ -536,9 +577,11 @@ async function cacheVideoToStorage(
     const contentType = res.headers.get("content-type") || "video/mp4";
     const storagePath = `${accountId}/${adId}.mp4`;
 
-    const blob = await res.blob();
-    const arrayBuffer = await blob.arrayBuffer();
-    const uint8 = new Uint8Array(arrayBuffer);
+    const uint8 = await readBodyCapped(res, MAX_VIDEO_SIZE);
+    if (!uint8) {
+      console.log(`Skipping over-cap video for ${adId} (> ${(MAX_VIDEO_SIZE / 1024 / 1024).toFixed(0)}MB) — keeping CDN url`);
+      return null;
+    }
 
     const { error: uploadError } = await supabase.storage
       .from("ad-videos")

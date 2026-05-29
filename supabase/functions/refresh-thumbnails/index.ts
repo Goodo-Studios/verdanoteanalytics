@@ -19,10 +19,61 @@ const DISCOVERY_BATCH_SIZE = 5;
 const CACHE_BATCH_SIZE = 15;
 const VIDEO_BATCH_SIZE = 1;
 const MAX_TOTAL = 5000;
-const MAX_VIDEO_SIZE = 150 * 1024 * 1024;
+// Memory-safe cap: an edge function has ~256 MB. We read the body in a streaming,
+// capped fashion (see readBodyCapped) and never buffer a file larger than this, so a
+// single oversized video can no longer OOM the worker (the old 546 WORKER_RESOURCE_LIMIT).
+// Oversized videos keep their live CDN url (still playable) and are simply not re-cached.
+const MAX_VIDEO_SIZE = 80 * 1024 * 1024;
+const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 const TIME_BUDGET_MS = 110_000;
 const FETCH_TIMEOUT_MS = 30_000;
 const MEDIA_REFRESH_COOLDOWN_HOURS = 2;
+
+// Exponential backoff schedule (hours) for re-attempting a failed media discovery.
+// Index by the post-increment retry_count, capped at the last entry (7 days).
+const RETRY_BACKOFF_HOURS = [1, 4, 12, 24, 72, 168];
+
+export function nextRetryAfter(retryCount: number): string {
+  const idx = Math.min(Math.max(retryCount - 1, 0), RETRY_BACKOFF_HOURS.length - 1);
+  return new Date(Date.now() + RETRY_BACKOFF_HOURS[idx] * 60 * 60 * 1000).toISOString();
+}
+
+/**
+ * Read a Response body into memory but ABORT as soon as it exceeds `maxBytes`.
+ * Returns the bytes, or null if the file is over the cap (so the caller can keep the
+ * live CDN url instead of caching). This replaces `blob().arrayBuffer()`, which buffered
+ * the entire file (plus a transient copy) before any size check — the OOM source.
+ */
+async function readBodyCapped(resp: Response, maxBytes: number): Promise<Uint8Array | null> {
+  const lenHeader = resp.headers.get("content-length");
+  if (lenHeader && Number(lenHeader) > maxBytes) {
+    await resp.body?.cancel().catch(() => {});
+    return null;
+  }
+  const reader = resp.body?.getReader();
+  if (!reader) {
+    const buf = new Uint8Array(await resp.arrayBuffer());
+    return buf.byteLength > maxBytes ? null : buf;
+  }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => {});
+        return null;
+      }
+      chunks.push(value);
+    }
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) { out.set(c, offset); offset += c.byteLength; }
+  return out;
+}
 
 async function downloadAndCache(
   supabase: any,
@@ -38,13 +89,14 @@ async function downloadAndCache(
       console.log(`Download failed ${adId}: HTTP ${resp.status} ${resp.statusText}`);
       return null;
     }
-    const blob = await resp.arrayBuffer();
-    if (type === "image" && blob.byteLength < 5000) {
-      console.log(`Skipping low-quality image for ${adId}: ${blob.byteLength} bytes`);
+    const cap = type === "video" ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
+    const bytes = await readBodyCapped(resp, cap);
+    if (!bytes) {
+      console.log(`Skipping over-cap ${type} for ${adId} (> ${(cap / 1024 / 1024).toFixed(0)}MB) — keeping CDN url`);
       return null;
     }
-    if (type === "video" && blob.byteLength > MAX_VIDEO_SIZE) {
-      console.log(`Skipping oversized video for ${adId}: ${(blob.byteLength / 1024 / 1024).toFixed(1)}MB`);
+    if (type === "image" && bytes.byteLength < 5000) {
+      console.log(`Skipping low-quality image for ${adId}: ${bytes.byteLength} bytes`);
       return null;
     }
     const contentType = resp.headers.get("content-type") || (type === "video" ? "video/mp4" : "image/jpeg");
@@ -55,7 +107,7 @@ async function downloadAndCache(
 
     const { error } = await supabase.storage
       .from(bucket)
-      .upload(path, new Uint8Array(blob), { contentType, upsert: true });
+      .upload(path, bytes, { contentType, upsert: true });
     if (error) {
       console.log(`Upload error ${adId}:`, error.message);
       return null;
@@ -156,10 +208,15 @@ async function pickAccount(
   return { account: null, skippedAll: true, nextAccount: mostStale };
 }
 
-serve(async (req) => {
+export async function handler(req: Request, supabaseOverride?: any): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  const supabase = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  // Only treat the override as a client if it actually looks like one. serve()
+  // calls handler(req, connInfo), so a stray second arg must never shadow the
+  // real client (that yielded "supabase.from is not a function" in prod).
+  const supabase = (supabaseOverride && typeof supabaseOverride.from === "function")
+    ? supabaseOverride
+    : createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
   try {
     const url = new URL(req.url);
@@ -228,27 +285,30 @@ serve(async (req) => {
 
     // FIX: Pass invocationStart as a parameter instead of using global mutable state
     const invocationStart = Date.now();
+    const nowIso = new Date().toISOString();
 
     // ── Phase 1: Discovery ──────────────────────────────────────
     // FAST PATH: thumbnails with CDN URL not yet cached to storage
     const { data: uncachedThumbs } = await supabase
       .from("creatives")
-      .select("ad_id, account_id, thumbnail_url")
+      .select("ad_id, account_id, thumbnail_url, thumb_retry_count")
       .not("thumbnail_url", "is", null)
       .neq("thumbnail_url", NO_THUMB_SENTINEL)
       .not("thumbnail_url", "like", `%/storage/v1/object/public/%`)
       .eq("account_id", resolvedAccountId)
-      .gt("impressions", 0)
       .order("spend", { ascending: false, nullsFirst: false })
       .limit(MAX_TOTAL);
 
     // SLOW PATH: NULL + sentinel thumbnails needing Meta API discovery
     const { data: missingThumbs } = await supabase
       .from("creatives")
-      .select("ad_id, account_id, thumbnail_url")
+      .select("ad_id, account_id, thumbnail_url, thumb_retry_count")
       .or("thumbnail_url.is.null,thumbnail_url.eq.no-thumbnail")
       .eq("account_id", resolvedAccountId)
-      .gt("impressions", 0)
+      // Backoff gate: a NULL thumbnail (never tried) or a sentinel whose retry window is
+      // due. Sentinels still inside their backoff window are skipped so we don't re-hammer
+      // genuinely-dead creatives every rotation — but EVERY failure is eventually retried.
+      .or(`thumb_retry_after.is.null,thumb_retry_after.lte.${nowIso}`)
       .order("spend", { ascending: false, nullsFirst: false })
       .limit(MAX_TOTAL);
 
@@ -259,7 +319,6 @@ serve(async (req) => {
       .select("ad_id, account_id, thumbnail_url")
       .like("thumbnail_url", `%/storage/v1/object/public/%`)
       .eq("account_id", resolvedAccountId)
-      .gt("impressions", 0)
       .or("full_res_url.is.null,full_res_url.eq.thumbnail_url")
       .order("spend", { ascending: false, nullsFirst: false })
       .limit(500);
@@ -269,64 +328,19 @@ serve(async (req) => {
     const slowPathThumbs = missingThumbs || [];
     const allThumbWork = [...fastPathThumbs, ...slowPathThumbs].slice(0, MAX_TOTAL);
 
-    // Sentinel resets: only run on FIRST discovery for an account (no last_media_sync)
-    // or if last_media_sync is >7 days old. This prevents an infinite loop where
-    // sentinels are reset every invocation and the same ads are re-discovered repeatedly.
-    const lastSync = targetAccount.last_media_sync ? new Date(targetAccount.last_media_sync).getTime() : 0;
-    const shouldResetSentinels = !lastSync || (Date.now() - lastSync > 7 * 24 * 60 * 60 * 1000);
+    // Sentinel retry is now handled inline by the backoff gate on the slow-path queries
+    // (thumb_retry_after / video_retry_after). A sentinel is re-attempted the moment its
+    // backoff window elapses — no spend/impression thresholds, no 7-day wait, no bulk
+    // reset-to-null loop. Every transient failure self-heals; dead rows stop being hammered.
 
-    if (shouldResetSentinels) {
-      // Thumbnail sentinel reset
-      {
-        const { data: sentinelThumbRows } = await supabase
-          .from("creatives")
-          .select("ad_id")
-          .eq("thumbnail_url", NO_THUMB_SENTINEL)
-          .eq("account_id", resolvedAccountId)
-          .gt("spend", 50)
-          .gt("impressions", 0)
-          .order("spend", { ascending: false, nullsFirst: false })
-          .limit(200);
-        if (sentinelThumbRows && sentinelThumbRows.length > 0) {
-          const ids = sentinelThumbRows.map((r: any) => r.ad_id);
-          await supabase.from("creatives").update({ thumbnail_url: null }).in("ad_id", ids);
-          console.log(`[${targetAccount.name}] Reset ${ids.length} no-thumbnail sentinels for active ads`);
-        }
-      }
-
-      // Video sentinel reset — only for likely-video ads
-      {
-        const { data: sentinelRows } = await supabase
-          .from("creatives")
-          .select("ad_id, ad_type, ad_name")
-          .eq("video_url", NO_VIDEO_SENTINEL)
-          .eq("account_id", resolvedAccountId)
-          .gt("video_views", 500)
-          .gt("spend", 100)
-          .order("spend", { ascending: false, nullsFirst: false })
-          .limit(100);
-        if (sentinelRows && sentinelRows.length > 0) {
-          const STATIC_TYPES = ["Static Image", "Graphic", "Image", "Carousel"];
-          const eligible = sentinelRows.filter((r: any) => !STATIC_TYPES.includes(r.ad_type));
-          if (eligible.length > 0) {
-            const ids = eligible.map((r: any) => r.ad_id);
-            await supabase.from("creatives").update({ video_url: null }).in("ad_id", ids);
-            console.log(`[${targetAccount.name}] Reset ${ids.length} no-video sentinels for likely-video ads (skipped ${sentinelRows.length - eligible.length} static)`);
-          }
-        }
-      }
-    } else {
-      console.log(`[${targetAccount.name}] Skipping sentinel resets (last sync ${Math.round((Date.now() - lastSync) / 3600000)}h ago, threshold: 7d)`);
-    }
-
-    // Videos needing discovery (null or sentinel) — exclude known static ad types
+    // Videos needing discovery (null or sentinel) — exclude known static ad types.
+    // Backoff gate mirrors the thumbnail slow path.
     const { data: missingVideosRaw } = await supabase
       .from("creatives")
-      .select("ad_id, account_id, ad_type, ad_name")
+      .select("ad_id, account_id, ad_type, ad_name, video_retry_count")
       .or("video_url.is.null,video_url.eq.no-video")
       .eq("account_id", resolvedAccountId)
-      .gt("video_views", 0)
-      .gt("impressions", 0)
+      .or(`video_retry_after.is.null,video_retry_after.lte.${nowIso}`)
       .order("spend", { ascending: false, nullsFirst: false })
       .limit(2000);
     // Filter out static ad types that can't have real videos
@@ -339,12 +353,12 @@ serve(async (req) => {
     // FIX: Videos with existing CDN URLs — skip re-discovery, just download directly
     const { data: uncachedVideos } = await supabase
       .from("creatives")
-      .select("ad_id, account_id, video_url")
+      .select("ad_id, account_id, video_url, video_retry_count")
       .not("video_url", "is", null)
       .not("video_url", "like", `%/storage/v1/object/public/%`)
       .neq("video_url", NO_VIDEO_SENTINEL)
       .eq("account_id", resolvedAccountId)
-      .gt("impressions", 0)
+      .or(`video_retry_after.is.null,video_retry_after.lte.${nowIso}`)
       .limit(2000);
 
     // Preview URLs
@@ -353,7 +367,6 @@ serve(async (req) => {
       .select("ad_id")
       .is("preview_url", null)
       .eq("account_id", resolvedAccountId)
-      .gt("impressions", 0)
       .limit(MAX_TOTAL);
 
     const noVideos = missingVideos;
@@ -419,10 +432,17 @@ serve(async (req) => {
               thumbnail_url: storageUrl,
               full_res_url: storageUrl,
               thumbnail_storage_path: `${c.account_id}/${c.ad_id}`,
+              thumb_retry_count: 0,
+              thumb_retry_after: null,
             }).eq("ad_id", c.ad_id);
             return true;
           } else {
-            await supabase.from("creatives").update({ thumbnail_url: NO_THUMB_SENTINEL }).eq("ad_id", c.ad_id);
+            const nextCount = (c.thumb_retry_count ?? 0) + 1;
+            await supabase.from("creatives").update({
+              thumbnail_url: NO_THUMB_SENTINEL,
+              thumb_retry_count: nextCount,
+              thumb_retry_after: nextRetryAfter(nextCount),
+            }).eq("ad_id", c.ad_id);
             return false;
           }
         })
@@ -448,7 +468,12 @@ serve(async (req) => {
           if (isOverBudget(invocationStart)) continue;
           const freshResult = await discoverImageUrl(c.ad_id, c.account_id, META_ACCESS_TOKEN, FETCH_TIMEOUT_MS);
           if (!freshResult) {
-            await supabase.from("creatives").update({ thumbnail_url: NO_THUMB_SENTINEL }).eq("ad_id", c.ad_id);
+            const nextCount = (c.thumb_retry_count ?? 0) + 1;
+            await supabase.from("creatives").update({
+              thumbnail_url: NO_THUMB_SENTINEL,
+              thumb_retry_count: nextCount,
+              thumb_retry_after: nextRetryAfter(nextCount),
+            }).eq("ad_id", c.ad_id);
             thumbFailed++;
             continue;
           }
@@ -460,11 +485,17 @@ serve(async (req) => {
               thumbnail_url: storageUrl,
               full_res_url: storageUrl,
               thumbnail_storage_path: `${c.account_id}/${c.ad_id}`,
+              thumb_retry_count: 0,
+              thumb_retry_after: null,
             }).eq("ad_id", c.ad_id);
             thumbCached++;
           } else {
-            // Fallback: store the CDN URL directly if download fails
-            const updatePayload: Record<string, string | null> = { thumbnail_url: freshResult.thumbnailUrl };
+            // Fallback: store the CDN URL directly if download fails (still renders).
+            const updatePayload: Record<string, string | null | number> = {
+              thumbnail_url: freshResult.thumbnailUrl,
+              thumb_retry_count: 0,
+              thumb_retry_after: null,
+            };
             if (freshResult.fullResUrl) updatePayload.full_res_url = freshResult.fullResUrl;
             await supabase.from("creatives").update(updatePayload).eq("ad_id", c.ad_id);
             thumbCached++;
@@ -537,14 +568,31 @@ serve(async (req) => {
           if (isOverBudget(invocationStart)) continue;
           const freshUrl = await discoverVideoUrl(c.ad_id, META_ACCESS_TOKEN, FETCH_TIMEOUT_MS);
           if (!freshUrl) {
-            await supabase.from("creatives").update({ video_url: NO_VIDEO_SENTINEL }).eq("ad_id", c.ad_id);
+            const nextCount = (c.video_retry_count ?? 0) + 1;
+            await supabase.from("creatives").update({
+              video_url: NO_VIDEO_SENTINEL,
+              video_retry_count: nextCount,
+              video_retry_after: nextRetryAfter(nextCount),
+            }).eq("ad_id", c.ad_id);
             videosMarkedNA++;
           } else {
             const storageUrl = await downloadAndCache(supabase, VIDEO_BUCKET, c.account_id, c.ad_id, freshUrl, "video");
             if (storageUrl) {
-              await supabase.from("creatives").update({ video_url: storageUrl }).eq("ad_id", c.ad_id);
+              // Cached to storage permanently — clear retry bookkeeping.
+              await supabase.from("creatives").update({
+                video_url: storageUrl,
+                video_retry_count: 0,
+                video_retry_after: null,
+              }).eq("ad_id", c.ad_id);
             } else {
-              await supabase.from("creatives").update({ video_url: freshUrl }).eq("ad_id", c.ad_id);
+              // Oversized or un-cacheable: keep the live CDN url (still plays) but set a
+              // backoff so we don't try to re-download the same large file every rotation.
+              const nextCount = (c.video_retry_count ?? 0) + 1;
+              await supabase.from("creatives").update({
+                video_url: freshUrl,
+                video_retry_count: nextCount,
+                video_retry_after: nextRetryAfter(nextCount),
+              }).eq("ad_id", c.ad_id);
             }
             videosFetched++;
           }
@@ -574,9 +622,19 @@ serve(async (req) => {
             // Use existing video_url directly — no need to re-discover
             const storageUrl = await downloadAndCache(supabase, VIDEO_BUCKET, c.account_id, c.ad_id, c.video_url, "video");
             if (storageUrl) {
-              await supabase.from("creatives").update({ video_url: storageUrl }).eq("ad_id", c.ad_id);
+              await supabase.from("creatives").update({
+                video_url: storageUrl,
+                video_retry_count: 0,
+                video_retry_after: null,
+              }).eq("ad_id", c.ad_id);
               return true;
             }
+            // Keep the playable CDN url; back off so we don't re-download a too-large file.
+            const nextCount = (c.video_retry_count ?? 0) + 1;
+            await supabase.from("creatives").update({
+              video_retry_count: nextCount,
+              video_retry_after: nextRetryAfter(nextCount),
+            }).eq("ad_id", c.ad_id);
             return false;
           })
         );
@@ -697,4 +755,12 @@ serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-});
+}
+
+// Guard the listener so the module can be imported in tests without binding a port.
+if (!Deno.env.get("REFRESH_NO_SERVE")) {
+  // serve() invokes the handler as (req, connInfo). Wrap so connInfo is NOT
+  // forwarded into the supabaseOverride slot (which would shadow createClient
+  // with a non-client object → "supabase.from is not a function").
+  serve((req) => handler(req));
+}
