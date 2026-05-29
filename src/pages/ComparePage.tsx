@@ -1,4 +1,3 @@
-import { AppLayout } from "@/components/AppLayout";
 import { useSearchParams, Link } from "react-router-dom";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { useAllCreatives } from "@/hooks/useAllCreatives";
@@ -143,29 +142,29 @@ const ComparePage = () => {
 
   if (isLoading) {
     return (
-      <AppLayout>
+      <>
         <div className="flex items-center justify-center py-20">
           <div className="h-5 w-5 border-2 border-verdant border-t-transparent rounded-full animate-spin" />
         </div>
-      </AppLayout>
+      </>
     );
   }
 
   if (mode === "ads" && selected.length === 0) {
     return (
-      <AppLayout>
+      <>
         <div className="py-20 text-center">
           <p className="font-body text-[14px] text-slate">No creatives found. Please select creatives from the Creatives page.</p>
           <Link to={`${prefix}/creatives`} className="font-body text-[13px] text-verdant hover:underline mt-2 inline-block">← Back to Creatives</Link>
         </div>
-      </AppLayout>
+      </>
     );
   }
 
   const colClass = selected.length === 2 ? "grid-cols-2" : "grid-cols-3";
 
   return (
-    <AppLayout>
+    <>
       <div className="space-y-8">
         {/* Header */}
         <div>
@@ -312,7 +311,7 @@ const ComparePage = () => {
           />
         )}
       </div>
-    </AppLayout>
+    </>
   );
 };
 

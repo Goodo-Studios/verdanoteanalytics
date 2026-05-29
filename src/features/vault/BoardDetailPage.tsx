@@ -10,7 +10,6 @@ import {
 } from "lucide-react";
 import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import { toast } from "sonner";
-import { AppLayout } from "@/components/AppLayout";
 import { PageHeader } from "@/components/PageHeader";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -132,17 +131,17 @@ export default function BoardDetailPage() {
 
   if (boardLoading || itemsLoading) {
     return (
-      <AppLayout>
+      <>
         <div className="min-h-[60vh] flex items-center justify-center">
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
         </div>
-      </AppLayout>
+      </>
     );
   }
 
   if (!board) {
     return (
-      <AppLayout>
+      <>
         <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3">
           <AlertCircle className="w-8 h-8 text-destructive" />
           <p className="text-muted-foreground">Board not found</p>
@@ -153,12 +152,12 @@ export default function BoardDetailPage() {
             Back to boards
           </Link>
         </div>
-      </AppLayout>
+      </>
     );
   }
 
   return (
-    <AppLayout>
+    <>
       <div className="p-6 max-w-7xl mx-auto">
         <div className="mb-2">
           <Link
@@ -266,6 +265,6 @@ export default function BoardDetailPage() {
           </div>
         )}
       </div>
-    </AppLayout>
+    </>
   );
 }

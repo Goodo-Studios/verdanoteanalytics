@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { AppLayout } from "@/components/AppLayout";
 import { SyncStatusBanner } from "@/components/SyncStatusBanner";
 import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
 import { Loader2, User, Settings as SettingsIcon, Shield, FileOutput, Tags, Building2, Activity } from "lucide-react";
@@ -77,16 +76,16 @@ const SettingsPage = () => {
 
   if (userState.loadingProfile) {
     return (
-      <AppLayout>
+      <>
         <div className="flex items-center justify-center py-20">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
-      </AppLayout>
+      </>
     );
   }
 
   return (
-    <AppLayout>
+    <>
       <div className="flex items-start justify-between mb-6">
         <div>
           <h1 className="font-heading text-[32px] text-forest">Settings</h1>
@@ -325,7 +324,7 @@ const SettingsPage = () => {
         actionLabel="Delete User"
         onConfirm={() => { if (userState.showDeleteUserConfirm) userState.deleteUser.mutate(userState.showDeleteUserConfirm); userState.setShowDeleteUserConfirm(null); }}
       />
-    </AppLayout>
+    </>
   );
 };
 

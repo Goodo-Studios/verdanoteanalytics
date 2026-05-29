@@ -1,4 +1,3 @@
-import { AppLayout } from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -56,29 +55,29 @@ const ReportBuilderPage = () => {
 
   if (isLoading) {
     return (
-      <AppLayout>
+      <>
         <div className="flex items-center justify-center py-20">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
-      </AppLayout>
+      </>
     );
   }
 
   if (!report) {
     return (
-      <AppLayout>
+      <>
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <h3 className="font-heading text-[18px] text-foreground mb-2">Report not found</h3>
           <Button variant="outline" size="sm" onClick={() => navigate("/reports")}>
             <ArrowLeft className="h-3.5 w-3.5 mr-1.5" />Back to Reports
           </Button>
         </div>
-      </AppLayout>
+      </>
     );
   }
 
   return (
-    <AppLayout>
+    <>
       <div className="max-w-5xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
@@ -147,7 +146,7 @@ const ReportBuilderPage = () => {
           ))}
         </div>
       </div>
-    </AppLayout>
+    </>
   );
 };
 

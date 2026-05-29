@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, LayoutGrid, Loader2 } from "lucide-react";
-import { AppLayout } from "@/components/AppLayout";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -53,7 +52,7 @@ export default function BoardsPage() {
   });
 
   return (
-    <AppLayout>
+    <>
       <div className="p-6 max-w-7xl mx-auto">
         <PageHeader
           title="Boards"
@@ -116,6 +115,6 @@ export default function BoardsPage() {
 
         <CreateBoardModal open={createOpen} onOpenChange={setCreateOpen} />
       </div>
-    </AppLayout>
+    </>
   );
 }

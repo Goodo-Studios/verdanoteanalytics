@@ -12,38 +12,43 @@ import { Loader2 } from "lucide-react";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { lazy, Suspense } from "react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { AppLayout } from "@/components/AppLayout";
+import { PageSkeleton } from "@/components/skeletons/PageSkeleton";
+import { routeImports } from "@/lib/routePrefetch";
 
 // Critical pages — loaded eagerly (auth flow)
 import LoginPage from "./pages/LoginPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import UpdatePasswordPage from "./pages/UpdatePasswordPage";
 
-// Non-critical pages — lazy loaded for bundle splitting
-const OverviewPage = lazy(() => import("./pages/OverviewPage"));
-const CreativesPage = lazy(() => import("./pages/CreativesPage"));
+// Non-critical pages — lazy loaded for bundle splitting. The shell pages share
+// their import thunks with the hover-prefetch registry (src/lib/routePrefetch)
+// so a hovered tab and its eventual mount resolve to one fetch.
+const OverviewPage = lazy(routeImports.overview);
+const CreativesPage = lazy(routeImports.creatives);
 
-const AnalyticsPage = lazy(() => import("./pages/AnalyticsPage"));
-const ComparePage = lazy(() => import("./pages/ComparePage"));
-const TaggingPage = lazy(() => import("./pages/TaggingPage"));
-const ReportsPage = lazy(() => import("./pages/ReportsPage"));
-const ClientReportsPage = lazy(() => import("./pages/ClientReportsPage"));
-const ReportDetailPage = lazy(() => import("./pages/ReportDetailPage"));
-const ReportBuilderPage = lazy(() => import("./pages/ReportBuilderPage"));
+const AnalyticsPage = lazy(routeImports.analytics);
+const ComparePage = lazy(routeImports.compare);
+const TaggingPage = lazy(routeImports.tagging);
+const ReportsPage = lazy(routeImports.reports);
+const ClientReportsPage = lazy(routeImports.clientReports);
+const ReportDetailPage = lazy(routeImports.reportDetail);
+const ReportBuilderPage = lazy(routeImports.reportBuilder);
 const PublicReportPage = lazy(() => import("./pages/PublicReportPage"));
-const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const SettingsPage = lazy(routeImports.settings);
 
-const BriefsPage = lazy(() => import("./pages/BriefsPage"));
+const BriefsPage = lazy(routeImports.briefs);
 const PublicBriefPage = lazy(() => import("./pages/PublicBriefPage"));
-const AgencyDashboardPage = lazy(() => import("./pages/AgencyDashboardPage"));
-const ContentPipelinePage = lazy(() => import("./pages/ContentPipelinePage"));
+const AgencyDashboardPage = lazy(routeImports.agencyDashboard);
+const ContentPipelinePage = lazy(routeImports.contentPipeline);
 // Old Ad Library is replaced by the Creative Vault Library page (US-006).
 // The old page lives at features/ad-library/AdLibraryPage.tsx and is no longer routed.
-const AdLibraryPage = lazy(() => import("./features/vault/LibraryPage"));
-const VaultItemDetailPage = lazy(() => import("./features/vault/ItemDetailPage"));
-const BoardsPage = lazy(() => import("./features/vault/BoardsPage"));
-const BoardDetailPage = lazy(() => import("./features/vault/BoardDetailPage"));
-const HooksPage = lazy(() => import("./features/vault/HooksPage"));
-const ViralFeedPage = lazy(() => import("./features/vault/ViralFeedPage"));
+const AdLibraryPage = lazy(routeImports.adLibrary);
+const VaultItemDetailPage = lazy(routeImports.vaultItemDetail);
+const BoardsPage = lazy(routeImports.boards);
+const BoardDetailPage = lazy(routeImports.boardDetail);
+const HooksPage = lazy(routeImports.hooks);
+const ViralFeedPage = lazy(routeImports.viralFeed);
 const SharedAdBoardPage = lazy(() => import("./pages/SharedAdBoardPage"));
 const BookmarkletReceiver = lazy(() => import("./pages/BookmarkletReceiver"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -113,7 +118,8 @@ function RoleGuardedRoutes() {
   return (
     <AccountProvider>
       <ClientPreviewBanner />
-      <Suspense fallback={<PageFallback />}>
+      <AppLayout>
+        <Suspense fallback={<PageSkeleton />}>
         <Routes>
           <Route path="/" element={agencyHome ? <AgencyDashboardPage /> : <OverviewPage />} />
           <Route path="/agency" element={isBuilder ? <AgencyDashboardPage /> : <Navigate to={`${prefix}/`} replace />} />
@@ -140,7 +146,8 @@ function RoleGuardedRoutes() {
           <Route path="/ad-library/:id" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <VaultItemDetailPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
-      </Suspense>
+        </Suspense>
+      </AppLayout>
     </AccountProvider>
   );
 }

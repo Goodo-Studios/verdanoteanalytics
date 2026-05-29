@@ -14,7 +14,6 @@ import {
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
-import { AppLayout } from "@/components/AppLayout";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -419,7 +418,7 @@ export default function ViralFeedPage() {
   };
 
   return (
-    <AppLayout>
+    <>
       <div className="p-6 max-w-7xl mx-auto">
         <PageHeader
           title="Viral Feed"
@@ -571,6 +570,6 @@ export default function ViralFeedPage() {
           handleSaveClick(item as ViralFeedItem);
         }}
       />
-    </AppLayout>
+    </>
   );
 }

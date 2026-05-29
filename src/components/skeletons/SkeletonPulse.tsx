@@ -5,7 +5,7 @@ export function SkeletonPulse({ className, style }: { className?: string; style?
   return (
     <div
       className={cn(
-        "rounded-md bg-cream-dark",
+        "rounded-md bg-cream-dark animate-pulse",
         className
       )}
       style={style}

@@ -2,7 +2,6 @@ import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Star, Trash2, Vault, Search, X } from "lucide-react";
 import { toast } from "sonner";
-import { AppLayout } from "@/components/AppLayout";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -233,7 +232,7 @@ export default function LibraryPage() {
   };
 
   return (
-    <AppLayout>
+    <>
       <div className="p-6 max-w-7xl mx-auto">
         <PageHeader
           title="Library"
@@ -381,6 +380,6 @@ export default function LibraryPage() {
           )}
         </div>
       )}
-    </AppLayout>
+    </>
   );
 }

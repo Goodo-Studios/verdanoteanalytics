@@ -1,4 +1,3 @@
-import { AppLayout } from "@/components/AppLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Download, ArrowLeft, Send, Loader2, Pencil, FileText } from "lucide-react";
@@ -99,24 +98,24 @@ const ReportDetailPage = () => {
 
   if (isLoading) {
     return (
-      <AppLayout>
+      <>
         <div className="flex items-center justify-center py-20">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
-      </AppLayout>
+      </>
     );
   }
 
   if (!report) {
     return (
-      <AppLayout>
+      <>
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <h3 className="text-lg font-medium mb-2">Report not found</h3>
           <Button variant="outline" size="sm" onClick={() => navigate("/reports")}>
             <ArrowLeft className="h-3.5 w-3.5 mr-1.5" />Back to Reports
           </Button>
         </div>
-      </AppLayout>
+      </>
     );
   }
 
@@ -160,7 +159,7 @@ const ReportDetailPage = () => {
 
       {/* Screen layout */}
       <div className="screen-only-wrapper">
-        <AppLayout>
+        <>
           <div className="max-w-4xl mx-auto space-y-8">
             {/* Header */}
             <div className="flex items-start justify-between gap-4">
@@ -233,7 +232,7 @@ const ReportDetailPage = () => {
               onClose={() => setSelectedCreative(null)}
             />
           )}
-        </AppLayout>
+        </>
       </div>
     </>
   );

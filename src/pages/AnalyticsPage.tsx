@@ -1,4 +1,3 @@
-import { AppLayout } from "@/components/AppLayout";
 import { PageHeader } from "@/components/PageHeader";
 import { useSearchParams } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -35,18 +34,18 @@ const AnalyticsPage = () => {
 
   if (isLoading) {
     return (
-      <AppLayout>
+      <>
         <div className="space-y-6">
           <div className="h-8 w-48 rounded-md bg-muted relative overflow-hidden"><div className="absolute inset-0 shimmer-slide" /></div>
           <MetricCardSkeletonRow />
           <ChartSkeleton />
         </div>
-      </AppLayout>
+      </>
     );
   }
 
   return (
-    <AppLayout>
+    <>
       <PageHeader
         title="Analytics"
         description="Win rate analysis, scale & kill recommendations, and iteration priorities."
@@ -104,7 +103,7 @@ const AnalyticsPage = () => {
       </Tabs>
 
       <CreativeDetailModal creative={selectedCreative} open={!!selectedCreative} onClose={() => setSelectedCreative(null)} />
-    </AppLayout>
+    </>
   );
 };
 

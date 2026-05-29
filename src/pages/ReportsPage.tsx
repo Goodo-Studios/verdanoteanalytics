@@ -1,4 +1,3 @@
-import { AppLayout } from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -134,7 +133,7 @@ const ReportsPage = () => {
   const fmt = fmtMetric;
 
   return (
-    <AppLayout>
+    <>
       <div className="flex items-start justify-between mb-6">
         <div>
           <h1 className="font-heading text-[32px] text-forest">Reports</h1>
@@ -394,7 +393,7 @@ const ReportsPage = () => {
       {/* Monthly Rollup Modal */}
       <MonthlyRollupModal open={showRollup} onOpenChange={setShowRollup} accounts={accounts || []} />
       <PortfolioReportModal open={showPortfolio} onOpenChange={setShowPortfolio} accounts={accounts || []} />
-    </AppLayout>
+    </>
   );
 };
 

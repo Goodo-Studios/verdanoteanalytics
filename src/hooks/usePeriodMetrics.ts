@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 export interface PeriodMetrics {
@@ -33,6 +33,7 @@ export function usePeriodMetrics(opts: {
     enabled: enabled && !!dateFrom && !!dateTo,
     staleTime: 2 * 60 * 1000,
     refetchOnWindowFocus: false,
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("get_period_metrics", {
         p_account_id: accountId && accountId !== "all" ? accountId : null,

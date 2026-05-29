@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 type AccountLike = { id: string };
@@ -22,6 +22,7 @@ export function useAgencyDashboardData(accounts: AccountLike[], dateFrom?: strin
     enabled: accountIds.length > 0,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const now = new Date();
       const pFrom = dateFrom ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;

@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Check, Copy, ExternalLink, Loader2, Search, Star, X, Zap } from "lucide-react";
 import { toast } from "sonner";
-import { AppLayout } from "@/components/AppLayout";
 import { PageHeader } from "@/components/PageHeader";
 import { Input } from "@/components/ui/input";
 import {
@@ -195,7 +194,7 @@ export default function HooksPage() {
   }, [allRows, searchInput, kindFilter]);
 
   return (
-    <AppLayout>
+    <>
       <div className="p-6 max-w-5xl mx-auto">
         <PageHeader
           title="Hooks"
@@ -356,6 +355,6 @@ export default function HooksPage() {
           </div>
         )}
       </div>
-    </AppLayout>
+    </>
   );
 }

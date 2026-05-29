@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { useRoleNavigate } from "@/hooks/useRolePath";
-import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
@@ -78,7 +77,7 @@ export default function AgencyDashboardPage() {
   const getAccountName = (accountId: string) => accounts.find((a: any) => a.id === accountId)?.name || accountId;
 
   return (
-    <AppLayout>
+    <>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between flex-wrap gap-3">
@@ -286,7 +285,7 @@ export default function AgencyDashboardPage() {
           <p className="font-body text-[10px] text-muted-foreground mt-3">Connect Attio for live pipeline data.</p>
         </Card>
       </div>
-    </AppLayout>
+    </>
   );
 }
 

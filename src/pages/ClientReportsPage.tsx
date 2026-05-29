@@ -1,4 +1,3 @@
-import { AppLayout } from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { FileText, Eye, Download } from "lucide-react";
@@ -24,7 +23,7 @@ const ClientReportsPage = () => {
   const fmt = fmtMetric;
 
   return (
-    <AppLayout>
+    <>
       <div className="space-y-6">
         <div>
           <h1 className="font-heading text-[32px] text-forest">Reports</h1>
@@ -88,7 +87,7 @@ const ClientReportsPage = () => {
           </div>
         )}
       </div>
-    </AppLayout>
+    </>
   );
 };
 

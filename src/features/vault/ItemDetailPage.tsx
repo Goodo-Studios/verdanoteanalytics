@@ -11,7 +11,6 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
-import { AppLayout } from "@/components/AppLayout";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
@@ -274,17 +273,17 @@ export default function ItemDetailPage() {
 
   if (isLoading) {
     return (
-      <AppLayout>
+      <>
         <div className="min-h-[60vh] flex items-center justify-center">
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
         </div>
-      </AppLayout>
+      </>
     );
   }
 
   if (error || !data) {
     return (
-      <AppLayout>
+      <>
         <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3">
           <AlertCircle className="w-8 h-8 text-destructive" />
           <p className="text-muted-foreground">Item not found</p>
@@ -295,7 +294,7 @@ export default function ItemDetailPage() {
             Back to library
           </Link>
         </div>
-      </AppLayout>
+      </>
     );
   }
 
@@ -316,7 +315,7 @@ export default function ItemDetailPage() {
   };
 
   return (
-    <AppLayout>
+    <>
       <div className="max-w-6xl mx-auto px-4 py-6">
         {/* Header bar */}
         <header className="flex items-center gap-3 mb-6">
@@ -649,6 +648,6 @@ export default function ItemDetailPage() {
         open={addToBoardOpen}
         onOpenChange={setAddToBoardOpen}
       />
-    </AppLayout>
+    </>
   );
 }

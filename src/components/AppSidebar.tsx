@@ -31,6 +31,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { Button } from "@/components/ui/button";
+import { prefetchRoute } from "@/lib/routePrefetch";
 
 type NavItem = {
   title: string;
@@ -166,6 +167,8 @@ function SectionGroup({
               className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent"
               activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
               onClick={onNavigate}
+              onMouseEnter={() => prefetchRoute(item.url)}
+              onFocus={() => prefetchRoute(item.url)}
             >
               <item.icon className="h-4 w-4 flex-shrink-0" />
               {item.title}
@@ -326,6 +329,8 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
                   className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent"
                   activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
                   onClick={onNavigate}
+                  onMouseEnter={() => prefetchRoute(item.url)}
+                  onFocus={() => prefetchRoute(item.url)}
                 >
                   <item.icon className="h-4 w-4 flex-shrink-0" />
                   {item.title}
@@ -392,6 +397,8 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
             className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent flex-1"
             activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
             onClick={onNavigate}
+            onMouseEnter={() => prefetchRoute("/settings")}
+            onFocus={() => prefetchRoute("/settings")}
           >
             <Settings className="h-4 w-4 flex-shrink-0" />
             Settings

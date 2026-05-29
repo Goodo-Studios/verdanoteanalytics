@@ -1,4 +1,3 @@
-import { AppLayout } from "@/components/AppLayout";
 import { PageHeader } from "@/components/PageHeader";
 import { MetricCard } from "@/components/MetricCard";
 import { CreativeDetailModal } from "@/components/CreativeDetailModal";
@@ -299,8 +298,8 @@ const CreativesPage = () => {
   }, [sortedCreatives, groupBy]);
 
   return (
-    <AppLayout>
-      
+    <>
+
       <SyncStatusBanner />
       <MediaRefreshBanner />
       <PageHeader
@@ -466,7 +465,7 @@ const CreativesPage = () => {
         onChange={setAdvancedConditions}
         accountId={selectedAccountId}
       />
-    </AppLayout>
+    </>
   );
 };
 

@@ -1,5 +1,4 @@
 import { useState, useCallback, useMemo } from "react";
-import { AppLayout } from "@/components/AppLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -233,7 +232,7 @@ const TaggingPage = () => {
   }
 
   return (
-    <AppLayout>
+    <>
       {/* Page header */}
       <div className="flex items-start justify-between mb-6">
         <div>
@@ -566,7 +565,7 @@ const TaggingPage = () => {
         onConfirm={handleConfirmCsvUpload}
         isPending={uploadMappings.isPending}
       />
-    </AppLayout>
+    </>
   );
 };
 

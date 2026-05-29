@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 export interface DailyTrendPoint {
@@ -28,6 +28,7 @@ export function useDailyTrends(
   return useQuery<DailyTrendPoint[]>({
     queryKey: ["daily-trends", accountId || "all", dateRange?.from, dateRange?.to],
     staleTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("get_daily_trends", {
         p_account_id: accountId && accountId !== "all" ? accountId : null,

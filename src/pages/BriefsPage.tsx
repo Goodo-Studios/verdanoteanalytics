@@ -1,5 +1,4 @@
 import { useState, useMemo } from "react";
-import { AppLayout } from "@/components/AppLayout";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -100,7 +99,7 @@ const BriefsPage = () => {
   };
 
   return (
-    <AppLayout>
+    <>
       <PageHeader title="Briefs" description="Create and manage creative briefs for editors and creators." />
 
       {/* Toolbar */}
@@ -236,7 +235,7 @@ const BriefsPage = () => {
         onStatusChange={handleStatusChange}
         onCopyShareLink={copyShareLink}
       />
-    </AppLayout>
+    </>
   );
 };
 

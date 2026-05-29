@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { AppLayout } from "@/components/AppLayout";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { GoalsBar } from "@/components/GoalsBar";
 import { SpendPacingWidget } from "@/components/overview/SpendPacingWidget";
@@ -197,7 +196,7 @@ const OverviewPage = () => {
   const displaySections = editing ? sections : visibleSections;
 
   return (
-    <AppLayout>
+    <>
       <div className="space-y-8">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
@@ -279,7 +278,7 @@ const OverviewPage = () => {
           />
         )}
       </div>
-    </AppLayout>
+    </>
   );
 };
 

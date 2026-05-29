@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 export interface WoWTrend {
@@ -110,5 +110,6 @@ export function useWoWTrends(accountId?: string) {
       return result;
     },
     staleTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
   });
 }
