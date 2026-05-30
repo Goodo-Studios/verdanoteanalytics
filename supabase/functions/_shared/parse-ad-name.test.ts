@@ -153,6 +153,34 @@ Deno.test("empty string -> unique_code='' , tags all null, no throw", () => {
   assertEquals(result.unknownSegments.length, 0);
 });
 
+Deno.test("duplicate dimension in convention -> first position wins, later token unknown", () => {
+  // Misconfigured convention: ad_type declared at BOTH position 1 and 2.
+  // The lower position (1) claims the dimension; position 2 is left unmapped so
+  // its token surfaces in unknownSegments (dimension:null) instead of silently
+  // overwriting tags.ad_type (last-write-wins).
+  const dupConvention: NamingConvention = {
+    ...convention,
+    segments: [
+      { position: 0, dimension: "unique_code", required: true },
+      { position: 1, dimension: "ad_type", required: false },
+      { position: 2, dimension: "ad_type", required: false },
+    ],
+  };
+  const result = parseAdName("GS500_Video_Static", dupConvention);
+  assertEquals(result.unique_code, "GS500");
+  // First position (1, "Video") wins — NOT overwritten by position 2 ("Static").
+  assertEquals(result.tags.ad_type, "Video");
+  assertEquals(result.matchedSegments.length, 1);
+  assertEquals(result.matchedSegments[0].position, 1);
+  // The duplicate-dimension token at position 2 is unmapped -> unknown, dim null.
+  assertEquals(result.unknownSegments.length, 1);
+  assertEquals(result.unknownSegments[0], {
+    position: 2,
+    raw: "Static",
+    dimension: null,
+  });
+});
+
 Deno.test("garbage input -> unique_code = first token, no throw", () => {
   const result = parseAdName("!!!nonsense!!!", convention);
   assertEquals(result.unique_code, "!!!nonsense!!!");

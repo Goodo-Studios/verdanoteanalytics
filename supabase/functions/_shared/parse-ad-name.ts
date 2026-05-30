@@ -79,6 +79,12 @@ function isTagDimension(dimension: Dimension): dimension is keyof AdNameTags {
  * Parse an ad name into its unique_code + tag dimensions using a resolved
  * naming convention. Pure and deterministic — no IO.
  *
+ * Position contract: segment.position is a 0-based token index aligned to
+ * adName.split(separator). Position 0 is the unique_code by convention (see the
+ * US-001 seed); tag dimensions occupy positions 1..N. A convention authored with
+ * 1-based positions would leave token[0] untagged (it lands in unknownSegments)
+ * while unique_code stays correct — positions MUST be 0-based token indices.
+ *
  * Mapping rules:
  *   - unique_code := adName.split(separator)[0] (always; may be "" for empty input).
  *   - For each convention segment at position i, take token[i]:
@@ -111,13 +117,19 @@ export function parseAdName(
 
   // Map convention segments by position so we can flexibly look up the dimension
   // expected at each token position without assuming a fixed segment count.
+  // Iterate positions ascending and let the FIRST position claim a dimension: a
+  // duplicate dimension at a later position is a misconfigured convention, so we
+  // leave it unmapped (its token surfaces in unknownSegments, dimension:null)
+  // rather than silently overwriting the earlier tag (last-write-wins).
   const dimensionByPosition = new Map<number, Dimension>();
-  let maxDefinedPosition = -1;
-  for (const segment of convention.segments) {
+  const claimedDimensions = new Set<Dimension>();
+  const sortedSegments = [...convention.segments].sort(
+    (a, b) => a.position - b.position,
+  );
+  for (const segment of sortedSegments) {
+    if (claimedDimensions.has(segment.dimension)) continue;
     dimensionByPosition.set(segment.position, segment.dimension);
-    if (segment.position > maxDefinedPosition) {
-      maxDefinedPosition = segment.position;
-    }
+    claimedDimensions.add(segment.dimension);
   }
 
   for (let i = 0; i < tokens.length; i++) {
@@ -152,8 +164,6 @@ export function parseAdName(
 
   // Note: positions defined in the convention but with no corresponding token
   // (i.e. a name shorter than the convention) simply leave their tag null and
-  // push nothing — no throw. maxDefinedPosition is retained for clarity/intent.
-  void maxDefinedPosition;
-
+  // push nothing — no throw.
   return { unique_code, tags, matchedSegments, unknownSegments };
 }
