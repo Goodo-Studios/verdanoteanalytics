@@ -219,12 +219,29 @@ AS $$
 DECLARE
   v_convention public.naming_conventions%ROWTYPE;
   v_result     jsonb;
+  v_account_id text := NULLIF(p_account_id, '');
 BEGIN
+  -- CALLER-SCOPING GATE (must run BEFORE any override is resolved/returned).
+  -- This function is SECURITY DEFINER and GRANTed to `authenticated`, so it
+  -- bypasses the table RLS that scopes per-account override SELECTs. Without
+  -- this gate, any logged-in client could pass another account's id and read
+  -- that account's override convention (cross-account IDOR). service_role
+  -- (the US-002 ingest/parser path) must still resolve ANY account, so it is
+  -- intentionally exempt. For everyone else, an account_id the caller is not a
+  -- member of is downgraded to NULL so resolution falls back to the GLOBAL
+  -- default convention rather than leaking another account's config.
+  IF auth.role() IS DISTINCT FROM 'service_role' THEN
+    IF v_account_id IS NOT NULL
+       AND v_account_id NOT IN (SELECT public.get_user_account_ids(auth.uid())) THEN
+      v_account_id := NULL;
+    END IF;
+  END IF;
+
   -- Prefer a per-account override; fall back to the global default.
-  IF p_account_id IS NOT NULL THEN
+  IF v_account_id IS NOT NULL THEN
     SELECT * INTO v_convention
     FROM public.naming_conventions
-    WHERE account_id = p_account_id
+    WHERE account_id = v_account_id
     LIMIT 1;
   END IF;
 
