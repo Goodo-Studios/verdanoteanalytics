@@ -62,9 +62,15 @@ export interface LibraryResponse {
 }
 
 /**
- * GET /library — spend-ranked hook/angle leaderboard + tag-coverage header for
- * one account. Aggregation/ranking lives only in the SQL RPC (single source of
- * truth); callers render `rows` in the order received.
+ * Spend-ranked hook/angle leaderboard + tag-coverage header for one account.
+ * Aggregation/ranking lives only in the SQL RPC (single source of truth);
+ * callers render `rows` in the order received.
+ *
+ * Served by the first-party, session-authed `leaderboard` edge function — NOT
+ * the external `api` function (that one is gated by provisioned API keys, so an
+ * in-app session JWT is rejected with "Invalid API key"). The leaderboard
+ * function verifies the session JWT, enforces per-account ownership, then calls
+ * the SECURITY DEFINER RPCs via service role.
  */
 export async function getLibrary(
   accountId: string,
@@ -76,5 +82,5 @@ export async function getLibrary(
     dimension,
     limit: String(limit),
   });
-  return apiFetch("api", `library?${params.toString()}`) as Promise<LibraryResponse>;
+  return apiFetch("leaderboard", `?${params.toString()}`) as Promise<LibraryResponse>;
 }

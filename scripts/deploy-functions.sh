@@ -25,6 +25,7 @@ FUNCTIONS=(
   enrich-thumbnails
   fetch-thumbnail
   ingest-reviews
+  leaderboard
   portfolio
   quick-save
   refresh-thumbnails

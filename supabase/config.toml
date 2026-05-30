@@ -12,6 +12,9 @@ verify_jwt = false
 [functions.creatives]
 verify_jwt = false
 
+[functions.leaderboard]
+verify_jwt = false
+
 [functions.reports]
 verify_jwt = false
 
