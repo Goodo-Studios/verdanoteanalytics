@@ -689,9 +689,17 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         await heartbeat();
         const result = await metaFetch(nextUrl, ctx);
         if (result.error) {
-          ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Phase 2 pagination error: ${result.error.message}` });
+          // metaFetch already pushed the full Meta error detail to ctx.apiErrors.
+          // result.error is a boolean, so `.message` is undefined — record a phase marker instead.
+          ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Phase 2 pagination halted on API error (see preceding Meta API error); cursor preserved at ${insightsCount} insights` });
+          // Preserve the cursor and STOP. Do NOT `break` here: the loop-exit
+          // branch below treats "not timed out" as "Phase 2 complete", bumps
+          // last_data_sync, and saveState(3) — which would skip the unfetched
+          // insights pages on the next incremental run (silent data gap).
+          // Returning leaves status=running with insights_cursor set, so the
+          // next /continue resumes Phase 2 from where it failed.
           await saveState(2, { insights_cursor: nextUrl, insights_count: insightsCount, insights_time_range: phase2TimeRange, insights_since_date: phase2SinceDate });
-          break;
+          return;
         }
         if (result.data) {
 
@@ -938,7 +946,9 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           await heartbeat();
           const result = await metaFetch(nextUrl, ctx);
           if (result.error) {
-            ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Phase 4 chunk error: ${result.error.message}` });
+            // metaFetch already pushed the full Meta error detail to ctx.apiErrors.
+            // result.error is a boolean, so `.message` is undefined — record a phase marker instead.
+            ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Phase 4 chunk ${currentChunk + 1}/${totalChunks} halted on API error (see preceding Meta API error)` });
             nextUrl = null;
             await saveState(4, { daily_chunk_offset: currentChunk, daily_cursor: null, daily_days: dailyDays, daily_since_date: dailySinceDate });
             break;
