@@ -90,7 +90,7 @@ function EditorRedirect() {
  * Validates URL role prefix matches user's actual role.
  * If mismatch, redirects to the correct prefix preserving the sub-path.
  */
-function RoleGuardedRoutes() {
+export function RoleGuardedRoutes() {
   const { role: urlRole } = useParams<{ role: string }>();
   const prefix = useRolePrefix();
   const location = useLocation();
