@@ -12,6 +12,7 @@ FUNCTIONS=(
   ai-chat
   api
   backfill-post-urls
+  backfill-retag
   cache-creative-image
   cleanup-stuck-media
   cleanup-stuck-syncs
