@@ -46,7 +46,8 @@ supabase secrets set META_ACCESS_TOKEN=<token>    # for Meta/Facebook sync
 |---|---|---|
 | `creatives` | GET / PUT | Main creatives endpoint. GET supports filtering, pagination, and date-range aggregation. PUT updates tags/notes on a single creative. |
 | `accounts` | GET / POST / PUT / DELETE | CRUD for `ad_accounts`. Also handles name-mapping uploads. |
-| `api` | GET | General-purpose data query endpoint used by the frontend for various reads. |
+| `api` | GET | General-purpose data query endpoint. Authenticates with provisioned API keys (`api_keys` table), NOT user session JWTs — for external/programmatic callers only. |
+| `leaderboard` | GET | Session-authed sibling of `api` /library. Powers the Analytics → Leaderboard tab. `verify_jwt=false`; manually verifies the session JWT via `supabase.auth.getUser`, enforces `verifyAccountOwnership`, then calls the SECURITY DEFINER hook/angle RPCs (`rpc_hook_angle_leaderboard` / `rpc_hook_angle_coverage`) with the service-role client. In-app UI must use this, never `api`. |
 
 ### AI Features
 
