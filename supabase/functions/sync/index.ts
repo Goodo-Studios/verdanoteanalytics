@@ -4,6 +4,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { resolveConvention } from "../_shared/naming-convention.ts";
 import { parseAdName, type ParsedAdName, type AdNameTags } from "../_shared/parse-ad-name.ts";
 import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
+import { parsePlayCurve } from "../_shared/play-curve.ts";
 
 // US-003: Phase 5 tagging flows through the single canonical parser + precedence
 // resolver — no inline regex. Stored tag columns hold display names, so parser
@@ -175,7 +176,16 @@ function parseInsightsRow(row: any) {
     if (vat) videoAvgPlayTime = parseFloat(vat.value || "0");
   }
 
-  return { spend, roas, cpa, ctr, clicks, impressions, cpm, cpc, frequency, purchases, purchase_value: purchaseValue, thumb_stop_rate: thumbStopRate, hold_rate: holdRate, video_avg_play_time: videoAvgPlayTime, adds_to_cart: addsToCart, cost_per_add_to_cart: costPerAtc, video_views: videoViews };
+  // US-002: frame-retention curve. `video_play_curve_actions` nests a per-interval
+  // retention array under `value` (NOT the flat {action_type, value} shape). The
+  // parser normalizes to true percentages [0,100] and derives p25/50/75/100 in one
+  // pass; non-video / missing → nulls (no zero-fill). These flow into the Phase-2
+  // bulk_update_creative_metrics RPC payload (persisted) and are stripped before the
+  // Phase-4 creative_daily_metrics upsert (no daily columns for them).
+  const { play_curve, retention_p25, retention_p50, retention_p75, retention_p100 } =
+    parsePlayCurve(row.video_play_curve_actions);
+
+  return { spend, roas, cpa, ctr, clicks, impressions, cpm, cpc, frequency, purchases, purchase_value: purchaseValue, thumb_stop_rate: thumbStopRate, hold_rate: holdRate, video_avg_play_time: videoAvgPlayTime, adds_to_cart: addsToCart, cost_per_add_to_cart: costPerAtc, video_views: videoViews, play_curve, retention_p25, retention_p50, retention_p75, retention_p100 };
 }
 
 // ─── Phase Budget ────────────────────────────────────────────────────────────
@@ -663,7 +673,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       }
       // ────────────────────────────────────────────────────────────────────
 
-      const insightsFields = "ad_id,spend,purchase_roas,cost_per_action_type,ctr,clicks,impressions,cpm,cpc,frequency,actions,action_values,video_avg_time_watched_actions,video_thruplay_watched_actions";
+      const insightsFields = "ad_id,spend,purchase_roas,cost_per_action_type,ctr,clicks,impressions,cpm,cpc,frequency,actions,action_values,video_avg_time_watched_actions,video_thruplay_watched_actions,video_play_curve_actions";
       const cursor = state.insights_cursor || null;
       let insightsCount = state.insights_count || 0;
 
@@ -914,7 +924,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
 
         console.log(`  Chunk ${currentChunk + 1}/${totalChunks}: ${chunkSince} → ${chunkUntil}`);
 
-        const insightsFields = "ad_id,spend,purchase_roas,cost_per_action_type,ctr,clicks,impressions,cpm,cpc,frequency,actions,action_values,video_avg_time_watched_actions,video_thruplay_watched_actions";
+        const insightsFields = "ad_id,spend,purchase_roas,cost_per_action_type,ctr,clicks,impressions,cpm,cpc,frequency,actions,action_values,video_avg_time_watched_actions,video_thruplay_watched_actions,video_play_curve_actions";
 
         let nextUrl = paginationCursor || (
           `https://graph.facebook.com/${META_API_VERSION}/${accountId}/insights?` +
@@ -972,12 +982,19 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
 
             const rows = result.data
               .filter((row: any) => validAdIds.has(row.ad_id))
-              .map((row: any) => ({
-                ad_id: row.ad_id,
-                account_id: accountId,
-                date: row.date_start,
-                ...parseInsightsRow(row),
-              }));
+              .map((row: any) => {
+                // Strip the frame-retention keys (US-002): creative_daily_metrics has no
+                // play_curve / retention_p* columns, and PostgREST upsert errors on unknown
+                // columns rather than ignoring them. These persist via the Phase-2 RPC only.
+                const { play_curve, retention_p25, retention_p50, retention_p75, retention_p100, ...daily } =
+                  parseInsightsRow(row);
+                return {
+                  ad_id: row.ad_id,
+                  account_id: accountId,
+                  date: row.date_start,
+                  ...daily,
+                };
+              });
             // Upsert in one call (up to 500 rows, matching Meta page size)
             if (rows.length > 0) {
               const { error } = await supabase.from("creative_daily_metrics").upsert(rows, { onConflict: "ad_id,date" });
