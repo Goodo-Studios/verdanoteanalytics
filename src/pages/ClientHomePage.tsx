@@ -1,4 +1,5 @@
 import { useAccountContext } from "@/contexts/AccountContext";
+import { ClientOutcomesContainer } from "@/components/client/ClientOutcomesContainer";
 
 /**
  * Client Home — the purpose-built landing page for brand-owner clients.
@@ -23,6 +24,9 @@ const ClientHomePage = () => {
     accounts.find((a) => a.id === selectedAccountId)?.name ??
     (accounts.length === 1 ? accounts[0]?.name : undefined);
 
+  const isSingleAccount = selectedAccountId && selectedAccountId !== "all";
+  const outcomeAccountId = isSingleAccount ? selectedAccountId : undefined;
+
   return (
     <div className="space-y-8">
       <div>
@@ -36,7 +40,9 @@ const ClientHomePage = () => {
 
       {/* Placeholder sections — filled by US-003..US-007 */}
       <section data-section="highlights" aria-label="Highlights" />
-      <section data-section="performance-snapshot" aria-label="Performance snapshot" />
+      <section data-section="performance-snapshot" aria-label="Performance snapshot">
+        <ClientOutcomesContainer accountId={outcomeAccountId} />
+      </section>
       <section data-section="content-pipeline-summary" aria-label="Content pipeline" />
       <section data-section="library-preview" aria-label="Creative library" />
       <section data-section="reports-summary" aria-label="Reports" />
