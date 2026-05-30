@@ -250,9 +250,92 @@ Deno.test("handler upserts a draft into briefs with onConflict(account_id,genera
   assertEquals(row.status, "draft");
   assertEquals(row.account_id, "act_1");
   assertEquals(row.generation_key, "g1");
-  // onConflict targets the partial unique index (account_id, generation_key).
+  // onConflict targets the non-partial unique index (account_id, generation_key).
   const opts = upsert!.args[2] as { onConflict?: string };
   assertEquals(opts.onConflict, "account_id,generation_key");
+});
+
+// ---- US-007 regression: error surfacing + non-partial idempotency index ----
+
+Deno.test("errorMessage surfaces plain-object Supabase errors (not 'Unknown error')", () => {
+  // supabase-js rejects with a PLAIN object, NOT an Error instance. The old
+  // `err instanceof Error ? err.message : "Unknown error"` swallowed this and
+  // masked the 42P10 ON CONFLICT failure during US-007. errorMessage must read
+  // .message off the object and append the Postgres code.
+  const pgErr = {
+    message: "there is no unique or exclusion constraint matching the ON CONFLICT specification",
+    code: "42P10",
+    details: null,
+    hint: null,
+  };
+  const msg = mod.errorMessage(pgErr);
+  assertStringIncludes(msg, "ON CONFLICT specification");
+  assertStringIncludes(msg, "42P10");
+  assert(msg !== "Unknown error", "plain Supabase errors must not collapse to 'Unknown error'");
+
+  // Real Error instances still work.
+  assertEquals(mod.errorMessage(new Error("boom")), "boom");
+  // Truly empty/unknown values fall back.
+  assertEquals(mod.errorMessage(null), "Unknown error");
+  assertEquals(mod.errorMessage(undefined), "Unknown error");
+});
+
+Deno.test("handler returns the real DB error message on a failed upsert (no opaque 500)", async () => {
+  // Mock client whose .single() rejects the way supabase-js does: a plain object.
+  const failing = {
+    from: () => failing,
+    upsert: () => failing,
+    select: () => failing,
+    single: () =>
+      Promise.resolve({
+        data: null,
+        error: {
+          message: "there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          code: "42P10",
+        },
+      }),
+  };
+  const res = await mod.handler(
+    makePost({ account_id: "act_1", name: "Brief A", content: { hook: "x" }, generation_key: "g1" }),
+    failing,
+  );
+  assertEquals(res.status, 500);
+  const json = await res.json();
+  assertEquals(json.success, false);
+  assertStringIncludes(json.error, "ON CONFLICT specification");
+  assertStringIncludes(json.error, "42P10");
+  assert(json.error !== "Unknown error");
+});
+
+Deno.test("briefs idempotency index is NON-partial (regression: 42P10 ON CONFLICT inference)", async () => {
+  // A PARTIAL unique index (... WHERE generation_key IS NOT NULL) cannot be
+  // inferred by ON CONFLICT (account_id, generation_key) unless the conflict
+  // clause restates the predicate — which supabase-js/.upsert never does, so it
+  // fails with 42P10. The final migration that touches this index must leave it
+  // NON-partial. We scan all migrations, find the LAST statement that creates
+  // briefs_account_generation_key_uidx, and assert it has no WHERE clause.
+  const migrationsDir = new URL("../../migrations/", import.meta.url);
+  const files: string[] = [];
+  for await (const entry of Deno.readDir(migrationsDir)) {
+    if (entry.isFile && entry.name.endsWith(".sql")) files.push(entry.name);
+  }
+  files.sort(); // timestamp-prefixed -> lexical sort == chronological
+
+  let lastCreate: string | null = null;
+  for (const f of files) {
+    const sql = await Deno.readTextFile(new URL(f, migrationsDir));
+    // Match each CREATE [UNIQUE] INDEX ... briefs_account_generation_key_uidx ... ;
+    const re =
+      /create\s+unique\s+index[^;]*briefs_account_generation_key_uidx[^;]*;/gi;
+    const matches = sql.match(re);
+    if (matches && matches.length > 0) lastCreate = matches[matches.length - 1];
+  }
+
+  assert(lastCreate, "expected a CREATE UNIQUE INDEX for briefs_account_generation_key_uidx");
+  assert(
+    !/\bwhere\b/i.test(lastCreate!),
+    `briefs idempotency index must be NON-partial (no WHERE) so ON CONFLICT can infer it; saw: ${lastCreate}`,
+  );
 });
 
 // ---- CODA SAFETY (hard constraint) -----------------------------------------

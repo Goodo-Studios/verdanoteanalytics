@@ -31,7 +31,10 @@
 // IDEMPOTENCY: the caller supplies a stable `generation_key`. Re-POSTing the
 // same { account_id, generation_key } UPDATES the existing draft rather than
 // duplicating it, via an upsert with onConflict on (account_id, generation_key)
-// — the partial unique index added in migration 20260530000003.
+// — the NON-partial unique index from migration 20260530000004. (Migration
+// 20260530000003 originally created it PARTIAL, which ON CONFLICT cannot infer
+// — error 42P10; 20260530000004 fixes that. See that migration for the full
+// rationale.)
 //
 // Exposes a testable handler(req, supabaseOverride); Deno.serve is guarded by
 // WRITE_BRIEF_NO_SERVE so the test can import the module without binding.
@@ -223,8 +226,8 @@ export async function handler(req: Request, supabaseOverride?: unknown): Promise
     const row = toBriefRow(v);
 
     // IDEMPOTENT UPSERT: on conflict against (account_id, generation_key) — the
-    // partial unique index from migration 20260530000003 — update the existing
-    // draft instead of inserting a duplicate. status is always 'draft'.
+    // NON-partial unique index from migration 20260530000004 — update the
+    // existing draft instead of inserting a duplicate. status is always 'draft'.
     const { data, error } = await supabase
       .from("briefs")
       .upsert(row, { onConflict: "account_id,generation_key" })
@@ -243,9 +246,31 @@ export async function handler(req: Request, supabaseOverride?: unknown): Promise
     return json(summary, 200);
   } catch (err: unknown) {
     console.error("write-brief error:", err);
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    return json({ success: false, error: msg }, 500);
+    return json({ success: false, error: errorMessage(err) }, 500);
   }
+}
+
+/**
+ * Extract a human-readable message from a thrown value. Supabase-js rejects with
+ * a PLAIN object ({ message, code, details, hint }), NOT an Error instance — so
+ * `err instanceof Error ? err.message : "Unknown error"` silently swallows the
+ * real cause and returns the opaque "Unknown error" (this masked the 42P10
+ * ON CONFLICT failure during US-007). Read `.message` off any object, and append
+ * the Postgres error `code` when present so failures are diagnosable from the
+ * HTTP response alone.
+ */
+export function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object") {
+    const e = err as { message?: unknown; code?: unknown };
+    const msg = typeof e.message === "string" && e.message.trim() !== ""
+      ? e.message
+      : JSON.stringify(err);
+    const code = typeof e.code === "string" && e.code.trim() !== "" ? ` (${e.code})` : "";
+    return `${msg}${code}`;
+  }
+  if (typeof err === "string" && err.trim() !== "") return err;
+  return "Unknown error";
 }
 
 if (Deno.env.get("WRITE_BRIEF_NO_SERVE") !== "1") {
