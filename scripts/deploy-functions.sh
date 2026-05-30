@@ -23,6 +23,7 @@ FUNCTIONS=(
   creatives
   enrich-thumbnails
   fetch-thumbnail
+  ingest-reviews
   portfolio
   quick-save
   refresh-thumbnails
@@ -57,6 +58,7 @@ FUNCTIONS=(
   vault-viral-refresh
   vault-viral-webhook
   webhooks-dispatch
+  write-brief
 )
 
 TOTAL=${#FUNCTIONS[@]}
