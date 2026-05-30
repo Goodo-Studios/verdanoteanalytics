@@ -12,6 +12,7 @@ FUNCTIONS=(
   ai-chat
   api
   backfill-post-urls
+  backfill-retag
   cache-creative-image
   cleanup-stuck-media
   cleanup-stuck-syncs
@@ -22,6 +23,7 @@ FUNCTIONS=(
   creatives
   enrich-thumbnails
   fetch-thumbnail
+  ingest-reviews
   portfolio
   quick-save
   refresh-thumbnails
@@ -35,6 +37,7 @@ FUNCTIONS=(
   spend-diagnostic
   sync
   sync-coda-tasks
+  sync-coda-names
   system-health-check
   transcribe-ad
   user-management
@@ -55,6 +58,7 @@ FUNCTIONS=(
   vault-viral-refresh
   vault-viral-webhook
   webhooks-dispatch
+  write-brief
 )
 
 TOTAL=${#FUNCTIONS[@]}

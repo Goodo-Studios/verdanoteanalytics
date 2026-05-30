@@ -4,6 +4,7 @@ import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { usePeriodMetrics } from "@/hooks/usePeriodMetrics";
 import { useKillScaleLogic, KillScaleConfig } from "@/lib/killScaleLogic";
 import { calculateBenchmarks, diagnoseCreatives } from "@/lib/iterationDiagnostics";
+import { selectWinners, type WinnerThresholdConfig } from "@/lib/winnerSelection";
 import { format, formatDistanceToNow, subDays } from "date-fns";
 
 export function useOverviewPageState() {
@@ -80,18 +81,20 @@ export function useOverviewPageState() {
   // Kill/Scale/Watch counts (still uses creatives table for per-ad classification)
   const { scale, watch, kill } = useKillScaleLogic(creatives, killScaleConfig);
 
+  // Winner threshold config — single source of truth shared with the client
+  // "What's working" surface (US-004) so winner definition cannot diverge.
+  const winnerConfig: WinnerThresholdConfig = useMemo(() => ({
+    winnerKpi: killScaleConfig.winnerKpi,
+    isGte: killScaleConfig.winnerKpiDirection !== "lte",
+    threshold: killScaleConfig.scaleAt,
+  }), [killScaleConfig]);
+
   // ── Metrics from daily aggregation (accurate period totals) ──
   const metrics = useMemo(() => {
     if (dailyMetrics) {
       // Win rate still needs per-creative data from creatives table
       const active = creatives.filter((c: any) => (Number(c.spend) || 0) > 0);
-      const winnerKpi = killScaleConfig.winnerKpi;
-      const isGte = killScaleConfig.winnerKpiDirection !== "lte";
-      const threshold = killScaleConfig.scaleAt;
-      const winners = active.filter((c: any) => {
-        const val = Number(c[winnerKpi]) || 0;
-        return isGte ? val >= threshold : (val > 0 && val <= threshold);
-      });
+      const winners = selectWinners(active, winnerConfig);
       const winRate = active.length > 0 ? (winners.length / active.length) * 100 : 0;
 
       return {
@@ -115,17 +118,11 @@ export function useOverviewPageState() {
     const avgCpa = totalPurchases > 0 ? totalSpend / totalPurchases : 0;
     const avgCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
 
-    const winnerKpi = killScaleConfig.winnerKpi;
-    const isGte = killScaleConfig.winnerKpiDirection !== "lte";
-    const threshold = killScaleConfig.scaleAt;
-    const winners = active.filter((c: any) => {
-      const val = Number(c[winnerKpi]) || 0;
-      return isGte ? val >= threshold : (val > 0 && val <= threshold);
-    });
+    const winners = selectWinners(active, winnerConfig);
     const winRate = active.length > 0 ? (winners.length / active.length) * 100 : 0;
 
     return { totalSpend, activeCount: active.length, avgCpa, avgRoas, avgCtr, winRate };
-  }, [creatives, killScaleConfig, dailyMetrics]);
+  }, [creatives, killScaleConfig, dailyMetrics, winnerConfig]);
 
   // Previous period metrics from daily aggregation
   const prevMetrics = useMemo(() => {

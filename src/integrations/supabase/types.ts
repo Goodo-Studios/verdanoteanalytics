@@ -788,6 +788,50 @@ export type Database = {
           },
         ]
       }
+      client_highlights: {
+        Row: {
+          account_id: string
+          created_at: string
+          draft_text: string | null
+          id: string
+          period: string
+          published_at: string | null
+          published_text: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          draft_text?: string | null
+          id?: string
+          period: string
+          published_at?: string | null
+          published_text?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          draft_text?: string | null
+          id?: string
+          period?: string
+          published_at?: string | null
+          published_text?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_highlights_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "ad_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_timeline_events: {
         Row: {
           account_id: string
@@ -2795,7 +2839,26 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      client_highlights_published: {
+        Row: {
+          account_id: string | null
+          created_at: string | null
+          id: string | null
+          period: string | null
+          published_at: string | null
+          published_text: string | null
+          updated_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_highlights_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "ad_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       ad_is_on_public_board: { Args: { _ad_id: string }; Returns: boolean }

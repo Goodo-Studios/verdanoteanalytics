@@ -97,7 +97,7 @@ const AnalyticsPage = () => {
         </TabsContent>
         {canBenchmark && (
           <TabsContent value="video" className="space-y-4">
-            <VideoTab creatives={creatives} killThreshold={killScaleConfig.killAt} onCreativeClick={setSelectedCreative} />
+            <VideoTab creatives={creatives} onCreativeClick={setSelectedCreative} />
           </TabsContent>
         )}
       </Tabs>

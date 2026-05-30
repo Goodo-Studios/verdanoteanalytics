@@ -25,6 +25,7 @@ import UpdatePasswordPage from "./pages/UpdatePasswordPage";
 // their import thunks with the hover-prefetch registry (src/lib/routePrefetch)
 // so a hovered tab and its eventual mount resolve to one fetch.
 const OverviewPage = lazy(routeImports.overview);
+const ClientHomePage = lazy(routeImports.clientHome);
 const CreativesPage = lazy(routeImports.creatives);
 
 const AnalyticsPage = lazy(routeImports.analytics);
@@ -74,7 +75,19 @@ function PageFallback() {
 
 /** Redirect / to the correct role prefix */
 function RoleRedirect() {
+  const { isLoading } = useAuth();
   const prefix = useRolePrefix();
+  // Wait for the role to resolve before redirecting. Without this guard,
+  // useRolePrefix() returns the "/builder" default while the role is still
+  // pending, so a client momentarily lands on /builder/ before settling on
+  // /client/ — a visible flash, and a race for any consumer reading the URL.
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
   return <Navigate to={`${prefix}/`} replace />;
 }
 
@@ -89,7 +102,7 @@ function EditorRedirect() {
  * Validates URL role prefix matches user's actual role.
  * If mismatch, redirects to the correct prefix preserving the sub-path.
  */
-function RoleGuardedRoutes() {
+export function RoleGuardedRoutes() {
   const { role: urlRole } = useParams<{ role: string }>();
   const prefix = useRolePrefix();
   const location = useLocation();
@@ -121,11 +134,11 @@ function RoleGuardedRoutes() {
       <AppLayout>
         <Suspense fallback={<PageSkeleton />}>
         <Routes>
-          <Route path="/" element={agencyHome ? <AgencyDashboardPage /> : <OverviewPage />} />
+          <Route path="/" element={effectiveClient ? <ClientHomePage /> : agencyHome ? <AgencyDashboardPage /> : <OverviewPage />} />
           <Route path="/agency" element={isBuilder ? <AgencyDashboardPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/creatives" element={<CreativesPage />} />
-          <Route path="/creatives/compare" element={<ComparePage />} />
-          <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/creatives" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <CreativesPage />} />
+          <Route path="/creatives/compare" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <ComparePage />} />
+          <Route path="/analytics" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <AnalyticsPage />} />
           <Route path="/tagging" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <TaggingPage />} />
           
           <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : <ReportsPage />} />

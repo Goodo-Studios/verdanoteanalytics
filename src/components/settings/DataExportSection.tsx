@@ -159,10 +159,9 @@ function CreativePerformanceExport({ accounts, selectedAccountId }: { accounts: 
       if (minS > 0) filtered = filtered.filter((c: any) => (Number(c.spend) || 0) >= minS);
 
       const account = accounts.find((a: any) => a.id === (filtered[0] as any)?.account_id);
-      const killThreshold = parseFloat(account?.kill_threshold || "1.0");
       const scaleThreshold = parseFloat(account?.scale_threshold || "2.0");
 
-      const grades = gradeCreatives(filtered, killThreshold);
+      const grades = gradeCreatives(filtered);
       const scores = computeScoreMap(filtered, scaleThreshold);
       const fatigueMap = computeFatigueMap(filtered);
 
