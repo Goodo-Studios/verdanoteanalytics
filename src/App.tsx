@@ -75,7 +75,19 @@ function PageFallback() {
 
 /** Redirect / to the correct role prefix */
 function RoleRedirect() {
+  const { isLoading } = useAuth();
   const prefix = useRolePrefix();
+  // Wait for the role to resolve before redirecting. Without this guard,
+  // useRolePrefix() returns the "/builder" default while the role is still
+  // pending, so a client momentarily lands on /builder/ before settling on
+  // /client/ — a visible flash, and a race for any consumer reading the URL.
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
   return <Navigate to={`${prefix}/`} replace />;
 }
 

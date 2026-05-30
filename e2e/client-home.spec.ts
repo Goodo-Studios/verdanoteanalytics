@@ -98,22 +98,32 @@ test.describe("Client Home (US-009)", () => {
     await expect(page.locator('[data-section="this-periods-highlights"]')).toBeVisible();
     await expect(page.getByText(/This Period.?s Highlights/i)).toBeVisible();
 
-    // At least one playable winner with an inline <video> element. The winners
-    // container always renders; a real winner shows a <video controls>. We
-    // assert the winners section is present and that, when winners exist, a
-    // <video> is rendered. If no winners have data yet the friendly empty
-    // state renders instead, so gate the <video> assertion on its presence.
+    // The winners section ("What's working") always renders, and resolves to one
+    // of three leak-free states, all of which are valid product behavior:
+    //   1. video-card winner — a creative with a real video_url renders an inline
+    //      <video controls poster src> (the AC1 "playable winner" happy path);
+    //   2. image-card winner — a real winner whose creative has no video_url
+    //      renders its thumbnail <img> (video_url === "no-video"); and
+    //   3. empty state — no winners at all yet renders the friendly onboarding copy.
+    // A winner card (states 1 & 2) always carries the revenue/ROAS framing line
+    // "For every $1 you spent on this ad"; the empty state carries "Winners show
+    // up here". We assert the section is present, that a <video> renders when one
+    // exists, and that otherwise EITHER a winner card OR the empty state is shown.
     const winners = page.locator('[data-testid="client-winners"]');
     await expect(winners).toBeVisible();
 
     const video = winners.locator("video");
     const videoCount = await video.count();
     if (videoCount > 0) {
+      // A playable video winner exists — it must render (AC1/AC4 happy path).
       await expect(video.first()).toBeVisible();
     } else {
-      // No winner data in this account yet — the empty state must render and
-      // the surface must still be leak-free (asserted separately below).
-      await expect(winners.getByText(/Winners show up here/i)).toBeVisible();
+      // No video winner in this account. The section is still valid as either
+      // image-card winners or the empty state — both leak-free (asserted in the
+      // dedicated leak test below).
+      const winnerCard = winners.getByText(/For every \$1 you spent on this ad/i);
+      const emptyState = winners.getByText(/Winners show up here/i);
+      await expect(winnerCard.or(emptyState).first()).toBeVisible();
     }
 
     // Read-only content pipeline section (no write/interaction controls).
