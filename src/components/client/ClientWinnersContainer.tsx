@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useAccountContext } from "@/contexts/AccountContext";
-import { useAllCreatives } from "@/hooks/useAllCreatives";
+import { useWinnerCreatives } from "@/hooks/useWinnerCreatives";
 import { resolveWinnerConfig, selectWinners } from "@/lib/winnerSelection";
 import {
   ClientWinnersSection,
@@ -21,11 +21,7 @@ const MAX_WINNERS = 6;
 export function ClientWinnersContainer({ accountId }: { accountId?: string }) {
   const { selectedAccount } = useAccountContext();
 
-  const filters = useMemo(
-    () => (accountId ? { account_id: accountId } : {}),
-    [accountId],
-  );
-  const { data: creatives = [], isLoading } = useAllCreatives(filters);
+  const { data: creatives = [], isLoading } = useWinnerCreatives(accountId);
 
   const winners = useMemo<ClientWinner[]>(() => {
     const config = resolveWinnerConfig(selectedAccount);
