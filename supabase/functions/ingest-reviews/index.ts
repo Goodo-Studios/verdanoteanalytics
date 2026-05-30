@@ -87,6 +87,62 @@ function asStringArray(v: unknown): string[] {
   return v.filter((x) => typeof x === "string") as string[];
 }
 
+// ---- supporting_review_ids reconciliation ----------------------------------
+//
+// angle_clusters.supporting_review_ids is a UUID[] column, but the HQ flow
+// cannot know customer_reviews.id at extraction time (DB assigns UUIDs only on
+// insert here). So the producer (review-mining buildIngestPayload) emits stable
+// tokens of the form `review_index:<n>`, where <n> is the position of the review
+// in this POST's `reviews` array. The handler inserts reviews FIRST, learns each
+// row's UUID, then resolves those tokens to real UUIDs before inserting clusters.
+// Anything that resolves to neither a real UUID nor a known index is dropped, so
+// the UUID[] column never receives invalid input (which previously 500'd with
+// Postgres 22P02 "invalid input syntax for type uuid").
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isUuid(s: string): boolean {
+  return typeof s === "string" && UUID_RE.test(s);
+}
+
+/** Parse a `review_index:<n>` token to its integer index, else null. */
+export function reviewIndexToken(s: string): number | null {
+  const m = /^review_index:(\d+)$/.exec(s);
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * Build a resolver that maps a cluster's raw supporting_review_ids
+ * (`review_index:<n>` tokens and/or pass-through UUIDs) to real
+ * customer_reviews UUIDs, using the index->id map learned from the reviews
+ * insert. Unresolvable entries are dropped so the UUID[] column stays valid.
+ */
+export function makeSupportingResolver(
+  indexToId: Map<number, string>,
+): (ids: string[]) => string[] {
+  return (ids: string[]): string[] => {
+    const out: string[] = [];
+    for (const raw of ids) {
+      if (isUuid(raw)) {
+        out.push(raw);
+        continue;
+      }
+      const idx = reviewIndexToken(raw);
+      if (idx != null) {
+        const id = indexToId.get(idx);
+        if (id) out.push(id);
+      }
+      // else: unknown token -> drop (keeps the UUID[] column valid)
+    }
+    return out;
+  };
+}
+
+/** Default resolver when no index map is available: keep only valid UUIDs. */
+export function keepUuids(ids: string[]): string[] {
+  return ids.filter(isUuid);
+}
+
 /**
  * Validate the POST body. account_id + batch_key are required; reviews and
  * angle_clusters must be arrays (either may be empty). Returns a normalized,
@@ -135,9 +191,17 @@ export function batchSource(batch_key: string): string {
 
 // ---- Row mapping (pure, exported for tests) --------------------------------
 
-/** Map a validated review to a customer_reviews insert row, stamping batch_key into raw. */
-export function toReviewRow(account_id: string, batch_key: string, r: ReviewInput) {
+/**
+ * Map a validated review to a customer_reviews insert row, stamping batch_key
+ * into raw. When `index` is supplied (the review's position in the POST's
+ * reviews array), it is also stamped into raw.review_index so the handler can
+ * deterministically map cluster `review_index:<n>` tokens back to the row's
+ * DB-assigned UUID after insert, independent of insert/return ordering.
+ */
+export function toReviewRow(account_id: string, batch_key: string, r: ReviewInput, index?: number) {
   const raw = (r.raw && typeof r.raw === "object") ? { ...r.raw } : {};
+  const stamped: Record<string, unknown> = { ...raw, batch_key };
+  if (typeof index === "number") stamped.review_index = index;
   return {
     account_id,
     source: r.source ?? "csv",
@@ -147,12 +211,23 @@ export function toReviewRow(account_id: string, batch_key: string, r: ReviewInpu
     rating: typeof r.rating === "number" ? r.rating : null,
     author: r.author ?? null,
     reviewed_at: r.reviewed_at ?? null,
-    raw: { ...raw, batch_key },
+    raw: stamped,
   };
 }
 
-/** Map a validated angle cluster to an angle_clusters insert row. */
-export function toClusterRow(account_id: string, batch_key: string, c: AngleClusterInput) {
+/**
+ * Map a validated angle cluster to an angle_clusters insert row.
+ * `resolveSupporting` converts the producer's supporting_review_ids tokens
+ * (`review_index:<n>` and/or UUIDs) to real customer_reviews UUIDs; it defaults
+ * to keepUuids (drop non-UUID tokens) so the UUID[] column is never fed invalid
+ * input even when no index map is available.
+ */
+export function toClusterRow(
+  account_id: string,
+  batch_key: string,
+  c: AngleClusterInput,
+  resolveSupporting: (ids: string[]) => string[] = keepUuids,
+) {
   return {
     account_id,
     label: c.label ?? null,
@@ -162,7 +237,7 @@ export function toClusterRow(account_id: string, batch_key: string, c: AngleClus
     desires: asStringArray(c.desires),
     objections: asStringArray(c.objections),
     customer_language: asStringArray(c.customer_language),
-    supporting_review_ids: asStringArray(c.supporting_review_ids),
+    supporting_review_ids: resolveSupporting(asStringArray(c.supporting_review_ids)),
     score: typeof c.score === "number" ? c.score : null,
     // Encode the batch into `source` (csv:<batch_key>) so the delete sweep can
     // target exactly this batch's clusters. This must match the handler's sweep.
@@ -258,22 +333,35 @@ export async function handler(req: Request, supabaseOverride?: unknown): Promise
       if (error) throw error;
     }
 
-    // Insert reviews.
+    // Insert reviews, stamping each row's array index into raw.review_index so
+    // we can map cluster `review_index:<n>` tokens to the DB-assigned UUIDs.
     let reviews_inserted = 0;
+    const indexToId = new Map<number, string>();
     if (reviews.length > 0) {
-      const rows = reviews.map((r) => toReviewRow(account_id, batch_key, r));
+      const rows = reviews.map((r, i) => toReviewRow(account_id, batch_key, r, i));
       const { data, error } = await supabase
         .from("customer_reviews")
         .insert(rows)
-        .select("id");
+        .select("id, raw");
       if (error) throw error;
       reviews_inserted = (data?.length ?? rows.length);
+      // Build index->UUID map from the returned rows (order-independent: we read
+      // raw.review_index rather than relying on RETURNING order).
+      for (const row of (data ?? []) as Array<{ id?: unknown; raw?: unknown }>) {
+        const raw = (row?.raw && typeof row.raw === "object") ? row.raw as Record<string, unknown> : {};
+        const idx = raw.review_index;
+        if (typeof idx === "number" && typeof row.id === "string") {
+          indexToId.set(idx, row.id);
+        }
+      }
     }
 
-    // Insert clusters.
+    // Insert clusters, resolving supporting_review_ids tokens to real review
+    // UUIDs via the index map (pass-through valid UUIDs, drop unresolved tokens).
     let clusters_inserted = 0;
     if (angle_clusters.length > 0) {
-      const rows = angle_clusters.map((c) => toClusterRow(account_id, batch_key, c));
+      const resolveSupporting = makeSupportingResolver(indexToId);
+      const rows = angle_clusters.map((c) => toClusterRow(account_id, batch_key, c, resolveSupporting));
       const { data, error } = await supabase
         .from("angle_clusters")
         .insert(rows)

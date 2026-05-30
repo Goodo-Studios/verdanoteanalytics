@@ -90,6 +90,108 @@ Deno.test("toClusterRow encodes the batch into source (idempotency marker)", () 
   assertEquals(row.source, "csv:b1");
 });
 
+// ---- supporting_review_ids reconciliation (regression: UUID[] 22P02) -------
+
+Deno.test("isUuid / reviewIndexToken recognize their inputs", () => {
+  assert(mod.isUuid("11111111-2222-4333-8444-555555555555"));
+  assert(!mod.isUuid("review_1"));
+  assert(!mod.isUuid("review_index:3"));
+  assertEquals(mod.reviewIndexToken("review_index:42"), 42);
+  assertEquals(mod.reviewIndexToken("review_1"), null);
+  assertEquals(mod.reviewIndexToken("not-a-token"), null);
+});
+
+Deno.test("keepUuids drops non-UUID tokens (default cluster resolver)", () => {
+  const u = "11111111-2222-4333-8444-555555555555";
+  assertEquals(mod.keepUuids([u, "review_index:0", "review_1"]), [u]);
+});
+
+Deno.test("makeSupportingResolver maps review_index tokens to real UUIDs and drops unknowns", () => {
+  const idA = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
+  const idB = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb";
+  const resolve = mod.makeSupportingResolver(new Map([[0, idA], [2, idB]]));
+  // review_index:0 -> idA, review_index:1 -> unknown (dropped), review_index:2 -> idB,
+  // a raw UUID passes through, junk is dropped.
+  const passUuid = "cccccccc-3333-4333-8333-cccccccccccc";
+  assertEquals(
+    resolve(["review_index:0", "review_index:1", "review_index:2", passUuid, "review_99", "garbage"]),
+    [idA, idB, passUuid],
+  );
+});
+
+Deno.test("toClusterRow never emits non-UUID supporting_review_ids (default resolver)", () => {
+  // This is exactly the producer's output shape (review-mining buildIngestPayload
+  // emits `review_index:<n>` tokens). With the default resolver and no map, they
+  // are dropped rather than written — the bug was passing them straight into a
+  // UUID[] column, which 500'd with Postgres 22P02.
+  const row = mod.toClusterRow("act_1", "b1", {
+    label: "value",
+    supporting_review_ids: ["review_index:0", "review_index:3", "review_7"],
+  });
+  assertEquals(row.supporting_review_ids, []);
+});
+
+Deno.test("toReviewRow stamps review_index into raw when supplied", () => {
+  const row = mod.toReviewRow("act_1", "b1", { review_text: "x" }, 5);
+  assertEquals((row.raw as Record<string, unknown>).review_index, 5);
+  assertEquals((row.raw as Record<string, unknown>).batch_key, "b1");
+});
+
+Deno.test("handler resolves cluster review_index tokens to inserted review UUIDs", async () => {
+  // Mock client where the customer_reviews insert .select('id, raw') returns rows
+  // carrying raw.review_index (mirroring the real RETURNING), and we capture the
+  // exact rows passed to angle_clusters.insert to assert the tokens were resolved.
+  const reviewId0 = "11111111-1111-4111-8111-111111111111";
+  const reviewId1 = "22222222-2222-4222-8222-222222222222";
+  let insertedClusterRows: Array<{ supporting_review_ids?: unknown }> = [];
+  let currentTable = "";
+  const builder: Record<string, unknown> = {};
+  for (const m of ["eq", "delete", "in", "is", "neq"]) {
+    builder[m] = () => builder;
+  }
+  builder.insert = (rows: Array<Record<string, unknown>>) => {
+    if (currentTable === "angle_clusters") {
+      insertedClusterRows = rows as Array<{ supporting_review_ids?: unknown }>;
+    }
+    return builder;
+  };
+  builder.select = (cols: string) => {
+    if (currentTable === "customer_reviews" && typeof cols === "string" && cols.includes("raw")) {
+      return Promise.resolve({
+        data: [
+          { id: reviewId0, raw: { batch_key: "b1", review_index: 0 } },
+          { id: reviewId1, raw: { batch_key: "b1", review_index: 1 } },
+        ],
+        error: null,
+      });
+    }
+    return Promise.resolve({ data: [{ id: "cluster-1" }], error: null });
+  };
+  builder.then = (resolve: (v: unknown) => void) => resolve({ data: [], error: null });
+  const supabase = {
+    from: (table: string) => {
+      currentTable = table;
+      return builder;
+    },
+  };
+
+  const res = await mod.handler(
+    makePost({
+      account_id: "act_1",
+      batch_key: "b1",
+      reviews: [{ review_text: "a" }, { review_text: "b" }],
+      angle_clusters: [
+        { label: "value", supporting_review_ids: ["review_index:0", "review_index:1", "review_index:9", "junk"] },
+      ],
+    }),
+    supabase,
+  );
+  assertEquals(res.status, 200);
+  assertEquals(insertedClusterRows.length, 1);
+  // review_index:0/1 -> real UUIDs; review_index:9 (out of range) + junk dropped.
+  assertEquals(insertedClusterRows[0].supporting_review_ids, [reviewId0, reviewId1]);
+});
+
 Deno.test("isAuthorized is open when no secret configured", () => {
   const req = new Request("https://fn.local/ingest-reviews", { method: "POST" });
   assert(mod.isAuthorized(req, undefined));
