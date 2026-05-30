@@ -1,28 +1,22 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { withApiAuth, corsHeaders } from "../_shared/api-auth.ts";
+import { resolveConvention } from "../_shared/naming-convention.ts";
 
-// NOTE: In-memory rate limiting — resets on cold start. For durable limiting, replace with Postgres atomic counter or Upstash Redis.
-// Simple in-memory rate limiter: 100 req/min per key prefix
-const rateBuckets = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT = 100;
-const WINDOW_MS = 60_000;
-
-function checkRateLimit(keyId: string): boolean {
-  const now = Date.now();
-  const bucket = rateBuckets.get(keyId);
-  if (!bucket || now > bucket.resetAt) {
-    rateBuckets.set(keyId, { count: 1, resetAt: now + WINDOW_MS });
-    return true;
-  }
-  bucket.count++;
-  return bucket.count <= RATE_LIMIT;
-}
+// Rate limiting is enforced durably inside withApiAuth (see _shared/api-auth.ts),
+// backed by the api_rate_limit_counters table — survives cold starts and holds
+// across instances. Limit/window are env-configurable (API_RATE_LIMIT,
+// API_RATE_LIMIT_WINDOW_SECONDS).
 
 // Returns true if the userId is allowed to access the given accountId.
 // Builders and employees have global access; clients must have a user_accounts row.
+// NOTE: `supabase` is typed `any` here on purpose. The esm.sh `@supabase/supabase-js@2`
+// floating tag now serves stricter client generics than the pinned-by-URL type used
+// elsewhere, producing a spurious SupabaseClient<...,never,never> identity skew on the
+// .rpc/.from calls below. Loosening this one param keeps the function checking cleanly
+// without pinning a version that would diverge from the rest of the codebase.
 async function verifyAccountOwnership(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   userId: string,
   accountId: string
 ): Promise<boolean> {
@@ -41,15 +35,7 @@ async function verifyAccountOwnership(
   return !error && data !== null;
 }
 
-serve(withApiAuth(async (req, { userId, permissions, keyId }) => {
-  // Rate limit
-  if (!checkRateLimit(keyId)) {
-    return new Response(
-      JSON.stringify({ error: "Rate limit exceeded (100 req/min)" }),
-      { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } }
-    );
-  }
-
+serve(withApiAuth(async (req, { userId, permissions }) => {
   if (!permissions.includes("read")) {
     return new Response(
       JSON.stringify({ error: "Insufficient permissions — key requires 'read' scope" }),
@@ -86,7 +72,7 @@ serve(withApiAuth(async (req, { userId, permissions, keyId }) => {
       if (resourceId) {
         const { data, error } = await supabase
           .from("creatives")
-          .select("ad_id, ad_name, account_id, spend, roas, ctr, cpa, cpm, cpc, impressions, clicks, purchases, purchase_value, adds_to_cart, hook, theme, product, style, person, ad_type, ad_status, thumbnail_url, created_at, updated_at")
+          .select("ad_id, ad_name, account_id, spend, roas, ctr, cpa, cpm, cpc, impressions, clicks, purchases, purchase_value, adds_to_cart, unique_code, hook, theme, product, style, person, ad_type, tag_source, ad_status, thumbnail_url, created_at, updated_at")
           .eq("ad_id", resourceId)
           .single();
 
@@ -114,13 +100,21 @@ serve(withApiAuth(async (req, { userId, permissions, keyId }) => {
 
       let query = supabase
         .from("creatives")
-        .select("ad_id, ad_name, account_id, spend, roas, ctr, cpa, cpm, cpc, impressions, clicks, purchases, purchase_value, adds_to_cart, hook, theme, product, style, person, ad_type, ad_status, thumbnail_url, created_at, updated_at", { count: "exact" })
+        .select("ad_id, ad_name, account_id, spend, roas, ctr, cpa, cpm, cpc, impressions, clicks, purchases, purchase_value, adds_to_cart, unique_code, hook, theme, product, style, person, ad_type, tag_source, ad_status, thumbnail_url, created_at, updated_at", { count: "exact" })
         .order("created_at", { ascending: false })
         .range(offset, offset + limit - 1);
 
       if (accountId) query = query.eq("account_id", accountId);
       if (minRoas) query = query.gte("roas", parseFloat(minRoas));
       if (status) query = query.eq("ad_status", status);
+
+      // Tag-dimension filters — exact match on a resolved tag column (US-006).
+      // Tag columns hold DISPLAY names, so callers filter on the same values the
+      // rows expose. tag_source lets consumers scope to e.g. only canonical rows.
+      for (const dim of ["hook", "style", "person", "ad_type", "product", "theme", "tag_source"] as const) {
+        const v = url.searchParams.get(dim);
+        if (v) query = query.eq(dim, v);
+      }
 
       const { data, error, count } = await query;
       if (error) throw error;
@@ -299,7 +293,120 @@ serve(withApiAuth(async (req, { userId, permissions, keyId }) => {
       });
     }
 
-    return new Response(JSON.stringify({ error: "Not found", available_endpoints: ["/accounts", "/creatives", "/creatives/:id", "/metrics", "/summary", "/sync"] }), {
+    // GET /api/hooks — curated winning-hook library for an account (US-006).
+    // Required: account_id. Optional: category, limit (max 500).
+    // Response: { data: [{ hook_text, avg_hook_rate, usage_count, tags, category, source_ad_id }], account_id }
+    if (resource === "hooks" && req.method === "GET") {
+      const accountId = url.searchParams.get("account_id");
+      if (!accountId) {
+        return new Response(JSON.stringify({ error: "account_id is required" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const allowed = await verifyAccountOwnership(supabase, userId, accountId);
+      if (!allowed) {
+        return new Response(JSON.stringify({ error: "Access denied" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const limit = Math.min(parseInt(url.searchParams.get("limit") || "100"), 500);
+      const category = url.searchParams.get("category");
+
+      let query = supabase
+        .from("hooks")
+        .select("id, hook_text, avg_hook_rate, usage_count, tags, category, source_ad_id", { count: "exact" })
+        .eq("account_id", accountId)
+        .order("avg_hook_rate", { ascending: false, nullsFirst: false })
+        .limit(limit);
+      if (category) query = query.eq("category", category);
+
+      const { data, error, count } = await query;
+      if (error) throw error;
+      return new Response(JSON.stringify({ data, total: count, account_id: accountId }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // GET /api/coverage — tagged vs untagged counts + tag_source distribution (US-006).
+    // Required: account_id. Response:
+    // { data: { account_id, total, tagged, untagged, coverage_pct, by_tag_source: {parsed,csv_match,csv,manual,untagged,...} } }
+    if (resource === "coverage" && req.method === "GET") {
+      const accountId = url.searchParams.get("account_id");
+      if (!accountId) {
+        return new Response(JSON.stringify({ error: "account_id is required" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const allowed = await verifyAccountOwnership(supabase, userId, accountId);
+      if (!allowed) {
+        return new Response(JSON.stringify({ error: "Access denied" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Paginate tag_source for the account and tally — mirrors the metrics/summary
+      // aggregation pattern. A null/empty tag_source counts as untagged.
+      const bySource: Record<string, number> = {};
+      let total = 0;
+      let untagged = 0;
+      let from = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data: page, error: pageErr } = await supabase
+          .from("creatives")
+          .select("tag_source")
+          .eq("account_id", accountId)
+          .range(from, from + pageSize - 1);
+        if (pageErr) throw pageErr;
+        if (!page || page.length === 0) break;
+        for (const row of page) {
+          total++;
+          const src = (row.tag_source && String(row.tag_source).trim()) || "untagged";
+          bySource[src] = (bySource[src] || 0) + 1;
+          if (src === "untagged") untagged++;
+        }
+        if (page.length < pageSize) break;
+        from += pageSize;
+      }
+
+      const tagged = total - untagged;
+      return new Response(JSON.stringify({
+        data: {
+          account_id: accountId,
+          total,
+          tagged,
+          untagged,
+          coverage_pct: total > 0 ? Math.round((tagged / total) * 10000) / 100 : 0,
+          by_tag_source: bySource,
+        },
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // GET /api/convention — resolved naming convention + controlled vocabulary (US-006).
+    // Optional: account_id (resolves the per-account override, else the global default).
+    // Response: { data: { id, account_id, scope, separator, segments[], vocab[] } | null }
+    if (resource === "convention" && req.method === "GET") {
+      const accountId = url.searchParams.get("account_id");
+
+      if (accountId) {
+        const allowed = await verifyAccountOwnership(supabase, userId, accountId);
+        if (!allowed) {
+          return new Response(JSON.stringify({ error: "Access denied" }), {
+            status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+
+      const convention = await resolveConvention(supabase, accountId || null);
+      return new Response(JSON.stringify({ data: convention }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ error: "Not found", available_endpoints: ["/accounts", "/creatives", "/creatives/:id", "/metrics", "/summary", "/hooks", "/coverage", "/convention", "/sync"] }), {
       status: 404,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

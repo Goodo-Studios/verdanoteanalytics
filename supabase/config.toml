@@ -48,6 +48,14 @@ verify_jwt = false
 [functions.sync-coda-tasks]
 verify_jwt = false
 
+[functions.sync-coda-names]
+verify_jwt = false
+
+# US-005: one-time backfill re-tag of historical creatives. Invoked manually
+# (or by an internal caller) with the service-role bearer — no end-user JWT.
+[functions.backfill-retag]
+verify_jwt = false
+
 [functions.system-health-check]
 verify_jwt = false
 

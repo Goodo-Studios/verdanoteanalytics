@@ -53,6 +53,33 @@ function extractApiKey(req: Request): string | null {
   return req.headers.get("x-api-key");
 }
 
+// Durable, cross-instance rate limit backed by the api_rate_limit_counters
+// table via the check_api_rate_limit() SECURITY DEFINER function. Limit and
+// window are env-configurable (no per-call-site edits): API_RATE_LIMIT (default
+// 100), API_RATE_LIMIT_WINDOW_SECONDS (default 60). Returns the window length
+// in seconds when the request is over the limit, or null when allowed.
+// Fails open on RPC error so a counter outage cannot take the API down.
+export async function checkRateLimit(keyId: string): Promise<number | null> {
+  const limit = parseInt(Deno.env.get("API_RATE_LIMIT") ?? "100", 10);
+  const windowSeconds = parseInt(Deno.env.get("API_RATE_LIMIT_WINDOW_SECONDS") ?? "60", 10);
+
+  // deno-lint-ignore no-explicit-any
+  const supabase: any = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+  );
+
+  const { data, error } = await supabase.rpc("check_api_rate_limit", {
+    p_key_id: keyId,
+    p_limit: limit,
+    p_window_seconds: windowSeconds,
+  });
+
+  // Fail open: never block traffic on a counter/RPC failure.
+  if (error) return null;
+  return data === false ? windowSeconds : null;
+}
+
 export function withApiAuth(
   handler: (req: Request, ctx: { userId: string; permissions: string[]; keyId: string }) => Promise<Response>
 ) {
@@ -74,6 +101,21 @@ export function withApiAuth(
       return new Response(
         JSON.stringify({ error: validation.error }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const retryAfter = await checkRateLimit(validation.keyId);
+    if (retryAfter !== null) {
+      return new Response(
+        JSON.stringify({ error: "Rate limit exceeded" }),
+        {
+          status: 429,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+            "Retry-After": String(retryAfter),
+          },
+        }
       );
     }
 

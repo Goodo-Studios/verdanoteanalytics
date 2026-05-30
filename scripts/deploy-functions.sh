@@ -12,6 +12,7 @@ FUNCTIONS=(
   ai-chat
   api
   backfill-post-urls
+  backfill-retag
   cache-creative-image
   cleanup-stuck-media
   cleanup-stuck-syncs
@@ -35,6 +36,7 @@ FUNCTIONS=(
   spend-diagnostic
   sync
   sync-coda-tasks
+  sync-coda-names
   system-health-check
   transcribe-ad
   user-management

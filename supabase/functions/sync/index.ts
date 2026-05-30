@@ -1,9 +1,46 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { resolveConvention } from "../_shared/naming-convention.ts";
+import { parseAdName, type ParsedAdName, type AdNameTags } from "../_shared/parse-ad-name.ts";
+import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
 
+// US-003: Phase 5 tagging flows through the single canonical parser + precedence
+// resolver — no inline regex. Stored tag columns hold display names, so parser
+// output (canonical vocab) is mapped through toDisplayName before the resolver.
+const DISPLAY_NAMES: Record<string, string> = {
+  UGCNative: "UGC Native", StudioClean: "Studio Clean", TextForward: "Text Forward",
+  NoTalent: "No Talent", ProblemCallout: "Problem Callout", StatementBold: "Statement Bold",
+  AuthorityIntro: "Authority Intro", BeforeAndAfter: "Before & After", PatternInterrupt: "Pattern Interrupt",
+};
+function toDisplayName(val: string): string { return DISPLAY_NAMES[val] || val; }
 
-// Tag parsing removed from sync — tagging is managed via manual edits or CSV uploads only.
+/** Parser tags (canonical vocab) -> display-name PartialTags for the resolver's parser layer. */
+function parsedDisplayTags(parsed: ParsedAdName | null): AdNameTags | null {
+  if (!parsed) return null;
+  const t = parsed.tags;
+  return {
+    ad_type: t.ad_type ? toDisplayName(t.ad_type) : null,
+    person: t.person ? toDisplayName(t.person) : null,
+    style: t.style ? toDisplayName(t.style) : null,
+    product: t.product,
+    hook: t.hook ? toDisplayName(t.hook) : null,
+    theme: t.theme,
+  };
+}
+
+/** A name_mappings row -> PartialTags for the resolver's Coda (csv_match) layer. */
+function mappingTags(m: Record<string, unknown> | null): PartialTags | null {
+  if (!m) return null;
+  return {
+    ad_type: (m.ad_type as string) ?? null,
+    person: (m.person as string) ?? null,
+    style: (m.style as string) ?? null,
+    product: (m.product as string) ?? null,
+    hook: (m.hook as string) ?? null,
+    theme: (m.theme as string) ?? null,
+  };
+}
 
 // ─── Meta API Helper ─────────────────────────────────────────────────────────
 
@@ -981,24 +1018,20 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     if (phase === 5) {
       console.log("Phase 5: Finalizing...");
 
-      // ── Auto-tag untagged creatives from ad names (BATCHED) ──
+      // ── Auto-tag untagged creatives via canonical parser + resolver (BATCHED) ──
       try {
-        const FORMAT_PATTERNS: [RegExp, string][] = [
-          [/\bugc\b/i, "UGC"], [/\bgfx\b|graphic/i, "Graphic"],
-          [/\bstatic\b|\bimg\b|\bimage\b/i, "Static Image"], [/\bvid\b|\bvideo\b/i, "Video"],
-          [/carousel/i, "Carousel"], [/\bdpa\b/i, "DPA"],
-        ];
-        const HOOK_PATTERNS: [RegExp, string][] = [
-          [/testimonial|review/i, "Testimonial"], [/unboxing/i, "Unboxing"],
-          [/comparison|\bvs\b|competitor/i, "Competitor Comparison"],
-          [/problem|pain/i, "Problem/Solution"], [/educational|\bedu\b|how\s*to/i, "Educational"],
-          [/founder|behind/i, "Founder Story"],
-        ];
-        const ANGLE_PATTERNS: [RegExp, string][] = [
-          [/sale|discount|%|\boff\b/i, "Offer/Discount"], [/\bfree\b/i, "Free Gift/Trial"],
-          [/too expensive|objection/i, "Objection Handling"],
-          [/social proof|reviews/i, "Social Proof"], [/benefit|results/i, "Benefits"],
-        ];
+        // Resolve the account's naming convention once; preload its name_mappings
+        // into a Map keyed by unique_code. No manual layer in sync, so the locked
+        // precedence reduces to: Coda(name_mappings) > parser > untagged.
+        const convention = await resolveConvention(supabase, accountId);
+        const { data: mappings } = await supabase
+          .from("name_mappings")
+          .select("*")
+          .eq("account_id", accountId);
+        const mappingByCode = new Map<string, Record<string, unknown>>();
+        for (const m of (mappings || [])) {
+          if (m.unique_code) mappingByCode.set(m.unique_code, m);
+        }
 
         const { data: untagged } = await supabase
           .from("creatives")
@@ -1006,21 +1039,28 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           .eq("account_id", accountId)
           .eq("tag_source", "untagged");
 
-        // Batch: collect all updates, then upsert in chunks instead of one-by-one
-        const tagUpdates: { ad_id: string; ad_type?: string; hook?: string; theme?: string; tag_source: string }[] = [];
+        // Batch: collect all updates, then update in chunks instead of one-by-one
+        const tagUpdates: { ad_id: string; [k: string]: any }[] = [];
         for (const c of (untagged || [])) {
-          const tags: Record<string, string | null> = { ad_type: null, hook: null, theme: null };
-          for (const [re, val] of FORMAT_PATTERNS) { if (re.test(c.ad_name)) { tags.ad_type = val; break; } }
-          for (const [re, val] of HOOK_PATTERNS) { if (re.test(c.ad_name)) { tags.hook = val; break; } }
-          if (!tags.hook && /\bugc\b/i.test(c.ad_name)) tags.hook = "Social Proof";
-          for (const [re, val] of ANGLE_PATTERNS) { if (re.test(c.ad_name)) { tags.theme = val; break; } }
-          if (tags.ad_type || tags.hook || tags.theme) {
-            const row: any = { ad_id: c.ad_id, tag_source: "inferred" };
-            if (tags.ad_type) row.ad_type = tags.ad_type;
-            if (tags.hook) row.hook = tags.hook;
-            if (tags.theme) row.theme = tags.theme;
-            tagUpdates.push(row);
-          }
+          const parsed = convention ? parseAdName(c.ad_name, convention) : null;
+          const unique_code = parsed?.unique_code ?? (c.ad_name.split("_")[0] || c.ad_name);
+          const { tags, tag_source } = resolveTags(
+            parsedDisplayTags(parsed),
+            mappingTags(mappingByCode.get(unique_code) ?? null),
+            null,
+          );
+          if (tag_source === "untagged") continue;
+          tagUpdates.push({
+            ad_id: c.ad_id,
+            tag_source,
+            unique_code,
+            ad_type: tags.ad_type,
+            person: tags.person,
+            style: tags.style,
+            product: tags.product,
+            hook: tags.hook,
+            theme: tags.theme,
+          });
         }
         // Batch update in chunks of 200 — check timeout between chunks
         for (let i = 0; i < tagUpdates.length; i += 200) {
