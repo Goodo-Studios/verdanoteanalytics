@@ -41,11 +41,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setRoleResolved(true);
   };
 
-  // Clear loading only once both session is known AND role is resolved
+  // isLoading tracks role resolution in BOTH directions: true while a role is
+  // pending (including the post-login fetch window), false once resolved. This
+  // keeps consumers like useRolePrefix() from falling back to the "/builder"
+  // default during sign-in — which otherwise causes a visible /builder → /client
+  // flash and breaks URL-prefix consumers (the redirect E2E).
   useEffect(() => {
-    if (roleResolved) {
-      setIsLoading(false);
-    }
+    setIsLoading(!roleResolved);
   }, [roleResolved]);
 
   useEffect(() => {
@@ -70,6 +72,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
+          // Re-enter the loading state until the new user's role resolves, so
+          // useRolePrefix() does not momentarily return the "/builder" default
+          // for what is actually a client/employee account (the /builder flash).
+          setRoleResolved(false);
           setTimeout(() => fetchRole(session.user.id), 0);
         } else {
           setRole(null);

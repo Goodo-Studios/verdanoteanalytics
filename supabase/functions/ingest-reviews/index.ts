@@ -4,7 +4,7 @@
 // ROLE: a THIN service-role persister. All LLM work (VOC extraction, angle
 // clustering) happens in HQ — this function does payload validation + a scoped,
 // idempotent write into the customer_reviews / angle_clusters tables created by
-// migration 20260530000002. NO model calls, no business logic here.
+// migration 20260530110000. NO model calls, no business logic here.
 //
 // DATA FLOW: HQ review-mining flow (US-003) -> POST here with
 //   { account_id, batch_key, reviews[], angle_clusters[] }

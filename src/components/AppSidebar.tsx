@@ -33,20 +33,20 @@ import { useRolePrefix } from "@/hooks/useRolePath";
 import { Button } from "@/components/ui/button";
 import { prefetchRoute } from "@/lib/routePrefetch";
 
-type NavItem = {
+export type NavItem = {
   title: string;
   url: string;
   icon: typeof LayoutGrid;
 };
 
-type NavSection = {
+export type NavSection = {
   id: string;
   label: string;
   items: NavItem[];
 };
 
 // Builder sections — Creative Analytics + Creative Vault
-const builderSections: NavSection[] = [
+export const builderSections: NavSection[] = [
   {
     id: "creative-analytics",
     label: "Creative Analytics",
@@ -72,10 +72,11 @@ const builderSections: NavSection[] = [
   },
 ];
 
-const clientNavItems: NavItem[] = [
-  { title: "Overview", url: "/", icon: LayoutGrid },
-  { title: "Creatives", url: "/creatives", icon: Zap },
-  { title: "Analytics", url: "/analytics", icon: BarChart3 },
+// Client surface: purpose-built Home + read-only Content Pipeline + Reports.
+// Internal strategist surfaces (Creatives, Analytics, Tagging, Briefs, Vault)
+// never render for clients — see route guards in App.tsx.
+export const clientNavItems: NavItem[] = [
+  { title: "Home", url: "/", icon: LayoutGrid },
   { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
   { title: "Reports", url: "/reports", icon: FileText },
 ];

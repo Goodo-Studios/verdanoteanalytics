@@ -5,6 +5,7 @@
 
 export const routeImports = {
   overview: () => import("@/pages/OverviewPage"),
+  clientHome: () => import("@/pages/ClientHomePage"),
   creatives: () => import("@/pages/CreativesPage"),
   analytics: () => import("@/pages/AnalyticsPage"),
   compare: () => import("@/pages/ComparePage"),
@@ -31,7 +32,7 @@ type Loader = () => Promise<unknown>;
 // A path may pull more than one chunk when the destination commonly fans out
 // (e.g. /creatives → compare, /reports → client vs. builder variant).
 const PATH_PREFETCH: Record<string, Loader[]> = {
-  "/": [routeImports.overview],
+  "/": [routeImports.overview, routeImports.clientHome],
   "/creatives": [routeImports.creatives, routeImports.compare],
   "/analytics": [routeImports.analytics],
   "/tagging": [routeImports.tagging],
