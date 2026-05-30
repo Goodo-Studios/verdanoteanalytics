@@ -35,18 +35,22 @@ async function verifyAccountOwnership(
   return !error && data !== null;
 }
 
-serve(withApiAuth(async (req, { userId, permissions }) => {
+// Core router, extracted so it can be exercised by deno test against a mock
+// Supabase client (US-004) without binding the network listener. withApiAuth
+// has already validated the key, rate-limited the request, and resolved the
+// caller's { userId, permissions } before this runs. Stays read-only: the only
+// mutating path (POST /sync) just proxies the existing sync function.
+export async function handleApi(
+  req: Request,
+  supabase: any,
+  { userId, permissions }: { userId: string; permissions: string[] }
+): Promise<Response> {
   if (!permissions.includes("read")) {
     return new Response(
       JSON.stringify({ error: "Insufficient permissions — key requires 'read' scope" }),
       { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
-
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-  );
 
   const url = new URL(req.url);
   const pathParts = url.pathname.replace(/^\/functions\/v1\/api\/?/, "").replace(/^\/api\/?/, "").split("/").filter(Boolean);
@@ -406,7 +410,48 @@ serve(withApiAuth(async (req, { userId, permissions }) => {
       });
     }
 
-    return new Response(JSON.stringify({ error: "Not found", available_endpoints: ["/accounts", "/creatives", "/creatives/:id", "/metrics", "/summary", "/hooks", "/coverage", "/convention", "/sync"] }), {
+    // GET /api/angles — voice-of-customer angle clusters for an account (US-004).
+    // Read-only. Required: account_id. Optional: theme, limit (max 500).
+    // Mirrors the /hooks shape: account_id gate -> verifyAccountOwnership ->
+    // ranked select. Response:
+    // { data: [{ id, account_id, label, summary, theme, pains, desires,
+    //   objections, customer_language, supporting_review_ids, score, source,
+    //   created_at }], total, account_id }
+    if (resource === "angles" && req.method === "GET") {
+      const accountId = url.searchParams.get("account_id");
+      if (!accountId) {
+        return new Response(JSON.stringify({ error: "account_id is required" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const allowed = await verifyAccountOwnership(supabase, userId, accountId);
+      if (!allowed) {
+        return new Response(JSON.stringify({ error: "Access denied" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const limit = Math.min(parseInt(url.searchParams.get("limit") || "100"), 500);
+      const theme = url.searchParams.get("theme");
+
+      let query = supabase
+        .from("angle_clusters")
+        .select("id, account_id, label, summary, theme, pains, desires, objections, customer_language, supporting_review_ids, score, source, created_at", { count: "exact" })
+        .eq("account_id", accountId)
+        .order("score", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (theme) query = query.eq("theme", theme);
+
+      const { data, error, count } = await query;
+      if (error) throw error;
+      return new Response(JSON.stringify({ data, total: count, account_id: accountId }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ error: "Not found", available_endpoints: ["/accounts", "/creatives", "/creatives/:id", "/metrics", "/summary", "/hooks", "/angles", "/coverage", "/convention", "/sync"] }), {
       status: 404,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -418,4 +463,17 @@ serve(withApiAuth(async (req, { userId, permissions }) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-}));
+}
+
+// Bind the network listener unless a test imports the module (API_NO_SERVE=1),
+// mirroring the ingest-reviews INGEST_NO_SERVE guard. The service-role client is
+// built per-request here so handleApi stays injectable with a mock in tests.
+if (!Deno.env.get("API_NO_SERVE")) {
+  serve(withApiAuth(async (req, { userId, permissions }) => {
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+    return await handleApi(req, supabase, { userId, permissions });
+  }));
+}
