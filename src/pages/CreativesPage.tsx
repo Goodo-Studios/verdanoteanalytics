@@ -40,6 +40,8 @@ import { isForecastedToFatigue } from "@/lib/fatigueForecast";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
 import { useCardPresence } from "@/hooks/useCardPresence";
+import { toast } from "sonner";
+import { saveCreativesToVault, formatBulkSaveSummary } from "@/lib/vaultSave";
 
 import type { GradeInfo } from "@/lib/creativeGrading";
 
@@ -101,6 +103,7 @@ const CreativesPage = () => {
   const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
   const [bulkTagOpen, setBulkTagOpen] = useState(false);
   const [addToReportOpen, setAddToReportOpen] = useState(false);
+  const [bulkSavingToVault, setBulkSavingToVault] = useState(false);
   const canBulkAction = isBuilder || isEmployee;
 
   const { data: creativesResult, isLoading } = useCreatives(allFilters, page);
@@ -272,6 +275,27 @@ const CreativesPage = () => {
     downloadCSV("creatives-bulk-export.csv", headers, rows);
   }, [sortedCreatives, bulkSelectedIds, gradeMap]);
 
+  // Bulk save selected creatives into the global Creative Vault (US-004).
+  // Each save runs independently (Promise.allSettled inside the helper) so a
+  // single failure or dedupe skip never aborts the batch; a single summary toast
+  // reports the counts and selection clears once complete.
+  const saveSelectedToVault = useCallback(async () => {
+    const selected = sortedCreatives.filter((c: any) => bulkSelectedIds.has(c.ad_id));
+    if (selected.length === 0) return;
+    setBulkSavingToVault(true);
+    try {
+      const summary = await saveCreativesToVault(selected);
+      if (summary.saved === 0 && summary.alreadySaved === 0 && summary.failed > 0) {
+        toast.error(formatBulkSaveSummary(summary));
+      } else {
+        toast.success(formatBulkSaveSummary(summary));
+      }
+      setBulkSelectedIds(new Set());
+    } finally {
+      setBulkSavingToVault(false);
+    }
+  }, [sortedCreatives, bulkSelectedIds]);
+
 
   const groupedData = useMemo(() => {
     if (groupBy === "__none__" || !sortedCreatives?.length) return null;
@@ -416,7 +440,8 @@ const CreativesPage = () => {
           wowTrends={wowTrends}
           gradeMap={gradeMap}
           fatigueMap={fatigueMap}
-          
+          bulkSelectedIds={canBulkAction && !compareMode ? bulkSelectedIds : undefined}
+          onBulkToggle={canBulkAction && !compareMode ? toggleBulkId : undefined}
           hoveredCards={hoveredCards}
           onCardHover={setHoveredCard}
         />
@@ -431,6 +456,8 @@ const CreativesPage = () => {
             onTag={() => setBulkTagOpen(true)}
             onExport={exportBulkCSV}
             onAddToReport={() => setAddToReportOpen(true)}
+            onSaveToVault={saveSelectedToVault}
+            savingToVault={bulkSavingToVault}
             onClear={() => setBulkSelectedIds(new Set())}
           />
           <BulkTagModal

@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Tag, Download, FileText, XCircle } from "lucide-react";
+import { Tag, Download, FileText, XCircle, BookmarkPlus, Loader2 } from "lucide-react";
 
 interface BulkActionBarProps {
   count: number;
@@ -7,9 +7,13 @@ interface BulkActionBarProps {
   onExport: () => void;
   onAddToReport: () => void;
   onClear: () => void;
+  // Bulk save to Creative Vault (US-004). Optional so other surfaces can reuse
+  // the bar without the vault action.
+  onSaveToVault?: () => void;
+  savingToVault?: boolean;
 }
 
-export function BulkActionBar({ count, onTag, onExport, onAddToReport, onClear }: BulkActionBarProps) {
+export function BulkActionBar({ count, onTag, onExport, onAddToReport, onClear, onSaveToVault, savingToVault }: BulkActionBarProps) {
   if (count === 0) return null;
 
   return (
@@ -36,6 +40,12 @@ export function BulkActionBar({ count, onTag, onExport, onAddToReport, onClear }
       <Button size="sm" variant="outline" onClick={onAddToReport} className="gap-1.5">
         <FileText className="h-3.5 w-3.5" />Add to Report
       </Button>
+      {onSaveToVault && (
+        <Button size="sm" variant="outline" onClick={onSaveToVault} disabled={savingToVault} className="gap-1.5">
+          {savingToVault ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BookmarkPlus className="h-3.5 w-3.5" />}
+          Save selected to Vault
+        </Button>
+      )}
       <Button size="sm" variant="ghost" onClick={onClear} className="gap-1.5 text-muted-foreground">
         <XCircle className="h-3.5 w-3.5" />Clear selection
       </Button>

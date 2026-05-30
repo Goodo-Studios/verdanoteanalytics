@@ -4,7 +4,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, ExternalLink, FileEdit, MessageSquare, GitBranch, Loader2 } from "lucide-react";
+import { Image as ImageIcon, ExternalLink, FileEdit, MessageSquare, GitBranch, Loader2, BookmarkPlus, Bookmark } from "lucide-react";
 import { useState, forwardRef, useEffect } from "react";
 import { useCachedMedia } from "@/hooks/useCachedMedia";
 
@@ -34,6 +34,7 @@ type Creative = Database["public"]["Tables"]["creatives"]["Row"];
 import { toast } from "sonner";
 import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { useQueryClient } from "@tanstack/react-query";
+import { saveCreativeToVault } from "@/lib/vaultSave";
 
 
 
@@ -177,6 +178,11 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
   const [briefTaskName, setBriefTaskName] = useState("");
   const [briefNote, setBriefNote] = useState("");
   const [pushing, setPushing] = useState(false);
+  const [savingToVault, setSavingToVault] = useState(false);
+  const [savedToVault, setSavedToVault] = useState(false);
+  // true when the saved state came from a dedupe hit / pre-existing vault item,
+  // so the button can read "Already in Vault" rather than "Saved".
+  const [alreadyInVault, setAlreadyInVault] = useState(false);
   const [cachedMedia, setCachedMedia] = useState<{
     thumbnail_url?: string | null;
     full_res_url?: string | null;
@@ -216,6 +222,31 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
       .finally(() => setCaching(false));
   }, [open, creative?.ad_id]);
 
+  // Reflect already-in-vault state when the modal opens. The vault library is
+  // global, so an item saved by anyone (matched on source_ad_id) marks this
+  // creative as saved.
+  useEffect(() => {
+    if (!open || !creative) return;
+    let cancelled = false;
+    setSavedToVault(false);
+    setAlreadyInVault(false);
+    supabase
+      .from("inspiration_items")
+      .select("id")
+      .eq("source_ad_id", creative.ad_id)
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled && data) {
+          setSavedToVault(true);
+          setAlreadyInVault(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, creative?.ad_id]);
+
   if (!creative) return null;
 
   const displayCreative: Creative = cachedMedia
@@ -253,6 +284,40 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
       toast.error(err instanceof Error ? err.message : "Failed to create brief in Coda");
     } finally {
       setPushing(false);
+    }
+  };
+
+  // Save this analytics creative into the global Creative Vault via the
+  // vault-save-creative edge function (US-002). Uses cached media when available
+  // so the vault gets a usable copy even when the source video was just fetched.
+  // Snapshot shaping + invoke live in the shared saveCreativeToVault helper,
+  // reused by the analytics-grid bulk save (US-004).
+  const handleSaveToVault = async () => {
+    setSavingToVault(true);
+    try {
+      // Build the metric snapshot from the source creative, but send the
+      // (possibly freshly cached) display media URLs so the vault gets a copy.
+      const result = await saveCreativeToVault({
+        ...creative,
+        full_res_url: displayCreative.full_res_url,
+        video_url: displayCreative.video_url,
+        thumbnail_url: displayCreative.thumbnail_url,
+      });
+
+      setSavedToVault(true);
+      if (result.alreadySaved) {
+        setAlreadyInVault(true);
+        toast.success("Already in Vault");
+      } else {
+        setAlreadyInVault(false);
+        toast.success("Saved to Vault");
+      }
+    } catch (err: unknown) {
+      setSavedToVault(false);
+      setAlreadyInVault(false);
+      toast.error(err instanceof Error ? err.message : "Failed to save to Vault");
+    } finally {
+      setSavingToVault(false);
     }
   };
 
@@ -368,6 +433,22 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
                 >
                   <FileEdit className="h-3.5 w-3.5" />
                   Create brief in Coda
+                </Button>
+                <Button
+                  variant={savedToVault ? "default" : "outline"}
+                  size="sm"
+                  className="gap-1.5 font-body text-[12px]"
+                  onClick={handleSaveToVault}
+                  disabled={savingToVault || savedToVault}
+                >
+                  {savingToVault ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : savedToVault ? (
+                    <Bookmark className="h-3.5 w-3.5 fill-current" />
+                  ) : (
+                    <BookmarkPlus className="h-3.5 w-3.5" />
+                  )}
+                  {savedToVault ? (alreadyInVault ? "Already in Vault" : "Saved") : "Save to Vault"}
                 </Button>
               </div>
             )}
