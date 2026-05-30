@@ -6,14 +6,6 @@ export const TABLE_COLUMNS: ColumnDef[] = [
   { key: "grade", label: "Grade", defaultVisible: false, group: "Core" },
   { key: "ad_status", label: "Delivery Status", defaultVisible: false, group: "Core" },
   { key: "result_type", label: "Result Type", defaultVisible: false, group: "Core" },
-  // Tags
-  { key: "type", label: "Type", defaultVisible: false, group: "Tags" },
-  { key: "person", label: "Person", defaultVisible: false, group: "Tags" },
-  { key: "style", label: "Style", defaultVisible: false, group: "Tags" },
-  { key: "hook", label: "Hook", defaultVisible: false, group: "Tags" },
-  { key: "product", label: "Product", defaultVisible: false, group: "Tags" },
-  { key: "theme", label: "Theme", defaultVisible: false, group: "Tags" },
-  { key: "tags", label: "Tag Source", defaultVisible: false, group: "Tags" },
   // Performance
   { key: "spend", label: "Spent", defaultVisible: true, group: "Performance" },
   { key: "cpa", label: "Cost/Result", defaultVisible: true, group: "Performance" },
@@ -35,6 +27,14 @@ export const TABLE_COLUMNS: ColumnDef[] = [
   { key: "purchase_value", label: "Purchase Value", defaultVisible: false, group: "Commerce" },
   { key: "adds_to_cart", label: "Adds to Cart", defaultVisible: false, group: "Commerce" },
   { key: "cost_per_atc", label: "Cost per Add to Cart", defaultVisible: false, group: "Commerce" },
+  // Tags
+  { key: "type", label: "Type", defaultVisible: false, group: "Tags" },
+  { key: "person", label: "Person", defaultVisible: false, group: "Tags" },
+  { key: "style", label: "Style", defaultVisible: false, group: "Tags" },
+  { key: "hook", label: "Hook", defaultVisible: false, group: "Tags" },
+  { key: "product", label: "Product", defaultVisible: false, group: "Tags" },
+  { key: "theme", label: "Theme", defaultVisible: false, group: "Tags" },
+  { key: "tags", label: "Tag Source", defaultVisible: false, group: "Tags" },
   // Context
   { key: "campaign", label: "Campaign", defaultVisible: false, group: "Context" },
   { key: "adset", label: "Ad Set", defaultVisible: false, group: "Context" },
