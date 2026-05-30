@@ -192,11 +192,11 @@ END;
 $$;
 
 -- ---------------------------------------------------------------------------
--- Grants — mirror get_agency_dashboard_summary (authenticated + service_role).
--- account_id scoping inside the function keeps reads consistent with existing
--- creatives RLS even though SECURITY DEFINER bypasses row policies.
+-- Grants — service_role ONLY. These SECURITY DEFINER functions bypass RLS and
+-- trust their p_account_id argument, so direct PostgREST access by an
+-- authenticated user would leak any account's spend (cross-account IDOR).
+-- The only sanctioned caller is the edge function (service-role client), which
+-- enforces verifyAccountOwnership() before invoking. Do NOT grant authenticated.
 -- ---------------------------------------------------------------------------
-GRANT EXECUTE ON FUNCTION public.rpc_hook_angle_leaderboard(text, text, int) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.rpc_hook_angle_leaderboard(text, text, int) TO service_role;
-GRANT EXECUTE ON FUNCTION public.rpc_hook_angle_coverage(text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.rpc_hook_angle_coverage(text, text) TO service_role;
