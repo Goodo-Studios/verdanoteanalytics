@@ -211,8 +211,8 @@ async function selfContinue(claimId: string): Promise<void> {
       console.warn("selfContinue: missing env vars — falling back to cron");
       return;
     }
-    // Fire-and-forget: don't await the full response, just ensure the request is sent
-    fetch(`${supabaseUrl}/functions/v1/sync/continue`, {
+    // Fire-and-forget: don't await the full response, just ensure the request is sent.
+    const continuePromise = fetch(`${supabaseUrl}/functions/v1/sync/continue`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -222,6 +222,15 @@ async function selfContinue(claimId: string): Promise<void> {
     }).catch((err) => {
       console.warn("selfContinue fetch error (non-fatal):", err);
     });
+    // Keep the isolate alive until the request actually leaves. Without this the
+    // runtime can tear the worker down the moment the handler returns its
+    // Response, dropping the in-flight fetch before it's sent — the chain then
+    // stalls until the cron backstop notices. EdgeRuntime is the Supabase
+    // (Deno Deploy) global; guard for envs (tests/local) that lack it.
+    const edgeRuntime = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
+    if (edgeRuntime?.waitUntil) {
+      edgeRuntime.waitUntil(continuePromise);
+    }
     console.log("selfContinue: fired non-blocking continue invocation");
   } catch (err) {
     console.warn("selfContinue error (non-fatal):", err);
