@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/integrations/supabase/client", () => ({
@@ -201,5 +201,58 @@ describe("AuthContext", () => {
       expect(screen.getByTestId("role").textContent).toBe("none")
     );
     expect(screen.getByTestId("user").textContent).toBe("none");
+  });
+
+  // Regression: the /builder flash. On SIGNED_IN, isLoading MUST return to true
+  // until the new user's role resolves. Otherwise a consumer like useRolePrefix()
+  // observes role=null with isLoading=false and falls back to the "/builder"
+  // default, redirecting a client to /builder/* before settling on /client/* — a
+  // visible flash that breaks the client redirect E2E (US-009).
+  it("re-enters loading on SIGNED_IN until the new role resolves (no /builder flash)", async () => {
+    let changeCallback!: (event: string, session: any) => void;
+
+    vi.mocked(supabase.auth.getSession).mockResolvedValue({
+      data: { session: null },
+      error: null,
+    } as any);
+    vi.mocked(supabase.auth.onAuthStateChange).mockImplementation((cb: any) => {
+      changeCallback = cb;
+      return { data: { subscription: mockUnsub } } as any;
+    });
+
+    // Deferred rpc so we can observe the window between sign-in and role resolution.
+    let resolveRole!: (v: any) => void;
+    vi.mocked(supabase.rpc).mockReturnValue(
+      new Promise((res) => {
+        resolveRole = res;
+      }) as any
+    );
+
+    render(
+      <AuthProvider>
+        <TestConsumer />
+      </AuthProvider>
+    );
+
+    // Initial no-user resolution settles loading to false.
+    await waitFor(() =>
+      expect(screen.queryByText("loading")).not.toBeInTheDocument()
+    );
+
+    // Sign in — loading must reappear while the role is pending.
+    await act(async () => {
+      changeCallback("SIGNED_IN", { user: { id: "u9", email: "client@brand.com" } });
+    });
+    expect(screen.getByText("loading")).toBeInTheDocument();
+
+    // Role resolves — loading clears and the role is the real client role.
+    await act(async () => {
+      resolveRole({ data: "client", error: null });
+    });
+    await waitFor(() =>
+      expect(screen.queryByText("loading")).not.toBeInTheDocument()
+    );
+    expect(screen.getByTestId("isClient").textContent).toBe("true");
+    expect(screen.getByTestId("isBuilder").textContent).toBe("false");
   });
 });
