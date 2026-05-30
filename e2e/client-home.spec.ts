@@ -14,20 +14,26 @@
  *   5. A draft-but-unpublished narrative is never shown to the client — only the
  *      published narrative path (or the onboarding empty state) appears.
  *
- * Authenticated checks require a real CLIENT-role test account in env:
+ * Authenticated checks require a real CLIENT-role test account in env. These
+ * use DEDICATED client credentials, distinct from the builder account that the
+ * rest of the suite (dashboard.spec.ts) uses, because the assertions are only
+ * meaningful for a real client-role user (effectiveClient = isClient ||
+ * isClientPreview, and the authoring controls are gated on the REAL role):
  *
- *   PLAYWRIGHT_TEST_EMAIL=client@example.com
- *   PLAYWRIGHT_TEST_PASSWORD=your-test-password
+ *   PLAYWRIGHT_CLIENT_EMAIL=client@example.com
+ *   PLAYWRIGHT_CLIENT_PASSWORD=your-client-test-password
  *   PLAYWRIGHT_BASE_URL=http://localhost:8080   (or staging URL)
  *
  * NOTE: the credentials MUST belong to a client-role user for these assertions
- * to be meaningful (effectiveClient = isClient || isClientPreview). The live
+ * to be meaningful. Client-preview mode is NOT a substitute: it is in-memory
+ * only (lost on navigation) and leaves isAuthor gated on the real role, so a
+ * builder-in-preview would still render authoring controls. The live
  * acceptance run is performed by the deploy/orchestration step, not here.
  */
 import { test, expect, type Page } from "@playwright/test";
 
-const TEST_EMAIL = process.env.PLAYWRIGHT_TEST_EMAIL || "";
-const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_PASSWORD || "";
+const TEST_EMAIL = process.env.PLAYWRIGHT_CLIENT_EMAIL || "";
+const TEST_PASSWORD = process.env.PLAYWRIGHT_CLIENT_PASSWORD || "";
 const hasCredentials = !!TEST_EMAIL && !!TEST_PASSWORD;
 
 /**
