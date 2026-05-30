@@ -176,7 +176,7 @@ function HookAngleLeaderboard() {
             <div className="flex items-baseline gap-2">
               <span className="text-sm text-muted-foreground">Tag coverage:</span>
               <span className="text-2xl font-bold text-foreground tabular-nums">
-                {Math.round(Number(data.coverage.tag_coverage_pct) || 0)}%
+                {(Number(data.coverage.tag_coverage_pct) || 0).toFixed(1)}%
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground tabular-nums">
