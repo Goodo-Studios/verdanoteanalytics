@@ -35,3 +35,6 @@ supabase/.temp/
 # Playwright
 playwright-report/
 test-results/
+
+# HQ orchestration scratch
+.file-locks.json
