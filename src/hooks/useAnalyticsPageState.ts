@@ -8,7 +8,7 @@ import { subDays, format } from "date-fns";
 export function useAnalyticsPageState() {
   const { selectedAccountId, selectedAccount } = useAccountContext();
   const [searchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "trends");
+  const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "leaderboard");
   const [selectedCreative, setSelectedCreative] = useState<any>(null);
   const [dateFrom, setDateFrom] = useState<string | undefined>(() => format(subDays(new Date(), 14), "yyyy-MM-dd"));
   const [dateTo, setDateTo] = useState<string | undefined>(() => format(subDays(new Date(), 1), "yyyy-MM-dd"));

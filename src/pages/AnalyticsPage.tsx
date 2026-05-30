@@ -15,6 +15,7 @@ import { TagInsightsTab } from "@/components/analytics/TagInsightsTab";
 import { VideoTab } from "@/components/analytics/VideoTab";
 
 import { CreativeDnaTab } from "@/components/analytics/CreativeDnaTab";
+import { LeaderboardTab } from "@/components/analytics/LeaderboardTab";
 
 import { useAnalyticsPageState } from "@/hooks/useAnalyticsPageState";
 import { useAuth } from "@/contexts/AuthContext";
@@ -56,8 +57,8 @@ const AnalyticsPage = () => {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="bg-transparent border-b border-border-light rounded-none p-0 h-auto gap-0 flex-wrap">
-        {["trends", "iterations", "taginsights", "dna", ...(canBenchmark ? ["video"] : [])].map((tab) => {
-            const labels: Record<string, string> = { taginsights: "Tag Insights", dna: "Creative DNA", video: "Video" };
+        {["leaderboard", "trends", "iterations", "taginsights", "dna", ...(canBenchmark ? ["video"] : [])].map((tab) => {
+            const labels: Record<string, string> = { leaderboard: "Leaderboard", taginsights: "Tag Insights", dna: "Creative DNA", video: "Video" };
             return (
               <TabsTrigger
                 key={tab}
@@ -70,6 +71,9 @@ const AnalyticsPage = () => {
           })}
         </TabsList>
 
+        <TabsContent value="leaderboard" className="space-y-4">
+          <LeaderboardTab />
+        </TabsContent>
         <TabsContent value="trends" className="space-y-4">
           <TrendsTab trendData={filteredTrendData} isLoading={trendsLoading} />
         </TabsContent>
