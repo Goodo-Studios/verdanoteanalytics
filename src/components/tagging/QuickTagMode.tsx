@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useUpdateCreative } from "@/hooks/useCreatives";
 import { TAG_OPTIONS_MAP } from "@/lib/tagOptions";
-import { inferTags, hasInferredTags } from "@/lib/autoTagger";
 import { extractConceptRoot } from "@/lib/conceptGrouping";
 import { cn } from "@/lib/utils";
 import { ChevronLeft, ChevronRight, X, Sparkles, LayoutGrid } from "lucide-react";
@@ -26,19 +25,11 @@ function getSuggestions(
 ): Record<string, { value: string; source: string }[]> {
   const suggestions: Record<string, { value: string; source: string }[]> = {};
 
-  // 1. Auto-tagger suggestions from ad name
-  const inferred = inferTags(creative.ad_name || "");
-  if (inferred.ad_type) {
-    suggestions.ad_type = [{ value: inferred.ad_type, source: "name" }];
-  }
-  if (inferred.hook) {
-    suggestions.hook = [{ value: inferred.hook, source: "name" }];
-  }
-  if (inferred.theme) {
-    suggestions.theme = [{ value: inferred.theme, source: "name" }];
-  }
+  // Name-based tag inference now happens server-side via the canonical parser
+  // + resolveTags (tag_source "parsed"/"csv_match"). Creatives shown here are
+  // untagged after that pass, so the only suggestions are sibling + pattern.
 
-  // 2. Same concept root → copy tags from siblings
+  // 1. Same concept root → copy tags from siblings
   const root = extractConceptRoot(creative.ad_name || "");
   const siblings = allCreatives.filter(
     (c) => c.ad_id !== creative.ad_id && extractConceptRoot(c.ad_name || "") === root && c.tag_source !== "untagged"
@@ -55,9 +46,9 @@ function getSuggestions(
     }
   }
 
-  // 3. Account pattern: if 80%+ of same format have a certain tag
+  // 2. Account pattern: if 80%+ of same format have a certain tag
   const sameFormat = allCreatives.filter(
-    (c) => c.ad_type && c.ad_type === (creative.ad_type || inferred.ad_type) && c.tag_source !== "untagged"
+    (c) => c.ad_type && c.ad_type === creative.ad_type && c.tag_source !== "untagged"
   );
   if (sameFormat.length >= 5) {
     for (const field of ["hook", "person", "style", "theme"] as const) {

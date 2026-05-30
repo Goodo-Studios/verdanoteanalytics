@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { AlertTriangle, CheckCircle2, FileWarning, Info, Copy, Download } from "lucide-react";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { loadNamingConfig, validateAdName, type NamingConventionConfig } from "@/components/settings/NamingConventionSection";
-import { inferTags } from "@/lib/autoTagger";
 import { downloadCSV } from "@/lib/csv";
 import { toast } from "sonner";
 
@@ -25,17 +24,15 @@ const AVAILABLE_TOKENS: Record<string, string> = {
   custom: "Custom Text",
 };
 
-/** Build a suggested name from the creative's existing data + auto-tagger inference */
+/** Build a suggested name from the creative's existing (server-resolved) tags */
 function buildSuggestion(creative: any, config: NamingConventionConfig, accountAbbr: string): string {
-  const inferred = inferTags(creative.ad_name || "");
-
   const tokenValue = (tokenId: string): string => {
     switch (tokenId) {
       case "account": return accountAbbr;
-      case "format": return creative.ad_type || inferred.ad_type || "Format";
-      case "hook": return creative.hook || inferred.hook || "Hook";
+      case "format": return creative.ad_type || "Format";
+      case "hook": return creative.hook || "Hook";
       case "hooktype": return "HookType";
-      case "angle": return creative.theme || inferred.theme || "Angle";
+      case "angle": return creative.theme || "Angle";
       case "creator": return creative.person || "Creator";
       case "version": return `v${creative.version || 1}`;
       case "date": {
