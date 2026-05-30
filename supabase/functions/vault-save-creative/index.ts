@@ -10,34 +10,12 @@
 // auth.uid() so the owner-scoped INSERT RLS policy from US-001 is satisfied.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
+// Pure save logic (sentinel filtering, snapshot shaping, dedupe decision) lives in
+// a dependency-free module so it can be unit-tested under Vitest (US-005).
+import { cleanUrl, dedupeDecision, extFor } from "../_shared/vault-save-logic.ts";
 
 const CHROME_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
-
-// Sentinel placeholders the analytics side stores when a media URL is absent.
-const SENTINELS = new Set(["no-thumbnail", "no-video"]);
-
-/** Returns the URL if it is a real, usable media URL — else null. */
-function cleanUrl(u: unknown): string | null {
-  if (typeof u !== "string") return null;
-  const v = u.trim();
-  if (!v || SENTINELS.has(v)) return null;
-  return v;
-}
-
-/** Pick a storage extension from a content-type, defaulting per media kind. */
-function extFor(contentType: string, kind: "image" | "video"): string {
-  const ct = contentType.toLowerCase();
-  if (kind === "video") {
-    if (ct.includes("webm")) return "webm";
-    if (ct.includes("quicktime") || ct.includes("mov")) return "mov";
-    return "mp4";
-  }
-  if (ct.includes("png")) return "png";
-  if (ct.includes("webp")) return "webp";
-  if (ct.includes("gif")) return "gif";
-  return "jpg";
-}
 
 /** Download a remote URL and upload it into inspiration-media. Throws on failure. */
 async function copyMedia(
@@ -107,8 +85,9 @@ Deno.serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
-    if (existing) {
-      return json({ ok: true, item_id: existing.id, already_saved: true });
+    const dedupe = dedupeDecision(existing);
+    if (dedupe.alreadySaved) {
+      return json({ ok: true, item_id: dedupe.itemId, already_saved: true });
     }
 
     // ─── Filter sentinels out of the media URLs before any use ────────────────
