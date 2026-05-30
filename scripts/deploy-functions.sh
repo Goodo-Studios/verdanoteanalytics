@@ -35,6 +35,7 @@ FUNCTIONS=(
   spend-diagnostic
   sync
   sync-coda-tasks
+  sync-coda-names
   system-health-check
   transcribe-ad
   user-management
