@@ -1,6 +1,7 @@
 import { useCodaTasks, CodaTask } from "@/hooks/useCodaTasks";
 import { differenceInDays, parseISO, format } from "date-fns";
-import { ExternalLink, CheckCircle2 } from "lucide-react";
+import { CheckCircle2, PackageOpen } from "lucide-react";
+import { ClientEmptyState } from "@/components/client/ClientEmptyState";
 
 const STAGE_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
   Planning: { color: "text-amber-500", bg: "bg-amber-500", label: "Planning" },
@@ -26,6 +27,12 @@ function dueDateLabel(dueDateStr: string | null): { text: string; urgent: boolea
   return { text: `Due ${format(due, "MMM d")}`, urgent: false };
 }
 
+/**
+ * A single pipeline item, framed in client language: what it is (content type),
+ * what stage it's at, and roughly when it lands. Intentionally READ-ONLY — no
+ * click handler, no link-out, no internal task IDs or strategist-only fields
+ * (US-007 AC2/AC3). The Coda URL on the task is deliberately NOT surfaced.
+ */
 function TaskRow({ task }: { task: CodaTask }) {
   const stage = task.stage || "Planning";
   const config = STAGE_CONFIG[stage] || DEFAULT_STAGE_CONFIG;
@@ -33,14 +40,7 @@ function TaskRow({ task }: { task: CodaTask }) {
   const dueInfo = !isComplete ? dueDateLabel(task.due_date) : null;
 
   return (
-    <div
-      className={`group flex items-start gap-3 px-4 py-3 rounded-[6px] transition-colors ${
-        task.coda_url ? "cursor-pointer hover:bg-accent/50" : ""
-      }`}
-      onClick={() => {
-        if (task.coda_url) window.open(task.coda_url, "_blank", "noopener");
-      }}
-    >
+    <div className="flex items-start gap-3 px-4 py-3 rounded-[6px]">
       {/* Stage dot */}
       <div className={`mt-1.5 h-2.5 w-2.5 rounded-full shrink-0 ${config.bg}`} />
 
@@ -67,17 +67,32 @@ function TaskRow({ task }: { task: CodaTask }) {
           </p>
         )}
       </div>
-
-      {task.coda_url && (
-        <ExternalLink className="h-3.5 w-3.5 mt-1.5 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-      )}
     </div>
   );
 }
 
-export function ContentPipeline({ accountId }: { accountId: string }) {
-  const { data: tasks, isLoading } = useCodaTasks(accountId);
-
+/**
+ * Pure, READ-ONLY presentational view of the content pipeline (US-007).
+ *
+ * Renders a transparency-only "what we're making next" surface. There are NO
+ * comment / approve / request-changes / upload affordances and no link-out /
+ * click-to-open interaction controls (out of scope for Phase C, AC2). When data
+ * is unavailable — loading, fetch error, or simply nothing in production — the
+ * section degrades to a friendly empty/onboarding state rather than erroring
+ * (AC4/AC5), consistent with the rest of the client home.
+ *
+ * Takes its data as plain props so it can be rendered (and tested) without a
+ * QueryClient. The exported `ContentPipeline` wraps it with `useCodaTasks`.
+ */
+export function ContentPipelineView({
+  tasks,
+  isLoading,
+  isError,
+}: {
+  tasks?: CodaTask[];
+  isLoading?: boolean;
+  isError?: boolean;
+}) {
   if (isLoading) {
     return (
       <div className="glass-panel p-7">
@@ -91,11 +106,18 @@ export function ContentPipeline({ accountId }: { accountId: string }) {
     );
   }
 
-  if (!tasks?.length) {
+  // AC4/AC5: no data for this account — whether the fetch failed or the
+  // pipeline is simply empty — degrades to the same calm, first-class
+  // onboarding state (US-006) instead of surfacing an error.
+  if (isError || !tasks?.length) {
     return (
       <div className="glass-panel p-7">
         <h2 className="font-heading text-[20px] text-foreground mb-4">Content Pipeline</h2>
-        <p className="font-body text-[14px] text-muted-foreground italic">No active content in pipeline</p>
+        <ClientEmptyState
+          icon={PackageOpen}
+          heading="Nothing in production right now — your strategist will queue the next round"
+          subcopy="When new creative is planned and underway, you&rsquo;ll see exactly what&rsquo;s coming next right here."
+        />
       </div>
     );
   }
@@ -121,4 +143,13 @@ export function ContentPipeline({ accountId }: { accountId: string }) {
       </div>
     </div>
   );
+}
+
+/**
+ * Read-only client view of in-flight + upcoming creative (US-007). Self-fetches
+ * via `useCodaTasks` and delegates rendering to `ContentPipelineView`.
+ */
+export function ContentPipeline({ accountId }: { accountId: string }) {
+  const { data: tasks, isLoading, isError } = useCodaTasks(accountId);
+  return <ContentPipelineView tasks={tasks} isLoading={isLoading} isError={isError} />;
 }
