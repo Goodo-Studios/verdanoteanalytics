@@ -34,6 +34,7 @@ type Creative = Database["public"]["Tables"]["creatives"]["Row"];
 import { toast } from "sonner";
 import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { useQueryClient } from "@tanstack/react-query";
+import { saveCreativeToVault } from "@/lib/vaultSave";
 
 
 
@@ -289,50 +290,22 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
   // Save this analytics creative into the global Creative Vault via the
   // vault-save-creative edge function (US-002). Uses cached media when available
   // so the vault gets a usable copy even when the source video was just fetched.
+  // Snapshot shaping + invoke live in the shared saveCreativeToVault helper,
+  // reused by the analytics-grid bulk save (US-004).
   const handleSaveToVault = async () => {
     setSavingToVault(true);
     try {
-      const performance_snapshot = {
-        spend: creative.spend ?? null,
-        roas: creative.roas ?? null,
-        cpa: creative.cpa ?? null,
-        cpc: creative.cpc ?? null,
-        cpm: creative.cpm ?? null,
-        ctr: creative.ctr ?? null,
-        thumb_stop_rate: creative.thumb_stop_rate ?? null,
-        hold_rate: creative.hold_rate ?? null,
-        frequency: creative.frequency ?? null,
-        impressions: creative.impressions ?? null,
-        clicks: creative.clicks ?? null,
-        purchases: creative.purchases ?? null,
-        purchase_value: creative.purchase_value ?? null,
-        video_views: creative.video_views ?? null,
-        video_avg_play_time: creative.video_avg_play_time ?? null,
-        retention_p25: creative.retention_p25 ?? null,
-        retention_p50: creative.retention_p50 ?? null,
-        retention_p75: creative.retention_p75 ?? null,
-        retention_p100: creative.retention_p100 ?? null,
-        play_curve: creative.play_curve ?? null,
-        captured_at: new Date().toISOString(),
-      };
-
-      const { data, error } = await supabase.functions.invoke("vault-save-creative", {
-        body: {
-          ad_id: creative.ad_id,
-          account_id: creative.account_id,
-          ad_name: creative.ad_name,
-          platform: creative.platform,
-          full_res_url: displayCreative.full_res_url,
-          video_url: displayCreative.video_url,
-          thumbnail_url: displayCreative.thumbnail_url,
-          performance_snapshot,
-        },
+      // Build the metric snapshot from the source creative, but send the
+      // (possibly freshly cached) display media URLs so the vault gets a copy.
+      const result = await saveCreativeToVault({
+        ...creative,
+        full_res_url: displayCreative.full_res_url,
+        video_url: displayCreative.video_url,
+        thumbnail_url: displayCreative.thumbnail_url,
       });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
 
       setSavedToVault(true);
-      if (data?.already_saved) {
+      if (result.alreadySaved) {
         setAlreadyInVault(true);
         toast.success("Already in Vault");
       } else {

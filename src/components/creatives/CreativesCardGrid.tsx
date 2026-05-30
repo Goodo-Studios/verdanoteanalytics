@@ -21,7 +21,11 @@ interface CreativesCardGridProps {
   wowTrends?: Map<string, WoWTrend>;
   gradeMap?: Map<string, GradeInfo>;
   fatigueMap?: Map<string, FatigueResult>;
-  
+  // Bulk multi-select (US-004): when provided, each card shows a selection
+  // checkbox and clicking the card toggles selection instead of opening detail.
+  bulkSelectedIds?: Set<string>;
+  onBulkToggle?: (adId: string) => void;
+
   hoveredCards?: Map<string, CardPresenceUser[]>;
   onCardHover?: (adId: string | null) => void;
 }
@@ -55,23 +59,32 @@ function roasColor(roas: number | null | undefined): string {
   return "text-charcoal";
 }
 
-export function CreativesCardGrid({ creatives, onSelect, compareMode = false, compareIds = new Set(), wowTrends, gradeMap, fatigueMap, hoveredCards, onCardHover }: CreativesCardGridProps) {
+export function CreativesCardGrid({ creatives, onSelect, compareMode = false, compareIds = new Set(), wowTrends, gradeMap, fatigueMap, bulkSelectedIds, onBulkToggle, hoveredCards, onCardHover }: CreativesCardGridProps) {
+  const bulkMode = !!onBulkToggle;
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {creatives.map((c: any) => {
         const isSelected = compareIds.has(c.ad_id);
+        const isBulkSelected = !!bulkSelectedIds?.has(c.ad_id);
         const isDisabled = compareMode && !isSelected && compareIds.size >= 3;
         const viewers = hoveredCards?.get(c.ad_id);
+        const handleCardClick = () => {
+          if (isDisabled) return;
+          if (compareMode) { onSelect(c); return; }
+          if (bulkMode) { onBulkToggle!(c.ad_id); return; }
+          onSelect(c);
+        };
         return (
           <div
             key={c.ad_id}
             className={cn(
               "bg-card border rounded-card shadow-card cursor-pointer transition-[box-shadow,ring] duration-150 ease hover:shadow-card-hover relative",
               compareMode && isSelected ? "border-verdant border-2" : "border-border-light",
+              bulkMode && isBulkSelected && "border-verdant border-2",
               isDisabled && "opacity-50 cursor-not-allowed",
               viewers && viewers.length > 0 && "ring-2 ring-primary/40",
             )}
-            onClick={() => !isDisabled && onSelect(c)}
+            onClick={handleCardClick}
             onMouseEnter={() => onCardHover?.(c.ad_id)}
             onMouseLeave={() => onCardHover?.(null)}
           >
@@ -95,6 +108,18 @@ export function CreativesCardGrid({ creatives, onSelect, compareMode = false, co
                   checked={isSelected}
                   disabled={isDisabled}
                   onCheckedChange={() => !isDisabled && onSelect(c)}
+                  className="h-5 w-5 bg-white/90 data-[state=checked]:bg-verdant data-[state=checked]:border-verdant shadow-sm"
+                />
+              </div>
+            )}
+
+            {/* Bulk-select checkbox (US-004) — only when not in compare mode */}
+            {bulkMode && !compareMode && (
+              <div className="absolute top-2 right-2 z-10" onClick={(e) => e.stopPropagation()}>
+                <Checkbox
+                  checked={isBulkSelected}
+                  onCheckedChange={() => onBulkToggle!(c.ad_id)}
+                  aria-label="Select creative"
                   className="h-5 w-5 bg-white/90 data-[state=checked]:bg-verdant data-[state=checked]:border-verdant shadow-sm"
                 />
               </div>
