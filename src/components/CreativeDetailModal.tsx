@@ -9,6 +9,7 @@ import { useState, forwardRef, useEffect } from "react";
 import { useCachedMedia } from "@/hooks/useCachedMedia";
 
 import { CreativeMetrics } from "@/components/creative-detail/CreativeMetrics";
+import { RetentionCurveChart } from "@/components/creative-detail/RetentionCurveChart";
 import { CreativeTagEditor } from "@/components/creative-detail/CreativeTagEditor";
 import { CreativeIterationAnalysis } from "@/components/creative-detail/CreativeIterationAnalysis";
 
@@ -288,6 +289,9 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
 
           <TabsContent value="details" className="space-y-4 mt-4">
             <CreativeMetrics creative={creative} />
+
+            {/* Frame-by-frame retention drop-off (US-004) — reads creative.play_curve */}
+            <RetentionCurveChart creative={creative} />
 
             {/* Iteration Analysis - right after metrics */}
             <CreativeIterationAnalysis creative={creative} allCreatives={allCreatives} />
