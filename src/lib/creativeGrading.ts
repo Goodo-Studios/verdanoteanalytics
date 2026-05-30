@@ -2,7 +2,7 @@ export type Grade = "A" | "B" | "C" | "D" | "F";
 
 export interface GradeInfo {
   grade: Grade;
-  roasPercentile: number; // 0-100, higher = better
+  spendPercentile: number; // 0-100, higher = more spend = better
 }
 
 export interface GradeStyle {
@@ -19,23 +19,23 @@ export const GRADE_STYLES: Record<Grade, GradeStyle> = {
 };
 
 /**
- * Compute percentile thresholds and grade each creative.
+ * Grade each creative purely by spend percentile within the account.
+ *
+ * Thesis: Meta allocates spend to the ads it predicts will perform best, so
+ * spend itself is the truth signal. The more spend an ad carries relative to
+ * its peers, the higher its grade. ROAS/CTR are intentionally NOT factored in.
+ *
+ * Only ads with spend > 0 are graded; an ad Meta hasn't backed has no grade.
  * Returns a Map<ad_id, GradeInfo>.
  */
-export function gradeCreatives(
-  creatives: any[],
-  killThreshold: number = 1.0
-): Map<string, GradeInfo> {
+export function gradeCreatives(creatives: any[]): Map<string, GradeInfo> {
   const grades = new Map<string, GradeInfo>();
   const withSpend = creatives.filter((c) => (Number(c.spend) || 0) > 0);
   if (withSpend.length === 0) return grades;
 
-  // Sort ROAS values ascending for percentile calculation
-  const roasValues = withSpend
-    .map((c) => Number(c.roas) || 0)
-    .sort((a, b) => a - b);
-  const ctrValues = withSpend
-    .map((c) => Number(c.ctr) || 0)
+  // Sort spend values ascending for percentile calculation
+  const spendValues = withSpend
+    .map((c) => Number(c.spend) || 0)
     .sort((a, b) => a - b);
 
   const percentile = (sorted: number[], value: number): number => {
@@ -47,28 +47,24 @@ export function gradeCreatives(
     return (count / sorted.length) * 100;
   };
 
-  const median = roasValues[Math.floor(roasValues.length / 2)];
-
-  for (const c of creatives) {
-    const roas = Number(c.roas) || 0;
-    const ctr = Number(c.ctr) || 0;
-    const roasPct = percentile(roasValues, roas);
-    const ctrPct = percentile(ctrValues, ctr);
+  for (const c of withSpend) {
+    const spend = Number(c.spend) || 0;
+    const spendPct = percentile(spendValues, spend);
 
     let grade: Grade;
-    if (roas < killThreshold) {
-      grade = "F";
-    } else if (roasPct >= 80 && ctrPct >= 70) {
+    if (spendPct >= 80) {
       grade = "A";
-    } else if (roasPct >= 60) {
+    } else if (spendPct >= 60) {
       grade = "B";
-    } else if (roas >= median * 0.8) {
+    } else if (spendPct >= 40) {
       grade = "C";
-    } else {
+    } else if (spendPct >= 20) {
       grade = "D";
+    } else {
+      grade = "F";
     }
 
-    grades.set(c.ad_id, { grade, roasPercentile: Math.round(roasPct) });
+    grades.set(c.ad_id, { grade, spendPercentile: Math.round(spendPct) });
   }
 
   return grades;

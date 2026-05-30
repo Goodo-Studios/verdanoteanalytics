@@ -112,10 +112,8 @@ const CreativesPage = () => {
   const syncMut = useSync();
   const isSyncing = useIsSyncing();
 
-  // Compute grades from current page data
-  const selectedAccountData = (creativesResult as any)?.accountSettings;
-  const killThreshold = selectedAccountData?.kill_threshold ?? 1.0;
-  const gradeMap = useMemo(() => gradeCreatives(creatives, killThreshold), [creatives, killThreshold]);
+  // Compute grades from current page data (pure spend percentile)
+  const gradeMap = useMemo(() => gradeCreatives(creatives), [creatives]);
 
   // Compute fatigue scores
   const fatigueMap = useMemo(() => computeFatigueMap(creatives, wowTrends), [creatives, wowTrends]);

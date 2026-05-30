@@ -13,7 +13,6 @@ import { fmt$ } from "@/lib/formatters";
 
 interface VideoTabProps {
   creatives: any[];
-  killThreshold?: number;
   onCreativeClick?: (c: any) => void;
 }
 
@@ -28,13 +27,13 @@ const GRADE_COLORS: Record<Grade, string> = {
 
 function pct(n: number) { return `${(n * 100).toFixed(1)}%`; }
 
-export function VideoTab({ creatives, killThreshold = 1.0, onCreativeClick }: VideoTabProps) {
+export function VideoTab({ creatives, onCreativeClick }: VideoTabProps) {
   const [sort, setSort] = useState<SortConfig>({ key: "hook_rate", direction: "desc" });
   const [hoveredBubble, setHoveredBubble] = useState<string | null>(null);
   const [minSpendOverride, setMinSpendOverride] = useState<string>("");
   const effectiveMinSpend = minSpendOverride !== "" ? Math.max(0, Number(minSpendOverride) || 0) : 100;
 
-  const grades = useMemo(() => gradeCreatives(creatives, killThreshold), [creatives, killThreshold]);
+  const grades = useMemo(() => gradeCreatives(creatives), [creatives]);
 
   // Filter to video creatives and compute video metrics
   const videoCreatives = useMemo(() => {

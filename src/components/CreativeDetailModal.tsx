@@ -296,7 +296,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
               <div className="flex items-center gap-2 px-1">
                 <GradeBadge grade={gradeMap.get(creative.ad_id)!.grade} />
                 <span className="font-body text-[12px] text-muted-foreground">
-                  This creative ranks in the top {100 - gradeMap.get(creative.ad_id)!.roasPercentile}% for ROAS in this account.
+                  This creative ranks in the top {100 - gradeMap.get(creative.ad_id)!.spendPercentile}% for spend in this account.
                 </span>
               </div>
             )}
