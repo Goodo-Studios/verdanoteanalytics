@@ -50,6 +50,7 @@ FUNCTIONS=(
   vault-extract-webhook
   vault-frame-analyze
   vault-save
+  vault-save-creative
   vault-search
   vault-slack-connect
   vault-slack-events

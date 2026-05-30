@@ -88,6 +88,11 @@ verify_jwt = false
 [functions.vault-save]
 verify_jwt = true
 
+# Save an analytics creative into the global vault (save-ad-to-vault US-002).
+# Called from the browser with the end-user JWT — verify it.
+[functions.vault-save-creative]
+verify_jwt = true
+
 [functions.vault-ads]
 verify_jwt = true
 
