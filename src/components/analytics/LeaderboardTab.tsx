@@ -19,8 +19,9 @@ function fmtRoas(n: number): string {
 }
 
 function fmtCtr(n: number): string {
-  // avg_ctr arrives as a fraction (e.g. 0.0123); render as a percentage.
-  return `${((Number(n) || 0) * 100).toFixed(2)}%`;
+  // avg_ctr is already a percentage (Meta's `ctr` field, e.g. 1.67 = 1.67%) —
+  // same convention as creatives.ctr everywhere else in the app. Do NOT ×100.
+  return `${(Number(n) || 0).toFixed(2)}%`;
 }
 
 /** Ranked own-ad hook/angle leaderboard. Numbers come verbatim from the
