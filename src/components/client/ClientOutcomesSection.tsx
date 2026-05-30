@@ -1,6 +1,7 @@
 import { useMemo } from "react";
-import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, LineChart } from "lucide-react";
 import { MultiLineTrendChart, type TrendLine } from "@/components/MultiLineTrendChart";
+import { ClientEmptyState } from "@/components/client/ClientEmptyState";
 import type { PeriodMetrics } from "@/hooks/usePeriodMetrics";
 import type { DailyTrendPoint } from "@/hooks/useDailyTrends";
 import { cn } from "@/lib/utils";
@@ -172,6 +173,14 @@ export function ClientOutcomesSection({
 
   const dates = useMemo(() => (trend ? trend.map((p) => p.date) : []), [trend]);
 
+  // US-006: a brand-new client (or the first days of a month) has no outcomes
+  // yet. Rather than a wall of zeros, greet them with a first-class onboarding
+  // state. "No metrics" = no spend, no revenue, and no purchases recorded.
+  const hasOutcomes =
+    metrics.totalSpend > 0 ||
+    metrics.totalPurchaseValue > 0 ||
+    metrics.totalPurchases > 0;
+
   return (
     <div className="space-y-5" data-testid="client-outcomes">
       <div className="flex items-baseline justify-between gap-3">
@@ -198,6 +207,12 @@ export function ClientOutcomesSection({
             />
           ))}
         </div>
+      ) : !hasOutcomes ? (
+        <ClientEmptyState
+          icon={LineChart}
+          heading="Your first results will appear here"
+          subcopy="As soon as your ads start spending and driving sales, your revenue, spend, and return will show up in this spot."
+        />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <OutcomeCard
@@ -223,6 +238,7 @@ export function ClientOutcomesSection({
         </div>
       )}
 
+      {hasOutcomes && (
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <h3 className="font-heading text-[16px] text-forest">How it&rsquo;s trending</h3>
@@ -242,6 +258,7 @@ export function ClientOutcomesSection({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

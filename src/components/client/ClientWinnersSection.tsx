@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Image as ImageIcon, Loader2 } from "lucide-react";
+import { Image as ImageIcon, Loader2, Trophy } from "lucide-react";
 import { useCachedMedia } from "@/hooks/useCachedMedia";
+import { ClientEmptyState } from "@/components/client/ClientEmptyState";
 
 /**
  * The shape a winner card needs. Intentionally narrow + client-safe: only the
@@ -189,11 +190,11 @@ export function ClientWinnersSection({ winners, isLoading }: ClientWinnersSectio
           ))}
         </div>
       ) : winners.length === 0 ? (
-        <div className="bg-card border border-border-light rounded-[8px] p-8 text-center">
-          <p className="font-body text-[13px] text-slate">
-            No standout winners yet — we&rsquo;ll surface your top ads here as results come in.
-          </p>
-        </div>
+        <ClientEmptyState
+          icon={Trophy}
+          heading="Winners show up here once your creatives gather enough data"
+          subcopy="As your ads run and results come in, your top performers will appear here — ready to watch."
+        />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {winners.map((ad) => (

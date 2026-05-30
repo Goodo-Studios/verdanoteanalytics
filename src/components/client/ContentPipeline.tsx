@@ -1,6 +1,7 @@
 import { useCodaTasks, CodaTask } from "@/hooks/useCodaTasks";
 import { differenceInDays, parseISO, format } from "date-fns";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, PackageOpen } from "lucide-react";
+import { ClientEmptyState } from "@/components/client/ClientEmptyState";
 
 const STAGE_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
   Planning: { color: "text-amber-500", bg: "bg-amber-500", label: "Planning" },
@@ -106,15 +107,17 @@ export function ContentPipelineView({
   }
 
   // AC4/AC5: no data for this account — whether the fetch failed or the
-  // pipeline is simply empty — degrades to the same calm onboarding state
-  // instead of surfacing an error.
+  // pipeline is simply empty — degrades to the same calm, first-class
+  // onboarding state (US-006) instead of surfacing an error.
   if (isError || !tasks?.length) {
     return (
       <div className="glass-panel p-7">
         <h2 className="font-heading text-[20px] text-foreground mb-4">Content Pipeline</h2>
-        <p className="font-body text-[14px] text-muted-foreground italic">
-          Nothing in production yet — new creative will show up here as we plan and build it.
-        </p>
+        <ClientEmptyState
+          icon={PackageOpen}
+          heading="Nothing in production right now — your strategist will queue the next round"
+          subcopy="When new creative is planned and underway, you&rsquo;ll see exactly what&rsquo;s coming next right here."
+        />
       </div>
     );
   }

@@ -118,6 +118,8 @@ describe("ClientWinnersSection (US-004)", () => {
 
   it("renders a friendly empty state when there are no winners", () => {
     render(<ClientWinnersSection winners={[]} />);
-    expect(screen.getByText(/No standout winners yet/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Winners show up here once your creatives gather enough data/i),
+    ).toBeInTheDocument();
   });
 });

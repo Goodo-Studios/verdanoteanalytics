@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Loader2 } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { ClientEmptyState } from "@/components/client/ClientEmptyState";
 
 /**
  * "This Period's Highlights" — AI-drafted, strategist-published narrative (US-005).
@@ -75,9 +76,11 @@ export function ClientHighlightsSection({
         </div>
       ) : (
         !isAuthor && (
-          <p className="font-body text-[14px] text-muted-foreground italic">
-            Your strategist is preparing your first highlights — they&rsquo;ll appear here soon.
-          </p>
+          <ClientEmptyState
+            icon={Sparkles}
+            heading="Your strategist is preparing your first highlights"
+            subcopy="A short, plain-language recap of how your creative is performing will land here once it&rsquo;s ready."
+          />
         )
       )}
 

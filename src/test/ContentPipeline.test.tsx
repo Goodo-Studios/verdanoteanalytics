@@ -83,13 +83,13 @@ describe("ContentPipeline (US-007)", () => {
 
   it("degrades to a calm onboarding state when there is no data (AC4)", () => {
     render(<ContentPipelineView tasks={[]} isLoading={false} isError={false} />);
-    expect(screen.getByText(/Nothing in production yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing in production right now/i)).toBeInTheDocument();
   });
 
   it("degrades to the same onboarding state on fetch error rather than erroring (AC5)", () => {
     render(
       <ContentPipelineView tasks={undefined} isLoading={false} isError={true} />,
     );
-    expect(screen.getByText(/Nothing in production yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing in production right now/i)).toBeInTheDocument();
   });
 });

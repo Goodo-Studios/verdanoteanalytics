@@ -1,8 +1,10 @@
+import { PackageOpen } from "lucide-react";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { ClientOutcomesContainer } from "@/components/client/ClientOutcomesContainer";
 import { ClientWinnersContainer } from "@/components/client/ClientWinnersContainer";
 import { ClientHighlightsContainer } from "@/components/client/ClientHighlightsContainer";
 import { ContentPipeline } from "@/components/client/ContentPipeline";
+import { ClientEmptyState } from "@/components/client/ClientEmptyState";
 
 /**
  * Client Home — the purpose-built landing page for brand-owner clients.
@@ -70,9 +72,11 @@ const ClientHomePage = () => {
         ) : (
           <div className="glass-panel p-7">
             <h2 className="font-heading text-[20px] text-foreground mb-4">Content Pipeline</h2>
-            <p className="font-body text-[14px] text-muted-foreground italic">
-              Nothing in production yet — new creative will show up here as we plan and build it.
-            </p>
+            <ClientEmptyState
+              icon={PackageOpen}
+              heading="Nothing in production right now — your strategist will queue the next round"
+              subcopy="When new creative is planned and underway, you&rsquo;ll see exactly what&rsquo;s coming next right here."
+            />
           </div>
         )}
       </section>
