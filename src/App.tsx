@@ -25,6 +25,7 @@ import UpdatePasswordPage from "./pages/UpdatePasswordPage";
 // their import thunks with the hover-prefetch registry (src/lib/routePrefetch)
 // so a hovered tab and its eventual mount resolve to one fetch.
 const OverviewPage = lazy(routeImports.overview);
+const ClientHomePage = lazy(routeImports.clientHome);
 const CreativesPage = lazy(routeImports.creatives);
 
 const AnalyticsPage = lazy(routeImports.analytics);
@@ -121,11 +122,11 @@ function RoleGuardedRoutes() {
       <AppLayout>
         <Suspense fallback={<PageSkeleton />}>
         <Routes>
-          <Route path="/" element={agencyHome ? <AgencyDashboardPage /> : <OverviewPage />} />
+          <Route path="/" element={effectiveClient ? <ClientHomePage /> : agencyHome ? <AgencyDashboardPage /> : <OverviewPage />} />
           <Route path="/agency" element={isBuilder ? <AgencyDashboardPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/creatives" element={<CreativesPage />} />
-          <Route path="/creatives/compare" element={<ComparePage />} />
-          <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/creatives" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <CreativesPage />} />
+          <Route path="/creatives/compare" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <ComparePage />} />
+          <Route path="/analytics" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <AnalyticsPage />} />
           <Route path="/tagging" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <TaggingPage />} />
           
           <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : <ReportsPage />} />

@@ -72,10 +72,11 @@ const builderSections: NavSection[] = [
   },
 ];
 
+// Client surface: purpose-built Home + read-only Content Pipeline + Reports.
+// Internal strategist surfaces (Creatives, Analytics, Tagging, Briefs, Vault)
+// never render for clients — see route guards in App.tsx.
 const clientNavItems: NavItem[] = [
-  { title: "Overview", url: "/", icon: LayoutGrid },
-  { title: "Creatives", url: "/creatives", icon: Zap },
-  { title: "Analytics", url: "/analytics", icon: BarChart3 },
+  { title: "Home", url: "/", icon: LayoutGrid },
   { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
   { title: "Reports", url: "/reports", icon: FileText },
 ];
