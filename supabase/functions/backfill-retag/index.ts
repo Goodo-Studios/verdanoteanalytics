@@ -14,6 +14,17 @@
 // canonical values ('parsed','csv_match') are skipped, and 'manual' rows are
 // NEVER selected, so a human override can never be overwritten.
 //
+// NO-DEMOTE INVARIANT (US-001): a row whose CURRENT tag_source is a legacy
+// auto-tag ('inferred' or 'csv') is NEVER rewritten down to 'untagged'. If the
+// fresh resolution for such a row yields tag_source==='untagged', the row is
+// SKIPPED and counted as a 'protected' no-op — it keeps its existing legacy tag.
+// This makes the 1218->0 regression (foundation-autotag-api US-009: a blind
+// global-default re-tag demoted ~1218 'inferred' rows to 'untagged') structurally
+// impossible across all 15 global-default accounts. Only STRICT UPGRADES still
+// write for these rows: ('inferred'|'csv'|'untagged') -> ('parsed'|'csv_match').
+// Pure 'untagged' -> 'untagged' is unchanged (existing behavior); 'manual' stays
+// query-gated out. Together these guarantee tag coverage can only hold or rise.
+//
 // IDEMPOTENT + PROGRESSIVELY DRAINABLE: a row is written only when its resolved
 // tags actually differ from what's stored. Rows that flip to parsed/csv_match
 // leave the gate permanently; genuinely-untaggable rows stay 'untagged' and the
@@ -82,8 +93,8 @@ const PAGE = 500;          // rows fetched per page
 const UPDATE_CHUNK = 200;  // ad_ids per signature-batched update
 const DEADLINE_MS = 50_000; // per-invocation wall budget (edge fn ~60s)
 
-interface Counters { scanned: number; updated: number; unchanged: number; still_untagged: number; errors: number; }
-function newCounters(): Counters { return { scanned: 0, updated: 0, unchanged: 0, still_untagged: 0, errors: 0 }; }
+interface Counters { scanned: number; updated: number; unchanged: number; still_untagged: number; protected: number; errors: number; }
+function newCounters(): Counters { return { scanned: 0, updated: 0, unchanged: 0, still_untagged: 0, protected: 0, errors: 0 }; }
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -172,10 +183,17 @@ Deno.serve(async (req) => {
             DIMS.some((d) => (tags[d] ?? null) !== (c[d as keyof typeof c] ?? null));
 
           if (tag_source === "untagged") {
+            // NO-DEMOTE INVARIANT (US-001): never rewrite a legacy auto-tagged
+            // row ('inferred'|'csv') down to 'untagged'. Such a row keeps its
+            // existing tag and is counted as a protected no-op — this is what
+            // makes the 1218->0 demotion regression structurally impossible.
+            if (c.tag_source === "inferred" || c.tag_source === "csv") {
+              counters.protected++;
+              continue;
+            }
             counters.still_untagged++;
-            // A row stuck at the legacy 'csv'/'inferred' source with no resolvable
-            // tags is normalised to the new canonical 'untagged' (a real change);
-            // an already-'untagged' row with no change is left alone.
+            // A pure 'untagged' row that resolves to 'untagged' is left alone;
+            // there is never anything to write here (no upgrade available).
             if (!changed) continue;
           }
 
@@ -243,6 +261,7 @@ Deno.serve(async (req) => {
         updated: acc.updated + c.updated,
         unchanged: acc.unchanged + c.unchanged,
         still_untagged: acc.still_untagged + c.still_untagged,
+        protected: acc.protected + c.protected,
         errors: acc.errors + c.errors,
       }),
       newCounters(),
