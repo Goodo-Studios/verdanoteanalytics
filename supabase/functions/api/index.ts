@@ -299,7 +299,71 @@ serve(withApiAuth(async (req, { userId, permissions, keyId }) => {
       });
     }
 
-    return new Response(JSON.stringify({ error: "Not found", available_endpoints: ["/accounts", "/creatives", "/creatives/:id", "/metrics", "/summary", "/sync"] }), {
+    // GET /api/library — spend-ranked hook/angle leaderboard + coverage header.
+    // Serves BOTH dimensions via ?dimension=hook|theme (theme == angle).
+    // Aggregation/ranking lives ONLY in the RPCs (single source of truth); we
+    // return the leaderboard rows in RPC order verbatim — no JS re-sort/re-rank.
+    if (resource === "library" && req.method === "GET") {
+      const accountId = url.searchParams.get("account_id");
+      if (!accountId) {
+        return new Response(JSON.stringify({ error: "account_id is required" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const allowed = await verifyAccountOwnership(supabase, userId, accountId);
+      if (!allowed) {
+        return new Response(JSON.stringify({ error: "Access denied" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const dimension = url.searchParams.get("dimension") || "hook";
+      if (dimension !== "hook" && dimension !== "theme") {
+        return new Response(
+          JSON.stringify({ error: "Invalid dimension — expected 'hook' or 'theme' (theme = angle)" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const limit = Math.min(parseInt(url.searchParams.get("limit") || "100"), 500);
+
+      const [leaderboard, coverage] = await Promise.all([
+        supabase.rpc("rpc_hook_angle_leaderboard", {
+          p_account_id: accountId,
+          p_dimension: dimension,
+          p_limit: limit,
+        }),
+        supabase.rpc("rpc_hook_angle_coverage", {
+          p_account_id: accountId,
+          p_dimension: dimension,
+        }),
+      ]);
+
+      if (leaderboard.error) throw leaderboard.error;
+      if (coverage.error) throw coverage.error;
+
+      // rpc_hook_angle_coverage returns a single-row table; take the first row.
+      const coverageRow = (coverage.data && coverage.data[0]) || {
+        total_spend: 0, tagged_spend: 0, untagged_spend: 0, tag_coverage_pct: 0,
+      };
+
+      return new Response(JSON.stringify({
+        dimension,
+        coverage: {
+          total_spend: coverageRow.total_spend,
+          tagged_spend: coverageRow.tagged_spend,
+          untagged_spend: coverageRow.untagged_spend,
+          tag_coverage_pct: coverageRow.tag_coverage_pct,
+        },
+        // Preserve RPC ordering verbatim (is_untagged ASC, total_spend DESC).
+        rows: leaderboard.data ?? [],
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ error: "Not found", available_endpoints: ["/accounts", "/creatives", "/creatives/:id", "/metrics", "/summary", "/library", "/sync"] }), {
       status: 404,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
