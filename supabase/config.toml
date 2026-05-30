@@ -56,6 +56,12 @@ verify_jwt = false
 [functions.backfill-retag]
 verify_jwt = false
 
+# US-003: one-time backfill of frame-retention curves for historical video
+# creatives. Invoked manually (or by an internal caller) with the service-role
+# bearer — no end-user JWT.
+[functions.backfill-play-curves]
+verify_jwt = false
+
 [functions.system-health-check]
 verify_jwt = false
 
