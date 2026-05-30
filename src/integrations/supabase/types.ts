@@ -1252,12 +1252,17 @@ export type Database = {
           parent_ad_id: string | null
           person: string | null
           platform: string
+          play_curve: Json | null
           preview_url: string | null
           prior_roas: number | null
           product: string | null
           purchase_value: number | null
           purchases: number | null
           result_type: string | null
+          retention_p100: number | null
+          retention_p25: number | null
+          retention_p50: number | null
+          retention_p75: number | null
           roas: number | null
           scheduled_launch_date: string | null
           spend: number | null
@@ -1308,12 +1313,17 @@ export type Database = {
           parent_ad_id?: string | null
           person?: string | null
           platform?: string
+          play_curve?: Json | null
           preview_url?: string | null
           prior_roas?: number | null
           product?: string | null
           purchase_value?: number | null
           purchases?: number | null
           result_type?: string | null
+          retention_p100?: number | null
+          retention_p25?: number | null
+          retention_p50?: number | null
+          retention_p75?: number | null
           roas?: number | null
           scheduled_launch_date?: string | null
           spend?: number | null
@@ -1364,12 +1374,17 @@ export type Database = {
           parent_ad_id?: string | null
           person?: string | null
           platform?: string
+          play_curve?: Json | null
           preview_url?: string | null
           prior_roas?: number | null
           product?: string | null
           purchase_value?: number | null
           purchases?: number | null
           result_type?: string | null
+          retention_p100?: number | null
+          retention_p25?: number | null
+          retention_p50?: number | null
+          retention_p75?: number | null
           roas?: number | null
           scheduled_launch_date?: string | null
           spend?: number | null
