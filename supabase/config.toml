@@ -62,6 +62,14 @@ verify_jwt = false
 [functions.ingest-reviews]
 verify_jwt = false
 
+# Phase C US-005: service-role persister that writes an HQ-synthesized brief
+# into the briefs table as status='draft'. Invoked by the HQ brief-synthesis
+# flow with the service-role bearer (+ WRITE_BRIEF_SECRET) — no end-user JWT,
+# so a shared-secret guard layers on top of the gateway bearer (mirrors
+# ingest-reviews).
+[functions.write-brief]
+verify_jwt = false
+
 [functions.system-health-check]
 verify_jwt = false
 

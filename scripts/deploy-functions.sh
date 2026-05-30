@@ -58,6 +58,7 @@ FUNCTIONS=(
   vault-viral-refresh
   vault-viral-webhook
   webhooks-dispatch
+  write-brief
 )
 
 TOTAL=${#FUNCTIONS[@]}
