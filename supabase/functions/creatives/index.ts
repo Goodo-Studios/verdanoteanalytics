@@ -1,6 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { resolveConvention } from "../_shared/naming-convention.ts";
+import { parseAdName, type ParsedAdName, type AdNameTags } from "../_shared/parse-ad-name.ts";
+import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
 
 
 const DISPLAY_NAMES: Record<string, string> = {
@@ -22,21 +25,42 @@ const CREATIVE_COLS = [
   "video_url", "scheduled_launch_date", "created_at", "updated_at",
 ].join(", ");
 
-const VALID_TYPES = ["Video", "Static", "GIF", "Carousel"];
-const VALID_PERSONS = ["Creator", "Customer", "Founder", "Actor", "NoTalent"];
-const VALID_STYLES = ["UGCNative", "StudioClean", "TextForward", "Lifestyle"];
-const VALID_HOOKS = ["ProblemCallout", "Confession", "Question", "StatementBold", "AuthorityIntro", "BeforeAndAfter", "PatternInterrupt"];
+// US-003: the strict 7-segment parseAdName + VALID_* allow-lists were removed.
+// All tagging now flows through the single canonical parser (_shared/parse-ad-name.ts,
+// driven by the convention/vocab store) and the single precedence resolver
+// (_shared/resolveTags). Stored tag columns hold display names, so parser output
+// (canonical vocab) is mapped through toDisplayName before it enters the resolver.
 
-function parseAdName(adName: string) {
-  const segments = adName.split("_");
-  const unique_code = segments[0] || adName;
-  if (segments.length === 7) {
-    const [, type, person, style, product, hook, theme] = segments;
-    if (VALID_TYPES.includes(type) && VALID_PERSONS.includes(person) && VALID_STYLES.includes(style) && VALID_HOOKS.includes(hook)) {
-      return { unique_code, ad_type: toDisplayName(type), person: toDisplayName(person), style: toDisplayName(style), product, hook: toDisplayName(hook), theme, parsed: true };
-    }
-  }
-  return { unique_code, ad_type: null, person: null, style: null, product: null, hook: null, theme: null, parsed: false };
+/** unique_code is always the first separator-split token (matches the parser contract). */
+function uniqueCodeOf(adName: string): string {
+  return adName.split("_")[0] || adName;
+}
+
+/** Parser tags (canonical vocab) -> display-name PartialTags for the resolver's parser layer. */
+function parsedDisplayTags(parsed: ParsedAdName | null): AdNameTags | null {
+  if (!parsed) return null;
+  const t = parsed.tags;
+  return {
+    ad_type: t.ad_type ? toDisplayName(t.ad_type) : null,
+    person: t.person ? toDisplayName(t.person) : null,
+    style: t.style ? toDisplayName(t.style) : null,
+    product: t.product,
+    hook: t.hook ? toDisplayName(t.hook) : null,
+    theme: t.theme,
+  };
+}
+
+/** A name_mappings row -> PartialTags for the resolver's Coda (csv_match) layer. */
+function mappingTags(m: Record<string, unknown> | null): PartialTags | null {
+  if (!m) return null;
+  return {
+    ad_type: (m.ad_type as string) ?? null,
+    person: (m.person as string) ?? null,
+    style: (m.style as string) ?? null,
+    product: (m.product as string) ?? null,
+    hook: (m.hook as string) ?? null,
+    theme: (m.theme as string) ?? null,
+  };
 }
 
 serve(async (req) => {
@@ -378,7 +402,9 @@ serve(async (req) => {
       if (scheduled_launch_date !== undefined) update.scheduled_launch_date = scheduled_launch_date;
 
       if (tag_source === "untagged") {
-        // Reset to auto — re-run tagging
+        // Reset to auto — re-resolve via the canonical parser + name_mappings,
+        // applying the locked precedence (manual is absent on a reset, so:
+        // Coda(name_mappings) > parser > untagged). resolveTags sets tag_source.
         update.tag_source = "untagged";
         update.ad_type = null;
         update.person = null;
@@ -389,28 +415,24 @@ serve(async (req) => {
 
         const { data: creative } = await supabase.from("creatives").select("ad_name, account_id").eq("ad_id", path).single();
         if (creative) {
-          const parsed = parseAdName(creative.ad_name);
-          if (parsed.parsed) {
-            update.ad_type = parsed.ad_type;
-            update.person = parsed.person;
-            update.style = parsed.style;
-            update.product = parsed.product;
-            update.hook = parsed.hook;
-            update.theme = parsed.theme;
-            update.tag_source = "parsed";
-            update.unique_code = parsed.unique_code;
-          } else {
-            const { data: mapping } = await supabase.from("name_mappings").select("*").eq("account_id", creative.account_id).eq("unique_code", parsed.unique_code).single();
-            if (mapping) {
-              update.ad_type = mapping.ad_type;
-              update.person = mapping.person;
-              update.style = mapping.style;
-              update.product = mapping.product;
-              update.hook = mapping.hook;
-              update.theme = mapping.theme;
-              update.tag_source = "csv_match";
-            }
-          }
+          const convention = await resolveConvention(supabase, creative.account_id);
+          const parsed = convention ? parseAdName(creative.ad_name, convention) : null;
+          const unique_code = parsed?.unique_code ?? uniqueCodeOf(creative.ad_name);
+          const { data: mapping } = await supabase.from("name_mappings").select("*").eq("account_id", creative.account_id).eq("unique_code", unique_code).maybeSingle();
+
+          const { tags, tag_source: resolvedSource } = resolveTags(
+            parsedDisplayTags(parsed),
+            mappingTags(mapping),
+            null,
+          );
+          update.ad_type = tags.ad_type;
+          update.person = tags.person;
+          update.style = tags.style;
+          update.product = tags.product;
+          update.hook = tags.hook;
+          update.theme = tags.theme;
+          update.tag_source = resolvedSource;
+          update.unique_code = unique_code;
         }
       } else {
         update.tag_source = "manual";
@@ -458,43 +480,48 @@ serve(async (req) => {
         .eq("tag_source", "untagged");
       if (fetchErr) throw fetchErr;
 
-      // Auto-tag inference patterns
-      const FORMAT_PATTERNS: [RegExp, string][] = [
-        [/\bugc\b/i, "UGC"], [/\bgfx\b|graphic/i, "Graphic"],
-        [/\bstatic\b|\bimg\b|\bimage\b/i, "Static Image"], [/\bvid\b|\bvideo\b/i, "Video"],
-        [/carousel/i, "Carousel"], [/\bdpa\b/i, "DPA"],
-      ];
-      const HOOK_PATTERNS: [RegExp, string][] = [
-        [/testimonial|review/i, "Testimonial"], [/unboxing/i, "Unboxing"],
-        [/comparison|\bvs\b|competitor/i, "Competitor Comparison"],
-        [/problem|pain/i, "Problem/Solution"], [/educational|\bedu\b|how\s*to/i, "Educational"],
-        [/founder|behind/i, "Founder Story"],
-      ];
-      const ANGLE_PATTERNS: [RegExp, string][] = [
-        [/sale|discount|%|\boff\b/i, "Offer/Discount"], [/\bfree\b/i, "Free Gift/Trial"],
-        [/too expensive|objection/i, "Objection Handling"],
-        [/social proof|reviews/i, "Social Proof"], [/benefit|results/i, "Benefits"],
-      ];
-
-      function inferFromName(name: string) {
-        const tags: Record<string, string | null> = { ad_type: null, hook: null, theme: null };
-        for (const [re, val] of FORMAT_PATTERNS) { if (re.test(name)) { tags.ad_type = val; break; } }
-        for (const [re, val] of HOOK_PATTERNS) { if (re.test(name)) { tags.hook = val; break; } }
-        if (!tags.hook && /\bugc\b/i.test(name)) tags.hook = "Social Proof";
-        for (const [re, val] of ANGLE_PATTERNS) { if (re.test(name)) { tags.theme = val; break; } }
-        return tags;
+      // US-003: tagging now flows through the single canonical parser + resolver.
+      // Resolve the account's naming convention once, preload its name_mappings into
+      // a Map keyed by unique_code, then per creative apply the locked precedence
+      // (no manual layer here, so: Coda(name_mappings) > parser > untagged).
+      const convention = await resolveConvention(supabase, account_id);
+      const { data: mappings } = await supabase
+        .from("name_mappings")
+        .select("*")
+        .eq("account_id", account_id);
+      const mappingByCode = new Map<string, Record<string, unknown>>();
+      for (const m of (mappings || [])) {
+        if (m.unique_code) mappingByCode.set(m.unique_code, m);
       }
 
-      const taggable: { ad_id: string; tags: Record<string, string | null> }[] = [];
+      // Resolve each untagged creative; keep only those that gained a real tag.
+      const taggable: { ad_id: string; update: Record<string, any> }[] = [];
       for (const c of (untagged || [])) {
-        const tags = inferFromName(c.ad_name);
-        if (tags.ad_type || tags.hook || tags.theme) {
-          taggable.push({ ad_id: c.ad_id, tags });
-        }
+        const parsed = convention ? parseAdName(c.ad_name, convention) : null;
+        const unique_code = parsed?.unique_code ?? uniqueCodeOf(c.ad_name);
+        const { tags, tag_source } = resolveTags(
+          parsedDisplayTags(parsed),
+          mappingTags(mappingByCode.get(unique_code) ?? null),
+          null,
+        );
+        if (tag_source === "untagged") continue;
+        taggable.push({
+          ad_id: c.ad_id,
+          update: {
+            tag_source,
+            unique_code,
+            ad_type: tags.ad_type,
+            person: tags.person,
+            style: tags.style,
+            product: tags.product,
+            hook: tags.hook,
+            theme: tags.theme,
+          },
+        });
       }
 
       if (dry_run) {
-        return new Response(JSON.stringify({ count: taggable.length, total_untagged: (untagged || []).length, preview: taggable.slice(0, 20).map(t => ({ ad_id: t.ad_id, ...t.tags })) }), {
+        return new Response(JSON.stringify({ count: taggable.length, total_untagged: (untagged || []).length, preview: taggable.slice(0, 20).map(t => ({ ad_id: t.ad_id, ...t.update })) }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -503,13 +530,9 @@ serve(async (req) => {
       let applied = 0;
       const signatureMap = new Map<string, { update: Record<string, any>; ad_ids: string[] }>();
       for (const item of taggable) {
-        const update: Record<string, any> = { tag_source: "inferred" };
-        if (item.tags.ad_type) update.ad_type = item.tags.ad_type;
-        if (item.tags.hook) update.hook = item.tags.hook;
-        if (item.tags.theme) update.theme = item.tags.theme;
-        const sig = JSON.stringify(update);
+        const sig = JSON.stringify(item.update);
         if (!signatureMap.has(sig)) {
-          signatureMap.set(sig, { update, ad_ids: [] });
+          signatureMap.set(sig, { update: item.update, ad_ids: [] });
         }
         signatureMap.get(sig)!.ad_ids.push(item.ad_id);
       }
