@@ -3,22 +3,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { withApiAuth, corsHeaders } from "../_shared/api-auth.ts";
 import { resolveConvention } from "../_shared/naming-convention.ts";
 
-// NOTE: In-memory rate limiting — resets on cold start. For durable limiting, replace with Postgres atomic counter or Upstash Redis.
-// Simple in-memory rate limiter: 100 req/min per key prefix
-const rateBuckets = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT = 100;
-const WINDOW_MS = 60_000;
-
-function checkRateLimit(keyId: string): boolean {
-  const now = Date.now();
-  const bucket = rateBuckets.get(keyId);
-  if (!bucket || now > bucket.resetAt) {
-    rateBuckets.set(keyId, { count: 1, resetAt: now + WINDOW_MS });
-    return true;
-  }
-  bucket.count++;
-  return bucket.count <= RATE_LIMIT;
-}
+// Rate limiting is enforced durably inside withApiAuth (see _shared/api-auth.ts),
+// backed by the api_rate_limit_counters table — survives cold starts and holds
+// across instances. Limit/window are env-configurable (API_RATE_LIMIT,
+// API_RATE_LIMIT_WINDOW_SECONDS).
 
 // Returns true if the userId is allowed to access the given accountId.
 // Builders and employees have global access; clients must have a user_accounts row.
@@ -47,15 +35,7 @@ async function verifyAccountOwnership(
   return !error && data !== null;
 }
 
-serve(withApiAuth(async (req, { userId, permissions, keyId }) => {
-  // Rate limit
-  if (!checkRateLimit(keyId)) {
-    return new Response(
-      JSON.stringify({ error: "Rate limit exceeded (100 req/min)" }),
-      { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } }
-    );
-  }
-
+serve(withApiAuth(async (req, { userId, permissions }) => {
   if (!permissions.includes("read")) {
     return new Response(
       JSON.stringify({ error: "Insufficient permissions — key requires 'read' scope" }),
