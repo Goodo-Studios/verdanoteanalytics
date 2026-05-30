@@ -181,6 +181,75 @@ Deno.test("duplicate dimension in convention -> first position wins, later token
   });
 });
 
+// REGRESSION (act_1233881692132906): a per-account override with a pipe
+// separator (" | ") and ONLY two declared segments (pos 0 -> unique_code,
+// pos 5 -> ad_type) must still tag ad_type from position 5 of a 12-segment
+// real ad name, leaving every other (undeclared) position as an unknown
+// segment with dimension:null. This is the convention that restores the
+// account's historical ad_type coverage after the US-005 backfill wiped it.
+const pipeOverride: NamingConvention = {
+  id: "test-act-override",
+  account_id: "act_1233881692132906",
+  scope: "override",
+  separator: " | ",
+  segments: [
+    { position: 0, dimension: "unique_code", required: true },
+    { position: 5, dimension: "ad_type", required: false },
+  ],
+  vocab: [
+    { dimension: "ad_type", canonical: "Video", aliases: ["video", "VID"] },
+    {
+      dimension: "ad_type",
+      canonical: "Image",
+      aliases: ["image", "IMG", "Static", "Photo"],
+    },
+    { dimension: "ad_type", canonical: "Carousel", aliases: ["carousel"] },
+  ],
+};
+
+Deno.test("pipe-separator override -> pos5 ad_type tags from 12-segment name", () => {
+  const result = parseAdName(
+    "GS900 | A | B | C | D | Video | F | G | H | I | J | K",
+    pipeOverride,
+  );
+  // unique_code is always tokens[0] under the pipe separator.
+  assertEquals(result.unique_code, "GS900");
+  // Position 5 ("Video") resolves to the ad_type canonical.
+  assertEquals(result.tags.ad_type, "Video");
+  // No other dimension is declared, so they stay null.
+  assertEquals(result.tags.person, null);
+  assertEquals(result.tags.style, null);
+  assertEquals(result.tags.product, null);
+  assertEquals(result.tags.hook, null);
+  assertEquals(result.tags.theme, null);
+  // Exactly the ad_type position matched.
+  assertEquals(result.matchedSegments.length, 1);
+  assertEquals(result.matchedSegments[0].position, 5);
+  assertEquals(result.matchedSegments[0].canonical, "Video");
+  // The other 10 tokens (positions 1-4, 6-11) are undeclared -> unknown null.
+  assertEquals(result.unknownSegments.length, 10);
+  assertEquals(
+    result.unknownSegments.every((s) => s.dimension === null),
+    true,
+  );
+});
+
+Deno.test("pipe-separator override -> Static alias maps to Image at pos5", () => {
+  const result = parseAdName(
+    "GS901 | A | B | C | D | Static | F | G | H | I | J | K",
+    pipeOverride,
+  );
+  assertEquals(result.unique_code, "GS901");
+  assertEquals(result.tags.ad_type, "Image");
+});
+
+Deno.test("pipe-separator override -> single-token name stays untagged", () => {
+  const result = parseAdName("GS902", pipeOverride);
+  assertEquals(result.unique_code, "GS902");
+  assertEquals(result.tags.ad_type, null);
+  assertEquals(result.matchedSegments.length, 0);
+});
+
 Deno.test("garbage input -> unique_code = first token, no throw", () => {
   const result = parseAdName("!!!nonsense!!!", convention);
   assertEquals(result.unique_code, "!!!nonsense!!!");
