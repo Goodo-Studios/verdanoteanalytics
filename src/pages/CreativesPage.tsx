@@ -14,7 +14,7 @@ import { AdvancedFiltersPanel, applyAdvancedFilters, countActiveConditions } fro
 import { BulkActionBar } from "@/components/creatives/BulkActionBar";
 import { BulkTagModal } from "@/components/creatives/BulkTagModal";
 import { AddToReportModal } from "@/components/creatives/AddToReportModal";
-import { TABLE_COLUMNS, SORT_FIELD_MAP } from "@/components/creatives/constants";
+import { TABLE_COLUMNS, compareCreativesBy } from "@/components/creatives/constants";
 import { ColumnPicker } from "@/components/ColumnPicker";
 
 import { Button } from "@/components/ui/button";
@@ -220,7 +220,6 @@ const CreativesPage = () => {
     list = applyAdvancedFilters(list, advancedConditions, gradeMap, fatigueMap, wowTrends);
 
     if (!sort.key || !sort.direction) return list;
-    const field = SORT_FIELD_MAP[sort.key] || sort.key;
     const dir = sort.direction === "asc" ? 1 : -1;
 
     // Special handling for grade sort
@@ -232,17 +231,8 @@ const CreativesPage = () => {
       });
     }
 
-
-
-
-    return list.sort((a: any, b: any) => {
-      const va = a[field], vb = b[field];
-      if (va == null && vb == null) return 0;
-      if (va == null) return 1;
-      if (vb == null) return -1;
-      if (typeof va === "number" || !isNaN(Number(va))) return (Number(va) - Number(vb)) * dir;
-      return String(va).localeCompare(String(vb)) * dir;
-    });
+    // Shared comparator (numeric/string, nulls-last) — resolves field via SORT_FIELD_MAP.
+    return list.sort((a: any, b: any) => compareCreativesBy(a, b, sort.key!, sort.direction!));
   }, [creatives, sort, momentumFilter, wowTrends, gradeMap, fatigueFilter, fatigueMap, advancedConditions, platformFilter, dailyMetricsMap]);
 
   const toggleBulkId = useCallback((adId: string) => {
