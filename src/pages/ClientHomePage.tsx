@@ -1,6 +1,7 @@
 import { useAccountContext } from "@/contexts/AccountContext";
 import { ClientOutcomesContainer } from "@/components/client/ClientOutcomesContainer";
 import { ClientWinnersContainer } from "@/components/client/ClientWinnersContainer";
+import { ClientHighlightsContainer } from "@/components/client/ClientHighlightsContainer";
 import { ContentPipeline } from "@/components/client/ContentPipeline";
 
 /**
@@ -41,6 +42,15 @@ const ClientHomePage = () => {
       </div>
 
       {/* Placeholder sections — filled by US-003..US-007 */}
+      {/*
+        US-005: AI-drafted, strategist-published narrative. The container gates
+        authoring (draft/edit/publish) on builder/employee; clients read only
+        the published narrative via the published view. Degrades to a friendly
+        onboarding line when nothing is published yet.
+      */}
+      <section data-section="this-periods-highlights" aria-label="This Period's Highlights">
+        <ClientHighlightsContainer accountId={outcomeAccountId} />
+      </section>
       <section data-section="performance-snapshot" aria-label="Performance snapshot">
         <ClientOutcomesContainer accountId={outcomeAccountId} />
       </section>
