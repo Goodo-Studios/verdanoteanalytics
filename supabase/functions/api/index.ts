@@ -478,7 +478,8 @@ export async function handleApi(
         );
       }
 
-      const limit = Math.min(parseInt(url.searchParams.get("limit") || "100"), 500);
+      const parsedLimit = parseInt(url.searchParams.get("limit") || "100", 10);
+      const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 500) : 100;
 
       const [leaderboard, coverage] = await Promise.all([
         supabase.rpc("rpc_hook_angle_leaderboard", {
