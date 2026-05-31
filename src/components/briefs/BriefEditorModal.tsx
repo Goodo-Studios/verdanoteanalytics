@@ -6,22 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useUpdateBrief, type Brief } from "@/hooks/useBriefsApi";
 import { useAllCreatives } from "@/hooks/useAllCreatives";
-import { Copy, ExternalLink, Save, ChevronDown } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { useAccounts } from "@/hooks/useAccountsApi";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { Copy, Save, Send } from "lucide-react";
+import { toast } from "sonner";
 import { NamingValidator } from "@/components/briefs/NamingValidator";
-
-const STATUS_OPTIONS = [
-  { value: "draft", label: "Draft", color: "bg-muted text-muted-foreground" },
-  { value: "sent", label: "Sent", color: "bg-blue-50 text-blue-700" },
-  { value: "in_production", label: "In Production", color: "bg-amber-50 text-amber-700" },
-  { value: "complete", label: "Complete", color: "bg-emerald-50 text-emerald-700" },
-];
-
-const FORMAT_OPTIONS = ["ugc", "static", "video", "graphic"];
 
 const SECTION_DEFS = [
   { key: "concept_name", label: "Concept Name", type: "text" },
@@ -38,19 +31,21 @@ interface Props {
   brief: Brief | null;
   open: boolean;
   onClose: () => void;
-  onStatusChange: (id: string, status: string) => void;
   onCopyShareLink: (token: string) => void;
 }
 
-export function BriefEditorModal({ brief, open, onClose, onStatusChange, onCopyShareLink }: Props) {
+export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Props) {
   const updateBrief = useUpdateBrief();
+  const { user } = useAuth();
+  const { data: accounts = [] } = useAccounts();
   const [name, setName] = useState("");
   const [assignee, setAssignee] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [content, setContent] = useState<Record<string, any>>({});
   const [refAdIds, setRefAdIds] = useState<string[]>([]);
   const [dirty, setDirty] = useState(false);
-  
+  const [pushing, setPushing] = useState(false);
+
   // Load reference creatives
   const { data: allCreatives = [] } = useAllCreatives({});
   const refCreatives = useMemo(
@@ -88,7 +83,41 @@ export function BriefEditorModal({ brief, open, onClose, onStatusChange, onCopyS
     setDirty(false);
   };
 
-  const statusObj = STATUS_OPTIONS.find((s) => s.value === brief.status) || STATUS_OPTIONS[0];
+  const buildBriefMarkdown = () => {
+    const lines: string[] = [`# ${name || "Brief"}`, ""];
+    for (const section of SECTION_DEFS) {
+      const value = (content[section.key] || "").toString().trim();
+      if (value) {
+        lines.push(`## ${section.label}`);
+        lines.push(value);
+        lines.push("");
+      }
+    }
+    return lines.join("\n");
+  };
+
+  const pushToCoda = async () => {
+    if (dirty) await save();
+    const account = accounts.find((a: any) => a.id === brief.account_id);
+    setPushing(true);
+    try {
+      const { error } = await supabase.functions.invoke("create-coda-brief", {
+        body: {
+          account_id: brief.account_id,
+          account_name: account?.name || brief.account_id,
+          task_name: name,
+          brief_note: buildBriefMarkdown(),
+          user_id: user?.id,
+        },
+      });
+      if (error) throw error;
+      toast.success("Pushed to Coda");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to push to Coda");
+    } finally {
+      setPushing(false);
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -106,28 +135,14 @@ export function BriefEditorModal({ brief, open, onClose, onStatusChange, onCopyS
             />
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {/* Status dropdown */}
-            <div className="relative group">
-              <Badge className={cn("cursor-pointer font-label text-[9px] uppercase", statusObj.color)}>
-                {statusObj.label} <ChevronDown className="h-3 w-3 ml-0.5" />
-              </Badge>
-              <div className="absolute right-0 top-full mt-1 bg-card border border-border-light rounded-md shadow-modal p-1 hidden group-hover:block z-20 min-w-[120px]">
-                {STATUS_OPTIONS.map((s) => (
-                  <button
-                    key={s.value}
-                    onClick={() => onStatusChange(brief.id, s.value)}
-                    className={cn("block w-full text-left px-3 py-1.5 font-body text-[12px] rounded hover:bg-muted", brief.status === s.value && "font-semibold")}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-            </div>
             <Button size="sm" variant="outline" className="gap-1 font-body text-[11px]" onClick={() => onCopyShareLink(brief.share_token)}>
               <Copy className="h-3 w-3" /> Share
             </Button>
-            <Button size="sm" className="gap-1 bg-verdant hover:bg-verdant/90 text-white font-body text-[11px]" onClick={save} disabled={!dirty || updateBrief.isPending}>
+            <Button size="sm" variant="outline" className="gap-1 font-body text-[11px]" onClick={save} disabled={!dirty || updateBrief.isPending}>
               <Save className="h-3 w-3" /> Save
+            </Button>
+            <Button size="sm" className="gap-1 bg-verdant hover:bg-verdant/90 text-white font-body text-[11px]" onClick={pushToCoda} disabled={pushing}>
+              <Send className="h-3 w-3" /> {pushing ? "Pushing…" : "Push to Coda"}
             </Button>
           </div>
         </div>
