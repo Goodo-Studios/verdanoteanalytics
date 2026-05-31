@@ -8,6 +8,43 @@ const META_API_VERSION = "v22.0";
 export const NO_THUMB_SENTINEL = "no-thumbnail";
 export const NO_VIDEO_SENTINEL = "no-video";
 
+/**
+ * Pick the best creative IMAGE src from Ad Preview API HTML.
+ * Only *.fbcdn.net image assets qualify — never a facebook.com page URL (those
+ * return text/html and were getting cached as <adId>.jpg garbage), never a video
+ * stream (.mp4). fbcdn.net is the only host Meta serves creative images from.
+ * Returns the last match (usually the main creative, not the profile pic) or null.
+ * Pure + dependency-free so it can be unit-tested without network.
+ */
+export function extractPreviewImageSrc(previewBody: string): string | null {
+  if (!previewBody) return null;
+  const matches = [...previewBody.matchAll(/src="([^"]+)"/g)]
+    .map((m) => m[1].replace(/&amp;/g, "&"))
+    .filter((url) => url.includes("fbcdn.net") && !url.includes(".mp4"));
+  return matches.length > 0 ? matches[matches.length - 1] : null;
+}
+
+/**
+ * Pick a VIDEO src from Ad Preview API HTML.
+ * Require *.fbcdn.net (Meta's only media host) so a facebook.com page URL can never
+ * be returned as a video src; then require an actual video marker (.mp4 or /v/) and
+ * exclude obvious thumbnail stills (_n.jpg / _n.png). Returns first match or null.
+ * Pure + dependency-free so it can be unit-tested without network.
+ */
+export function extractPreviewVideoSrc(previewBody: string): string | null {
+  if (!previewBody) return null;
+  const matches = [...previewBody.matchAll(/src="([^"]+)"/g)]
+    .map((m) => m[1].replace(/&amp;/g, "&"))
+    .filter(
+      (url) =>
+        url.includes("fbcdn.net") &&
+        !url.includes("_n.jpg") &&
+        !url.includes("_n.png") &&
+        (url.includes(".mp4") || url.includes("/v/"))
+    );
+  return matches.length > 0 ? matches[0] : null;
+}
+
 /** Fetch with a timeout — aborts if the request takes longer than timeoutMs */
 export async function fetchWithTimeout(url: string, timeoutMs = 30_000): Promise<Response> {
   const controller = new AbortController();
@@ -222,13 +259,8 @@ export async function discoverImageUrl(
         const previewData = await previewRes.json();
         const previewBody = previewData?.data?.[0]?.body;
         if (previewBody) {
-          // Extract the largest image src from the preview HTML
-          const imgMatches = [...previewBody.matchAll(/src="([^"]+)"/g)]
-            .map((m: RegExpMatchArray) => m[1].replace(/&amp;/g, "&"))
-            .filter((url: string) => url.includes("fbcdn") || url.includes("facebook"));
-          if (imgMatches.length > 0) {
-            // Pick the last fbcdn image (usually the main creative, not the profile pic)
-            const bestImg = imgMatches[imgMatches.length - 1];
+          const bestImg = extractPreviewImageSrc(previewBody);
+          if (bestImg) {
             console.log(`Ad Preview API image for ${adId}`);
             return { thumbnailUrl: bestImg, fullResUrl: bestImg };
           }
@@ -539,17 +571,10 @@ export async function discoverVideoUrl(
         const previewData = await previewRes.json();
         const previewBody = previewData?.data?.[0]?.body;
         if (previewBody) {
-          // Look for video source URLs in the preview HTML
-          const videoMatches = [...previewBody.matchAll(/src="([^"]+)"/g)]
-            .map((m: RegExpMatchArray) => m[1].replace(/&amp;/g, "&"))
-            .filter((url: string) =>
-              (url.includes("video") || url.includes(".mp4") || url.includes("fbcdn")) &&
-              !url.includes("_n.jpg") && !url.includes("_n.png") && // skip thumbnails
-              (url.includes(".mp4") || url.includes("/v/"))
-            );
-          if (videoMatches.length > 0) {
+          const videoSrc = extractPreviewVideoSrc(previewBody);
+          if (videoSrc) {
             console.log(`Got video via Ad Preview API for ${adId}`);
-            return videoMatches[0];
+            return videoSrc;
           }
         }
       } else {
