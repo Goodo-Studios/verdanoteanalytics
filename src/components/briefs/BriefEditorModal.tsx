@@ -41,24 +41,33 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
   const [pickerSearch, setPickerSearch] = useState("");
 
   // Load reference creatives
-  const { data: allCreatives = [] } = useAllCreatives({});
+  const { data: allCreatives = [], isLoading: creativesLoading } = useAllCreatives({});
   const refCreatives = useMemo(
     () => allCreatives.filter((c: any) => refAdIds.includes(c.ad_id)),
     [allCreatives, refAdIds],
   );
 
-  // Vault picker candidates: same account, not already selected, matched by search.
+  const accountName = (id: string) => accounts.find((a: any) => a.id === id)?.name || "";
+
+  // Vault picker candidates: search across all accounts (brief's account first),
+  // excluding ones already linked.
   const pickerResults = useMemo(() => {
     if (!brief) return [];
     const q = pickerSearch.trim().toLowerCase();
     return allCreatives
-      .filter((c: any) => c.account_id === brief.account_id && !refAdIds.includes(c.ad_id))
       .filter((c: any) =>
-        !q ||
-        (c.ad_name || "").toLowerCase().includes(q) ||
-        (c.unique_code || "").toLowerCase().includes(q),
+        !refAdIds.includes(c.ad_id) &&
+        (!q ||
+          (c.ad_name || "").toLowerCase().includes(q) ||
+          (c.unique_code || "").toLowerCase().includes(q) ||
+          (c.product || "").toLowerCase().includes(q)),
       )
-      .slice(0, 60);
+      .sort((a: any, b: any) => {
+        const am = a.account_id === brief.account_id ? 0 : 1;
+        const bm = b.account_id === brief.account_id ? 0 : 1;
+        return am - bm;
+      })
+      .slice(0, 80);
   }, [allCreatives, brief, refAdIds, pickerSearch]);
 
   useEffect(() => {
@@ -232,8 +241,12 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
                   </div>
                 </div>
                 <div className="max-h-72 overflow-y-auto p-2 space-y-1">
-                  {pickerResults.length === 0 ? (
-                    <p className="px-1 py-3 text-center font-body text-[12px] text-muted-foreground">No creatives found.</p>
+                  {creativesLoading ? (
+                    <p className="px-1 py-3 text-center font-body text-[12px] text-muted-foreground">Loading creatives…</p>
+                  ) : pickerResults.length === 0 ? (
+                    <p className="px-1 py-3 text-center font-body text-[12px] text-muted-foreground">
+                      {allCreatives.length === 0 ? "No creatives synced yet." : "No matches."}
+                    </p>
                   ) : (
                     pickerResults.map((c: any) => (
                       <button
@@ -246,7 +259,12 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
                         ) : (
                           <div className="w-12 h-9 rounded bg-muted flex items-center justify-center text-[9px] text-muted-foreground shrink-0">No img</div>
                         )}
-                        <span className="font-body text-[11px] text-charcoal truncate">{c.unique_code || c.ad_name}</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-body text-[11px] text-charcoal truncate">{c.unique_code || c.ad_name}</p>
+                          {accountName(c.account_id) && (
+                            <p className="font-body text-[9px] text-muted-foreground truncate">{accountName(c.account_id)}</p>
+                          )}
+                        </div>
                       </button>
                     ))
                   )}
