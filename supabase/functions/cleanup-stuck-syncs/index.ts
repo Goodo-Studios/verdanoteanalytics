@@ -10,9 +10,17 @@ serve(async (_req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 
-  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
   const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString();
   const now = new Date().toISOString();
+
+  // Absolute backstop — NOT a normal liveness signal.
+  // Liveness is determined by heartbeat staleness (see activityThreshold below):
+  // large accounts can legitimately sync for many hours, and a fresh heartbeat
+  // means the sync is still making real progress, so total wall-clock time must
+  // NOT mark a progressing sync as stuck (the old 2h cap force-failed them).
+  // This 24h cap exists only to catch a pathological sync that keeps emitting a
+  // heartbeat but never advances — far beyond any legitimate run.
+  const absoluteCapMs = Date.now() - 24 * 60 * 60 * 1000;
 
   // 5-minute heartbeat threshold for phases 2-5.
   // Previously 2 min — too tight against the 2-min cron cycle, causing a race where
@@ -40,16 +48,19 @@ serve(async (_req) => {
     });
   }
 
-  // Mark as stuck if no heartbeat in the appropriate window, OR running > 2 hours regardless
+  // Mark as stuck only if the heartbeat is stale (the sync has stalled).
+  // A fresh heartbeat means the sync is still progressing, so it is NOT stuck
+  // no matter how long it has been running — large accounts take hours.
   const trulyStuck = candidates.filter((s: any) => {
     const startedAt = new Date(s.started_at || 0).getTime();
-    // 2-hour wall-clock cap: always terminal regardless of heartbeat
-    if (startedAt < new Date(twoHoursAgo).getTime()) return true;
-
     const lastActivity = s.sync_state?.last_activity;
     const effectiveThreshold =
       s.current_phase === 1 ? phase1ExtendedThreshold : activityThreshold;
-    if (lastActivity && new Date(lastActivity).getTime() > effectiveThreshold) return false;
+    // Fresh heartbeat → still progressing → not stuck, UNLESS it has blown past
+    // the 24h absolute backstop (pathological heartbeat-forever loop).
+    if (lastActivity && new Date(lastActivity).getTime() > effectiveThreshold) {
+      return startedAt < absoluteCapMs;
+    }
     return true;
   });
 
@@ -69,7 +80,10 @@ serve(async (_req) => {
 
   for (const s of trulyStuck) {
     const startedAt = new Date(s.started_at || 0).getTime();
-    const isWallClockExpired = startedAt < new Date(twoHoursAgo).getTime();
+    // Only the 24h absolute backstop forces a sync terminal on time alone.
+    // Everything else is retryable (bounded by MAX_RETRIES): a stalled sync
+    // resumes from its preserved sync_state cursor, so requeuing is safe.
+    const isWallClockExpired = startedAt < absoluteCapMs;
     const retryCount = s.sync_state?.retry_count ?? 0;
 
     // A phase-1 sync is retryable if it has no real Meta API errors —
