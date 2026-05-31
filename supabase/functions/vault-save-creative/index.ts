@@ -12,7 +12,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 // Pure save logic (sentinel filtering, snapshot shaping, dedupe decision) lives in
 // a dependency-free module so it can be unit-tested under Vitest (US-005).
-import { cleanUrl, dedupeDecision, extFor } from "../_shared/vault-save-logic.ts";
+import { cleanUrl, dedupeDecision, extFor, normalizeVaultPlatform } from "../_shared/vault-save-logic.ts";
 
 const CHROME_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -129,14 +129,14 @@ Deno.serve(async (req) => {
       .insert({
         user_id: user.id,
         saved_by: user.id,
-        platform: platform || "analytics_creative",
+        platform: normalizeVaultPlatform(platform),
         title: ad_name || null,
         thumbnail_url: storedThumbnailUrl ?? thumb ?? null,
         file_path: filePath,
         source_ad_id: ad_id,
         source_account_id: account_id ?? null,
         performance_snapshot: performance_snapshot ?? null,
-        status: "analyzing",
+        status: "pending",
       })
       .select("id")
       .single();
@@ -145,17 +145,20 @@ Deno.serve(async (req) => {
       throw new Error(insertErr?.message || "Failed to create inspiration item");
     }
 
-    // ─── Best-effort fire-and-forget AI analysis. A failed analyze must NOT ───
-    // fail the save — the item is already committed above.
+    // ─── Best-effort fire-and-forget AI pipeline. Enter at vault-transcribe ───
+    // (NOT vault-analyze): transcribe downloads the stored media, writes the
+    // raw transcript, then chains to vault-analyze itself. Calling analyze
+    // directly throws "No transcript found for item" and marks the item errored.
+    // A failed pipeline must NOT fail the save — the item is already committed.
     EdgeRuntime.waitUntil(
-      fetch(`${supabaseUrl}/functions/v1/vault-analyze`, {
+      fetch(`${supabaseUrl}/functions/v1/vault-transcribe`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${serviceRoleKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ item_id: item.id }),
-      }).catch((e) => console.error("vault-analyze chain failed (non-fatal):", e)),
+      }).catch((e) => console.error("vault-transcribe chain failed (non-fatal):", e)),
     );
 
     return json({ ok: true, item_id: item.id, already_saved: false });

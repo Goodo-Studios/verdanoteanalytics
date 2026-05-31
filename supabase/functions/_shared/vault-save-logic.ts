@@ -21,6 +21,35 @@ export function cleanUrl(u: unknown): string | null {
   return v;
 }
 
+// Platform keys the vault UI knows how to label/color (see src/features/vault/
+// types/vault.ts PLATFORM_LABELS). Anything outside this set renders as
+// "Unknown", so a saved analytics creative must be normalized into one of these.
+const VAULT_PLATFORM_KEYS = new Set([
+  "tiktok",
+  "instagram",
+  "youtube",
+  "twitter",
+  "facebook_ad",
+  "upload",
+]);
+
+/**
+ * Normalize an analytics creative's platform into a vault platform key the UI can
+ * label. Verdanote analytics creatives come from Meta ad accounts, so unknown or
+ * missing values default to "facebook_ad" ("Meta Ad") rather than an unlabeled
+ * "analytics_creative" that the card would render as "Unknown". Pure.
+ */
+export function normalizeVaultPlatform(platform: unknown): string {
+  if (typeof platform === "string") {
+    const p = platform.trim().toLowerCase();
+    if (VAULT_PLATFORM_KEYS.has(p)) return p;
+    if (p === "facebook" || p === "meta" || p === "fb" || p === "meta_ad") {
+      return "facebook_ad";
+    }
+  }
+  return "facebook_ad";
+}
+
 /** Pick a storage extension from a content-type, defaulting per media kind. */
 export function extFor(contentType: string, kind: "image" | "video"): string {
   const ct = contentType.toLowerCase();

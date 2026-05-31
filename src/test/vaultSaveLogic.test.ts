@@ -9,6 +9,7 @@ import {
   extFor,
   buildPerformanceSnapshot,
   dedupeDecision,
+  normalizeVaultPlatform,
 } from "../../supabase/functions/_shared/vault-save-logic.ts";
 
 // ─── Sentinel filtering ('no-thumbnail' / 'no-video') ───────────────────────
@@ -65,6 +66,41 @@ describe("extFor (storage extension selection)", () => {
     expect(extFor("image/webp", "image")).toBe("webp");
     expect(extFor("image/gif", "image")).toBe("gif");
     expect(extFor("image/jpeg", "image")).toBe("jpg");
+  });
+});
+
+// ─── Platform normalization (analytics creative → vault platform key) ───────
+//
+// Regression: a saved analytics creative was stored with platform
+// "analytics_creative", which is NOT in the vault UI's PLATFORM_LABELS, so the
+// card rendered an "Unknown" badge. Verdanote analytics creatives are Meta ads,
+// so any unknown/missing platform must default to "facebook_ad" ("Meta Ad").
+describe("normalizeVaultPlatform (analytics → vault platform key)", () => {
+  it("passes through platform keys the vault UI already labels", () => {
+    for (const k of ["tiktok", "instagram", "youtube", "twitter", "facebook_ad", "upload"]) {
+      expect(normalizeVaultPlatform(k)).toBe(k);
+    }
+  });
+
+  it("normalizes case and surrounding whitespace", () => {
+    expect(normalizeVaultPlatform("  TikTok  ")).toBe("tiktok");
+    expect(normalizeVaultPlatform("INSTAGRAM")).toBe("instagram");
+  });
+
+  it("maps Meta aliases to facebook_ad", () => {
+    for (const a of ["facebook", "meta", "fb", "meta_ad", "Meta", "FB"]) {
+      expect(normalizeVaultPlatform(a)).toBe("facebook_ad");
+    }
+  });
+
+  it("defaults unknown / missing / non-string to facebook_ad (never 'Unknown')", () => {
+    // 'analytics_creative' was the exact value that rendered as 'Unknown'.
+    expect(normalizeVaultPlatform("analytics_creative")).toBe("facebook_ad");
+    expect(normalizeVaultPlatform("some_other_source")).toBe("facebook_ad");
+    expect(normalizeVaultPlatform("")).toBe("facebook_ad");
+    expect(normalizeVaultPlatform(null)).toBe("facebook_ad");
+    expect(normalizeVaultPlatform(undefined)).toBe("facebook_ad");
+    expect(normalizeVaultPlatform(42)).toBe("facebook_ad");
   });
 });
 
