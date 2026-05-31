@@ -12,7 +12,13 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 // Pure save logic (sentinel filtering, snapshot shaping, dedupe decision) lives in
 // a dependency-free module so it can be unit-tested under Vitest (US-005).
-import { cleanUrl, dedupeDecision, extFor, normalizeVaultPlatform } from "../_shared/vault-save-logic.ts";
+import {
+  dedupeDecision,
+  extFor,
+  isMediaContentType,
+  normalizeVaultPlatform,
+  selectMediaSources,
+} from "../_shared/vault-save-logic.ts";
 
 const CHROME_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -29,9 +35,17 @@ async function copyMedia(
   if (!res.ok) {
     throw new Error(`Failed to download ${kind} (${res.status}) from ${srcUrl}`);
   }
-  const bytes = await res.arrayBuffer();
   const contentType = res.headers.get("content-type") ||
     (kind === "video" ? "video/mp4" : "image/jpeg");
+  // Guard: a page URL (e.g. a facebook.com ad page passed instead of a media URL)
+  // returns HTML. Storing that as media.<ext> produces an unplayable vault item,
+  // so reject any non-media content-type rather than persisting garbage.
+  if (!isMediaContentType(contentType, kind)) {
+    throw new Error(
+      `Refusing to store ${kind}: ${srcUrl} returned non-${kind} content (${contentType})`,
+    );
+  }
+  const bytes = await res.arrayBuffer();
   const path = `${storageBase}.${extFor(contentType, kind)}`;
   const { error: uploadErr } = await db.storage
     .from("inspiration-media")
@@ -90,28 +104,29 @@ Deno.serve(async (req) => {
       return json({ ok: true, item_id: dedupe.itemId, already_saved: true });
     }
 
-    // ─── Filter sentinels out of the media URLs before any use ────────────────
-    const fullRes = cleanUrl(full_res_url);
-    const video = cleanUrl(video_url);
-    const thumb = cleanUrl(thumbnail_url);
+    // ─── Pick the source URLs to copy (sentinels filtered) ────────────────────
+    // video_url is the ONLY video source; full_res_url is a full-resolution IMAGE
+    // (the analytics UI renders it with <img>, not <video>) and is used as the
+    // still/thumbnail, with thumbnail_url as fallback. See selectMediaSources.
+    const { videoSrc, imageSrc } = selectMediaSources({ full_res_url, video_url, thumbnail_url });
 
     // ─── Copy media into inspiration-media (durable vault-owned copy) ─────────
-    // Prefer a video copy (full_res or video_url), then a thumbnail. At least one
-    // media copy must succeed — a download failure fails the save (per AC).
+    // The private bucket is read by the vault UI via signed URLs keyed on
+    // file_path / thumbnail_path — never a public URL. At least one media copy
+    // must succeed — a download (or content-type) failure fails the save.
     const storageBase = `analytics/${user.id}/${ad_id}`;
     let filePath: string | null = null;
-    let storedThumbnailUrl: string | null = null;
+    let thumbnailPath: string | null = null;
 
-    const videoSrc = fullRes ?? video;
     if (videoSrc) {
       const { path } = await copyMedia(db, videoSrc, `${storageBase}/media`, "video");
       filePath = path;
     }
 
-    if (thumb) {
-      const { path } = await copyMedia(db, thumb, `${storageBase}/thumb`, "image");
-      const { data: pub } = db.storage.from("inspiration-media").getPublicUrl(path);
-      storedThumbnailUrl = pub?.publicUrl ?? null;
+    if (imageSrc) {
+      const { path } = await copyMedia(db, imageSrc, `${storageBase}/thumb`, "image");
+      thumbnailPath = path;
+      // Image-only creative (no video): the still image is the primary file.
       if (!filePath) filePath = path;
     }
 
@@ -131,7 +146,7 @@ Deno.serve(async (req) => {
         saved_by: user.id,
         platform: normalizeVaultPlatform(platform),
         title: ad_name || null,
-        thumbnail_url: storedThumbnailUrl ?? thumb ?? null,
+        thumbnail_path: thumbnailPath,
         file_path: filePath,
         source_ad_id: ad_id,
         source_account_id: account_id ?? null,

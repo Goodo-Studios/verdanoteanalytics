@@ -50,6 +50,53 @@ export function normalizeVaultPlatform(platform: unknown): string {
   return "facebook_ad";
 }
 
+/**
+ * Whether a fetched content-type is acceptable to store as the given media kind.
+ * A page URL (e.g. a facebook.com ad page passed in place of a media URL) returns
+ * `text/html`; storing that as `media.mp4` yields an unplayable vault item, so any
+ * content that isn't the expected media type is rejected. `application/octet-stream`
+ * is allowed because CDNs frequently serve media with that generic type. Pure.
+ */
+export function isMediaContentType(
+  contentType: unknown,
+  kind: "image" | "video",
+): boolean {
+  if (typeof contentType !== "string") return false;
+  const ct = contentType.trim().toLowerCase();
+  if (!ct) return false;
+  if (ct.includes("application/octet-stream")) return true;
+  return ct.startsWith(kind === "video" ? "video/" : "image/");
+}
+
+export interface MediaSources {
+  /** The playable video URL to copy, or null. */
+  videoSrc: string | null;
+  /** The still-image URL to copy (full-res image preferred, else thumbnail), or null. */
+  imageSrc: string | null;
+}
+
+/**
+ * Select which source URLs a save should copy. `video_url` is the ONLY video
+ * source — `full_res_url` is a full-resolution IMAGE (the analytics UI renders it
+ * with an <img>, never a <video>), so it must never be copied as a video. The
+ * still image prefers `full_res_url`, falling back to `thumbnail_url`. Sentinels
+ * and blanks are filtered via cleanUrl. Pure + deterministic.
+ *
+ * Regression: a save previously copied `full_res_url ?? video_url` as the video.
+ * When `full_res_url` was a facebook.com page URL, copyMedia stored ~151KB of HTML
+ * as media.mp4 → an unplayable item that downstream transcription also rejected.
+ */
+export function selectMediaSources(input: {
+  full_res_url?: unknown;
+  video_url?: unknown;
+  thumbnail_url?: unknown;
+}): MediaSources {
+  const video = cleanUrl(input.video_url);
+  const fullRes = cleanUrl(input.full_res_url);
+  const thumb = cleanUrl(input.thumbnail_url);
+  return { videoSrc: video, imageSrc: fullRes ?? thumb };
+}
+
 /** Pick a storage extension from a content-type, defaulting per media kind. */
 export function extFor(contentType: string, kind: "image" | "video"): string {
   const ct = contentType.toLowerCase();

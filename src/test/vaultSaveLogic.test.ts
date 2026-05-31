@@ -9,7 +9,9 @@ import {
   extFor,
   buildPerformanceSnapshot,
   dedupeDecision,
+  isMediaContentType,
   normalizeVaultPlatform,
+  selectMediaSources,
 } from "../../supabase/functions/_shared/vault-save-logic.ts";
 
 // ─── Sentinel filtering ('no-thumbnail' / 'no-video') ───────────────────────
@@ -66,6 +68,80 @@ describe("extFor (storage extension selection)", () => {
     expect(extFor("image/webp", "image")).toBe("webp");
     expect(extFor("image/gif", "image")).toBe("gif");
     expect(extFor("image/jpeg", "image")).toBe("jpg");
+  });
+});
+
+// ─── Media-source selection (video vs still image) ──────────────────────────
+//
+// Regression: a save previously copied `full_res_url ?? video_url` as the VIDEO.
+// full_res_url is a full-resolution IMAGE (rendered as <img> in the analytics UI),
+// so when it was a facebook.com page URL the copy stored ~151KB of HTML as
+// media.mp4 → an unplayable vault item. video_url must be the only video source.
+describe("selectMediaSources (video vs still image)", () => {
+  it("uses video_url as the video source — never full_res_url", () => {
+    const { videoSrc, imageSrc } = selectMediaSources({
+      full_res_url: "https://www.facebook.com/ads/library/?id=123", // page/img URL
+      video_url: "https://cdn.example.com/real.mp4",
+      thumbnail_url: "https://cdn.example.com/thumb.jpg",
+    });
+    expect(videoSrc).toBe("https://cdn.example.com/real.mp4");
+    // full_res_url is the still image, NOT the video
+    expect(imageSrc).toBe("https://www.facebook.com/ads/library/?id=123");
+  });
+
+  it("prefers full_res_url for the still, falling back to thumbnail_url", () => {
+    expect(
+      selectMediaSources({ full_res_url: "https://cdn/x.jpg", thumbnail_url: "https://cdn/t.jpg" }).imageSrc,
+    ).toBe("https://cdn/x.jpg");
+    expect(
+      selectMediaSources({ thumbnail_url: "https://cdn/t.jpg" }).imageSrc,
+    ).toBe("https://cdn/t.jpg");
+  });
+
+  it("has no video source for an image-only creative", () => {
+    const { videoSrc, imageSrc } = selectMediaSources({
+      full_res_url: "https://cdn/x.jpg",
+      video_url: "no-video",
+    });
+    expect(videoSrc).toBeNull();
+    expect(imageSrc).toBe("https://cdn/x.jpg");
+  });
+
+  it("filters sentinels / blanks from every slot", () => {
+    expect(
+      selectMediaSources({ full_res_url: "no-thumbnail", video_url: "no-video", thumbnail_url: "" }),
+    ).toEqual({ videoSrc: null, imageSrc: null });
+  });
+});
+
+describe("isMediaContentType (reject page/HTML stored as media)", () => {
+  it("rejects an HTML page passed as video (the won't-play regression)", () => {
+    expect(isMediaContentType("text/html; charset=utf-8", "video")).toBe(false);
+    expect(isMediaContentType("text/plain", "video")).toBe(false);
+  });
+
+  it("accepts real media content-types for their kind", () => {
+    expect(isMediaContentType("video/mp4", "video")).toBe(true);
+    expect(isMediaContentType("video/quicktime", "video")).toBe(true);
+    expect(isMediaContentType("image/jpeg", "image")).toBe(true);
+    expect(isMediaContentType("image/webp", "image")).toBe(true);
+  });
+
+  it("allows application/octet-stream (CDNs serve media generically)", () => {
+    expect(isMediaContentType("application/octet-stream", "video")).toBe(true);
+    expect(isMediaContentType("application/octet-stream", "image")).toBe(true);
+  });
+
+  it("does not accept an image type for a video copy (kind mismatch)", () => {
+    expect(isMediaContentType("image/png", "video")).toBe(false);
+    expect(isMediaContentType("video/mp4", "image")).toBe(false);
+  });
+
+  it("rejects missing / non-string content-types", () => {
+    expect(isMediaContentType(null, "video")).toBe(false);
+    expect(isMediaContentType(undefined, "image")).toBe(false);
+    expect(isMediaContentType("", "video")).toBe(false);
+    expect(isMediaContentType(42, "image")).toBe(false);
   });
 });
 
