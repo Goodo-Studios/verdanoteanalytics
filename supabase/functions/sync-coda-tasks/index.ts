@@ -50,6 +50,23 @@ function normalise(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+// Explicit Coda "Connected Project" → canonical ad_accounts.name aliases.
+// Checked AFTER exact match but BEFORE the constrained fuzzy step. Only add an
+// entry here when a real active client's Coda label does NOT contain the full
+// account name (so the safe fuzzy rule below cannot reach it) — never invent a
+// mapping for a client that has no ad_account.
+//
+// US-002 audit (2026-05-31, 11227 live Coda rows): "Miracle" is the Coda label
+// for the Miracle Brand client, but normalised "miracle" does NOT contain the
+// account key "miraclebrand", so the one-directional fuzzy rule below would miss
+// it. Worse, under the OLD either-direction rule "miracle" was a substring of
+// BOTH "miraclebrand" and "miraclebrandsecondaryadaccount" — an ambiguous match
+// that only resolved correctly by iteration-order luck (cross-account-leak
+// risk). The explicit alias removes that ambiguity.
+const ACCOUNT_NAME_ALIASES: Record<string, string> = {
+  "Miracle": "Miracle Brand",
+};
+
 // Decide whether a Coda row should be synced into coda_tasks (active pipeline).
 // "Active" = has a non-empty Stage, is not an explicitly-skipped raw stage, and
 // does not resolve to a terminal display stage (e.g. "Complete"). Unknown
@@ -87,15 +104,48 @@ Deno.serve(async (req) => {
       accountLookup[normalise(a.name)] = a.id;
     }
 
+    // Resolve the alias table (normalised Coda label → account_id) once, using
+    // the live accountLookup so an alias only takes effect if its target account
+    // actually exists and is active.
+    const aliasLookup: Record<string, string> = {};
+    for (const [codaLabel, acctName] of Object.entries(ACCOUNT_NAME_ALIASES)) {
+      const id = accountLookup[normalise(acctName)];
+      if (id) aliasLookup[normalise(codaLabel)] = id;
+    }
+
+    // Resolve a Coda "Connected Project" label to an ad_accounts.id.
+    //
+    // Resolution order (US-002 hardening — prefer NULL over a wrong match to
+    // avoid cross-client attribution leaks):
+    //   1. Exact normalised match.
+    //   2. Explicit alias override (ACCOUNT_NAME_ALIASES).
+    //   3. Constrained fuzzy: an account key must be FULLY CONTAINED in the Coda
+    //      key (one direction only — e.g. "The Flatpack Company" ⊃ "flatpack").
+    //      We require the account key be ≥4 chars and collect ALL distinct
+    //      matching accounts; if more than one account matches, the label is
+    //      ambiguous and we return null rather than guess.
+    //
+    // The previous either-direction substring rule (`key.includes(k) ||
+    // k.includes(key)`) could mis-attribute: e.g. the short Coda label "Miracle"
+    // was a substring of both "miraclebrand" and the secondary Miracle account,
+    // resolving by iteration-order luck. The one-directional + ambiguity-guard
+    // rule below eliminates that risk; verified against 11227 live rows to
+    // produce zero behavioral change for current clients.
     function resolveAccountId(codaName: string | null): string | null {
       if (!codaName) return null;
       const key = normalise(codaName);
-      // Exact normalised match
+      if (!key) return null;
+      // 1. Exact normalised match
       if (accountLookup[key]) return accountLookup[key];
-      // Substring match (either direction)
+      // 2. Explicit alias override
+      if (aliasLookup[key]) return aliasLookup[key];
+      // 3. Constrained fuzzy: account key fully contained in the Coda key.
+      //    Collect all distinct candidates; ambiguous (>1) → null.
+      const candidates = new Set<string>();
       for (const [k, id] of Object.entries(accountLookup)) {
-        if (key.includes(k) || k.includes(key)) return id;
+        if (k.length >= 4 && key.includes(k)) candidates.add(id);
       }
+      if (candidates.size === 1) return [...candidates][0];
       return null;
     }
 
