@@ -312,8 +312,8 @@ export function CreativePickerModal({ open, onClose, briefAccountId, selectedIds
                       key={c.ad_id}
                       id={c.ad_id}
                       thumb={c.thumbnail_url}
-                      title={c.unique_code || c.ad_name}
-                      subtitle={accountName(c.account_id)}
+                      title={c.ad_name || c.unique_code || "Untitled"}
+                      subtitle={[c.unique_code, accountName(c.account_id)].filter(Boolean).join(" · ")}
                     />
                   ))
                 : (tab === "boards" ? boardItemResults : vaultResults).map((v: any) => (
