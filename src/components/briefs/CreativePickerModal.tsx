@@ -13,7 +13,7 @@ import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { useAccounts } from "@/hooks/useAccountsApi";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { Search, Check, Loader2, Vault, Images } from "lucide-react";
+import { Search, Check, Loader2, Vault, Images, LayoutGrid, ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /** Unified shape persisted into brief.content.visual_inspiration. */
@@ -38,9 +38,10 @@ const VAULT_KEY = (id: string) => `vault:${id}`;
 export function CreativePickerModal({ open, onClose, briefAccountId, selectedIds, onToggle }: Props) {
   const { user } = useAuth();
   const { data: accounts = [] } = useAccounts();
-  const [tab, setTab] = useState<"vault" | "creatives">("vault");
+  const [tab, setTab] = useState<"vault" | "boards" | "creatives">("vault");
   const [search, setSearch] = useState("");
   const [accountFilter, setAccountFilter] = useState<string>("all");
+  const [openBoardId, setOpenBoardId] = useState<string | null>(null);
 
   // --- Creatives (synced ad-account creatives) ---
   const { data: allCreatives = [], isLoading: creativesLoading } = useAllCreatives({});
@@ -89,6 +90,61 @@ export function CreativePickerModal({ open, onClose, briefAccountId, selectedIds
       (v.ad_format || "").toLowerCase().includes(q),
     );
   }, [vaultItems, search]);
+
+  // --- Boards (user-scoped collections of vault items) ---
+  const { data: boards = [], isLoading: boardsLoading } = useQuery<any[]>({
+    queryKey: ["brief-picker-boards", user?.id],
+    enabled: !!user && open && tab === "boards",
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("boards")
+        .select("id, name, description, board_items(item_id)")
+        .eq("user_id", user!.id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []).map((b: any) => ({ ...b, itemCount: b.board_items?.length ?? 0 }));
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const boardResults = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return boards;
+    return boards.filter((b: any) =>
+      (b.name || "").toLowerCase().includes(q) ||
+      (b.description || "").toLowerCase().includes(q),
+    );
+  }, [boards, search]);
+
+  // Items inside the opened board (ready only — mirrors the Vault tab filter).
+  const { data: boardItems = [], isLoading: boardItemsLoading } = useQuery<any[]>({
+    queryKey: ["brief-picker-board-items", openBoardId],
+    enabled: !!openBoardId && open,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("board_items")
+        .select("item_id, inspiration_items(id, title, brand_name, thumbnail_url, platform, ad_format, status)")
+        .eq("board_id", openBoardId!)
+        .order("added_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? [])
+        .map((row: any) => row.inspiration_items)
+        .filter((v: any) => v && v.status === "ready");
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const boardItemResults = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return boardItems;
+    return boardItems.filter((v: any) =>
+      (v.title || "").toLowerCase().includes(q) ||
+      (v.brand_name || "").toLowerCase().includes(q) ||
+      (v.ad_format || "").toLowerCase().includes(q),
+    );
+  }, [boardItems, search]);
+
+  const openBoard = boards.find((b: any) => b.id === openBoardId);
 
   const accountName = (id: string) => accounts.find((a: any) => a.id === id)?.name || "";
 
@@ -139,8 +195,16 @@ export function CreativePickerModal({ open, onClose, briefAccountId, selectedIds
     );
   };
 
-  const loading = tab === "creatives" ? creativesLoading : vaultLoading;
-  const isEmpty = tab === "creatives" ? creativeResults.length === 0 : vaultResults.length === 0;
+  // In the boards tab we show either the board list or the opened board's items.
+  const inBoardList = tab === "boards" && !openBoard;
+  const loading =
+    tab === "creatives" ? creativesLoading
+      : tab === "boards" ? (openBoard ? boardItemsLoading : boardsLoading)
+      : vaultLoading;
+  const isEmpty =
+    tab === "creatives" ? creativeResults.length === 0
+      : tab === "boards" ? (openBoard ? boardItemResults.length === 0 : boardResults.length === 0)
+      : vaultResults.length === 0;
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
@@ -153,12 +217,22 @@ export function CreativePickerModal({ open, onClose, briefAccountId, selectedIds
             </DialogDescription>
           </div>
 
-          <Tabs value={tab} onValueChange={(v) => { setTab(v as any); setSearch(""); }}>
+          <Tabs value={tab} onValueChange={(v) => { setTab(v as any); setSearch(""); setOpenBoardId(null); }}>
             <TabsList>
               <TabsTrigger value="vault" className="gap-1.5 text-[12px]"><Vault className="h-3.5 w-3.5" /> Vault</TabsTrigger>
+              <TabsTrigger value="boards" className="gap-1.5 text-[12px]"><LayoutGrid className="h-3.5 w-3.5" /> Boards</TabsTrigger>
               <TabsTrigger value="creatives" className="gap-1.5 text-[12px]"><Images className="h-3.5 w-3.5" /> All Creatives</TabsTrigger>
             </TabsList>
           </Tabs>
+
+          {tab === "boards" && openBoard && (
+            <button
+              onClick={() => { setOpenBoardId(null); setSearch(""); }}
+              className="flex items-center gap-1 self-start font-body text-[12px] text-verdant hover:underline"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" /> All boards
+            </button>
+          )}
 
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
@@ -167,7 +241,11 @@ export function CreativePickerModal({ open, onClose, briefAccountId, selectedIds
                 autoFocus
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder={tab === "vault" ? "Search Vault…" : "Search creatives…"}
+                placeholder={
+                  tab === "vault" ? "Search Vault…"
+                    : tab === "boards" ? (openBoard ? `Search ${openBoard.name}…` : "Search boards…")
+                    : "Search creatives…"
+                }
                 className="pl-8 h-9 font-body text-[12px]"
               />
             </div>
@@ -191,16 +269,40 @@ export function CreativePickerModal({ open, onClose, briefAccountId, selectedIds
           {loading ? (
             <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
               <Loader2 className="h-5 w-5 animate-spin" />
-              <p className="font-body text-[12px]">Loading {tab === "vault" ? "Vault" : "creatives"}…</p>
+              <p className="font-body text-[12px]">
+                Loading {tab === "vault" ? "Vault" : tab === "boards" ? (openBoard ? openBoard.name : "boards") : "creatives"}…
+              </p>
             </div>
           ) : isEmpty ? (
             <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2 text-center">
-              {tab === "vault" ? <Vault className="h-8 w-8" /> : <Images className="h-8 w-8" />}
+              {tab === "vault" ? <Vault className="h-8 w-8" /> : tab === "boards" ? <LayoutGrid className="h-8 w-8" /> : <Images className="h-8 w-8" />}
               <p className="font-body text-[12px]">
                 {tab === "vault"
                   ? (vaultItems.length === 0 ? "Your Vault is empty. Save creatives to the Vault from the Creatives page." : "No Vault matches.")
-                  : (allCreatives.length === 0 ? "No creatives synced yet." : "No creative matches.")}
+                  : tab === "boards"
+                    ? (openBoard
+                        ? (boardItems.length === 0 ? "This board has no ready creatives yet." : "No matches in this board.")
+                        : (boards.length === 0 ? "No boards yet. Create boards from the Vault to organize creatives." : "No board matches."))
+                    : (allCreatives.length === 0 ? "No creatives synced yet." : "No creative matches.")}
               </p>
+            </div>
+          ) : inBoardList ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {boardResults.map((b: any) => (
+                <button
+                  key={b.id}
+                  onClick={() => { setOpenBoardId(b.id); setSearch(""); }}
+                  className="rounded-lg border border-border-light hover:border-verdant/50 text-left overflow-hidden transition-colors"
+                >
+                  <div className="aspect-[4/3] bg-muted flex items-center justify-center">
+                    <LayoutGrid className="h-7 w-7 text-muted-foreground/50" />
+                  </div>
+                  <div className="p-2">
+                    <p className="font-body text-[12px] text-charcoal truncate">{b.name || "Untitled board"}</p>
+                    <p className="font-body text-[10px] text-muted-foreground">{b.itemCount} {b.itemCount === 1 ? "item" : "items"}</p>
+                  </div>
+                </button>
+              ))}
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
@@ -214,7 +316,7 @@ export function CreativePickerModal({ open, onClose, briefAccountId, selectedIds
                       subtitle={accountName(c.account_id)}
                     />
                   ))
-                : vaultResults.map((v: any) => (
+                : (tab === "boards" ? boardItemResults : vaultResults).map((v: any) => (
                     <Tile
                       key={v.id}
                       id={VAULT_KEY(v.id)}
