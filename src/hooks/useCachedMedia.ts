@@ -133,13 +133,22 @@ const mediaCache = new MediaCache();
 interface UseCachedMediaOptions {
   fallbackUrl?: string;
   placeholderUrl?: string;
+  // Called when a non-storage (CDN) url fails to load — almost always an expired Meta
+  // fbcdn url. Consumers wire this to trigger an on-demand re-cache (cache-creative-image)
+  // so the dead url is replaced with a permanent storage url, instead of looping on it.
+  onExpired?: (url: string) => void;
+}
+
+/** Permanent Supabase Storage urls never expire; everything else (fbcdn CDN) can. */
+function isStorageUrl(url: string): boolean {
+  return url.includes("/storage/v1/object/public/");
 }
 
 export function useCachedMedia(
   mediaUrl: string | null | undefined,
   options: UseCachedMediaOptions = {}
 ) {
-  const { fallbackUrl, placeholderUrl = "/placeholder-creative.png" } = options;
+  const { fallbackUrl, placeholderUrl = "/placeholder-creative.png", onExpired } = options;
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -201,13 +210,20 @@ export function useCachedMedia(
     } catch (err) {
       console.error("Media load error:", err);
       setError(err as Error);
-      // Fall back to the original URL (img tags can load cross-origin even when fetch can't),
-      // then try explicit fallback, then placeholder as last resort
-      setObjectUrl(mediaUrl || fallbackUrl || placeholderUrl);
+      if (mediaUrl && isStorageUrl(mediaUrl)) {
+        // Permanent storage url — the failure is transient (network blip). The <img> tag can
+        // still load it cross-origin even when fetch() couldn't, so it's worth reusing.
+        setObjectUrl(mediaUrl);
+      } else {
+        // Non-storage CDN url that failed = expired Meta fbcdn url. Reusing it just loops on a
+        // dead link. Show the fallback/placeholder and signal a re-cache to replace it.
+        setObjectUrl(fallbackUrl || placeholderUrl);
+        if (mediaUrl && onExpired) onExpired(mediaUrl);
+      }
     } finally {
       setIsLoading(false);
     }
-  }, [mediaUrl, fallbackUrl, placeholderUrl]);
+  }, [mediaUrl, fallbackUrl, placeholderUrl, onExpired]);
 
   useEffect(() => {
     loadMedia();

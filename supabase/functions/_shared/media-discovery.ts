@@ -145,6 +145,11 @@ export async function discoverImageUrl(
     const videoId = spec?.video_data?.video_id || spec?.template_data?.video_data?.video_id;
 
     if (videoId) {
+      // Hold the best available video thumb as a last-resort fallback. We PREFER a >=480px
+      // thumb or the 1080 picture endpoint, but a smaller thumb still beats returning nothing
+      // (which would leave the card permanently broken) or the ~130px Strategy-6 placeholder.
+      let smallVideoThumb: string | null = null;
+
       const vidRes = await fetchWithTimeout(
         `https://graph.facebook.com/${META_API_VERSION}/${videoId}?fields=thumbnails{uri,width,height}&access_token=${accessToken}`,
         timeoutMs
@@ -158,8 +163,9 @@ export async function discoverImageUrl(
           if (best?.uri && (best.width || 0) >= 480) {
             console.log(`Video thumbnail for ${adId}: ${best.width}x${best.height}`);
             return { thumbnailUrl: best.uri, fullResUrl: null };
-          } else {
-            console.log(`Video thumbnail too small for ${adId}: ${best?.width}x${best?.height} — skipping`);
+          } else if (best?.uri) {
+            console.log(`Video thumbnail below 480px for ${adId}: ${best?.width}x${best?.height} — keeping as fallback`);
+            smallVideoThumb = best.uri;
           }
         }
       } else {
@@ -178,6 +184,12 @@ export async function discoverImageUrl(
         }
       } else {
         await picRes.text();
+      }
+
+      // 1080 picture endpoint failed — use the smaller thumb rather than dropping it.
+      if (smallVideoThumb) {
+        console.log(`Using sub-480px video thumbnail fallback for ${adId}`);
+        return { thumbnailUrl: smallVideoThumb, fullResUrl: null };
       }
     }
 

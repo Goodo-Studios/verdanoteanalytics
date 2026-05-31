@@ -23,6 +23,15 @@ const MAX_ITEMS = 1000;
 // keep their live CDN url (still playable) instead of being cached.
 const MAX_VIDEO_SIZE = 80 * 1024 * 1024;
 
+// Exponential backoff for sentinel retries (hours): 1h → 4h → 12h → 1d → 3d → 7d cap.
+// Mirrors refresh-thumbnails so a sentinel written by either path carries the same TTL and
+// neither path re-hammers a genuinely-dead creative — but every transient failure self-heals.
+const RETRY_BACKOFF_HOURS = [1, 4, 12, 24, 72, 168];
+export function nextRetryAfter(retryCount: number): string {
+  const idx = Math.min(Math.max(retryCount - 1, 0), RETRY_BACKOFF_HOURS.length - 1);
+  return new Date(Date.now() + RETRY_BACKOFF_HOURS[idx] * 60 * 60 * 1000).toISOString();
+}
+
 /**
  * Read a Response body into memory but ABORT as soon as it exceeds `maxBytes`.
  * Returns the bytes, or null if the file is over the cap.
@@ -105,13 +114,20 @@ async function cacheToStorage(
   }
 }
 
-export async function handler(req: Request): Promise<Response> {
+export async function handler(req: Request, supabaseOverride?: unknown): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-  );
+  // serve() invokes handler(req, connInfo); connInfo is truthy but has no `.from`,
+  // so only accept an override that actually looks like a Supabase client.
+  const isClient = (o: unknown): boolean =>
+    !!o && typeof (o as { from?: unknown }).from === "function";
+  // deno-lint-ignore no-explicit-any
+  const supabase: any = isClient(supabaseOverride)
+    ? supabaseOverride
+    : createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      );
 
   try {
     const url = new URL(req.url);
@@ -150,21 +166,46 @@ export async function handler(req: Request): Promise<Response> {
       );
     }
 
+    // ── Discovery phases ──────────────────────────────────────────────────
+    // Populate thumbnail_url / video_url with freshly-discovered CDN urls.
+    // These MUST run before the caching phases: caching downloads whatever CDN
+    // url discovery just wrote. The previous ordering ran video caching before
+    // video discovery for scope=all, so on a fresh account video_url was still
+    // null when caching ran (nothing to cache); discovery then wrote a raw CDN
+    // url that never got cached that pass and expired before the next run.
     if (scope === "discover" || scope === "all") {
       await runDiscovery(supabase, accountFilter, metaAccessToken);
     }
 
-    if (scope === "cache" || scope === "all") {
+    if (scope === "video" || scope === "all") {
+      await runVideoDiscovery(supabase, accountFilter, metaAccessToken);
+    }
+
+    // ── Caching phases ────────────────────────────────────────────────────
+    // Download the discovered CDN urls into permanent Supabase Storage before
+    // they expire.
+    if (scope === "cache") {
       await runCaching(supabase, accountFilter);
       await runVideoCaching(supabase, accountFilter);
     }
 
-    if (scope === "video") {
-      await runVideoDiscovery(supabase, accountFilter, metaAccessToken);
-    }
-
-    if (scope === "all") {
-      await runVideoDiscovery(supabase, accountFilter, metaAccessToken);
+    // scope=all chains caching into a SEPARATE invocation rather than running it
+    // inline. Discovery + caching in one invocation risks the edge function's
+    // ~150s wall-time limit starving the heavy, last video-caching phase — which
+    // would again leave a freshly-discovered CDN url uncached until it expires.
+    // A fresh invocation gives caching its own full budget. Disabled in tests via
+    // ENRICH_NO_CHAIN so the chain fetch doesn't fire against a live URL.
+    if (scope === "all" && !Deno.env.get("ENRICH_NO_CHAIN")) {
+      const chainUrl =
+        `${Deno.env.get("SUPABASE_URL")}/functions/v1/enrich-thumbnails?scope=cache` +
+        (accountFilter ? `&account_id=${encodeURIComponent(accountFilter)}` : "");
+      fetch(chainUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+      }).catch((e: Error) => console.error("enrich-thumbnails cache-chain error:", e.message));
     }
 
     // force: re-run discovery on sentineled creatives (thumbnail_url = 'no-thumbnail')
@@ -210,10 +251,14 @@ if (!Deno.env.get("ENRICH_NO_SERVE")) {
  * thumbnail_storage_path IS NULL, etc.), so removing the gate is bounded, one-time work.
  */
 export async function runDiscovery(supabase: any, accountFilter: string | null, metaAccessToken: string) {
+  const nowIso = new Date().toISOString();
+  // Pick up NULL thumbnails (never tried) AND sentinels whose backoff window is due.
+  // Sentinels still inside their window are skipped so dead creatives aren't re-hammered.
   let query = supabase
     .from("creatives")
-    .select("ad_id, account_id")
-    .is("thumbnail_url", null);
+    .select("ad_id, account_id, thumb_retry_count")
+    .or(`thumbnail_url.is.null,thumbnail_url.eq.${NO_THUMB_SENTINEL}`)
+    .or(`thumb_retry_after.is.null,thumb_retry_after.lte.${nowIso}`);
   if (accountFilter) query = query.eq("account_id", accountFilter);
 
   const { data: withSpend } = await query
@@ -227,8 +272,9 @@ export async function runDiscovery(supabase: any, accountFilter: string | null, 
     const remaining = MAX_ITEMS - items.length;
     let zeroQuery = supabase
       .from("creatives")
-      .select("ad_id, account_id")
-      .is("thumbnail_url", null)
+      .select("ad_id, account_id, thumb_retry_count")
+      .or(`thumbnail_url.is.null,thumbnail_url.eq.${NO_THUMB_SENTINEL}`)
+      .or(`thumb_retry_after.is.null,thumb_retry_after.lte.${nowIso}`)
       .or("spend.is.null,spend.eq.0");
     if (accountFilter) zeroQuery = zeroQuery.eq("account_id", accountFilter);
     const { data: zeroSpend } = await zeroQuery.limit(remaining);
@@ -236,11 +282,11 @@ export async function runDiscovery(supabase: any, accountFilter: string | null, 
   }
 
   if (items.length === 0) {
-    console.log("Discovery: No null-thumbnail creatives to enrich.");
+    console.log("Discovery: No null/due-sentinel thumbnail creatives to enrich.");
     return;
   }
 
-  console.log(`Discovery: ${items.length} null-thumbnail creatives (account: ${accountFilter || "all"})`);
+  console.log(`Discovery: ${items.length} thumbnail creatives to enrich (account: ${accountFilter || "all"})`);
 
   const startTime = Date.now();
   let enriched = 0, sentinel = 0;
@@ -256,10 +302,17 @@ export async function runDiscovery(supabase: any, accountFilter: string | null, 
       batch.map(async (c: any) => {
         const result = await discoverImageUrl(c.ad_id, c.account_id, metaAccessToken, 8_000);
         if (result) {
-          await supabase.from("creatives").update({ thumbnail_url: result.thumbnailUrl }).eq("ad_id", c.ad_id);
+          // Success — clear the backoff bookkeeping so a future regression starts fresh.
+          await supabase.from("creatives")
+            .update({ thumbnail_url: result.thumbnailUrl, thumb_retry_count: 0, thumb_retry_after: null })
+            .eq("ad_id", c.ad_id);
           return "enriched";
         } else {
-          await supabase.from("creatives").update({ thumbnail_url: NO_THUMB_SENTINEL }).eq("ad_id", c.ad_id);
+          // Failure — write sentinel + advance the backoff window so it's retried later, not forever.
+          const nextCount = (c.thumb_retry_count ?? 0) + 1;
+          await supabase.from("creatives")
+            .update({ thumbnail_url: NO_THUMB_SENTINEL, thumb_retry_count: nextCount, thumb_retry_after: nextRetryAfter(nextCount) })
+            .eq("ad_id", c.ad_id);
           return "sentinel";
         }
       })
@@ -351,10 +404,13 @@ export async function runCaching(supabase: any, accountFilter: string | null) {
  * per account — this is the key fix for (#10) page-permission errors.
  */
 export async function runVideoDiscovery(supabase: any, accountFilter: string | null, metaAccessToken: string) {
+  const nowIso = new Date().toISOString();
+  // Pick up NULL video_url (never tried) AND sentinels whose backoff window is due.
   let query = supabase
     .from("creatives")
-    .select("ad_id, account_id")
-    .is("video_url", null);
+    .select("ad_id, account_id, video_retry_count")
+    .or(`video_url.is.null,video_url.eq.${NO_VIDEO_SENTINEL}`)
+    .or(`video_retry_after.is.null,video_retry_after.lte.${nowIso}`);
   if (accountFilter) query = query.eq("account_id", accountFilter);
 
   const { data: withSpend } = await query
@@ -368,8 +424,9 @@ export async function runVideoDiscovery(supabase: any, accountFilter: string | n
     const remaining = MAX_ITEMS - items.length;
     let zeroQuery = supabase
       .from("creatives")
-      .select("ad_id, account_id")
-      .is("video_url", null)
+      .select("ad_id, account_id, video_retry_count")
+      .or(`video_url.is.null,video_url.eq.${NO_VIDEO_SENTINEL}`)
+      .or(`video_retry_after.is.null,video_retry_after.lte.${nowIso}`)
       .or("spend.is.null,spend.eq.0");
     if (accountFilter) zeroQuery = zeroQuery.eq("account_id", accountFilter);
     const { data: zeroSpend } = await zeroQuery.limit(remaining);
@@ -377,7 +434,7 @@ export async function runVideoDiscovery(supabase: any, accountFilter: string | n
   }
 
   if (items.length === 0) {
-    console.log("Video discovery: No null-video_url creatives to enrich.");
+    console.log("Video discovery: No null/due-sentinel video creatives to enrich.");
     return;
   }
 
@@ -414,10 +471,15 @@ export async function runVideoDiscovery(supabase: any, accountFilter: string | n
         batch.map(async (c: any) => {
           const videoUrl = await discoverVideoUrl(c.ad_id, metaAccessToken, 8_000, accountVideoMap);
           if (videoUrl) {
-            await supabase.from("creatives").update({ video_url: videoUrl }).eq("ad_id", c.ad_id);
+            await supabase.from("creatives")
+              .update({ video_url: videoUrl, video_retry_count: 0, video_retry_after: null })
+              .eq("ad_id", c.ad_id);
             return "found";
           } else {
-            await supabase.from("creatives").update({ video_url: NO_VIDEO_SENTINEL }).eq("ad_id", c.ad_id);
+            const nextCount = (c.video_retry_count ?? 0) + 1;
+            await supabase.from("creatives")
+              .update({ video_url: NO_VIDEO_SENTINEL, video_retry_count: nextCount, video_retry_after: nextRetryAfter(nextCount) })
+              .eq("ad_id", c.ad_id);
             return "sentinel";
           }
         })
@@ -472,7 +534,7 @@ export async function runForcedRediscovery(supabase: any, accountFilter: string 
         const result = await discoverImageUrl(c.ad_id, c.account_id, metaAccessToken, 8_000);
         if (result) {
           await supabase.from("creatives")
-            .update({ thumbnail_url: result.thumbnailUrl, full_res_url: result.fullResUrl || result.thumbnailUrl, thumbnail_storage_path: null })
+            .update({ thumbnail_url: result.thumbnailUrl, full_res_url: result.fullResUrl || result.thumbnailUrl, thumbnail_storage_path: null, thumb_retry_count: 0, thumb_retry_after: null })
             .eq("ad_id", c.ad_id);
           return "enriched";
         }
@@ -545,7 +607,9 @@ export async function runVideoRediscovery(supabase: any, accountFilter: string |
         batch.map(async (c: any) => {
           const videoUrl = await discoverVideoUrl(c.ad_id, metaAccessToken, 8_000, accountVideoMap);
           if (videoUrl) {
-            await supabase.from("creatives").update({ video_url: videoUrl }).eq("ad_id", c.ad_id);
+            await supabase.from("creatives")
+              .update({ video_url: videoUrl, video_retry_count: 0, video_retry_after: null })
+              .eq("ad_id", c.ad_id);
             return "found";
           }
           return "sentinel";

@@ -193,17 +193,24 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
   // Fetch all creatives once at modal level — passed down to avoid duplicate fetches
   const { data: allCreatives = [] } = useAllCreatives({ account_id: creative?.account_id });
 
-  // On-demand media caching: fire when modal opens with no video stored.
-  // We only need to trigger caching when video_url is null — cache-creative-image
-  // has its own skipImage guard so it won't redo thumbnail work already in storage.
+  // On-demand media caching / self-heal: fire when modal opens unless BOTH media
+  // slots are already "settled" — i.e. a permanent storage url or a confirmed-absent
+  // sentinel. A non-storage CDN url may be expired (Meta fbcdn urls die in hours), so
+  // a non-null video_url is NOT a reason to skip: previously `if (hasVideo) return`
+  // permanently stranded creatives whose video_url was an expired CDN url with no UI
+  // recovery path. cache-creative-image is idempotent (its own skip guards no-op the
+  // parts already in storage), so re-triggering only re-downloads what's still a CDN url.
   useEffect(() => {
     if (!open || !creative) return;
     setCachedMedia(null);
-    const hasVideo = !!(creative.video_url && creative.video_url !== "no-video");
-    // Already have a playable video — nothing to do
-    if (hasVideo) return;
-    // Sentinel means discovery was already attempted and found nothing — skip
-    if (creative.video_url === "no-video") return;
+    const isStorageUrl = (u?: string | null) =>
+      !!u && u.includes("/storage/v1/object/public/");
+    const videoSettled =
+      creative.video_url === "no-video" || isStorageUrl(creative.video_url);
+    const thumbSettled =
+      creative.thumbnail_url === "no-thumbnail" || isStorageUrl(creative.thumbnail_url);
+    // Both permanent or confirmed-absent → nothing to recover.
+    if (videoSettled && thumbSettled) return;
     setCaching(true);
     supabase.functions
       .invoke("cache-creative-image", {

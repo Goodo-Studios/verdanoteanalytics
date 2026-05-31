@@ -1422,8 +1422,10 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         console.log("  Skipping post-sync audit — budget exceeded");
       }
 
-      // Fire-and-forget media enrichment — runs independently after data sync is fresh
-      fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/enrich-thumbnails`, {
+      // Fire-and-forget media enrichment — runs independently after data sync is fresh.
+      // Explicit scope=all: discovery (image+video) runs first, then enrich-thumbnails
+      // chains a separate caching invocation. Don't rely on the server-side default.
+      fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/enrich-thumbnails?scope=all`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

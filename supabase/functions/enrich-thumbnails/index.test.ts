@@ -16,6 +16,13 @@ import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.t
 
 // Must be set BEFORE importing index.ts so the module-level serve() call is skipped.
 Deno.env.set("ENRICH_NO_SERVE", "1");
+// scope=all chains a live POST to itself; disable so the handler test never hits the network.
+Deno.env.set("ENRICH_NO_CHAIN", "1");
+// Token resolved from env first; set it so the handler skips the settings-table lookup
+// (the recorder has no .single()). Values are irrelevant — the mock client returns empty sets.
+Deno.env.set("META_ACCESS_TOKEN", "fake-meta-token");
+Deno.env.set("SUPABASE_URL", "https://example.supabase.co");
+Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "fake-service-role");
 
 const mod = await import("./index.ts");
 
@@ -79,13 +86,27 @@ function hasCall(calls: Call[], method: string, arg0: unknown): boolean {
   return calls.some((c) => c.method === method && c.args[0] === arg0);
 }
 
+function hasOrContaining(calls: Call[], needle: string): boolean {
+  return calls.some(
+    (c) => c.method === "or" && typeof c.args[0] === "string" && (c.args[0] as string).includes(needle),
+  );
+}
+
 const TOKEN = "fake-meta-token";
 
-Deno.test("runDiscovery does not filter on impressions but keeps the null-thumbnail skip-gate", async () => {
+Deno.test("runDiscovery does not filter on impressions but gates on the sentinel-inclusive null-thumbnail set with a retry-backoff window", async () => {
   const { supabase, calls } = makeRecorder();
   await mod.runDiscovery(supabase, null, TOKEN);
   assert(!hasImpressionsFilter(calls), "runDiscovery must not filter on impressions");
-  assert(hasCall(calls, "is", "thumbnail_url"), "runDiscovery must keep .is(thumbnail_url, null) skip-gate");
+  // Now picks up both NULL thumbnails AND due sentinels via .or(), not a bare .is() skip-gate.
+  assert(
+    hasOrContaining(calls, "thumbnail_url.is.null"),
+    "runDiscovery must select rows where thumbnail_url IS NULL or equals the sentinel",
+  );
+  assert(
+    hasOrContaining(calls, "thumb_retry_after"),
+    "runDiscovery must carry a thumb_retry_after backoff gate so transient failures aren't re-hammered",
+  );
 });
 
 Deno.test("runCaching does not filter on impressions but keeps the storage-path skip-gate", async () => {
@@ -95,11 +116,18 @@ Deno.test("runCaching does not filter on impressions but keeps the storage-path 
   assert(hasCall(calls, "is", "thumbnail_storage_path"), "runCaching must keep .is(thumbnail_storage_path, null) skip-gate");
 });
 
-Deno.test("runVideoDiscovery does not filter on impressions but keeps the null-video skip-gate", async () => {
+Deno.test("runVideoDiscovery does not filter on impressions but gates on the sentinel-inclusive null-video set with a retry-backoff window", async () => {
   const { supabase, calls } = makeRecorder();
   await mod.runVideoDiscovery(supabase, null, TOKEN);
   assert(!hasImpressionsFilter(calls), "runVideoDiscovery must not filter on impressions");
-  assert(hasCall(calls, "is", "video_url"), "runVideoDiscovery must keep .is(video_url, null) skip-gate");
+  assert(
+    hasOrContaining(calls, "video_url.is.null"),
+    "runVideoDiscovery must select rows where video_url IS NULL or equals the sentinel",
+  );
+  assert(
+    hasOrContaining(calls, "video_retry_after"),
+    "runVideoDiscovery must carry a video_retry_after backoff gate so transient failures aren't re-hammered",
+  );
 });
 
 Deno.test("runForcedRediscovery does not filter on impressions but targets the thumbnail sentinel", async () => {
@@ -127,4 +155,52 @@ Deno.test("account filter is still applied when provided", async () => {
   const { supabase, calls } = makeRecorder();
   await mod.runDiscovery(supabase, "act_123", TOKEN);
   assertEquals(hasCall(calls, "eq", "account_id"), true, "account filter must scope the query");
+});
+
+// ── P0.1: discovery must run before (and separately from) caching for scope=all ──
+// Root cause of "videos not saved": the old scope=all ran video caching before video
+// discovery, so on a fresh account video_url was still null when caching ran (nothing to
+// cache); discovery then wrote a raw CDN url that expired before the next run. The fix
+// runs discovery inline and chains caching to a SEPARATE invocation, so a scope=all pass
+// must (a) issue the discovery selection gates and (b) NOT run the caching skip-gates inline.
+Deno.test("scope=all runs discovery inline and defers caching to a separate invocation", async () => {
+  const { supabase, calls } = makeRecorder();
+  const req = new Request("https://fn.local/enrich-thumbnails?scope=all");
+  const res = await mod.handler(req, supabase);
+  await res.text();
+
+  // Discovery ran: both thumbnail and video selection gates are present.
+  assert(hasOrContaining(calls, "thumbnail_url.is.null"), "scope=all must run thumbnail discovery inline");
+  assert(hasOrContaining(calls, "video_url.is.null"), "scope=all must run video discovery inline");
+
+  // Caching did NOT run inline — it is chained to a separate ?scope=cache invocation.
+  assert(
+    !hasCall(calls, "is", "thumbnail_storage_path"),
+    "scope=all must NOT run image caching inline (it's chained to a separate invocation)",
+  );
+  assert(
+    !hasCall(calls, "not", "video_url"),
+    "scope=all must NOT run video caching inline (it's chained to a separate invocation)",
+  );
+});
+
+Deno.test("scope=cache runs the caching phases (and no discovery)", async () => {
+  const { supabase, calls } = makeRecorder();
+  const req = new Request("https://fn.local/enrich-thumbnails?scope=cache");
+  const res = await mod.handler(req, supabase);
+  await res.text();
+
+  assert(hasCall(calls, "is", "thumbnail_storage_path"), "scope=cache must run image caching");
+  assert(hasCall(calls, "not", "video_url"), "scope=cache must run video caching");
+  assert(!hasOrContaining(calls, "thumbnail_url.is.null"), "scope=cache must not run thumbnail discovery");
+});
+
+Deno.test("nextRetryAfter implements bounded exponential backoff", () => {
+  const t1 = new Date(mod.nextRetryAfter(1)).getTime();
+  const t2 = new Date(mod.nextRetryAfter(2)).getTime();
+  const now = Date.now();
+  assert(t1 > now, "first retry must be in the future");
+  assert(t2 > t1, "backoff must increase with retry count");
+  const tCap = new Date(mod.nextRetryAfter(999)).getTime();
+  assert(tCap - now <= 7 * 24 * 60 * 60 * 1000 + 60_000, "backoff must cap at 7 days");
 });
