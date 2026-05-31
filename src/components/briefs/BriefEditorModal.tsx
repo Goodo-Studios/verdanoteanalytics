@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
@@ -7,14 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useUpdateBrief, type Brief } from "@/hooks/useBriefsApi";
-import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { useAccounts } from "@/hooks/useAccountsApi";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { Copy, Save, Send, Plus, X, Search } from "lucide-react";
+import { Copy, Save, Send, Plus, X } from "lucide-react";
 import { toast } from "sonner";
+import { CreativePickerModal, type VisualItem } from "./CreativePickerModal";
 
 const SECTION_DEFS = [
   { key: "angle_goal", label: "Angle / Goal", type: "textarea", placeholder: "The strategic angle and what this ad needs to achieve…" },
@@ -34,41 +33,10 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
   const { data: accounts = [] } = useAccounts();
   const [name, setName] = useState("");
   const [content, setContent] = useState<Record<string, any>>({});
-  const [refAdIds, setRefAdIds] = useState<string[]>([]);
+  const [refItems, setRefItems] = useState<VisualItem[]>([]);
   const [dirty, setDirty] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerSearch, setPickerSearch] = useState("");
-
-  // Load reference creatives
-  const { data: allCreatives = [], isLoading: creativesLoading } = useAllCreatives({});
-  const refCreatives = useMemo(
-    () => allCreatives.filter((c: any) => refAdIds.includes(c.ad_id)),
-    [allCreatives, refAdIds],
-  );
-
-  const accountName = (id: string) => accounts.find((a: any) => a.id === id)?.name || "";
-
-  // Vault picker candidates: search across all accounts (brief's account first),
-  // excluding ones already linked.
-  const pickerResults = useMemo(() => {
-    if (!brief) return [];
-    const q = pickerSearch.trim().toLowerCase();
-    return allCreatives
-      .filter((c: any) =>
-        !refAdIds.includes(c.ad_id) &&
-        (!q ||
-          (c.ad_name || "").toLowerCase().includes(q) ||
-          (c.unique_code || "").toLowerCase().includes(q) ||
-          (c.product || "").toLowerCase().includes(q)),
-      )
-      .sort((a: any, b: any) => {
-        const am = a.account_id === brief.account_id ? 0 : 1;
-        const bm = b.account_id === brief.account_id ? 0 : 1;
-        return am - bm;
-      })
-      .slice(0, 80);
-  }, [allCreatives, brief, refAdIds, pickerSearch]);
 
   useEffect(() => {
     if (brief) {
@@ -77,9 +45,18 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
       setContent({
         angle_goal: c.angle_goal ?? c.objective ?? "",
         brief: c.brief ?? [c.hook, c.key_message, c.cta].filter(Boolean).join("\n\n"),
-        visual_inspiration: Array.isArray(c.visual_inspiration) ? c.visual_inspiration : [],
       });
-      setRefAdIds(brief.reference_ad_ids || []);
+      // Hydrate selected items from stored visual_inspiration objects so vault
+      // items render thumbnails without a live creative fetch. Backfill source
+      // for legacy objects (pre-vault) that lack it.
+      const stored: any[] = Array.isArray(c.visual_inspiration) ? c.visual_inspiration : [];
+      setRefItems(stored.map((v: any) => ({
+        ad_id: v.ad_id,
+        thumbnail_url: v.thumbnail_url ?? null,
+        ad_name: v.ad_name ?? null,
+        unique_code: v.unique_code ?? null,
+        source: v.source ?? (String(v.ad_id).startsWith("vault:") ? "vault" : "creative"),
+      })));
       setDirty(false);
     }
   }, [brief]);
@@ -91,38 +68,31 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
     setDirty(true);
   };
 
-  const addInspiration = (adId: string) => {
-    setRefAdIds((prev) => (prev.includes(adId) ? prev : [...prev, adId]));
+  const toggleItem = (item: VisualItem) => {
+    setRefItems((prev) =>
+      prev.some((i) => i.ad_id === item.ad_id)
+        ? prev.filter((i) => i.ad_id !== item.ad_id)
+        : [...prev, item],
+    );
     setDirty(true);
   };
 
   const removeInspiration = (adId: string) => {
-    setRefAdIds((prev) => prev.filter((id) => id !== adId));
+    setRefItems((prev) => prev.filter((i) => i.ad_id !== adId));
     setDirty(true);
   };
-
-  // Serialize selected creatives into light objects so the public share page
-  // can render thumbnails without an authed creative fetch. Falls back to the
-  // previously-stored object when a creative hasn't loaded yet.
-  const buildVisualInspiration = () =>
-    refAdIds.map((id) => {
-      const c = allCreatives.find((x: any) => x.ad_id === id);
-      if (c) return { ad_id: c.ad_id, thumbnail_url: c.thumbnail_url, ad_name: c.ad_name, unique_code: c.unique_code };
-      const prior = (content.visual_inspiration || []).find((p: any) => p.ad_id === id);
-      return prior || { ad_id: id };
-    });
 
   const save = async () => {
     const cleanContent = {
       angle_goal: content.angle_goal || "",
       brief: content.brief || "",
-      visual_inspiration: buildVisualInspiration(),
+      visual_inspiration: refItems,
     };
     await updateBrief.mutateAsync({
       id: brief.id,
       name,
       content: cleanContent,
-      reference_ad_ids: refAdIds,
+      reference_ad_ids: refItems.map((i) => i.ad_id),
     } as any);
     setDirty(false);
   };
@@ -137,9 +107,9 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
         lines.push("");
       }
     }
-    if (refCreatives.length > 0) {
+    if (refItems.length > 0) {
       lines.push("## Visual Inspiration");
-      for (const c of refCreatives) {
+      for (const c of refItems) {
         lines.push(`- ${c.unique_code || c.ad_name || c.ad_id}`);
       }
       lines.push("");
@@ -221,61 +191,14 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
         <div className="px-6 pb-6 space-y-2">
           <div className="flex items-center justify-between">
             <Label className="font-label text-[10px] uppercase tracking-wider text-muted-foreground">Visual Inspiration</Label>
-            <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-              <PopoverTrigger asChild>
-                <Button size="sm" variant="outline" className="gap-1 font-body text-[11px]">
-                  <Plus className="h-3 w-3" /> Link from Vault
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-80 p-0">
-                <div className="p-2 border-b border-border-light">
-                  <div className="relative">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                    <Input
-                      autoFocus
-                      value={pickerSearch}
-                      onChange={(e) => setPickerSearch(e.target.value)}
-                      placeholder="Search creatives…"
-                      className="pl-8 h-8 font-body text-[12px]"
-                    />
-                  </div>
-                </div>
-                <div className="max-h-72 overflow-y-auto p-2 space-y-1">
-                  {creativesLoading ? (
-                    <p className="px-1 py-3 text-center font-body text-[12px] text-muted-foreground">Loading creatives…</p>
-                  ) : pickerResults.length === 0 ? (
-                    <p className="px-1 py-3 text-center font-body text-[12px] text-muted-foreground">
-                      {allCreatives.length === 0 ? "No creatives synced yet." : "No matches."}
-                    </p>
-                  ) : (
-                    pickerResults.map((c: any) => (
-                      <button
-                        key={c.ad_id}
-                        onClick={() => { addInspiration(c.ad_id); setPickerSearch(""); }}
-                        className="w-full flex items-center gap-2 p-1.5 rounded hover:bg-muted text-left"
-                      >
-                        {c.thumbnail_url ? (
-                          <img src={c.thumbnail_url} alt={c.ad_name} className="w-12 h-9 object-cover rounded border border-border-light shrink-0" />
-                        ) : (
-                          <div className="w-12 h-9 rounded bg-muted flex items-center justify-center text-[9px] text-muted-foreground shrink-0">No img</div>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <p className="font-body text-[11px] text-charcoal truncate">{c.unique_code || c.ad_name}</p>
-                          {accountName(c.account_id) && (
-                            <p className="font-body text-[9px] text-muted-foreground truncate">{accountName(c.account_id)}</p>
-                          )}
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </PopoverContent>
-            </Popover>
+            <Button size="sm" variant="outline" className="gap-1 font-body text-[11px]" onClick={() => setPickerOpen(true)}>
+              <Plus className="h-3 w-3" /> Link creatives
+            </Button>
           </div>
 
-          {refCreatives.length > 0 ? (
+          {refItems.length > 0 ? (
             <div className="flex gap-2 flex-wrap">
-              {refCreatives.map((c: any) => (
+              {refItems.map((c) => (
                 <div key={c.ad_id} className="w-20 space-y-1 group relative">
                   <button
                     onClick={() => removeInspiration(c.ad_id)}
@@ -285,7 +208,7 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
                     <X className="h-2.5 w-2.5" />
                   </button>
                   {c.thumbnail_url ? (
-                    <img src={c.thumbnail_url} alt={c.ad_name} className="w-20 h-14 object-cover rounded border border-border-light" />
+                    <img src={c.thumbnail_url} alt={c.ad_name ?? ""} className="w-20 h-14 object-cover rounded border border-border-light" />
                   ) : (
                     <div className="w-20 h-14 rounded bg-muted flex items-center justify-center text-[10px] text-muted-foreground">No img</div>
                   )}
@@ -294,11 +217,18 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
               ))}
             </div>
           ) : (
-            <p className="font-body text-[12px] text-muted-foreground">No visual inspiration linked yet. Use "Link from Vault" to add reference creatives.</p>
+            <p className="font-body text-[12px] text-muted-foreground">No visual inspiration linked yet. Use "Link creatives" to pull from your Vault or any ad-account creative.</p>
           )}
         </div>
       </DialogContent>
 
+      <CreativePickerModal
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        briefAccountId={brief.account_id}
+        selectedIds={new Set(refItems.map((i) => i.ad_id))}
+        onToggle={toggleItem}
+      />
     </Dialog>
   );
 }
