@@ -11,6 +11,10 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const SECTION_LABELS: Record<string, string> = {
+  // Current schema
+  angle_goal: "Angle / Goal",
+  brief: "Brief",
+  // Legacy keys (older briefs not yet re-saved)
   concept_name: "Concept Name",
   objective: "Objective",
   hook: "Hook (opening 3 seconds)",
@@ -61,8 +65,9 @@ const PublicBriefPage = () => {
 
   const content = brief.content || {};
   const sections = Object.entries(content).filter(
-    ([key]) => key !== "reference_ads" && SECTION_LABELS[key],
+    ([key]) => SECTION_LABELS[key],
   );
+  const inspiration: any[] = Array.isArray(content.visual_inspiration) ? content.visual_inspiration : [];
 
   return (
     <div className="min-h-screen bg-cream">
@@ -83,12 +88,6 @@ const PublicBriefPage = () => {
           <Badge variant="secondary" className="font-label text-[9px] uppercase">
             {STATUS_LABELS[brief.status] || brief.status}
           </Badge>
-          {brief.assignee_name && (
-            <span className="font-body text-[12px] text-slate">Assigned to: <span className="font-medium">{brief.assignee_name}</span></span>
-          )}
-          {brief.due_date && (
-            <span className="font-body text-[12px] text-slate">Due: <span className="font-data">{brief.due_date}</span></span>
-          )}
         </div>
 
         <Separator />
@@ -120,6 +119,27 @@ const PublicBriefPage = () => {
             </div>
           ))}
         </div>
+
+        {/* Visual Inspiration */}
+        {inspiration.length > 0 && (
+          <div className="rounded-lg border border-border-light bg-card p-4 space-y-3">
+            <h3 className="font-label text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Visual Inspiration
+            </h3>
+            <div className="flex gap-3 flex-wrap">
+              {inspiration.map((c) => (
+                <div key={c.ad_id} className="w-24 space-y-1">
+                  {c.thumbnail_url ? (
+                    <img src={c.thumbnail_url} alt={c.ad_name} className="w-24 h-16 object-cover rounded border border-border-light" />
+                  ) : (
+                    <div className="w-24 h-16 rounded bg-muted flex items-center justify-center text-[10px] text-muted-foreground">No img</div>
+                  )}
+                  <p className="font-body text-[9px] text-muted-foreground truncate">{c.unique_code || c.ad_name}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Footer */}
         <div className="text-center pt-4">
