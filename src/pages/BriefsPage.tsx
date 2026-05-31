@@ -27,10 +27,7 @@ const BriefsPage = () => {
   const filtered = useMemo(() => {
     if (!search) return briefs;
     const q = search.toLowerCase();
-    return briefs.filter((b) =>
-      b.name.toLowerCase().includes(q) ||
-      (b.assignee_name || "").toLowerCase().includes(q),
-    );
+    return briefs.filter((b) => b.name.toLowerCase().includes(q));
   }, [briefs, search]);
 
   const accountName = (id: string) => accounts.find((a: any) => a.id === id)?.name || id;
@@ -104,7 +101,7 @@ const BriefsPage = () => {
           <table className="w-full text-left">
             <thead>
               <tr className="border-b border-border-light bg-muted/30">
-                {["Name", "Account", "Assignee", "Due Date", ""].map((h) => (
+                {["Name", "Account", ""].map((h) => (
                   <th key={h} className="px-4 py-2.5 font-label text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</th>
                 ))}
               </tr>
@@ -118,8 +115,6 @@ const BriefsPage = () => {
                 >
                   <td className="px-4 py-3 font-body text-[13px] font-medium text-charcoal">{brief.name}</td>
                   <td className="px-4 py-3 font-body text-[12px] text-slate">{accountName(brief.account_id)}</td>
-                  <td className="px-4 py-3 font-body text-[12px] text-slate">{brief.assignee_name || "—"}</td>
-                  <td className="px-4 py-3 font-data text-[12px] text-slate">{brief.due_date || "—"}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                       <button onClick={() => brief.share_token && copyShareLink(brief.share_token)} className="p-1 rounded hover:bg-muted" title="Copy share link" disabled={!brief.share_token}>
@@ -134,7 +129,7 @@ const BriefsPage = () => {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center font-body text-[13px] text-muted-foreground">
+                  <td colSpan={3} className="px-4 py-8 text-center font-body text-[13px] text-muted-foreground">
                     No briefs yet. Create your first brief to get started.
                   </td>
                 </tr>
