@@ -9,6 +9,11 @@ import {
   NO_THUMB_SENTINEL,
   NO_VIDEO_SENTINEL,
 } from "../_shared/media-discovery.ts";
+// Reject non-media responses (e.g. a facebook.com page returning text/html) before
+// caching them. Without this, an HTML body is stored as `<adId>.jpg` / `.mp4` —
+// an unplayable/garbage cache entry that later breaks vault-save and the UI.
+// Single source of truth shared with vault-save-creative (dependency-free module).
+import { isMediaContentType } from "../_shared/vault-save-logic.ts";
 
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -100,6 +105,13 @@ async function downloadAndCache(
       return null;
     }
     const contentType = resp.headers.get("content-type") || (type === "video" ? "video/mp4" : "image/jpeg");
+    // Guard: a page URL (e.g. a facebook.com ad page returning text/html) must never be
+    // stored as `<adId>.jpg` / `.mp4`. Returning null lets the caller fall back to the
+    // sentinel + retry (Phase 2 fast path) or the CDN url (slow path) — never garbage.
+    if (!isMediaContentType(contentType, type)) {
+      console.log(`Refusing to cache ${type} for ${adId}: non-${type} content (${contentType}) from ${url}`);
+      return null;
+    }
     const ext = type === "video"
       ? (contentType.includes("webm") ? "webm" : "mp4")
       : (contentType.includes("png") ? "png" : "jpg");

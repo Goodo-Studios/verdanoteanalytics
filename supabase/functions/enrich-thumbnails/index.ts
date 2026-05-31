@@ -9,6 +9,7 @@ import {
   NO_THUMB_SENTINEL,
   NO_VIDEO_SENTINEL,
 } from "../_shared/media-discovery.ts";
+import { isMediaContentType } from "../_shared/vault-save-logic.ts";
 
 
 const SUPABASE_URL_ENV = Deno.env.get("SUPABASE_URL") || "";
@@ -72,6 +73,11 @@ async function cacheToStorage(
     if (!res.ok) { await res.text(); return null; }
 
     const contentType = res.headers.get("content-type") || "image/jpeg";
+    // Guard: never store a non-image payload (e.g. a text/html ad page) as <adId>.jpg.
+    if (!isMediaContentType(contentType, "image")) {
+      console.log(`Refusing to cache image for ${adId}: non-image content (${contentType})`);
+      return null;
+    }
     const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
     const storagePath = `${accountId}/${adId}.${ext}`;
 
@@ -575,6 +581,11 @@ async function cacheVideoToStorage(
     if (!res.ok) { await res.text(); return null; }
 
     const contentType = res.headers.get("content-type") || "video/mp4";
+    // Guard: never store a non-video payload (e.g. a text/html ad page) as <adId>.mp4.
+    if (!isMediaContentType(contentType, "video")) {
+      console.log(`Refusing to cache video for ${adId}: non-video content (${contentType})`);
+      return null;
+    }
     const storagePath = `${accountId}/${adId}.mp4`;
 
     const uint8 = await readBodyCapped(res, MAX_VIDEO_SIZE);

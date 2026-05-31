@@ -6,6 +6,7 @@ import {
   fetchWithTimeout,
   NO_THUMB_SENTINEL,
 } from "../_shared/media-discovery.ts";
+import { isMediaContentType } from "../_shared/vault-save-logic.ts";
 
 
 const META_ACCESS_TOKEN = Deno.env.get("META_ACCESS_TOKEN")!;
@@ -26,6 +27,11 @@ async function cacheToStorage(
     if (!res.ok) { await res.text(); return null; }
 
     const contentType = res.headers.get("content-type") || "image/jpeg";
+    // Guard: never store a non-image payload (e.g. a text/html ad page) as <adId>.jpg.
+    if (!isMediaContentType(contentType, "image")) {
+      console.log(`Refusing to cache image for ${adId}: non-image content (${contentType})`);
+      return null;
+    }
     const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
     const storagePath = `${accountId}/${adId}.${ext}`;
 

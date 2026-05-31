@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { isMediaContentType } from "../_shared/vault-save-logic.ts";
 
 
 const CHROME_UA =
@@ -95,6 +96,12 @@ async function downloadAndStore(
     }
 
     const contentType = resp.headers.get("content-type") || "";
+    // Guard: never store a non-media payload (e.g. a text/html ad page) as a media file.
+    const mediaKind = mediaType === "video" ? "video" : "image";
+    if (!isMediaContentType(contentType, mediaKind)) {
+      console.log(`Refusing to store ${mediaType} for ${adId}: non-media content (${contentType})`);
+      return { original_url: url, stored_url: "", type: mediaType, mime_type: "", file_size_bytes: 0, position, download_failed: true };
+    }
     const ext = getExtensionFromUrl(url, contentType);
     const mimeType = getMimeType(ext);
     const blob = await resp.blob();

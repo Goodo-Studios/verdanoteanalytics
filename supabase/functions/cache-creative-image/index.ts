@@ -9,6 +9,7 @@ import {
   NO_THUMB_SENTINEL,
   NO_VIDEO_SENTINEL,
 } from "../_shared/media-discovery.ts";
+import { isMediaContentType } from "../_shared/vault-save-logic.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const META_ACCESS_TOKEN = Deno.env.get("META_ACCESS_TOKEN")!;
@@ -33,6 +34,11 @@ async function downloadAndCache(
     const contentType =
       resp.headers.get("content-type") ??
       (type === "video" ? "video/mp4" : "image/jpeg");
+    // Guard: never store a non-media payload (e.g. a text/html ad page) as <adId>.jpg/.mp4.
+    if (!isMediaContentType(contentType, type)) {
+      console.log(`Refusing to cache ${type} for ${adId}: non-${type} content (${contentType})`);
+      return null;
+    }
     const ext =
       type === "video"
         ? contentType.includes("webm") ? "webm" : "mp4"
