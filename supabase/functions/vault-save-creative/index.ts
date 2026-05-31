@@ -16,6 +16,7 @@ import {
   dedupeDecision,
   extFor,
   isMediaContentType,
+  needsMediaRecovery,
   normalizeVaultPlatform,
   selectMediaSources,
 } from "../_shared/vault-save-logic.ts";
@@ -104,11 +105,54 @@ Deno.serve(async (req) => {
       return json({ ok: true, item_id: dedupe.itemId, already_saved: true });
     }
 
+    // ─── Recover durable media URLs server-side (US-004 bulk-save fix) ────────
+    // Bulk save (CreativesPage) passes RAW `creatives` rows whose video_url /
+    // thumbnail_url are commonly expired Meta CDN links, ad-page URLs, or nulls —
+    // none of which copyMedia can download, so every grid save failed ("Saved 0,
+    // 1 failed"). The single CreativeDetailModal save dodged this only because the
+    // modal recovers media via cache-creative-image before saving. We perform that
+    // recovery here so BOTH paths work with no client duplication. Best-effort:
+    // any failure falls back to the passed URLs (which copyMedia may still reject).
+    let resolvedFullRes = full_res_url;
+    let resolvedVideo = video_url;
+    let resolvedThumb = thumbnail_url;
+    if (account_id && needsMediaRecovery({ video_url, thumbnail_url })) {
+      try {
+        const recovery = await fetch(
+          `${supabaseUrl}/functions/v1/cache-creative-image`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${serviceRoleKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ ad_id, account_id }),
+          },
+        );
+        if (recovery.ok) {
+          const r = await recovery.json();
+          resolvedFullRes = r.full_res_url ?? resolvedFullRes;
+          resolvedVideo = r.video_url ?? resolvedVideo;
+          resolvedThumb = r.thumbnail_url ?? resolvedThumb;
+        } else {
+          console.error(
+            `cache-creative-image recovery failed (${recovery.status}) for ${ad_id} — using passed URLs`,
+          );
+        }
+      } catch (e) {
+        console.error("cache-creative-image recovery threw (non-fatal):", e);
+      }
+    }
+
     // ─── Pick the source URLs to copy (sentinels filtered) ────────────────────
     // video_url is the ONLY video source; full_res_url is a full-resolution IMAGE
     // (the analytics UI renders it with <img>, not <video>) and is used as the
     // still/thumbnail, with thumbnail_url as fallback. See selectMediaSources.
-    const { videoSrc, imageSrc } = selectMediaSources({ full_res_url, video_url, thumbnail_url });
+    const { videoSrc, imageSrc } = selectMediaSources({
+      full_res_url: resolvedFullRes,
+      video_url: resolvedVideo,
+      thumbnail_url: resolvedThumb,
+    });
 
     // ─── Copy media into inspiration-media (durable vault-owned copy) ─────────
     // The private bucket is read by the vault UI via signed URLs keyed on

@@ -9,7 +9,9 @@ import {
   extFor,
   buildPerformanceSnapshot,
   dedupeDecision,
+  isDurableStorageUrl,
   isMediaContentType,
+  needsMediaRecovery,
   normalizeVaultPlatform,
   selectMediaSources,
 } from "../../supabase/functions/_shared/vault-save-logic.ts";
@@ -111,6 +113,90 @@ describe("selectMediaSources (video vs still image)", () => {
     expect(
       selectMediaSources({ full_res_url: "no-thumbnail", video_url: "no-video", thumbnail_url: "" }),
     ).toEqual({ videoSrc: null, imageSrc: null });
+  });
+});
+
+// ─── Server-side media recovery gate (US-004 "Saved 0, 1 failed" bulk-save fix) ─
+//
+// Regression: the Creatives-page bulk save passed RAW `creatives` rows whose
+// video_url / thumbnail_url were expired Meta CDN links, ad-page URLs, or nulls —
+// none downloadable by copyMedia — so every grid save failed. vault-save-creative
+// now recovers durable media via cache-creative-image first, gated by this
+// predicate. A save is "settled" only when a slot is a durable Supabase Storage
+// URL or a confirmed-absent sentinel; anything else triggers recovery.
+describe("isDurableStorageUrl (durable Supabase Storage URL detection)", () => {
+  it("recognizes a public Supabase Storage object URL", () => {
+    expect(
+      isDurableStorageUrl(
+        "https://x.supabase.co/storage/v1/object/public/ad-videos/acc/ad.mp4",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects raw CDN links, ad-page URLs, sentinels, blanks, and non-strings", () => {
+    expect(isDurableStorageUrl("https://video.fbcdn.net/v/abc.mp4")).toBe(false);
+    expect(isDurableStorageUrl("https://www.facebook.com/ads/library/?id=1")).toBe(false);
+    expect(isDurableStorageUrl("no-video")).toBe(false);
+    expect(isDurableStorageUrl("")).toBe(false);
+    expect(isDurableStorageUrl(null)).toBe(false);
+    expect(isDurableStorageUrl(undefined)).toBe(false);
+    expect(isDurableStorageUrl(42)).toBe(false);
+  });
+});
+
+describe("needsMediaRecovery (gate the cache-creative-image recovery)", () => {
+  const storageVideo =
+    "https://x.supabase.co/storage/v1/object/public/ad-videos/acc/ad.mp4";
+  const storageImage =
+    "https://x.supabase.co/storage/v1/object/public/ad-thumbnails/acc/ad.jpg";
+
+  it("needs recovery for raw CDN media (the bulk-save failure case)", () => {
+    expect(
+      needsMediaRecovery({
+        video_url: "https://video.fbcdn.net/v/abc.mp4", // expired CDN — not downloadable
+        thumbnail_url: "https://scontent.fbcdn.net/t.jpg",
+      }),
+    ).toBe(true);
+  });
+
+  it("needs recovery for null / blank / missing media", () => {
+    expect(needsMediaRecovery({ video_url: null, thumbnail_url: null })).toBe(true);
+    expect(needsMediaRecovery({})).toBe(true);
+    expect(needsMediaRecovery({ video_url: "", thumbnail_url: "" })).toBe(true);
+  });
+
+  it("needs recovery when only ONE slot is settled (the other is unsettled)", () => {
+    expect(
+      needsMediaRecovery({ video_url: storageVideo, thumbnail_url: null }),
+    ).toBe(true);
+    expect(
+      needsMediaRecovery({
+        video_url: "no-video",
+        thumbnail_url: "https://scontent.fbcdn.net/t.jpg",
+      }),
+    ).toBe(true);
+  });
+
+  it("skips recovery when BOTH slots are durable storage URLs", () => {
+    expect(
+      needsMediaRecovery({ video_url: storageVideo, thumbnail_url: storageImage }),
+    ).toBe(false);
+  });
+
+  it("skips recovery when both slots are settled via sentinel (confirmed absent)", () => {
+    expect(
+      needsMediaRecovery({ video_url: "no-video", thumbnail_url: "no-thumbnail" }),
+    ).toBe(false);
+    // mixed durable + sentinel is also fully settled
+    expect(
+      needsMediaRecovery({ video_url: storageVideo, thumbnail_url: "no-thumbnail" }),
+    ).toBe(false);
+  });
+
+  it("settles a sentinel even with surrounding whitespace", () => {
+    expect(
+      needsMediaRecovery({ video_url: "  no-video  ", thumbnail_url: storageImage }),
+    ).toBe(false);
   });
 });
 

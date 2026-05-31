@@ -68,6 +68,39 @@ export function isMediaContentType(
   return ct.startsWith(kind === "video" ? "video/" : "image/");
 }
 
+/** A media URL is "durable" when it points at our own public Supabase Storage —
+ * those are always downloadable by copyMedia. Raw Meta CDN links, ad-page URLs,
+ * nulls and blanks are NOT durable. Pure. */
+export function isDurableStorageUrl(u: unknown): boolean {
+  return typeof u === "string" && u.includes("/storage/v1/object/public/");
+}
+
+/**
+ * Decide whether a save must first recover durable media URLs (via the
+ * cache-creative-image edge function) before copying into the vault.
+ *
+ * Regression (US-004 bulk save → "Saved 0, 1 failed"): the analytics grid's bulk
+ * save passes RAW `creatives` rows whose `video_url`/`thumbnail_url` are commonly
+ * expired Meta CDN links, ad-page URLs, or never-fetched nulls — none of which
+ * copyMedia can download, so every grid save failed. The single CreativeDetailModal
+ * save dodged this only because the modal recovers media via cache-creative-image
+ * before saving. The edge function now performs that recovery server-side so BOTH
+ * paths work; this predicate gates it.
+ *
+ * Mirrors the modal's settle logic: recovery is needed unless BOTH the video and
+ * the thumbnail are already settled — a durable storage URL or a confirmed-absent
+ * sentinel. A null/blank/CDN URL is unsettled and triggers recovery. Pure.
+ */
+export function needsMediaRecovery(input: {
+  video_url?: unknown;
+  thumbnail_url?: unknown;
+}): boolean {
+  const settled = (u: unknown) =>
+    isDurableStorageUrl(u) ||
+    (typeof u === "string" && SENTINELS.has(u.trim()));
+  return !(settled(input.video_url) && settled(input.thumbnail_url));
+}
+
 export interface MediaSources {
   /** The playable video URL to copy, or null. */
   videoSrc: string | null;
