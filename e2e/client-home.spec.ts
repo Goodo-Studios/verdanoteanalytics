@@ -37,15 +37,15 @@ const TEST_PASSWORD = process.env.PLAYWRIGHT_CLIENT_PASSWORD || "";
 const hasCredentials = !!TEST_EMAIL && !!TEST_PASSWORD;
 
 /**
- * Mirrors the loginAs helper in dashboard.spec.ts. After auth the app redirects
- * to /:role/ (builder | employee | client). A client account lands on /client/.
+ * No-login navigation: the client session is restored from the storageState
+ * saved once by the `setup` project (e2e/auth.setup.ts), so we just navigate to
+ * the app root and wait for the post-auth role redirect to /:role/. This avoids
+ * the per-test /login form submission that previously caused login-throttling
+ * flakiness when many client specs ran serially.
  */
-async function loginAs(page: Page, email: string, password: string) {
-  await page.goto("/login");
-  await page.fill("#email", email);
-  await page.fill("#password", password);
-  await page.getByRole("button", { name: /sign in/i }).click();
-  await page.waitForURL(/\/(builder|employee|client)\//, { timeout: 15_000 });
+async function gotoRoleHome(page: Page) {
+  await page.goto("/");
+  await page.waitForURL(/\/(builder|employee|client)\//, { timeout: 30_000 });
 }
 
 /** The role prefix (e.g. "/client") derived from the post-login URL. */
@@ -74,12 +74,14 @@ const FORBIDDEN_TEXT: RegExp[] = [
 ];
 
 test.describe("Client Home (US-009)", () => {
-  test.skip(!hasCredentials, "Set PLAYWRIGHT_TEST_EMAIL and PLAYWRIGHT_TEST_PASSWORD to run");
+  test.skip(!hasCredentials, "Set PLAYWRIGHT_CLIENT_EMAIL and PLAYWRIGHT_CLIENT_PASSWORD to run");
+  // Reuse the client session authenticated once by the `setup` project.
+  test.use({ storageState: "e2e/.auth/client.json" });
 
   test("client lands on Client Home with outcomes, a playable winner, highlights, and pipeline", async ({
     page,
   }) => {
-    await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
+    await gotoRoleHome(page);
 
     const prefix = rolePrefix(page);
     // Ensure we are on the Client Home index route.
@@ -136,7 +138,7 @@ test.describe("Client Home (US-009)", () => {
   });
 
   test("internal strategist routes redirect the client to Client Home", async ({ page }) => {
-    await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
+    await gotoRoleHome(page);
     const prefix = rolePrefix(page);
 
     // The router redirects effectiveClient away from these to `${prefix}/`.
@@ -161,7 +163,7 @@ test.describe("Client Home (US-009)", () => {
   });
 
   test("client surface never leaks internal strategist strings or controls", async ({ page }) => {
-    await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
+    await gotoRoleHome(page);
     const prefix = rolePrefix(page);
     await page.goto(`${prefix}/`);
 
@@ -189,7 +191,7 @@ test.describe("Client Home (US-009)", () => {
   });
 
   test("the playable winner video has a stable key, a poster, and a src", async ({ page }) => {
-    await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
+    await gotoRoleHome(page);
     const prefix = rolePrefix(page);
     await page.goto(`${prefix}/`);
 
@@ -229,7 +231,7 @@ test.describe("Client Home (US-009)", () => {
   test("a draft-but-unpublished narrative never shows draft text to the client", async ({
     page,
   }) => {
-    await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
+    await gotoRoleHome(page);
     const prefix = rolePrefix(page);
     await page.goto(`${prefix}/`);
 
