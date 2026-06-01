@@ -177,10 +177,21 @@ Deno.serve(async (req) => {
 
     console.log(`Fetched ${allRows.length} rows from Coda`);
 
-    // Upsert into coda_tasks
+    // Build the active-task records, then upsert in batches.
+    //
+    // Performance (2026-05-31): the previous implementation issued ONE upsert
+    // HTTP round-trip per row inside the loop. Against ~11k Coda rows that
+    // serialised into thousands of sequential PostgREST calls and never
+    // finished inside the edge gateway's 150s idle timeout (a manual backfill
+    // wrote only ~9 rows before the request was cut, and the 4h cron would have
+    // had the same fate). We now collect every active record first and upsert
+    // them in chunks, collapsing thousands of round-trips into a handful.
     let upserted = 0;
     let skipped = 0;
     const unknownStages = new Set<string>();
+    const nowIso = new Date().toISOString();
+    const records: Record<string, any>[] = [];
+
     for (const row of allRows) {
       const vals = row.values || {};
       const codaRowId = row.id;
@@ -201,7 +212,7 @@ Deno.serve(async (req) => {
         unknownStages.add(rawStage);
       }
 
-      const record: Record<string, any> = {
+      records.push({
         coda_row_id: codaRowId,
         account_name: accountName,
         account_id: resolveAccountId(accountName),
@@ -211,18 +222,26 @@ Deno.serve(async (req) => {
         due_date: vals["Due Date"] || null,
         content_type: vals["Content Type"] || vals["Asset Type"] || null,
         coda_url: row.browserLink || null,
-        synced_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
+        synced_at: nowIso,
+        updated_at: nowIso,
+      });
+    }
 
+    // Batched upsert — one round-trip per UPSERT_CHUNK rows.
+    const UPSERT_CHUNK = 500;
+    for (let i = 0; i < records.length; i += UPSERT_CHUNK) {
+      const chunk = records.slice(i, i + UPSERT_CHUNK);
       const { error } = await supabase
         .from("coda_tasks")
-        .upsert(record, { onConflict: "coda_row_id" });
+        .upsert(chunk, { onConflict: "coda_row_id" });
 
       if (error) {
-        console.error(`Upsert error for row ${codaRowId}:`, error.message);
+        console.error(
+          `Upsert error for chunk ${i}-${i + chunk.length}:`,
+          error.message
+        );
       } else {
-        upserted++;
+        upserted += chunk.length;
       }
     }
 
