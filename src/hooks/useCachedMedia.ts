@@ -1,7 +1,38 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const CACHE_NAME = "verdanote-media-cache-v1";
+// v2: the v1 cache may hold POISONED blobs — HTML error pages that Meta served as
+// image/jpeg with HTTP 200, fetched-and-cached before the storage objects were
+// repaired. They share the exact same storage URL as the now-fixed objects, so the
+// URL-keyed cache kept serving the stale broken blob for up to 7 days (blank grid
+// thumbnails / "Thumbnail unavailable" even though the object behind the URL is now
+// a valid JPEG). Bumping the cache name abandons v1 so every client re-fetches clean.
+const CACHE_NAME = "verdanote-media-cache-v2";
 const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+// Best-effort one-time cleanup of the poisoned v1 cache to reclaim space.
+if (typeof indexedDB !== "undefined" && typeof indexedDB.deleteDatabase === "function") {
+  try { indexedDB.deleteDatabase("verdanote-media-cache-v1"); } catch { /* ignore */ }
+}
+
+/**
+ * Detect an HTML page masquerading as an image (the poison shape: a Meta login/error
+ * page served as image/jpeg). Sniffs the leading bytes so such a payload is never
+ * cached or shown as a thumbnail. Mirrors the server-side looksLikeHtml guard.
+ */
+async function looksLikeHtmlBlob(blob: Blob): Promise<boolean> {
+  if (blob.type.includes("text/html")) return true;
+  try {
+    const head = new Uint8Array(await blob.slice(0, 64).arrayBuffer());
+    let i = 0;
+    while (i < head.length && (head[i] === 0x20 || head[i] === 0x09 || head[i] === 0x0a || head[i] === 0x0d)) i++;
+    if (head[i] !== 0x3c /* '<' */) return false;
+    const s = new TextDecoder().decode(head.slice(i, i + 16)).toLowerCase();
+    return s.startsWith("<!doctype") || s.startsWith("<html") || s.startsWith("<head") ||
+      s.startsWith("<body") || s.startsWith("<!--") || s.startsWith("<?xml");
+  } catch {
+    return false;
+  }
+}
 
 
 /**
@@ -198,6 +229,12 @@ export function useCachedMedia(
       }
 
       const blob = await response.blob();
+      // Guard: never cache or show an HTML page disguised as an image. Throwing routes
+      // to the catch below, which for a storage URL retries via the <img> tag (the now-
+      // valid object) and for a CDN url triggers the expired→re-cache path.
+      if (await looksLikeHtmlBlob(blob)) {
+        throw new Error("Fetched media is an HTML page, not an image");
+      }
       await mediaCache.set(mediaUrl, blob);
 
       const url = URL.createObjectURL(blob);

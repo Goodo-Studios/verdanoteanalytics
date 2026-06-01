@@ -109,3 +109,38 @@ describe("useCachedMedia expired-CDN handling (P2.6)", () => {
     expect(result.current.url).toBe("/fallback.png");
   });
 });
+
+describe("useCachedMedia HTML-poison guard", () => {
+  // Fake Blob whose slice().arrayBuffer() returns the given bytes — jsdom's real
+  // Blob.arrayBuffer() is unreliable, so we hand the hook a deterministic stand-in.
+  const fakeBlob = (bytes: Uint8Array, type: string) => ({
+    type,
+    slice: () => ({ arrayBuffer: () => Promise.resolve(bytes.buffer) }),
+  });
+
+  it("a 200 response whose body is an HTML page (poison) is NOT shown; storage url falls back to the <img>-loadable url", async () => {
+    // Poison shape: HTML error page served with HTTP 200 + image/jpeg content-type.
+    const html = new TextEncoder().encode("<!DOCTYPE html><html><body>login</body></html>");
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: true, blob: () => Promise.resolve(fakeBlob(html, "image/jpeg")) })));
+    const storageUrl = "https://example.supabase.co/storage/v1/object/public/ad-thumbnails/act_1/ad1.jpg";
+
+    const { result } = renderHook(() => useCachedMedia(storageUrl));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    // Guard threw → storage-url catch branch reuses the raw url (so the <img> tag loads the
+    // now-valid object directly); the poison blob must NOT have become a cached blob: url.
+    expect(result.current.url).toBe(storageUrl);
+  });
+
+  it("a real image blob (JPEG magic bytes) IS accepted and surfaced as a blob: url", async () => {
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: true, blob: () => Promise.resolve(fakeBlob(jpeg, "image/jpeg")) })));
+    const storageUrl = "https://example.supabase.co/storage/v1/object/public/ad-thumbnails/act_1/ad2.jpg";
+
+    const { result } = renderHook(() => useCachedMedia(storageUrl));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    // Valid image → surfaced as the stubbed object URL (not the raw url).
+    expect(result.current.url).toBe("blob:stub");
+  });
+});
