@@ -51,34 +51,6 @@ async function gotoRoleHome(page: Page) {
   await page.waitForURL(/\/(builder|employee|client)\//, { timeout: 30_000 });
 }
 
-/**
- * TEMPORARY DIAGNOSTIC (remove before merge): capture the real accounts/coda
- * HTTP responses and any console/page errors so CI logs reveal why `accounts`
- * is empty (no switcher / "Select an account"). Does not change any assertion.
- */
-function attachDiag(page: Page, label: string) {
-  page.on("response", async (resp) => {
-    const u = resp.url();
-    if (/\/functions\/v1\/(accounts|coda)/.test(u)) {
-      let body = "";
-      try {
-        body = (await resp.text()).slice(0, 300);
-      } catch {
-        body = "<no body>";
-      }
-      console.log(`[DIAG ${label}] ${resp.status()} ${u}\n  body=${body}`);
-    }
-  });
-  page.on("console", (msg) => {
-    if (msg.type() === "error") console.log(`[DIAG ${label} console.error] ${msg.text()}`);
-  });
-  page.on("pageerror", (err) => console.log(`[DIAG ${label} pageerror] ${err.message}`));
-  page.on("requestfailed", (req) => {
-    if (/\/functions\/v1\//.test(req.url()))
-      console.log(`[DIAG ${label} requestfailed] ${req.url()} ${req.failure()?.errorText}`);
-  });
-}
-
 /** The role prefix (e.g. "/client") derived from the post-login URL. */
 function rolePrefix(page: Page): string {
   return page.url().match(/\/(builder|employee|client)/)?.[0] ?? "/client";
@@ -122,17 +94,10 @@ test.describe("Content Pipeline — live Coda sync (US-005)", () => {
     test.use({ storageState: "e2e/.auth/client.json" });
 
     test("client sees live pipeline tasks in display stages on /pipeline", async ({ page }) => {
-      attachDiag(page, "client");
       await gotoRoleHome(page);
       const prefix = rolePrefix(page);
 
       await page.goto(`${prefix}/pipeline`);
-      // DIAG: confirm session restored + report any accounts query error state.
-      const diag = await page.evaluate(() => ({
-        keys: Object.keys(window.localStorage),
-        hasAuth: Object.keys(window.localStorage).some((k) => /sb-.*-auth-token/.test(k)),
-      }));
-      console.log(`[DIAG client] localStorage keys=${JSON.stringify(diag)}`);
 
       // Populated pipeline with canonical display stages. We await this FIRST so
       // the account has fully resolved before we assert on the empty/onboarding
@@ -164,18 +129,10 @@ test.describe("Content Pipeline — live Coda sync (US-005)", () => {
     test.use({ storageState: "e2e/.auth/staff.json" });
 
     test("staff sees live pipeline tasks for client accounts on /pipeline", async ({ page }) => {
-      attachDiag(page, "staff");
       await gotoRoleHome(page);
       const prefix = rolePrefix(page);
 
       await page.goto(`${prefix}/pipeline`);
-      const diag = await page.evaluate(() => ({
-        keys: Object.keys(window.localStorage),
-        hasAuth: Object.keys(window.localStorage).some((k) => /sb-.*-auth-token/.test(k)),
-      }));
-      console.log(`[DIAG staff] localStorage keys=${JSON.stringify(diag)}`);
-      // Give the accounts query time to settle so its response is captured above.
-      await page.waitForTimeout(3000);
 
       // The account switcher (Radix Select, role=combobox) lets staff pick a
       // specific client account. Enumerate the real account options (excluding

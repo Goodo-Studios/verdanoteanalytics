@@ -25,8 +25,19 @@ serve(async (req) => {
       status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-  const { data: userRole } = await supabase.from("user_roles").select("role").eq("user_id", user.id).single();
-  if (!userRole || !["builder", "employee"].includes(userRole.role)) {
+  // Resolve roles tolerantly: a user may hold MULTIPLE user_roles rows
+  // (the schema allows UNIQUE(user_id, role), so e.g. a builder can also be a
+  // client). `.single()` THROWS on >1 rows, which previously collapsed to a
+  // spurious 403 for any multi-role user — diverging from the app's own
+  // get_user_role RPC (LIMIT 1). Fetch all rows and test membership instead.
+  const { data: roleRows } = await supabase
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", user.id);
+  const roles = (roleRows || []).map((r) => r.role);
+  const isStaff = roles.includes("builder") || roles.includes("employee");
+  const isClientRole = roles.includes("client");
+  if (!isStaff && !isClientRole) {
     return new Response(JSON.stringify({ error: "Forbidden" }), {
       status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -36,15 +47,49 @@ serve(async (req) => {
   const path = url.pathname.replace(/^\/accounts\/?/, "").replace(/\/$/, "");
 
   try {
-    // GET /accounts — list all accounts
+    // GET /accounts — staff see every account; a client (non-staff) sees ONLY
+    // the ad_accounts they are linked to via user_accounts. This is what powers
+    // the client Content Pipeline: without it the client receives an empty
+    // account list and the pipeline can never resolve a selected account.
     if (req.method === "GET" && !path) {
+      if (isStaff) {
+        const { data, error } = await supabase
+          .from("ad_accounts")
+          .select("*")
+          .order("created_at", { ascending: false });
+        if (error) throw error;
+        return new Response(JSON.stringify(data), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Client: scope to linked accounts only (never leak other clients').
+      const { data: links } = await supabase
+        .from("user_accounts")
+        .select("account_id")
+        .eq("user_id", user.id);
+      const ids = (links || []).map((l) => l.account_id);
+      if (ids.length === 0) {
+        return new Response(JSON.stringify([]), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       const { data, error } = await supabase
         .from("ad_accounts")
         .select("*")
+        .in("id", ids)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return new Response(JSON.stringify(data), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Every remaining operation (create / update / delete / name-mappings) is
+    // an admin write — staff only. Clients are read-only on accounts.
+    if (!isStaff) {
+      return new Response(JSON.stringify({ error: "Forbidden" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
