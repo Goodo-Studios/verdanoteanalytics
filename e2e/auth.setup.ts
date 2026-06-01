@@ -20,9 +20,11 @@
  */
 import { test as setup, type Page } from "@playwright/test";
 import fs from "node:fs";
-import path from "node:path";
 
-const AUTH_DIR = path.join(__dirname, ".auth");
+// Paths are relative to the Playwright cwd (repo root), matching how the specs'
+// `test.use({ storageState })` paths resolve. The config is loaded as an ES
+// module, so __dirname is unavailable — use cwd-relative paths instead.
+const AUTH_DIR = "e2e/.auth";
 export const CLIENT_STORAGE = "e2e/.auth/client.json";
 export const STAFF_STORAGE = "e2e/.auth/staff.json";
 
