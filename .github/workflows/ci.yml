@@ -78,12 +78,33 @@ jobs:
       - name: Run E2E tests
         run: npm run test:e2e
 
-      - name: Upload Playwright report
+      - name: Dump failure DOM snapshots
+        if: failure()
+        run: |
+          echo "===== Playwright failure diagnostics ====="
+          shopt -s globstar nullglob
+          found=0
+          for f in test-results/**/error-context.md; do
+            found=1
+            echo ""
+            echo "----- $f -----"
+            cat "$f"
+          done
+          if [ "$found" = "0" ]; then
+            echo "No error-context.md files found under test-results/"
+            echo "test-results/ tree:"
+            ls -R test-results/ 2>/dev/null || echo "(test-results/ missing)"
+          fi
+          echo "===== End diagnostics ====="
+
+      - name: Upload Playwright artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
-          path: playwright-report/
+          name: playwright-artifacts
+          path: |
+            playwright-report/
+            test-results/
           retention-days: 7
 
   deploy-functions:
