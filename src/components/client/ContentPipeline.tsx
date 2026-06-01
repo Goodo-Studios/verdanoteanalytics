@@ -1,6 +1,6 @@
 import { useCodaTasks, CodaTask } from "@/hooks/useCodaTasks";
 import { differenceInDays, parseISO, format } from "date-fns";
-import { CheckCircle2, PackageOpen } from "lucide-react";
+import { PackageOpen } from "lucide-react";
 import { ClientEmptyState } from "@/components/client/ClientEmptyState";
 
 const STAGE_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
@@ -11,7 +11,16 @@ const STAGE_CONFIG: Record<string, { color: string; bg: string; label: string }>
   Complete: { color: "text-muted-foreground", bg: "bg-muted-foreground", label: "Complete" },
 };
 
-const DEFAULT_STAGE_CONFIG = { color: "text-muted-foreground", bg: "bg-muted-foreground", label: "Other" };
+/**
+ * The board renders only forward-looking, active stages as columns. "Complete"
+ * is intentionally NOT a column — the pipeline answers "what are we making
+ * next", not "what's done". A task whose stage is null defaults to Planning
+ * (first active stage); a task whose stage is "Complete" or any unmapped/drifted
+ * raw string falls into no column and is omitted from the board. If that leaves
+ * nothing to show, the section degrades to the same calm onboarding state as a
+ * truly empty pipeline.
+ */
+const COLUMN_ORDER = ["Planning", "Production", "Review", "Your Review"] as const;
 
 function dueDateLabel(dueDateStr: string | null): { text: string; urgent: boolean } | null {
   if (!dueDateStr) return null;
@@ -28,51 +37,50 @@ function dueDateLabel(dueDateStr: string | null): { text: string; urgent: boolea
 }
 
 /**
- * A single pipeline item, framed in client language: what it is (content type),
- * what stage it's at, and roughly when it lands. Intentionally READ-ONLY — no
+ * A single pipeline card in its stage column, framed in client language: what it
+ * is (content type) and roughly when it lands. Intentionally READ-ONLY — no
  * click handler, no link-out, no internal task IDs or strategist-only fields
- * (US-007 AC2/AC3). The Coda URL on the task is deliberately NOT surfaced.
+ * (US-007 AC2/AC3). The Coda URL on the task is deliberately NOT surfaced. The
+ * card is a plain <div> with no interactive affordances.
  */
-function TaskRow({ task }: { task: CodaTask }) {
-  const stage = task.stage || "Planning";
-  const config = STAGE_CONFIG[stage] || DEFAULT_STAGE_CONFIG;
-  const isComplete = stage === "Complete";
-  const dueInfo = !isComplete ? dueDateLabel(task.due_date) : null;
+function TaskCard({ task, stage }: { task: CodaTask; stage: string }) {
+  const dueInfo = dueDateLabel(task.due_date);
 
   return (
     <div
-      className="flex items-start gap-3 px-4 py-3 rounded-[6px]"
+      className="rounded-[8px] border border-input bg-background/40 px-3 py-2.5"
       data-testid="pipeline-task"
       data-stage={stage}
     >
-      {/* Stage dot */}
-      <div className={`mt-1.5 h-2.5 w-2.5 rounded-full shrink-0 ${config.bg}`} />
+      {task.content_type && (
+        <span className="font-label text-[10px] uppercase tracking-wide text-muted-foreground">
+          {task.content_type}
+        </span>
+      )}
 
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className={`font-label text-[10px] uppercase tracking-wide font-medium ${config.color}`}>
-            {config.label}
-          </span>
-          {task.content_type && (
-            <span className="font-label text-[10px] uppercase tracking-wide text-muted-foreground">
-              · {task.content_type}
-            </span>
-          )}
-        </div>
+      <p className="font-body text-[13px] text-foreground mt-0.5">
+        {task.task_name || task.brief || "Untitled task"}
+      </p>
 
-        <p className="font-body text-[14px] text-foreground mt-0.5 truncate">
-          {isComplete && <CheckCircle2 className="inline h-3.5 w-3.5 mr-1 text-muted-foreground" />}
-          {task.task_name || task.brief || "Untitled task"}
+      {dueInfo && (
+        <p className={`font-body text-[11px] mt-1 ${dueInfo.urgent ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+          {dueInfo.urgent && "⚠️ "}{dueInfo.text}
         </p>
-
-        {dueInfo && (
-          <p className={`font-body text-[12px] mt-0.5 ${dueInfo.urgent ? "text-destructive font-medium" : "text-muted-foreground"}`}>
-            {dueInfo.urgent && "⚠️ "}{dueInfo.text}
-          </p>
-        )}
-      </div>
+      )}
     </div>
   );
+}
+
+/** Group tasks into the active board columns, preserving incoming order. */
+function bucketByColumn(tasks: CodaTask[]): Record<string, CodaTask[]> {
+  const buckets: Record<string, CodaTask[]> = {};
+  for (const col of COLUMN_ORDER) buckets[col] = [];
+  for (const task of tasks) {
+    const stage = task.stage || "Planning";
+    if (buckets[stage]) buckets[stage].push(task);
+    // "Complete" + any unmapped/drifted stage falls into no column → omitted.
+  }
+  return buckets;
 }
 
 /**
@@ -110,10 +118,15 @@ export function ContentPipelineView({
     );
   }
 
-  // AC4/AC5: no data for this account — whether the fetch failed or the
-  // pipeline is simply empty — degrades to the same calm, first-class
-  // onboarding state (US-006) instead of surfacing an error.
-  if (isError || !tasks?.length) {
+  // Bucket into the active board columns. "Complete"/unmapped tasks fall out
+  // here, so a pipeline of only-finished work reads as empty for board purposes.
+  const columns = bucketByColumn(tasks ?? []);
+  const hasBoardTasks = COLUMN_ORDER.some((col) => columns[col].length > 0);
+
+  // AC4/AC5: no data for this account — fetch failed, nothing synced, or only
+  // completed/unmapped work — degrades to the same calm, first-class onboarding
+  // state (US-006) instead of surfacing an error.
+  if (isError || !hasBoardTasks) {
     return (
       <div className="glass-panel p-7" data-testid="pipeline-empty">
         <h2 className="font-heading text-[20px] text-foreground mb-4">Content Pipeline</h2>
@@ -130,20 +143,35 @@ export function ContentPipelineView({
     <div className="glass-panel p-7" data-testid="content-pipeline">
       <h2 className="font-heading text-[20px] text-foreground mb-4">Content Pipeline</h2>
 
-      <div className="space-y-1">
-        {tasks.map((t) => (
-          <TaskRow key={t.id} task={t} />
-        ))}
-      </div>
+      {/* Horizontal-scroll kanban board — one column per active stage. */}
+      <div className="flex gap-4 overflow-x-auto pb-2 -mx-1 px-1 snap-x">
+        {COLUMN_ORDER.map((col) => {
+          const cfg = STAGE_CONFIG[col];
+          const colTasks = columns[col];
+          return (
+            <div key={col} className="flex-shrink-0 w-[240px] snap-start">
+              <div className="flex items-center justify-between mb-3 px-1">
+                <span className={`flex items-center gap-1.5 font-label text-[10px] uppercase tracking-wide font-medium ${cfg.color}`}>
+                  <span className={`h-2 w-2 rounded-full ${cfg.bg}`} />
+                  {cfg.label}
+                </span>
+                <span className="font-label text-[10px] tracking-wide text-muted-foreground">
+                  {colTasks.length}
+                </span>
+              </div>
 
-      {/* Legend */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-5 pt-4 border-t border-input">
-        {Object.entries(STAGE_CONFIG).map(([key, cfg]) => (
-          <span key={key} className="flex items-center gap-1.5 font-label text-[10px] uppercase tracking-wide text-muted-foreground">
-            <span className={`h-2 w-2 rounded-full ${cfg.bg}`} />
-            {cfg.label}
-          </span>
-        ))}
+              <div className="space-y-2">
+                {colTasks.length > 0 ? (
+                  colTasks.map((t) => <TaskCard key={t.id} task={t} stage={col} />)
+                ) : (
+                  <p className="font-body text-[12px] text-muted-foreground/60 px-3 py-2">
+                    Nothing here yet
+                  </p>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

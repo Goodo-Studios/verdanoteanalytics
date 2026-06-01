@@ -81,6 +81,44 @@ describe("ContentPipeline (US-007)", () => {
     expect(html).not.toContain("coda.io");
   });
 
+  it("lays out the active stages as kanban columns", () => {
+    render(<ContentPipelineView tasks={mockTasks} isLoading={false} isError={false} />);
+
+    // All four forward-looking stage columns render as headers, even the empty
+    // ones (Review / Your Review have no tasks in the mock).
+    expect(screen.getByText("Planning")).toBeInTheDocument();
+    expect(screen.getByText("Production")).toBeInTheDocument();
+    expect(screen.getByText("Review")).toBeInTheDocument();
+    expect(screen.getByText("Your Review")).toBeInTheDocument();
+
+    // Empty columns show the calm placeholder rather than vanishing.
+    expect(screen.getAllByText(/Nothing here yet/i).length).toBeGreaterThan(0);
+  });
+
+  it("drops Complete + unmapped tasks from the board (forward-looking only)", () => {
+    const tasks: CodaTask[] = [
+      { ...mockTasks[0], id: "done-1", task_name: "Shipped winter promo", stage: "Complete" },
+      { ...mockTasks[1], id: "drift-1", task_name: "Drifted raw stage", stage: "Ready to Launch" },
+      { ...mockTasks[0], id: "active-1", task_name: "Active spring video", stage: "Production" },
+    ];
+    render(<ContentPipelineView tasks={tasks} isLoading={false} isError={false} />);
+
+    // Active task shows; Complete + unmapped do not.
+    expect(screen.getByText("Active spring video")).toBeInTheDocument();
+    expect(screen.queryByText("Shipped winter promo")).not.toBeInTheDocument();
+    expect(screen.queryByText("Drifted raw stage")).not.toBeInTheDocument();
+    // There is no "Complete" column header on the board.
+    expect(screen.queryByText("Complete")).not.toBeInTheDocument();
+  });
+
+  it("degrades to onboarding when only completed/unmapped work remains (AC4)", () => {
+    const tasks: CodaTask[] = [
+      { ...mockTasks[0], id: "done-only", stage: "Complete" },
+    ];
+    render(<ContentPipelineView tasks={tasks} isLoading={false} isError={false} />);
+    expect(screen.getByText(/Nothing in production right now/i)).toBeInTheDocument();
+  });
+
   it("degrades to a calm onboarding state when there is no data (AC4)", () => {
     render(<ContentPipelineView tasks={[]} isLoading={false} isError={false} />);
     expect(screen.getByText(/Nothing in production right now/i)).toBeInTheDocument();
