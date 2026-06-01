@@ -136,7 +136,9 @@ test.describe("Content Pipeline — live Coda sync (US-005)", () => {
         if (u.includes("/functions/v1/accounts") || u.includes("/rpc/get_user_role")) {
           let body = "";
           try { body = (await res.text()).slice(0, 300); } catch { /* ignore */ }
-          console.log(`[DIAG staff] ${res.status()} ${u.replace(/https?:\/\/[^/]+/, "")} body=${body}`);
+          let req = "";
+          try { req = (res.request().postData() || "").slice(0, 300); } catch { /* ignore */ }
+          console.log(`[DIAG staff] ${res.status()} ${u.replace(/https?:\/\/[^/]+/, "")} req=${req} body=${body}`);
         }
       });
 
