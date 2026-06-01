@@ -34,7 +34,13 @@ jobs:
   e2e:
     name: E2E tests (Playwright)
     runs-on: ubuntu-latest
-    needs: check
+    # On a push to main, deploy-functions runs too; wait for it so E2E exercises
+    # the freshly-deployed edge functions instead of racing the redeploy (which
+    # left vault-save-creative cold/mid-swap and timed the save flow out). On
+    # PRs deploy-functions is skipped (it is gated to main pushes), so the
+    # always() guard keeps E2E running there as long as `check` passed.
+    needs: [check, deploy-functions]
+    if: ${{ always() && needs.check.result == 'success' }}
 
     env:
       VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}

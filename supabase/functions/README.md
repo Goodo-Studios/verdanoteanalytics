@@ -79,7 +79,7 @@ supabase secrets set META_ACCESS_TOKEN=<token>    # for Meta/Facebook sync
 | Function | Trigger | Purpose |
 |---|---|---|
 | `create-coda-brief` | User action | Creates a creative brief row in a Coda doc via the Coda API. |
-| `sync-coda-tasks` | User action | Syncs brief tasks from Coda back into Verdanote's `briefs` table. |
+| `sync-coda-tasks` | Cron (every 4h) / User action | Syncs active brief tasks from Coda into the `coda_tasks` table, mapping Coda stages → canonical display stages (Planning / Production / Review / Your Review / Complete). Powers the live `/pipeline` surface for staff and clients. Scheduled via pg_cron (`0 */4 * * *`). |
 
 ### Creative Vault
 
