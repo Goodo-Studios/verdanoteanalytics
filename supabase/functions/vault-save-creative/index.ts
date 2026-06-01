@@ -13,6 +13,7 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 // Pure save logic (sentinel filtering, snapshot shaping, dedupe decision) lives in
 // a dependency-free module so it can be unit-tested under Vitest (US-005).
 import {
+  buildRecoveryRequest,
   dedupeDecision,
   extFor,
   isMediaContentType,
@@ -118,17 +119,27 @@ Deno.serve(async (req) => {
     let resolvedThumb = thumbnail_url;
     if (account_id && needsMediaRecovery({ video_url, thumbnail_url })) {
       try {
-        const recovery = await fetch(
-          `${supabaseUrl}/functions/v1/cache-creative-image`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${serviceRoleKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ ad_id, account_id }),
-          },
-        );
+        // Forward the caller's USER JWT (authHeader) — NOT serviceRoleKey. Since the
+        // new API-key migration, SUPABASE_SERVICE_ROLE_KEY is the opaque `sb_secret_`
+        // format: PostgREST/supabase-js accept it (so our `db` client works), but the
+        // Edge Function gateway's verify_jwt only validates real JWTs and rejects the
+        // sb_secret form with 401 — silently killing recovery and forcing a 422
+        // "No usable creative media" on every save. The incoming user JWT is a valid
+        // JWT the gateway accepts (same path the CreativeDetailModal already uses), and
+        // cache-creative-image uses its OWN service-role client internally, so the
+        // caller's token only needs to clear the gateway. This also survives future
+        // key rotations (user JWTs are always JWTs). See buildRecoveryRequest.
+        const recoveryReq = buildRecoveryRequest({
+          supabaseUrl,
+          callerAuthHeader: authHeader,
+          ad_id,
+          account_id,
+        });
+        const recovery = await fetch(recoveryReq.url, {
+          method: "POST",
+          headers: recoveryReq.headers,
+          body: recoveryReq.body,
+        });
         if (recovery.ok) {
           const r = await recovery.json();
           resolvedFullRes = r.full_res_url ?? resolvedFullRes;

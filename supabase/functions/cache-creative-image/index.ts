@@ -6,13 +6,18 @@ import {
   discoverVideoUrl,
   fetchAccountVideoMap,
   fetchWithTimeout,
+  looksLikeHtml,
   NO_THUMB_SENTINEL,
   NO_VIDEO_SENTINEL,
+  resolveMetaToken,
 } from "../_shared/media-discovery.ts";
 import { isMediaContentType } from "../_shared/vault-save-logic.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const META_ACCESS_TOKEN = Deno.env.get("META_ACCESS_TOKEN")!;
+// The env secret is NOT set on this project — token is resolved per-request with a
+// DB-settings fallback (see handler). Read it here without the `!` non-null assert
+// so an unset secret is `undefined`, not a lie the type system believes.
+const ENV_META_TOKEN = Deno.env.get("META_ACCESS_TOKEN");
 const THUMB_BUCKET = "ad-thumbnails";
 const VIDEO_BUCKET = "ad-videos";
 const MAX_VIDEO_SIZE = 150 * 1024 * 1024;
@@ -37,6 +42,13 @@ async function downloadAndCache(
     // Guard: never store a non-media payload (e.g. a text/html ad page) as <adId>.jpg/.mp4.
     if (!isMediaContentType(contentType, type)) {
       console.log(`Refusing to cache ${type} for ${adId}: non-${type} content (${contentType})`);
+      return null;
+    }
+    // Magic-byte guard: an HTML login/error page can slip past the content-type
+    // check (Meta sometimes serves it as application/octet-stream). Sniff the
+    // leading bytes so a page is never stored as <adId>.jpg/.mp4.
+    if (looksLikeHtml(new Uint8Array(buffer))) {
+      console.log(`Refusing to cache ${type} for ${adId}: HTML page bytes (content-type ${contentType})`);
       return null;
     }
     const ext =
@@ -104,16 +116,42 @@ serve(async (req) => {
 
   const updates: Record<string, string> = {};
 
-  // ── Image ────────────────────────────────────────────────────────────────
-  // Skip if already in storage, or we've confirmed no image exists for this ad.
-  // Re-run discovery for null (never tried) or stale CDN URLs.
+  // Skip flags (hoisted): don't re-discover media already cached to storage or
+  // confirmed absent (sentinel). Re-run discovery only for null / stale CDN URLs.
   const skipImage =
     creative.thumbnail_url === NO_THUMB_SENTINEL ||
     isStorageUrl(creative.thumbnail_url);
+  const skipVideo =
+    creative.video_url === NO_VIDEO_SENTINEL ||
+    isStorageUrl(creative.video_url);
+  const willDiscover = !skipImage || !skipVideo;
 
+  // ── Resolve the Meta token: env secret first, then settings.meta_access_token
+  // (same fallback as sync / backfill-play-curves). This function historically
+  // read ONLY the env secret — which is NOT set on this project — so it passed
+  // `undefined` to the Graph API, EVERY discovery call returned 400, and the row
+  // was poisoned with a no-thumbnail / no-video sentinel. Those sentinels then
+  // permanently block re-discovery AND make vault-save-creative fail with
+  // "Saved 0, 1 failed" (no media to copy). Abort WITHOUT writing sentinels when
+  // no token is available, so a token outage can never be mistaken for "no media".
+  let metaToken = resolveMetaToken(ENV_META_TOKEN, null);
+  if (!metaToken && willDiscover) {
+    const { data: tokenRow } = await supabase
+      .from("settings").select("value").eq("key", "meta_access_token").single();
+    metaToken = resolveMetaToken(ENV_META_TOKEN, tokenRow?.value as string | undefined);
+  }
+  if (!metaToken && willDiscover) {
+    console.error(`[${ad_id}] No Meta access token (env or settings) — aborting without poisoning row`);
+    return new Response(
+      JSON.stringify({ error: "No Meta access token configured" }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
+  // ── Image ────────────────────────────────────────────────────────────────
   if (!skipImage) {
     console.log(`[${ad_id}] Discovering image...`);
-    const result = await discoverImageUrl(ad_id, account_id, META_ACCESS_TOKEN);
+    const result = await discoverImageUrl(ad_id, account_id, metaToken!);
     if (result?.thumbnailUrl) {
       const storageUrl = await downloadAndCache(
         supabase, THUMB_BUCKET, account_id, ad_id, result.thumbnailUrl, "image"
@@ -133,11 +171,6 @@ serve(async (req) => {
   }
 
   // ── Video ────────────────────────────────────────────────────────────────
-  // Skip if already in storage, or confirmed no video.
-  const skipVideo =
-    creative.video_url === NO_VIDEO_SENTINEL ||
-    isStorageUrl(creative.video_url);
-
   if (!skipVideo) {
     if (creative.video_url) {
       // Already have a CDN URL — just try to upload it to storage (no rediscovery).
@@ -152,8 +185,8 @@ serve(async (req) => {
       // No URL yet — run full discovery then cache.
       console.log(`[${ad_id}] Discovering video...`);
       // Build account video map so page-owned videos are discoverable despite (#10) permission errors.
-      const accountVideoMap = await fetchAccountVideoMap(account_id, META_ACCESS_TOKEN);
-      const videoUrl = await discoverVideoUrl(ad_id, META_ACCESS_TOKEN, 30_000, accountVideoMap);
+      const accountVideoMap = await fetchAccountVideoMap(account_id, metaToken!);
+      const videoUrl = await discoverVideoUrl(ad_id, metaToken!, 30_000, accountVideoMap);
       if (videoUrl && videoUrl !== NO_VIDEO_SENTINEL) {
         const storageUrl = await downloadAndCache(
           supabase, VIDEO_BUCKET, account_id, ad_id, videoUrl, "video"

@@ -10,6 +10,7 @@ import { describe, it, expect } from "vitest";
 import {
   extractPreviewImageSrc,
   extractPreviewVideoSrc,
+  resolveMetaToken,
 } from "../../supabase/functions/_shared/media-discovery.ts";
 
 const IMG = "https://scontent.xx.fbcdn.net/v/t45.1600-4/abc123_n.jpg?_nc_cat=1";
@@ -83,5 +84,47 @@ describe("extractPreviewVideoSrc", () => {
     const v2 = "https://video.xx.fbcdn.net/v/t42/second.mp4";
     const html = `<video src="${VIDEO}"></video><video src="${v2}"></video>`;
     expect(extractPreviewVideoSrc(html)).toBe(VIDEO);
+  });
+});
+
+// Regression coverage for the "Saved 0, 1 failed" vault-save bug.
+//
+// Root bug: cache-creative-image read ONLY the env secret META_ACCESS_TOKEN —
+// which is NOT set on this project — and passed `undefined` to the Graph API, so
+// every discovery call returned HTTP 400. The function then wrote no-thumbnail /
+// no-video sentinels, which permanently blocked re-discovery AND made
+// vault-save-creative fail with "Saved 0, 1 failed" (no media to copy). The fix:
+// resolve the token env-first, then fall back to the settings.meta_access_token
+// DB row (the user-managed, valid, long-lived token) exactly like sync /
+// backfill-play-curves. These tests pin that precedence so the env-only read
+// (and the empty-string trap) can't come back.
+describe("resolveMetaToken", () => {
+  const DB = "EAA-db-token-zzzz";
+  const ENV = "EAA-env-token-aaaa";
+
+  it("uses the DB token when the env secret is unset (the actual bug)", () => {
+    expect(resolveMetaToken(undefined, DB)).toBe(DB);
+    expect(resolveMetaToken(null, DB)).toBe(DB);
+  });
+
+  it("prefers the env secret when both are present (sync/backfill precedence)", () => {
+    expect(resolveMetaToken(ENV, DB)).toBe(ENV);
+  });
+
+  it("treats a present-but-empty/blank env secret as ABSENT and falls back", () => {
+    expect(resolveMetaToken("", DB)).toBe(DB);
+    expect(resolveMetaToken("   ", DB)).toBe(DB);
+  });
+
+  it("returns null when neither source has a usable token (caller must NOT write a sentinel)", () => {
+    expect(resolveMetaToken(undefined, undefined)).toBeNull();
+    expect(resolveMetaToken(null, null)).toBeNull();
+    expect(resolveMetaToken("", "")).toBeNull();
+    expect(resolveMetaToken("  ", "  ")).toBeNull();
+  });
+
+  it("trims surrounding whitespace from the chosen token", () => {
+    expect(resolveMetaToken("  " + ENV + "  ", null)).toBe(ENV);
+    expect(resolveMetaToken(undefined, " " + DB + " ")).toBe(DB);
   });
 });

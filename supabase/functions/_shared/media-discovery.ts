@@ -9,6 +9,58 @@ export const NO_THUMB_SENTINEL = "no-thumbnail";
 export const NO_VIDEO_SENTINEL = "no-video";
 
 /**
+ * Resolve the Meta Graph API access token from the two configured sources, in
+ * the same precedence sync / backfill-play-curves use: the `META_ACCESS_TOKEN`
+ * env secret first, then the `settings.meta_access_token` DB row. Empty/blank
+ * strings are treated as ABSENT (the real-world trap is a secret set to "") so a
+ * present-but-empty env var correctly falls through to the DB token. Returns the
+ * chosen token, or null when neither source has a usable value.
+ *
+ * Why this exists: cache-creative-image originally read ONLY the env secret —
+ * which is not set on this project — and passed `undefined` to the Graph API, so
+ * every discovery call returned 400 and the row was poisoned with a no-thumbnail
+ * / no-video sentinel. Callers must use this helper AND refuse to write sentinels
+ * when it returns null, so a missing token can never be mistaken for "Meta has no
+ * media for this ad."
+ */
+export function resolveMetaToken(
+  envToken: string | null | undefined,
+  dbToken: string | null | undefined,
+): string | null {
+  const env = (envToken ?? "").trim();
+  if (env) return env;
+  const db = (dbToken ?? "").trim();
+  if (db) return db;
+  return null;
+}
+
+/**
+ * Detect whether a byte buffer is actually an HTML/text page rather than real
+ * media. Meta CDN and ad-page URLs frequently 200 with a `text/html` (or even a
+ * generic `application/octet-stream`/`text/plain`) login/error page — which then
+ * gets stored as `<adId>.jpg`/`.mp4` and renders as a blank thumbnail / unplayable
+ * video. content-type alone can't catch this (the octet-stream allowance in
+ * isMediaContentType is a hole), so we sniff the leading bytes for an HTML marker.
+ * Real JPEG/PNG/WEBP/MP4 never begin with these. Pure + dependency-free.
+ */
+export function looksLikeHtml(bytes: Uint8Array | null | undefined): boolean {
+  if (!bytes || bytes.byteLength === 0) return false;
+  // Inspect the first ~512 bytes as Latin-1 (decode is cheap, no allocation blowup).
+  const head = bytes.subarray(0, 512);
+  let s = "";
+  for (let i = 0; i < head.byteLength; i++) s += String.fromCharCode(head[i]);
+  // Strip a leading UTF-8 BOM / whitespace before matching.
+  const trimmed = s.replace(/^﻿/, "").replace(/^[\s\x00]+/, "").toLowerCase();
+  return (
+    trimmed.startsWith("<!doctype") ||
+    trimmed.startsWith("<html") ||
+    trimmed.startsWith("<head") ||
+    trimmed.startsWith("<?xml") ||
+    trimmed.startsWith("<!--")
+  );
+}
+
+/**
  * Pick the best creative IMAGE src from Ad Preview API HTML.
  * Only *.fbcdn.net image assets qualify — never a facebook.com page URL (those
  * return text/html and were getting cached as <adId>.jpg garbage), never a video

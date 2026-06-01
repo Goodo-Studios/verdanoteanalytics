@@ -5,10 +5,11 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   SENTINELS,
-  cleanUrl,
-  extFor,
   buildPerformanceSnapshot,
+  buildRecoveryRequest,
+  cleanUrl,
   dedupeDecision,
+  extFor,
   isDurableStorageUrl,
   isMediaContentType,
   needsMediaRecovery,
@@ -397,5 +398,54 @@ describe("best-effort analyze contract", () => {
   it("a rejected analyze promise does not throw out of the save path", async () => {
     const analyze = vi.fn().mockRejectedValue(new Error("network down"));
     await expect(saveThenBestEffortAnalyze("item-1", analyze)).resolves.toBeTruthy();
+  });
+});
+
+// ─── cache-creative-image recovery request ("Saved 0, 1 failed" — 401 regression) ─
+//
+// Root bug: vault-save-creative recovered durable media by calling
+// cache-creative-image with `Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}`.
+// After Supabase's API-key migration that env is the opaque `sb_secret_` format —
+// supabase-js / PostgREST accept it, but cache-creative-image runs with
+// verify_jwt=true and the Edge Function gateway validates only real JWTs, so it
+// rejected the sb_secret bearer with HTTP 401. Recovery silently failed, no durable
+// URL was applied, and every save with unsettled media fell through to 422
+// "No usable creative media to copy". The fix forwards the CALLER's user JWT (a
+// real JWT the gateway accepts), never the service-role / sb_secret key. These
+// tests pin that so a service-role bearer can't sneak back in.
+describe("buildRecoveryRequest (forward the caller JWT, never the service key)", () => {
+  const supabaseUrl = "https://gwyxaqoaldnaavkjqquv.supabase.co";
+  const callerJwt = "Bearer eyJhbGciOiJIUzI1Ni.user-access-token.signature";
+  const req = buildRecoveryRequest({
+    supabaseUrl,
+    callerAuthHeader: callerJwt,
+    ad_id: "120239121592170248",
+    account_id: "act_2223094124606317",
+  });
+
+  it("targets the cache-creative-image function endpoint", () => {
+    expect(req.url).toBe(`${supabaseUrl}/functions/v1/cache-creative-image`);
+  });
+
+  it("forwards the caller's user JWT verbatim as the Authorization header", () => {
+    expect(req.headers.Authorization).toBe(callerJwt);
+  });
+
+  it("NEVER sends the service-role / sb_secret key (the 401 root cause)", () => {
+    const sbSecret = "sb_secret_aBcD1234efGh5678ijKl9012";
+    const legacyServiceRole = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.service_role.sig";
+    expect(req.headers.Authorization).not.toContain("sb_secret_");
+    expect(req.headers.Authorization).not.toContain(sbSecret);
+    expect(req.headers.Authorization).not.toContain("service_role");
+    expect(req.headers.Authorization).not.toBe(`Bearer ${sbSecret}`);
+    expect(req.headers.Authorization).not.toBe(`Bearer ${legacyServiceRole}`);
+  });
+
+  it("sends JSON content with the ad_id + account_id body", () => {
+    expect(req.headers["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(req.body)).toEqual({
+      ad_id: "120239121592170248",
+      account_id: "act_2223094124606317",
+    });
   });
 });

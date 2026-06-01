@@ -13,6 +13,7 @@
 //   deno test -A supabase/functions/enrich-thumbnails/index.test.ts
 
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { looksLikeHtml } from "../_shared/media-discovery.ts";
 
 // Must be set BEFORE importing index.ts so the module-level serve() call is skipped.
 Deno.env.set("ENRICH_NO_SERVE", "1");
@@ -203,4 +204,390 @@ Deno.test("nextRetryAfter implements bounded exponential backoff", () => {
   assert(t2 > t1, "backoff must increase with retry count");
   const tCap = new Date(mod.nextRetryAfter(999)).getTime();
   assert(tCap - now <= 7 * 24 * 60 * 60 * 1000 + 60_000, "backoff must cap at 7 days");
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Repair pass (scope=repair) — heal poisoned storage objects
+//
+// Root cause of the live failure: 15/20 Cane Masters thumbnails were Facebook
+// error/login HTML pages stored as `<adId>.jpg` (content-type text/plain), and
+// the video bucket the same (HTML as .mp4). The URL is a valid storage URL, so
+// the old skip-gate `isStorageUrl(thumbnail_url)` treated the row as healthy and
+// never re-fetched — a permanent stuck state. These tests cover the magic-byte
+// sniff + the validate/delete/null/reset repair pass that frees the row.
+// ════════════════════════════════════════════════════════════════════════════
+
+// Leading bytes of a Facebook error/login page (what got saved as <adId>.jpg/.mp4).
+const HTML_BYTES = new TextEncoder().encode(
+  "<!DOCTYPE html>\n<html lang=\"en\"><head><title>Error</title></head><body>Sorry</body></html>",
+);
+// Real JPEG SOI + JFIF marker — must NOT be mistaken for HTML.
+const JPEG_BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]);
+
+Deno.test("looksLikeHtml: HTML/text bytes are caught, real media bytes pass", () => {
+  assert(looksLikeHtml(HTML_BYTES), "a <!DOCTYPE html> page must be flagged");
+  assert(looksLikeHtml(new TextEncoder().encode("<html><body>hi</body></html>")), "<html> must be flagged");
+  assert(looksLikeHtml(new TextEncoder().encode("  \n  <!doctype HTML>")), "leading whitespace + mixed case must still be flagged");
+  assert(looksLikeHtml(new TextEncoder().encode("<?xml version=\"1.0\"?>")), "an XML error doc must be flagged");
+  assert(!looksLikeHtml(JPEG_BYTES), "real JPEG bytes must pass");
+  assert(!looksLikeHtml(new Uint8Array([0x47, 0x49, 0x46, 0x38])), "GIF bytes must pass");
+  assert(!looksLikeHtml(new Uint8Array(0)), "empty buffer is not HTML");
+  assert(!looksLikeHtml(null), "null is not HTML");
+});
+
+Deno.test("parseStoragePublicUrl extracts bucket + path, ignores query string, rejects non-storage URLs", () => {
+  const parsed = mod.parseStoragePublicUrl(
+    "https://example.supabase.co/storage/v1/object/public/ad-thumbnails/act_1058298398102027/12345.jpg?t=1",
+  );
+  assertEquals(parsed, { bucket: "ad-thumbnails", path: "act_1058298398102027/12345.jpg" });
+  assertEquals(mod.parseStoragePublicUrl("https://scontent.fbcdn.net/v/whatever.jpg"), null);
+});
+
+// Stub globalThis.fetch for validateStorageObject. `res` shapes a minimal Response.
+function withFetch(
+  impl: () => { ok: boolean; status: number; contentType: string; body: Uint8Array },
+  run: () => Promise<void>,
+): Promise<void> {
+  const original = globalThis.fetch;
+  // deno-lint-ignore no-explicit-any
+  globalThis.fetch = ((..._a: unknown[]) => {
+    const r = impl();
+    return Promise.resolve({
+      ok: r.ok,
+      status: r.status,
+      headers: { get: (k: string) => (k.toLowerCase() === "content-type" ? r.contentType : null) },
+      arrayBuffer: () => Promise.resolve(r.body.buffer.slice(r.body.byteOffset, r.body.byteOffset + r.body.byteLength)),
+      body: { cancel: () => Promise.resolve() },
+    });
+  }) as any;
+  return run().finally(() => {
+    globalThis.fetch = original;
+  });
+}
+
+Deno.test("validateStorageObject: HTML-as-jpg ⇒ poison", async () => {
+  await withFetch(
+    () => ({ ok: true, status: 206, contentType: "text/plain", body: HTML_BYTES }),
+    async () => {
+      assertEquals(await mod.validateStorageObject("https://x/storage/v1/object/public/ad-thumbnails/a/1.jpg"), "poison");
+    },
+  );
+});
+
+Deno.test("validateStorageObject: real JPEG ⇒ ok", async () => {
+  await withFetch(
+    () => ({ ok: true, status: 206, contentType: "image/jpeg", body: JPEG_BYTES }),
+    async () => {
+      assertEquals(await mod.validateStorageObject("https://x/storage/v1/object/public/ad-thumbnails/a/1.jpg"), "ok");
+    },
+  );
+});
+
+Deno.test("validateStorageObject: fetch failure ⇒ unknown (never destroys a healthy asset on a network blip)", async () => {
+  await withFetch(
+    () => ({ ok: false, status: 500, contentType: "", body: new Uint8Array(0) }),
+    async () => {
+      assertEquals(await mod.validateStorageObject("https://x/storage/v1/object/public/ad-thumbnails/a/1.jpg"), "unknown");
+    },
+  );
+});
+
+// Repair recorder: like makeRecorder but the select terminal (.limit) yields the
+// supplied rows, and storage.remove / table .update(...).eq("ad_id", …) are captured.
+function makeRepairRecorder(rows: Record<string, unknown>[]) {
+  const calls: Call[] = [];
+  const removed: { bucket: string; paths: string[] }[] = [];
+  const updates: { adId: unknown; updates: Record<string, unknown> }[] = [];
+  let pendingUpdate: Record<string, unknown> | null = null;
+
+  const builder: Record<string, unknown> = {};
+  const chainMethods = ["from", "select", "is", "eq", "neq", "not", "or", "gt", "lt", "order", "update", "insert", "in"];
+  for (const m of chainMethods) {
+    builder[m] = (...args: unknown[]) => {
+      calls.push({ method: m, args });
+      if (m === "update") pendingUpdate = args[0] as Record<string, unknown>;
+      if (m === "eq" && args[0] === "ad_id" && pendingUpdate) {
+        updates.push({ adId: args[1], updates: pendingUpdate });
+        pendingUpdate = null;
+      }
+      return builder;
+    };
+  }
+  builder.limit = (...args: unknown[]) => {
+    calls.push({ method: "limit", args });
+    return Promise.resolve({ data: rows, error: null });
+  };
+  builder.then = (resolve: (v: unknown) => void) => resolve({ data: rows, error: null });
+
+  const supabase = {
+    from: (...args: unknown[]) => {
+      calls.push({ method: "from", args });
+      return builder;
+    },
+    storage: {
+      from: (bucket: string) => ({
+        remove: (paths: string[]) => {
+          removed.push({ bucket, paths });
+          return Promise.resolve({ error: null });
+        },
+        upload: () => Promise.resolve({ error: null }),
+        getPublicUrl: () => ({ data: { publicUrl: "" } }),
+      }),
+    },
+  };
+  return { supabase, calls, removed, updates };
+}
+
+Deno.test("runRepair: poisoned thumbnail ⇒ deletes object, NULLs columns + storage path + full_res, resets retry counter", async () => {
+  const row = {
+    ad_id: "ad_1",
+    account_id: "act_1058298398102027",
+    thumbnail_url: "https://example.supabase.co/storage/v1/object/public/ad-thumbnails/act_1058298398102027/ad_1.jpg",
+    full_res_url: "https://example.supabase.co/storage/v1/object/public/ad-thumbnails/act_1058298398102027/ad_1.jpg",
+    video_url: null,
+    thumbnail_storage_path: "act_1058298398102027/ad_1.jpg",
+  };
+  const { supabase, removed, updates } = makeRepairRecorder([row]);
+
+  await withFetch(
+    () => ({ ok: true, status: 206, contentType: "text/plain", body: HTML_BYTES }),
+    async () => {
+      const repaired = await mod.runRepair(supabase, "act_1058298398102027");
+      assertEquals(repaired, 1, "one poisoned row repaired");
+    },
+  );
+
+  assertEquals(removed.length, 1, "poisoned object deleted from its bucket");
+  assertEquals(removed[0], { bucket: "ad-thumbnails", paths: ["act_1058298398102027/ad_1.jpg"] });
+
+  assertEquals(updates.length, 1, "one row update issued");
+  const u = updates[0].updates;
+  assertEquals(u.thumbnail_url, null, "thumbnail_url nulled so discovery re-runs");
+  assertEquals(u.thumbnail_storage_path, null, "storage path nulled so caching re-runs");
+  assertEquals(u.full_res_url, null, "full_res_url (mirror of poison) nulled too");
+  assertEquals(u.thumb_retry_count, 0, "retry counter reset");
+  assertEquals(u.thumb_retry_after, null, "retry backoff cleared");
+});
+
+Deno.test("runRepair: healthy media ⇒ leaves the row completely untouched", async () => {
+  const row = {
+    ad_id: "ad_ok",
+    account_id: "act_1058298398102027",
+    thumbnail_url: "https://example.supabase.co/storage/v1/object/public/ad-thumbnails/act_1058298398102027/ad_ok.jpg",
+    full_res_url: null,
+    video_url: null,
+    thumbnail_storage_path: "act_1058298398102027/ad_ok.jpg",
+  };
+  const { supabase, removed, updates } = makeRepairRecorder([row]);
+
+  await withFetch(
+    () => ({ ok: true, status: 206, contentType: "image/jpeg", body: JPEG_BYTES }),
+    async () => {
+      const repaired = await mod.runRepair(supabase, "act_1058298398102027");
+      assertEquals(repaired, 0, "healthy row is not counted as repaired");
+    },
+  );
+
+  assertEquals(removed.length, 0, "healthy object must NOT be deleted");
+  assertEquals(updates.length, 0, "healthy row must NOT be updated");
+});
+
+Deno.test("runRepair: transient fetch failure ⇒ row untouched (no destructive action on a blip)", async () => {
+  const row = {
+    ad_id: "ad_blip",
+    account_id: "act_1058298398102027",
+    thumbnail_url: "https://example.supabase.co/storage/v1/object/public/ad-thumbnails/act_1058298398102027/ad_blip.jpg",
+    full_res_url: null,
+    video_url: null,
+    thumbnail_storage_path: "act_1058298398102027/ad_blip.jpg",
+  };
+  const { supabase, removed, updates } = makeRepairRecorder([row]);
+
+  await withFetch(
+    () => ({ ok: false, status: 503, contentType: "", body: new Uint8Array(0) }),
+    async () => {
+      const repaired = await mod.runRepair(supabase, "act_1058298398102027");
+      assertEquals(repaired, 0, "transient failure is not a repair");
+    },
+  );
+
+  assertEquals(removed.length, 0, "must NOT delete on transient failure");
+  assertEquals(updates.length, 0, "must NOT null columns on transient failure");
+});
+
+Deno.test("scope=repair runs the repair selection and does not run discovery/caching inline", async () => {
+  const { supabase, calls } = makeRepairRecorder([]);
+  const req = new Request("https://fn.local/enrich-thumbnails?scope=repair&account_id=act_1058298398102027");
+  const res = await mod.handler(req, supabase);
+  const body = await res.json();
+  assertEquals(body.scope, "repair");
+  // The repair pass selects storage-cached rows via an .or() on the storage marker.
+  assert(
+    hasOrContaining(calls, "/storage/v1/object/public/"),
+    "scope=repair must select rows whose media is a storage URL",
+  );
+  // With zero rows returned there is nothing to chain — discovery gates must not fire.
+  assert(!hasOrContaining(calls, "thumbnail_url.is.null"), "scope=repair (no rows) must not run discovery inline");
+});
+
+// ── Video caching: success + expired-CDN self-heal ───────────────────────────
+//
+// Bug: a creative whose video_url is a raw (non-storage) FB CDN url is a dead-end
+// once that time-limited url expires. runVideoCaching can't download it (CDN 4xx)
+// and runVideoDiscovery skips it (video_url is non-null and not the sentinel), so
+// the row is permanently stuck with an unplayable url — the same "looks-set-but-
+// broken" gap the poison repair closed for storage objects. Fix: on an expired
+// (non-2xx) CDN response, NULL the url + reset the retry window so the next
+// discovery pass re-fetches a fresh url that the cache phase can then store.
+
+// mp4 'ftyp' box — passes isMediaContentType + the looksLikeHtml magic-byte guard.
+const MP4_BYTES = new Uint8Array([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d]);
+
+// Fetch stub that, unlike withFetch, exposes a streaming body.getReader() because
+// cacheVideoToStorage reads large bodies via readBodyCapped (reader path).
+function withVideoFetch(
+  impl: () => { ok: boolean; status: number; contentType: string; body: Uint8Array },
+  run: () => Promise<void>,
+): Promise<void> {
+  const original = globalThis.fetch;
+  // deno-lint-ignore no-explicit-any
+  globalThis.fetch = ((..._a: unknown[]) => {
+    const r = impl();
+    let sent = false;
+    return Promise.resolve({
+      ok: r.ok,
+      status: r.status,
+      headers: { get: (k: string) => (k.toLowerCase() === "content-type" ? r.contentType : null) },
+      text: () => Promise.resolve(""),
+      arrayBuffer: () => Promise.resolve(r.body.buffer.slice(r.body.byteOffset, r.body.byteOffset + r.body.byteLength)),
+      body: {
+        getReader: () => ({
+          read: () => sent
+            ? Promise.resolve({ done: true, value: undefined })
+            : (sent = true, Promise.resolve({ done: false, value: r.body })),
+          cancel: () => Promise.resolve(),
+        }),
+        cancel: () => Promise.resolve(),
+      },
+    });
+  }) as any;
+  return run().finally(() => { globalThis.fetch = original; });
+}
+
+Deno.test("runVideoCaching: live CDN video ⇒ downloaded, stored, video_url updated to a storage URL", async () => {
+  const { supabase, updates } = makeRepairRecorder([
+    { ad_id: "v1", account_id: "act_x", video_url: "https://video.fbcdn.net/v1.mp4" },
+  ]);
+  await withVideoFetch(
+    () => ({ ok: true, status: 200, contentType: "video/mp4", body: MP4_BYTES }),
+    async () => {
+      const summary = await mod.runVideoCaching(supabase, null);
+      assertEquals(summary.cached, 1);
+      assertEquals(summary.failed, 0);
+      assertEquals(summary.reDiscoverQueued, 0);
+      assertEquals(updates.length, 1);
+      assertEquals(updates[0].adId, "v1");
+      assert(
+        String((updates[0].updates as Record<string, unknown>).video_url).includes("/storage/v1/object/public/ad-videos/"),
+        "cached video_url must be rewritten to a storage URL",
+      );
+    },
+  );
+});
+
+// Table-aware recorder: the concurrency-guard query hits `media_refresh_logs`
+// (must be empty so the handler proceeds), while the video-cache query hits
+// `creatives` (returns the supplied batch). Lets us exercise the scope=cache
+// self-chaining drain end-to-end through the handler.
+function makeTableAwareRecorder(creativeRows: Record<string, unknown>[]) {
+  let currentTable = "";
+  const builder: Record<string, unknown> = {};
+  const chainMethods = ["select", "is", "eq", "neq", "not", "or", "gt", "lt", "order", "update", "insert", "in"];
+  for (const m of chainMethods) builder[m] = (..._a: unknown[]) => builder;
+  const rowsFor = () => (currentTable === "creatives" ? creativeRows : []);
+  builder.limit = () => Promise.resolve({ data: rowsFor(), error: null });
+  builder.then = (resolve: (v: unknown) => void) => resolve({ data: rowsFor(), error: null });
+  const supabase = {
+    from: (t: string) => { currentTable = t; return builder; },
+    storage: {
+      from: () => ({
+        upload: () => Promise.resolve({ error: null }),
+        getPublicUrl: () => ({ data: { publicUrl: "" } }),
+        remove: () => Promise.resolve({ error: null }),
+      }),
+    },
+  };
+  return supabase;
+}
+
+// Stub fetch so video downloads "expire" (drives a full failed batch with no body
+// handling) while capturing any chained scope=cache POST the drain fires.
+function withDrainFetch(chained: string[], run: () => Promise<void>): Promise<void> {
+  const original = globalThis.fetch;
+  const hadNoChain = Deno.env.get("ENRICH_NO_CHAIN");
+  Deno.env.delete("ENRICH_NO_CHAIN");
+  // deno-lint-ignore no-explicit-any
+  globalThis.fetch = ((u: unknown) => {
+    const url = String(u);
+    if (url.includes("scope=cache&cache_chain=")) {
+      chained.push(url);
+      return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(""), headers: { get: () => null } });
+    }
+    return Promise.resolve({
+      ok: false, status: 403,
+      text: () => Promise.resolve(""),
+      headers: { get: () => null },
+      body: { cancel: () => Promise.resolve() },
+    });
+  }) as any;
+  return run().finally(() => {
+    globalThis.fetch = original;
+    if (hadNoChain !== undefined) Deno.env.set("ENRICH_NO_CHAIN", hadNoChain);
+  });
+}
+
+Deno.test("scope=cache drain: a FULL video batch chains a fresh cache invocation (cache_chain++)", async () => {
+  const rows = Array.from({ length: 20 }, (_, i) => ({ ad_id: `d${i}`, account_id: "act_x", video_url: `https://cdn.fb/${i}.mp4` }));
+  const supabase = makeTableAwareRecorder(rows);
+  const chained: string[] = [];
+  await withDrainFetch(chained, async () => {
+    const req = new Request("https://fn.local/enrich-thumbnails?scope=cache&account_id=act_x");
+    await mod.handler(req, supabase);
+  });
+  assertEquals(chained.length, 1);
+  assert(chained[0].includes("cache_chain=1"), "drain must increment cache_chain");
+  assert(chained[0].includes("account_id=act_x"), "drain must preserve the account scope");
+});
+
+Deno.test("scope=cache drain: a PARTIAL video batch does NOT chain (drain terminates)", async () => {
+  const rows = Array.from({ length: 5 }, (_, i) => ({ ad_id: `p${i}`, account_id: "act_x", video_url: `https://cdn.fb/${i}.mp4` }));
+  const supabase = makeTableAwareRecorder(rows);
+  const chained: string[] = [];
+  await withDrainFetch(chained, async () => {
+    const req = new Request("https://fn.local/enrich-thumbnails?scope=cache&account_id=act_x");
+    await mod.handler(req, supabase);
+  });
+  assertEquals(chained.length, 0);
+});
+
+Deno.test("runVideoCaching: expired CDN url (non-2xx) ⇒ NULLs video_url + resets retry so discovery re-fetches", async () => {
+  const { supabase, updates } = makeRepairRecorder([
+    { ad_id: "v2", account_id: "act_x", video_url: "https://video.fbcdn.net/expired.mp4" },
+  ]);
+  await withVideoFetch(
+    () => ({ ok: false, status: 403, contentType: "", body: new Uint8Array(0) }),
+    async () => {
+      const summary = await mod.runVideoCaching(supabase, null);
+      assertEquals(summary.cached, 0);
+      assertEquals(summary.failed, 1);
+      assertEquals(summary.reasons.expired, 1);
+      assertEquals(summary.reDiscoverQueued, 1);
+      assertEquals(updates.length, 1);
+      assertEquals(updates[0].adId, "v2");
+      const u = updates[0].updates as Record<string, unknown>;
+      assertEquals(u.video_url, null);
+      assertEquals(u.video_retry_count, 0);
+      assertEquals(u.video_retry_after, null);
+    },
+  );
 });
