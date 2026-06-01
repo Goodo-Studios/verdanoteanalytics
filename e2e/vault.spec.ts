@@ -377,9 +377,14 @@ test.describe("Vault — save analytics creative to global library (US-006)", ()
       // Race the outcomes: a fresh-save / dedupe-hit success toast (proving a
       // non-duplicating save completed — US-003 strings) versus the expected
       // media-rejection failure toast for a creative whose CDN assets are gone.
+      // Generous budget: vault-save-creative downloads the remote CDN asset and
+      // re-uploads it to storage, and on a main-branch deploy the E2E job runs
+      // alongside the edge-function redeploy — so the first invocation can be a
+      // cold start. We still REQUIRE one of the two toasts (assertion unchanged);
+      // we only wait long enough for the genuinely-slow operation to resolve.
       const successToast = page.getByText(/saved to vault|already in vault/i);
       const failToast = page.getByText(/failed to save to vault|no usable creative media/i);
-      await expect(successToast.or(failToast).first()).toBeVisible({ timeout: 15_000 });
+      await expect(successToast.or(failToast).first()).toBeVisible({ timeout: 45_000 });
 
       if ((await successToast.count()) > 0) {
         // Button flips to a saved state and becomes disabled (no re-save).
