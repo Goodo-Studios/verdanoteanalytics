@@ -129,10 +129,23 @@ test.describe("Content Pipeline — live Coda sync (US-005)", () => {
     test.use({ storageState: "e2e/.auth/staff.json" });
 
     test("staff sees live pipeline tasks for client accounts on /pipeline", async ({ page }) => {
+      // TEMP-DIAG: capture the accounts API + role-resolution responses so we can
+      // see whether the staff user is recognized as staff in prod.
+      page.on("response", async (res) => {
+        const u = res.url();
+        if (u.includes("/functions/v1/accounts") || u.includes("/rpc/get_user_role")) {
+          let body = "";
+          try { body = (await res.text()).slice(0, 300); } catch { /* ignore */ }
+          console.log(`[DIAG staff] ${res.status()} ${u.replace(/https?:\/\/[^/]+/, "")} body=${body}`);
+        }
+      });
+
       await gotoRoleHome(page);
       const prefix = rolePrefix(page);
+      console.log(`[DIAG staff] resolved prefix=${prefix} url=${page.url()}`);
 
       await page.goto(`${prefix}/pipeline`);
+      await page.waitForTimeout(4000);
 
       // The account switcher (Radix Select, role=combobox) lets staff pick a
       // specific client account. Enumerate the real account options (excluding
