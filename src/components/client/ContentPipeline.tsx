@@ -40,7 +40,11 @@ function TaskRow({ task }: { task: CodaTask }) {
   const dueInfo = !isComplete ? dueDateLabel(task.due_date) : null;
 
   return (
-    <div className="flex items-start gap-3 px-4 py-3 rounded-[6px]">
+    <div
+      className="flex items-start gap-3 px-4 py-3 rounded-[6px]"
+      data-testid="pipeline-task"
+      data-stage={stage}
+    >
       {/* Stage dot */}
       <div className={`mt-1.5 h-2.5 w-2.5 rounded-full shrink-0 ${config.bg}`} />
 
@@ -111,7 +115,7 @@ export function ContentPipelineView({
   // onboarding state (US-006) instead of surfacing an error.
   if (isError || !tasks?.length) {
     return (
-      <div className="glass-panel p-7">
+      <div className="glass-panel p-7" data-testid="pipeline-empty">
         <h2 className="font-heading text-[20px] text-foreground mb-4">Content Pipeline</h2>
         <ClientEmptyState
           icon={PackageOpen}
@@ -123,7 +127,7 @@ export function ContentPipelineView({
   }
 
   return (
-    <div className="glass-panel p-7">
+    <div className="glass-panel p-7" data-testid="content-pipeline">
       <h2 className="font-heading text-[20px] text-foreground mb-4">Content Pipeline</h2>
 
       <div className="space-y-1">
