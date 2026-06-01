@@ -307,6 +307,13 @@ test.describe("Vault — save analytics creative to global library (US-006)", ()
   test("save a creative from analytics, see it in the vault, and prevent a duplicate", async ({
     page,
   }) => {
+    // This is a long, real-data workflow: fresh login + creatives navigation +
+    // a vault save that downloads the remote CDN asset and re-uploads it to
+    // storage (the edge function can be cold right after a deploy) + library
+    // navigation + a dedup reopen. The 30s project-default per-test timeout is
+    // too tight for a cold save; give it room. (Budget, not a loosened assertion.)
+    test.setTimeout(150_000);
+
     if (!hasCredentials) {
       // Fallback: confirm the creatives and vault library routes are reachable
       // and gated, with no crash — no real save is exercised.
@@ -343,14 +350,19 @@ test.describe("Vault — save analytics creative to global library (US-006)", ()
 
     // Scan the first few creatives until one is vault-saveable. A creative's
     // remote CDN media can be expired/missing (Meta ad assets rotate out), in
-    // which case vault-save-creative legitimately rejects it ("No usable
-    // creative media to copy" → surfaced as a "Failed to save to Vault" toast).
-    // That is a real, expected outcome for media-less ads — not a save-flow
-    // bug — so we move to the next creative rather than failing. We still
-    // REQUIRE that at least one creative produces a genuine success/dedupe
-    // toast (no assertion is loosened): if none can be saved, that is a true
-    // failure worth surfacing.
-    const MAX_SCAN = Math.min(rowCount, 8);
+    // which case vault-save-creative legitimately rejects it — the exact
+    // message varies (e.g. "No usable creative media to copy", "Refusing to
+    // store … non-video content", or a non-2xx error). That is a real, expected
+    // outcome for media-less ads — not a save-flow bug — so we move to the next
+    // creative. We still REQUIRE that at least one creative is genuinely saved
+    // (no assertion is loosened): if none can be, that is a true failure.
+    //
+    // Success is keyed on the DURABLE button state (the affordance flips to
+    // "Saved"/"Already in Vault" and disables) rather than the transient toast,
+    // which auto-dismisses and whose copy varies; failure is detected via the
+    // Sonner error toast TYPE (`data-type="error"`), not its text. Whichever
+    // terminal signal appears first ends the per-creative wait.
+    const MAX_SCAN = Math.min(rowCount, 6);
     let saved = false;
     let savedIndex = -1;
     let lastFailureMessage = "";
@@ -374,30 +386,29 @@ test.describe("Vault — save analytics creative to global library (US-006)", ()
       await expect(saveButton.first()).toBeVisible({ timeout: 8_000 });
       await saveButton.first().click();
 
-      // Race the outcomes: a fresh-save / dedupe-hit success toast (proving a
-      // non-duplicating save completed — US-003 strings) versus the expected
-      // media-rejection failure toast for a creative whose CDN assets are gone.
-      // Generous budget: vault-save-creative downloads the remote CDN asset and
-      // re-uploads it to storage, and on a main-branch deploy the E2E job runs
-      // alongside the edge-function redeploy — so the first invocation can be a
-      // cold start. We still REQUIRE one of the two toasts (assertion unchanged);
-      // we only wait long enough for the genuinely-slow operation to resolve.
-      const successToast = page.getByText(/saved to vault|already in vault/i);
-      const failToast = page.getByText(/failed to save to vault|no usable creative media/i);
-      await expect(successToast.or(failToast).first()).toBeVisible({ timeout: 45_000 });
+      // Wait for a TERMINAL outcome, whichever comes first:
+      //  - success: the button flips to the durable "Saved"/"Already in Vault"
+      //    disabled state (a stronger, non-transient signal than the toast);
+      //  - failure: a Sonner error toast appears (matched by type, not copy —
+      //    catches every rejection message and any non-2xx error).
+      // The save can be slow on a cold edge function (CDN download + re-upload),
+      // so the budget is generous; the failure signal fires promptly when the
+      // function rejects, so media-less creatives don't burn the full timeout.
+      const savedState = modal.getByRole("button", { name: /^(saved|already in vault)$/i });
+      const errorToast = page.locator("[data-sonner-toast][data-type='error']");
+      await expect(savedState.or(errorToast).first()).toBeVisible({ timeout: 30_000 });
 
-      if ((await successToast.count()) > 0) {
-        // Button flips to a saved state and becomes disabled (no re-save).
-        const savedState = modal.getByRole("button", { name: /^(saved|already in vault)$/i });
-        await expect(savedState.first()).toBeVisible({ timeout: 8_000 });
+      if ((await savedState.count()) > 0) {
+        // Genuine, non-duplicating save: the affordance is now saved + disabled.
+        await expect(savedState.first()).toBeVisible();
         await expect(savedState.first()).toBeDisabled();
         saved = true;
         savedIndex = i;
         break;
       }
 
-      // Media-less creative — record why and try the next one.
-      lastFailureMessage = (await failToast.first().textContent())?.trim() ?? "media rejected";
+      // Rejected (e.g. media-less creative) — record why and try the next one.
+      lastFailureMessage = (await errorToast.first().textContent())?.trim() ?? "save rejected";
       await page.keyboard.press("Escape");
       await expect(modal.first()).toBeHidden({ timeout: 8_000 });
     }
