@@ -40,15 +40,15 @@ const hasStaffCreds = !!STAFF_EMAIL && !!STAFF_PASSWORD;
 const DISPLAY_STAGES = new Set(["Planning", "Production", "Review", "Your Review", "Complete"]);
 
 /**
- * Mirrors the loginAs helper used across the suite. After auth the app redirects
- * to /:role/ (builder | employee | client).
+ * No-login navigation: the role session is restored from the storageState saved
+ * once by the `setup` project (e2e/auth.setup.ts), so we just navigate to the
+ * app root and wait for the post-auth role redirect. This removes the per-test
+ * /login submission that previously caused login-throttling flakiness when the
+ * authenticated specs ran serially.
  */
-async function loginAs(page: Page, email: string, password: string) {
-  await page.goto("/login");
-  await page.fill("#email", email);
-  await page.fill("#password", password);
-  await page.getByRole("button", { name: /sign in/i }).click();
-  await page.waitForURL(/\/(builder|employee|client)\//, { timeout: 15_000 });
+async function gotoRoleHome(page: Page) {
+  await page.goto("/");
+  await page.waitForURL(/\/(builder|employee|client)\//, { timeout: 30_000 });
 }
 
 /** The role prefix (e.g. "/client") derived from the post-login URL. */
@@ -90,21 +90,26 @@ async function expectPopulatedPipeline(page: Page): Promise<Set<string>> {
 test.describe("Content Pipeline — live Coda sync (US-005)", () => {
   test.describe("client surface", () => {
     test.skip(!hasClientCreds, "Set PLAYWRIGHT_CLIENT_EMAIL and PLAYWRIGHT_CLIENT_PASSWORD to run");
+    // Reuse the client session authenticated once by the `setup` project.
+    test.use({ storageState: "e2e/.auth/client.json" });
 
     test("client sees live pipeline tasks in display stages on /pipeline", async ({ page }) => {
-      await loginAs(page, CLIENT_EMAIL, CLIENT_PASSWORD);
+      await gotoRoleHome(page);
       const prefix = rolePrefix(page);
 
       await page.goto(`${prefix}/pipeline`);
 
+      // Populated pipeline with canonical display stages. We await this FIRST so
+      // the account has fully resolved before we assert on the empty/onboarding
+      // prompt — checking the prompt before the pipeline settles would race the
+      // accounts-loading window.
+      const stages = await expectPopulatedPipeline(page);
+
       // The client's single linked account auto-selects, so the "Select an
-      // account" prompt must NOT appear.
+      // account" prompt must NOT appear once the pipeline has rendered.
       await expect(
         page.getByText(/select an account to view the content pipeline/i)
       ).toHaveCount(0);
-
-      // Populated pipeline with canonical display stages.
-      const stages = await expectPopulatedPipeline(page);
       // Sanity: every observed stage is one the client UI knows how to colour.
       for (const s of stages) expect(DISPLAY_STAGES.has(s)).toBeTruthy();
 
@@ -120,9 +125,11 @@ test.describe("Content Pipeline — live Coda sync (US-005)", () => {
 
   test.describe("staff / agency surface", () => {
     test.skip(!hasStaffCreds, "Set PLAYWRIGHT_TEST_EMAIL and PLAYWRIGHT_TEST_PASSWORD to run");
+    // Reuse the staff session authenticated once by the `setup` project.
+    test.use({ storageState: "e2e/.auth/staff.json" });
 
     test("staff sees live pipeline tasks for client accounts on /pipeline", async ({ page }) => {
-      await loginAs(page, STAFF_EMAIL, STAFF_PASSWORD);
+      await gotoRoleHome(page);
       const prefix = rolePrefix(page);
 
       await page.goto(`${prefix}/pipeline`);
