@@ -73,6 +73,31 @@ function MediaPreview({ creative, caching = false }: { creative: Creative; cachi
   );
   const hasVideoUrl = !!(creative.video_url && creative.video_url !== "no-video");
 
+  // Video creatives whose source we can't cache (page-owned videos — the Meta token
+  // lacks page permissions, so no downloadable source). They DO have video metrics, so
+  // embed Meta's ad-preview iframe (scoped-token URL fetched server-side) so the video
+  // still PLAYS in-app instead of only via an external link.
+  const isVideoNoSource = !hasVideoUrl && (creative.video_avg_play_time ?? 0) > 0;
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewState, setPreviewState] = useState<"idle" | "loading" | "error">("idle");
+
+  useEffect(() => {
+    let cancelled = false;
+    setPreviewUrl(null);
+    if (!isVideoNoSource || !creative.ad_id) { setPreviewState("idle"); return; }
+    setPreviewState("loading");
+    supabase.functions
+      .invoke("ad-preview", { body: { ad_id: creative.ad_id } })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error || !data?.url) { setPreviewState("error"); return; }
+        setPreviewUrl(data.url as string);
+        setPreviewState("idle");
+      })
+      .catch(() => { if (!cancelled) setPreviewState("error"); });
+    return () => { cancelled = true; };
+  }, [creative.ad_id, isVideoNoSource]);
+
   // True while we don't yet have media dimensions to size the container by
   const isLoading = hasVideoUrl
     ? videoLoading && !videoError
@@ -111,6 +136,20 @@ function MediaPreview({ creative, caching = false }: { creative: Creative; cachi
               onError={() => { setVideoError(true); setVideoLoading(false); }}
             />
           </>
+        ) : isVideoNoSource && previewUrl ? (
+          // Page-owned video we can't cache — embed Meta's ad preview so it plays in-app.
+          <iframe
+            key={previewUrl}
+            src={previewUrl}
+            title={creative.ad_name}
+            allow="autoplay; encrypted-media"
+            className="w-[360px] max-w-full h-[560px] border-0 block bg-white"
+          />
+        ) : isVideoNoSource && previewState === "loading" ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+            <Loader2 className="h-8 w-8 text-muted-foreground/40 animate-spin" />
+            <span className="font-body text-[12px] text-muted-foreground">Loading video preview…</span>
+          </div>
         ) : hasThumbnail ? (
           <>
             {(thumbnailLoading || (!imgLoaded && !imgError)) && (

@@ -176,3 +176,6 @@ verify_jwt = false
 # frontend with the user JWT.
 [functions.vault-slack-import]
 verify_jwt = true
+
+[functions.ad-preview]
+verify_jwt = false
