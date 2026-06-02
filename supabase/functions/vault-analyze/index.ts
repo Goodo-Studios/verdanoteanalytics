@@ -188,7 +188,25 @@ Deno.serve(async (req) => {
 
     const transcriptRow = transcriptResult.data;
     if (!transcriptRow?.raw_transcript) {
-      throw new Error("No transcript found for item");
+      // No transcript yet — self-heal instead of throwing a misleading error
+      // that clobbers the item's real state. Re-enter the pipeline at
+      // vault-transcribe, which downloads the media, writes the transcript,
+      // and chains back to vault-analyze. If the media genuinely can't be
+      // transcribed (too large / no audio), vault-transcribe sets the honest
+      // terminal state. This makes the "Run analysis" button work on items
+      // that were saved before they had a transcript.
+      await db.from("inspiration_items").update({ status: "transcribing" }).eq("id", itemId);
+      EdgeRuntime.waitUntil(
+        fetch(`${supabaseUrl}/functions/v1/vault-transcribe`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${serviceRoleKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ item_id: itemId }),
+        }).catch((e) => console.error("vault-transcribe chain failed (non-fatal):", e)),
+      );
+      return json({ ok: true, item_id: itemId, transcribing: true });
     }
 
     const existingBrandName = itemResult.data?.brand_name ?? null;
