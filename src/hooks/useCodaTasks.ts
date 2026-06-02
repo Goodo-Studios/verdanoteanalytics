@@ -13,11 +13,11 @@ export interface CodaTask {
 }
 
 const STAGE_ORDER: Record<string, number> = {
-  Planning: 1,
+  "Preparing Content": 1,
   Production: 2,
-  Review: 3,
-  "Your Review": 4,
-  Complete: 5,
+  Editing: 3,
+  "Client Review": 4,
+  "Ready to Launch": 5,
 };
 
 export function useCodaTasks(accountId?: string) {

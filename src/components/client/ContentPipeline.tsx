@@ -4,23 +4,32 @@ import { PackageOpen } from "lucide-react";
 import { ClientEmptyState } from "@/components/client/ClientEmptyState";
 
 const STAGE_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
-  Planning: { color: "text-amber-500", bg: "bg-amber-500", label: "Planning" },
+  "Preparing Content": { color: "text-amber-500", bg: "bg-amber-500", label: "Preparing Content" },
   Production: { color: "text-emerald-500", bg: "bg-emerald-500", label: "Production" },
-  Review: { color: "text-indigo-500", bg: "bg-indigo-500", label: "Review" },
-  "Your Review": { color: "text-blue-500", bg: "bg-blue-500", label: "Your Review" },
-  Complete: { color: "text-muted-foreground", bg: "bg-muted-foreground", label: "Complete" },
+  Editing: { color: "text-violet-500", bg: "bg-violet-500", label: "Editing" },
+  "Client Review": { color: "text-blue-500", bg: "bg-blue-500", label: "Client Review" },
+  "Ready to Launch": { color: "text-green-500", bg: "bg-green-500", label: "Ready to Launch" },
 };
 
 /**
- * The board renders only forward-looking, active stages as columns. "Complete"
- * is intentionally NOT a column — the pipeline answers "what are we making
- * next", not "what's done". A task whose stage is null defaults to Planning
- * (first active stage); a task whose stage is "Complete" or any unmapped/drifted
- * raw string falls into no column and is omitted from the board. If that leaves
+ * The board mirrors the live Coda workflow as five columns (set with the
+ * operator 2026-06-02). The display stage on each task is computed upstream by
+ * the sync-coda-tasks edge function's STAGE_MAP, so this component just buckets
+ * by the already-mapped value. A task whose stage is null defaults to the first
+ * column ("Preparing Content"); a task whose stage is any unmapped/drifted raw
+ * string falls into no column and is omitted from the board. "Ready to Launch"
+ * IS a column, but the sync only feeds it recently-shipped work, so it stays a
+ * "just launched" lane rather than an all-time archive. If bucketing leaves
  * nothing to show, the section degrades to the same calm onboarding state as a
  * truly empty pipeline.
  */
-const COLUMN_ORDER = ["Planning", "Production", "Review", "Your Review"] as const;
+const COLUMN_ORDER = [
+  "Preparing Content",
+  "Production",
+  "Editing",
+  "Client Review",
+  "Ready to Launch",
+] as const;
 
 function dueDateLabel(dueDateStr: string | null): { text: string; urgent: boolean } | null {
   if (!dueDateStr) return null;
@@ -76,9 +85,9 @@ function bucketByColumn(tasks: CodaTask[]): Record<string, CodaTask[]> {
   const buckets: Record<string, CodaTask[]> = {};
   for (const col of COLUMN_ORDER) buckets[col] = [];
   for (const task of tasks) {
-    const stage = task.stage || "Planning";
+    const stage = task.stage || "Preparing Content";
     if (buckets[stage]) buckets[stage].push(task);
-    // "Complete" + any unmapped/drifted stage falls into no column → omitted.
+    // Any unmapped/drifted stage falls into no column → omitted from the board.
   }
   return buckets;
 }
@@ -118,8 +127,8 @@ export function ContentPipelineView({
     );
   }
 
-  // Bucket into the active board columns. "Complete"/unmapped tasks fall out
-  // here, so a pipeline of only-finished work reads as empty for board purposes.
+  // Bucket into the board columns. Unmapped/drifted-stage tasks fall out here,
+  // so a pipeline of only-unmapped work reads as empty for board purposes.
   const columns = bucketByColumn(tasks ?? []);
   const hasBoardTasks = COLUMN_ORDER.some((col) => columns[col].length > 0);
 
