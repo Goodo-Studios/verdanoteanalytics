@@ -1491,8 +1491,13 @@ serve(async (req) => {
     } catch (_) { /* not a JWT */ }
 
     const isPublishableKey = authToken.startsWith("sb_publishable_");
+    // New-format secret API key (sb_secret_*) — the service-role-equivalent.
+    // This is what scheduled-sync / the pg_cron job actually forward, and it is
+    // NOT a JWT (no .role claim), so the payload check above never matches it.
+    // Trust it like service_role; without this the automated sync path 401s.
+    const isSecretKey = authToken.startsWith("sb_secret_");
 
-    if (!isAnonKey && !isPublishableKey) {
+    if (!isAnonKey && !isPublishableKey && !isSecretKey) {
       const { data: { user }, error: authError } = await supabase.auth.getUser(authToken);
       if (authError || !user) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       const { data: userRole } = await supabase.from("user_roles").select("role").eq("user_id", user.id).single();
