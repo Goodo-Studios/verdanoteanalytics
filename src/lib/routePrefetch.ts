@@ -32,7 +32,7 @@ type Loader = () => Promise<unknown>;
 // A path may pull more than one chunk when the destination commonly fans out
 // (e.g. /creatives → compare, /reports → client vs. builder variant).
 const PATH_PREFETCH: Record<string, Loader[]> = {
-  "/": [routeImports.overview, routeImports.clientHome],
+  "/": [routeImports.overview],
   "/creatives": [routeImports.creatives, routeImports.compare],
   "/analytics": [routeImports.analytics],
   "/tagging": [routeImports.tagging],

@@ -72,11 +72,15 @@ export const builderSections: NavSection[] = [
   },
 ];
 
-// Client surface: purpose-built Home + read-only Content Pipeline + Reports.
-// Internal strategist surfaces (Creatives, Analytics, Tagging, Briefs, Vault)
-// never render for clients — see route guards in App.tsx.
+// Client surface: clients get the core analytics tabs — Overview, Creatives,
+// Analytics — alongside their Content Pipeline + Reports. Overview routes to the
+// same OverviewPage builders see (the purpose-built ClientHomePage is retired).
+// Deeper strategist surfaces (Tagging, Briefs, Vault, Viral Feed) stay
+// client-gated — see route guards in App.tsx.
 export const clientNavItems: NavItem[] = [
-  { title: "Home", url: "/", icon: LayoutGrid },
+  { title: "Overview", url: "/", icon: LayoutGrid },
+  { title: "Creatives", url: "/creatives", icon: Zap },
+  { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
   { title: "Reports", url: "/reports", icon: FileText },
 ];

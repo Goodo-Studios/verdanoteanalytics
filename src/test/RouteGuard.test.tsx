@@ -1,20 +1,22 @@
 /**
- * US-008 — Unit route-guard + nav tests (clients excluded from internal surface).
+ * US-008 — Unit route-guard + nav tests (client analytics surface).
  *
  * Two layers of proof, both asserting against the REAL source of truth (no
  * duplicated nav table, no re-implemented guard):
  *
- *  1. Nav model (AppSidebar exports): the client nav list EXCLUDES every
- *     internal-only surface (Creatives, Analytics, Tagging, Briefs, Vault) and
- *     INCLUDES Home / Content Pipeline / Reports; builder sections keep the full
+ *  1. Nav model (AppSidebar exports): the client nav list INCLUDES the core
+ *     analytics surfaces (Overview / Creatives / Analytics) plus Content
+ *     Pipeline / Reports, and EXCLUDES the deeper strategist surfaces
+ *     (Tagging, Briefs, Vault, Viral Feed); builder sections keep the full
  *     internal surface (AC1, AC3).
  *
  *  2. Route guard (App's exported RoleGuardedRoutes): an effectiveClient
- *     (isClient OR isClientPreview) is redirected away from /creatives,
- *     /analytics, /compare, /tagging, /briefs, /ad-library*, /viral-feed and
- *     instead lands on the client home; builders/employees reach those pages
- *     unchanged; the index route resolves to ClientHomePage for clients and to
- *     the existing home (Overview) otherwise (AC2, AC3, AC4).
+ *     (isClient OR isClientPreview) REACHES /creatives, /creatives/compare and
+ *     /analytics, but is still redirected away from /tagging, /briefs,
+ *     /ad-library*, /viral-feed and lands on the index (Overview);
+ *     builders/employees reach every page unchanged; the index route resolves
+ *     to OverviewPage for every role (the purpose-built ClientHomePage is
+ *     retired) (AC2, AC3, AC4).
  *
  * Page modules are mocked to lightweight markers so the test observes which
  * route element actually mounts (a redirect lands on the index marker, never
@@ -30,7 +32,6 @@ const pageMock = (name: string) => ({
   default: () => <div data-testid={`page-${name}`}>{name}</div>,
 });
 vi.mock("@/pages/OverviewPage", () => pageMock("overview"));
-vi.mock("@/pages/ClientHomePage", () => pageMock("client-home"));
 vi.mock("@/pages/CreativesPage", () => pageMock("creatives"));
 vi.mock("@/pages/AnalyticsPage", () => pageMock("analytics"));
 vi.mock("@/pages/ComparePage", () => pageMock("compare"));
@@ -133,18 +134,17 @@ describe("nav model — clientNavItems (AC1)", () => {
   const titles = clientNavItems.map((i) => i.title);
   const urls = clientNavItems.map((i) => i.url);
 
-  it("INCLUDES Home, Content Pipeline, Reports", () => {
-    expect(titles).toContain("Home");
-    expect(titles).toContain("Content Pipeline");
-    expect(titles).toContain("Reports");
-    expect(urls).toEqual(expect.arrayContaining(["/", "/pipeline", "/reports"]));
+  it("INCLUDES Overview, Creatives, Analytics, Content Pipeline, Reports", () => {
+    expect(titles).toEqual(
+      expect.arrayContaining(["Overview", "Creatives", "Analytics", "Content Pipeline", "Reports"]),
+    );
+    expect(urls).toEqual(
+      expect.arrayContaining(["/", "/creatives", "/analytics", "/pipeline", "/reports"]),
+    );
   });
 
-  it("EXCLUDES every internal-only surface (Creatives, Analytics, Tagging, Briefs, Vault, Viral Feed)", () => {
-    const internalUrls = [
-      "/creatives",
-      "/creatives/compare",
-      "/analytics",
+  it("EXCLUDES the deeper strategist surfaces (Tagging, Briefs, Vault, Viral Feed)", () => {
+    const excludedUrls = [
       "/tagging",
       "/briefs",
       "/ad-library",
@@ -152,24 +152,24 @@ describe("nav model — clientNavItems (AC1)", () => {
       "/ad-library/hooks",
       "/viral-feed",
     ];
-    for (const url of internalUrls) {
+    for (const url of excludedUrls) {
       expect(urls).not.toContain(url);
     }
-    const internalTitles = ["Creatives", "Analytics", "Tagging", "Briefs", "Library", "Boards", "Hooks", "Viral Feed"];
-    for (const title of internalTitles) {
+    const excludedTitles = ["Tagging", "Briefs", "Library", "Boards", "Hooks", "Viral Feed"];
+    for (const title of excludedTitles) {
       expect(titles).not.toContain(title);
     }
   });
 
-  it("is small and read-only-shaped — no more than the 3 client surfaces", () => {
-    expect(clientNavItems).toHaveLength(3);
+  it("is the 5 client surfaces — Overview, Creatives, Analytics, Pipeline, Reports", () => {
+    expect(clientNavItems).toHaveLength(5);
   });
 });
 
 describe("nav model — builderSections retain the full internal surface (AC3)", () => {
   const builderUrls = builderSections.flatMap((s) => s.items.map((i) => i.url));
 
-  it("INCLUDES every internal surface a client is denied", () => {
+  it("INCLUDES every internal surface", () => {
     for (const url of [
       "/creatives",
       "/analytics",
@@ -189,12 +189,15 @@ describe("nav model — builderSections retain the full internal surface (AC3)",
   });
 });
 
-// Internal-only routes a client must be redirected away from (AC2). Each is the
-// role-relative path; mounted under the matching role prefix.
-const INTERNAL_ROUTES = [
+// Routes a client now REACHES — the core analytics surface (AC2).
+const CLIENT_ALLOWED_ROUTES = [
   { path: "/creatives", marker: "creatives" },
   { path: "/creatives/compare", marker: "compare" },
   { path: "/analytics", marker: "analytics" },
+];
+
+// Routes a client is still redirected away from — deeper strategist surfaces (AC2).
+const CLIENT_DENIED_ROUTES = [
   { path: "/tagging", marker: "tagging" },
   { path: "/briefs", marker: "briefs" },
   { path: "/ad-library", marker: "ad-library" },
@@ -203,28 +206,56 @@ const INTERNAL_ROUTES = [
   { path: "/viral-feed", marker: "viral-feed" },
 ];
 
-describe("route guard — effectiveClient via role=client is redirected from internal routes (AC2)", () => {
+// Full internal surface — builders/employees reach every one (AC3 no-regression).
+const ALL_INTERNAL_ROUTES = [...CLIENT_ALLOWED_ROUTES, ...CLIENT_DENIED_ROUTES];
+
+describe("route guard — effectiveClient via role=client reaches the analytics surface (AC2)", () => {
   beforeEach(() => setRole("client"));
 
-  for (const { path, marker } of INTERNAL_ROUTES) {
-    it(`redirects /client${path} → client home (never renders ${marker})`, async () => {
+  for (const { path, marker } of CLIENT_ALLOWED_ROUTES) {
+    it(`/client${path} renders ${marker} for a client`, async () => {
       renderAt(`/client${path}`);
-      // Redirect lands on the index, which for a client resolves to ClientHomePage.
-      expect(await screen.findByTestId("page-client-home")).toBeInTheDocument();
+      expect(await screen.findByTestId(`page-${marker}`)).toBeInTheDocument();
+      // Not bounced to the index.
+      expect(screen.queryByTestId("page-overview")).toBeNull();
+    });
+  }
+});
+
+describe("route guard — effectiveClient via isClientPreview reaches the analytics surface (AC2)", () => {
+  beforeEach(() => setRole("builder", { clientPreview: true }));
+
+  for (const { path, marker } of CLIENT_ALLOWED_ROUTES) {
+    it(`/client${path} renders ${marker} in preview`, async () => {
+      renderAt(`/client${path}`);
+      expect(await screen.findByTestId(`page-${marker}`)).toBeInTheDocument();
+      expect(screen.queryByTestId("page-overview")).toBeNull();
+    });
+  }
+});
+
+describe("route guard — effectiveClient via role=client is redirected from deeper surfaces (AC2)", () => {
+  beforeEach(() => setRole("client"));
+
+  for (const { path, marker } of CLIENT_DENIED_ROUTES) {
+    it(`redirects /client${path} → index (Overview, never renders ${marker})`, async () => {
+      renderAt(`/client${path}`);
+      // Redirect lands on the index, which now resolves to OverviewPage for all roles.
+      expect(await screen.findByTestId("page-overview")).toBeInTheDocument();
       expect(screen.queryByTestId(`page-${marker}`)).toBeNull();
     });
   }
 });
 
-describe("route guard — effectiveClient via isClientPreview is redirected from internal routes (AC2)", () => {
+describe("route guard — effectiveClient via isClientPreview is redirected from deeper surfaces (AC2)", () => {
   // A builder in client-preview mode is still an effectiveClient and must be
-  // excluded from the internal surface exactly like a real client.
+  // excluded from the deeper strategist surface exactly like a real client.
   beforeEach(() => setRole("builder", { clientPreview: true }));
 
-  for (const { path, marker } of INTERNAL_ROUTES) {
-    it(`redirects /client${path} → client home in preview (never renders ${marker})`, async () => {
+  for (const { path, marker } of CLIENT_DENIED_ROUTES) {
+    it(`redirects /client${path} → index in preview (never renders ${marker})`, async () => {
       renderAt(`/client${path}`);
-      expect(await screen.findByTestId("page-client-home")).toBeInTheDocument();
+      expect(await screen.findByTestId("page-overview")).toBeInTheDocument();
       expect(screen.queryByTestId(`page-${marker}`)).toBeNull();
     });
   }
@@ -233,12 +264,10 @@ describe("route guard — effectiveClient via isClientPreview is redirected from
 describe("route guard — builders reach the full internal surface (AC3, no regression)", () => {
   beforeEach(() => setRole("builder"));
 
-  for (const { path, marker } of INTERNAL_ROUTES) {
+  for (const { path, marker } of ALL_INTERNAL_ROUTES) {
     it(`/builder${path} renders ${marker} for a builder`, async () => {
       renderAt(`/builder${path}`);
       expect(await screen.findByTestId(`page-${marker}`)).toBeInTheDocument();
-      // The builder is NOT bounced to the client home.
-      expect(screen.queryByTestId("page-client-home")).toBeNull();
     });
   }
 });
@@ -246,46 +275,41 @@ describe("route guard — builders reach the full internal surface (AC3, no regr
 describe("route guard — employees reach the full internal surface (AC3, no regression)", () => {
   beforeEach(() => setRole("employee"));
 
-  for (const { path, marker } of INTERNAL_ROUTES) {
+  for (const { path, marker } of ALL_INTERNAL_ROUTES) {
     it(`/employee${path} renders ${marker} for an employee`, async () => {
       renderAt(`/employee${path}`);
       expect(await screen.findByTestId(`page-${marker}`)).toBeInTheDocument();
-      expect(screen.queryByTestId("page-client-home")).toBeNull();
     });
   }
 });
 
-describe("index route resolution (AC4)", () => {
-  it("resolves to ClientHomePage for a client", async () => {
+describe("index route resolution (AC4) — Overview for every role", () => {
+  it("resolves to OverviewPage for a client", async () => {
     setRole("client");
     renderAt("/client/");
-    expect(await screen.findByTestId("page-client-home")).toBeInTheDocument();
-    expect(screen.queryByTestId("page-overview")).toBeNull();
+    expect(await screen.findByTestId("page-overview")).toBeInTheDocument();
   });
 
-  it("resolves to ClientHomePage for a builder in client-preview", async () => {
+  it("resolves to OverviewPage for a builder in client-preview", async () => {
     setRole("builder", { clientPreview: true });
     renderAt("/client/");
-    expect(await screen.findByTestId("page-client-home")).toBeInTheDocument();
-    expect(screen.queryByTestId("page-overview")).toBeNull();
+    expect(await screen.findByTestId("page-overview")).toBeInTheDocument();
   });
 
-  it("resolves to the existing home (Overview) for a builder", async () => {
+  it("resolves to OverviewPage for a builder", async () => {
     setRole("builder");
     renderAt("/builder/");
     expect(await screen.findByTestId("page-overview")).toBeInTheDocument();
-    expect(screen.queryByTestId("page-client-home")).toBeNull();
   });
 
-  it("resolves to the existing home (Overview) for an employee", async () => {
+  it("resolves to OverviewPage for an employee", async () => {
     setRole("employee");
     renderAt("/employee/");
     expect(await screen.findByTestId("page-overview")).toBeInTheDocument();
-    expect(screen.queryByTestId("page-client-home")).toBeNull();
   });
 });
 
-describe("shared surfaces stay reachable for clients (guard is exclusion, not lockout)", () => {
+describe("shared surfaces stay reachable for clients", () => {
   beforeEach(() => setRole("client"));
 
   it("/client/pipeline renders the Content Pipeline (client-allowed)", async () => {
