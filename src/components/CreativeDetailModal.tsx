@@ -62,7 +62,7 @@ function MediaPreview({ creative, caching = false }: { creative: Creative; cachi
     (creative.thumbnail_url && creative.thumbnail_url !== "no-thumbnail" ? creative.thumbnail_url : null) ||
     null;
 
-  const { url: cachedThumbnailUrl, isLoading: thumbnailLoading, error: thumbnailError } =
+  const { url: cachedThumbnailUrl, isLoading: thumbnailLoading } =
     useCachedMedia(rawThumbnailUrl, {
       placeholderUrl: "/placeholder-creative.png",
     });
@@ -118,7 +118,11 @@ function MediaPreview({ creative, caching = false }: { creative: Creative; cachi
                 <ImageIcon className="h-8 w-8 text-muted-foreground/40" />
               </div>
             )}
-            {(thumbnailError || imgError) && !thumbnailLoading && (
+            {/* Only when the actual <img> fails — NOT when the cache-layer fetch errored
+                (useCachedMedia falls back to the raw storage URL, which the <img> loads
+                fine even when its fetch() hit a transient 503/HTML page). Keying off
+                thumbnailError here drew this overlay on top of a perfectly good image. */}
+            {imgError && !imgLoaded && (
               <div className="absolute inset-0 flex items-center justify-center bg-muted/80 z-10">
                 <span className="font-body text-xs text-muted-foreground">Thumbnail unavailable</span>
               </div>
