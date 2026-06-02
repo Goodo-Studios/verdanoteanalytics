@@ -107,12 +107,19 @@ export async function handler(
     const CODA_API_KEY = Deno.env.get("CODA_API_KEY");
     if (!CODA_API_KEY) throw new Error("CODA_API_KEY is not configured");
 
+    // Use the injected client ONLY if it looks like a real Supabase client
+    // (has .from). This guards against a non-client second argument leaking in
+    // — the serve runtime invokes the handler as handler(req, connInfo), and
+    // that ServeHandlerInfo object has no .from, which previously surfaced as
+    // "supabase.from is not a function" at runtime. Tests pass a recording
+    // stand-in that does expose .from.
     const supabase: SupabaseLike =
-      injectedClient ??
-      createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-      );
+      injectedClient && typeof injectedClient.from === "function"
+        ? injectedClient
+        : createClient(
+            Deno.env.get("SUPABASE_URL")!,
+            Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+          );
 
     // Build account_name → account_id lookup (fuzzy)
     const { data: accounts } = await supabase
@@ -351,6 +358,8 @@ export async function handler(
 }
 
 // Bind the server unless a test imports this module (SYNC_CODA_TASKS_NO_SERVE).
+// Wrap so only `req` reaches handler — Deno.serve calls (req, connInfo), and the
+// connInfo object must NOT be forwarded as the injected Supabase client.
 if (!Deno.env.get("SYNC_CODA_TASKS_NO_SERVE")) {
-  Deno.serve(handler);
+  Deno.serve((req) => handler(req));
 }
