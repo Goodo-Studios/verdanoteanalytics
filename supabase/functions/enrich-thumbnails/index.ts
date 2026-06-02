@@ -811,13 +811,12 @@ async function cacheVideoToStorage(
 // self-chaining drain (see scope=cache handler): each chained invocation is a fresh
 // worker with fresh memory, so an account of any size caches fully without OOM —
 // and crucially before its freshly-discovered CDN urls expire.
-// Just 2 videos per invocation. Even at the 64MB cap, 8 sequential large videos
-// accumulated faster than Deno GC could reclaim and OOM'd the 256MB worker
-// (WORKER_RESOURCE_LIMIT) — caching 0 and stalling the queue. Throughput instead
-// comes from PARALLELISM: a cron fans out one account-scoped cache worker per active
-// account every 2 min, so ~N_accounts × 2 videos cache per tick with each worker's
-// peak memory bounded to ~2×64MB.
-const VIDEO_CACHE_LIMIT = 2;
+// 10 videos per invocation. The old cap of 2 existed only to avoid the OOM from
+// BUFFERING whole videos in the 256MB worker — cacheVideoToStorage now STREAMS the
+// upload (flat memory regardless of size), so memory no longer bounds the batch; the
+// 115s TIME_BUDGET_MS does. 10 keeps tails draining quickly under a relaxed cron
+// cadence without risking WORKER_RESOURCE_LIMIT.
+const VIDEO_CACHE_LIMIT = 10;
 // Safety bound on the cache self-chain depth. 20 videos/chain × 40 ≈ 800 videos per
 // drain — covers the largest accounts while preventing a runaway chain loop.
 const MAX_CACHE_CHAIN = 60;
