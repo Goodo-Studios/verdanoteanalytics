@@ -200,6 +200,45 @@ export function buildPerformanceSnapshot(
   return snapshot;
 }
 
+export interface RecoveryRequest {
+  url: string;
+  headers: Record<string, string>;
+  body: string;
+}
+
+/**
+ * Build the function-to-function request that recovers durable media URLs via the
+ * cache-creative-image edge function. The Authorization header MUST be the caller's
+ * own bearer (a real user JWT forwarded from the incoming request) — NEVER the
+ * SUPABASE_SERVICE_ROLE_KEY.
+ *
+ * Regression ("Saved 0, 1 failed" — vault save from analytics not working): after
+ * Supabase's API-key migration, SUPABASE_SERVICE_ROLE_KEY is the opaque `sb_secret_`
+ * format. supabase-js / PostgREST accept it (so the in-function `db` client works),
+ * but cache-creative-image runs with verify_jwt=true and the Edge Function gateway
+ * validates only real JWTs — it rejects the `sb_secret_` form with 401. So the
+ * recovery call silently failed, no durable URL was ever applied, and every save
+ * whose media URLs were unsettled (the bulk-save path always passes raw nulls/CDN
+ * links) fell through to 422 "No usable creative media to copy". Forwarding the
+ * caller's JWT clears the gateway (the same path the CreativeDetailModal already
+ * uses successfully) and is immune to future service-key rotations. Pure.
+ */
+export function buildRecoveryRequest(input: {
+  supabaseUrl: string;
+  callerAuthHeader: string;
+  ad_id: string;
+  account_id: string;
+}): RecoveryRequest {
+  return {
+    url: `${input.supabaseUrl}/functions/v1/cache-creative-image`,
+    headers: {
+      Authorization: input.callerAuthHeader,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ ad_id: input.ad_id, account_id: input.account_id }),
+  };
+}
+
 /** The result of looking up an existing global-library item by source_ad_id. */
 export interface ExistingItem {
   id: string;

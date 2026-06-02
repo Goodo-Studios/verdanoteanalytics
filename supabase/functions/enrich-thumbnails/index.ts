@@ -6,6 +6,7 @@ import {
   discoverVideoUrl,
   fetchAccountVideoMap,
   fetchWithTimeout,
+  looksLikeHtml,
   NO_THUMB_SENTINEL,
   NO_VIDEO_SENTINEL,
 } from "../_shared/media-discovery.ts";
@@ -16,6 +17,16 @@ const SUPABASE_URL_ENV = Deno.env.get("SUPABASE_URL") || "";
 const BATCH_SIZE = 20;
 const TIME_BUDGET_MS = 115_000;
 const MAX_ITEMS = 1000;
+// Per-Graph-fetch timeout for bulk video discovery. Was 8s, which falsely failed
+// real videos: discoverVideoUrl makes up to ~6 sequential Graph calls and the
+// page-owned-video fallback strategies are routinely slower than 8s, so a valid
+// video would abort mid-discovery → `no-video` sentinel (observed recovering ~48
+// Cane Masters sentinels once re-discovered with more headroom). 15s clears the
+// slow-but-valid responses. Not pushed to the modal path's 30s: a batch of
+// BATCH_SIZE runs in parallel and a fully-failing creative costs ~6×timeout, so
+// 30s risks one bad creative blowing the 115s TIME_BUDGET_MS; 15s keeps worst-case
+// (~90s) inside budget while the retry-backoff handles anything still missed.
+const VIDEO_DISCOVERY_TIMEOUT_MS = 15_000;
 // Memory-safe cap for video caching. An edge function has ~256 MB; the old code buffered
 // the entire file via blob().arrayBuffer() (plus a transient copy) before any size check,
 // which OOM'd the worker on large videos (546 WORKER_RESOURCE_LIMIT). We now stream-read
@@ -93,6 +104,13 @@ async function cacheToStorage(
     const blob = await res.blob();
     const arrayBuffer = await blob.arrayBuffer();
     const uint8 = new Uint8Array(arrayBuffer);
+
+    // Magic-byte guard: a text/html (or octet-stream-disguised) login/error page
+    // passes the content-type check above but is not an image. Sniff leading bytes.
+    if (looksLikeHtml(uint8)) {
+      console.log(`Refusing to cache image for ${adId}: HTML page bytes (content-type ${contentType})`);
+      return null;
+    }
 
     const { error: uploadError } = await supabase.storage
       .from("ad-thumbnails")
@@ -186,7 +204,35 @@ export async function handler(req: Request, supabaseOverride?: unknown): Promise
     // they expire.
     if (scope === "cache") {
       await runCaching(supabase, accountFilter);
-      await runVideoCaching(supabase, accountFilter);
+      const videoSummary = await runVideoCaching(supabase, accountFilter);
+
+      // Self-chaining drain. A full batch (we processed the whole VIDEO_CACHE_LIMIT)
+      // means more un-cached CDN videos almost certainly remain. Chain a FRESH cache
+      // invocation — a new worker with fresh memory, which sidesteps the OOM
+      // (WORKER_RESOURCE_LIMIT) that a single large batch causes — so an account of
+      // any size caches FULLY in one pass, before its freshly-discovered CDN urls
+      // expire. This is the core fix that stops the "discovered but never cached →
+      // url expires → stuck" failure from recurring on initial sync. Bounded by
+      // MAX_CACHE_CHAIN; disabled under ENRICH_NO_CHAIN for tests.
+      const chainDepth = Number(url.searchParams.get("cache_chain") || "0");
+      const batchWasFull = videoSummary.cached + videoSummary.failed >= VIDEO_CACHE_LIMIT;
+      if (batchWasFull && chainDepth < MAX_CACHE_CHAIN && !Deno.env.get("ENRICH_NO_CHAIN")) {
+        const nextUrl =
+          `${Deno.env.get("SUPABASE_URL")}/functions/v1/enrich-thumbnails?scope=cache&cache_chain=${chainDepth + 1}` +
+          (accountFilter ? `&account_id=${encodeURIComponent(accountFilter)}` : "");
+        fetch(nextUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+        }).catch((e: Error) => console.error("enrich-thumbnails cache-drain chain error:", e.message));
+      }
+
+      return new Response(
+        JSON.stringify({ status: "completed", scope, video: videoSummary, chainDepth }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     // scope=all chains caching into a SEPARATE invocation rather than running it
@@ -220,6 +266,33 @@ export async function handler(req: Request, supabaseOverride?: unknown): Promise
     // Lighter than scope=force — only touches video_url, avoids memory limit on large accounts.
     if (scope === "force-video") {
       await runVideoRediscovery(supabase, accountFilter, metaAccessToken);
+    }
+
+    // repair: heal POISONED rows — ones whose thumbnail_url/video_url is a valid
+    // storage URL but the object behind it is an HTML error/login page (saved as
+    // .jpg/.mp4 with a lying content-type). The normal pipeline treats any storage
+    // URL as "done" and never re-fetches, so these stay permanently broken. Repair
+    // validates each storage object's bytes, deletes poisoned objects, NULLs the
+    // media columns + storage path + resets retry counters, then chains a fresh
+    // scope=all run so the guarded discovery+caching phases repopulate clean media.
+    if (scope === "repair") {
+      const repaired = await runRepair(supabase, accountFilter);
+      if (repaired > 0 && !Deno.env.get("ENRICH_NO_CHAIN")) {
+        const chainUrl =
+          `${Deno.env.get("SUPABASE_URL")}/functions/v1/enrich-thumbnails?scope=all` +
+          (accountFilter ? `&account_id=${encodeURIComponent(accountFilter)}` : "");
+        fetch(chainUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+        }).catch((e: Error) => console.error("enrich-thumbnails repair-chain error:", e.message));
+      }
+      return new Response(
+        JSON.stringify({ status: "completed", scope, repaired }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     return new Response(
@@ -469,7 +542,7 @@ export async function runVideoDiscovery(supabase: any, accountFilter: string | n
       const batch = accountCreatives.slice(i, i + BATCH_SIZE);
       const results = await Promise.allSettled(
         batch.map(async (c: any) => {
-          const videoUrl = await discoverVideoUrl(c.ad_id, metaAccessToken, 8_000, accountVideoMap);
+          const videoUrl = await discoverVideoUrl(c.ad_id, metaAccessToken, VIDEO_DISCOVERY_TIMEOUT_MS, accountVideoMap);
           if (videoUrl) {
             await supabase.from("creatives")
               .update({ video_url: videoUrl, video_retry_count: 0, video_retry_after: null })
@@ -605,7 +678,7 @@ export async function runVideoRediscovery(supabase: any, accountFilter: string |
       const batch = accountCreatives.slice(i, i + BATCH_SIZE);
       const results = await Promise.allSettled(
         batch.map(async (c: any) => {
-          const videoUrl = await discoverVideoUrl(c.ad_id, metaAccessToken, 8_000, accountVideoMap);
+          const videoUrl = await discoverVideoUrl(c.ad_id, metaAccessToken, VIDEO_DISCOVERY_TIMEOUT_MS, accountVideoMap);
           if (videoUrl) {
             await supabase.from("creatives")
               .update({ video_url: videoUrl, video_retry_count: 0, video_retry_after: null })
@@ -634,28 +707,45 @@ export async function runVideoRediscovery(supabase: any, accountFilter: string |
  * Sequential callers only — videos can be 50 MB+; parallel downloads exhaust
  * Deno's 256 MB memory limit.
  */
+// Discriminated result so the caller can tell WHY a cache attempt failed and act
+// on it (e.g. re-discover an expired CDN url). `reason` is undefined on success.
+export type VideoCacheReason =
+  | "expired"      // CDN responded non-2xx — the time-limited fbcdn url is dead
+  | "non-video"    // content-type is not a video payload
+  | "too-large"    // exceeds MAX_VIDEO_SIZE
+  | "html"         // magic bytes are an HTML page (content-type lied)
+  | "upload-error" // storage upload failed
+  | "exception";   // network/other throw
+export interface VideoCacheResult { url: string | null; reason?: VideoCacheReason }
+
 async function cacheVideoToStorage(
   supabase: any,
   videoUrl: string,
   accountId: string,
   adId: string
-): Promise<string | null> {
+): Promise<VideoCacheResult> {
   try {
     const res = await fetchWithTimeout(videoUrl, 60_000); // generous timeout for large files
-    if (!res.ok) { await res.text(); return null; }
+    if (!res.ok) { await res.text(); return { url: null, reason: "expired" }; }
 
     const contentType = res.headers.get("content-type") || "video/mp4";
     // Guard: never store a non-video payload (e.g. a text/html ad page) as <adId>.mp4.
     if (!isMediaContentType(contentType, "video")) {
       console.log(`Refusing to cache video for ${adId}: non-video content (${contentType})`);
-      return null;
+      return { url: null, reason: "non-video" };
     }
     const storagePath = `${accountId}/${adId}.mp4`;
 
     const uint8 = await readBodyCapped(res, MAX_VIDEO_SIZE);
     if (!uint8) {
       console.log(`Skipping over-cap video for ${adId} (> ${(MAX_VIDEO_SIZE / 1024 / 1024).toFixed(0)}MB) — keeping CDN url`);
-      return null;
+      return { url: null, reason: "too-large" };
+    }
+
+    // Magic-byte guard: reject an HTML page served as a video (content-type lies).
+    if (looksLikeHtml(uint8)) {
+      console.log(`Refusing to cache video for ${adId}: HTML page bytes (content-type ${contentType})`);
+      return { url: null, reason: "html" };
     }
 
     const { error: uploadError } = await supabase.storage
@@ -664,15 +754,17 @@ async function cacheVideoToStorage(
 
     if (uploadError) {
       console.error(`Video storage upload error for ${adId}:`, uploadError.message);
-      return null;
+      return { url: null, reason: "upload-error" };
     }
 
     const { data: publicData } = supabase.storage.from("ad-videos").getPublicUrl(storagePath);
-    return publicData?.publicUrl ||
-      `${SUPABASE_URL_ENV}/storage/v1/object/public/ad-videos/${storagePath}`;
+    return {
+      url: publicData?.publicUrl ||
+        `${SUPABASE_URL_ENV}/storage/v1/object/public/ad-videos/${storagePath}`,
+    };
   } catch (e) {
     console.error(`Cache video to storage error for ${adId}:`, e);
-    return null;
+    return { url: null, reason: "exception" };
   }
 }
 
@@ -686,9 +778,29 @@ async function cacheVideoToStorage(
  * Once cached, video_url is updated to the storage URL so subsequent syncs skip the
  * row (the storage-URL check in the query excludes already-cached items).
  */
+// Per-invocation video cache batch size. Kept SMALL on purpose: although caching
+// is sequential, each ≤150 MB video buffer is not reclaimed fast enough across many
+// iterations, so a large batch (e.g. 100) drives the worker into Deno's 256 MB
+// ceiling → WORKER_RESOURCE_LIMIT kill mid-pass. Volume is handled instead by the
+// self-chaining drain (see scope=cache handler): each chained invocation is a fresh
+// worker with fresh memory, so an account of any size caches fully without OOM —
+// and crucially before its freshly-discovered CDN urls expire.
 const VIDEO_CACHE_LIMIT = 20;
+// Safety bound on the cache self-chain depth. 20 videos/chain × 40 ≈ 800 videos per
+// drain — covers the largest accounts while preventing a runaway chain loop.
+const MAX_CACHE_CHAIN = 40;
 
-export async function runVideoCaching(supabase: any, accountFilter: string | null) {
+export interface VideoCachingSummary {
+  cached: number;
+  failed: number;
+  reDiscoverQueued: number;
+  reasons: Record<string, number>;
+}
+
+export async function runVideoCaching(
+  supabase: any,
+  accountFilter: string | null
+): Promise<VideoCachingSummary> {
   let query = supabase
     .from("creatives")
     .select("ad_id, account_id, video_url")
@@ -701,15 +813,16 @@ export async function runVideoCaching(supabase: any, accountFilter: string | nul
     .order("spend", { ascending: false })
     .limit(VIDEO_CACHE_LIMIT);
 
+  const summary: VideoCachingSummary = { cached: 0, failed: 0, reDiscoverQueued: 0, reasons: {} };
+
   if (!items?.length) {
     console.log("Video caching: No CDN video URLs need storage caching.");
-    return;
+    return summary;
   }
 
   console.log(`Video caching: ${items.length} CDN video URLs to cache (account: ${accountFilter || "all"})`);
 
   const startTime = Date.now();
-  let cached = 0, failed = 0;
 
   // Sequential — videos can be 50 MB+; parallel downloads exhaust Deno's 256 MB memory limit.
   for (const c of items) {
@@ -718,14 +831,189 @@ export async function runVideoCaching(supabase: any, accountFilter: string | nul
       break;
     }
 
-    const storageUrl = await cacheVideoToStorage(supabase, c.video_url, c.account_id, c.ad_id);
-    if (storageUrl) {
-      await supabase.from("creatives").update({ video_url: storageUrl }).eq("ad_id", c.ad_id);
-      cached++;
+    const result = await cacheVideoToStorage(supabase, c.video_url, c.account_id, c.ad_id);
+    if (result.url) {
+      await supabase.from("creatives").update({ video_url: result.url }).eq("ad_id", c.ad_id);
+      summary.cached++;
     } else {
-      failed++;
+      summary.failed++;
+      const reason = result.reason ?? "unknown";
+      summary.reasons[reason] = (summary.reasons[reason] ?? 0) + 1;
+
+      // Self-heal a dead CDN url. A non-2xx response means the time-limited fbcdn
+      // url has expired — the row is now permanently stuck: video caching can't
+      // download it, and video discovery skips it (its video_url is non-null and
+      // not a sentinel). NULL it + reset the retry window so the next discovery
+      // pass re-fetches a fresh url, which the chained cache phase then stores.
+      // This closes the same "looks-set-but-broken" gap that the poison repair
+      // closed for storage objects, here for stale CDN urls.
+      if (reason === "expired") {
+        await supabase
+          .from("creatives")
+          .update({ video_url: null, video_retry_count: 0, video_retry_after: null })
+          .eq("ad_id", c.ad_id);
+        summary.reDiscoverQueued++;
+      }
     }
   }
 
-  console.log(`Video caching done: ${cached} cached, ${failed} failed`);
+  console.log(
+    `Video caching done: ${summary.cached} cached, ${summary.failed} failed ` +
+    `(${summary.reDiscoverQueued} expired→requeued), reasons: ${JSON.stringify(summary.reasons)}`
+  );
+  return summary;
+}
+
+// ── Repair phase ────────────────────────────────────────────────────────────
+
+const isStorageUrl = (url: string | null | undefined): boolean =>
+  typeof url === "string" && url.includes("/storage/v1/object/public/");
+
+/**
+ * Split a Supabase public storage URL into its bucket + object key so the object
+ * can be deleted. Strips any query string. Returns null for non-storage URLs.
+ */
+export function parseStoragePublicUrl(
+  url: string,
+): { bucket: string; path: string } | null {
+  const marker = "/storage/v1/object/public/";
+  const i = url.indexOf(marker);
+  if (i < 0) return null;
+  const rest = url.slice(i + marker.length).split("?")[0];
+  const slash = rest.indexOf("/");
+  if (slash < 0) return null;
+  return { bucket: rest.slice(0, slash), path: rest.slice(slash + 1) };
+}
+
+/**
+ * Validate that a stored media object is actually media — not an HTML error/login
+ * page saved with a lying content-type. Fetches only the leading bytes (Range) so
+ * a video isn't fully downloaded just to be checked.
+ *
+ * Returns:
+ *   "poison"  — confirmed HTML/text, safe to delete + re-discover.
+ *   "ok"      — confirmed real media bytes, leave it alone.
+ *   "unknown" — fetch failed (network/transient); do NOT touch the row, so a blip
+ *               can never destroy a healthy cached asset.
+ */
+export async function validateStorageObject(
+  url: string,
+): Promise<"poison" | "ok" | "unknown"> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12_000);
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: { Range: "bytes=0-511" },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok && res.status !== 206) {
+      await res.body?.cancel().catch(() => {});
+      return "unknown";
+    }
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (looksLikeHtml(buf)) return "poison";
+    if (ct.startsWith("text/") || ct.includes("html") || ct.includes("json")) return "poison";
+    return "ok";
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
+ * Repair phase: heal creatives whose cached media is a poisoned storage object
+ * (HTML page stored as .jpg/.mp4). For each poisoned object: delete it from the
+ * bucket, then NULL the media column(s) + thumbnail_storage_path + reset retry
+ * bookkeeping so runDiscovery / runCaching re-fetch clean media. Returns the
+ * number of rows repaired (so the caller can decide whether to chain a refill).
+ */
+export async function runRepair(supabase: any, accountFilter: string | null): Promise<number> {
+  let query = supabase
+    .from("creatives")
+    .select("ad_id, account_id, thumbnail_url, video_url, full_res_url, thumbnail_storage_path")
+    .or(
+      "thumbnail_url.like.%/storage/v1/object/public/%,video_url.like.%/storage/v1/object/public/%",
+    );
+  if (accountFilter) query = query.eq("account_id", accountFilter);
+
+  const { data: items } = await query
+    .order("spend", { ascending: false })
+    .limit(MAX_ITEMS);
+
+  if (!items?.length) {
+    console.log("Repair: No storage-cached creatives to validate.");
+    return 0;
+  }
+
+  console.log(`Repair: validating ${items.length} storage-cached creatives (account: ${accountFilter || "all"})`);
+
+  const startTime = Date.now();
+  let repaired = 0, ok = 0, unknown = 0;
+
+  for (let i = 0; i < items.length; i += BATCH_SIZE) {
+    if (Date.now() - startTime > TIME_BUDGET_MS) {
+      console.log(`Repair budget exceeded at item ${i}. Skipping rest.`);
+      break;
+    }
+
+    const batch = items.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map(async (c: any) => {
+        // deno-lint-ignore no-explicit-any
+        const updates: Record<string, any> = {};
+
+        if (isStorageUrl(c.thumbnail_url)) {
+          const verdict = await validateStorageObject(c.thumbnail_url);
+          if (verdict === "poison") {
+            const parsed = parseStoragePublicUrl(c.thumbnail_url);
+            if (parsed) await supabase.storage.from(parsed.bucket).remove([parsed.path]).catch(() => {});
+            updates.thumbnail_url = null;
+            updates.thumbnail_storage_path = null;
+            updates.thumb_retry_count = 0;
+            updates.thumb_retry_after = null;
+            // full_res_url commonly mirrors the poisoned storage URL — null it too
+            // (caching only refills full_res_url when it's null). Leave a genuine
+            // higher-res CDN url intact.
+            if (isStorageUrl(c.full_res_url)) updates.full_res_url = null;
+          } else if (verdict === "unknown") {
+            return "unknown";
+          }
+        }
+
+        if (isStorageUrl(c.video_url)) {
+          const verdict = await validateStorageObject(c.video_url);
+          if (verdict === "poison") {
+            const parsed = parseStoragePublicUrl(c.video_url);
+            if (parsed) await supabase.storage.from(parsed.bucket).remove([parsed.path]).catch(() => {});
+            updates.video_url = null;
+            updates.video_retry_count = 0;
+            updates.video_retry_after = null;
+          } else if (verdict === "unknown" && Object.keys(updates).length === 0) {
+            return "unknown";
+          }
+        }
+
+        if (Object.keys(updates).length > 0) {
+          await supabase.from("creatives").update(updates).eq("ad_id", c.ad_id);
+          return "repaired";
+        }
+        return "ok";
+      })
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        if (r.value === "repaired") repaired++;
+        else if (r.value === "ok") ok++;
+        else unknown++;
+      }
+    }
+  }
+
+  console.log(`Repair done: ${repaired} repaired, ${ok} ok, ${unknown} unknown/transient`);
+  return repaired;
 }

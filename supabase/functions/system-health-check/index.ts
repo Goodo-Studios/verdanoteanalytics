@@ -154,6 +154,59 @@ serve(async (req) => {
       findings.push({ severity: "pass", category: "media", message: "All accounts above 60% thumbnail coverage" });
     }
 
+    // ─── 5b. Playable Video Coverage ────────────────────────────
+    // The main Meta `sync` does NOT populate `ad_format`, so there is no reliable
+    // "is this a video ad" denominator on synced creatives. The only trustworthy
+    // signal is the `video_url` state itself. Report, per active account, how many
+    // creatives have a PLAYABLE cached video (a storage URL) vs the `no-video`
+    // sentinel vs null/other. This is the ground-truth signal for "do videos play
+    // in-app" — the modal renders a <video> only when video_url is a real URL.
+    // One grouped query (rpc_media_coverage) instead of ~4 count round-trips per
+    // account — see migration 20260601000002. The 60+ separate counts previously
+    // timed out the whole health check under load.
+    const accNameById: Record<string, string> = {};
+    for (const acc of accounts || []) accNameById[acc.id] = acc.name;
+
+    const { data: covRows } = await supabase.rpc("rpc_media_coverage");
+    const videoCoverage = ((covRows || []) as Array<{
+      account_id: string; total: number; playable: number;
+      sentinel: number; null_url: number; cdn_only: number;
+      thumb_storage: number; thumb_null: number; thumb_sentinel: number;
+      thumb_cdn: number; sample_thumbs: string[] | null;
+    }>)
+      // Only active accounts (the RPC groups every account in creatives).
+      .filter((r) => accNameById[r.account_id] && Number(r.total) > 0)
+      .map((r) => ({
+        name: accNameById[r.account_id], account_id: r.account_id,
+        total: Number(r.total), playable: Number(r.playable),
+        sentinel: Number(r.sentinel), nullUrl: Number(r.null_url),
+        cdnOnly: Number(r.cdn_only),
+        thumbStorage: Number(r.thumb_storage), thumbNull: Number(r.thumb_null),
+        thumbSentinel: Number(r.thumb_sentinel), thumbCdn: Number(r.thumb_cdn),
+        sampleThumbs: r.sample_thumbs || [],
+      }));
+
+    // Flag accounts that have NULL video_url rows (never-attempted) — these are
+    // rows whose video discovery has not run since being nulled (e.g. blocked by a
+    // stuck media-refresh log). cdnOnly > 0 means a raw expiring CDN url was written
+    // but never cached to storage. Both are actionable.
+    const needsVideoWork = videoCoverage.filter((a) => a.nullUrl > 0 || a.cdnOnly > 0);
+    if (needsVideoWork.length) {
+      findings.push({
+        severity: "warn",
+        category: "media",
+        message: `${needsVideoWork.length} account(s) with un-cached or never-attempted videos`,
+        details: { accounts: needsVideoWork, all: videoCoverage },
+      });
+    } else {
+      findings.push({
+        severity: "pass",
+        category: "media",
+        message: "All accounts: videos cached or sentineled (none pending)",
+        details: { all: videoCoverage },
+      });
+    }
+
     // ─── 6. Orphaned Creatives (no matching account) ────────────
     const accountIds = (accounts || []).map((a: any) => a.id);
     if (accountIds.length > 0) {
