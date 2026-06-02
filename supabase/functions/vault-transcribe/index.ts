@@ -10,6 +10,11 @@
 // 413, or Groq "could not process") the item is marked ready without an error.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import {
+  classifyGroqFailure,
+  isImageOnlyMedia,
+  tooLargeMessage,
+} from "../_shared/vault-transcribe-logic.ts";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 
@@ -37,7 +42,22 @@ Deno.serve(async (req) => {
 
     if (!item) return json({ error: "Item not found" }, 404);
 
-    await db.from("inspiration_items").update({ status: "transcribing" }).eq("id", itemId);
+    // Image-only creative (static ad, carousel still): no audio to transcribe.
+    // Sending the .jpg to Whisper returns "no audio track found" and used to
+    // hard-error the item. Skip Whisper entirely and mark ready.
+    if (isImageOnlyMedia({ file_path: item.file_path, video_url: item.video_url })) {
+      await db
+        .from("inspiration_items")
+        .update({ status: "ready", error_message: null })
+        .eq("id", itemId);
+      return json({ ok: true, item_id: itemId, skipped_transcription: true, reason: "image_no_audio" });
+    }
+
+    // Clear any stale error from a prior failed attempt as we start fresh.
+    await db
+      .from("inspiration_items")
+      .update({ status: "transcribing", error_message: null })
+      .eq("id", itemId);
 
     // Resolve video bytes — prefer stored file, fall back to original URL
     let videoBytes: ArrayBuffer;
@@ -90,12 +110,32 @@ Deno.serve(async (req) => {
 
     if (!groqRes.ok) {
       const errText = await groqRes.text();
-      // 413: file too large. 400 "could not process file": incompatible format.
-      // In both cases the video is saved and viewable — skip transcription and mark ready.
-      if (groqRes.status === 413 || (groqRes.status === 400 && errText.includes("could not process"))) {
-        await db.from("inspiration_items").update({ status: "ready" }).eq("id", itemId);
-        return json({ ok: true, item_id: itemId, skipped_transcription: true, reason: "groq_unsupported" });
+      const kind = classifyGroqFailure(groqRes.status, errText);
+
+      // No audio in the media (image / silent video) — nothing to transcribe.
+      // Mark ready; this is expected, not an error. Do not chain to analyze.
+      if (kind === "skip_no_audio") {
+        await db
+          .from("inspiration_items")
+          .update({ status: "ready", error_message: null })
+          .eq("id", itemId);
+        return json({ ok: true, item_id: itemId, skipped_transcription: true, reason: "no_audio_track" });
       }
+
+      // File exceeds Groq's upload cap. Fail HONESTLY: the prior code silently
+      // marked these ready, leaving a transcript-less item that threw
+      // "No transcript found" on Run analysis. Surface a clear, sized message.
+      if (kind === "error_too_large") {
+        await db
+          .from("inspiration_items")
+          .update({ status: "error", error_message: tooLargeMessage(videoBytes.byteLength) })
+          .eq("id", itemId);
+        return json(
+          { ok: false, item_id: itemId, error: "file_too_large", message: tooLargeMessage(videoBytes.byteLength) },
+          200,
+        );
+      }
+
       throw new Error(`Groq error ${groqRes.status}: ${errText}`);
     }
 
