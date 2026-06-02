@@ -21,7 +21,7 @@ const CODA_TABLE_ID = "grid-MEOygYxxim";
 // "STUCK" and "Not applicable anymore" are intentionally NOT mapped — they are
 // internal status noise and are skipped at sync time (SKIP_RAW_STAGES). Empty/
 // null Stage rows are skipped in the loop.
-const STAGE_MAP: Record<string, string> = {
+export const STAGE_MAP: Record<string, string> = {
   "Not Started": "Preparing Content",
   "Brief Creation": "Preparing Content",
   "Client Brief Review": "Preparing Content",
@@ -57,7 +57,7 @@ const RECENT_LAUNCH_WINDOW_DAYS = 30;
 // handled separately in the loop.
 const SKIP_RAW_STAGES = new Set<string>(["Not applicable anymore", "STUCK"]);
 
-function normalise(s: string): string {
+export function normalise(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
@@ -84,13 +84,21 @@ const ACCOUNT_NAME_ALIASES: Record<string, string> = {
 // fall through as their raw string and are treated as active so genuinely new
 // in-progress stages are not silently dropped. The "Ready to Launch" recency
 // window is applied separately in the loop (it needs the row's updatedAt).
-function isActiveStage(rawStage: string | null): boolean {
+export function isActiveStage(rawStage: string | null): boolean {
   if (!rawStage) return false; // empty/null Stage → not active
   if (SKIP_RAW_STAGES.has(rawStage)) return false; // STUCK / Not applicable anymore
   return true;
 }
 
-Deno.serve(async (req) => {
+// Minimal structural type for the Supabase client surface this handler uses.
+// Tests inject a recording stand-in; production passes a real createClient().
+// deno-lint-ignore no-explicit-any
+type SupabaseLike = any;
+
+export async function handler(
+  req: Request,
+  injectedClient?: SupabaseLike,
+): Promise<Response> {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -99,10 +107,12 @@ Deno.serve(async (req) => {
     const CODA_API_KEY = Deno.env.get("CODA_API_KEY");
     if (!CODA_API_KEY) throw new Error("CODA_API_KEY is not configured");
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    const supabase: SupabaseLike =
+      injectedClient ??
+      createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      );
 
     // Build account_name → account_id lookup (fuzzy)
     const { data: accounts } = await supabase
@@ -255,6 +265,7 @@ Deno.serve(async (req) => {
 
     // Batched upsert — one round-trip per UPSERT_CHUNK rows.
     const UPSERT_CHUNK = 500;
+    let upsertFailed = false;
     for (let i = 0; i < records.length; i += UPSERT_CHUNK) {
       const chunk = records.slice(i, i + UPSERT_CHUNK);
       const { error } = await supabase
@@ -262,6 +273,7 @@ Deno.serve(async (req) => {
         .upsert(chunk, { onConflict: "coda_row_id" });
 
       if (error) {
+        upsertFailed = true;
         console.error(
           `Upsert error for chunk ${i}-${i + chunk.length}:`,
           error.message
@@ -271,8 +283,44 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Authoritative cleanup: every row touched this run was stamped with
+    // `nowIso` (synced_at). Any coda_tasks row whose synced_at predates this
+    // run was NOT in the active set this time — it is no longer board-relevant
+    // and must be deleted so the sync is the single source of truth. This is
+    // what makes the sync authoritative rather than purely additive:
+    //   - 2026-06-02 column-model change dropped "STUCK" from STAGE_MAP; the
+    //     ~65 previously-synced STUCK rows (still tagged stage="Production")
+    //     are now never re-upserted, so additive-only sync left them stale
+    //     under Production forever. The delete sweeps them.
+    //   - Future-proofs the same way against any stage that stops being active:
+    //     stage renames, rows leaving the "Ready to Launch" recency window,
+    //     Coda row deletions, or operator stage-map edits.
+    //
+    // SAFETY: skip the delete if ANY upsert chunk failed. A partial upsert
+    // leaves genuinely-active rows still carrying their OLD synced_at; deleting
+    // by `synced_at < nowIso` would then wrongly purge active tasks. Better to
+    // leave a few stale rows for the next (clean) run than to wipe live ones.
+    let deleted = 0;
+    if (upsertFailed) {
+      console.warn(
+        "Skipping authoritative delete: an upsert chunk failed this run, so " +
+          "stale rows cannot be distinguished from un-refreshed active rows."
+      );
+    } else {
+      const { error: deleteError, count } = await supabase
+        .from("coda_tasks")
+        .delete({ count: "exact" })
+        .lt("synced_at", nowIso);
+
+      if (deleteError) {
+        console.error("Authoritative delete error:", deleteError.message);
+      } else {
+        deleted = count ?? 0;
+      }
+    }
+
     console.log(
-      `Upserted ${upserted} active rows, skipped ${skipped} (empty/not-applicable/STUCK/out-of-window launches), of ${allRows.length} total`
+      `Upserted ${upserted} active rows, skipped ${skipped} (empty/not-applicable/STUCK/out-of-window launches), deleted ${deleted} stale rows, of ${allRows.length} total`
     );
     if (unknownStages.size > 0) {
       console.warn(
@@ -283,7 +331,13 @@ Deno.serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ success: true, total: allRows.length, upserted, skipped }),
+      JSON.stringify({
+        success: true,
+        total: allRows.length,
+        upserted,
+        skipped,
+        deleted,
+      }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err: unknown) {
@@ -294,4 +348,9 @@ Deno.serve(async (req) => {
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
-});
+}
+
+// Bind the server unless a test imports this module (SYNC_CODA_TASKS_NO_SERVE).
+if (!Deno.env.get("SYNC_CODA_TASKS_NO_SERVE")) {
+  Deno.serve(handler);
+}
