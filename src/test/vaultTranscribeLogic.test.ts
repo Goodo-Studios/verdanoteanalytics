@@ -10,6 +10,7 @@
 import { describe, it, expect } from "vitest";
 import {
   classifyGroqFailure,
+  extractDeepgramTranscript,
   isImageOnlyMedia,
   tooLargeMessage,
 } from "../../supabase/functions/_shared/vault-transcribe-logic.ts";
@@ -69,6 +70,27 @@ describe("classifyGroqFailure", () => {
   it("is case-insensitive on the response body", () => {
     expect(classifyGroqFailure(400, "NO AUDIO TRACK FOUND")).toBe("skip_no_audio");
     expect(classifyGroqFailure(400, "ENTITY TOO LARGE")).toBe("error_too_large");
+  });
+});
+
+describe("extractDeepgramTranscript", () => {
+  const wrap = (transcript: unknown) => ({
+    results: { channels: [{ alternatives: [{ transcript }] }] },
+  });
+
+  it("pulls the transcript from a well-formed Deepgram response", () => {
+    expect(extractDeepgramTranscript(wrap("for years I believed more cushion was the answer"))).toBe(
+      "for years I believed more cushion was the answer",
+    );
+  });
+
+  it("returns empty string for no-speech / malformed shapes (never throws)", () => {
+    expect(extractDeepgramTranscript(wrap(""))).toBe("");
+    expect(extractDeepgramTranscript({ results: { channels: [] } })).toBe("");
+    expect(extractDeepgramTranscript({})).toBe("");
+    expect(extractDeepgramTranscript(null)).toBe("");
+    expect(extractDeepgramTranscript(undefined)).toBe("");
+    expect(extractDeepgramTranscript(wrap(123))).toBe("");
   });
 });
 

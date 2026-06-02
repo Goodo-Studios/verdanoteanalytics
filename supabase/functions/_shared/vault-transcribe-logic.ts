@@ -100,6 +100,19 @@ export function classifyGroqFailure(
   return "error_other";
 }
 
+/**
+ * Pull the transcript text out of a Deepgram /v1/listen prerecorded response.
+ * Shape: results.channels[0].alternatives[0].transcript. Returns "" when
+ * absent (no speech detected / malformed) so callers can treat blank as
+ * "no audio to transcribe" rather than inserting an empty transcript row.
+ */
+export function extractDeepgramTranscript(dg: unknown): string {
+  const alt = (dg as {
+    results?: { channels?: Array<{ alternatives?: Array<{ transcript?: unknown }> }> };
+  })?.results?.channels?.[0]?.alternatives?.[0]?.transcript;
+  return typeof alt === "string" ? alt : "";
+}
+
 /** Human-readable error message for an over-cap file, sized in MB. */
 export function tooLargeMessage(byteLength: number): string {
   const mb = (byteLength / (1024 * 1024)).toFixed(1);
