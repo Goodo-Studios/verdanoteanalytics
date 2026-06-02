@@ -559,8 +559,9 @@ Deno.test("scope=cache drain: a FULL video batch chains a fresh cache invocation
   assert(chained[0].includes("account_id=act_x"), "drain must preserve the account scope");
 });
 
-Deno.test("scope=cache drain: a PARTIAL video batch does NOT chain (drain terminates)", async () => {
-  const rows = Array.from({ length: 5 }, (_, i) => ({ ad_id: `p${i}`, account_id: "act_x", video_url: `https://cdn.fb/${i}.mp4` }));
+Deno.test("scope=cache drain: a PARTIAL video batch (fewer than VIDEO_CACHE_LIMIT) does NOT chain (drain terminates)", async () => {
+  // 1 row < VIDEO_CACHE_LIMIT ⇒ not a full batch ⇒ no more work ⇒ no chain.
+  const rows = Array.from({ length: 1 }, (_, i) => ({ ad_id: `p${i}`, account_id: "act_x", video_url: `https://cdn.fb/${i}.mp4` }));
   const supabase = makeTableAwareRecorder(rows);
   const chained: string[] = [];
   await withDrainFetch(chained, async () => {

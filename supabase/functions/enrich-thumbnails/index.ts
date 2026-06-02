@@ -818,12 +818,16 @@ export async function runVideoCaching(
   supabase: any,
   accountFilter: string | null
 ): Promise<VideoCachingSummary> {
+  const nowIso = new Date().toISOString();
   let query = supabase
     .from("creatives")
-    .select("ad_id, account_id, video_url")
+    .select("ad_id, account_id, video_url, video_retry_count")
     .not("video_url", "is", null)
     .neq("video_url", NO_VIDEO_SENTINEL)
-    .not("video_url", "like", "%/storage/v1/object/public/%");
+    .not("video_url", "like", "%/storage/v1/object/public/%")
+    // Skip rows in a caching-failure backoff window (too-large / upload-rejected /
+    // non-video) so they don't re-clog the queue every tick ahead of cacheable videos.
+    .or(`video_retry_after.is.null,video_retry_after.lte.${nowIso}`);
   if (accountFilter) query = query.eq("account_id", accountFilter);
 
   const { data: items } = await query
@@ -870,6 +874,17 @@ export async function runVideoCaching(
           .update({ video_url: null, video_retry_count: 0, video_retry_after: null })
           .eq("ad_id", c.ad_id);
         summary.reDiscoverQueued++;
+      } else {
+        // too-large / upload-error (e.g. project storage size cap) / non-video: not
+        // cacheable right now. Back off so it stops re-clogging the queue and the
+        // cacheable videos get processed. The backoff window auto-retries later — so
+        // raising the project storage upload limit lets these cache on the next due
+        // retry with no manual rerun.
+        const nextCount = (c.video_retry_count ?? 0) + 1;
+        await supabase
+          .from("creatives")
+          .update({ video_retry_count: nextCount, video_retry_after: nextRetryAfter(nextCount) })
+          .eq("ad_id", c.ad_id);
       }
     }
   }
