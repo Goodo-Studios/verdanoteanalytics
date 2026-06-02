@@ -14,15 +14,17 @@ const DISPLAY_NAMES: Record<string, string> = {
 
 function toDisplayName(val: string): string { return DISPLAY_NAMES[val] || val; }
 
-// Explicit column list avoids SELECT * overhead — only fetch what the client actually uses
+// Explicit column list avoids SELECT * overhead — only fetch what the client actually uses.
+// Intentionally omits preview_url / scheduled_launch_date / created_at / updated_at: no GET
+// consumer reads them (scheduled_launch_date is write-only via PUT). Trims response width.
 const CREATIVE_COLS = [
   "ad_id", "account_id", "ad_name", "unique_code", "ad_type", "ad_status",
   "person", "style", "hook", "product", "theme", "tag_source", "notes",
   "spend", "impressions", "clicks", "ctr", "cpm", "cpc", "cpa", "roas",
   "purchases", "purchase_value", "adds_to_cart", "cost_per_add_to_cart",
   "video_views", "thumb_stop_rate", "hold_rate", "frequency", "video_avg_play_time",
-  "campaign_name", "adset_name", "ad_post_url", "preview_url", "thumbnail_url", "full_res_url",
-  "video_url", "scheduled_launch_date", "created_at", "updated_at",
+  "campaign_name", "adset_name", "ad_post_url", "thumbnail_url", "full_res_url",
+  "video_url",
 ].join(", ");
 
 // US-003: the strict 7-segment parseAdName + VALID_* allow-lists were removed.
@@ -146,6 +148,48 @@ serve(async (req) => {
       const dateFrom = url.searchParams.get("date_from");
       const dateTo = url.searchParams.get("date_to");
       const search = url.searchParams.get("search")?.trim();
+      // ?all=1 — return the complete filtered set in one response (used by the
+      // useAllCreatives hook). Removes the client-side count + N parallel page
+      // requests, each of which re-ran the full aggregation below.
+      const all = url.searchParams.get("all") === "1";
+
+      // Shared filter application for the full-table creatives query paths
+      // (count, lifetime fallback, no-date branch). The aggregated daily-metrics
+      // branch scopes by ad_id batches instead and is intentionally excluded.
+      const applyCreativeFilters = (q: any): any => {
+        let qq = q;
+        if (accountId) qq = qq.eq("account_id", accountId);
+        if (adType) qq = qq.eq("ad_type", adType);
+        if (person) qq = qq.eq("person", person);
+        if (style) qq = qq.eq("style", style);
+        if (hook) qq = qq.eq("hook", hook);
+        if (product) qq = qq.eq("product", product);
+        if (theme) qq = qq.eq("theme", theme);
+        if (tagSource) qq = qq.eq("tag_source", tagSource);
+        if (adStatus) qq = qq.eq("ad_status", adStatus);
+        if (delivery === "had_delivery") qq = qq.gt("spend", 0);
+        if (delivery === "active") qq = qq.eq("ad_status", "ACTIVE");
+        if (search) qq = qq.or(`ad_name.ilike.%${search}%,unique_code.ilike.%${search}%,campaign_name.ilike.%${search}%`);
+        return qq;
+      };
+
+      // Fetch every matching creative, paging past the 1000-row PostgREST cap.
+      const fetchAllCreatives = async (): Promise<any[]> => {
+        const out: any[] = [];
+        let off = 0;
+        const PAGE = 1000;
+        while (true) {
+          const { data: pageData, error: pageErr } = await applyCreativeFilters(
+            supabase.from("creatives").select(CREATIVE_COLS).order("spend", { ascending: false })
+          ).range(off, off + PAGE - 1);
+          if (pageErr) throw pageErr;
+          if (!pageData || pageData.length === 0) break;
+          out.push(...pageData);
+          if (pageData.length < PAGE) break;
+          off += PAGE;
+        }
+        return out;
+      };
 
       const hasDateFilter = dateFrom || dateTo;
 
@@ -188,24 +232,18 @@ serve(async (req) => {
           if (search) cQuery = cQuery.or(`ad_name.ilike.%${search}%,unique_code.ilike.%${search}%,campaign_name.ilike.%${search}%`);
 
           // Get total count
-          let countQ = supabase.from("creatives").select("*", { count: "exact", head: true });
-          if (accountId) countQ = countQ.eq("account_id", accountId);
-          if (adType) countQ = countQ.eq("ad_type", adType);
-          if (person) countQ = countQ.eq("person", person);
-          if (style) countQ = countQ.eq("style", style);
-          if (hook) countQ = countQ.eq("hook", hook);
-          if (product) countQ = countQ.eq("product", product);
-          if (theme) countQ = countQ.eq("theme", theme);
-          if (tagSource) countQ = countQ.eq("tag_source", tagSource);
-          if (adStatus) countQ = countQ.eq("ad_status", adStatus);
-          if (delivery === "had_delivery") countQ = countQ.gt("spend", 0);
-          if (delivery === "active") countQ = countQ.eq("ad_status", "ACTIVE");
-          if (search) countQ = countQ.or(`ad_name.ilike.%${search}%,unique_code.ilike.%${search}%,campaign_name.ilike.%${search}%`);
+          const { count } = await applyCreativeFilters(
+            supabase.from("creatives").select("*", { count: "exact", head: true })
+          );
 
-          const { count } = await countQ;
-          cQuery = cQuery.range(offset, offset + limit - 1);
-          const { data: allC, error: cErr } = await cQuery;
-          if (cErr) throw cErr;
+          let allC: any[];
+          if (all) {
+            allC = await fetchAllCreatives();
+          } else {
+            const { data: pageData, error: cErr } = await cQuery.range(offset, offset + limit - 1);
+            if (cErr) throw cErr;
+            allC = pageData || [];
+          }
 
           // Compute aggregates from lifetime data for this fallback path
           const fbAggTotalSpend = (allC || []).reduce((s: number, c: any) => s + (Number(c.spend) || 0), 0);
@@ -303,46 +341,26 @@ serve(async (req) => {
           const withSpend = result.filter((c: any) => c.spend > 0);
           const aggAvgCpa = withSpend.length > 0 ? withSpend.reduce((s: number, c: any) => s + (Number(c.cpa) || 0), 0) / withSpend.length : 0;
           const aggAvgRoas = withSpend.length > 0 ? withSpend.reduce((s: number, c: any) => s + (Number(c.roas) || 0), 0) / withSpend.length : 0;
-          return new Response(JSON.stringify({ data: result.slice(offset, offset + limit), total, aggregates: { total_spend: aggTotalSpend, avg_cpa: aggAvgCpa, avg_roas: aggAvgRoas } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ data: all ? result : result.slice(offset, offset + limit), total, aggregates: { total_spend: aggTotalSpend, avg_cpa: aggAvgCpa, avg_roas: aggAvgRoas } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       }
 
       // No date filter — use aggregated totals from creatives table
       // First get total count
-      let countQuery = supabase.from("creatives").select("*", { count: "exact", head: true });
-      if (accountId) countQuery = countQuery.eq("account_id", accountId);
-      if (adType) countQuery = countQuery.eq("ad_type", adType);
-      if (person) countQuery = countQuery.eq("person", person);
-      if (style) countQuery = countQuery.eq("style", style);
-      if (hook) countQuery = countQuery.eq("hook", hook);
-      if (product) countQuery = countQuery.eq("product", product);
-      if (theme) countQuery = countQuery.eq("theme", theme);
-      if (tagSource) countQuery = countQuery.eq("tag_source", tagSource);
-      if (adStatus) countQuery = countQuery.eq("ad_status", adStatus);
-      if (delivery === "had_delivery") countQuery = countQuery.gt("spend", 0);
-      if (delivery === "active") countQuery = countQuery.eq("ad_status", "ACTIVE");
-      if (search) countQuery = countQuery.or(`ad_name.ilike.%${search}%,unique_code.ilike.%${search}%,campaign_name.ilike.%${search}%`);
+      const { count } = await applyCreativeFilters(
+        supabase.from("creatives").select("*", { count: "exact", head: true })
+      );
 
-      const { count } = await countQuery;
-
-      let query = supabase.from("creatives").select(CREATIVE_COLS).order("spend", { ascending: false });
-      if (accountId) query = query.eq("account_id", accountId);
-      if (adType) query = query.eq("ad_type", adType);
-      if (person) query = query.eq("person", person);
-      if (style) query = query.eq("style", style);
-      if (hook) query = query.eq("hook", hook);
-      if (product) query = query.eq("product", product);
-      if (theme) query = query.eq("theme", theme);
-      if (tagSource) query = query.eq("tag_source", tagSource);
-      if (adStatus) query = query.eq("ad_status", adStatus);
-      if (delivery === "had_delivery") query = query.gt("spend", 0);
-      if (delivery === "active") query = query.eq("ad_status", "ACTIVE");
-      if (search) query = query.or(`ad_name.ilike.%${search}%,unique_code.ilike.%${search}%,campaign_name.ilike.%${search}%`);
-
-      query = query.range(offset, offset + limit - 1);
-
-      const { data, error } = await query;
-      if (error) throw error;
+      let data: any[];
+      if (all) {
+        data = await fetchAllCreatives();
+      } else {
+        const { data: pageData, error } = await applyCreativeFilters(
+          supabase.from("creatives").select(CREATIVE_COLS).order("spend", { ascending: false })
+        ).range(offset, offset + limit - 1);
+        if (error) throw error;
+        data = pageData || [];
+      }
 
       // Compute aggregates across ALL matching creatives (not just the page slice)
       // Fetch all matching ad spends for aggregate computation

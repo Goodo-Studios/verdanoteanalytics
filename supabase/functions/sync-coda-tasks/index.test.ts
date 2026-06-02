@@ -57,6 +57,18 @@ Deno.test("STAGE_MAP no longer maps STUCK (2026-06-02 column model)", () => {
   assertEquals(mod.STAGE_MAP["Assigned"], "Production");
 });
 
+Deno.test("isClearedTask reads the 'Clear Task' toggle (bool + string forms)", () => {
+  assert(mod.isClearedTask({ "Clear Task": true }), "boolean true → cleared");
+  assert(mod.isClearedTask({ "Clear Task": "true" }), "string 'true' → cleared");
+  assert(mod.isClearedTask({ "Clear Task": "checked" }), "'checked' → cleared");
+  assert(!mod.isClearedTask({ "Clear Task": false }), "false → not cleared");
+  assert(!mod.isClearedTask({}), "absent column → not cleared");
+  assert(
+    !mod.isClearedTask({ "Clear Task": "" }),
+    "empty string → not cleared",
+  );
+});
+
 // ---- Recording mock client -------------------------------------------------
 
 interface Call {
@@ -212,6 +224,80 @@ Deno.test("handler issues an authoritative delete of stale rows AFTER the upsert
     assert(
       chunk.every((r) => r.coda_row_id !== "row-stuck-1"),
       "STUCK row must not be upserted",
+    );
+  } finally {
+    restore();
+  }
+});
+
+// ---- Cleared-task filtering regression -------------------------------------
+
+/**
+ * Stub one Coda page with a cleared task that still carries a board-mapped Stage
+ * ("Editing" + "Clear Task": true) alongside a normal active task. The cleared
+ * row must be skipped at sync time even though its Stage maps to a real column —
+ * stage gating alone never removes it.
+ */
+function stubCodaFetchWithCleared(): () => void {
+  const original = globalThis.fetch;
+  // deno-lint-ignore no-explicit-any
+  globalThis.fetch = ((_input: any, _init?: any) => {
+    const body = {
+      items: [
+        {
+          id: "row-active-1",
+          browserLink: "https://coda.io/d/x#row-active-1",
+          updatedAt: "2026-06-02T00:00:00.000Z",
+          values: { Stage: "Editing", "Connected Project": "Acme", Task: "Cut v2" },
+        },
+        {
+          id: "row-cleared-1",
+          browserLink: "https://coda.io/d/x#row-cleared-1",
+          updatedAt: "2026-06-02T00:00:00.000Z",
+          values: {
+            Stage: "Editing", // board-mapped Stage, yet cleared → must be skipped
+            "Connected Project": "Acme",
+            Task: "Done + cleared",
+            "Clear Task": true,
+          },
+        },
+      ],
+      nextPageToken: undefined,
+    };
+    return Promise.resolve(
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  }) as typeof fetch;
+  return () => {
+    globalThis.fetch = original;
+  };
+}
+
+Deno.test("handler skips a 'Clear Task'-toggled row even when its Stage is board-mapped", async () => {
+  const restore = stubCodaFetchWithCleared();
+  try {
+    const { supabase, calls } = makeRecorder();
+    const res = await mod.handler(makeReq(), supabase);
+    assertEquals(res.status, 200);
+    const json = await res.json();
+    assertEquals(json.success, true);
+    assertEquals(json.upserted, 1, "only the uncleared active row is upserted");
+
+    const upsertCall = calls.find(
+      (c) => c.method === "upsert" && c.table === "coda_tasks",
+    );
+    assert(upsertCall, "must upsert the active set");
+    const chunk = upsertCall!.args[0] as Array<Record<string, unknown>>;
+    assert(
+      chunk.every((r) => r.coda_row_id !== "row-cleared-1"),
+      "cleared row must not be upserted",
+    );
+    assert(
+      chunk.some((r) => r.coda_row_id === "row-active-1"),
+      "uncleared active row must be upserted",
     );
   } finally {
     restore();

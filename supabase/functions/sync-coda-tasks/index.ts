@@ -57,6 +57,17 @@ const RECENT_LAUNCH_WINDOW_DAYS = 30;
 // handled separately in the loop.
 const SKIP_RAW_STAGES = new Set<string>(["Not applicable anymore", "STUCK"]);
 
+// Coda checkbox column the operator toggles ON to clear a finished task off the
+// pipeline board. A cleared task can still carry a board-mapped Stage (e.g. it
+// shipped under "Ready to Launch" or was parked mid-flow), so stage gating alone
+// never removes it — without this check a cleared row keeps rendering on the
+// kanban. We treat the toggle as authoritative: ON → excluded at sync time
+// (never upserted; the authoritative delete then sweeps any previously-synced
+// copy on the next run). With useColumnNames=true the Coda API returns a real
+// boolean for a checkbox column, but we also accept the string "true" / "checked"
+// defensively in case Coda's serialisation changes.
+const CLEAR_TASK_COLUMN = "Clear Task";
+
 export function normalise(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
@@ -88,6 +99,20 @@ export function isActiveStage(rawStage: string | null): boolean {
   if (!rawStage) return false; // empty/null Stage → not active
   if (SKIP_RAW_STAGES.has(rawStage)) return false; // STUCK / Not applicable anymore
   return true;
+}
+
+// True when the operator has toggled the "Clear Task" checkbox ON. Such rows are
+// done-and-cleared and must never reach the board, regardless of their Stage.
+// Accepts the boolean Coda returns under useColumnNames plus the "true"/"checked"
+// string forms as a serialisation-robustness hedge.
+export function isClearedTask(vals: Record<string, unknown>): boolean {
+  const v = vals[CLEAR_TASK_COLUMN];
+  if (v === true) return true;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    return s === "true" || s === "checked" || s === "yes";
+  }
+  return false;
 }
 
 // Minimal structural type for the Supabase client surface this handler uses.
@@ -228,6 +253,15 @@ export async function handler(
       const rawStage = vals["Stage"] || null;
       const accountName = vals["Connected Project"] || null;
 
+      // Cleared-task filtering: the operator toggles "Clear Task" ON to pull a
+      // finished task off the board. A cleared row can still hold a board-mapped
+      // Stage, so this must be checked independently of stage gating, else
+      // cleared tasks keep rendering on the kanban.
+      if (isClearedTask(vals)) {
+        skipped++;
+        continue;
+      }
+
       // Active-task filtering: skip empty / not-applicable / STUCK rows so
       // coda_tasks only holds board-relevant tasks (operator decision).
       if (!isActiveStage(rawStage)) {
@@ -327,7 +361,7 @@ export async function handler(
     }
 
     console.log(
-      `Upserted ${upserted} active rows, skipped ${skipped} (empty/not-applicable/STUCK/out-of-window launches), deleted ${deleted} stale rows, of ${allRows.length} total`
+      `Upserted ${upserted} active rows, skipped ${skipped} (cleared/empty/not-applicable/STUCK/out-of-window launches), deleted ${deleted} stale rows, of ${allRows.length} total`
     );
     if (unknownStages.size > 0) {
       console.warn(
