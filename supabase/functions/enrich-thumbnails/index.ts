@@ -32,7 +32,11 @@ const VIDEO_DISCOVERY_TIMEOUT_MS = 15_000;
 // which OOM'd the worker on large videos (546 WORKER_RESOURCE_LIMIT). We now stream-read
 // with an early abort so a single video never exceeds this footprint; oversized videos
 // keep their live CDN url (still playable) instead of being cached.
-const MAX_VIDEO_SIZE = 80 * 1024 * 1024;
+// 50 MB cap (was 80). readBodyCapped reads the whole file into memory before upload;
+// at 80 MB a single video could peak ~160 MB and OOM the 256 MB worker
+// (WORKER_RESOURCE_LIMIT). 50 MB keeps peak safe. Videos over the cap keep their CDN
+// url (still previewable) rather than being cached — rare for ad creatives.
+const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
 
 // Exponential backoff for sentinel retries (hours): 1h → 4h → 12h → 1d → 3d → 7d cap.
 // Mirrors refresh-thumbnails so a sentinel written by either path carries the same TTL and
@@ -52,6 +56,13 @@ async function readBodyCapped(resp: Response, maxBytes: number): Promise<Uint8Ar
   if (lenHeader && Number(lenHeader) > maxBytes) {
     await resp.body?.cancel().catch(() => {});
     return null;
+  }
+  // When the length is known and within cap, a SINGLE arrayBuffer() read avoids the
+  // chunk-accumulate + concat double-buffer below (≈2× memory) that OOMs the worker.
+  // Most CDN responses carry content-length, so this is the common, memory-safe path.
+  if (lenHeader) {
+    const buf = new Uint8Array(await resp.arrayBuffer());
+    return buf.byteLength > maxBytes ? null : buf;
   }
   const reader = resp.body?.getReader();
   if (!reader) {
@@ -785,10 +796,10 @@ async function cacheVideoToStorage(
 // self-chaining drain (see scope=cache handler): each chained invocation is a fresh
 // worker with fresh memory, so an account of any size caches fully without OOM —
 // and crucially before its freshly-discovered CDN urls expire.
-const VIDEO_CACHE_LIMIT = 20;
+const VIDEO_CACHE_LIMIT = 8;
 // Safety bound on the cache self-chain depth. 20 videos/chain × 40 ≈ 800 videos per
 // drain — covers the largest accounts while preventing a runaway chain loop.
-const MAX_CACHE_CHAIN = 40;
+const MAX_CACHE_CHAIN = 60;
 
 export interface VideoCachingSummary {
   cached: number;
