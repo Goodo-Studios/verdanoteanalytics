@@ -77,7 +77,13 @@ function MediaPreview({ creative, caching = false }: { creative: Creative; cachi
   // lacks page permissions, so no downloadable source). They DO have video metrics, so
   // embed Meta's ad-preview iframe (scoped-token URL fetched server-side) so the video
   // still PLAYS in-app instead of only via an external link.
-  const isVideoNoSource = !hasVideoUrl && (creative.video_avg_play_time ?? 0) > 0;
+  // Attempt the Meta ad-preview embed whenever we have no cached video AND either it
+  // looks like a video (play-time / hold-rate) OR there's no thumbnail to fall back on
+  // (e.g. whitelisted/partnership ads with no discoverable media). The preview renders
+  // the live ad — playing the video — without needing the (page-permission-blocked) source.
+  const isVideoNoSource =
+    !hasVideoUrl &&
+    (((creative.video_avg_play_time ?? 0) > 0) || ((creative.hold_rate ?? 0) > 0) || !hasThumbnail);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewState, setPreviewState] = useState<"idle" | "loading" | "error">("idle");
 
