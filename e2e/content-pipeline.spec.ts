@@ -11,7 +11,8 @@
  *      populated Content Pipeline (NOT the empty "Nothing in production" state and
  *      NOT the "Select an account" prompt). At least one task renders, and every
  *      rendered task carries one of the canonical display stages produced by the
- *      sync's STAGE_MAP (Planning | Production | Review | Your Review | Complete).
+ *      sync's STAGE_MAP (Preparing Content | Production | Editing | Client
+ *      Review | Ready to Launch — the five-column model reconciled 2026-06-02).
  *   2. CLIENT read-only invariant: the surface exposes no comment / approve /
  *      request-changes / upload controls and never leaks the internal coda.io URL.
  *   3. STAFF/AGENCY: signs in as a builder, opens /pipeline, and — selecting
@@ -36,8 +37,22 @@ const STAFF_EMAIL = process.env.PLAYWRIGHT_TEST_EMAIL || "";
 const STAFF_PASSWORD = process.env.PLAYWRIGHT_TEST_PASSWORD || "";
 const hasStaffCreds = !!STAFF_EMAIL && !!STAFF_PASSWORD;
 
-/** The canonical display stages produced by the sync's STAGE_MAP. */
-const DISPLAY_STAGES = new Set(["Planning", "Production", "Review", "Your Review", "Complete"]);
+/**
+ * The canonical display stages produced by the sync's STAGE_MAP. Reconciled
+ * 2026-06-02 with the column-model change (PR #17): the board now mirrors the
+ * real Coda workflow as five client-facing columns. These MUST stay in lockstep
+ * with the STAGE_MAP values in
+ * supabase/functions/sync-coda-tasks/index.ts — a drift here is what silently
+ * red-lined this spec after PR #17 (the old collapsed buckets — Planning /
+ * Review / Your Review / Complete — no longer exist in synced data).
+ */
+const DISPLAY_STAGES = new Set([
+  "Preparing Content",
+  "Production",
+  "Editing",
+  "Client Review",
+  "Ready to Launch",
+]);
 
 /**
  * No-login navigation: the role session is restored from the storageState saved
