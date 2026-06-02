@@ -6,7 +6,7 @@ export default function ContentPipelinePage() {
 
   return (
     <>
-      <div className="space-y-6 p-6 md:p-10 max-w-4xl">
+      <div className="space-y-6 p-6 md:p-10">
         {isLoading ? (
           // While accounts (and, for clients, their linked-account filter) are
           // still resolving, do NOT prematurely show the "Select an account"
