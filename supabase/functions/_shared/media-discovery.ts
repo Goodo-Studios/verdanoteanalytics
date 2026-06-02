@@ -49,8 +49,8 @@ export function looksLikeHtml(bytes: Uint8Array | null | undefined): boolean {
   const head = bytes.subarray(0, 512);
   let s = "";
   for (let i = 0; i < head.byteLength; i++) s += String.fromCharCode(head[i]);
-  // Strip a leading UTF-8 BOM / whitespace before matching.
-  const trimmed = s.replace(/^﻿/, "").replace(/^[\s\x00]+/, "").toLowerCase();
+  // Strip a leading UTF-8 BOM (U+FEFF) and any whitespace before matching.
+  const trimmed = s.replace(/^[\uFEFF\s]+/, "").toLowerCase();
   return (
     trimmed.startsWith("<!doctype") ||
     trimmed.startsWith("<html") ||

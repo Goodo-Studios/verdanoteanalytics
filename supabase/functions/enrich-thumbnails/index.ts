@@ -879,7 +879,7 @@ export function parseStoragePublicUrl(
   const marker = "/storage/v1/object/public/";
   const i = url.indexOf(marker);
   if (i < 0) return null;
-  let rest = url.slice(i + marker.length).split("?")[0];
+  const rest = url.slice(i + marker.length).split("?")[0];
   const slash = rest.indexOf("/");
   if (slash < 0) return null;
   return { bucket: rest.slice(0, slash), path: rest.slice(slash + 1) };
