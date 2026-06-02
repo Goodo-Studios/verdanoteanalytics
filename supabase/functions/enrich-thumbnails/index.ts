@@ -32,11 +32,11 @@ const VIDEO_DISCOVERY_TIMEOUT_MS = 15_000;
 // which OOM'd the worker on large videos (546 WORKER_RESOURCE_LIMIT). We now stream-read
 // with an early abort so a single video never exceeds this footprint; oversized videos
 // keep their live CDN url (still playable) instead of being cached.
-// 50 MB cap (was 80). readBodyCapped reads the whole file into memory before upload;
-// at 80 MB a single video could peak ~160 MB and OOM the 256 MB worker
-// (WORKER_RESOURCE_LIMIT). 50 MB keeps peak safe. Videos over the cap keep their CDN
-// url (still previewable) rather than being cached — rare for ad creatives.
-const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
+// 64 MB cap. readBodyCapped now does a single arrayBuffer() read (no 2× concat
+// buffer), so peak ≈ filesize + one upload copy. 64 MB stays safely under the 256 MB
+// worker limit while caching the large majority of ad videos; anything bigger keeps
+// its CDN url (still previewable) rather than risking WORKER_RESOURCE_LIMIT.
+const MAX_VIDEO_SIZE = 64 * 1024 * 1024;
 
 // Exponential backoff for sentinel retries (hours): 1h → 4h → 12h → 1d → 3d → 7d cap.
 // Mirrors refresh-thumbnails so a sentinel written by either path carries the same TTL and
