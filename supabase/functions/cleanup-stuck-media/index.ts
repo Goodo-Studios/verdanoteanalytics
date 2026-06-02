@@ -7,14 +7,19 @@ serve(async (_req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 
-  const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+  // Edge functions hard-cap at 150s, so any media_refresh_log still "running" after
+  // 3 min is definitively dead (the worker died — e.g. OOM on a large video — without
+  // marking it complete). Such a stuck log blocks enrich-thumbnails' per-account guard,
+  // starving discovery/caching for that account (this is what froze Miracle Brand).
+  // 3 min is safely above the max legit runtime, so this never cancels a live refresh.
+  const staleThreshold = new Date(Date.now() - 3 * 60 * 1000).toISOString();
   const now = new Date().toISOString();
 
   const { data: stuck } = await supabase
     .from("media_refresh_logs")
     .select("id, started_at")
     .eq("status", "running")
-    .lt("started_at", fifteenMinAgo);
+    .lt("started_at", staleThreshold);
 
   if (!stuck?.length) {
     return new Response(JSON.stringify({ cleaned: 0 }), {
