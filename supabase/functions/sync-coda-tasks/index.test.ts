@@ -25,6 +25,7 @@
 import {
   assert,
   assertEquals,
+  assertStringIncludes,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
 Deno.env.set("SYNC_CODA_TASKS_NO_SERVE", "1");
@@ -235,6 +236,24 @@ Deno.test("handler SKIPS the authoritative delete when an upsert chunk fails", a
   } finally {
     restore();
   }
+});
+
+Deno.test("serve binding forwards only req — no connInfo leak as client (regression)", async () => {
+  // Deno.serve invokes the handler as handler(req, connInfo). The connInfo
+  // object has no .from; if it leaked in as the Supabase client the handler
+  // crashed at runtime with "supabase.from is not a function". The binding must
+  // wrap the handler so only `req` is forwarded, and the handler must honor an
+  // injected client only when it actually exposes .from.
+  const src = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
+  assert(
+    !/Deno\.serve\(\s*handler\s*\)/.test(src),
+    "Deno.serve(handler) forwards connInfo as the client — must wrap: Deno.serve((req) => handler(req))",
+  );
+  assert(
+    /Deno\.serve\(\s*\(req\)\s*=>\s*handler\(req\)\s*\)/.test(src),
+    "serve binding must forward only req to handler",
+  );
+  assertStringIncludes(src, 'typeof injectedClient.from === "function"');
 });
 
 Deno.test("handler OPTIONS preflight returns CORS ok with no DB work", async () => {
