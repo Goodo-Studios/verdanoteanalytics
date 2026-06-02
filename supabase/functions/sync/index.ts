@@ -1480,11 +1480,14 @@ serve(async (req) => {
 
     // Check if this is a cron/anon-key call: the Supabase gateway already validates the JWT,
     // so if the token decodes to role=anon, it's a valid cron call.
+    // service_role is also a trusted automated caller — scheduled-sync triggers
+    // POST /sync with the service-role key, and /continue already runs under it.
+    // Without this, the automated sync path 401s (getUser() rejects a non-user JWT).
     // Also accept new-format publishable keys (sb_publishable_*) — same trust level as anon JWT.
     let isAnonKey = false;
     try {
       const payload = JSON.parse(atob(authToken.split(".")[1]));
-      isAnonKey = payload.role === "anon";
+      isAnonKey = payload.role === "anon" || payload.role === "service_role";
     } catch (_) { /* not a JWT */ }
 
     const isPublishableKey = authToken.startsWith("sb_publishable_");

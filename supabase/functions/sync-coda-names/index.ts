@@ -191,7 +191,10 @@ Deno.serve(async (req) => {
       const status = c.errors > 0 ? "completed_with_errors" : "completed";
       const { error: logErr } = await supabase.from("sync_logs").insert({
         account_id: accountId,
-        sync_type: "daily",
+        // Distinct sync_type so Coda name-mapping runs don't masquerade as Meta
+        // data syncs in sync_logs. Prior value "daily" (0 meta_api_calls,
+        // 0 duration, phase 0) masked the 2026-05-31 data-sync outage.
+        sync_type: "coda_names",
         status,
         creatives_fetched: c.fetched,
         creatives_upserted: c.upserted,
