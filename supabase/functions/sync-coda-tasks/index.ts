@@ -5,46 +5,57 @@ import { corsHeaders } from "../_shared/cors.ts";
 const CODA_DOC_ID = "Edw6ZW63pk";
 const CODA_TABLE_ID = "grid-MEOygYxxim";
 
-// Map granular Coda stages → display stages for the pipeline UI.
-// Reconciled 2026-05-31 against the live Coda Stage distribution (11226 rows).
-// Drift fixes:
-//   - "Export Versions" (stale, no longer in Coda) → replaced by "Versions Exported".
-//   - "Ready for transfer" (stale, no longer in Coda) → removed.
-//   - "Not Started" → Planning (new live value).
-// Terminal stages (TERMINAL_DISPLAY_STAGES below) map to "Complete" and are
-// excluded from the active-pipeline upsert.
+// Map granular Coda stages → display columns for the pipeline board.
+// Reconciled 2026-06-02 with the operator: the board now mirrors the real Coda
+// workflow as five columns instead of the prior collapsed buckets. Grouping was
+// chosen for a client-facing read-only view (internal noise folded away):
+//   - "Preparing Content"  ← brief authoring + client brief review.
+//   - "Production"         ← assignment through shooting + first edit handoff.
+//   - "Editing"            ← post-production, internal review, AND "Client
+//                            Revisions" (deliberately here, not Client Review,
+//                            so clients don't read it as "your turn to act").
+//   - "Client Review"      ← work sent to / being reviewed by the client.
+//   - "Ready to Launch"    ← shipped. Windowed to the recent past at sync time
+//                            (see RECENT_LAUNCH_*) so the full ~6717-row launch
+//                            history does not dwarf the in-flight columns.
+// "STUCK" and "Not applicable anymore" are intentionally NOT mapped — they are
+// internal status noise and are skipped at sync time (SKIP_RAW_STAGES). Empty/
+// null Stage rows are skipped in the loop.
 const STAGE_MAP: Record<string, string> = {
-  "Not Started": "Planning",
-  "Brief Creation": "Planning",
-  "Client Brief Review": "Planning",
-  "Assigned": "Planning",
+  "Not Started": "Preparing Content",
+  "Brief Creation": "Preparing Content",
+  "Client Brief Review": "Preparing Content",
+  "Assigned": "Production",
   "Ready for Creator": "Production",
   "Ready to Shoot": "Production",
   "Shooting Content": "Production",
   "Working On It (Admin/Production)": "Production",
   "Ready to Edit": "Production",
-  "Editing": "Production",
-  "Versions Exported": "Production",
-  "STUCK": "Production",
-  "Internal Review": "Review",
-  "Internal Review Edits": "Review",
-  "Ready to Send to Client": "Your Review",
-  "Client Review": "Your Review",
-  "Client Revisions": "Your Review",
-  "Ready to Launch": "Complete",
+  "Editing": "Editing",
+  "Versions Exported": "Editing",
+  "Internal Review": "Editing",
+  "Internal Review Edits": "Editing",
+  "Client Revisions": "Editing",
+  "Ready to Send to Client": "Client Review",
+  "Client Review": "Client Review",
+  "Ready to Launch": "Ready to Launch",
 };
 
-// Display stages considered terminal for a live pipeline view. A task whose
-// resolved display stage is in this set is NOT relevant to the active pipeline
-// and is skipped at sync time (keeps coda_tasks small). "Ready to Launch"
-// (~6717 rows) resolves to "Complete" and is the dominant terminal case.
-const TERMINAL_DISPLAY_STAGES = new Set<string>(["Complete"]);
+// "Ready to Launch" is a real board column, but the full launch history is
+// ~6717 rows across all clients and would swamp the in-flight columns. Only
+// tasks whose Coda row was updated within this window are synced, so the column
+// reads as "just shipped" rather than an all-time archive. row.updatedAt is the
+// best generic recency signal Coda exposes at the row level.
+const RECENT_LAUNCH_DISPLAY_STAGE = "Ready to Launch";
+const RECENT_LAUNCH_WINDOW_DAYS = 30;
 
 // Raw Coda stages explicitly skipped at sync time (operator decision): rows
-// that are not part of any live pipeline. We do NOT upsert these — dropping
-// them at sync time keeps the coda_tasks table small rather than carrying dead
-// rows. Empty/null Stage rows (~2192) are handled separately in the loop.
-const SKIP_RAW_STAGES = new Set<string>(["Not applicable anymore"]);
+// that are not part of any board column. "STUCK" is a status flag, not a flow
+// position, and is internal ops language we don't surface to clients;
+// "Not applicable anymore" is dead. We do NOT upsert these — dropping them at
+// sync time keeps the coda_tasks table small. Empty/null Stage rows (~2192) are
+// handled separately in the loop.
+const SKIP_RAW_STAGES = new Set<string>(["Not applicable anymore", "STUCK"]);
 
 function normalise(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -67,16 +78,16 @@ const ACCOUNT_NAME_ALIASES: Record<string, string> = {
   "Miracle": "Miracle Brand",
 };
 
-// Decide whether a Coda row should be synced into coda_tasks (active pipeline).
-// "Active" = has a non-empty Stage, is not an explicitly-skipped raw stage, and
-// does not resolve to a terminal display stage (e.g. "Complete"). Unknown
-// stages (not in STAGE_MAP) fall through as their raw string and are treated as
-// active so genuinely new in-progress stages are not silently dropped.
+// Decide whether a Coda row should be synced into coda_tasks based on its stage
+// name alone. "Active" = has a non-empty Stage and is not an explicitly-skipped
+// raw stage (STUCK / Not applicable anymore). Unknown stages (not in STAGE_MAP)
+// fall through as their raw string and are treated as active so genuinely new
+// in-progress stages are not silently dropped. The "Ready to Launch" recency
+// window is applied separately in the loop (it needs the row's updatedAt).
 function isActiveStage(rawStage: string | null): boolean {
   if (!rawStage) return false; // empty/null Stage → not active
-  if (SKIP_RAW_STAGES.has(rawStage)) return false;
-  const display = STAGE_MAP[rawStage] || rawStage;
-  return !TERMINAL_DISPLAY_STAGES.has(display);
+  if (SKIP_RAW_STAGES.has(rawStage)) return false; // STUCK / Not applicable anymore
+  return true;
 }
 
 Deno.serve(async (req) => {
@@ -190,6 +201,8 @@ Deno.serve(async (req) => {
     let skipped = 0;
     const unknownStages = new Set<string>();
     const nowIso = new Date().toISOString();
+    const launchCutoffMs =
+      Date.now() - RECENT_LAUNCH_WINDOW_DAYS * 24 * 60 * 60 * 1000;
     const records: Record<string, any>[] = [];
 
     for (const row of allRows) {
@@ -198,11 +211,24 @@ Deno.serve(async (req) => {
       const rawStage = vals["Stage"] || null;
       const accountName = vals["Connected Project"] || null;
 
-      // Active-task filtering: skip terminal / empty / not-applicable rows so
-      // coda_tasks only holds live-pipeline tasks (operator decision).
+      // Active-task filtering: skip empty / not-applicable / STUCK rows so
+      // coda_tasks only holds board-relevant tasks (operator decision).
       if (!isActiveStage(rawStage)) {
         skipped++;
         continue;
+      }
+
+      const displayStage = rawStage ? (STAGE_MAP[rawStage] || rawStage) : null;
+
+      // Recency window for the "Ready to Launch" column: only sync tasks shipped
+      // recently so the column reads as "just launched", not the full ~6717-row
+      // launch history. A launched row with no/old updatedAt is dropped here.
+      if (displayStage === RECENT_LAUNCH_DISPLAY_STAGE) {
+        const updatedMs = row.updatedAt ? Date.parse(row.updatedAt) : NaN;
+        if (Number.isNaN(updatedMs) || updatedMs < launchCutoffMs) {
+          skipped++;
+          continue;
+        }
       }
 
       // Stage-drift visibility: any Coda stage not in STAGE_MAP still falls
@@ -218,7 +244,7 @@ Deno.serve(async (req) => {
         account_id: resolveAccountId(accountName),
         task_name: vals["Task"] || null,
         brief: vals["Brief"] || null,
-        stage: rawStage ? (STAGE_MAP[rawStage] || rawStage) : null,
+        stage: displayStage,
         due_date: vals["Due Date"] || null,
         content_type: vals["Content Type"] || vals["Asset Type"] || null,
         coda_url: row.browserLink || null,
@@ -246,7 +272,7 @@ Deno.serve(async (req) => {
     }
 
     console.log(
-      `Upserted ${upserted} active rows, skipped ${skipped} (terminal/empty/not-applicable), of ${allRows.length} total`
+      `Upserted ${upserted} active rows, skipped ${skipped} (empty/not-applicable/STUCK/out-of-window launches), of ${allRows.length} total`
     );
     if (unknownStages.size > 0) {
       console.warn(
