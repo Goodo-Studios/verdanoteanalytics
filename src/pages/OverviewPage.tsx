@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { useOverviewPageState } from "@/hooks/useOverviewPageState";
 import { useSync } from "@/hooks/useSyncApi";
 import { useAuth } from "@/contexts/AuthContext";
+import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { useWoWTrends } from "@/hooks/useWoWTrends";
 import { useDashboardLayout, type DashboardSection, type SectionSize } from "@/hooks/useDashboardLayout";
 import { EditableSectionWrapper } from "@/components/overview/EditableSectionWrapper";
@@ -46,8 +47,12 @@ function sizeClass(size: SectionSize) {
 const OverviewPage = () => {
   const navigate = useRoleNavigate();
   const sync = useSync();
-  const { isBuilder, isEmployee } = useAuth();
+  const { isBuilder, isEmployee, isClient } = useAuth();
+  const { isClientPreview } = useClientPreview();
   const canEdit = isBuilder || isEmployee;
+  // Sync is a builder/employee op — hide from real clients and from builders
+  // previewing the client view.
+  const effectiveClient = isClient || isClientPreview;
   const {
     accountName, lastSyncedAgo,
     dateFrom, dateTo, setDateFrom, setDateTo,
@@ -214,10 +219,12 @@ const OverviewPage = () => {
           <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
             <div className="flex items-center gap-2">
               <DateRangeFilter dateFrom={dateFrom} dateTo={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
-              <Button size="sm" className="bg-verdant hover:bg-verdant/90 text-white font-body text-[13px] font-medium" onClick={() => sync.mutate({ account_id: selectedAccountId && selectedAccountId !== "all" ? selectedAccountId : undefined })} disabled={sync.isPending}>
-                <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", sync.isPending && "animate-spin")} />
-                Sync
-              </Button>
+              {!effectiveClient && (
+                <Button size="sm" className="bg-verdant hover:bg-verdant/90 text-white font-body text-[13px] font-medium" onClick={() => sync.mutate({ account_id: selectedAccountId && selectedAccountId !== "all" ? selectedAccountId : undefined })} disabled={sync.isPending}>
+                  <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", sync.isPending && "animate-spin")} />
+                  Sync
+                </Button>
+              )}
             </div>
           </div>
         </div>

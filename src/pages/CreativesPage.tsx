@@ -30,6 +30,7 @@ import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { downloadCSV, exportCreativesCSV } from "@/lib/csv";
 import { useCreativesPageState } from "@/hooks/useCreativesPageState";
 import { useAuth } from "@/contexts/AuthContext";
+import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { SyncStatusBanner } from "@/components/SyncStatusBanner";
 import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
@@ -47,6 +48,10 @@ import type { GradeInfo } from "@/lib/creativeGrading";
 
 const CreativesPage = () => {
   const { isClient, isBuilder, isEmployee } = useAuth();
+  const { isClientPreview } = useClientPreview();
+  // Real clients AND builders previewing as a client must not see internal
+  // sync/media-refresh controls or their progress banners.
+  const effectiveClient = isClient || isClientPreview;
   const { setSelectedAccountId } = useAccountContext();
   const navigate = useRoleNavigate();
   const state = useCreativesPageState();
@@ -334,7 +339,7 @@ const CreativesPage = () => {
               Compare
             </Button>
             <ColumnPicker columns={TABLE_COLUMNS} visibleColumns={visibleCols} onToggle={toggleCol} columnOrder={columnOrder} onReorder={handleReorder} />
-            {!isClient && (
+            {!effectiveClient && (
               <Button size="sm" onClick={() => syncMut.mutate({ account_id: "all" })} disabled={syncMut.isPending || isSyncing}>
                 {(syncMut.isPending || isSyncing) ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}Sync
               </Button>

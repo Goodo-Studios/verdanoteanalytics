@@ -1,9 +1,15 @@
 import { useIsRefreshingMedia, useMediaRefreshLogs } from "@/hooks/useMediaRefreshStatus";
 import { useAccounts } from "@/hooks/useAccountsApi";
+import { useAuth } from "@/contexts/AuthContext";
+import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { Loader2, Clock, Image } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 
 export function MediaRefreshBanner() {
+  // Internal op — never surface to clients or to a client-preview view.
+  const { isClient } = useAuth();
+  const { isClientPreview } = useClientPreview();
+  const isClientView = isClient || isClientPreview;
   const isRefreshing = useIsRefreshingMedia();
   const { data: logs } = useMediaRefreshLogs();
   const { data: accounts } = useAccounts();
@@ -24,6 +30,7 @@ export function MediaRefreshBanner() {
     }
   }, [isRefreshing, runningLog?.id]);
 
+  if (isClientView) return null;
   if (!isRefreshing || !runningLog) return null;
 
   const mins = Math.floor(elapsed / 60);

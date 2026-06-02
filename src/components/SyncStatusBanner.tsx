@@ -1,6 +1,8 @@
 import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useSyncHistory, useCancelSync } from "@/hooks/useSyncApi";
 import { useAccounts } from "@/hooks/useAccountsApi";
+import { useAuth } from "@/contexts/AuthContext";
+import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { Loader2, Clock, X, Download, UploadCloud } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
@@ -10,6 +12,11 @@ interface SyncStatusBannerProps {
 }
 
 export function SyncStatusBanner({ accountId }: SyncStatusBannerProps = {}) {
+  // Sync is an internal op — never surface its progress to clients (or to a
+  // builder previewing the client view). Self-gated so every call site is safe.
+  const { isClient } = useAuth();
+  const { isClientPreview } = useClientPreview();
+  const isClientView = isClient || isClientPreview;
   const isSyncing = useIsSyncing();
   const { data: allLogs } = useSyncHistory();
   const { data: accounts } = useAccounts();
@@ -37,6 +44,7 @@ export function SyncStatusBanner({ accountId }: SyncStatusBannerProps = {}) {
     }
   }, [isRunning, runningLog?.id]);
 
+  if (isClientView) return null;
   if (!runningLog) return null;
 
   const mins = Math.floor(elapsed / 60);
