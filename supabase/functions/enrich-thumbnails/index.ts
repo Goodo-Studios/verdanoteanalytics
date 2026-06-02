@@ -36,7 +36,11 @@ const VIDEO_DISCOVERY_TIMEOUT_MS = 15_000;
 // buffer), so peak ≈ filesize + one upload copy. 64 MB stays safely under the 256 MB
 // worker limit while caching the large majority of ad videos; anything bigger keeps
 // its CDN url (still previewable) rather than risking WORKER_RESOURCE_LIMIT.
-const MAX_VIDEO_SIZE = 64 * 1024 * 1024;
+// 200 MB — matches the ad-videos bucket limit. cacheVideoToStorage now STREAMS the
+// upload (no full-file buffering), so worker memory no longer caps this; the bound is
+// the storage bucket size + the edge function's ~150s wall clock. Videos beyond this
+// keep their CDN url.
+const MAX_VIDEO_SIZE = 200 * 1024 * 1024;
 
 // Exponential backoff for sentinel retries (hours): 1h → 4h → 12h → 1d → 3d → 7d cap.
 // Mirrors refresh-thumbnails so a sentinel written by either path carries the same TTL and
@@ -730,49 +734,60 @@ export type VideoCacheReason =
 export interface VideoCacheResult { url: string | null; reason?: VideoCacheReason }
 
 async function cacheVideoToStorage(
-  supabase: any,
   videoUrl: string,
   accountId: string,
   adId: string
 ): Promise<VideoCacheResult> {
   try {
-    const res = await fetchWithTimeout(videoUrl, 60_000); // generous timeout for large files
-    if (!res.ok) { await res.text(); return { url: null, reason: "expired" }; }
+    // Plain fetch (not fetchWithTimeout): the abort timer would sever the body
+    // mid-stream during the upload. The edge function's own ~150s wall limit bounds it.
+    const res = await fetch(videoUrl);
+    if (!res.ok || !res.body) { await res.body?.cancel().catch(() => {}); return { url: null, reason: "expired" }; }
 
     const contentType = res.headers.get("content-type") || "video/mp4";
-    // Guard: never store a non-video payload (e.g. a text/html ad page) as <adId>.mp4.
+    // Guard: never store a non-video payload (e.g. an HTML ad page) as <adId>.mp4.
+    // Streaming can't byte-peek, but text/html is rejected here and the source is a
+    // discovered video CDN url, so poison risk is negligible.
     if (!isMediaContentType(contentType, "video")) {
-      console.log(`Refusing to cache video for ${adId}: non-video content (${contentType})`);
+      await res.body.cancel().catch(() => {});
       return { url: null, reason: "non-video" };
     }
-    const storagePath = `${accountId}/${adId}.mp4`;
 
-    const uint8 = await readBodyCapped(res, MAX_VIDEO_SIZE);
-    if (!uint8) {
-      console.log(`Skipping over-cap video for ${adId} (> ${(MAX_VIDEO_SIZE / 1024 / 1024).toFixed(0)}MB) — keeping CDN url`);
+    const lenHeader = res.headers.get("content-length");
+    if (lenHeader && Number(lenHeader) > MAX_VIDEO_SIZE) {
+      await res.body.cancel().catch(() => {});
       return { url: null, reason: "too-large" };
     }
 
-    // Magic-byte guard: reject an HTML page served as a video (content-type lies).
-    if (looksLikeHtml(uint8)) {
-      console.log(`Refusing to cache video for ${adId}: HTML page bytes (content-type ${contentType})`);
-      return { url: null, reason: "html" };
-    }
+    const storagePath = `${accountId}/${adId}.mp4`;
+    // STREAM the body straight to Supabase Storage (REST upload) — no full-file
+    // buffering, so worker memory stays flat regardless of video size. This removes
+    // the ~64MB OOM ceiling; the only bound is the edge function's wall-clock.
+    const uploadResp = await fetch(
+      `${SUPABASE_URL_ENV}/storage/v1/object/ad-videos/${storagePath}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+          "Content-Type": contentType,
+          "x-upsert": "true",
+          ...(lenHeader ? { "Content-Length": lenHeader } : {}),
+        },
+        body: res.body,
+        // Deno requires duplex:'half' to send a streaming request body.
+        // deno-lint-ignore no-explicit-any
+        duplex: "half",
+      } as any,
+    );
 
-    const { error: uploadError } = await supabase.storage
-      .from("ad-videos")
-      .upload(storagePath, uint8, { contentType, upsert: true });
-
-    if (uploadError) {
-      console.error(`Video storage upload error for ${adId}:`, uploadError.message);
+    if (!uploadResp.ok) {
+      const msg = await uploadResp.text().catch(() => "");
+      console.error(`Video storage upload error for ${adId}: ${uploadResp.status} ${msg}`);
       return { url: null, reason: "upload-error" };
     }
 
-    const { data: publicData } = supabase.storage.from("ad-videos").getPublicUrl(storagePath);
-    return {
-      url: publicData?.publicUrl ||
-        `${SUPABASE_URL_ENV}/storage/v1/object/public/ad-videos/${storagePath}`,
-    };
+    return { url: `${SUPABASE_URL_ENV}/storage/v1/object/public/ad-videos/${storagePath}` };
   } catch (e) {
     console.error(`Cache video to storage error for ${adId}:`, e);
     return { url: null, reason: "exception" };
@@ -852,7 +867,7 @@ export async function runVideoCaching(
       break;
     }
 
-    const result = await cacheVideoToStorage(supabase, c.video_url, c.account_id, c.ad_id);
+    const result = await cacheVideoToStorage(c.video_url, c.account_id, c.ad_id);
     if (result.url) {
       await supabase.from("creatives").update({ video_url: result.url }).eq("ad_id", c.ad_id);
       summary.cached++;
