@@ -34,19 +34,7 @@ export function useOverviewPageState() {
     };
   }, [dateFrom, dateTo]);
 
-  // Previous period filters for useAllCreatives (still needed for non-metric features)
-  const prevPeriodFilters = useMemo(() => {
-    if (!prevPeriodDates) return null;
-    return {
-      ...(selectedAccountId && selectedAccountId !== "all" ? { account_id: selectedAccountId } : {}),
-      date_from: prevPeriodDates.dateFrom,
-      date_to: prevPeriodDates.dateTo,
-    };
-  }, [selectedAccountId, prevPeriodDates]);
-
   const { data: creatives = [], isLoading } = useAllCreatives(dateFilters);
-  const shouldFetchPrev = !!prevPeriodFilters;
-  const { data: prevCreatives = [] } = useAllCreatives(prevPeriodFilters || {});
 
   // ── Accurate period metrics from creative_daily_metrics ──
   const effectiveAccountId = selectedAccountId && selectedAccountId !== "all" ? selectedAccountId : undefined;
@@ -64,7 +52,7 @@ export function useOverviewPageState() {
     enabled: !!prevPeriodDates,
   });
 
-  const hasPrevPeriod = shouldFetchPrev && !!prevDailyMetrics && prevDailyMetrics.totalSpend > 0;
+  const hasPrevPeriod = !!prevPeriodDates && !!prevDailyMetrics && prevDailyMetrics.totalSpend > 0;
 
   // Account settings
   const roasThreshold = parseFloat(selectedAccount?.winner_roas_threshold || "2.0");
@@ -126,29 +114,19 @@ export function useOverviewPageState() {
 
   // Previous period metrics from daily aggregation
   const prevMetrics = useMemo(() => {
-    if (!hasPrevPeriod) return null;
-    if (prevDailyMetrics) {
-      return {
-        totalSpend: prevDailyMetrics.totalSpend,
-        activeCount: prevDailyMetrics.activeCount,
-        avgCpa: prevDailyMetrics.avgCpa,
-        avgRoas: prevDailyMetrics.avgRoas,
-        avgCtr: prevDailyMetrics.avgCtr,
-      };
-    }
-    // Fallback
-    if (prevCreatives.length === 0) return null;
-    const active = prevCreatives.filter((c: any) => (Number(c.spend) || 0) > 0);
-    const totalSpend = active.reduce((s: number, c: any) => s + (Number(c.spend) || 0), 0);
-    const totalPurchaseValue = active.reduce((s: number, c: any) => s + (Number(c.purchase_value) || 0), 0);
-    const totalPurchases = active.reduce((s: number, c: any) => s + (Number(c.purchases) || 0), 0);
-    const totalClicks = active.reduce((s: number, c: any) => s + (Number(c.clicks) || 0), 0);
-    const totalImpressions = active.reduce((s: number, c: any) => s + (Number(c.impressions) || 0), 0);
-    const avgRoas = totalSpend > 0 ? totalPurchaseValue / totalSpend : 0;
-    const avgCpa = totalPurchases > 0 ? totalSpend / totalPurchases : 0;
-    const avgCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
-    return { totalSpend, activeCount: active.length, avgCpa, avgRoas, avgCtr };
-  }, [prevCreatives, hasPrevPeriod, prevDailyMetrics]);
+    // Previous-period totals come solely from the daily-metrics aggregation
+    // (usePeriodMetrics). hasPrevPeriod already gates on prevDailyMetrics, so
+    // there is no creatives-table fallback path here — that double full-table
+    // fetch was removed.
+    if (!hasPrevPeriod || !prevDailyMetrics) return null;
+    return {
+      totalSpend: prevDailyMetrics.totalSpend,
+      activeCount: prevDailyMetrics.activeCount,
+      avgCpa: prevDailyMetrics.avgCpa,
+      avgRoas: prevDailyMetrics.avgRoas,
+      avgCtr: prevDailyMetrics.avgCtr,
+    };
+  }, [hasPrevPeriod, prevDailyMetrics]);
 
   // Top performer & biggest concern (still per-creative from creatives table)
   const topPerformer = useMemo(() => {
