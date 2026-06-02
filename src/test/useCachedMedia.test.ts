@@ -132,15 +132,28 @@ describe("useCachedMedia HTML-poison guard", () => {
     expect(result.current.url).toBe(storageUrl);
   });
 
-  it("a real image blob (JPEG magic bytes) IS accepted and surfaced as a blob: url", async () => {
-    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: true, blob: () => Promise.resolve(fakeBlob(jpeg, "image/jpeg")) })));
+  it("a permanent Storage url is handed straight to the tag (no fetch, no blob cache)", async () => {
+    // Storage urls are public + browser-cacheable; the hook must NOT fetch them (that
+    // path tripped on transient 503/HTML pages). It returns the url directly.
+    const fetchSpy = vi.fn(() => Promise.resolve({ ok: true, blob: () => Promise.resolve(fakeBlob(new Uint8Array([0xff, 0xd8]), "image/jpeg")) }));
+    vi.stubGlobal("fetch", fetchSpy);
     const storageUrl = "https://example.supabase.co/storage/v1/object/public/ad-thumbnails/act_1/ad2.jpg";
 
     const { result } = renderHook(() => useCachedMedia(storageUrl));
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    // Valid image → surfaced as the stubbed object URL (not the raw url).
+    expect(result.current.url).toBe(storageUrl);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("a non-storage (CDN) image IS fetched + cached and surfaced as a blob: url", async () => {
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: true, blob: () => Promise.resolve(fakeBlob(jpeg, "image/jpeg")) })));
+    const cdnUrl = "https://scontent.xx.fbcdn.net/v/t45/image123.jpg";
+
+    const { result } = renderHook(() => useCachedMedia(cdnUrl));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
     expect(result.current.url).toBe("blob:stub");
   });
 });

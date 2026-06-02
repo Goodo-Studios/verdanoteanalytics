@@ -206,6 +206,17 @@ export function useCachedMedia(
         return;
       }
 
+      // Permanent Supabase Storage urls are public and browser-cacheable, so the
+      // fetch()+IndexedDB blob layer adds nothing — and actively hurts: a transient
+      // storage 503 returns an HTML error page that trips the looksLikeHtml guard and
+      // surfaces spurious "load error" / "Thumbnail unavailable" states even though the
+      // <img>/<video> tag loads the object fine. Hand the URL straight to the tag.
+      if (isStorageUrl(mediaUrl)) {
+        setObjectUrl(mediaUrl);
+        setIsLoading(false);
+        return;
+      }
+
       // Check cache first
       const cached = await mediaCache.get(mediaUrl);
       if (cached) {
