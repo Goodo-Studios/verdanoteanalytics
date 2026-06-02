@@ -11,9 +11,12 @@
 //     }
 //   ]
 //
-// Each element is the fraction of plays still watching at that interval. Meta
-// reports the curve in 1/30 increments (index 0 = start, index 29 = 100%).
-// We normalize to TRUE PERCENTAGES in [0,100] (pct-fields policy) and derive
+// Each element is the share of plays still watching at that interval, with
+// index 0 = start and the last index = 100% completion. Meta's SCALE for these
+// values is inconsistent across accounts (fractions [0,1], 0–100 values, or raw
+// play counts), so we normalize against the at-start value (index 0) rather than
+// assuming a fixed scale. We emit TRUE PERCENTAGES in [0,100] (pct-fields policy)
+// and derive
 // the four quartile-threshold scalars in the SAME single pass so the JSONB
 // `play_curve` and US-001's scalar columns (`retention_p25/50/75/100`) stay
 // consistent.
@@ -63,17 +66,29 @@ export function parsePlayCurve(field: unknown): PlayCurveResult {
   }
 
   const raw: unknown[] = entry.value;
-  const curve: number[] = [];
+  const rawVals: number[] = [];
   for (const v of raw) {
     const n = typeof v === "number" ? v : parseFloat(String(v));
-    if (!Number.isFinite(n)) {
-      // Malformed interval → bail out entirely rather than emit a partial /
-      // zero-filled curve that would distort downstream denominators.
+    if (!Number.isFinite(n) || n < 0) {
+      // Malformed / negative interval → bail out entirely rather than emit a
+      // partial / zero-filled curve that would distort downstream denominators.
       return { ...NULL_RESULT };
     }
-    // Source fractions are in [0,1]; convert to true percentages in [0,100].
-    curve.push(n * 100);
+    rawVals.push(n);
   }
+
+  // Meta's `video_play_curve_actions` scale is NOT consistent across accounts:
+  // some return fractions in [0,1] (index 0 = 1), others values already on a
+  // 0–100 scale (index 0 = 100), and some raw play counts (index 0 = total
+  // plays). Blindly multiplying by 100 inflated the latter two by 100×, which
+  // produced retention values >100% (observed p50 = 200). Normalize against the
+  // at-start value (index 0) instead, so the curve is ALWAYS a true retention
+  // percentage in [0,100] with index 0 = 100% — scale-invariant. Fall back to
+  // the series max if the first interval is zero; if everything is zero there is
+  // no usable curve.
+  const denom = rawVals[0] > 0 ? rawVals[0] : Math.max(...rawVals);
+  if (!(denom > 0)) return { ...NULL_RESULT };
+  const curve = rawVals.map((n) => Math.min(100, (n / denom) * 100));
 
   // Derive quartile thresholds from fractional positions across the curve.
   // index 0 = play start, last index = 100% completion. The 25/50/75 marks are
