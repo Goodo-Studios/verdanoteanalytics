@@ -50,6 +50,7 @@ const BoardDetailPage = lazy(routeImports.boardDetail);
 const HooksPage = lazy(routeImports.hooks);
 const ViralFeedPage = lazy(routeImports.viralFeed);
 const SharedAdBoardPage = lazy(() => import("./pages/SharedAdBoardPage"));
+const PublicVaultItemPage = lazy(() => import("./pages/PublicVaultItemPage"));
 const BookmarkletReceiver = lazy(() => import("./pages/BookmarkletReceiver"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -193,6 +194,11 @@ const App = () => {
                   <Route path="/shared/ad-board/:shareToken" element={
                     <Suspense fallback={<PageFallback />}>
                       <SharedAdBoardPage />
+                    </Suspense>
+                  } />
+                  <Route path="/vault/share/:token" element={
+                    <Suspense fallback={<PageFallback />}>
+                      <PublicVaultItemPage />
                     </Suspense>
                   } />
                   <Route path="/bookmarklet-receiver" element={

@@ -52,6 +52,7 @@ FUNCTIONS=(
   vault-save
   vault-save-creative
   vault-search
+  vault-share-item
   vault-slack-connect
   vault-slack-events
   vault-slack-import
