@@ -187,6 +187,12 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
   // true when the saved state came from a dedupe hit / pre-existing vault item,
   // so the button can read "Already in Vault" rather than "Saved".
   const [alreadyInVault, setAlreadyInVault] = useState(false);
+  // false until the "is this creative already in the vault?" lookup resolves.
+  // Until then the Save-to-Vault affordance is disabled ("Checking…") so it can
+  // never be clicked in the window before status is known — otherwise an
+  // already-saved creative briefly renders an enabled "Save to Vault" that then
+  // flips to a disabled "Already in Vault" (a click-then-disable race).
+  const [vaultStatusChecked, setVaultStatusChecked] = useState(false);
   const [cachedMedia, setCachedMedia] = useState<{
     thumbnail_url?: string | null;
     full_res_url?: string | null;
@@ -241,6 +247,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
     let cancelled = false;
     setSavedToVault(false);
     setAlreadyInVault(false);
+    setVaultStatusChecked(false);
     supabase
       .from("inspiration_items")
       .select("id")
@@ -248,10 +255,14 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
       .limit(1)
       .maybeSingle()
       .then(({ data }) => {
-        if (!cancelled && data) {
+        if (cancelled) return;
+        if (data) {
           setSavedToVault(true);
           setAlreadyInVault(true);
         }
+        // Status known either way — release the Save affordance from its
+        // disabled "Checking…" state.
+        setVaultStatusChecked(true);
       });
     return () => {
       cancelled = true;
@@ -450,16 +461,20 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
                   size="sm"
                   className="gap-1.5 font-body text-[12px]"
                   onClick={handleSaveToVault}
-                  disabled={savingToVault || savedToVault}
+                  disabled={!vaultStatusChecked || savingToVault || savedToVault}
                 >
-                  {savingToVault ? (
+                  {!vaultStatusChecked || savingToVault ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : savedToVault ? (
                     <Bookmark className="h-3.5 w-3.5 fill-current" />
                   ) : (
                     <BookmarkPlus className="h-3.5 w-3.5" />
                   )}
-                  {savedToVault ? (alreadyInVault ? "Already in Vault" : "Saved") : "Save to Vault"}
+                  {!vaultStatusChecked
+                    ? "Checking…"
+                    : savedToVault
+                      ? (alreadyInVault ? "Already in Vault" : "Saved")
+                      : "Save to Vault"}
                 </Button>
               </div>
             )}

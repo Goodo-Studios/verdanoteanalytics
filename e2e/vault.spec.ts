@@ -374,6 +374,17 @@ test.describe("Vault — save analytics creative to global library (US-006)", ()
     for (let i = 0; i < MAX_SCAN && !saved; i++) {
       await openCreativeAt(page, i);
 
+      // The Save-to-Vault affordance opens DISABLED as "Checking…" until the
+      // already-in-vault lookup resolves, then settles into an enabled
+      // "Save to Vault" (unsaved) or a disabled "Already in Vault"/"Saved".
+      // Wait for that terminal label before deciding — otherwise we could grab
+      // the transient pre-status button and click it just as it flips to
+      // disabled, hanging the whole test.
+      const settledAction = modal.getByRole("button", {
+        name: /^(save to vault|saved|already in vault)$/i,
+      });
+      await expect(settledAction.first()).toBeVisible({ timeout: 8_000 });
+
       const saveButton = modal.getByRole("button", { name: /save to vault/i });
       const savedStateOnOpen = modal.getByRole("button", { name: /^(saved|already in vault)$/i });
 
