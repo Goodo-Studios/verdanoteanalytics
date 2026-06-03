@@ -129,7 +129,7 @@ export function InspirationCard({
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
         >
-          {isHovered && (item.video_url ?? signedFileUrl) ? (
+          {isHovered && !isImageFile && (item.video_url ?? signedFileUrl) ? (
             <video
               src={item.video_url ?? signedFileUrl ?? undefined}
               autoPlay
