@@ -301,6 +301,10 @@ export default function ItemDetailPage() {
   const transcriptRow = data.inspiration_transcripts?.[0] ?? null;
   const frameworkRow = data.inspiration_frameworks?.[0] ?? null;
   const platformKey = data.platform ?? "unknown";
+  // A static image upload has no video_url — its signed file URL is the image, not
+  // a video. Render it in an <img>, not a <video> (which would show a broken player).
+  const isImageFile = /\.(jpg|jpeg|png|gif|webp|avif)$/i.test(data.file_path ?? "");
+  const imageSrc = (isImageFile ? signedUrl : null) ?? data.thumbnail_url ?? null;
   const reanalyzeDisabled = reanalyzeInFlight || reanalyze.isPending || isProcessing;
   const createdAt = new Date(data.created_at);
 
@@ -363,18 +367,18 @@ export default function ItemDetailPage() {
           {/* Left: preview + tags */}
           <div className="space-y-4">
             <div className="rounded-xl overflow-hidden bg-muted aspect-[9/16]">
-              {data.video_url || signedUrl ? (
+              {!isImageFile && (data.video_url || signedUrl) ? (
                 <video
                   src={data.video_url ?? signedUrl ?? undefined}
                   controls
                   poster={data.thumbnail_url ?? undefined}
                   className="w-full h-full object-contain"
                 />
-              ) : data.thumbnail_url ? (
+              ) : imageSrc ? (
                 <img
-                  src={data.thumbnail_url}
+                  src={imageSrc}
                   alt={data.title ?? "Inspiration"}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain"
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-muted-foreground text-sm">

@@ -59,6 +59,8 @@ Deno.serve(async (req) => {
     if (insertError) throw insertError;
 
     // Kick off the pipeline asynchronously.
+    // A non-video upload is a static image — route it straight to vault-analyze and
+    // tell it the media kind so it runs the image-only branch (no transcript).
     const nextFunction = url ? "vault-extract" : (isVideo ? "vault-transcribe" : "vault-analyze");
     EdgeRuntime.waitUntil(
       fetch(`${supabaseUrl}/functions/v1/${nextFunction}`, {
@@ -67,7 +69,7 @@ Deno.serve(async (req) => {
           Authorization: `Bearer ${serviceRoleKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ item_id: item.id }),
+        body: JSON.stringify({ item_id: item.id, media_kind: isVideo ? "video" : "image" }),
       }).catch(console.error)
     );
 

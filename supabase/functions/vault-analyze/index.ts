@@ -10,6 +10,7 @@
 // Writes results to inspiration_frameworks + inspiration_items.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { isImageOnlyAnalysis, parseLooseJson } from "../_shared/vault-analyze-logic.ts";
 
 const SONNET_MODEL = "claude-sonnet-4-6";   // framework extraction (vision + complex JSON)
 const HAIKU_MODEL  = "claude-haiku-4-5-20251001"; // all other calls (cheaper)
@@ -103,6 +104,47 @@ Extract the following and respond with ONLY valid JSON (no markdown fences, no e
   "fill_in_blank_script": "The full script rewritten as a fill-in-the-blank template. Replace brand-specific details with [BRAND], [CLAIM], [SPECIFIC_EXAMPLE], [RESULT], [CTA_ACTION]. Keep structure, pacing, and sentence rhythm exactly as the original."
 }`;
 
+// Static image ads have no spoken script — everything reusable lives in the
+// visible copy + layout. This single vision call extracts the framework, brand
+// metadata, and both analyses at once from the image alone (cheaper than the
+// video branch's 5 separate text calls, and the only input we have).
+const IMAGE_ANALYSIS_PROMPT = `You are analyzing a STATIC image ad — there is no video, no audio, and no spoken script. You are given the ad image itself.
+
+Extract the ad's reusable creative framework and metadata PURELY from what is visible: the headline, body copy, on-image text overlays, product, layout, and call to action.
+
+Identify the primary copywriting framework used. The 12 frameworks are:
+- AIDA: Attention → Interest → Desire → Action
+- PAS: Problem → Agitate → Solution
+- BAB: Before → After → Bridge
+- FAB: Features → Advantages → Benefits
+- HSO: Hook → Story → Offer
+- PASTOR: Problem → Amplify → Story → Testimony → Offer → Response
+- 4Ps: Picture → Promise → Prove → Push
+- SLAP: Stop → Look → Act → Purchase
+- Star-Story-Solution: introduce hero → tell story → reveal solution
+- Problem-Promise-Proof-Proposal: state problem → make promise → show proof → propose next step
+- Storybrand: character → problem → guide → plan → call to action → success → failure avoided
+- The Rule of One: one reader, one problem, one promise, one action
+
+Respond with ONLY valid JSON (no markdown fences, no explanation):
+
+{
+  "copywriting_framework": "AIDA" | "PAS" | "BAB" | "FAB" | "HSO" | "PASTOR" | "4Ps" | "SLAP" | "Star-Story-Solution" | "Problem-Promise-Proof-Proposal" | "Storybrand" | "Rule of One" | "Other",
+  "hook_type": "bold_claim" | "pattern_interrupt" | "honest_admission" | "question" | "other",
+  "hook_text": "The primary headline / hero text overlay visible on the image — transcribe it exactly. Use null if there is no visible text.",
+  "hook_formula": "Fill-in-the-blank version of the headline using [CLAIM], [TOPIC], [RESULT], [BENEFIT] placeholders.",
+  "value_structure": "One sentence describing how the ad's message and layout are organized: single claim / benefit list / before-after / product hero / comparison / testimonial / infographic",
+  "cta_type": "comment" | "follow" | "visit" | "dm" | "save" | "shop" | "other",
+  "cta_formula": "Fill-in-the-blank CTA using [ACTION], [BRAND], [OFFER] placeholders. Use null if no CTA is visible.",
+  "fill_in_blank_script": "All visible ad copy rewritten as a reusable fill-in-the-blank template. Replace brand-specific details with [BRAND], [CLAIM], [BENEFIT], [OFFER], [CTA_ACTION]. Keep the structure and tone.",
+  "brand_name": "The brand or product advertised. Use null if unclear.",
+  "industry": "The industry/vertical (e.g. Insurance, Packaged Food, Beauty, Fitness, Technology, Finance, Apparel, SaaS, Health). Use null if unclear.",
+  "ad_format": "The static creative format (e.g. Product Hero, Lifestyle, Testimonial Quote, Before/After, Feature Callout, Sale/Promo, Infographic). Use null if unclear.",
+  "target_audience": "One sentence describing who this ad targets. Use null if unclear.",
+  "visual_analysis": "2-3 sentences describing the actual visual: layout, imagery, color, product presentation, and how the design supports the message.",
+  "copy_analysis": "3-4 sentences analyzing the written copy: headline/hook effectiveness, clarity of the value proposition, and CTA strength. Tactical and specific, no headers or bullet lists."
+}`;
+
 async function callClaude(
   apiKey: string,
   system: string,
@@ -158,6 +200,89 @@ async function fetchImageAsDataUrl(url: string): Promise<string | null> {
   }
 }
 
+interface ImageItem {
+  brand_name: string | null;
+  thumbnail_url: string | null;
+  file_path: string | null;
+}
+
+/**
+ * Image-only analysis branch — for static image ads that have no transcript.
+ * Resolves a vision-ready data URL (an explicit thumbnail, else the signed
+ * original upload — image uploads carry no thumbnail_url, the file_path IS the
+ * image), runs ONE Sonnet vision call, and writes the framework + brand metadata +
+ * both analyses. Throws when no image can be resolved so the outer handler marks
+ * the item status='error' with a real message.
+ */
+async function analyzeStaticImage(opts: {
+  // deno-lint-ignore no-explicit-any
+  db: any;
+  anthropicKey: string;
+  itemId: string;
+  item: ImageItem | null;
+}): Promise<void> {
+  const { db, anthropicKey, itemId, item } = opts;
+
+  let imageDataUrl: string | null = null;
+  if (item?.thumbnail_url) {
+    imageDataUrl = await fetchImageAsDataUrl(item.thumbnail_url);
+  }
+  if (!imageDataUrl && item?.file_path) {
+    const { data: signed } = await db.storage
+      .from("inspiration-media")
+      .createSignedUrl(item.file_path, 600);
+    if (signed?.signedUrl) {
+      imageDataUrl = await fetchImageAsDataUrl(signed.signedUrl);
+    }
+  }
+  if (!imageDataUrl) throw new Error("No image found to analyze");
+
+  const [header, base64Data] = imageDataUrl.split(",");
+  const mediaType = (header.match(/data:([^;]+)/)?.[1] ?? "image/jpeg") as
+    "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+
+  const analysisText = await callClaude(
+    anthropicKey,
+    IMAGE_ANALYSIS_PROMPT,
+    [
+      { type: "image", source: { type: "base64", media_type: mediaType, data: base64Data } },
+      { type: "text", text: "Analyze this static image ad." },
+    ],
+    SONNET_MODEL,
+  );
+
+  const a = parseLooseJson(analysisText);
+
+  await db.from("inspiration_frameworks").insert({
+    item_id: itemId,
+    copywriting_framework: (a.copywriting_framework as string) ?? null,
+    hook_type: (a.hook_type as string) ?? null,
+    hook_verbal: null, // static image — nothing is spoken
+    hook_text: (a.hook_text as string) ?? null,
+    hook_formula: (a.hook_formula as string) ?? null,
+    value_structure: (a.value_structure as string) ?? null,
+    cta_type: (a.cta_type as string) ?? null,
+    cta_formula: (a.cta_formula as string) ?? null,
+    fill_in_blank_script: (a.fill_in_blank_script as string) ?? null,
+    framework_json: a,
+  });
+
+  await db
+    .from("inspiration_items")
+    .update({
+      status: "ready",
+      // Prefer user-supplied brand_name over AI-detected; fall back to AI value.
+      brand_name: item?.brand_name ?? (a.brand_name as string | null) ?? null,
+      industry: (a.industry as string | null) ?? null,
+      ad_format: (a.ad_format as string | null) ?? null,
+      target_audience: (a.target_audience as string | null) ?? null,
+      // No script for an image — the copy breakdown goes in the Analysis tab.
+      script_analysis: (a.copy_analysis as string | null) ?? null,
+      visual_analysis: (a.visual_analysis as string | null) ?? null,
+    })
+    .eq("id", itemId);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -174,19 +299,34 @@ Deno.serve(async (req) => {
     itemId = body.item_id;
     if (!itemId) return json({ error: "item_id required" }, 400);
 
-    // Fetch transcript and item metadata (thumbnail + brand_name) in parallel
+    // Fetch transcript and item metadata (thumbnail + file_path + brand_name) in parallel
     const [transcriptResult, itemResult] = await Promise.all([
       db.from("inspiration_transcripts")
         .select("id, raw_transcript, cleaned_script")
         .eq("item_id", itemId)
         .single(),
       db.from("inspiration_items")
-        .select("brand_name, thumbnail_url")
+        .select("brand_name, thumbnail_url, file_path")
         .eq("id", itemId)
         .single(),
     ]);
 
     const transcriptRow = transcriptResult.data;
+
+    // Static image ads have no transcript — analyze the image directly instead of
+    // erroring on the missing script. (media_kind hint comes from vault-save on the
+    // fresh-upload path; the re-analyze path infers from the stored file_path.)
+    if (
+      isImageOnlyAnalysis({
+        hasTranscript: !!transcriptRow?.raw_transcript,
+        mediaKind: body.media_kind,
+        filePath: itemResult.data?.file_path,
+      })
+    ) {
+      await analyzeStaticImage({ db, anthropicKey, itemId, item: itemResult.data });
+      return json({ ok: true, item_id: itemId });
+    }
+
     if (!transcriptRow?.raw_transcript) {
       throw new Error("No transcript found for item");
     }
