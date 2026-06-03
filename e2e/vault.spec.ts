@@ -40,8 +40,12 @@ async function loginAs(page: Page, email: string, password: string): Promise<str
 async function expectNoErrorPage(page: Page) {
   // No React error boundary
   await expect(page.getByText(/something went wrong/i)).not.toBeVisible({ timeout: 2_000 });
-  // No raw 5xx text rendered
-  await expect(page.getByText(/^5\d\d\b/)).not.toBeVisible({ timeout: 2_000 });
+  // No raw 5xx HTTP error page. A genuine gateway/edge error renders the status
+  // code as a prominent HEADING, so scope the guard to headings. The previous
+  // page-wide getByText(/^5\d\d\b/) false-matched dynamic in-app numbers — most
+  // notably a running sync's "565 fetched" progress counter (also dollar amounts
+  // / percentages), which flaked this check whenever a sync was active mid-test.
+  await expect(page.getByRole("heading", { name: /^\s*5\d\d\b/ })).not.toBeVisible({ timeout: 2_000 });
 }
 
 test.describe("Vault features — unauthenticated route guards", () => {
