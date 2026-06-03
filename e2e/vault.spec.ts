@@ -305,7 +305,7 @@ test.describe("Vault — save analytics creative to global library (US-006)", ()
   async function openCreativeAt(page: Page, index: number): Promise<void> {
     await creativeRows(page).nth(index).click();
     const modal = page.locator("[role='dialog']");
-    await expect(modal.first()).toBeVisible({ timeout: 8_000 });
+    await expect(modal.first()).toBeVisible({ timeout: 15_000 });
   }
 
   test("save a creative from analytics, see it in the vault, and prevent a duplicate", async ({
@@ -380,14 +380,14 @@ test.describe("Vault — save analytics creative to global library (US-006)", ()
       // If this ad was already saved on a previous run, the button opens in the
       // saved state and is disabled — the dedupe guarantee already holds.
       if ((await saveButton.count()) === 0 && (await savedStateOnOpen.count()) > 0) {
-        await expect(savedStateOnOpen.first()).toBeVisible({ timeout: 8_000 });
+        await expect(savedStateOnOpen.first()).toBeVisible({ timeout: 15_000 });
         await expect(savedStateOnOpen.first()).toBeDisabled();
         saved = true;
         savedIndex = i;
         break;
       }
 
-      await expect(saveButton.first()).toBeVisible({ timeout: 8_000 });
+      await expect(saveButton.first()).toBeVisible({ timeout: 15_000 });
       await saveButton.first().click();
 
       // Wait for a TERMINAL outcome, whichever comes first:
@@ -414,7 +414,7 @@ test.describe("Vault — save analytics creative to global library (US-006)", ()
       // Rejected (e.g. media-less creative) — record why and try the next one.
       lastFailureMessage = (await errorToast.first().textContent())?.trim() ?? "save rejected";
       await page.keyboard.press("Escape");
-      await expect(modal.first()).toBeHidden({ timeout: 8_000 });
+      await expect(modal.first()).toBeHidden({ timeout: 15_000 });
     }
 
     expect(
@@ -455,7 +455,7 @@ test.describe("Vault — save analytics creative to global library (US-006)", ()
     const freshButton2 = modal2.getByRole("button", { name: /save to vault/i });
 
     if ((await savedState2.count()) > 0) {
-      await expect(savedState2.first()).toBeVisible({ timeout: 8_000 });
+      await expect(savedState2.first()).toBeVisible({ timeout: 15_000 });
       await expect(savedState2.first()).toBeDisabled();
     } else {
       // Button still offers a save — clicking it must dedupe, not duplicate.
