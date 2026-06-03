@@ -27,6 +27,7 @@ import { FrameworkPanel, type FrameworkRow } from "./components/FrameworkPanel";
 import { TagInput } from "./components/TagInput";
 import { AddToBoardModal } from "./components/AddToBoardModal";
 import { CopyButton } from "./components/CopyButton";
+import { VaultShareControl } from "./components/VaultShareControl";
 
 interface TranscriptRow {
   id: string;
@@ -87,7 +88,10 @@ export default function ItemDetailPage() {
         .eq("id", id!)
         .single();
       if (error) throw error;
-      return data as ItemDetail;
+      // share_token / shared_at / saved_by live on inspiration_items but aren't
+      // in the generated types.ts (vault tables are hand-typed in types/vault.ts),
+      // so the row type doesn't overlap ItemDetail — cast through unknown.
+      return data as unknown as ItemDetail;
     },
   });
 
@@ -482,6 +486,7 @@ export default function ItemDetailPage() {
                 <LayoutGrid className="w-3.5 h-3.5" />
                 Add to board
               </button>
+              <VaultShareControl itemId={data.id} shareToken={data.share_token} />
               {!frameworkRow && !isProcessing && (
                 <span className="text-xs text-muted-foreground">
                   No framework yet — click to run vault-analyze.

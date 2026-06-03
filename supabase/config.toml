@@ -111,6 +111,12 @@ verify_jwt = true
 [functions.vault-search]
 verify_jwt = true
 
+# Public share links for a single vault item. verify_jwt=false because the
+# `resolve` action serves anonymous viewers; mint/revoke validate the user JWT
+# manually inside the handler.
+[functions.vault-share-item]
+verify_jwt = false
+
 # ─── AI analysis edge functions (ported from Creative Vault, US-003) ──────────
 # Pipeline: vault-transcribe → vault-analyze (chained via EdgeRuntime.waitUntil),
 # with vault-embed run separately for semantic search and vault-frame-analyze

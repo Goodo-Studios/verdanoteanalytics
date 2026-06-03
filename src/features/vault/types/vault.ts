@@ -45,6 +45,8 @@ export interface InspirationItem {
   hook_visual_saved: boolean;
   script_analysis: string | null;
   visual_analysis: string | null;
+  share_token: string | null;
+  shared_at: string | null;
   created_at: string;
 }
 
