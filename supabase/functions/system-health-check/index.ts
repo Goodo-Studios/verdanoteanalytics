@@ -172,7 +172,7 @@ serve(async (req) => {
       account_id: string; total: number; playable: number;
       sentinel: number; null_url: number; cdn_only: number;
       thumb_storage: number; thumb_null: number; thumb_sentinel: number;
-      thumb_cdn: number; sample_thumbs: string[] | null;
+      thumb_cdn: number; sample_thumbs: string[] | null; mismarked: number;
     }>)
       // Only active accounts (the RPC groups every account in creatives).
       .filter((r) => accNameById[r.account_id] && Number(r.total) > 0)
@@ -184,6 +184,8 @@ serve(async (req) => {
         thumbStorage: Number(r.thumb_storage), thumbNull: Number(r.thumb_null),
         thumbSentinel: Number(r.thumb_sentinel), thumbCdn: Number(r.thumb_cdn),
         sampleThumbs: r.sample_thumbs || [],
+        // Sentinel rows that are actually videos (have play-time) = discovery false-negatives.
+        mismarked: Number(r.mismarked),
       }));
 
     // Flag accounts that have NULL video_url rows (never-attempted) — these are
