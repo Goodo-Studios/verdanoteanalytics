@@ -5,7 +5,6 @@
 
 export const routeImports = {
   overview: () => import("@/pages/OverviewPage"),
-  clientHome: () => import("@/pages/ClientHomePage"),
   creatives: () => import("@/pages/CreativesPage"),
   analytics: () => import("@/pages/AnalyticsPage"),
   compare: () => import("@/pages/ComparePage"),
