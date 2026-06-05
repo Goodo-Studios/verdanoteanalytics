@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       account_context: {
@@ -573,6 +548,62 @@ export type Database = {
           },
         ]
       }
+      angle_clusters: {
+        Row: {
+          account_id: string
+          created_at: string
+          customer_language: string[]
+          desires: string[]
+          id: string
+          label: string | null
+          objections: string[]
+          pains: string[]
+          score: number | null
+          source: string
+          summary: string | null
+          supporting_review_ids: string[]
+          theme: string | null
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          customer_language?: string[]
+          desires?: string[]
+          id?: string
+          label?: string | null
+          objections?: string[]
+          pains?: string[]
+          score?: number | null
+          source?: string
+          summary?: string | null
+          supporting_review_ids?: string[]
+          theme?: string | null
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          customer_language?: string[]
+          desires?: string[]
+          id?: string
+          label?: string | null
+          objections?: string[]
+          pains?: string[]
+          score?: number | null
+          source?: string
+          summary?: string | null
+          supporting_review_ids?: string[]
+          theme?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "angle_clusters_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "ad_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       annotations: {
         Row: {
           account_id: string
@@ -641,6 +672,32 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      api_rate_limit_counters: {
+        Row: {
+          key_id: string
+          request_count: number
+          window_start: string
+        }
+        Insert: {
+          key_id: string
+          request_count?: number
+          window_start: string
+        }
+        Update: {
+          key_id?: string
+          request_count?: number
+          window_start?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_rate_limit_counters_key_id_fkey"
+            columns: ["key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       board_items: {
         Row: {
@@ -743,6 +800,7 @@ export type Database = {
           created_at: string | null
           created_by: string | null
           due_date: string | null
+          generation_key: string | null
           id: string
           name: string
           reference_ad_ids: string[] | null
@@ -757,6 +815,7 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           due_date?: string | null
+          generation_key?: string | null
           id?: string
           name: string
           reference_ad_ids?: string[] | null
@@ -771,6 +830,7 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           due_date?: string | null
+          generation_key?: string | null
           id?: string
           name?: string
           reference_ad_ids?: string[] | null
@@ -1269,6 +1329,8 @@ export type Database = {
           style: string | null
           tag_source: string
           theme: string | null
+          thumb_retry_after: string | null
+          thumb_retry_count: number
           thumb_stop_rate: number | null
           thumbnail_storage_path: string | null
           thumbnail_url: string | null
@@ -1276,6 +1338,8 @@ export type Database = {
           updated_at: string
           version: number | null
           video_avg_play_time: number | null
+          video_retry_after: string | null
+          video_retry_count: number
           video_url: string | null
           video_views: number | null
         }
@@ -1330,6 +1394,8 @@ export type Database = {
           style?: string | null
           tag_source?: string
           theme?: string | null
+          thumb_retry_after?: string | null
+          thumb_retry_count?: number
           thumb_stop_rate?: number | null
           thumbnail_storage_path?: string | null
           thumbnail_url?: string | null
@@ -1337,6 +1403,8 @@ export type Database = {
           updated_at?: string
           version?: number | null
           video_avg_play_time?: number | null
+          video_retry_after?: string | null
+          video_retry_count?: number
           video_url?: string | null
           video_views?: number | null
         }
@@ -1391,6 +1459,8 @@ export type Database = {
           style?: string | null
           tag_source?: string
           theme?: string | null
+          thumb_retry_after?: string | null
+          thumb_retry_count?: number
           thumb_stop_rate?: number | null
           thumbnail_storage_path?: string | null
           thumbnail_url?: string | null
@@ -1398,6 +1468,8 @@ export type Database = {
           updated_at?: string
           version?: number | null
           video_avg_play_time?: number | null
+          video_retry_after?: string | null
+          video_retry_count?: number
           video_url?: string | null
           video_views?: number | null
         }
@@ -1473,6 +1545,56 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "creators_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "ad_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_reviews: {
+        Row: {
+          account_id: string
+          author: string | null
+          created_at: string
+          id: string
+          rating: number | null
+          raw: Json | null
+          review_text: string | null
+          reviewed_at: string | null
+          source: string | null
+          source_identifier: string | null
+          source_url: string | null
+        }
+        Insert: {
+          account_id: string
+          author?: string | null
+          created_at?: string
+          id?: string
+          rating?: number | null
+          raw?: Json | null
+          review_text?: string | null
+          reviewed_at?: string | null
+          source?: string | null
+          source_identifier?: string | null
+          source_url?: string | null
+        }
+        Update: {
+          account_id?: string
+          author?: string | null
+          created_at?: string
+          id?: string
+          rating?: number | null
+          raw?: Json | null
+          review_text?: string | null
+          reviewed_at?: string | null
+          source?: string | null
+          source_identifier?: string | null
+          source_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_reviews_account_id_fkey"
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "ad_accounts"
@@ -1621,8 +1743,14 @@ export type Database = {
           id: string
           industry: string | null
           is_featured: boolean
+          performance_snapshot: Json | null
           platform: string | null
+          saved_by: string | null
           script_analysis: string | null
+          share_token: string | null
+          shared_at: string | null
+          source_account_id: string | null
+          source_ad_id: string | null
           source_url: string | null
           status: string
           target_audience: string | null
@@ -1648,8 +1776,14 @@ export type Database = {
           id?: string
           industry?: string | null
           is_featured?: boolean
+          performance_snapshot?: Json | null
           platform?: string | null
+          saved_by?: string | null
           script_analysis?: string | null
+          share_token?: string | null
+          shared_at?: string | null
+          source_account_id?: string | null
+          source_ad_id?: string | null
           source_url?: string | null
           status?: string
           target_audience?: string | null
@@ -1675,8 +1809,14 @@ export type Database = {
           id?: string
           industry?: string | null
           is_featured?: boolean
+          performance_snapshot?: Json | null
           platform?: string | null
+          saved_by?: string | null
           script_analysis?: string | null
+          share_token?: string | null
+          shared_at?: string | null
+          source_account_id?: string | null
+          source_ad_id?: string | null
           source_url?: string | null
           status?: string
           target_audience?: string | null
@@ -1953,6 +2093,114 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "name_mappings_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "ad_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      naming_convention_segments: {
+        Row: {
+          convention_id: string
+          created_at: string
+          dimension: string
+          id: string
+          position: number
+          required: boolean
+          updated_at: string
+        }
+        Insert: {
+          convention_id: string
+          created_at?: string
+          dimension: string
+          id?: string
+          position: number
+          required?: boolean
+          updated_at?: string
+        }
+        Update: {
+          convention_id?: string
+          created_at?: string
+          dimension?: string
+          id?: string
+          position?: number
+          required?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "naming_convention_segments_convention_id_fkey"
+            columns: ["convention_id"]
+            isOneToOne: false
+            referencedRelation: "naming_conventions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      naming_convention_vocab: {
+        Row: {
+          aliases: string[]
+          canonical: string
+          convention_id: string
+          created_at: string
+          dimension: string
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          aliases?: string[]
+          canonical: string
+          convention_id: string
+          created_at?: string
+          dimension: string
+          id?: string
+          updated_at?: string
+        }
+        Update: {
+          aliases?: string[]
+          canonical?: string
+          convention_id?: string
+          created_at?: string
+          dimension?: string
+          id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "naming_convention_vocab_convention_id_fkey"
+            columns: ["convention_id"]
+            isOneToOne: false
+            referencedRelation: "naming_conventions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      naming_conventions: {
+        Row: {
+          account_id: string | null
+          created_at: string
+          id: string
+          separator: string
+          updated_at: string
+        }
+        Insert: {
+          account_id?: string | null
+          created_at?: string
+          id?: string
+          separator?: string
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string | null
+          created_at?: string
+          id?: string
+          separator?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "naming_conventions_account_id_fkey"
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "ad_accounts"
@@ -2864,6 +3112,24 @@ export type Database = {
           published_text: string | null
           updated_at: string | null
         }
+        Insert: {
+          account_id?: string | null
+          created_at?: string | null
+          id?: string | null
+          period?: string | null
+          published_at?: string | null
+          published_text?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          created_at?: string | null
+          id?: string | null
+          period?: string | null
+          published_at?: string | null
+          published_text?: string | null
+          updated_at?: string | null
+        }
         Relationships: [
           {
             foreignKeyName: "client_highlights_account_id_fkey"
@@ -2883,6 +3149,10 @@ export type Database = {
         Returns: number
       }
       bulk_update_creative_metrics: { Args: { payload: Json }; Returns: number }
+      check_api_rate_limit: {
+        Args: { p_key_id: string; p_limit?: number; p_window_seconds?: number }
+        Returns: boolean
+      }
       claim_due_sync_accounts: {
         Args: { cutoff: string }
         Returns: {
@@ -2896,7 +3166,7 @@ export type Database = {
         }[]
       }
       claim_sync_continue: {
-        Args: { p_new_claim: string; p_old_claim: string; p_sync_id: string }
+        Args: { p_new_claim: string; p_old_claim: string; p_sync_id: number }
         Returns: {
           account_id: string
           api_errors: string | null
@@ -2953,6 +3223,7 @@ export type Database = {
           thumbnail_url: string
         }[]
       }
+      get_convention: { Args: { p_account_id?: string }; Returns: Json }
       get_daily_trends: {
         Args: { p_account_id?: string; p_from?: string; p_to?: string }
         Returns: {
@@ -3006,6 +3277,44 @@ export type Database = {
       }
       owns_ad_library_ad: { Args: { _ad_id: string }; Returns: boolean }
       owns_ad_library_board: { Args: { _board_id: string }; Returns: boolean }
+      rpc_hook_angle_coverage: {
+        Args: { p_account_id: string; p_dimension?: string }
+        Returns: {
+          tag_coverage_pct: number
+          tagged_spend: number
+          total_spend: number
+          untagged_spend: number
+        }[]
+      }
+      rpc_hook_angle_leaderboard: {
+        Args: { p_account_id: string; p_dimension?: string; p_limit?: number }
+        Returns: {
+          avg_ctr: number
+          avg_roas: number
+          is_untagged: boolean
+          label: string
+          n_ads: number
+          total_purchase_value: number
+          total_spend: number
+        }[]
+      }
+      rpc_media_coverage: {
+        Args: never
+        Returns: {
+          account_id: string
+          cdn_only: number
+          mismarked: number
+          null_url: number
+          playable: number
+          sample_thumbs: string[]
+          sentinel: number
+          thumb_cdn: number
+          thumb_null: number
+          thumb_sentinel: number
+          thumb_storage: number
+          total: number
+        }[]
+      }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
       snapshot_prior_roas: { Args: { _account_id: string }; Returns: number }
@@ -3140,12 +3449,11 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       app_role: ["builder", "employee", "client", "editor"],
     },
   },
 } as const
+A new version of Supabase CLI is available: v2.105.0 (currently installed v)
+We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli
