@@ -93,6 +93,24 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Log raw Apify output structure for facebook_ad so we can inspect what fields
+    // the actor returns (actor output format changes periodically with FB page updates).
+    if (item.platform === "facebook_ad") {
+      const raw = items[0] as Record<string, unknown>;
+      console.log(`[fb-debug] top-level keys: ${Object.keys(raw).join(", ")}`);
+      if (raw.snapshot && typeof raw.snapshot === "object") {
+        console.log(`[fb-debug] snapshot keys: ${Object.keys(raw.snapshot as object).join(", ")}`);
+        const snap = raw.snapshot as Record<string, unknown>;
+        if (Array.isArray(snap.videos) && snap.videos.length > 0) {
+          console.log(`[fb-debug] snapshot.videos[0] keys: ${Object.keys(snap.videos[0] as object).join(", ")}`);
+          console.log(`[fb-debug] snapshot.videos[0]: ${JSON.stringify(snap.videos[0]).slice(0, 300)}`);
+        }
+        if (Array.isArray(snap.images) && snap.images.length > 0) {
+          console.log(`[fb-debug] snapshot.images[0] keys: ${Object.keys(snap.images[0] as object).join(", ")}`);
+        }
+      }
+    }
+
     const videoUrl = config.extractVideoUrl(items[0]);
     if (!videoUrl) {
       // Metadata-only platforms: Instagram image/carousel posts have no videoUrl,

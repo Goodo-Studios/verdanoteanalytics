@@ -113,11 +113,26 @@ export const ACTOR_CONFIGS: Record<string, ActorConfig> = {
     },
     apiRunOptions: { memory: 2048 },
     extractVideoUrl: (item) => {
-      // v2 output: video data lives under snapshot.videos[] with camelCase fields
+      // v2 output: video data lives under snapshot.videos[] with camelCase fields.
+      // Field names vary across actor versions — check all known variants.
       const snapVideos = item?.snapshot?.videos;
       if (Array.isArray(snapVideos) && snapVideos.length > 0) {
-        return snapVideos[0]?.videoHdUrl ?? snapVideos[0]?.videoSdUrl ??
-               snapVideos[0]?.video_hd_url ?? snapVideos[0]?.video_sd_url ?? null;
+        const v = snapVideos[0];
+        const url = v?.videoHdUrl ?? v?.videoSdUrl ??
+                    v?.video_hd_url ?? v?.video_sd_url ??
+                    v?.videoUrl ?? v?.video_url ??
+                    v?.url ?? v?.src ?? null;
+        if (url) return url;
+      }
+      // Carousel ads: video may live under snapshot.cards[].videoHdUrl
+      const snapCards = item?.snapshot?.cards;
+      if (Array.isArray(snapCards) && snapCards.length > 0) {
+        for (const card of snapCards) {
+          const url = card?.videoHdUrl ?? card?.videoSdUrl ??
+                      card?.video_hd_url ?? card?.video_sd_url ??
+                      card?.videoUrl ?? card?.video_url ?? null;
+          if (url) return url;
+        }
       }
       // v1 flat output fallback
       return item?.videoUrl1 ?? item?.videoUrl ?? item?.video_hd_url ?? item?.video_sd_url ?? null;
@@ -127,11 +142,22 @@ export const ACTOR_CONFIGS: Record<string, ActorConfig> = {
       const snapImages = item?.snapshot?.images;
       if (Array.isArray(snapImages) && snapImages.length > 0) {
         return snapImages[0]?.originalImageUrl ?? snapImages[0]?.original_image_url ??
-               snapImages[0]?.resizedImageUrl ?? snapImages[0]?.resized_image_url ?? null;
+               snapImages[0]?.resizedImageUrl ?? snapImages[0]?.resized_image_url ??
+               snapImages[0]?.url ?? snapImages[0]?.src ?? null;
       }
       const snapVideos = item?.snapshot?.videos;
       if (Array.isArray(snapVideos) && snapVideos.length > 0) {
-        return snapVideos[0]?.videoPreviewImageUrl ?? snapVideos[0]?.video_preview_image_url ?? null;
+        return snapVideos[0]?.videoPreviewImageUrl ?? snapVideos[0]?.video_preview_image_url ??
+               snapVideos[0]?.thumbnailUrl ?? snapVideos[0]?.thumbnail_url ?? null;
+      }
+      // Carousel card thumbnail fallback
+      const snapCards = item?.snapshot?.cards;
+      if (Array.isArray(snapCards) && snapCards.length > 0) {
+        for (const card of snapCards) {
+          const url = card?.originalImageUrl ?? card?.resizedImageUrl ??
+                      card?.imageUrl ?? card?.image_url ?? card?.url ?? null;
+          if (url) return url;
+        }
       }
       // v1 flat fallback
       return item?.imageUrl1 ?? item?.thumbnailUrl ?? item?.thumbnail_url ?? item?.snapshot_url ?? null;
