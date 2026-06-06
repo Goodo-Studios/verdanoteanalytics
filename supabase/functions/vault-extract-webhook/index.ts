@@ -137,16 +137,28 @@ Deno.serve(async (req) => {
           }
         }
 
-        // facebook_ad image-only: store thumbnail as file_path so vault-analyze can
-        // resolve it from Supabase Storage (CDN thumbnail_url may expire before the
-        // user clicks "Run analysis"). Fire vault-analyze with media_kind="image" so
-        // it takes the image-only branch (no transcript required).
+        // facebook_ad: extract ad copy text for text-based analysis when no media is
+        // available. If ad copy exists, insert a transcript so vault-analyze runs the
+        // full text branch (framework + script + visual inference). If no copy, fall
+        // back to the image-only branch (which gracefully marks ready when no image).
         const isFacebookAd = item.platform === "facebook_ad";
+        let hasAdCopyTranscript = false;
+        if (isFacebookAd && config.extractAdCopy) {
+          const adCopy = config.extractAdCopy(items[0]);
+          if (adCopy) {
+            await db.from("inspiration_transcripts").insert({
+              item_id: itemId,
+              raw_transcript: adCopy,
+              cleaned_script: adCopy, // already clean copy — vault-analyze skips Call 1
+              word_count: adCopy.split(/\s+/).filter(Boolean).length,
+            }).catch(console.error); // best-effort; vault-analyze handles missing transcript
+            hasAdCopyTranscript = true;
+          }
+        }
+
         await db.from("inspiration_items").update({
           thumbnail_url: thumbnailUrl ?? undefined,
           thumbnail_path: thumbnailPath ?? undefined,
-          // For FB image ads, promote the stored thumbnail to file_path so vault-analyze
-          // can resolve a signed URL from storage when the CDN link has expired.
           ...(isFacebookAd && thumbnailPath ? { file_path: thumbnailPath } : {}),
           creator_handle: creatorHandle ?? undefined,
           ...(title ? { title } : {}),
@@ -154,16 +166,20 @@ Deno.serve(async (req) => {
         }).eq("id", itemId);
 
         if (isFacebookAd) {
-          // Await synchronously rather than EdgeRuntime.waitUntil — for image-only FB ads
-          // vault-analyze completes in <1s (no image → instant graceful fallback) or <20s
-          // (Claude vision on thumbnail). waitUntil was silently dropping the call.
+          // Await synchronously — waitUntil was silently dropping the call.
           await fetch(`${supabaseUrl}/functions/v1/vault-analyze`, {
             method: "POST",
             headers: {
               Authorization: `Bearer ${serviceRoleKey}`,
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ item_id: itemId, media_kind: "image" }),
+            // When ad copy exists, omit media_kind so vault-analyze runs the text branch.
+            // When no copy, pass media_kind:"image" for the graceful image-only fallback.
+            body: JSON.stringify(
+              hasAdCopyTranscript
+                ? { item_id: itemId }
+                : { item_id: itemId, media_kind: "image" }
+            ),
           }).catch(console.error);
         }
 

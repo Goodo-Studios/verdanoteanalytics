@@ -10,6 +10,13 @@ export type ActorConfig = {
   /** Optional — available for metadata-only platforms (YouTube, Twitter). */
   extractTitle?: (item: ApifyItem) => string | null;
   /**
+   * Optional — full ad copy text for text-based analysis (not truncated).
+   * Used by vault-extract-webhook to create an inspiration_transcripts row
+   * when no media is extractable, so vault-analyze can still run framework
+   * extraction from the written copy alone.
+   */
+  extractAdCopy?: (item: ApifyItem) => string | null;
+  /**
    * Optional extra query params passed to the Apify /acts/{id}/runs endpoint
    * (e.g. timeout, memory). Appended after token + webhooks in vault-extract.
    */
@@ -149,6 +156,45 @@ export const ACTOR_CONFIGS: Record<string, ActorConfig> = {
       // the item title stays blank rather than showing raw template syntax to the user.
       if (snapText.includes("{{")) return null;
       return snapText.slice(0, 120);
+    },
+    extractAdCopy: (item) => {
+      // Collect all text sections from the ad into a single block for text-based analysis.
+      // Used when Apify returns no media URLs so vault-analyze can still extract framework
+      // from the written copy alone (same approach as vault-ads POST handler ad copy path).
+      const parts: string[] = [];
+      // Headline (link title or card title)
+      const headline =
+        item?.snapshot?.cards?.[0]?.title ??
+        item?.snapshot?.link_title ??
+        item?.snapshot?.title ??
+        item?.headline ??
+        "";
+      if (typeof headline === "string" && headline.trim() && !headline.includes("{{")) {
+        parts.push(headline.trim());
+      }
+      // Body text — prefer full snapshot body, fall back to v1 fields
+      const body =
+        item?.snapshot?.body?.text ??
+        item?.snapshot?.caption ??
+        item?.adBodyText ??
+        item?.bodyText ??
+        item?.body ??
+        "";
+      if (typeof body === "string" && body.trim() && !body.includes("{{")) {
+        parts.push(body.trim());
+      }
+      // Carousel cards (up to 3)
+      const cards = item?.snapshot?.cards;
+      if (Array.isArray(cards)) {
+        for (const card of cards.slice(0, 3)) {
+          const cardBody = card?.body ?? "";
+          if (typeof cardBody === "string" && cardBody.trim() && !cardBody.includes("{{")) {
+            parts.push(cardBody.trim());
+          }
+        }
+      }
+      const copy = parts.join("\n\n").trim();
+      return copy.length > 10 ? copy : null;
     },
   },
   twitter: {
