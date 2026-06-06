@@ -333,7 +333,19 @@ Deno.serve(async (req) => {
         filePath: effectiveItem?.file_path,
       })
     ) {
-      await analyzeStaticImage({ db, anthropicKey, itemId, item: effectiveItem });
+      try {
+        await analyzeStaticImage({ db, anthropicKey, itemId, item: effectiveItem });
+      } catch (imgErr) {
+        // If no image is accessible (CDN expired, hotlink-protected, never stored), mark
+        // the item ready without analysis rather than erroring — the ad IS saved and
+        // usable as a reference; it just can't be auto-analyzed without a fetchable image.
+        if (String(imgErr).includes("No image found to analyze")) {
+          await db.from("inspiration_items").update({ status: "ready" }).eq("id", itemId);
+          console.warn(`vault-analyze: no image for item ${itemId}, marked ready without analysis`);
+        } else {
+          throw imgErr;
+        }
+      }
       return json({ ok: true, item_id: itemId });
     }
 

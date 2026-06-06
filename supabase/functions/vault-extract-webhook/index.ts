@@ -111,10 +111,14 @@ Deno.serve(async (req) => {
         let thumbnailPath: string | undefined;
         if (thumbnailUrl) {
           try {
+            const platformReferer =
+              item.platform === "instagram" ? "https://www.instagram.com/" :
+              item.platform === "facebook_ad" ? "https://www.facebook.com/" :
+              "https://www.youtube.com/";
             const thumbRes = await fetch(thumbnailUrl, {
               headers: {
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-                Referer: item.platform === "instagram" ? "https://www.instagram.com/" : "https://www.youtube.com/",
+                Referer: platformReferer,
                 Accept: "image/webp,image/jpeg,image/*,*/*;q=0.8",
               },
             });
