@@ -146,13 +146,17 @@ Deno.serve(async (req) => {
         if (isFacebookAd && config.extractAdCopy) {
           const adCopy = config.extractAdCopy(items[0]);
           if (adCopy) {
-            await db.from("inspiration_transcripts").insert({
+            const { error: transcriptErr } = await db.from("inspiration_transcripts").insert({
               item_id: itemId,
               raw_transcript: adCopy,
               cleaned_script: adCopy, // already clean copy — vault-analyze skips Call 1
               word_count: adCopy.split(/\s+/).filter(Boolean).length,
-            }).catch(console.error); // best-effort; vault-analyze handles missing transcript
-            hasAdCopyTranscript = true;
+            });
+            if (transcriptErr) {
+              console.error("transcript insert failed:", transcriptErr);
+            } else {
+              hasAdCopyTranscript = true;
+            }
           }
         }
 
