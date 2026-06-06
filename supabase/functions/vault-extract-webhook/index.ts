@@ -154,16 +154,17 @@ Deno.serve(async (req) => {
         }).eq("id", itemId);
 
         if (isFacebookAd) {
-          EdgeRuntime.waitUntil(
-            fetch(`${supabaseUrl}/functions/v1/vault-analyze`, {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${serviceRoleKey}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ item_id: itemId, media_kind: "image" }),
-            }).catch(console.error)
-          );
+          // Await synchronously rather than EdgeRuntime.waitUntil — for image-only FB ads
+          // vault-analyze completes in <1s (no image → instant graceful fallback) or <20s
+          // (Claude vision on thumbnail). waitUntil was silently dropping the call.
+          await fetch(`${supabaseUrl}/functions/v1/vault-analyze`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${serviceRoleKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ item_id: itemId, media_kind: "image" }),
+          }).catch(console.error);
         }
 
         return json({ ok: true, item_id: itemId, type: "metadata_only" });
