@@ -306,7 +306,7 @@ Deno.serve(async (req) => {
         .eq("item_id", itemId)
         .single(),
       db.from("inspiration_items")
-        .select("brand_name, thumbnail_url, file_path, thumbnail_path")
+        .select("brand_name, thumbnail_url, file_path, thumbnail_path, platform")
         .eq("id", itemId)
         .single(),
     ]);
@@ -326,7 +326,15 @@ Deno.serve(async (req) => {
     // Static image ads have no transcript — analyze the image directly instead of
     // erroring on the missing script. (media_kind hint comes from vault-save on the
     // fresh-upload path; the re-analyze path infers from the stored file_path.)
+    // facebook_ad items are always image-only when there is no transcript: Meta image
+    // ads never produce a transcript, and video ads that made it to vault-analyze have
+    // their transcript written by vault-transcribe first. This catches pre-existing
+    // errored items (no file_path, expired CDN URL) so "Run analysis" resolves them
+    // gracefully rather than throwing "No transcript found".
+    const isFacebookAdNoTranscript =
+      !transcriptRow?.raw_transcript && effectiveItem?.platform === "facebook_ad";
     if (
+      isFacebookAdNoTranscript ||
       isImageOnlyAnalysis({
         hasTranscript: !!transcriptRow?.raw_transcript,
         mediaKind: body.media_kind,
