@@ -85,8 +85,25 @@ export const ACTOR_CONFIGS: Record<string, ActorConfig> = {
     // of actor completion. actor does NOT store to Apify KV, so isApifyStorage will be false.
     // apiRunOptions.memory: Facebook ad pages are heavier than TikTok — 2048 MB recommended.
     // Field names validated against E2E smoke test in US-004.
+    //
+    // URL enrichment: bare ?id= links (e.g. https://www.facebook.com/ads/library/?id=123) omit
+    // the active_status / ad_type / country params that the actor needs to return results. The
+    // actor interprets a bare ?id= URL as an empty search and returns nothing. Enrich the URL
+    // with these required params before passing to the actor.
     actorId: "apify~facebook-ads-scraper",
-    buildInput: (url) => ({ startUrls: [{ url }] }),
+    buildInput: (url) => {
+      let enrichedUrl = url;
+      try {
+        const u = new URL(url);
+        if (u.searchParams.get("id") && !u.searchParams.get("active_status")) {
+          u.searchParams.set("active_status", "all");
+          u.searchParams.set("ad_type", "all");
+          u.searchParams.set("country", "US");
+          enrichedUrl = u.toString();
+        }
+      } catch { /* keep original */ }
+      return { startUrls: [{ url: enrichedUrl }] };
+    },
     apiRunOptions: { memory: 2048 },
     extractVideoUrl: (item) => {
       // v2 output: video data lives under snapshot.videos[] with camelCase fields
