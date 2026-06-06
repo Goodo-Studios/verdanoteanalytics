@@ -126,7 +126,12 @@ export const ACTOR_CONFIGS: Record<string, ActorConfig> = {
         item?.title ??
         item?.headline ??
         "";
-      return typeof snapText === "string" && snapText.length > 0 ? snapText.slice(0, 120) : null;
+      if (typeof snapText !== "string" || !snapText.length) return null;
+      // Meta dynamic ads store unresolved Handlebars vars (e.g. {{product.brand}}) in
+      // ad copy when the ad was built with a product catalog template. Return null so
+      // the item title stays blank rather than showing raw template syntax to the user.
+      if (snapText.includes("{{")) return null;
+      return snapText.slice(0, 120);
     },
   },
   twitter: {

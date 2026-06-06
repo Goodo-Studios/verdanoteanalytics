@@ -306,12 +306,22 @@ Deno.serve(async (req) => {
         .eq("item_id", itemId)
         .single(),
       db.from("inspiration_items")
-        .select("brand_name, thumbnail_url, file_path")
+        .select("brand_name, thumbnail_url, file_path, thumbnail_path")
         .eq("id", itemId)
         .single(),
     ]);
 
     const transcriptRow = transcriptResult.data;
+
+    // For items saved before the facebook_ad fix (thumbnail_path set, file_path null),
+    // promote thumbnail_path to file_path so isImageOnlyAnalysis and analyzeStaticImage
+    // can detect and resolve the stored image without requiring a re-save.
+    const effectiveItem = itemResult.data
+      ? {
+          ...itemResult.data,
+          file_path: itemResult.data.file_path ?? itemResult.data.thumbnail_path ?? null,
+        }
+      : itemResult.data;
 
     // Static image ads have no transcript — analyze the image directly instead of
     // erroring on the missing script. (media_kind hint comes from vault-save on the
@@ -320,10 +330,10 @@ Deno.serve(async (req) => {
       isImageOnlyAnalysis({
         hasTranscript: !!transcriptRow?.raw_transcript,
         mediaKind: body.media_kind,
-        filePath: itemResult.data?.file_path,
+        filePath: effectiveItem?.file_path,
       })
     ) {
-      await analyzeStaticImage({ db, anthropicKey, itemId, item: itemResult.data });
+      await analyzeStaticImage({ db, anthropicKey, itemId, item: effectiveItem });
       return json({ ok: true, item_id: itemId });
     }
 
@@ -331,8 +341,8 @@ Deno.serve(async (req) => {
       throw new Error("No transcript found for item");
     }
 
-    const existingBrandName = itemResult.data?.brand_name ?? null;
-    const thumbnailUrl = itemResult.data?.thumbnail_url ?? null;
+    const existingBrandName = effectiveItem?.brand_name ?? null;
+    const thumbnailUrl = effectiveItem?.thumbnail_url ?? null;
 
     // Call 1: clean transcript → readable script (skip if already cleaned, e.g. for ad copy)
     // Thumbnail fetch runs concurrently — we need it for the framework call below.

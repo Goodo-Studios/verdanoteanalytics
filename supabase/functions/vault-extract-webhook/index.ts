@@ -133,13 +133,34 @@ Deno.serve(async (req) => {
           }
         }
 
+        // facebook_ad image-only: store thumbnail as file_path so vault-analyze can
+        // resolve it from Supabase Storage (CDN thumbnail_url may expire before the
+        // user clicks "Run analysis"). Fire vault-analyze with media_kind="image" so
+        // it takes the image-only branch (no transcript required).
+        const isFacebookAd = item.platform === "facebook_ad";
         await db.from("inspiration_items").update({
           thumbnail_url: thumbnailUrl ?? undefined,
           thumbnail_path: thumbnailPath ?? undefined,
+          // For FB image ads, promote the stored thumbnail to file_path so vault-analyze
+          // can resolve a signed URL from storage when the CDN link has expired.
+          ...(isFacebookAd && thumbnailPath ? { file_path: thumbnailPath } : {}),
           creator_handle: creatorHandle ?? undefined,
           ...(title ? { title } : {}),
-          status: "ready",
+          status: isFacebookAd ? "analyzing" : "ready",
         }).eq("id", itemId);
+
+        if (isFacebookAd) {
+          EdgeRuntime.waitUntil(
+            fetch(`${supabaseUrl}/functions/v1/vault-analyze`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${serviceRoleKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ item_id: itemId, media_kind: "image" }),
+            }).catch(console.error)
+          );
+        }
 
         return json({ ok: true, item_id: itemId, type: "metadata_only" });
       }
