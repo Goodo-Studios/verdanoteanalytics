@@ -93,12 +93,47 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Log raw Apify output structure for facebook_ad so we can inspect what fields
+    // the actor returns (actor output format changes periodically with FB page updates).
+    if (item.platform === "facebook_ad") {
+      const raw = items[0] as Record<string, unknown>;
+      console.log(`[fb-debug] top-level keys: ${Object.keys(raw).join(", ")}`);
+      if (raw.snapshot && typeof raw.snapshot === "object") {
+        console.log(`[fb-debug] snapshot keys: ${Object.keys(raw.snapshot as object).join(", ")}`);
+        const snap = raw.snapshot as Record<string, unknown>;
+        if (Array.isArray(snap.videos) && snap.videos.length > 0) {
+          console.log(`[fb-debug] snapshot.videos[0] keys: ${Object.keys(snap.videos[0] as object).join(", ")}`);
+          console.log(`[fb-debug] snapshot.videos[0]: ${JSON.stringify(snap.videos[0]).slice(0, 300)}`);
+        }
+        if (Array.isArray(snap.images) && snap.images.length > 0) {
+          console.log(`[fb-debug] snapshot.images[0] keys: ${Object.keys(snap.images[0] as object).join(", ")}`);
+        }
+      }
+    }
+
+    // Log raw Apify output for linkedin — actor video field name is not documented,
+    // so we log all top-level keys + video/media sub-fields to identify them on first run.
+    if (item.platform === "linkedin") {
+      const raw = items[0] as Record<string, unknown>;
+      console.log(`[linkedin-debug] top-level keys: ${Object.keys(raw).join(", ")}`);
+      if (raw.video && typeof raw.video === "object") {
+        console.log(`[linkedin-debug] video keys: ${Object.keys(raw.video as object).join(", ")}`);
+        console.log(`[linkedin-debug] video: ${JSON.stringify(raw.video).slice(0, 300)}`);
+      }
+      if (Array.isArray(raw.media) && raw.media.length > 0) {
+        console.log(`[linkedin-debug] media[0]: ${JSON.stringify(raw.media[0]).slice(0, 300)}`);
+      }
+      if (raw.postMedia) {
+        console.log(`[linkedin-debug] postMedia: ${JSON.stringify(raw.postMedia).slice(0, 300)}`);
+      }
+    }
+
     const videoUrl = config.extractVideoUrl(items[0]);
     if (!videoUrl) {
       // Metadata-only platforms: Instagram image/carousel posts have no videoUrl,
       // and YouTube CDN is not downloadable. Save the thumbnail + title and mark ready.
       // facebook_ad image-only: save metadata + ad copy, then kick off vault-analyze.
-      const METADATA_ONLY_PLATFORMS = ["instagram", "youtube", "twitter", "facebook_ad"];
+      const METADATA_ONLY_PLATFORMS = ["instagram", "youtube", "twitter", "facebook_ad", "linkedin"];
       if (METADATA_ONLY_PLATFORMS.includes(item.platform ?? "")) {
         const thumbnailUrl = config.extractThumbnailUrl(items[0]);
         const creatorHandle = config.extractCreatorHandle(items[0]);
@@ -111,10 +146,15 @@ Deno.serve(async (req) => {
         let thumbnailPath: string | undefined;
         if (thumbnailUrl) {
           try {
+            const platformReferer =
+              item.platform === "instagram" ? "https://www.instagram.com/" :
+              item.platform === "facebook_ad" ? "https://www.facebook.com/" :
+              item.platform === "linkedin" ? "https://www.linkedin.com/" :
+              "https://www.youtube.com/";
             const thumbRes = await fetch(thumbnailUrl, {
               headers: {
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-                Referer: item.platform === "instagram" ? "https://www.instagram.com/" : "https://www.youtube.com/",
+                Referer: platformReferer,
                 Accept: "image/webp,image/jpeg,image/*,*/*;q=0.8",
               },
             });
@@ -133,13 +173,57 @@ Deno.serve(async (req) => {
           }
         }
 
+        // facebook_ad / linkedin: extract copy text for text-based analysis when no media
+        // is available. If copy exists, insert a transcript so vault-analyze runs the full
+        // text branch (framework + script + visual inference). If no copy, fall back to the
+        // image-only branch (which gracefully marks ready when no image).
+        const isTextAnalysisPlatform = ["facebook_ad", "linkedin"].includes(item.platform ?? "");
+        // Keep isFacebookAd alias for file_path assignment below (fb-specific behaviour).
+        const isFacebookAd = item.platform === "facebook_ad";
+        let hasAdCopyTranscript = false;
+        if (isTextAnalysisPlatform && config.extractAdCopy) {
+          const adCopy = config.extractAdCopy(items[0]);
+          if (adCopy) {
+            const { error: transcriptErr } = await db.from("inspiration_transcripts").insert({
+              item_id: itemId,
+              raw_transcript: adCopy,
+              cleaned_script: adCopy, // already clean copy — vault-analyze skips Call 1
+              word_count: adCopy.split(/\s+/).filter(Boolean).length,
+            });
+            if (transcriptErr) {
+              console.error("transcript insert failed:", transcriptErr);
+            } else {
+              hasAdCopyTranscript = true;
+            }
+          }
+        }
+
         await db.from("inspiration_items").update({
           thumbnail_url: thumbnailUrl ?? undefined,
           thumbnail_path: thumbnailPath ?? undefined,
+          ...(isFacebookAd && thumbnailPath ? { file_path: thumbnailPath } : {}),
           creator_handle: creatorHandle ?? undefined,
           ...(title ? { title } : {}),
-          status: "ready",
+          status: isTextAnalysisPlatform ? "analyzing" : "ready",
         }).eq("id", itemId);
+
+        if (isTextAnalysisPlatform) {
+          // Await synchronously — waitUntil was silently dropping the call.
+          await fetch(`${supabaseUrl}/functions/v1/vault-analyze`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${serviceRoleKey}`,
+              "Content-Type": "application/json",
+            },
+            // When ad copy exists, omit media_kind so vault-analyze runs the text branch.
+            // When no copy, pass media_kind:"image" for the graceful image-only fallback.
+            body: JSON.stringify(
+              hasAdCopyTranscript
+                ? { item_id: itemId }
+                : { item_id: itemId, media_kind: "image" }
+            ),
+          }).catch(console.error);
+        }
 
         return json({ ok: true, item_id: itemId, type: "metadata_only" });
       }

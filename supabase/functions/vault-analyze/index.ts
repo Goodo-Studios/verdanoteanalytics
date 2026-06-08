@@ -306,24 +306,54 @@ Deno.serve(async (req) => {
         .eq("item_id", itemId)
         .single(),
       db.from("inspiration_items")
-        .select("brand_name, thumbnail_url, file_path")
+        .select("brand_name, thumbnail_url, file_path, thumbnail_path, platform")
         .eq("id", itemId)
         .single(),
     ]);
 
     const transcriptRow = transcriptResult.data;
 
+    // For items saved before the facebook_ad fix (thumbnail_path set, file_path null),
+    // promote thumbnail_path to file_path so isImageOnlyAnalysis and analyzeStaticImage
+    // can detect and resolve the stored image without requiring a re-save.
+    const effectiveItem = itemResult.data
+      ? {
+          ...itemResult.data,
+          file_path: itemResult.data.file_path ?? itemResult.data.thumbnail_path ?? null,
+        }
+      : itemResult.data;
+
     // Static image ads have no transcript — analyze the image directly instead of
     // erroring on the missing script. (media_kind hint comes from vault-save on the
     // fresh-upload path; the re-analyze path infers from the stored file_path.)
+    // facebook_ad items are always image-only when there is no transcript: Meta image
+    // ads never produce a transcript, and video ads that made it to vault-analyze have
+    // their transcript written by vault-transcribe first. This catches pre-existing
+    // errored items (no file_path, expired CDN URL) so "Run analysis" resolves them
+    // gracefully rather than throwing "No transcript found".
+    const isFacebookAdNoTranscript =
+      !transcriptRow?.raw_transcript && effectiveItem?.platform === "facebook_ad";
     if (
+      isFacebookAdNoTranscript ||
       isImageOnlyAnalysis({
         hasTranscript: !!transcriptRow?.raw_transcript,
         mediaKind: body.media_kind,
-        filePath: itemResult.data?.file_path,
+        filePath: effectiveItem?.file_path,
       })
     ) {
-      await analyzeStaticImage({ db, anthropicKey, itemId, item: itemResult.data });
+      try {
+        await analyzeStaticImage({ db, anthropicKey, itemId, item: effectiveItem });
+      } catch (imgErr) {
+        // If no image is accessible (CDN expired, hotlink-protected, never stored), mark
+        // the item ready without analysis rather than erroring — the ad IS saved and
+        // usable as a reference; it just can't be auto-analyzed without a fetchable image.
+        if (String(imgErr).includes("No image found to analyze")) {
+          await db.from("inspiration_items").update({ status: "ready" }).eq("id", itemId);
+          console.warn(`vault-analyze: no image for item ${itemId}, marked ready without analysis`);
+        } else {
+          throw imgErr;
+        }
+      }
       return json({ ok: true, item_id: itemId });
     }
 
@@ -331,8 +361,8 @@ Deno.serve(async (req) => {
       throw new Error("No transcript found for item");
     }
 
-    const existingBrandName = itemResult.data?.brand_name ?? null;
-    const thumbnailUrl = itemResult.data?.thumbnail_url ?? null;
+    const existingBrandName = effectiveItem?.brand_name ?? null;
+    const thumbnailUrl = effectiveItem?.thumbnail_url ?? null;
 
     // Call 1: clean transcript → readable script (skip if already cleaned, e.g. for ad copy)
     // Thumbnail fetch runs concurrently — we need it for the framework call below.

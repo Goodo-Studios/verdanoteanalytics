@@ -119,11 +119,13 @@ export default function ItemDetailPage() {
     }
   }, [data]);
 
-  // Signed URL for storage-backed media (used when the row doesn't carry a
-  // public `video_url`).
+  // Signed URL for storage-backed media. Always preferred over video_url — CDN
+  // URLs (especially Facebook fbcdn.net) expire within hours, while the signed
+  // storage URL is refreshed every 50 min via staleTime. Enabled for all video
+  // file_paths regardless of whether a (possibly stale) video_url also exists.
   const { data: signedUrl } = useQuery({
     queryKey: ["vault-item-signed-url", data?.file_path],
-    enabled: !!data?.file_path && !data?.video_url,
+    enabled: !!data?.file_path && !/\.(jpg|jpeg|png|gif|webp|avif)$/i.test(data?.file_path ?? ""),
     staleTime: 50 * 60 * 1000,
     queryFn: async () => {
       const { data: result, error } = await supabase.storage
@@ -146,19 +148,9 @@ export default function ItemDetailPage() {
         .eq("item_id", id);
       if (delErr) throw delErr;
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: statusData, error: statusErr } = await supabase
-        .from("inspiration_items")
-        .update({ status: "analyzing", error_message: null })
-        .eq("id", id)
-        .select("id");
-      if (statusErr) throw statusErr;
-      if (!statusData?.length) {
-        throw new Error("Re-analyze failed — could not update item status");
-      }
-
-      queryClient.invalidateQueries({ queryKey: ["vault-item", id] });
-
+      // Call the edge function first — only mark the DB row as 'analyzing'
+      // after confirming the fetch succeeded. This prevents the row from being
+      // permanently stuck at 'analyzing' if the network call fails.
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
       const {
         data: { session },
@@ -171,14 +163,28 @@ export default function ItemDetailPage() {
         },
         body: JSON.stringify({ item_id: id }),
       });
-      // Don't await JSON — vault-analyze writes to the DB and we'll pick up the
-      // result via the polling hook. But we do need to surface non-2xx errors.
+      // Surface non-2xx errors before touching the DB.
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? `vault-analyze returned ${res.status}`);
       }
+
+      // Fetch succeeded — now safe to flip the DB status.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: statusData, error: statusErr } = await supabase
+        .from("inspiration_items")
+        .update({ status: "analyzing", error_message: null })
+        .eq("id", id)
+        .select("id");
+      if (statusErr) throw statusErr;
+      if (!statusData?.length) {
+        throw new Error("Re-analyze failed — could not update item status");
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["vault-item", id] });
     },
     onSuccess: () => {
+      setReanalyzeInFlight(false);
       toast.success("Re-analysis kicked off");
     },
     onError: (err) => {
@@ -371,9 +377,9 @@ export default function ItemDetailPage() {
           {/* Left: preview + tags */}
           <div className="space-y-4">
             <div className="rounded-xl overflow-hidden bg-muted aspect-[9/16]">
-              {!isImageFile && (data.video_url || signedUrl) ? (
+              {!isImageFile && (signedUrl || data.video_url) ? (
                 <video
-                  src={data.video_url ?? signedUrl ?? undefined}
+                  src={signedUrl ?? data.video_url ?? undefined}
                   controls
                   poster={data.thumbnail_url ?? undefined}
                   className="w-full h-full object-contain"
