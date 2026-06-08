@@ -268,39 +268,55 @@ export const ACTOR_CONFIGS: Record<string, ActorConfig> = {
       ((item?.text ?? item?.full_text ?? "") as string).slice(0, 120) || null,
   },
   linkedin: {
-    // electrifying_haircut~linkedin-post-scraper: accepts direct ugcPost URLs.
-    // Requires LinkedIn session cookies stored as Supabase secrets:
-    //   LINKEDIN_LI_AT     — the li_at cookie from browser DevTools
-    //   LINKEDIN_JSESSIONID — the JSESSIONID cookie
-    // buildInputWithEnv injects these automatically; buildInput is a no-auth fallback.
+    // curious_coder~linkedin-post-search-scraper: 18 reviews, accepts direct ugcPost URLs
+    // via the `urls` array. Requires LinkedIn session cookies stored as Supabase secrets:
+    //   LINKEDIN_LI_AT      — the li_at cookie from browser DevTools
+    //   LINKEDIN_JSESSIONID — the JSESSIONID cookie (strip surrounding quotes)
+    // buildInputWithEnv constructs the Cookie-Editor array format the actor expects.
     // Video field name is undocumented — extractVideoUrl tries all known variants and
     // [linkedin-debug] log lines in vault-extract-webhook expose the actual keys on first run.
-    actorId: "electrifying_haircut~linkedin-post-scraper",
-    buildInput: (url) => ({ postUrls: [url] }),
-    buildInputWithEnv: (url, env) => ({
-      postUrls: [url],
-      ...(env.LINKEDIN_LI_AT ? { li_at: env.LINKEDIN_LI_AT } : {}),
-      ...(env.LINKEDIN_JSESSIONID ? { jsessionid: env.LINKEDIN_JSESSIONID } : {}),
+    actorId: "curious_coder~linkedin-post-search-scraper",
+    buildInput: (url) => ({
+      urls: [{ url }],
+      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      limitPerSource: 1,
     }),
+    buildInputWithEnv: (url, env) => {
+      const cookies: Array<Record<string, unknown>> = [];
+      if (env.LINKEDIN_LI_AT) {
+        cookies.push({ name: "li_at", value: env.LINKEDIN_LI_AT, domain: ".linkedin.com", path: "/", secure: true, httpOnly: true });
+      }
+      if (env.LINKEDIN_JSESSIONID) {
+        // Actor expects JSESSIONID with surrounding quotes per Cookie-Editor format.
+        const val = env.LINKEDIN_JSESSIONID.startsWith('"') ? env.LINKEDIN_JSESSIONID : `"${env.LINKEDIN_JSESSIONID}"`;
+        cookies.push({ name: "JSESSIONID", value: val, domain: ".www.linkedin.com", path: "/", secure: true, httpOnly: false });
+      }
+      return {
+        urls: [{ url }],
+        cookie: cookies,
+        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        limitPerSource: 1,
+        proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
+      };
+    },
     extractVideoUrl: (item) =>
-      // Try every plausible field shape — actor docs don't confirm the exact key.
-      // [linkedin-debug] logs in vault-extract-webhook will show actual keys on first run.
+      // [linkedin-debug] logs in vault-extract-webhook show actual keys on first run.
       item?.video?.url ??
       item?.videoUrl ??
       item?.video?.downloadUrl ??
       item?.video?.streamUrl ??
+      (Array.isArray(item?.attachments) && item.attachments.length > 0
+        ? (item.attachments[0]?.url ?? item.attachments[0]?.videoUrl ?? null)
+        : null) ??
       (Array.isArray(item?.media) && item.media.length > 0
         ? (item.media[0]?.url ?? (typeof item.media[0] === "string" ? item.media[0] : null))
         : null) ??
-      item?.mediaUrl ??
-      item?.postMedia?.[0]?.url ??
       null,
     extractThumbnailUrl: (item) =>
       item?.image ??
+      (Array.isArray(item?.images) && item.images.length > 0 ? item.images[0] : null) ??
       item?.thumbnailUrl ??
       item?.thumbnail ??
-      item?.video?.thumbnail ??
-      item?.author?.profilePicture ??
       null,
     extractCreatorHandle: (item) =>
       item?.author?.name ??
@@ -308,10 +324,11 @@ export const ACTOR_CONFIGS: Record<string, ActorConfig> = {
       item?.authorName ??
       null,
     extractTitle: (item) =>
+      typeof item?.text === "string" ? item.text.slice(0, 120) :
       typeof item?.postText === "string" ? item.postText.slice(0, 120) : null,
-    extractAdCopy: (item) =>
-      typeof item?.postText === "string" && item.postText.length > 10
-        ? item.postText
-        : null,
+    extractAdCopy: (item) => {
+      const copy = item?.text ?? item?.postText ?? "";
+      return typeof copy === "string" && copy.length > 10 ? copy : null;
+    },
   },
 };
