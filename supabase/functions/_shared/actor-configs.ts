@@ -276,9 +276,9 @@ export const ACTOR_CONFIGS: Record<string, ActorConfig> = {
     // Video field name is undocumented — extractVideoUrl tries all known variants and
     // [linkedin-debug] log lines in vault-extract-webhook expose the actual keys on first run.
     actorId: "electrifying_haircut~linkedin-post-scraper",
-    buildInput: (url) => ({ postUrl: url }),
+    buildInput: (url) => ({ postUrl: url.split("?")[0] }),
     buildInputWithEnv: (url, env) => ({
-      postUrl: url,
+      postUrl: url.split("?")[0], // strip UTM/tracking params — actor fails to parse activity ID with query string
       ...(env.LINKEDIN_LI_AT ? { li_at: env.LINKEDIN_LI_AT } : {}),
       ...(env.LINKEDIN_JSESSIONID ? { jsessionid: env.LINKEDIN_JSESSIONID } : {}),
     }),
