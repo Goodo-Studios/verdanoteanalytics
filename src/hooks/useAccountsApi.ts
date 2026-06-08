@@ -7,8 +7,8 @@ export function useAccounts(userId?: string | null) {
   return useQuery<Account[]>({
     queryKey: ["accounts", userId ?? "all"],
     queryFn: () => apiFetch("accounts"),
-    // Only block when userId is explicitly null (AccountContext knows user is absent)
-    enabled: userId !== null,
+    enabled: userId != null, // != null catches both null and undefined (pre-auth render)
+    staleTime: 5 * 60 * 1000, // accounts rarely change; don't re-trigger account selection logic
   });
 }
 
@@ -45,7 +45,7 @@ export function useRenameAccount() {
 
 export function useUpdateAccountSettings() {
   return useMutationWithToast({
-    mutationFn: ({ id, ...settings }: { id: string; date_range_days?: number; winner_roas_threshold?: number; iteration_spend_threshold?: number; winner_kpi?: string; winner_kpi_direction?: string; winner_kpi_threshold?: number; scale_threshold?: number; kill_threshold?: number; kill_scale_kpi?: string; kill_scale_kpi_direction?: string; company_description?: string | null; primary_kpi?: string | null; secondary_kpis?: string | null; company_pdf_url?: string | null; creative_analysis_prompt?: string | null; insights_prompt?: string | null; report_schedule?: string; target_roas?: number | null; target_cpa?: number | null; target_monthly_spend?: number | null; client_responsiveness?: string; client_start_date?: string | null; tiktok_advertiser_id?: string | null; tiktok_access_token?: string | null; click_window?: number; view_window?: number; attribution_model?: string; attribution_notes?: string | null; industry_category?: string | null }) =>
+    mutationFn: ({ id, ...settings }: { id: string; date_range_days?: number; winner_roas_threshold?: number; iteration_spend_threshold?: number; winner_kpi?: string; winner_kpi_direction?: string; winner_kpi_threshold?: number; scale_threshold?: number; kill_threshold?: number; kill_scale_kpi?: string; kill_scale_kpi_direction?: string; company_description?: string | null; primary_kpi?: string | null; secondary_kpis?: string | null; company_pdf_url?: string | null; creative_analysis_prompt?: string | null; insights_prompt?: string | null; report_schedule?: string; target_roas?: number | null; target_cpa?: number | null; target_monthly_spend?: number | null; client_responsiveness?: string; client_start_date?: string | null; tiktok_advertiser_id?: string | null; tiktok_access_token?: string | null; click_window?: number; view_window?: number; attribution_model?: string; attribution_notes?: string | null; industry_category?: string | null; optimization_goal?: string }) =>
       apiFetch("accounts", id, { method: "PUT", body: JSON.stringify(settings) }),
     invalidateKeys: [["accounts"]],
     successMessage: "Account settings saved",

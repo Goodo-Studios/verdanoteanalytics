@@ -142,6 +142,7 @@ serve(async (req) => {
       if (body.target_roas !== undefined) updateFields.target_roas = body.target_roas;
       if (body.target_cpa !== undefined) updateFields.target_cpa = body.target_cpa;
       if (body.target_monthly_spend !== undefined) updateFields.target_monthly_spend = body.target_monthly_spend;
+      if (body.optimization_goal !== undefined) updateFields.optimization_goal = body.optimization_goal;
 
       const { data, error } = await supabase
         .from("ad_accounts")

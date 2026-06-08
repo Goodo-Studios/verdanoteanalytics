@@ -8,12 +8,15 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, RefreshCw, CheckCircle, AlertTriangle, XCircle } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useMutationWithToast } from "@/hooks/useMutationWithToast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useUpdateAccountSettings } from "@/hooks/useAccountsApi";
 
 interface AccountHealth {
   id: string;
   name: string;
   creative_count: number;
   last_synced_at: string | null;
+  optimization_goal: string | null;
   with_spend: number;
   thumb_coverage: number;
   video_coverage: number;
@@ -29,7 +32,7 @@ function useDataHealth() {
       // Fetch accounts
       const { data: accounts, error: accErr } = await supabase
         .from("ad_accounts")
-        .select("id, name, creative_count, last_synced_at")
+        .select("id, name, creative_count, last_synced_at, optimization_goal")
         .order("name");
       if (accErr) throw accErr;
 
@@ -82,6 +85,7 @@ function useDataHealth() {
           name: acc.name,
           creative_count: acc.creative_count,
           last_synced_at: acc.last_synced_at,
+          optimization_goal: (acc as any).optimization_goal ?? null,
           with_spend: s.withSpend,
           thumb_coverage: s.withSpend > 0 ? (s.withThumb / s.withSpend) * 100 : 0,
           video_coverage: s.withSpend > 0 ? (s.withVideo / s.withSpend) * 100 : 0,
@@ -134,6 +138,7 @@ function SyncStatusBadge({ status }: { status: string | null }) {
 
 export function DataHealthSection() {
   const { data: health, isLoading } = useDataHealth();
+  const updateAccount = useUpdateAccountSettings();
 
   const refreshMedia = useMutationWithToast({
     mutationFn: (params: { account_id?: string }) =>
@@ -188,6 +193,7 @@ export function DataHealthSection() {
               <TableHead className="font-label text-[11px] uppercase tracking-wide text-slate text-right" title="Of all video-format ads, % with a populated video_url">Fill Rate</TableHead>
               <TableHead className="font-label text-[11px] uppercase tracking-wide text-slate">Last Sync</TableHead>
               <TableHead className="font-label text-[11px] uppercase tracking-wide text-slate">Status</TableHead>
+              <TableHead className="font-label text-[11px] uppercase tracking-wide text-slate">Opt. Goal</TableHead>
               <TableHead className="font-label text-[11px] uppercase tracking-wide text-slate"></TableHead>
             </TableRow>
           </TableHeader>
@@ -211,6 +217,20 @@ export function DataHealthSection() {
                 </TableCell>
                 <TableCell className="font-data text-[12px] text-slate">{formatDate(row.last_synced_at)}</TableCell>
                 <TableCell><SyncStatusBadge status={row.last_sync_status} /></TableCell>
+                <TableCell>
+                  <Select
+                    value={row.optimization_goal ?? "PURCHASE"}
+                    onValueChange={(value) => updateAccount.mutate({ id: row.id, optimization_goal: value })}
+                  >
+                    <SelectTrigger className="h-7 w-[160px] text-[12px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PURCHASE">Purchases (default)</SelectItem>
+                      <SelectItem value="SESSION_CONVERSION">Sessions Converted</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </TableCell>
                 <TableCell>
                   <Button
                     size="sm"
