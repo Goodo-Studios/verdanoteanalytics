@@ -28,6 +28,8 @@ import { NamingConventionSection } from "@/components/settings/NamingConventionS
 import { ApiKeysSection } from "@/components/settings/ApiKeysSection";
 import { SystemHealthSection } from "@/components/settings/SystemHealthSection";
 
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
 import { useUserSettingsPageState } from "@/hooks/useUserSettingsPageState";
 import { useSettingsPageState } from "@/hooks/useSettingsPageState";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
@@ -194,6 +196,33 @@ const SettingsPage = () => {
                 onRefreshMedia={() => accountState.refreshMedia.mutate({ account_id: accountState.account!.id })}
                 refreshMediaPending={accountState.refreshMedia.isPending}
               />
+              <div className="glass-panel p-6 space-y-4">
+                <div>
+                  <h3 className="font-heading text-[16px] text-forest">Campaign Objective</h3>
+                  <p className="font-body text-[12px] text-slate mt-1">Controls which outcome metrics are shown for this account's creatives.</p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <Select
+                    value={accountState.account!.optimization_goal ?? "PURCHASE"}
+                    onValueChange={(val) =>
+                      accountState.updateAccountSettings.mutate({ id: accountState.account!.id, optimization_goal: val })
+                    }
+                  >
+                    <SelectTrigger className="w-64">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PURCHASE">Purchases (default)</SelectItem>
+                      <SelectItem value="SESSION_CONVERSION">Sessions Converted</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span className="font-body text-[12px] text-slate">
+                    {(accountState.account!.optimization_goal ?? "PURCHASE") === "SESSION_CONVERSION"
+                      ? "Shows Sessions Converted + Cost per Session"
+                      : "Shows ROAS, CPA, and Purchases"}
+                  </span>
+                </div>
+              </div>
               <SyncSettingsSection
                 dateRange={accountState.dateRange} setDateRange={accountState.setDateRange}
                 roasThreshold={accountState.roasThreshold} setRoasThreshold={accountState.setRoasThreshold}
