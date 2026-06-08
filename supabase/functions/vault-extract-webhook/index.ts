@@ -85,11 +85,15 @@ Deno.serve(async (req) => {
     // private, or not found — rather than returning an empty dataset.
     const firstItem = items[0] as Record<string, unknown>;
     if (firstItem?.error) {
+      const platformLabel = item.platform === "linkedin" ? "LinkedIn post"
+        : item.platform === "facebook_ad" ? "ad"
+        : "post";
+      const sourceLabel = item.platform === "facebook_ad" ? "the Ad Library" : "LinkedIn";
       throw new Error(
-        `Could not retrieve this ad (${String(firstItem.error)}). ` +
+        `Could not retrieve this ${platformLabel} (${String(firstItem.error)}). ` +
         `${firstItem.errorDescription ? String(firstItem.errorDescription) + " " : ""}` +
-        `The ad may have expired or been removed from the Ad Library. ` +
-        `Try a different ad URL, or use the Upload tab if you have the video file.`
+        `The ${platformLabel} may have expired or been removed from ${sourceLabel}. ` +
+        `Try a different URL, or use the Upload tab if you have the video file.`
       );
     }
 
