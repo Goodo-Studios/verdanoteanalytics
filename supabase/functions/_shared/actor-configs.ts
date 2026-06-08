@@ -4,6 +4,12 @@ export type ApifyItem = Record<string, any>;
 export type ActorConfig = {
   actorId: string;
   buildInput: (url: string) => Record<string, unknown>;
+  /**
+   * Optional — if present, vault-extract calls this instead of buildInput,
+   * passing all Deno.env vars so the config can inject auth secrets (e.g.
+   * LinkedIn session cookies) without hardcoding them in the function.
+   */
+  buildInputWithEnv?: (url: string, env: Record<string, string>) => Record<string, unknown>;
   extractVideoUrl: (item: ApifyItem) => string | null;
   extractThumbnailUrl: (item: ApifyItem) => string | null;
   extractCreatorHandle: (item: ApifyItem) => string | null;
@@ -260,5 +266,52 @@ export const ACTOR_CONFIGS: Record<string, ActorConfig> = {
       item?.author?.userName ?? item?.user?.screen_name ?? null,
     extractTitle: (item) =>
       ((item?.text ?? item?.full_text ?? "") as string).slice(0, 120) || null,
+  },
+  linkedin: {
+    // electrifying_haircut~linkedin-post-scraper: accepts direct ugcPost URLs.
+    // Requires LinkedIn session cookies stored as Supabase secrets:
+    //   LINKEDIN_LI_AT     — the li_at cookie from browser DevTools
+    //   LINKEDIN_JSESSIONID — the JSESSIONID cookie
+    // buildInputWithEnv injects these automatically; buildInput is a no-auth fallback.
+    // Video field name is undocumented — extractVideoUrl tries all known variants and
+    // [linkedin-debug] log lines in vault-extract-webhook expose the actual keys on first run.
+    actorId: "electrifying_haircut~linkedin-post-scraper",
+    buildInput: (url) => ({ postUrls: [url] }),
+    buildInputWithEnv: (url, env) => ({
+      postUrls: [url],
+      ...(env.LINKEDIN_LI_AT ? { li_at: env.LINKEDIN_LI_AT } : {}),
+      ...(env.LINKEDIN_JSESSIONID ? { jsessionid: env.LINKEDIN_JSESSIONID } : {}),
+    }),
+    extractVideoUrl: (item) =>
+      // Try every plausible field shape — actor docs don't confirm the exact key.
+      // [linkedin-debug] logs in vault-extract-webhook will show actual keys on first run.
+      item?.video?.url ??
+      item?.videoUrl ??
+      item?.video?.downloadUrl ??
+      item?.video?.streamUrl ??
+      (Array.isArray(item?.media) && item.media.length > 0
+        ? (item.media[0]?.url ?? (typeof item.media[0] === "string" ? item.media[0] : null))
+        : null) ??
+      item?.mediaUrl ??
+      item?.postMedia?.[0]?.url ??
+      null,
+    extractThumbnailUrl: (item) =>
+      item?.image ??
+      item?.thumbnailUrl ??
+      item?.thumbnail ??
+      item?.video?.thumbnail ??
+      item?.author?.profilePicture ??
+      null,
+    extractCreatorHandle: (item) =>
+      item?.author?.name ??
+      item?.author?.fullName ??
+      item?.authorName ??
+      null,
+    extractTitle: (item) =>
+      typeof item?.postText === "string" ? item.postText.slice(0, 120) : null,
+    extractAdCopy: (item) =>
+      typeof item?.postText === "string" && item.postText.length > 10
+        ? item.postText
+        : null,
   },
 };

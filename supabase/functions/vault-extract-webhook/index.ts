@@ -111,12 +111,29 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Log raw Apify output for linkedin — actor video field name is not documented,
+    // so we log all top-level keys + video/media sub-fields to identify them on first run.
+    if (item.platform === "linkedin") {
+      const raw = items[0] as Record<string, unknown>;
+      console.log(`[linkedin-debug] top-level keys: ${Object.keys(raw).join(", ")}`);
+      if (raw.video && typeof raw.video === "object") {
+        console.log(`[linkedin-debug] video keys: ${Object.keys(raw.video as object).join(", ")}`);
+        console.log(`[linkedin-debug] video: ${JSON.stringify(raw.video).slice(0, 300)}`);
+      }
+      if (Array.isArray(raw.media) && raw.media.length > 0) {
+        console.log(`[linkedin-debug] media[0]: ${JSON.stringify(raw.media[0]).slice(0, 300)}`);
+      }
+      if (raw.postMedia) {
+        console.log(`[linkedin-debug] postMedia: ${JSON.stringify(raw.postMedia).slice(0, 300)}`);
+      }
+    }
+
     const videoUrl = config.extractVideoUrl(items[0]);
     if (!videoUrl) {
       // Metadata-only platforms: Instagram image/carousel posts have no videoUrl,
       // and YouTube CDN is not downloadable. Save the thumbnail + title and mark ready.
       // facebook_ad image-only: save metadata + ad copy, then kick off vault-analyze.
-      const METADATA_ONLY_PLATFORMS = ["instagram", "youtube", "twitter", "facebook_ad"];
+      const METADATA_ONLY_PLATFORMS = ["instagram", "youtube", "twitter", "facebook_ad", "linkedin"];
       if (METADATA_ONLY_PLATFORMS.includes(item.platform ?? "")) {
         const thumbnailUrl = config.extractThumbnailUrl(items[0]);
         const creatorHandle = config.extractCreatorHandle(items[0]);
@@ -132,6 +149,7 @@ Deno.serve(async (req) => {
             const platformReferer =
               item.platform === "instagram" ? "https://www.instagram.com/" :
               item.platform === "facebook_ad" ? "https://www.facebook.com/" :
+              item.platform === "linkedin" ? "https://www.linkedin.com/" :
               "https://www.youtube.com/";
             const thumbRes = await fetch(thumbnailUrl, {
               headers: {
@@ -155,13 +173,15 @@ Deno.serve(async (req) => {
           }
         }
 
-        // facebook_ad: extract ad copy text for text-based analysis when no media is
-        // available. If ad copy exists, insert a transcript so vault-analyze runs the
-        // full text branch (framework + script + visual inference). If no copy, fall
-        // back to the image-only branch (which gracefully marks ready when no image).
+        // facebook_ad / linkedin: extract copy text for text-based analysis when no media
+        // is available. If copy exists, insert a transcript so vault-analyze runs the full
+        // text branch (framework + script + visual inference). If no copy, fall back to the
+        // image-only branch (which gracefully marks ready when no image).
+        const isTextAnalysisPlatform = ["facebook_ad", "linkedin"].includes(item.platform ?? "");
+        // Keep isFacebookAd alias for file_path assignment below (fb-specific behaviour).
         const isFacebookAd = item.platform === "facebook_ad";
         let hasAdCopyTranscript = false;
-        if (isFacebookAd && config.extractAdCopy) {
+        if (isTextAnalysisPlatform && config.extractAdCopy) {
           const adCopy = config.extractAdCopy(items[0]);
           if (adCopy) {
             const { error: transcriptErr } = await db.from("inspiration_transcripts").insert({
@@ -184,10 +204,10 @@ Deno.serve(async (req) => {
           ...(isFacebookAd && thumbnailPath ? { file_path: thumbnailPath } : {}),
           creator_handle: creatorHandle ?? undefined,
           ...(title ? { title } : {}),
-          status: isFacebookAd ? "analyzing" : "ready",
+          status: isTextAnalysisPlatform ? "analyzing" : "ready",
         }).eq("id", itemId);
 
-        if (isFacebookAd) {
+        if (isTextAnalysisPlatform) {
           // Await synchronously — waitUntil was silently dropping the call.
           await fetch(`${supabaseUrl}/functions/v1/vault-analyze`, {
             method: "POST",

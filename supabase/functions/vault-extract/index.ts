@@ -80,7 +80,11 @@ Deno.serve(async (req) => {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(config.buildInput(item.source_url)),
+        body: JSON.stringify(
+          config.buildInputWithEnv
+            ? config.buildInputWithEnv(item.source_url, Deno.env.toObject())
+            : config.buildInput(item.source_url)
+        ),
       }
     );
 
