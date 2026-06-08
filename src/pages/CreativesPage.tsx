@@ -6,7 +6,7 @@ import { CreativesTable } from "@/components/creatives/CreativesTable";
 import { CreativesCardGrid } from "@/components/creatives/CreativesCardGrid";
 import { CreativesTimeline } from "@/components/creatives/CreativesTimeline";
 import { CreativesGroupTable } from "@/components/creatives/CreativesGroupTable";
-import { ConceptsGrid } from "@/components/creatives/ConceptsGrid";
+
 import { CreativesFilters } from "@/components/creatives/CreativesFilters";
 import { CreativesPagination } from "@/components/creatives/CreativesPagination";
 import { AdvancedFiltersPanel, applyAdvancedFilters, countActiveConditions } from "@/components/creatives/AdvancedFiltersPanel";
@@ -19,7 +19,7 @@ import { ColumnPicker } from "@/components/ColumnPicker";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { RefreshCw, LayoutGrid, List, Loader2, Download, Search, X, Columns, Layers, CalendarDays, SlidersHorizontal } from "lucide-react";
+import { RefreshCw, LayoutGrid, Loader2, Download, Search, X, CalendarDays, SlidersHorizontal } from "lucide-react";
 import { useMemo, useState, useCallback } from "react";
 import { useRoleNavigate } from "@/hooks/useRolePath";
 import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
@@ -52,7 +52,8 @@ const CreativesPage = () => {
   // Real clients AND builders previewing as a client must not see internal
   // sync/media-refresh controls or their progress banners.
   const effectiveClient = isClient || isClientPreview;
-  const { setSelectedAccountId } = useAccountContext();
+  const { setSelectedAccountId, selectedAccount } = useAccountContext();
+  const optimizationGoal = selectedAccount?.optimization_goal ?? 'PURCHASE';
   const navigate = useRoleNavigate();
   const state = useCreativesPageState();
   const {
@@ -64,8 +65,6 @@ const CreativesPage = () => {
     advancedConditions, setAdvancedConditions,
   } = state;
 
-  // View mode: ads vs concepts
-  const [conceptView, setConceptView] = useState(false);
   const [advFiltersOpen, setAdvFiltersOpen] = useState(false);
 
   // Momentum filter
@@ -76,33 +75,6 @@ const CreativesPage = () => {
 
   // Platform filter
   const [platformFilter, setPlatformFilter] = useState("__all__");
-
-  // Compare mode
-  const [compareMode, setCompareMode] = useState(false);
-  const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
-
-  const toggleCompareId = useCallback((adId: string) => {
-    setCompareIds(prev => {
-      const next = new Set(prev);
-      if (next.has(adId)) {
-        next.delete(adId);
-      } else if (next.size < 3) {
-        next.add(adId);
-      }
-      return next;
-    });
-  }, []);
-
-  const handleCompare = useCallback(() => {
-    if (compareIds.size >= 2) {
-      navigate(`/creatives/compare?ids=${[...compareIds].join(",")}`);
-    }
-  }, [compareIds, navigate]);
-
-  const cancelCompare = useCallback(() => {
-    setCompareMode(false);
-    setCompareIds(new Set());
-  }, []);
 
   // Bulk selection
   const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
@@ -146,7 +118,8 @@ const CreativesPage = () => {
         query.eq("account_id", selectedAccountId);
       }
 
-      const { data } = await query;
+      const { data, error } = await query;
+      if (error) throw error;
       if (!data) return new Map<string, any[]>();
 
       const map = new Map<string, any[]>();
@@ -325,19 +298,6 @@ const CreativesPage = () => {
         actions={
           <div className="flex items-center gap-2">
             
-            <div className="flex border border-border rounded-md">
-              <Button variant={!conceptView ? "secondary" : "ghost"} size="sm" className="rounded-r-none px-2.5 gap-1.5" onClick={() => setConceptView(false)}><List className="h-3.5 w-3.5" />Ads</Button>
-              <Button variant={conceptView ? "secondary" : "ghost"} size="sm" className="rounded-l-none px-2.5 gap-1.5" onClick={() => setConceptView(true)}><Layers className="h-3.5 w-3.5" />Concepts</Button>
-            </div>
-            <Button
-              size="sm"
-              variant={compareMode ? "default" : "outline"}
-              onClick={() => compareMode ? cancelCompare() : setCompareMode(true)}
-              className={compareMode ? "bg-verdant hover:bg-verdant/90 text-white" : ""}
-            >
-              <Columns className="h-3.5 w-3.5 mr-1.5" />
-              Compare
-            </Button>
             <ColumnPicker columns={TABLE_COLUMNS} visibleColumns={visibleCols} onToggle={toggleCol} columnOrder={columnOrder} onReorder={handleReorder} />
             {!effectiveClient && (
               <Button size="sm" onClick={() => syncMut.mutate({ account_id: "all" })} disabled={syncMut.isPending || isSyncing}>
@@ -351,25 +311,6 @@ const CreativesPage = () => {
         }
       />
 
-
-      {/* Compare mode banner */}
-      {compareMode && (
-        <div className="bg-sage-light py-2 px-4 rounded-[6px] mb-4 flex items-center justify-between">
-          <p className="font-body text-[13px] text-forest">Select 2–3 creatives to compare</p>
-          <div className="flex items-center gap-3">
-            <span className="font-data text-[17px] font-semibold text-charcoal tabular-nums">{compareIds.size} selected</span>
-            <Button
-              size="sm"
-              className="bg-verdant hover:bg-verdant/90 text-white font-body text-[13px] font-medium"
-              disabled={compareIds.size < 2}
-              onClick={handleCompare}
-            >
-              Compare →
-            </Button>
-            <button onClick={cancelCompare} className="font-body text-[13px] text-slate hover:text-charcoal">Cancel</button>
-          </div>
-        </div>
-      )}
 
       {isLoading ? (
         <MetricCardSkeletonRow />
@@ -400,9 +341,6 @@ const CreativesPage = () => {
         dateFrom={dateFrom} dateTo={dateTo} onDateChange={(from, to) => { setDateFrom(from); setDateTo(to); }}
         filters={filters} updateFilter={updateFilter} filterOptions={filterOptions}
         groupBy={groupBy} setGroupBy={setGroupBy} viewMode={viewMode}
-        momentumFilter={momentumFilter} onMomentumChange={setMomentumFilter}
-        fatigueFilter={fatigueFilter} onFatigueChange={setFatigueFilter}
-        platformFilter={platformFilter} onPlatformChange={setPlatformFilter}
       />
 
       {isLoading ? (
@@ -413,8 +351,6 @@ const CreativesPage = () => {
           <h3 className="font-heading text-[20px] text-forest mb-1">No creatives yet</h3>
           <p className="font-body text-[14px] text-slate max-w-md">Add a Meta ad account in the Accounts tab and sync to pull in your creatives.</p>
         </div>
-      ) : conceptView ? (
-        <ConceptsGrid creatives={sortedCreatives} gradeMap={gradeMap} />
       ) : groupBy !== "__none__" && groupedData ? (
         <CreativesGroupTable groupBy={groupBy} data={groupedData} />
       ) : viewMode === "timeline" && selectedAccountId && selectedAccountId !== "all" ? (
@@ -427,33 +363,31 @@ const CreativesPage = () => {
         <CreativesTable
           creatives={sortedCreatives} visibleCols={visibleCols} columnOrder={columnOrder}
           sort={sort} onSort={handleSort} onReorder={handleReorder}
-          onSelect={(c: any) => compareMode ? toggleCompareId(c.ad_id) : setSelectedCreativeId(c.ad_id)}
-          compareMode={compareMode}
-          compareIds={compareIds}
+          onSelect={(c: any) => setSelectedCreativeId(c.ad_id)}
           wowTrends={wowTrends}
           gradeMap={gradeMap}
           bulkSelectedIds={canBulkAction ? bulkSelectedIds : undefined}
           onBulkToggle={canBulkAction ? toggleBulkId : undefined}
           onBulkToggleAll={canBulkAction ? toggleBulkAll : undefined}
+          optimizationGoal={optimizationGoal}
         />
       ) : (
         <CreativesCardGrid
           creatives={sortedCreatives}
-          onSelect={(c: any) => compareMode ? toggleCompareId(c.ad_id) : setSelectedCreativeId(c.ad_id)}
-          compareMode={compareMode}
-          compareIds={compareIds}
+          onSelect={(c: any) => setSelectedCreativeId(c.ad_id)}
           wowTrends={wowTrends}
           gradeMap={gradeMap}
           fatigueMap={fatigueMap}
-          bulkSelectedIds={canBulkAction && !compareMode ? bulkSelectedIds : undefined}
-          onBulkToggle={canBulkAction && !compareMode ? toggleBulkId : undefined}
+          bulkSelectedIds={canBulkAction ? bulkSelectedIds : undefined}
+          onBulkToggle={canBulkAction ? toggleBulkId : undefined}
           hoveredCards={hoveredCards}
           onCardHover={setHoveredCard}
+          optimizationGoal={optimizationGoal}
         />
       )}
 
       <CreativesPagination page={page} totalPages={totalPages} totalItems={totalCreatives} pageSize={CREATIVES_PAGE_SIZE} onPageChange={setPage} />
-      <CreativeDetailModal creative={creatives.find((c: any) => c.ad_id === selectedCreativeId) || null} open={!!selectedCreativeId} onClose={() => setSelectedCreativeId(null)} wowTrends={wowTrends} gradeMap={gradeMap} fatigueMap={fatigueMap} />
+      <CreativeDetailModal creative={creatives.find((c: any) => c.ad_id === selectedCreativeId) || null} open={!!selectedCreativeId} onClose={() => setSelectedCreativeId(null)} gradeMap={gradeMap} />
       {canBulkAction && (
         <>
           <BulkActionBar

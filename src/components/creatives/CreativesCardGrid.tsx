@@ -16,8 +16,6 @@ import type { CardPresenceUser } from "@/hooks/useCardPresence";
 interface CreativesCardGridProps {
   creatives: any[];
   onSelect: (creative: any) => void;
-  compareMode?: boolean;
-  compareIds?: Set<string>;
   wowTrends?: Map<string, WoWTrend>;
   gradeMap?: Map<string, GradeInfo>;
   fatigueMap?: Map<string, FatigueResult>;
@@ -28,6 +26,7 @@ interface CreativesCardGridProps {
 
   hoveredCards?: Map<string, CardPresenceUser[]>;
   onCardHover?: (adId: string | null) => void;
+  optimizationGoal?: string;
 }
 
 function CardThumbnail({ src, alt }: { src: string; alt: string }) {
@@ -59,18 +58,15 @@ function roasColor(roas: number | null | undefined): string {
   return "text-charcoal";
 }
 
-export function CreativesCardGrid({ creatives, onSelect, compareMode = false, compareIds = new Set(), wowTrends, gradeMap, fatigueMap, bulkSelectedIds, onBulkToggle, hoveredCards, onCardHover }: CreativesCardGridProps) {
+export function CreativesCardGrid({ creatives, onSelect, wowTrends, gradeMap, fatigueMap, bulkSelectedIds, onBulkToggle, hoveredCards, onCardHover, optimizationGoal }: CreativesCardGridProps) {
+  const isSessionGoal = (optimizationGoal ?? 'PURCHASE') === 'SESSION_CONVERSION';
   const bulkMode = !!onBulkToggle;
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {creatives.map((c: any) => {
-        const isSelected = compareIds.has(c.ad_id);
         const isBulkSelected = !!bulkSelectedIds?.has(c.ad_id);
-        const isDisabled = compareMode && !isSelected && compareIds.size >= 3;
         const viewers = hoveredCards?.get(c.ad_id);
         const handleCardClick = () => {
-          if (isDisabled) return;
-          if (compareMode) { onSelect(c); return; }
           if (bulkMode) { onBulkToggle!(c.ad_id); return; }
           onSelect(c);
         };
@@ -79,9 +75,7 @@ export function CreativesCardGrid({ creatives, onSelect, compareMode = false, co
             key={c.ad_id}
             className={cn(
               "bg-card border rounded-card shadow-card cursor-pointer transition-[box-shadow,ring] duration-150 ease hover:shadow-card-hover relative",
-              compareMode && isSelected ? "border-verdant border-2" : "border-border-light",
-              bulkMode && isBulkSelected && "border-verdant border-2",
-              isDisabled && "opacity-50 cursor-not-allowed",
+              isBulkSelected ? "border-verdant border-2" : "border-border-light",
               viewers && viewers.length > 0 && "ring-2 ring-primary/40",
             )}
             onClick={handleCardClick}
@@ -101,20 +95,8 @@ export function CreativesCardGrid({ creatives, onSelect, compareMode = false, co
                 ))}
               </div>
             )}
-            {/* Compare checkbox */}
-            {compareMode && (
-              <div className="absolute top-2 right-2 z-10" onClick={(e) => e.stopPropagation()}>
-                <Checkbox
-                  checked={isSelected}
-                  disabled={isDisabled}
-                  onCheckedChange={() => !isDisabled && onSelect(c)}
-                  className="h-5 w-5 bg-white/90 data-[state=checked]:bg-verdant data-[state=checked]:border-verdant shadow-sm"
-                />
-              </div>
-            )}
-
-            {/* Bulk-select checkbox (US-004) — only when not in compare mode */}
-            {bulkMode && !compareMode && (
+            {/* Bulk-select checkbox (US-004) */}
+            {bulkMode && (
               <div className="absolute top-2 right-2 z-10" onClick={(e) => e.stopPropagation()}>
                 <Checkbox
                   checked={isBulkSelected}
@@ -166,17 +148,32 @@ export function CreativesCardGrid({ creatives, onSelect, compareMode = false, co
 
             {/* Metrics row */}
             <div className="border-t border-border-light grid grid-cols-3 gap-1 text-center py-2 px-3 relative">
-              <div>
-                <div className="font-label text-[9px] uppercase tracking-[0.06em] text-sage font-medium">ROAS</div>
-                <div className={`font-data text-[17px] font-semibold tabular-nums ${roasColor(c.roas)} flex items-center justify-center gap-0.5`}>
-                  {fmt(c.roas, "", "x")}
-                  <RoasTrendArrow trend={wowTrends?.get(c.ad_id)} />
-                </div>
-              </div>
-              <div>
-                <div className="font-label text-[9px] uppercase tracking-[0.06em] text-sage font-medium">CPA</div>
-                <div className="font-data text-[17px] font-semibold text-charcoal tabular-nums">{fmt(c.cpa, "$")}</div>
-              </div>
+              {isSessionGoal ? (
+                <>
+                  <div>
+                    <div className="font-label text-[9px] uppercase tracking-[0.06em] text-sage font-medium">Sessions</div>
+                    <div className="font-data text-[17px] font-semibold text-charcoal tabular-nums">{fmt(c.result_count, "", "", 0)}</div>
+                  </div>
+                  <div>
+                    <div className="font-label text-[9px] uppercase tracking-[0.06em] text-sage font-medium">Cost/Session</div>
+                    <div className="font-data text-[17px] font-semibold text-charcoal tabular-nums">{fmt(c.cost_per_result, "$")}</div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <div className="font-label text-[9px] uppercase tracking-[0.06em] text-sage font-medium">ROAS</div>
+                    <div className={`font-data text-[17px] font-semibold tabular-nums ${roasColor(c.roas)} flex items-center justify-center gap-0.5`}>
+                      {fmt(c.roas, "", "x")}
+                      <RoasTrendArrow trend={wowTrends?.get(c.ad_id)} />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="font-label text-[9px] uppercase tracking-[0.06em] text-sage font-medium">CPA</div>
+                    <div className="font-data text-[17px] font-semibold text-charcoal tabular-nums">{fmt(c.cpa, "$")}</div>
+                  </div>
+                </>
+              )}
               <div>
                 <div className="font-label text-[9px] uppercase tracking-[0.06em] text-sage font-medium">Spend</div>
                 <div className="font-data text-[17px] font-semibold text-charcoal tabular-nums">{fmt(c.spend, "$")}</div>

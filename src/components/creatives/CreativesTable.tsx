@@ -14,6 +14,18 @@ import { cn } from "@/lib/utils";
 import { RoasTrendArrow } from "./RoasTrendArrow";
 import type { WoWTrend } from "@/hooks/useWoWTrends";
 import type { GradeInfo } from "@/lib/creativeGrading";
+import { getObjectiveConfig } from "@/lib/objectiveConfig";
+
+// Columns that only make sense for PURCHASE accounts
+const PURCHASE_ONLY_COLS = new Set(["roas", "cpa", "purchases"]);
+// Columns that only make sense for SESSION_CONVERSION accounts
+const SESSION_ONLY_COLS = new Set(["result_count", "cost_per_result"]);
+
+// Extra CELL_CONFIG entries for session-conversion columns (not in constants.ts)
+const SESSION_CELL_CONFIG: Record<string, { field: string; format?: { prefix?: string; suffix?: string; decimals?: number } }> = {
+  result_count:    { field: "result_count",    format: { decimals: 0 } },
+  cost_per_result: { field: "cost_per_result", format: { prefix: "$" } },
+};
 
 interface CreativesTableProps {
   creatives: any[];
@@ -23,13 +35,12 @@ interface CreativesTableProps {
   onSort: (key: string) => void;
   onReorder: (newOrder: string[]) => void;
   onSelect: (creative: any) => void;
-  compareMode?: boolean;
-  compareIds?: Set<string>;
   wowTrends?: Map<string, WoWTrend>;
   gradeMap?: Map<string, GradeInfo>;
   bulkSelectedIds?: Set<string>;
   onBulkToggle?: (adId: string) => void;
   onBulkToggleAll?: () => void;
+  optimizationGoal?: string;
 }
 
 const TAG_SELECT_FIELDS: Record<string, "ad_type" | "person" | "style" | "hook"> = {
@@ -74,6 +85,17 @@ function renderCell(c: any, key: string, wowTrends?: Map<string, WoWTrend>, grad
     return <TableCell key={key} className={mobileHide}><InlineTagSelect adId={c.ad_id} field={field} currentValue={c[field]} /></TableCell>;
   }
 
+  // Session-conversion columns not in CELL_CONFIG — handle inline
+  const sessionCfg = SESSION_CELL_CONFIG[key];
+  if (sessionCfg) {
+    const value = c[sessionCfg.field];
+    return (
+      <TableCell key={key} className={`text-right font-data text-[17px] font-medium text-charcoal tabular-nums ${mobileHide}`}>
+        {fmt(value, sessionCfg.format?.prefix, sessionCfg.format?.suffix, sessionCfg.format?.decimals)}
+      </TableCell>
+    );
+  }
+
   const cfg = CELL_CONFIG[key];
   if (cfg) {
     const value = c[cfg.field];
@@ -96,9 +118,36 @@ function renderCell(c: any, key: string, wowTrends?: Map<string, WoWTrend>, grad
 
 export function CreativesTable({
   creatives, visibleCols, columnOrder, sort, onSort, onReorder, onSelect,
-  compareMode = false, compareIds = new Set(), wowTrends, gradeMap,
+  wowTrends, gradeMap,
   bulkSelectedIds, onBulkToggle, onBulkToggleAll,
+  optimizationGoal,
 }: CreativesTableProps) {
+  const objCfg = getObjectiveConfig(optimizationGoal);
+  const isSessionGoal = (optimizationGoal ?? 'PURCHASE') === 'SESSION_CONVERSION';
+
+  // Build the effective visible cols and column order based on the objective.
+  // For SESSION_CONVERSION: hide PURCHASE-only cols, inject session cols.
+  // For PURCHASE (default): hide SESSION-only cols (they won't be in columnOrder anyway).
+  const effectiveVisibleCols = new Set(visibleCols);
+  const effectiveColumnOrder = [...columnOrder];
+
+  if (isSessionGoal) {
+    // Remove purchase-only columns from visibility
+    for (const col of PURCHASE_ONLY_COLS) effectiveVisibleCols.delete(col);
+    // Inject session columns after 'spend' if not already present
+    const sessionCols = objCfg.primaryMetrics.map(m => m.key);
+    for (const col of sessionCols) {
+      effectiveVisibleCols.add(col);
+      if (!effectiveColumnOrder.includes(col)) {
+        const spendIdx = effectiveColumnOrder.indexOf("spend");
+        effectiveColumnOrder.splice(spendIdx >= 0 ? spendIdx + 1 : effectiveColumnOrder.length, 0, col);
+      }
+    }
+  } else {
+    // Remove session-only columns
+    for (const col of SESSION_ONLY_COLS) effectiveVisibleCols.delete(col);
+  }
+
   const bulkMode = !!bulkSelectedIds && !!onBulkToggle;
   const allSelected = bulkMode && creatives.length > 0 && creatives.every((c: any) => bulkSelectedIds!.has(c.ad_id));
   const [dragSourceKey, setDragSourceKey] = useState<string | null>(null);
@@ -119,14 +168,20 @@ export function CreativesTable({
     setDragTargetKey(null);
   }, [dragSourceKey, columnOrder, onReorder]);
 
+  // Extended head labels for session columns
+  const sessionHeadLabels: Record<string, string> = {
+    result_count: "Sessions",
+    cost_per_result: "Cost / Session",
+  };
+
   const renderHead = (key: string) => {
-    if (!visibleCols.has(key)) return null;
+    if (!effectiveVisibleCols.has(key)) return null;
     const mobileHide = MOBILE_HIDDEN_COLS.has(key) ? "hidden sm:table-cell" : "";
     if (key === "tags") return <TableHead key={key} className={`font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold ${mobileHide}`}>Tags</TableHead>;
     return (
       <SortableTableHead
         key={key}
-        label={HEAD_LABELS[key] || key}
+        label={sessionHeadLabels[key] || HEAD_LABELS[key] || key}
         sortKey={key}
         currentSort={sort}
         onSort={onSort}
@@ -148,7 +203,7 @@ export function CreativesTable({
       <Table className="min-w-[700px]">
         <TableHeader>
          <TableRow className="bg-cream-dark">
-            {bulkMode && !compareMode && (
+            {bulkMode && (
               <TableHead className="w-10">
                 <Checkbox
                   checked={allSelected}
@@ -157,27 +212,22 @@ export function CreativesTable({
                 />
               </TableHead>
             )}
-            {compareMode && <TableHead className="w-10" />}
-            {columnOrder.filter(k => visibleCols.has(k)).map(renderHead)}
+            {effectiveColumnOrder.filter(k => effectiveVisibleCols.has(k)).map(renderHead)}
           </TableRow>
         </TableHeader>
         <TableBody>
           {creatives.map((c) => {
-            const isSelected = compareIds.has(c.ad_id);
-            const isDisabled = compareMode && !isSelected && compareIds.size >= 3;
             const isBulkSelected = bulkMode && bulkSelectedIds!.has(c.ad_id);
             return (
               <TableRow
                 key={c.ad_id}
                 className={cn(
                   "cursor-pointer hover:bg-accent/50 border-b border-border-light",
-                  compareMode && isSelected && "bg-sage-light/50 border-l-[3px] border-l-verdant",
-                  isDisabled && "opacity-50 cursor-not-allowed",
                   isBulkSelected && "bg-accent/30"
                 )}
-                onClick={() => !isDisabled && onSelect(c)}
+                onClick={() => onSelect(c)}
               >
-                {bulkMode && !compareMode && (
+                {bulkMode && (
                   <TableCell className="w-10 pr-0" onClick={(e) => e.stopPropagation()}>
                     <Checkbox
                       checked={isBulkSelected}
@@ -186,17 +236,7 @@ export function CreativesTable({
                     />
                   </TableCell>
                 )}
-                {compareMode && (
-                  <TableCell className="w-10 pr-0" onClick={(e) => e.stopPropagation()}>
-                    <Checkbox
-                      checked={isSelected}
-                      disabled={isDisabled}
-                      onCheckedChange={() => !isDisabled && onSelect(c)}
-                      className="data-[state=checked]:bg-verdant data-[state=checked]:border-verdant"
-                    />
-                  </TableCell>
-                )}
-                {columnOrder.filter(k => visibleCols.has(k)).map(key => renderCell(c, key, wowTrends, gradeMap))}
+                {effectiveColumnOrder.filter(k => effectiveVisibleCols.has(k)).map(key => renderCell(c, key, wowTrends, gradeMap))}
               </TableRow>
             );
           })}
