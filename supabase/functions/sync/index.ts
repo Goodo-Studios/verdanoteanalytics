@@ -125,7 +125,7 @@ async function metaFetch(
 
 // ─── Metrics Parsing Helper ──────────────────────────────────────────────────
 
-function parseInsightsRow(row: any) {
+function parseInsightsRow(row: any, optimizationGoal?: string) {
   const spend = parseFloat(row.spend || "0");
   const roas = row.purchase_roas?.[0]?.value ? parseFloat(row.purchase_roas[0].value) : 0;
   const ctr = parseFloat(row.ctr || "0");
@@ -167,6 +167,26 @@ function parseInsightsRow(row: any) {
     if (cpatc) costPerAtc = parseFloat(cpatc.value || "0");
   }
 
+  // US-003: Generic outcome metrics — branch on account optimization goal
+  const objective = optimizationGoal ?? 'PURCHASE';
+  let resultCount = 0;
+  let costPerResult = 0;
+
+  if (objective === 'SESSION_CONVERSION') {
+    if (row.actions) {
+      const sessionAction = row.actions.find((a: any) => a.action_type === 'onsite_conversion.flow_complete');
+      if (sessionAction) resultCount = parseInt(sessionAction.value || '0');
+    }
+    if (row.cost_per_action_type) {
+      const sessionCost = row.cost_per_action_type.find((a: any) => a.action_type === 'onsite_conversion.flow_complete');
+      if (sessionCost) costPerResult = parseFloat(sessionCost.value || '0');
+    }
+  } else {
+    // PURCHASE (default) — mirror purchases and cpa into generic columns
+    resultCount = purchases;
+    costPerResult = cpa;
+  }
+
   const thumbStopRate = impressions > 0 && videoViews > 0 ? (videoViews / impressions) * 100 : 0;
   const holdRate = videoViews > 0 && thruPlays > 0 ? (thruPlays / videoViews) * 100 : 0;
 
@@ -185,7 +205,7 @@ function parseInsightsRow(row: any) {
   const { play_curve, retention_p25, retention_p50, retention_p75, retention_p100 } =
     parsePlayCurve(row.video_play_curve_actions);
 
-  return { spend, roas, cpa, ctr, clicks, impressions, cpm, cpc, frequency, purchases, purchase_value: purchaseValue, thumb_stop_rate: thumbStopRate, hold_rate: holdRate, video_avg_play_time: videoAvgPlayTime, adds_to_cart: addsToCart, cost_per_add_to_cart: costPerAtc, video_views: videoViews, play_curve, retention_p25, retention_p50, retention_p75, retention_p100 };
+  return { spend, roas, cpa, ctr, clicks, impressions, cpm, cpc, frequency, purchases, purchase_value: purchaseValue, thumb_stop_rate: thumbStopRate, hold_rate: holdRate, video_avg_play_time: videoAvgPlayTime, adds_to_cart: addsToCart, cost_per_add_to_cart: costPerAtc, video_views: videoViews, play_curve, retention_p25, retention_p50, retention_p75, retention_p100, result_count: resultCount, cost_per_result: costPerResult };
 }
 
 // ─── Phase Budget ────────────────────────────────────────────────────────────
@@ -716,7 +736,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           const BATCH_SIZE = 500;
           const metricRows = result.data.map((row: any) => ({
             ad_id: row.ad_id,
-            ...parseInsightsRow(row),
+            ...parseInsightsRow(row, account?.optimization_goal),
           }));
 
           // Auto-create missing creatives so bulk_update_creative_metrics can UPDATE them
@@ -771,57 +791,74 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             const scaleThreshold = account.scale_threshold || 2.0;
             const killThreshold = account.kill_threshold || 1.0;
 
-            // Fetch creatives with meaningful spend for this account
             const { data: candidates } = await supabase
               .from("creatives")
               .select("ad_id, ad_name, roas, prior_roas, spend")
               .eq("account_id", accountId)
               .gt("spend", spendThreshold);
 
-            const newWinners: { ad_name: string; roas: number; spend: number }[] = [];
-            const newConcerns: { ad_name: string; roas: number; prior_roas: number }[] = [];
+            // Extract a readable display name from raw Meta ad names / naming convention strings.
+            // e.g. "iAT:IMG>iName:SomeCoolAd>iSrc:Branded>..." → "SomeCoolAd"
+            // e.g. "Canada>iCR:PelaCreative>..." → "Canada"
+            // e.g. "BM_Bearaby_R8V1E_Video" → as-is (truncated if long)
+            const cleanName = (name: string) => {
+              if (!name) return "Unknown";
+              const m = name.match(/(?:^|>)iName:([^>]+)/i);
+              if (m) return m[1];
+              if (name.includes(">")) return name.split(">")[0] || name.substring(0, 40);
+              return name.length > 45 ? name.substring(0, 42) + "…" : name;
+            };
+
+            const newWinners: { name: string; roas: number; spend: number }[] = [];
+            const newConcerns: { name: string; roas: number; prior_roas: number }[] = [];
 
             for (const c of (candidates || [])) {
               const roas = Number(c.roas) || 0;
               const priorRoas = c.prior_roas != null ? Number(c.prior_roas) : null;
 
-              // NEW WINNER: now above scale, wasn't before (or first sync)
-              if (roas >= scaleThreshold && (priorRoas === null || priorRoas < scaleThreshold)) {
-                newWinners.push({ ad_name: c.ad_name, roas, spend: Number(c.spend) || 0 });
+              // Only fire when we've seen this ad before and it just crossed the threshold.
+              // Skipping priorRoas === null prevents 100+ "new winner" alerts on first sync.
+              if (roas >= scaleThreshold && priorRoas !== null && priorRoas < scaleThreshold) {
+                newWinners.push({ name: cleanName(c.ad_name), roas, spend: Number(c.spend) || 0 });
               }
-              // NEW CONCERN: now below kill, was above before
               if (roas < killThreshold && priorRoas !== null && priorRoas >= killThreshold) {
-                newConcerns.push({ ad_name: c.ad_name, roas, prior_roas: priorRoas });
+                newConcerns.push({ name: cleanName(c.ad_name), roas, prior_roas: priorRoas });
               }
             }
 
             if (newWinners.length > 0 || newConcerns.length > 0) {
-              const blocks: string[] = [];
+              const appUrl = Deno.env.get("APP_URL") || "https://verdanote.com";
+              const blocks: any[] = [];
 
               if (newWinners.length > 0) {
-                blocks.push(`*🟢 New winners — ${account.name}*`);
-                for (const w of newWinners.slice(0, 10)) {
-                  blocks.push(`• ${w.ad_name} — ${w.roas.toFixed(2)}x ROAS, $${w.spend.toLocaleString("en-US", { maximumFractionDigits: 0 })} spend`);
-                }
-                if (newWinners.length > 10) blocks.push(`  _…and ${newWinners.length - 10} more_`);
+                // Sort by spend desc, show top 5
+                const top = [...newWinners].sort((a, b) => b.spend - a.spend).slice(0, 5);
+                const lines = top.map(w =>
+                  `• ${w.name} — *${w.roas.toFixed(2)}x* ROAS · $${w.spend.toLocaleString("en-US", { maximumFractionDigits: 0 })} spend`
+                ).join("\n");
+                const extra = newWinners.length > 5 ? `\n_+${newWinners.length - 5} more_` : "";
+                blocks.push({ type: "header", text: { type: "plain_text", text: `🟢 New Winners — ${account.name}`, emoji: true } });
+                blocks.push({ type: "section", text: { type: "mrkdwn", text: lines + extra } });
               }
 
               if (newConcerns.length > 0) {
-                if (blocks.length > 0) blocks.push("");
-                blocks.push(`*🔴 New concerns — ${account.name}*`);
-                for (const c of newConcerns.slice(0, 10)) {
-                  blocks.push(`• ${c.ad_name} — ${c.roas.toFixed(2)}x ROAS (was ${c.prior_roas.toFixed(2)}x)`);
-                }
-                if (newConcerns.length > 10) blocks.push(`  _…and ${newConcerns.length - 10} more_`);
+                const top = [...newConcerns].sort((a, b) => b.prior_roas - a.prior_roas).slice(0, 5);
+                const lines = top.map(c =>
+                  `• ${c.name} — *${c.roas.toFixed(2)}x* ROAS (was ${c.prior_roas.toFixed(2)}x)`
+                ).join("\n");
+                const extra = newConcerns.length > 5 ? `\n_+${newConcerns.length - 5} more_` : "";
+                if (blocks.length > 0) blocks.push({ type: "divider" });
+                blocks.push({ type: "header", text: { type: "plain_text", text: `🔴 New Concerns — ${account.name}`, emoji: true } });
+                blocks.push({ type: "section", text: { type: "mrkdwn", text: lines + extra } });
               }
 
-              const text = blocks.join("\n");
-              console.log(`Sending Slack alert: ${newWinners.length} winners, ${newConcerns.length} concerns`);
+              blocks.push({ type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "View in Verdanote →", emoji: true }, url: `${appUrl}/creatives` }] });
 
+              console.log(`Sending Slack alert: ${newWinners.length} winners, ${newConcerns.length} concerns`);
               await fetch(slackUrl, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text }),
+                body: JSON.stringify({ blocks }),
               });
             }
           }
@@ -1006,7 +1043,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
                 // play_curve / retention_p* columns, and PostgREST upsert errors on unknown
                 // columns rather than ignoring them. These persist via the Phase-2 RPC only.
                 const { play_curve, retention_p25, retention_p50, retention_p75, retention_p100, ...daily } =
-                  parseInsightsRow(row);
+                  parseInsightsRow(row, account?.optimization_goal);
                 return {
                   ad_id: row.ad_id,
                   account_id: accountId,
@@ -1435,7 +1472,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       }).catch((e: Error) => console.error("enrich-thumbnails fire-and-forget error:", e.message));
       console.log(`  Media enrichment triggered for account ${accountId}`);
 
-      const finalStatus = (JSON.parse(syncLog.api_errors || "[]")).length > 0 ? "completed_with_errors" : "completed";
+      const finalStatus = ((JSON.parse(syncLog.api_errors || "[]")).length > 0 || ctx.apiErrors.length > 0) ? "completed_with_errors" : "completed";
       // Save audit result to sync_state for visibility
       await saveState(5, { audit: auditResult }, finalStatus);
       console.log(`\n✅ Sync complete for ${account.name}: ${finalStatus}`);
