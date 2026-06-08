@@ -268,37 +268,20 @@ export const ACTOR_CONFIGS: Record<string, ActorConfig> = {
       ((item?.text ?? item?.full_text ?? "") as string).slice(0, 120) || null,
   },
   linkedin: {
-    // curious_coder~linkedin-post-search-scraper: 18 reviews, accepts direct ugcPost URLs
-    // via the `urls` array. Requires LinkedIn session cookies stored as Supabase secrets:
+    // electrifying_haircut~linkedin-post-scraper: free, accepts direct ugcPost/activity URLs.
+    // Requires LinkedIn session cookies stored as Supabase secrets:
     //   LINKEDIN_LI_AT      — the li_at cookie from browser DevTools
     //   LINKEDIN_JSESSIONID — the JSESSIONID cookie (strip surrounding quotes)
-    // buildInputWithEnv constructs the Cookie-Editor array format the actor expects.
+    // Input uses postUrl (singular string) — postUrls array caused ACTOR.RUN.FAILED.
     // Video field name is undocumented — extractVideoUrl tries all known variants and
     // [linkedin-debug] log lines in vault-extract-webhook expose the actual keys on first run.
-    actorId: "curious_coder~linkedin-post-search-scraper",
-    buildInput: (url) => ({
-      urls: [{ url }],
-      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      limitPerSource: 1,
+    actorId: "electrifying_haircut~linkedin-post-scraper",
+    buildInput: (url) => ({ postUrl: url }),
+    buildInputWithEnv: (url, env) => ({
+      postUrl: url,
+      ...(env.LINKEDIN_LI_AT ? { li_at: env.LINKEDIN_LI_AT } : {}),
+      ...(env.LINKEDIN_JSESSIONID ? { jsessionid: env.LINKEDIN_JSESSIONID } : {}),
     }),
-    buildInputWithEnv: (url, env) => {
-      const cookies: Array<Record<string, unknown>> = [];
-      if (env.LINKEDIN_LI_AT) {
-        cookies.push({ name: "li_at", value: env.LINKEDIN_LI_AT, domain: ".linkedin.com", path: "/", secure: true, httpOnly: true });
-      }
-      if (env.LINKEDIN_JSESSIONID) {
-        // Actor expects JSESSIONID with surrounding quotes per Cookie-Editor format.
-        const val = env.LINKEDIN_JSESSIONID.startsWith('"') ? env.LINKEDIN_JSESSIONID : `"${env.LINKEDIN_JSESSIONID}"`;
-        cookies.push({ name: "JSESSIONID", value: val, domain: ".www.linkedin.com", path: "/", secure: true, httpOnly: false });
-      }
-      return {
-        urls: [{ url }],
-        cookie: cookies,
-        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        limitPerSource: 1,
-        proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
-      };
-    },
     extractVideoUrl: (item) =>
       // [linkedin-debug] logs in vault-extract-webhook show actual keys on first run.
       item?.video?.url ??
