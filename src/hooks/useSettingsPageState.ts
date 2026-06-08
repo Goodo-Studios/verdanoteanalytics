@@ -10,9 +10,9 @@ import { DEFAULT_CREATIVE_PROMPT, DEFAULT_INSIGHTS_PROMPT } from "@/components/s
 import { useSettings, useSaveSettings } from "@/hooks/useSettingsApi";
 
 export function useSettingsPageState() {
-  const { isBuilder } = useAuth();
+  const { isBuilder, user } = useAuth();
   const { selectedAccountId, selectedAccount, setSelectedAccountId } = useAccountContext();
-  const { data: rawAccounts } = useAccounts();
+  const { data: rawAccounts } = useAccounts(user?.id);
   const accounts = [...(rawAccounts || [])].sort((a: any, b: any) => a.name.localeCompare(b.name));
 
   const toggleAccount = useToggleAccount();
@@ -34,7 +34,8 @@ export function useSettingsPageState() {
 
   const account = selectedAccountId === "all"
     ? null
-    : (accounts || []).find((a: any) => a.id === selectedAccountId);
+    : ((accounts || []).find((a: any) => a.id === selectedAccountId) ??
+       (selectedAccount?.id === selectedAccountId ? selectedAccount : null));
 
   // Form state
   const [dateRange, setDateRange] = useState("");
