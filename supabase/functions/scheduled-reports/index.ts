@@ -166,65 +166,83 @@ function resolveTemplate(template: string, accountName: string, cadence: string)
     .replace(/\{date\}/gi, now.toLocaleDateString("en-US"));
 }
 
-// Aggregate daily metrics per ad_id within a date range
-async function aggregateDailyMetrics(supabase: any, accountId: string, dateStart: string, dateEnd: string) {
-  const allMetrics: any[] = [];
+// Scan creative_daily_metrics ONCE over a contiguous date range, splitting rows
+// in-memory into "current" (date >= splitDate) and "prior" (date < splitDate)
+// per-ad accumulator maps. The report's prior period is constructed to end
+// exactly one day before the current period starts (priorEnd = now - days - 1,
+// currentStart = now - days), so the union range [priorStart, endDate] is
+// always contiguous and a single paged scan covers both periods — half the
+// daily-metrics round-trips of aggregating each period separately.
+async function scanDailyMetricsSplit(
+  supabase: any, accountId: string, dateStart: string, dateEnd: string, splitDate: string,
+): Promise<{ current: Record<string, any>; prior: Record<string, any> }> {
+  const current: Record<string, any> = {};
+  const prior: Record<string, any> = {};
   let offset = 0;
   const batchSize = 1000;
   while (true) {
     const { data, error } = await supabase
       .from("creative_daily_metrics")
-      .select("*")
+      .select("ad_id, account_id, date, spend, impressions, clicks, purchases, purchase_value, adds_to_cart, video_views, thumb_stop_rate, hold_rate")
       .eq("account_id", accountId)
       .gte("date", dateStart)
       .lte("date", dateEnd)
       .range(offset, offset + batchSize - 1);
     if (error) throw error;
     if (!data || data.length === 0) break;
-    allMetrics.push(...data);
+    for (const m of data) {
+      // ISO date strings compare correctly lexicographically
+      const byAd = m.date >= splitDate ? current : prior;
+      if (!byAd[m.ad_id]) {
+        byAd[m.ad_id] = {
+          ad_id: m.ad_id, account_id: m.account_id,
+          spend: 0, impressions: 0, clicks: 0, purchases: 0, purchase_value: 0,
+          adds_to_cart: 0, video_views: 0, _days: 0,
+          _tsr_sum: 0, _hr_sum: 0,
+        };
+      }
+      const a = byAd[m.ad_id];
+      a.spend += Number(m.spend || 0);
+      a.impressions += Number(m.impressions || 0);
+      a.clicks += Number(m.clicks || 0);
+      a.purchases += Number(m.purchases || 0);
+      a.purchase_value += Number(m.purchase_value || 0);
+      a.adds_to_cart += Number(m.adds_to_cart || 0);
+      a.video_views += Number(m.video_views || 0);
+      a._days++;
+      a._tsr_sum += Number(m.thumb_stop_rate || 0);
+      a._hr_sum += Number(m.hold_rate || 0);
+    }
     if (data.length < batchSize) break;
     offset += batchSize;
   }
+  return { current, prior };
+}
 
-  const byAd: Record<string, any> = {};
-  for (const m of allMetrics) {
-    if (!byAd[m.ad_id]) {
-      byAd[m.ad_id] = {
-        ad_id: m.ad_id, account_id: m.account_id,
-        spend: 0, impressions: 0, clicks: 0, purchases: 0, purchase_value: 0,
-        adds_to_cart: 0, video_views: 0, _days: 0,
-        _tsr_sum: 0, _hr_sum: 0,
-      };
-    }
-    const a = byAd[m.ad_id];
-    a.spend += Number(m.spend || 0);
-    a.impressions += Number(m.impressions || 0);
-    a.clicks += Number(m.clicks || 0);
-    a.purchases += Number(m.purchases || 0);
-    a.purchase_value += Number(m.purchase_value || 0);
-    a.adds_to_cart += Number(m.adds_to_cart || 0);
-    a.video_views += Number(m.video_views || 0);
-    a._days++;
-    a._tsr_sum += Number(m.thumb_stop_rate || 0);
-    a._hr_sum += Number(m.hold_rate || 0);
-  }
-
-  const adIds = Object.keys(byAd);
-  if (adIds.length === 0) return [];
-
-  const creativeMap: Record<string, any> = {};
-  for (let i = 0; i < adIds.length; i += 100) {
-    const batch = adIds.slice(i, i + 100);
+// Fetch creative metadata for any ad_ids missing from the shared cache.
+// The cache is request-scoped, so the current and prior periods (and multiple
+// schedules on the same account) hit the creatives table once per ad_id
+// instead of once per period. Ad_ids with no creatives row are cached as {}
+// so they aren't re-queried.
+async function fetchCreativeMeta(supabase: any, adIds: string[], cache: Map<string, any>) {
+  const missing = adIds.filter((id) => !cache.has(id));
+  for (let i = 0; i < missing.length; i += 100) {
+    const batch = missing.slice(i, i + 100);
     const { data: crs } = await supabase
       .from("creatives")
       .select("ad_id, ad_name, unique_code, ad_type, tag_source")
       .in("ad_id", batch);
-    for (const c of crs || []) creativeMap[c.ad_id] = c;
+    for (const c of crs || []) cache.set(c.ad_id, c);
   }
+  for (const id of missing) if (!cache.has(id)) cache.set(id, {});
+}
 
-  return adIds.map(adId => {
+// Merge per-ad daily accumulators with cached creative metadata into the same
+// list shape the old aggregateDailyMetrics returned.
+function finalizeDailyList(byAd: Record<string, any>, metaCache: Map<string, any>) {
+  return Object.keys(byAd).map((adId) => {
     const a = byAd[adId];
-    const meta = creativeMap[adId] || {};
+    const meta = metaCache.get(adId) || {};
     const days = a._days || 1;
     return {
       ...meta, ad_id: adId, account_id: a.account_id,
@@ -236,7 +254,7 @@ async function aggregateDailyMetrics(supabase: any, accountId: string, dateStart
       thumb_stop_rate: a._tsr_sum / days,
       hold_rate: a._hr_sum / days,
     };
-  }).filter(c => c.spend > 0);
+  }).filter((c) => c.spend > 0);
 }
 
 serve(async (req) => {
@@ -272,6 +290,8 @@ serve(async (req) => {
     if (schedErr) throw schedErr;
 
     const generated: string[] = [];
+    // Request-scoped creative metadata cache shared across periods + schedules
+    const metaCache = new Map<string, any>();
 
     for (const schedule of schedules || []) {
       const account = (schedule as any).ad_accounts;
@@ -289,8 +309,26 @@ serve(async (req) => {
       startDate.setDate(startDate.getDate() - dateRangeDays);
       const startDateStr = startDate.toISOString().split("T")[0];
 
-      // Use daily metrics for date-scoped aggregation
-      const list = await aggregateDailyMetrics(supabase, account.id, startDateStr, endDate);
+      // Prior period for WoW comparison (same duration, shifted back).
+      // The prior period ends exactly one day before the current period starts
+      // (prior end = now - days - 1, current start = now - days), so one
+      // contiguous scan over [priorStart, endDate] split at startDateStr
+      // covers both periods.
+      const priorStartDate = new Date(now);
+      priorStartDate.setDate(priorStartDate.getDate() - dateRangeDays * 2 - 1);
+      const priorStartStr = priorStartDate.toISOString().split("T")[0];
+
+      // Single daily-metrics scan for current + prior; creative metadata
+      // fetched once per ad_id via the shared request-scoped cache.
+      const { current: currByAd, prior: priorByAd } = await scanDailyMetricsSplit(
+        supabase, account.id, priorStartStr, endDate, startDateStr,
+      );
+      await fetchCreativeMeta(
+        supabase,
+        [...new Set([...Object.keys(currByAd), ...Object.keys(priorByAd)])],
+        metaCache,
+      );
+      const list = finalizeDailyList(currByAd, metaCache);
 
       const totalSpend = list.reduce((s: number, c: any) => s + Number(c.spend || 0), 0);
       const avgField = (field: string) => {
@@ -313,12 +351,8 @@ serve(async (req) => {
       const overallCpa = totalPurchases > 0 ? totalSpend / totalPurchases : 0;
       const overallCpm = totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0;
 
-      // Prior period for WoW comparison (same duration, shifted back)
-      const priorEndDate = new Date(now);
-      priorEndDate.setDate(priorEndDate.getDate() - dateRangeDays - 1);
-      const priorStartDate = new Date(now);
-      priorStartDate.setDate(priorStartDate.getDate() - dateRangeDays * 2 - 1);
-      const priorList = await aggregateDailyMetrics(supabase, account.id, priorStartDate.toISOString().split("T")[0], priorEndDate.toISOString().split("T")[0]);
+      // Prior-period totals from the same scan (split in-memory above)
+      const priorList = finalizeDailyList(priorByAd, metaCache);
       const priorSpend = priorList.reduce((s: number, c: any) => s + Number(c.spend || 0), 0);
       const priorImpressions = priorList.reduce((s: number, c: any) => s + Number(c.impressions || 0), 0);
       const priorPurchases = priorList.reduce((s: number, c: any) => s + Number(c.purchases || 0), 0);

@@ -58,9 +58,6 @@ FUNCTIONS=(
   vault-slack-import
   vault-status
   vault-transcribe
-  vault-viral-cron
-  vault-viral-refresh
-  vault-viral-webhook
   webhooks-dispatch
   write-brief
 )

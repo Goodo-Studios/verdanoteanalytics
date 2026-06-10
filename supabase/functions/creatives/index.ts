@@ -358,62 +358,60 @@ serve(async (req) => {
       }
 
       // No date filter — use aggregated totals from creatives table
-      // First get total count
-      const { count } = await applyCreativeFilters(
-        supabase.from("creatives").select("*", { count: "exact", head: true })
-      );
-
       let data: any[];
+      let total: number;
       if (all) {
+        // ?all=1 already scans the complete filtered set — its length IS the
+        // total, so the separate exact-count query is redundant here.
         data = await fetchAllCreatives();
+        total = data.length;
       } else {
+        const { count } = await applyCreativeFilters(
+          supabase.from("creatives").select("*", { count: "exact", head: true })
+        );
         const { data: pageData, error } = await applyCreativeFilters(
           supabase.from("creatives").select(CREATIVE_COLS).order("spend", { ascending: false })
         ).range(offset, offset + limit - 1);
         if (error) throw error;
         data = pageData || [];
+        total = count || 0;
       }
 
-      // Compute aggregates across ALL matching creatives (not just the page slice)
-      // Fetch all matching ad spends for aggregate computation
-      const aggSpends: number[] = [];
-      const aggCpas: number[] = [];
-      const aggRoases: number[] = [];
-      let aggOffset = 0;
-      const AGG_PAGE = 1000;
-      while (true) {
-        let aggQ = supabase.from("creatives").select("spend, cpa, roas");
-        if (accountId) aggQ = aggQ.eq("account_id", accountId);
-        if (adType) aggQ = aggQ.eq("ad_type", adType);
-        if (person) aggQ = aggQ.eq("person", person);
-        if (style) aggQ = aggQ.eq("style", style);
-        if (hook) aggQ = aggQ.eq("hook", hook);
-        if (product) aggQ = aggQ.eq("product", product);
-        if (theme) aggQ = aggQ.eq("theme", theme);
-        if (tagSource) aggQ = aggQ.eq("tag_source", tagSource);
-        if (adStatus) aggQ = aggQ.eq("ad_status", adStatus);
-        if (delivery === "had_delivery") aggQ = aggQ.gt("spend", 0);
-        if (delivery === "active") aggQ = aggQ.eq("ad_status", "ACTIVE");
-        if (search) aggQ = aggQ.or(`ad_name.ilike.%${search}%,unique_code.ilike.%${search}%,campaign_name.ilike.%${search}%`);
-        aggQ = aggQ.order("ad_id", { ascending: true }).range(aggOffset, aggOffset + AGG_PAGE - 1);
-        const { data: aggData } = await aggQ;
-        if (!aggData || aggData.length === 0) break;
-        for (const row of aggData) {
-          const s = Number(row.spend) || 0;
-          aggSpends.push(s);
-          if (s > 0) {
-            aggCpas.push(Number(row.cpa) || 0);
-            aggRoases.push(Number(row.roas) || 0);
-          }
+      // Aggregates cover ALL matching creatives (not just the page slice).
+      // When ?all=1 the full filtered set is already in memory — compute from
+      // it directly instead of re-scanning the table. Only the paged path
+      // needs a second scan, and that scan stays narrow (spend/cpa/roas only).
+      let aggRows: any[];
+      if (all) {
+        aggRows = data;
+      } else {
+        aggRows = [];
+        let aggOffset = 0;
+        const AGG_PAGE = 1000;
+        while (true) {
+          const { data: aggData } = await applyCreativeFilters(
+            supabase.from("creatives").select("spend, cpa, roas")
+          ).order("ad_id", { ascending: true }).range(aggOffset, aggOffset + AGG_PAGE - 1);
+          if (!aggData || aggData.length === 0) break;
+          aggRows.push(...aggData);
+          if (aggData.length < AGG_PAGE) break;
+          aggOffset += AGG_PAGE;
         }
-        if (aggData.length < AGG_PAGE) break;
-        aggOffset += AGG_PAGE;
       }
-      const aggTotalSpend = aggSpends.reduce((s, v) => s + v, 0);
-      const aggAvgCpa = aggCpas.length > 0 ? aggCpas.reduce((s, v) => s + v, 0) / aggCpas.length : 0;
-      const aggAvgRoas = aggRoases.length > 0 ? aggRoases.reduce((s, v) => s + v, 0) / aggRoases.length : 0;
+      let aggTotalSpend = 0, aggCpaSum = 0, aggRoasSum = 0, aggWithSpend = 0;
+      for (const row of aggRows) {
+        const s = Number(row.spend) || 0;
+        aggTotalSpend += s;
+        if (s > 0) {
+          aggWithSpend++;
+          aggCpaSum += Number(row.cpa) || 0;
+          aggRoasSum += Number(row.roas) || 0;
+        }
+      }
+      const aggAvgCpa = aggWithSpend > 0 ? aggCpaSum / aggWithSpend : 0;
+      const aggAvgRoas = aggWithSpend > 0 ? aggRoasSum / aggWithSpend : 0;
 
-      return new Response(JSON.stringify({ data: data || [], total: count || 0, aggregates: { total_spend: aggTotalSpend, avg_cpa: aggAvgCpa, avg_roas: aggAvgRoas } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ data: data || [], total, aggregates: { total_spend: aggTotalSpend, avg_cpa: aggAvgCpa, avg_roas: aggAvgRoas } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // PUT /creatives/:id — update tags

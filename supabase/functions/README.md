@@ -97,9 +97,6 @@ The Vault is a creative-inspiration library: paste a TikTok, Instagram, YouTube,
 | `vault-search` | User action | Semantic search across the user's saved inspiration items. |
 | `vault-status` | Polling | Returns the current pipeline status for a single item (`extracting`, `transcribing`, `analyzing`, `ready`, `error`). |
 | `vault-ads` | User action | Fetches saved/inspiration ads for the Library UI with filtering and pagination. |
-| `vault-viral-cron` | Cron | Scheduled refresh of the viral feed across configured trending sources. |
-| `vault-viral-refresh` | User action | On-demand refresh trigger for the viral feed. |
-| `vault-viral-webhook` | Apify webhook | Receives viral-feed scrape completions and upserts ads into the viral feed. |
 | `vault-slack-connect` | OAuth | Connects a Slack workspace so shared ad links are auto-imported into the user's vault. |
 | `vault-slack-events` | Slack events | Inbound webhook receiver for Slack `message` events containing ad URLs. |
 | `vault-slack-import` | Internal | Worker that processes Slack-shared URLs through the standard `vault-save` pipeline. |
@@ -149,7 +146,6 @@ The Vault is a creative-inspiration library: paste a TikTok, Instagram, YouTube,
 | `media-discovery.ts` | Meta Graph API v22.0 media URL resolver. Provides `discoverImageUrl` / `discoverVideoUrl` / `fetchWithTimeout` and the `NO_THUMB_SENTINEL` / `NO_VIDEO_SENTINEL` markers used to short-circuit known-empty creatives. Consumed by `refresh-thumbnails`, `enrich-thumbnails`, `fetch-thumbnail`, and `cache-creative-image`. |
 | `platform.ts` | URL → platform detection for the Vault. Owns `PLATFORM_MAP`, `VIDEO_PLATFORMS`, `VIDEO_URL_PATTERN`, and `detectPlatform(url)`. Add a new platform here first before wiring it elsewhere. |
 | `actor-configs.ts` | Apify actor registry for the Vault. `ACTOR_CONFIGS[platform]` returns `{ actorId, buildInput, extractVideoUrl, extractThumbnailUrl, extractCreatorHandle, extractTitle, apiRunOptions }`. New ingestion platforms drop in here without touching `vault-extract` / `vault-extract-webhook`. |
-| `trending-configs.ts` | Per-source configs for the viral feed scraper — controls which Apify actors `vault-viral-cron` invokes and how results map to `viral_items` rows. |
 
 ---
 
