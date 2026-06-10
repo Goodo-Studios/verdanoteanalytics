@@ -15,7 +15,6 @@ import {
   Library,
   ChevronRight,
   Vault,
-  Flame,
   ClipboardList,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
@@ -65,7 +64,6 @@ export const builderSections: NavSection[] = [
     label: "Creative Vault",
     items: [
       { title: "Library", url: "/ad-library", icon: Library },
-      { title: "Viral Feed", url: "/viral-feed", icon: Flame },
       { title: "Boards", url: "/ad-library/boards", icon: Vault },
       { title: "Hooks", url: "/ad-library/hooks", icon: Zap },
     ],
@@ -75,7 +73,7 @@ export const builderSections: NavSection[] = [
 // Client surface: clients get the core analytics tabs — Overview, Creatives,
 // Analytics — alongside their Content Pipeline + Reports. Overview routes to the
 // same OverviewPage builders see (the purpose-built ClientHomePage is retired).
-// Deeper strategist surfaces (Tagging, Briefs, Vault, Viral Feed) stay
+// Deeper strategist surfaces (Tagging, Briefs, Vault) stay
 // client-gated — see route guards in App.tsx.
 export const clientNavItems: NavItem[] = [
   { title: "Overview", url: "/", icon: LayoutGrid },

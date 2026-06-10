@@ -120,7 +120,7 @@ export function SyncHistorySection({ accountId }: { accountId?: string }) {
   const syncMut = useSync();
   const cancelMut = useCancelSync();
   const isSyncing = useIsSyncing();
-  const prevRunningIdsRef = useRef<Set<number>>(new Set());
+  const prevRunningIdsRef = useRef<Set<string>>(new Set());
 
   // Notify when a running sync completes or fails
   useEffect(() => {
@@ -152,7 +152,7 @@ export function SyncHistorySection({ accountId }: { accountId?: string }) {
       }
     }
 
-    prevRunningIdsRef.current = currentRunning as Set<number>;
+    prevRunningIdsRef.current = currentRunning as Set<string>;
   }, [logs]);
 
   const filteredLogs = useMemo(() => {

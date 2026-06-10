@@ -39,6 +39,9 @@ export function gradeCreatives(creatives: any[]): Map<string, GradeInfo> {
     .sort((a, b) => a - b);
 
   const percentile = (sorted: number[], value: number): number => {
+    // Degenerate case: all values identical → assign median so every creative
+    // gets a C rather than an F (count stays 0 when nothing is strictly less).
+    if (sorted[0] === sorted[sorted.length - 1]) return 50;
     let count = 0;
     for (const v of sorted) {
       if (v < value) count++;

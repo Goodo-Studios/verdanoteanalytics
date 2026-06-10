@@ -271,7 +271,7 @@ export function CreativeComments({ adId, accountId }: CreativeCommentsProps) {
   };
 
   const renderBody = (body: string) => {
-    return body.replace(/@(\w+)/g, (match) => match).split(/(@\w+)/g).map((part, i) => {
+    return body.split(/(@\w+)/g).map((part, i) => {
       if (part.startsWith("@")) {
         return <span key={i} className="text-primary font-semibold">{part}</span>;
       }

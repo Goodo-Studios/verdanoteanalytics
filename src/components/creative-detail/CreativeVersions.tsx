@@ -98,7 +98,7 @@ function LinkVersionModal({ creative, open, onClose }: { creative: any; open: bo
 
     // Compute next version number
     const currentMax = Math.max(creative.version || 1, target.version || 1);
-    const newVersion = childAdId === creative.ad_id ? currentMax + 1 : currentMax + 1;
+    const newVersion = currentMax + 1;
 
     linkVersion.mutate(
       { childAdId, parentAdId, newVersion },

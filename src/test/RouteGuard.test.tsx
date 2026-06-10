@@ -7,13 +7,13 @@
  *  1. Nav model (AppSidebar exports): the client nav list INCLUDES the core
  *     analytics surfaces (Overview / Creatives / Analytics) plus Content
  *     Pipeline / Reports, and EXCLUDES the deeper strategist surfaces
- *     (Tagging, Briefs, Vault, Viral Feed); builder sections keep the full
+ *     (Tagging, Briefs, Vault); builder sections keep the full
  *     internal surface (AC1, AC3).
  *
  *  2. Route guard (App's exported RoleGuardedRoutes): an effectiveClient
  *     (isClient OR isClientPreview) REACHES /creatives, /creatives/compare and
  *     /analytics, but is still redirected away from /tagging, /briefs,
- *     /ad-library*, /viral-feed and lands on the index (Overview);
+ *     /ad-library* and lands on the index (Overview);
  *     builders/employees reach every page unchanged; the index route resolves
  *     to OverviewPage for every role (the purpose-built ClientHomePage is
  *     retired) (AC2, AC3, AC4).
@@ -49,7 +49,6 @@ vi.mock("@/features/vault/ItemDetailPage", () => pageMock("vault-item"));
 vi.mock("@/features/vault/BoardsPage", () => pageMock("boards"));
 vi.mock("@/features/vault/BoardDetailPage", () => pageMock("board-detail"));
 vi.mock("@/features/vault/HooksPage", () => pageMock("hooks"));
-vi.mock("@/features/vault/ViralFeedPage", () => pageMock("viral-feed"));
 vi.mock("@/pages/NotFound", () => pageMock("not-found"));
 
 // AppLayout + the preview banner pull in heavy chrome (sidebar, account ctx) —
@@ -143,19 +142,18 @@ describe("nav model — clientNavItems (AC1)", () => {
     );
   });
 
-  it("EXCLUDES the deeper strategist surfaces (Tagging, Briefs, Vault, Viral Feed)", () => {
+  it("EXCLUDES the deeper strategist surfaces (Tagging, Briefs, Vault)", () => {
     const excludedUrls = [
       "/tagging",
       "/briefs",
       "/ad-library",
       "/ad-library/boards",
       "/ad-library/hooks",
-      "/viral-feed",
     ];
     for (const url of excludedUrls) {
       expect(urls).not.toContain(url);
     }
-    const excludedTitles = ["Tagging", "Briefs", "Library", "Boards", "Hooks", "Viral Feed"];
+    const excludedTitles = ["Tagging", "Briefs", "Library", "Boards", "Hooks"];
     for (const title of excludedTitles) {
       expect(titles).not.toContain(title);
     }
@@ -178,7 +176,6 @@ describe("nav model — builderSections retain the full internal surface (AC3)",
       "/ad-library",
       "/ad-library/boards",
       "/ad-library/hooks",
-      "/viral-feed",
     ]) {
       expect(builderUrls).toContain(url);
     }
@@ -203,7 +200,6 @@ const CLIENT_DENIED_ROUTES = [
   { path: "/ad-library", marker: "ad-library" },
   { path: "/ad-library/boards", marker: "boards" },
   { path: "/ad-library/hooks", marker: "hooks" },
-  { path: "/viral-feed", marker: "viral-feed" },
 ];
 
 // Full internal surface — builders/employees reach every one (AC3 no-regression).

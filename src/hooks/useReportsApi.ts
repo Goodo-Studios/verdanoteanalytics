@@ -38,7 +38,6 @@ export function useReportSchedules() {
   return useQuery({
     queryKey: ["report-schedules"],
     queryFn: async () => {
-      const { supabase } = await import("@/integrations/supabase/client");
       const { data, error } = await supabase.from("report_schedules").select("*").order("created_at", { ascending: true });
       if (error) throw error;
       return data;
@@ -53,7 +52,6 @@ export function useUpsertReportSchedule() {
       report_name_template?: string; date_range_days?: number;
       deliver_to_app?: boolean; deliver_to_slack?: boolean;
     }) => {
-      const { supabase } = await import("@/integrations/supabase/client");
       const { data, error } = await supabase
         .from("report_schedules")
         .upsert(schedule, { onConflict: "account_id,cadence" })

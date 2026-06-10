@@ -17,20 +17,11 @@ interface CreativesFiltersProps {
   groupBy: string;
   setGroupBy: (v: string) => void;
   viewMode: "table" | "card" | "timeline";
-  momentumFilter?: string;
-  onMomentumChange?: (v: string) => void;
-  fatigueFilter?: string;
-  onFatigueChange?: (v: string) => void;
-  platformFilter?: string;
-  onPlatformChange?: (v: string) => void;
 }
 
 export function CreativesFilters({
   dateFrom, dateTo, onDateChange,
   filters, updateFilter, filterOptions, groupBy, setGroupBy, viewMode,
-  momentumFilter, onMomentumChange,
-  fatigueFilter, onFatigueChange,
-  platformFilter, onPlatformChange,
 }: CreativesFiltersProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 

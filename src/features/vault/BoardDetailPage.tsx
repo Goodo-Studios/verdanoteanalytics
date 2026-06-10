@@ -64,6 +64,7 @@ export default function BoardDetailPage() {
         .from("boards")
         .select("*")
         .eq("id", id!)
+        .eq("user_id", user!.id)
         .single();
       if (error) throw error;
       return data as Board;
@@ -234,7 +235,7 @@ export default function BoardDetailPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {boardItems.map((bi) => {
+            {boardItems.filter(bi => bi.inspiration_items != null).map((bi) => {
               const item = bi.inspiration_items;
               const hookPreview =
                 item.inspiration_transcripts?.[0]?.cleaned_script?.split("\n")[0] ?? null;

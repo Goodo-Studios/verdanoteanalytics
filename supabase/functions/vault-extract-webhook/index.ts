@@ -132,6 +132,30 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Log raw Apify output for twitter — V2 actor (apidojo~tweet-scraper) uses GraphQL
+    // API which nests fields under `legacy`; log top-level keys + legacy + media structure
+    // to verify field paths. Remove this block once extraction is confirmed working.
+    if (item.platform === "twitter") {
+      const raw = items[0] as Record<string, unknown>;
+      console.log(`[twitter-debug] top-level keys: ${Object.keys(raw).join(", ")}`);
+      if (raw.legacy && typeof raw.legacy === "object") {
+        console.log(`[twitter-debug] legacy keys: ${Object.keys(raw.legacy as object).join(", ")}`);
+        const leg = raw.legacy as Record<string, unknown>;
+        const extEnt = leg.extendedEntities ?? leg.extended_entities;
+        if (extEnt && typeof extEnt === "object") {
+          console.log(`[twitter-debug] legacy.extendedEntities: ${JSON.stringify(extEnt).slice(0, 400)}`);
+        }
+      }
+      // Top-level media fields (V1/quacker compat)
+      const topExt = raw.extendedEntities ?? raw.extended_entities;
+      if (topExt) {
+        console.log(`[twitter-debug] top-level extendedEntities: ${JSON.stringify(topExt).slice(0, 400)}`);
+      }
+      if (Array.isArray(raw.media) && raw.media.length > 0) {
+        console.log(`[twitter-debug] media[0]: ${JSON.stringify(raw.media[0]).slice(0, 300)}`);
+      }
+    }
+
     const videoUrl = config.extractVideoUrl(items[0]);
     if (!videoUrl) {
       // Metadata-only platforms: Instagram image/carousel posts have no videoUrl,
@@ -284,10 +308,16 @@ Deno.serve(async (req) => {
 
     // Download the video and store it permanently in Supabase Storage.
     // Apify KV store URLs need the token appended; CDN URLs need browser-like headers.
+    // Referer must match the video's origin — Twitter CDN rejects non-Twitter referers.
     const isApifyStorage = videoUrl.includes("api.apify.com");
     const downloadUrl = isApifyStorage
       ? `${videoUrl}${videoUrl.includes("?") ? "&" : "?"}token=${apifyToken}`
       : videoUrl;
+
+    const platformRefererForVideo =
+      item.platform === "twitter" ? "https://x.com/" :
+      item.platform === "instagram" ? "https://www.instagram.com/" :
+      "https://www.tiktok.com/";
 
     const videoRes = await fetch(downloadUrl, {
       headers: isApifyStorage
@@ -295,12 +325,30 @@ Deno.serve(async (req) => {
         : {
             "User-Agent":
               "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            Referer: "https://www.tiktok.com/",
+            Referer: platformRefererForVideo,
             Accept: "video/webm,video/mp4,video/*;q=0.9,*/*;q=0.8",
           },
     });
 
     if (!videoRes.ok) {
+      // Twitter CDN often returns 403 from data-centre IPs even with valid URLs.
+      // Fall back to metadata-only (save title + thumbnail) instead of erroring, so
+      // the item is still usable — user can re-upload the video file via the Upload tab.
+      if (item.platform === "twitter" && videoRes.status === 403) {
+        console.warn(`[twitter] CDN 403 — falling back to metadata-only for item ${itemId}`);
+        const thumbnailUrl2 = config.extractThumbnailUrl(items[0]);
+        const creatorHandle2 = config.extractCreatorHandle(items[0]);
+        const rawTitle2 = config.extractTitle?.(items[0]) ?? undefined;
+        const title2 = rawTitle2 && rawTitle2 !== "Unknown" ? rawTitle2 : undefined;
+        await db.from("inspiration_items").update({
+          thumbnail_url: thumbnailUrl2 ?? undefined,
+          creator_handle: creatorHandle2 ?? undefined,
+          ...(title2 ? { title: title2 } : {}),
+          status: "ready",
+          error_message: "Video could not be downloaded from Twitter CDN (access restricted). Use the Upload tab to add the video file.",
+        }).eq("id", itemId);
+        return json({ ok: true, item_id: itemId, type: "metadata_only_cdn_403" });
+      }
       throw new Error(
         `Could not download video from ${item.platform} CDN (status ${videoRes.status}). ` +
         `The CDN URL may require a logged-in session. Download the video manually and use the Upload tab instead.`

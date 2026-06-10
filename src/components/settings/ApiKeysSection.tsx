@@ -36,12 +36,16 @@ export function ApiKeysSection() {
 
   const handleCreate = async () => {
     if (!newKeyName.trim() || selectedScopes.length === 0) return;
-    const key = await createKey.mutateAsync({ name: newKeyName.trim(), scopes: selectedScopes });
-    setRevealedKey(key);
-    setShowKey(true);
-    setNewKeyName("");
-    setSelectedScopes(["read"]);
-    toast.success("API key created — copy it now, it won't be shown again");
+    try {
+      const key = await createKey.mutateAsync({ name: newKeyName.trim(), scopes: selectedScopes });
+      setRevealedKey(key);
+      setShowKey(true);
+      setNewKeyName("");
+      setSelectedScopes(["read"]);
+      toast.success("API key created — copy it now, it won't be shown again");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create API key");
+    }
   };
 
   const toggleScope = (scope: string) => {

@@ -52,7 +52,7 @@ export function useOverviewPageState() {
     enabled: !!prevPeriodDates,
   });
 
-  const hasPrevPeriod = !!prevPeriodDates && !!prevDailyMetrics && prevDailyMetrics.totalSpend > 0;
+  const hasPrevPeriod = !!prevPeriodDates && !!prevDailyMetrics;
 
   // Account settings
   const roasThreshold = parseFloat(selectedAccount?.winner_roas_threshold || "2.0");

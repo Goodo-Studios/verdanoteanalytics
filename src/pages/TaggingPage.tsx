@@ -17,6 +17,7 @@ import { useCreatives, useUpdateCreative, CREATIVES_PAGE_SIZE, useAutoTagPreview
 import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { useUploadMappings } from "@/hooks/useAccountsApi";
 import { TAG_OPTIONS_MAP } from "@/lib/tagOptions";
+import { parseCsvLine } from "@/lib/csv";
 import { toast } from "sonner";
 import {
   Search, ChevronLeft, ChevronRight, Filter, Upload, LayoutGrid, Loader2, Save, X, Plus, Wand2, Zap, FileCheck,
@@ -148,13 +149,18 @@ const TaggingPage = () => {
     }));
   }, []);
 
-  const handleSaveAll = useCallback(() => {
+  const handleSaveAll = useCallback(async () => {
     const entries = Object.entries(localEdits);
     if (entries.length === 0) return;
-    entries.forEach(([adId, updates]) => {
-      updateCreative.mutate({ adId, updates: { ...updates, tag_source: "manual" } });
-    });
-    setLocalEdits({});
+    try {
+      await Promise.all(entries.map(([adId, updates]) =>
+        updateCreative.mutateAsync({ adId, updates: { ...updates, tag_source: "manual" } })
+      ));
+      setLocalEdits({});
+    } catch (e) {
+      // mutations failed — localEdits preserved so user can retry
+      console.error('Save failed:', e);
+    }
   }, [localEdits, updateCreative]);
 
   const handleDiscardAll = useCallback(() => {
@@ -175,12 +181,12 @@ const TaggingPage = () => {
       const text = event.target?.result as string;
       const lines = text.split("\n").filter((l) => l.trim());
       if (lines.length < 2) { toast.error("Invalid CSV — must have headers and at least one row."); return; }
-      const headers = lines[0].split(",").map((h) => h.trim());
+      const headers = parseCsvLine(lines[0]);
       const required = ["UniqueCode", "Type", "Person", "Style", "Product", "Hook", "Theme"];
       const missing = required.filter((r) => !headers.includes(r));
       if (missing.length > 0) { toast.error(`Missing columns: ${missing.join(", ")}`); return; }
       const rows = lines.slice(1).map((line) => {
-        const values = line.split(",").map((v) => v.trim());
+        const values = parseCsvLine(line);
         const row: Record<string, string> = {};
         headers.forEach((h, i) => { row[h] = values[i] || ""; });
         return row;

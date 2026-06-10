@@ -30,7 +30,7 @@ export function CreativeTagEditor({ creative }: CreativeTagEditorProps) {
         theme: creative.theme || "",
       });
     }
-  }, [creative]);
+  }, [creative?.ad_id]);
 
   const handleSave = () => {
     updateCreative.mutate({ adId: creative.ad_id, updates: tags });

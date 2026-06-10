@@ -247,6 +247,22 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
 
+    // HIGH-006: Auth validation — require a valid Supabase JWT
+    {
+      const supabaseForAuth = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      );
+      const authHeader = req.headers.get('authorization') ?? '';
+      const token = authHeader.replace('Bearer ', '');
+      const { data: { user }, error: authError } = await supabaseForAuth.auth.getUser(token);
+      if (authError || !user) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     // Discriminate the input shape. Accept both the legacy create-coda-brief
     // shape (default — `source` absent) and the vault-coda-brief shape.
     const source: "vault" | "creative" =
@@ -385,17 +401,7 @@ Deno.serve(async (req) => {
     // pre-merge create-coda-brief; the enrichment is fetched (and could be
     // surfaced later) but is not embedded in the existing brief contract so
     // existing callers see no behaviour change.
-    if (creative_id) {
-      const supabase = createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-      );
-      await supabase
-        .from("creatives")
-        .select("ad_name, roas, spend, ad_type, hook, theme, style")
-        .eq("ad_id", creative_id)
-        .single();
-    }
+    // creative_id enrichment reserved for future use — query removed (LOW-017: result was never used)
 
     const codaRes = await fetch(
       `${CODA_API_BASE}/docs/${CODA_DOC_ID}/tables/${CODA_TABLE_ID}/rows`,
@@ -425,8 +431,10 @@ Deno.serve(async (req) => {
       throw new Error(`Coda API error [${codaRes.status}]: ${codaBody}`);
     }
 
+    let parsed: any = {};
+    try { parsed = JSON.parse(codaBody); } catch { /* non-JSON body — write still succeeded */ }
     return new Response(
-      JSON.stringify({ success: true, coda: JSON.parse(codaBody) }),
+      JSON.stringify({ success: true, coda: parsed }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err: unknown) {

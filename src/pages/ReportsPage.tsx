@@ -33,7 +33,7 @@ import { format, subDays } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { fmtMetric } from "@/lib/formatters";
 import { useRoleNavigate } from "@/hooks/useRolePath";
 import { useReports, useGenerateReport, useDeleteReport, useSendReportToSlack, useReportSchedules, useUpsertReportSchedule } from "@/hooks/useReportsApi";
@@ -76,9 +76,46 @@ const ReportsPage = () => {
     return rawReports.filter((r: any) => r.account_id === selectedAccountId);
   }, [rawReports, selectedAccountId]);
 
+  // Local state for schedule name template inputs — keyed by "{accountId}:{cadence}".
+  // The UI updates immediately; the actual Supabase upsert is debounced 400 ms.
+  const [localTemplates, setLocalTemplates] = useState<Record<string, string>>({});
+  const templateDebounceRefs = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
   const getSchedule = useCallback((accountId: string, cadence: string) => {
     return schedules?.find((s: any) => s.account_id === accountId && s.cadence === cadence);
   }, [schedules]);
+
+  // Returns the locally-edited template value if present, otherwise falls back to the
+  // persisted schedule value (or the default placeholder).
+  const getTemplateValue = useCallback((accountId: string, cadence: string) => {
+    const key = `${accountId}:${cadence}`;
+    if (localTemplates[key] !== undefined) return localTemplates[key];
+    const existing = getSchedule(accountId, cadence);
+    return existing?.report_name_template || `{cadence} Report - {account}`;
+  }, [localTemplates, getSchedule]);
+
+  const handleTemplateChange = useCallback((accountId: string, cadence: string, value: string) => {
+    const key = `${accountId}:${cadence}`;
+    // Immediate UI update
+    setLocalTemplates((prev) => ({ ...prev, [key]: value }));
+    // Cancel any pending debounced save for this key
+    if (templateDebounceRefs.current[key]) {
+      clearTimeout(templateDebounceRefs.current[key]);
+    }
+    // Schedule the actual DB write 400 ms after the user stops typing
+    templateDebounceRefs.current[key] = setTimeout(() => {
+      const existing = getSchedule(accountId, cadence);
+      upsertScheduleMut.mutate({
+        account_id: accountId,
+        cadence,
+        enabled: existing?.enabled ?? true,
+        report_name_template: value,
+        date_range_days: existing?.date_range_days || (cadence === "weekly" ? 7 : 30),
+        deliver_to_app: existing?.deliver_to_app ?? true,
+        deliver_to_slack: existing?.deliver_to_slack ?? false,
+      });
+    }, 400);
+  }, [getSchedule, upsertScheduleMut]);
 
   const handleToggleSchedule = (accountId: string, cadence: string, enabled: boolean) => {
     const existing = getSchedule(accountId, cadence);
@@ -343,8 +380,8 @@ const ReportsPage = () => {
                               <Label className="font-label text-[10px] uppercase tracking-[0.06em] text-sage font-medium">Report Name Template</Label>
                               <Input
                                 className="font-body text-[14px] text-charcoal border-border-light rounded-[4px] bg-background"
-                                value={schedule?.report_name_template || `{cadence} Report - {account}`}
-                                onChange={(e) => handleUpdateSchedule(a.id, key, "report_name_template", e.target.value)}
+                                value={getTemplateValue(a.id, key)}
+                                onChange={(e) => handleTemplateChange(a.id, key, e.target.value)}
                               />
                             </div>
                             <div className="space-y-1">

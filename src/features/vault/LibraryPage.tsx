@@ -16,9 +16,13 @@ import {
 import { useItemStatus } from "./hooks/useItemStatus";
 import type { LibraryItem, VaultPlatformFilter } from "./types/vault";
 
-/** Mounts a `useItemStatus` poller for one in-flight item; renders nothing. */
-function ActiveItemPoller({ itemId }: { itemId: string }) {
-  useItemStatus(itemId);
+/** Mounts a `useItemStatus` poller for one in-flight item; renders nothing.
+ *
+ * `onDone` is called when the item reaches a terminal status so the parent
+ * can remove the id from `pollingIds` and unmount this component.
+ */
+function ActiveItemPoller({ itemId, onDone }: { itemId: string; onDone: (id: string) => void }) {
+  useItemStatus(itemId, onDone);
   return null;
 }
 
@@ -209,6 +213,10 @@ export default function LibraryPage() {
     setPollingIds((prev) => [...prev, itemId]);
   };
 
+  const handlePollingDone = (itemId: string) => {
+    setPollingIds((prev) => prev.filter((x) => x !== itemId));
+  };
+
   const renderCard = (item: LibraryItem) => {
     const hookPreview = item.inspiration_transcripts?.[0]?.cleaned_script?.split("\n")[0] ?? null;
     const fw = item.inspiration_frameworks?.[0];
@@ -323,7 +331,7 @@ export default function LibraryPage() {
       </div>
 
       {pollingIds.map((id) => (
-        <ActiveItemPoller key={id} itemId={id} />
+        <ActiveItemPoller key={id} itemId={id} onDone={handlePollingDone} />
       ))}
 
       <CaptureModal

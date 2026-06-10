@@ -84,6 +84,10 @@ export function useCreativesPageState() {
     setFilters(prev => { const next = { ...prev }; if (val === "__all__") delete next[key]; else next[key] = val; return next; });
   }, []);
 
+  useEffect(() => {
+    setPage(0);
+  }, [selectedAccountId]);
+
   const handleSort = useCallback((key: string) => {
     setSort(prev => ({
       key,

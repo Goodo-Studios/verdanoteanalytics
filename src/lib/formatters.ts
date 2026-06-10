@@ -5,6 +5,7 @@
 
 /** Format a dollar amount with k/M abbreviation */
 export function fmt$(n: number): string {
+  if (!isFinite(n)) return '—';
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}k`;
   return `$${n.toFixed(2)}`;
@@ -13,16 +14,19 @@ export function fmt$(n: number): string {
 /** Format a nullable number with optional prefix/suffix — used in reports and tables */
 export function fmtMetric(v: number | null | undefined, prefix = "", suffix = "", decimals = 2): string {
   if (v === null || v === undefined) return "—";
+  if (!isFinite(Number(v))) return "—";
   return `${prefix}${Number(v).toLocaleString("en-US", { maximumFractionDigits: decimals })}${suffix}`;
 }
 
 /** Format a number with commas */
 export function fmtN(n: number): string {
+  if (!isFinite(n)) return '—';
   return n.toLocaleString();
 }
 
 /** Format a percentage */
 export function fmtPct(n: number): string {
+  if (!isFinite(n)) return '—';
   return `${n.toFixed(1)}%`;
 }
 

@@ -1,9 +1,41 @@
+/**
+ * Parse a single CSV line into field values.
+ * - Commas inside double-quoted fields do not split.
+ * - Boundary quotes are stripped from the value (`"Style, Modern"` → `Style, Modern`).
+ * - RFC 4180 escaped quotes are honored: `""` inside a quoted field is a literal `"`.
+ */
+export function parseCsvLine(line: string): string[] {
+  const fields: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"'; // escaped quote — emit one literal quote
+        i++;
+      } else {
+        inQuotes = !inQuotes; // boundary quote — not part of the value
+      }
+    } else if (ch === "," && !inQuotes) {
+      fields.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  fields.push(current.trim());
+  return fields;
+}
+
 export function downloadCSV(filename: string, headers: string[], rows: string[][]) {
   const escape = (val: string) => {
-    if (val.includes(",") || val.includes('"') || val.includes("\n")) {
-      return `"${val.replace(/"/g, '""')}"`;
+    if (val == null) return '';
+    const s = String(val);
+    if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+      return `"${s.replace(/"/g, '""')}"`;
     }
-    return val;
+    return s;
   };
 
   const csvContent = [
@@ -65,5 +97,5 @@ export function exportReportCSV(report: any) {
     }
   } catch {}
 
-  downloadCSV(`report-${report.report_name.replace(/\s+/g, "-")}.csv`, headers, rows);
+  downloadCSV(`report-${(report.report_name ?? 'report').replace(/\s+/g, "-")}.csv`, headers, rows);
 }

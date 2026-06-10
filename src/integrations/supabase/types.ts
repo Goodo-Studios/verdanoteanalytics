@@ -92,6 +92,7 @@ export type Database = {
           logo_url: string | null
           name: string
           next_sync_at: string | null
+          optimization_goal: string
           portfolio_cta_url: string | null
           portfolio_enabled: boolean
           portfolio_headline: string | null
@@ -144,6 +145,7 @@ export type Database = {
           logo_url?: string | null
           name: string
           next_sync_at?: string | null
+          optimization_goal?: string
           portfolio_cta_url?: string | null
           portfolio_enabled?: boolean
           portfolio_headline?: string | null
@@ -196,6 +198,7 @@ export type Database = {
           logo_url?: string | null
           name?: string
           next_sync_at?: string | null
+          optimization_goal?: string
           portfolio_cta_url?: string | null
           portfolio_enabled?: boolean
           portfolio_headline?: string | null
@@ -1296,6 +1299,7 @@ export type Database = {
           campaign_name: string | null
           clicks: number | null
           cost_per_add_to_cart: number | null
+          cost_per_result: number
           cpa: number | null
           cpc: number | null
           cpm: number | null
@@ -1318,6 +1322,7 @@ export type Database = {
           product: string | null
           purchase_value: number | null
           purchases: number | null
+          result_count: number
           result_type: string | null
           retention_p100: number | null
           retention_p25: number | null
@@ -1361,6 +1366,7 @@ export type Database = {
           campaign_name?: string | null
           clicks?: number | null
           cost_per_add_to_cart?: number | null
+          cost_per_result?: number
           cpa?: number | null
           cpc?: number | null
           cpm?: number | null
@@ -1383,6 +1389,7 @@ export type Database = {
           product?: string | null
           purchase_value?: number | null
           purchases?: number | null
+          result_count?: number
           result_type?: string | null
           retention_p100?: number | null
           retention_p25?: number | null
@@ -1426,6 +1433,7 @@ export type Database = {
           campaign_name?: string | null
           clicks?: number | null
           cost_per_add_to_cart?: number | null
+          cost_per_result?: number
           cpa?: number | null
           cpc?: number | null
           cpm?: number | null
@@ -1448,6 +1456,7 @@ export type Database = {
           product?: string | null
           purchase_value?: number | null
           purchases?: number | null
+          result_count?: number
           result_type?: string | null
           retention_p100?: number | null
           retention_p25?: number | null

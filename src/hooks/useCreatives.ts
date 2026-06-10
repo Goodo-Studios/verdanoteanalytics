@@ -1,4 +1,4 @@
-import { useQuery, keepPreviousData } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useMutationWithToast } from "./useMutationWithToast";
 
@@ -13,7 +13,7 @@ export function useCreatives(filters: Record<string, string> = {}, page = 0) {
   return useQuery<{ data: any[]; total: number }>({
     queryKey: ["creatives", qs],
     queryFn: () => apiFetch("creatives", qs ? `?${qs}` : ""),
-    placeholderData: keepPreviousData,
+    // Intentionally no keepPreviousData — on account switch, stale cross-account data must not render.
   });
 }
 

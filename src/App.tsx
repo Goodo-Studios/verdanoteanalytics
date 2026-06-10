@@ -10,7 +10,7 @@ import { ClientPreviewBanner } from "@/components/ClientPreviewBanner";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { Loader2 } from "lucide-react";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState } from "react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppLayout } from "@/components/AppLayout";
 import { PageSkeleton } from "@/components/skeletons/PageSkeleton";
@@ -48,7 +48,7 @@ const VaultItemDetailPage = lazy(routeImports.vaultItemDetail);
 const BoardsPage = lazy(routeImports.boards);
 const BoardDetailPage = lazy(routeImports.boardDetail);
 const HooksPage = lazy(routeImports.hooks);
-const ViralFeedPage = lazy(routeImports.viralFeed);
+
 const SharedAdBoardPage = lazy(() => import("./pages/SharedAdBoardPage"));
 const PublicVaultItemPage = lazy(() => import("./pages/PublicVaultItemPage"));
 const BookmarkletReceiver = lazy(() => import("./pages/BookmarkletReceiver"));
@@ -110,7 +110,8 @@ export function RoleGuardedRoutes() {
   const { isClientPreview } = useClientPreview();
   const effectiveClient = isClient || isClientPreview;
 
-  const agencyHome = isBuilder && localStorage.getItem("verdanote_agency_default_home") === "true";
+  const [agencyHomeFlag] = useState(() => localStorage.getItem("verdanote_agency_default_home") === "true");
+  const agencyHome = isBuilder && agencyHomeFlag;
 
   if (isLoading) {
     return (
@@ -150,12 +151,15 @@ export function RoleGuardedRoutes() {
           <Route path="/briefs" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <BriefsPage />} />
           
           <Route path="/pipeline" element={<ContentPipelinePage />} />
+          {/* Viral Feed was removed — redirect old bookmarks/links to the Ad Library.
+              Bare (unprefixed) forms also land here via the role-mismatch redirect above.
+              /ad-library/viral must precede /ad-library/:id or the :id route swallows it. */}
+          <Route path="/viral-feed" element={<Navigate to={`${prefix}/ad-library`} replace />} />
+          <Route path="/ad-library/viral" element={<Navigate to={`${prefix}/ad-library`} replace />} />
           <Route path="/ad-library" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <AdLibraryPage />} />
           <Route path="/ad-library/boards" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <BoardsPage />} />
           <Route path="/ad-library/boards/:id" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <BoardDetailPage />} />
           <Route path="/ad-library/hooks" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <HooksPage />} />
-          <Route path="/viral-feed" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <ViralFeedPage />} />
-          <Route path="/ad-library/viral" element={<Navigate to={`${prefix}/viral-feed`} replace />} />
           <Route path="/ad-library/:id" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <VaultItemDetailPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>

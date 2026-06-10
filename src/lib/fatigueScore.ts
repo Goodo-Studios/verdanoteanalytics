@@ -33,14 +33,16 @@ export function computeFatigue(
     reasons.push(`Rising frequency (${freq.toFixed(1)}x)`);
   }
 
-  // ROAS trend
+  // ROAS trend — deliberately else-if, not independent ifs: the CTR signal is
+  // approximated from the same ROAS trend, so CTR decline is treated as a
+  // correlated symptom of ROAS decline, not an independent signal. A severe
+  // ROAS drop scores 25 once rather than double-counting to 45.
   if (wowTrend && wowTrend.direction !== "insufficient") {
     if (wowTrend.pctChange < -20) {
       score += 25;
       reasons.push(`ROAS declined ${Math.abs(Math.round(wowTrend.pctChange))}% this week`);
-    }
-    // CTR trend approximation: if ROAS is dropping significantly, CTR likely follows
-    if (wowTrend.pctChange < -15) {
+    } else if (wowTrend.pctChange < -15) {
+      // CTR trend approximation: if ROAS is dropping significantly, CTR likely follows
       score += 20;
       reasons.push(`CTR declining week-over-week`);
     }

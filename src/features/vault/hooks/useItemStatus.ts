@@ -7,10 +7,17 @@ const POLL_INTERVAL_MS = 3000;
 
 /** Polls a single inspiration item until it reaches a terminal status, then
  * stops. Designed to be mounted per-id so multiple in-flight items each get
- * their own polling lifecycle. */
-export function useItemStatus(itemId: string | null) {
+ * their own polling lifecycle.
+ *
+ * @param onDone - Optional callback invoked (with the itemId) once a terminal
+ *   status is reached. Use this to remove the id from any tracking set so the
+ *   poller component can unmount and pollingIds stays bounded.
+ */
+export function useItemStatus(itemId: string | null, onDone?: (id: string) => void) {
   const queryClient = useQueryClient();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
 
   useEffect(() => {
     if (!itemId) return;
@@ -33,6 +40,7 @@ export function useItemStatus(itemId: string | null) {
           clearInterval(intervalRef.current);
           intervalRef.current = null;
         }
+        onDoneRef.current?.(itemId);
       }
     };
 

@@ -76,41 +76,82 @@ function computeDiagnostics(creatives: any[]) {
   return { counts, suggestions };
 }
 
+function cleanAdName(name: string): string {
+  if (!name) return "Unknown";
+  const m = name.match(/(?:^|>)iName:([^>]+)/i);
+  if (m) return m[1];
+  if (name.includes(">")) return name.split(">")[0] || name.substring(0, 40);
+  return name.length > 45 ? name.substring(0, 42) + "…" : name;
+}
+
+// Returns "↑ +12%" / "↓ -8%" / "" when change is negligible
+function wowArrow(curr: number, prev: number): string {
+  if (!prev || prev === 0) return "";
+  const pct = ((curr - prev) / prev) * 100;
+  if (Math.abs(pct) < 2) return "";
+  const sign = pct > 0 ? "↑ +" : "↓ ";
+  return ` ${sign}${Math.abs(pct).toFixed(0)}%`;
+}
+
 async function sendReportToSlack(report: any) {
   const webhookUrl = Deno.env.get("SLACK_WEBHOOK_URL");
   if (!webhookUrl) return;
-  const fmt = (v: number | null, pre = "", suf = "") =>
-    v === null || v === undefined ? "—" : `${pre}${Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 })}${suf}`;
-  const diagItems = [
-    report.diag_weak_hook && `Weak Hook: ${report.diag_weak_hook}`,
-    report.diag_weak_body && `Weak Body: ${report.diag_weak_body}`,
-    report.diag_weak_cta && `Weak CTA: ${report.diag_weak_cta}`,
-    report.diag_weak_hook_body && `Weak Hook+Body: ${report.diag_weak_hook_body}`,
-    report.diag_landing_page && `Landing Page: ${report.diag_landing_page}`,
-    report.diag_all_weak && `Full Rebuild: ${report.diag_all_weak}`,
-    report.diag_weak_cta_image && `Weak CTR (Image): ${report.diag_weak_cta_image}`,
-  ].filter(Boolean);
-  const topPerformers = (() => { try { return JSON.parse(report.top_performers || "[]"); } catch { return []; } })();
-  const topList = topPerformers.slice(0, 3).map((p: any, i: number) =>
-    `${i + 1}. ${p.ad_name} — ${fmt(p.roas, "", "x")} ROAS, ${fmt(p.spend, "$")} spent`
-  ).join("\n");
+
+  const fmtMoney = (v: number | null) =>
+    v == null ? "—" : `$${Math.round(v).toLocaleString("en-US")}`;
+  const fmtDecimal = (v: number | null, suf = "") =>
+    v == null ? "—" : `${Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 })}${suf}`;
+
+  const topPerformers: any[] = (() => { try { return JSON.parse(report.top_performers || "[]"); } catch { return []; } })();
+  const appUrl = Deno.env.get("APP_URL") || "https://verdanote.com";
+
   const blocks: any[] = [
     { type: "header", text: { type: "plain_text", text: `📊 ${report.report_name}`, emoji: true } },
-    { type: "section", fields: [
-      { type: "mrkdwn", text: `*Creatives:* ${report.creative_count}` },
-      { type: "mrkdwn", text: `*Total Spend:* ${fmt(report.total_spend, "$")}` },
-      { type: "mrkdwn", text: `*Blended ROAS:* ${fmt(report.blended_roas, "", "x")}` },
-      { type: "mrkdwn", text: `*Avg CPA:* ${fmt(report.average_cpa, "$")}` },
-      { type: "mrkdwn", text: `*Avg CTR:* ${fmt(report.average_ctr, "", "%")}` },
-      { type: "mrkdwn", text: `*Win Rate:* ${fmt(report.win_rate, "", "%")}` },
-    ]},
   ];
-  if (topList) blocks.push({ type: "section", fields: [{ type: "mrkdwn", text: `*🏆 Top Performers:*\n${topList}` }] });
-  if (diagItems.length > 0) blocks.push({ type: "section", fields: [{ type: "mrkdwn", text: `*⚠️ Diagnostics (${report.diag_total_diagnosed}):*\n${diagItems.join(" · ")}` }] });
 
-  const appUrl = Deno.env.get("APP_URL") || "https://verdanote.com";
+  if (report.date_range_start && report.date_range_end) {
+    blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `${report.date_range_start} – ${report.date_range_end}` }] });
+  }
+
+  // Spend / CPA / CPM with WoW arrows
+  const spendText = `*Spend*\n${fmtMoney(report.total_spend)}${wowArrow(report.total_spend, report.prev_spend)}`;
+  const cpaText   = `*CPA*\n${fmtMoney(report.overall_cpa)}${wowArrow(report.overall_cpa, report.prev_cpa)}`;
+  const cpmText   = `*CPM*\n${fmtMoney(report.overall_cpm)}${wowArrow(report.overall_cpm, report.prev_cpm)}`;
+  blocks.push({ type: "section", fields: [
+    { type: "mrkdwn", text: spendText },
+    { type: "mrkdwn", text: cpaText },
+    { type: "mrkdwn", text: cpmText },
+  ]});
+
+  // Top 5 performers
+  if (topPerformers.length > 0) {
+    blocks.push({ type: "divider" });
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: "*🏆 Top 5 This Week*" } });
+
+    for (const p of topPerformers.slice(0, 5)) {
+      const name = cleanAdName(p.ad_name);
+      const metrics = [
+        fmtMoney(p.spend) + " spent",
+        p.thumb_stop_rate != null ? `Hook ${fmtDecimal(p.thumb_stop_rate, "%")}` : null,
+        p.hold_rate != null       ? `Hold ${fmtDecimal(p.hold_rate, "%")}` : null,
+        p.ctr != null             ? `CTR ${fmtDecimal(p.ctr, "%")}` : null,
+        p.roas != null            ? `ROAS ${fmtDecimal(p.roas, "x")}` : null,
+      ].filter(Boolean).join(" · ");
+
+      blocks.push({
+        type: "section",
+        text: { type: "mrkdwn", text: `*${name}*\n${metrics}` },
+        accessory: {
+          type: "button",
+          text: { type: "plain_text", text: "Preview" },
+          url: `https://www.facebook.com/ads/library/?id=${p.ad_id}`,
+        },
+      });
+    }
+  }
+
   if (report.id) {
-    blocks.push({ type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "📄 View Full Report", emoji: true }, url: `${appUrl}/reports/${report.id}` }] });
+    blocks.push({ type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "View Full Report →", emoji: true }, url: `${appUrl}/reports/${report.id}` }] });
   }
 
   try { await fetch(webhookUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ blocks }) }); }
@@ -207,6 +248,18 @@ serve(async (req) => {
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
   try {
+    const url = new URL(req.url);
+    const force = url.searchParams.get("force") === "true";
+    if (force) {
+      const cronSecret = Deno.env.get("CRON_SECRET");
+      const providedSecret = req.headers.get("x-cron-secret");
+      if (!cronSecret || providedSecret !== cronSecret) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     const now = new Date();
     const dayOfWeek = now.getUTCDay();
     const dayOfMonth = now.getUTCDate();
@@ -224,9 +277,9 @@ serve(async (req) => {
       const account = (schedule as any).ad_accounts;
       if (!account?.is_active) continue;
 
-      let shouldGenerate = false;
-      if (schedule.cadence === "weekly" && dayOfWeek === 1) shouldGenerate = true;
-      else if (schedule.cadence === "monthly" && dayOfMonth === 1) shouldGenerate = true;
+      let shouldGenerate = force; // ?force=true bypasses day-of-week check
+      if (!force && schedule.cadence === "weekly" && dayOfWeek === 1) shouldGenerate = true;
+      else if (!force && schedule.cadence === "monthly" && dayOfMonth === 1) shouldGenerate = true;
 
       if (!shouldGenerate) continue;
 
@@ -254,13 +307,32 @@ serve(async (req) => {
         if (src in tagCounts) tagCounts[src as keyof typeof tagCounts]++;
       });
 
+      // Overall CPA + CPM (actual totals, not averages of per-creative values)
+      const totalImpressions = list.reduce((s: number, c: any) => s + Number(c.impressions || 0), 0);
+      const totalPurchases = list.reduce((s: number, c: any) => s + Number(c.purchases || 0), 0);
+      const overallCpa = totalPurchases > 0 ? totalSpend / totalPurchases : 0;
+      const overallCpm = totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0;
+
+      // Prior period for WoW comparison (same duration, shifted back)
+      const priorEndDate = new Date(now);
+      priorEndDate.setDate(priorEndDate.getDate() - dateRangeDays - 1);
+      const priorStartDate = new Date(now);
+      priorStartDate.setDate(priorStartDate.getDate() - dateRangeDays * 2 - 1);
+      const priorList = await aggregateDailyMetrics(supabase, account.id, priorStartDate.toISOString().split("T")[0], priorEndDate.toISOString().split("T")[0]);
+      const priorSpend = priorList.reduce((s: number, c: any) => s + Number(c.spend || 0), 0);
+      const priorImpressions = priorList.reduce((s: number, c: any) => s + Number(c.impressions || 0), 0);
+      const priorPurchases = priorList.reduce((s: number, c: any) => s + Number(c.purchases || 0), 0);
+      const priorCpa = priorPurchases > 0 ? priorSpend / priorPurchases : 0;
+      const priorCpm = priorImpressions > 0 ? (priorSpend / priorImpressions) * 1000 : 0;
+
       const sorted = [...list].sort((a: any, b: any) => Number(b.spend || 0) - Number(a.spend || 0));
       const mapPerformer = (c: any) => ({
         ad_id: c.ad_id, ad_name: c.ad_name || c.ad_id, unique_code: c.unique_code,
-        roas: Math.round(Number(c.roas || 0) * 1000) / 1000,
-        cpa: Math.round(Number(c.cpa || 0) * 100) / 100,
         spend: Math.round(Number(c.spend || 0) * 100) / 100,
+        roas: Math.round(Number(c.roas || 0) * 1000) / 1000,
         ctr: Math.round(Number(c.ctr || 0) * 1000) / 1000,
+        thumb_stop_rate: Math.round(Number(c.thumb_stop_rate || 0) * 100) / 100,
+        hold_rate: Math.round(Number(c.hold_rate || 0) * 100) / 100,
       });
 
       const reportName = resolveTemplate(
@@ -274,7 +346,7 @@ serve(async (req) => {
         creative_count: list.length,
         total_spend: Math.round(totalSpend * 100) / 100,
         blended_roas: Math.round(avgField("roas") * 100) / 100,
-        average_cpa: Math.round(avgField("cpa") * 100) / 100,
+        average_cpa: Math.round(overallCpa * 100) / 100,
         average_ctr: Math.round(avgField("ctr") * 100) / 100,
         win_rate: Math.round(winRate * 100) / 100,
         tags_parsed_count: tagCounts.parsed,
@@ -297,7 +369,15 @@ serve(async (req) => {
       }
 
       if (schedule.deliver_to_slack) {
-        await sendReportToSlack(savedReport || report);
+        // Merge WoW + overall CPM/CPA data (computed above, not stored in DB)
+        await sendReportToSlack({
+          ...(savedReport || report),
+          overall_cpa: Math.round(overallCpa * 100) / 100,
+          overall_cpm: Math.round(overallCpm * 100) / 100,
+          prev_spend: Math.round(priorSpend * 100) / 100,
+          prev_cpa: Math.round(priorCpa * 100) / 100,
+          prev_cpm: Math.round(priorCpm * 100) / 100,
+        });
       }
 
       generated.push(`${account.id}:${schedule.cadence}`);

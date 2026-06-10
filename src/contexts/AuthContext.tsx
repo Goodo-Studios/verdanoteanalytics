@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
 
@@ -34,6 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<AppRole | null>(null);
   const [roleResolved, setRoleResolved] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const fetchRoleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchRole = async (userId: string) => {
     const { data } = await supabase.rpc("get_user_role", { _user_id: userId });
@@ -76,7 +77,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // useRolePrefix() does not momentarily return the "/builder" default
           // for what is actually a client/employee account (the /builder flash).
           setRoleResolved(false);
-          setTimeout(() => fetchRole(session.user.id), 0);
+          if (fetchRoleTimerRef.current !== null) clearTimeout(fetchRoleTimerRef.current);
+          fetchRoleTimerRef.current = setTimeout(() => fetchRole(session.user.id), 0);
         } else {
           setRole(null);
           setRoleResolved(true);
@@ -86,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       subscription.unsubscribe();
+      if (fetchRoleTimerRef.current !== null) clearTimeout(fetchRoleTimerRef.current);
     };
   }, []);
 

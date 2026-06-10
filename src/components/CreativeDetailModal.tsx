@@ -11,10 +11,6 @@ import { useCachedMedia } from "@/hooks/useCachedMedia";
 import { CreativeMetrics } from "@/components/creative-detail/CreativeMetrics";
 import { RetentionCurveChart } from "@/components/creative-detail/RetentionCurveChart";
 import { CreativeTagEditor } from "@/components/creative-detail/CreativeTagEditor";
-import { CreativeIterationAnalysis } from "@/components/creative-detail/CreativeIterationAnalysis";
-
-import { TrendSection } from "@/components/creative-detail/TrendSection";
-import { PredictionSection } from "@/components/creative-detail/PredictionSection";
 
 
 import { CreativeComments } from "@/components/creative-detail/CreativeComments";
@@ -22,9 +18,7 @@ import { CreativeVersions } from "@/components/creative-detail/CreativeVersions"
 import { GradeBadge } from "@/components/creatives/GradeBadge";
 import { Textarea } from "@/components/ui/textarea";
 
-import type { WoWTrend } from "@/hooks/useWoWTrends";
 import type { GradeInfo } from "@/lib/creativeGrading";
-import type { FatigueResult } from "@/lib/fatigueScore";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -32,7 +26,6 @@ import type { Database } from "@/integrations/supabase/types";
 
 type Creative = Database["public"]["Tables"]["creatives"]["Row"];
 import { toast } from "sonner";
-import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { useQueryClient } from "@tanstack/react-query";
 import { saveCreativeToVault } from "@/lib/vaultSave";
 
@@ -42,9 +35,7 @@ interface CreativeDetailModalProps {
   creative: Creative;
   open: boolean;
   onClose: () => void;
-  wowTrends?: Map<string, WoWTrend>;
   gradeMap?: Map<string, GradeInfo>;
-  fatigueMap?: Map<string, FatigueResult>;
 }
 
 function MediaPreview({ creative, caching = false }: { creative: Creative; caching?: boolean }) {
@@ -173,7 +164,7 @@ function MediaPreview({ creative, caching = false }: { creative: Creative; cachi
     </div>
   );
 }
-export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModalProps>(function CreativeDetailModal({ creative, open, onClose, wowTrends, gradeMap, fatigueMap }, ref) {
+export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModalProps>(function CreativeDetailModal({ creative, open, onClose, gradeMap }, ref) {
   const { isBuilder, isEmployee, user } = useAuth();
   const { selectedAccount } = useAccountContext();
   const queryClient = useQueryClient();
@@ -199,9 +190,6 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
     video_url?: string | null;
   } | null>(null);
   const [caching, setCaching] = useState(false);
-
-  // Fetch all creatives once at modal level — passed down to avoid duplicate fetches
-  const { data: allCreatives = [] } = useAllCreatives({ account_id: creative?.account_id });
 
   // On-demand media caching / self-heal: fire when modal opens unless BOTH media
   // slots are already "settled" — i.e. a permanent storage url or a confirmed-absent
@@ -237,7 +225,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
         }
       })
       .finally(() => setCaching(false));
-  }, [open, creative?.ad_id]);
+  }, [open, creative?.ad_id, creative?.account_id]);
 
   // Reflect already-in-vault state when the modal opens. The vault library is
   // global, so an item saved by anyone (matched on source_ad_id) marks this
@@ -274,7 +262,6 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
   const displayCreative: Creative = cachedMedia
     ? { ...creative, ...(Object.fromEntries(Object.entries(cachedMedia).filter(([, v]) => v != null)) as Partial<Creative>) }
     : creative;
-  const fatigue = fatigueMap?.get(creative.ad_id);
 
   const creativeLink = creative ? `https://www.facebook.com/ads/library/?id=${creative.ad_id}` : "";
 
@@ -380,9 +367,6 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
             {/* Frame-by-frame retention drop-off (US-004) — reads creative.play_curve */}
             <RetentionCurveChart creative={creative} />
 
-            {/* Iteration Analysis - right after metrics */}
-            <CreativeIterationAnalysis creative={creative} allCreatives={allCreatives} />
-
             {gradeMap?.get(creative.ad_id) && (
               <div className="flex items-center gap-2 px-1">
                 <GradeBadge grade={gradeMap.get(creative.ad_id)!.grade} />
@@ -391,52 +375,6 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
                 </span>
               </div>
             )}
-            <TrendSection trend={wowTrends?.get(creative.ad_id)} />
-
-            {/* Fatigue section */}
-            {fatigue && fatigue.level !== "ok" && (
-              <div className="space-y-2 px-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-label text-[11px] font-semibold uppercase tracking-wider text-foreground">
-                    {fatigue.level === "high" ? "🔥" : "⚠️"} Fatigue Score
-                  </span>
-                  <span className={`font-data text-[17px] font-bold tabular-nums ${fatigue.level === "high" ? "text-destructive" : "text-amber-600"}`}>
-                    {fatigue.score}/100
-                  </span>
-                </div>
-                <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${fatigue.level === "high" ? "bg-destructive" : "bg-amber-400"}`}
-                    style={{ width: `${fatigue.score}%` }}
-                  />
-                </div>
-                {fatigue.explanation && (
-                  <p className="font-body text-[12px] text-muted-foreground leading-relaxed">{fatigue.explanation}</p>
-                )}
-                {fatigue.reasons.length > 0 && (
-                  <ul className="space-y-0.5">
-                    {fatigue.reasons.map((r, i) => (
-                      <li key={i} className="font-body text-[11px] text-muted-foreground flex items-center gap-1.5">
-                        <span className="w-1 h-1 rounded-full bg-muted-foreground flex-shrink-0" />
-                        {r}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-
-
-            {/* Performance Prediction (builder/employee only) */}
-            {canEdit && creative.spend > 0 && (
-              <PredictionSection
-                creative={creative}
-                wowTrend={wowTrends?.get(creative.ad_id)}
-                fatigue={fatigue}
-                killThreshold={1.0}
-              />
-            )}
-
             {/* Context */}
             <div className="space-y-1.5">
               <p className="font-body text-[13px]"><span className="font-semibold text-foreground">Ad Name:</span> <span className="font-normal text-muted-foreground break-all">{creative.ad_name}</span></p>

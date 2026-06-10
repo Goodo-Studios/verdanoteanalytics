@@ -51,16 +51,17 @@ describe("useWinnerCreatives", () => {
     expect(result.current.data).toEqual([{ ad_id: "a1", spend: 100, roas: 5 }]);
   });
 
-  it("omits account_id when no account is selected", async () => {
-    apiFetch.mockResolvedValue([]);
-
+  it("does not fire when no account is selected (prevents cross-account data leak)", async () => {
+    // With enabled: !!accountId the query must be fully suppressed when
+    // accountId is undefined — no request should reach the edge function.
     const { result } = renderHook(() => useWinnerCreatives(undefined), { wrapper });
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    expect(apiFetch).toHaveBeenCalledTimes(1);
-    const [, path] = apiFetch.mock.calls[0];
-    expect(path).not.toContain("account_id");
-    expect(path).toContain("delivery=had_delivery");
+    // Give react-query a tick to settle — it should stay idle, never fetching.
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(apiFetch).toHaveBeenCalledTimes(0);
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.data).toBeUndefined();
   });
 
   it("tolerates a {data:[...]} envelope shape", async () => {

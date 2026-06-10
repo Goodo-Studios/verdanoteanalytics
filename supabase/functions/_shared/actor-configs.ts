@@ -230,20 +230,23 @@ export const ACTOR_CONFIGS: Record<string, ActorConfig> = {
     },
   },
   twitter: {
-    // apidojo~tweet-scraper: actively maintained, no special permission approval needed.
-    // Input: startUrls as plain strings (not { url } objects like quacker used).
-    // Output uses camelCase: text, author.userName, extendedEntities.media[].
-    // snake_case fallbacks retained so any cached runs from quacker still parse correctly.
+    // apidojo~tweet-scraper V2: actively maintained, no special permission approval needed.
+    // Input: startUrls as plain strings.
+    // V2 actor (GraphQL API) nests tweet fields under `legacy`; V1/quacker used top-level.
+    // All known variants are tried in extractVideoUrl — [twitter-debug] logs in
+    // vault-extract-webhook expose the actual keys on first run so this can be refined.
     actorId: "apidojo~tweet-scraper",
     buildInput: (url) => ({ startUrls: [url], maxItems: 1 }),
     extractVideoUrl: (item) => {
-      // Try camelCase (apidojo) then snake_case (quacker fallback)
+      // V2 GraphQL nesting (legacy.*) → V1 top-level (camelCase) → V1 top-level (snake_case) → bare media array
       const mediaArr =
+        item?.legacy?.extendedEntities?.media ??
+        item?.legacy?.extended_entities?.media ??
         item?.extendedEntities?.media ??
         item?.extended_entities?.media ??
         item?.media ??
         [];
-      for (const m of mediaArr) {
+      for (const m of (Array.isArray(mediaArr) ? mediaArr : [])) {
         const variants =
           (m?.videoInfo?.variants as Array<{ contentType?: string; content_type?: string; url: string; bitrate?: number }> | undefined) ??
           (m?.video_info?.variants as Array<{ content_type?: string; url: string; bitrate?: number }> | undefined);
@@ -258,14 +261,16 @@ export const ACTOR_CONFIGS: Record<string, ActorConfig> = {
       return null;
     },
     extractThumbnailUrl: (item) =>
+      item?.legacy?.extendedEntities?.media?.[0]?.mediaUrlHttps ??
+      item?.legacy?.extended_entities?.media?.[0]?.media_url_https ??
       item?.extendedEntities?.media?.[0]?.mediaUrlHttps ??
       item?.extended_entities?.media?.[0]?.media_url_https ??
       item?.author?.profilePicture ??
       null,
     extractCreatorHandle: (item) =>
-      item?.author?.userName ?? item?.user?.screen_name ?? null,
+      item?.author?.userName ?? item?.legacy?.userNameId ?? item?.user?.screen_name ?? null,
     extractTitle: (item) =>
-      ((item?.text ?? item?.full_text ?? "") as string).slice(0, 120) || null,
+      ((item?.legacy?.fullText ?? item?.text ?? item?.full_text ?? "") as string).slice(0, 120) || null,
   },
   linkedin: {
     // electrifying_haircut~linkedin-post-scraper: free, accepts direct ugcPost/activity URLs.

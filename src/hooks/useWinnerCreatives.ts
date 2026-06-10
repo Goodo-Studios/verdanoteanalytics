@@ -1,4 +1,4 @@
-import { useQuery, keepPreviousData } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 
 /**
@@ -39,6 +39,7 @@ export function useWinnerCreatives(accountId?: string) {
     },
     staleTime: 10 * 60 * 1000, // Cache for 10 minutes
     refetchOnWindowFocus: false,
-    placeholderData: keepPreviousData,
+    // Intentionally no keepPreviousData — on account switch, stale cross-account data must not render.
+    enabled: !!accountId,
   });
 }

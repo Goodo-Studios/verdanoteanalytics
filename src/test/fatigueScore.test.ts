@@ -27,12 +27,12 @@ describe("computeFatigue", () => {
     expect(result.reasons.some((r) => r.includes("Rising frequency"))).toBe(true);
   });
 
-  it("adds +25 and +20 for ROAS drop > 20%", () => {
-    // drop of 60% triggers both the >20% (+25) and >15% (+20) rules
+  it("adds +25 for ROAS drop > 20% (does not double-add +20 via else-if)", () => {
+    // drop of 60% triggers the >20% rule (+25) only — the >15% branch is else-if, not a separate if
     const result = computeFatigue({ frequency: 0, roas: 1.0 }, bigDrop);
-    expect(result.score).toBe(45);
+    expect(result.score).toBe(25);
     expect(result.reasons.some((r) => r.includes("ROAS declined"))).toBe(true);
-    expect(result.reasons.some((r) => r.includes("CTR declining"))).toBe(true);
+    expect(result.reasons.some((r) => r.includes("CTR declining"))).toBe(false);
   });
 
   it("adds only +20 for ROAS drop between 15% and 20%", () => {
@@ -56,9 +56,9 @@ describe("computeFatigue", () => {
     expect(result.score).toBe(20);
   });
 
-  it("clamps score at 100", () => {
+  it("all signals combined score 95 (freq>5: +50, ROAS>20% drop: +25, 21+ days: +20)", () => {
     const result = computeFatigue({ frequency: 6, roas: 1.0 }, bigDrop, 21);
-    expect(result.score).toBe(100);
+    expect(result.score).toBe(95);
   });
 
   it("handles zero/null inputs without throwing", () => {

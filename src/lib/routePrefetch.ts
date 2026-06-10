@@ -22,7 +22,6 @@ export const routeImports = {
   boards: () => import("@/features/vault/BoardsPage"),
   boardDetail: () => import("@/features/vault/BoardDetailPage"),
   hooks: () => import("@/features/vault/HooksPage"),
-  viralFeed: () => import("@/features/vault/ViralFeedPage"),
 } as const;
 
 type Loader = () => Promise<unknown>;
@@ -41,7 +40,6 @@ const PATH_PREFETCH: Record<string, Loader[]> = {
   "/agency": [routeImports.agencyDashboard],
   "/settings": [routeImports.settings],
   "/ad-library": [routeImports.adLibrary, routeImports.vaultItemDetail],
-  "/viral-feed": [routeImports.viralFeed],
   "/ad-library/boards": [routeImports.boards, routeImports.boardDetail],
   "/ad-library/hooks": [routeImports.hooks],
 };

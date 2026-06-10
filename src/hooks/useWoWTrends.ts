@@ -1,4 +1,4 @@
-import { useQuery, keepPreviousData } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 export interface WoWTrend {
@@ -11,11 +11,16 @@ export interface WoWTrend {
 
 /**
  * Fetch last 14 days of daily metrics per ad_id and compute WoW ROAS trends.
- * Returns a Map<ad_id, WoWTrend>.
+ *
+ * @returns Query for a Map<ad_id, WoWTrend>. A trend's `direction` may be
+ * `"insufficient"` — a new ad with no prior-week baseline (or too few spend
+ * days in either week). Callers MUST check `direction !== "insufficient"`
+ * before rendering trend signals; `pctChange`/`label` carry no meaning then.
  */
 export function useWoWTrends(accountId?: string) {
   return useQuery<Map<string, WoWTrend>>({
     queryKey: ["wow-trends", accountId || "all"],
+    // Intentionally no keepPreviousData — on account switch, stale cross-account data must not render.
     queryFn: async () => {
       const now = new Date();
       const d14ago = new Date(now);
@@ -47,7 +52,8 @@ export function useWoWTrends(accountId?: string) {
         offset += PAGE;
       }
 
-      const d7agoStr = d7ago.toISOString().split("T")[0];
+      // MED-011: use UTC date string so the 7-day boundary never drifts due to local timezone offset near midnight
+      const d7agoStr = `${d7ago.getUTCFullYear()}-${String(d7ago.getUTCMonth() + 1).padStart(2, "0")}-${String(d7ago.getUTCDate()).padStart(2, "0")}`;
 
       // Aggregate by ad_id into two buckets
       const map = new Map<string, { tw_spend: number; tw_pv: number; tw_days: Set<string>; pw_spend: number; pw_pv: number; pw_days: Set<string> }>();
@@ -83,11 +89,17 @@ export function useWoWTrends(accountId?: string) {
         const twRoas = b.tw_spend > 0 ? b.tw_pv / b.tw_spend : 0;
         const pwRoas = b.pw_spend > 0 ? b.pw_pv / b.pw_spend : 0;
 
+        // MED-012: if prior week has no ROAS and this week does, we have no
+        // baseline to compute a real percentage — return "insufficient" instead
+        // of a synthetic 100% that misclassifies new ads as "Gaining momentum".
+        if (pwRoas === 0 && twRoas > 0) {
+          result.set(adId, { thisWeekRoas: twRoas, priorWeekRoas: 0, pctChange: 0, direction: "insufficient", label: "Insufficient data" });
+          continue;
+        }
+
         let pctChange = 0;
         if (pwRoas > 0) {
           pctChange = ((twRoas - pwRoas) / pwRoas) * 100;
-        } else if (twRoas > 0) {
-          pctChange = 100;
         }
 
         let direction: WoWTrend["direction"] = "flat";
@@ -110,6 +122,5 @@ export function useWoWTrends(accountId?: string) {
       return result;
     },
     staleTime: 5 * 60 * 1000,
-    placeholderData: keepPreviousData,
   });
 }

@@ -1,5 +1,4 @@
 import { PageHeader } from "@/components/PageHeader";
-import { useSearchParams } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2 } from "lucide-react";
 import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
@@ -23,8 +22,6 @@ import { useAuth } from "@/contexts/AuthContext";
 const AnalyticsPage = () => {
   const { isBuilder, isEmployee } = useAuth();
   const canBenchmark = isBuilder || isEmployee;
-  const [searchParams] = useSearchParams();
-  const defaultSlice = searchParams.get("slice") || "ad_type";
   const {
     activeTab, setActiveTab, selectedCreative, setSelectedCreative,
     dateFrom, dateTo, setDateFrom, setDateTo,
