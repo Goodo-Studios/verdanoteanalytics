@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { withApiAuth, corsHeaders } from "../_shared/api-auth.ts";
 import { resolveConvention } from "../_shared/naming-convention.ts";
+import { errorMessage } from "../_shared/error-message.ts";
 
 // Rate limiting is enforced durably inside withApiAuth (see _shared/api-auth.ts),
 // backed by the api_rate_limit_counters table — survives cold starts and holds
@@ -58,12 +59,38 @@ export async function handleApi(
   const resourceId = pathParts[1];
 
   try {
-    // GET /api/accounts
+    // GET /api/accounts — scoped to the key's user, mirroring the accounts
+    // edge function's access model: builders/employees see every account; a
+    // client (or any unrecognised role) sees ONLY the ad_accounts they are
+    // linked to via user_accounts. Previously this returned ALL accounts to
+    // any API-key holder.
     if (resource === "accounts" && req.method === "GET") {
-      const { data, error } = await supabase
+      const { data: role } = await supabase.rpc("get_user_role", { _user_id: userId });
+      const isStaff = role === "builder" || role === "employee";
+
+      let allowedIds: string[] | null = null; // null = unrestricted (staff)
+      if (!isStaff) {
+        const { data: links, error: linksError } = await supabase
+          .from("user_accounts")
+          .select("account_id")
+          .eq("user_id", userId);
+        if (linksError) throw linksError;
+        const ids: string[] = (links || []).map((l: { account_id: string }) => l.account_id);
+        allowedIds = ids;
+        if (ids.length === 0) {
+          return new Response(JSON.stringify({ data: [] }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+
+      let query = supabase
         .from("ad_accounts")
         .select("id, name, creative_count, untagged_count, last_synced_at, is_active, created_at")
         .order("name");
+      if (allowedIds) query = query.in("id", allowedIds);
+
+      const { data, error } = await query;
 
       if (error) throw error;
       return new Response(JSON.stringify({ data }), {
@@ -264,8 +291,15 @@ export async function handleApi(
         );
       }
 
-      const body = await req.json().catch(() => ({}));
-      const accountId = body.account_id;
+      let body: { account_id?: string };
+      try {
+        body = await req.json();
+      } catch {
+        return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const accountId = body?.account_id;
       if (!accountId) {
         return new Response(JSON.stringify({ error: "account_id is required" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -522,7 +556,9 @@ export async function handleApi(
     });
 
   } catch (e) {
-    console.error("API error:", e);
+    // Log the real cause (supabase-js rejects with plain objects, not Errors)
+    // but keep the external response generic — this is a public API surface.
+    console.error("API error:", errorMessage(e));
     return new Response(JSON.stringify({ error: "Internal server error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

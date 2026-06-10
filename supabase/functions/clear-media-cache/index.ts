@@ -11,6 +11,17 @@ serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 
+  // Destructive ops tool (wipes every cached thumbnail/video URL + storage
+  // objects). verify_jwt=true admits any project JWT including the public anon
+  // key, so an internal staff gate is required.
+  const authHeader = req.headers.get("authorization");
+  if (!authHeader) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  const { data: { user }, error: authError } = await supabase.auth.getUser(authHeader.replace("Bearer ", ""));
+  if (authError || !user) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
+  const roles = (roleRows || []).map((r: { role: string }) => r.role);
+  if (!roles.includes("builder")) return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
   let totalThumbReset = 0;
   let totalVideoReset = 0;
   let totalStorageDeleted = 0;
@@ -97,7 +108,7 @@ serve(async (req) => {
   } catch (err) {
     console.error("Error:", err);
     return new Response(JSON.stringify({
-      error: err.message,
+      error: err instanceof Error ? err.message : String(err),
       progress: { thumbnails_reset: totalThumbReset, videos_reset: totalVideoReset, storage_files_deleted: totalStorageDeleted },
     }), {
       status: 500,

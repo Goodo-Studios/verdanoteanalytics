@@ -83,49 +83,67 @@ function computeDiagnostics(creatives: any[]) {
   return { counts, suggestions };
 }
 
+function cleanAdName(name: string): string {
+  if (!name) return "Unknown";
+  const m = name.match(/(?:^|>)iName:([^>]+)/i);
+  if (m) return m[1];
+  if (name.includes(">")) return name.split(">")[0] || name.substring(0, 40);
+  return name.length > 45 ? name.substring(0, 42) + "…" : name;
+}
+
 async function sendReportToSlack(report: any) {
   const webhookUrl = Deno.env.get("SLACK_WEBHOOK_URL");
   if (!webhookUrl) return;
 
-  const fmt = (v: number | null, pre = "", suf = "") =>
-    v === null || v === undefined ? "—" : `${pre}${Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 })}${suf}`;
+  const fmtMoney = (v: number | null) =>
+    v == null ? "—" : `$${Math.round(v).toLocaleString("en-US")}`;
+  const fmtDecimal = (v: number | null, suf = "") =>
+    v == null ? "—" : `${Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 })}${suf}`;
 
-  const diagItems = [
-    report.diag_weak_hook && `Weak Hook: ${report.diag_weak_hook}`,
-    report.diag_weak_body && `Weak Body: ${report.diag_weak_body}`,
-    report.diag_weak_cta && `Weak CTA: ${report.diag_weak_cta}`,
-    report.diag_weak_hook_body && `Weak Hook+Body: ${report.diag_weak_hook_body}`,
-    report.diag_landing_page && `Landing Page: ${report.diag_landing_page}`,
-    report.diag_all_weak && `Full Rebuild: ${report.diag_all_weak}`,
-    report.diag_weak_cta_image && `Weak CTR (Image): ${report.diag_weak_cta_image}`,
-  ].filter(Boolean);
+  const topPerformers: any[] = (() => { try { return JSON.parse(report.top_performers || "[]"); } catch { return []; } })();
+  const appUrl = Deno.env.get("APP_URL") || "https://verdanote.com";
 
-  const topPerformers = (() => { try { return JSON.parse(report.top_performers || "[]"); } catch { return []; } })();
-  const topList = topPerformers.slice(0, 3).map((p: any, i: number) =>
-    `${i + 1}. ${p.ad_name} — ${fmt(p.roas, "", "x")} ROAS, ${fmt(p.spend, "$")} spent`
-  ).join("\n");
-
-  const blocks = [
+  const blocks: any[] = [
     { type: "header", text: { type: "plain_text", text: `📊 ${report.report_name}`, emoji: true } },
-    {
-      type: "section",
-      fields: [
-        { type: "mrkdwn", text: `*Creatives:* ${report.creative_count}` },
-        { type: "mrkdwn", text: `*Total Spend:* ${fmt(report.total_spend, "$")}` },
-        { type: "mrkdwn", text: `*Blended ROAS:* ${fmt(report.blended_roas, "", "x")}` },
-        { type: "mrkdwn", text: `*Avg CPA:* ${fmt(report.average_cpa, "$")}` },
-        { type: "mrkdwn", text: `*Avg CTR:* ${fmt(report.average_ctr, "", "%")}` },
-        { type: "mrkdwn", text: `*Win Rate:* ${fmt(report.win_rate, "", "%")}` },
-      ],
-    },
   ];
 
-  if (topList) blocks.push({ type: "section", fields: [{ type: "mrkdwn", text: `*🏆 Top Performers:*\n${topList}` }] } as any);
-  if (diagItems.length > 0) blocks.push({ type: "section", fields: [{ type: "mrkdwn", text: `*⚠️ Iteration Diagnostics (${report.diag_total_diagnosed} ads):*\n${diagItems.join(" · ")}` }] } as any);
+  if (report.date_range_start && report.date_range_end) {
+    blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `${report.date_range_start} – ${report.date_range_end}` }] });
+  }
 
-  const appUrl = Deno.env.get("APP_URL") || "https://verdanote.com";
+  blocks.push({ type: "section", fields: [
+    { type: "mrkdwn", text: `*Spend*\n${fmtMoney(report.total_spend)}` },
+    { type: "mrkdwn", text: `*CPA*\n${fmtMoney(report.average_cpa)}` },
+  ]});
+
+  if (topPerformers.length > 0) {
+    blocks.push({ type: "divider" });
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: "*🏆 Top 5 This Week*" } });
+
+    for (const p of topPerformers.slice(0, 5)) {
+      const name = cleanAdName(p.ad_name);
+      const metrics = [
+        fmtMoney(p.spend) + " spent",
+        p.thumb_stop_rate != null ? `Hook ${fmtDecimal(p.thumb_stop_rate, "%")}` : null,
+        p.hold_rate != null       ? `Hold ${fmtDecimal(p.hold_rate, "%")}` : null,
+        p.ctr != null             ? `CTR ${fmtDecimal(p.ctr, "%")}` : null,
+        p.roas != null            ? `ROAS ${fmtDecimal(p.roas, "x")}` : null,
+      ].filter(Boolean).join(" · ");
+
+      blocks.push({
+        type: "section",
+        text: { type: "mrkdwn", text: `*${name}*\n${metrics}` },
+        accessory: {
+          type: "button",
+          text: { type: "plain_text", text: "Preview" },
+          url: `https://www.facebook.com/ads/library/?id=${p.ad_id}`,
+        },
+      });
+    }
+  }
+
   if (report.id) {
-    blocks.push({ type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "📄 View Full Report", emoji: true }, url: `${appUrl}/public/reports/${report.id}` }] } as any);
+    blocks.push({ type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "View Full Report →", emoji: true }, url: `${appUrl}/public/reports/${report.id}` }] });
   }
 
   try { await fetch(webhookUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ blocks }) }); }
@@ -247,8 +265,11 @@ serve(async (req) => {
   if (authError || !user) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
-  const { data: userRole } = await supabase.from("user_roles").select("role").eq("user_id", user.id).single();
-  if (!userRole || !["builder", "employee"].includes(userRole.role)) {
+  // Fetch ALL role rows (a user may hold multiple) — `.single()` throws on >1
+  // rows, turning a legitimate multi-role staff user into a spurious 403.
+  const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
+  const roles = (roleRows || []).map((r: { role: string }) => r.role);
+  if (!roles.includes("builder") && !roles.includes("employee")) {
     return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
@@ -330,7 +351,7 @@ serve(async (req) => {
 
     // POST /reports/portfolio — generate a portfolio report spanning multiple accounts
     if (req.method === "POST" && path === "portfolio") {
-      if (userRole.role !== "builder" && userRole.role !== "employee") {
+      if (!roles.includes("builder") && !roles.includes("employee")) {
         return new Response(JSON.stringify({ error: "Builder or employee role required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
@@ -495,7 +516,7 @@ serve(async (req) => {
     // POST /reports/rollup — generate reports for multiple accounts
     if (req.method === "POST" && path === "rollup") {
       // Builder-only check
-      if (userRole.role !== "builder") {
+      if (!roles.includes("builder")) {
         return new Response(JSON.stringify({ error: "Builder role required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 

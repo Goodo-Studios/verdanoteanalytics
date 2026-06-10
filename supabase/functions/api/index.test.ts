@@ -41,11 +41,11 @@ interface Call {
  * answers the user_accounts link check. Only read verbs are modelled — there is
  * no insert/update/delete/upsert, matching the read-only contract under test.
  */
-function makeRecorder(opts: { role?: string; linked?: boolean } = {}) {
+function makeRecorder(opts: { role?: string; linked?: boolean; rows?: unknown[] } = {}) {
   const calls: Call[] = [];
   let currentTable = "";
   const builder: Record<string, unknown> = {};
-  const chainMethods = ["select", "eq", "order", "limit", "range", "gte"];
+  const chainMethods = ["select", "eq", "in", "order", "limit", "range", "gte"];
   for (const m of chainMethods) {
     builder[m] = (...args: unknown[]) => {
       calls.push({ method: m, args: [currentTable, ...args] });
@@ -57,9 +57,11 @@ function makeRecorder(opts: { role?: string; linked?: boolean } = {}) {
       data: opts.linked ? { "1": 1 } : null,
       error: null,
     });
-  // Awaiting the builder (terminal, no .single/.maybeSingle) yields one row.
+  // Awaiting the builder (terminal, no .single/.maybeSingle) yields the
+  // configured rows (default: one angle row).
+  const rows = opts.rows ?? [{ id: "angle-1" }];
   builder.then = (resolve: (v: unknown) => void) =>
-    resolve({ data: [{ id: "angle-1" }], error: null, count: 1 });
+    resolve({ data: rows, error: null, count: rows.length });
 
   const supabase = {
     from: (table: string, ...rest: unknown[]) => {
@@ -166,6 +168,61 @@ Deno.test("GET /angles applies an optional theme filter", async () => {
   const res = await mod.handleApi(getReq("/api/angles?account_id=act_1&theme=value"), supabase, READ);
   assertEquals(res.status, 200);
   assert(hasCall(calls, "eq", "angle_clusters", "theme", "value"), "theme filter applied");
+});
+
+// ---- GET /accounts is scoped to the key's user (regression) -----------------
+// Previously this route returned EVERY ad_accounts row to any API-key holder.
+
+Deno.test("GET /accounts lets staff (builder) list every account", async () => {
+  const { supabase, calls } = makeRecorder({ role: "builder" });
+  const res = await mod.handleApi(getReq("/api/accounts"), supabase, READ);
+  assertEquals(res.status, 200);
+  // Role was resolved, the full table was selected, and no user_accounts
+  // scoping was applied.
+  assert(calls.some((c) => c.method === "rpc" && c.args[0] === "get_user_role"));
+  assert(callsForTable(calls, "ad_accounts").some((c) => c.method === "select"));
+  assertEquals(callsForTable(calls, "user_accounts").length, 0);
+  assertEquals(callsForTable(calls, "ad_accounts").filter((c) => c.method === "in").length, 0);
+});
+
+Deno.test("GET /accounts returns [] for a client with no linked accounts", async () => {
+  // Non-staff role; the awaited user_accounts query resolves zero links.
+  const { supabase, calls } = makeRecorder({ role: "client", rows: [] });
+  const res = await mod.handleApi(getReq("/api/accounts"), supabase, READ);
+  assertEquals(res.status, 200);
+  const json = await res.json();
+  assertEquals(json.data, []);
+  // Links were consulted, and the ad_accounts query was never executed with
+  // an unscoped await (no .in call, early return).
+  assert(callsForTable(calls, "user_accounts").some((c) => c.method === "select"));
+  assertEquals(callsForTable(calls, "ad_accounts").filter((c) => c.method === "in").length, 0);
+});
+
+Deno.test("GET /accounts scopes a linked client to their user_accounts ids", async () => {
+  const { supabase, calls } = makeRecorder({ role: "client", rows: [{ account_id: "act_1" }] });
+  const res = await mod.handleApi(getReq("/api/accounts"), supabase, READ);
+  assertEquals(res.status, 200);
+  // The links lookup is keyed to the API key's user...
+  assert(hasCall(calls, "eq", "user_accounts", "user_id", "user_1"), "links keyed to userId");
+  // ...and the ad_accounts select is restricted to those ids.
+  const inCall = callsForTable(calls, "ad_accounts").find((c) => c.method === "in");
+  assert(inCall, "ad_accounts query must be scoped with .in");
+  assertEquals(inCall!.args[1], "id");
+  assertEquals(inCall!.args[2], ["act_1"]);
+});
+
+// ---- POST /sync body validation (regression) --------------------------------
+
+Deno.test("POST /sync 400s on a malformed JSON body", async () => {
+  const { supabase } = makeRecorder({ role: "builder" });
+  const req = new Request("https://fn.local/api/sync", { method: "POST", body: "{not json" });
+  const res = await mod.handleApi(req, supabase, {
+    userId: "user_1",
+    permissions: ["read", "sync"],
+  });
+  assertEquals(res.status, 400);
+  const json = await res.json();
+  assertEquals(json.error, "Invalid JSON body");
 });
 
 // ---- Routing ---------------------------------------------------------------

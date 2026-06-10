@@ -32,12 +32,20 @@ export async function validateApiKey(key: string) {
     return { valid: false as const, error: "API key expired" };
   }
 
-  // Fire-and-forget update last_used_at
+  // Fire-and-forget update last_used_at — intentionally not awaited (telemetry
+  // only, must not block auth), but failures are logged instead of swallowed.
+  // NOTE: PostgrestBuilder is thenable but NOT a real Promise — never call
+  // .catch() on it (verdanote-supabase-postgrest-no-dot-catch); destructure
+  // the { error } it resolves with inside .then() instead.
   supabase
     .from("api_keys")
     .update({ last_used_at: new Date().toISOString() })
     .eq("id", apiKey.id)
-    .then(() => {});
+    .then(({ error: touchError }: { error: unknown }) => {
+      if (touchError) {
+        console.error("api-auth: failed to update api_keys.last_used_at:", touchError);
+      }
+    });
 
   return {
     valid: true as const,

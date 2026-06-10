@@ -17,8 +17,11 @@ serve(async (req) => {
   const token = authHeader.replace("Bearer ", "");
   const { data: { user }, error: authError } = await supabase.auth.getUser(token);
   if (authError || !user) return json({ error: "Unauthorized" }, 401);
-  const { data: userRole } = await supabase.from("user_roles").select("role").eq("user_id", user.id).single();
-  if (!userRole || !["builder", "employee"].includes(userRole.role)) return json({ error: "Forbidden" }, 403);
+  // Fetch ALL role rows (a user may hold multiple) — `.single()` throws on >1
+  // rows, turning a legitimate multi-role staff user into a spurious 403.
+  const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
+  const roles = (roleRows || []).map((r: { role: string }) => r.role);
+  if (!roles.includes("builder") && !roles.includes("employee")) return json({ error: "Forbidden" }, 403);
 
   const url = new URL(req.url);
   const path = url.pathname.replace(/^\/competitor-ads\/?/, "").replace(/\/$/, "");

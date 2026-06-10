@@ -4,6 +4,8 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { resolveConvention } from "../_shared/naming-convention.ts";
 import { parseAdName, type ParsedAdName, type AdNameTags } from "../_shared/parse-ad-name.ts";
 import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
+import { sanitizeSearchTerm } from "../_shared/postgrest-search.ts";
+import { errorMessage } from "../_shared/error-message.ts";
 
 
 const DISPLAY_NAMES: Record<string, string> = {
@@ -81,23 +83,30 @@ serve(async (req) => {
     });
   }
   const token = authHeader.replace("Bearer ", "");
-  console.log("Token length:", token.length, "Token prefix:", token.substring(0, 20));
+  console.log("Validating bearer token");
   const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-  console.log("Auth result - user:", user?.id, "error:", authError?.message);
+  console.log("Auth result - authenticated:", !!user, "error:", authError?.message);
   if (authError || !user) {
     return new Response(JSON.stringify({ error: "Unauthorized", detail: authError?.message }), {
       status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-  const { data: userRole } = await supabase.from("user_roles").select("role").eq("user_id", user.id).single();
-  if (!userRole || !["builder", "employee", "client"].includes(userRole.role)) {
+  // Resolve roles tolerantly: a user may hold MULTIPLE user_roles rows
+  // (UNIQUE(user_id, role) — e.g. a builder can also be a client). `.single()`
+  // THROWS on >1 rows, collapsing multi-role users to a spurious 403/500.
+  // Fetch all rows and test membership instead (same pattern as accounts).
+  const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
+  const roles = (roleRows || []).map((r) => r.role);
+  const isStaff = roles.includes("builder") || roles.includes("employee");
+  const isClientRole = roles.includes("client");
+  if (!isStaff && !isClientRole) {
     return new Response(JSON.stringify({ error: "Forbidden" }), {
       status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
-  // Clients can only read, not write
-  if (userRole.role === "client" && req.method !== "GET") {
+  // Clients (non-staff) can only read, not write
+  if (!isStaff && req.method !== "GET") {
     return new Response(JSON.stringify({ error: "Forbidden: read-only access" }), {
       status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -148,7 +157,9 @@ serve(async (req) => {
       const offset = parseInt(url.searchParams.get("offset") || "0");
       const dateFrom = url.searchParams.get("date_from");
       const dateTo = url.searchParams.get("date_to");
-      const search = url.searchParams.get("search")?.trim();
+      // Sanitized before .or() interpolation — raw input could inject PostgREST
+      // filter clauses via `,` / `(` / `)` (see _shared/postgrest-search.ts).
+      const search = sanitizeSearchTerm(url.searchParams.get("search"));
       // ?all=1 — return the complete filtered set in one response (used by the
       // useAllCreatives hook). Removes the client-side count + N parallel page
       // requests, each of which re-ran the full aggregation below.
@@ -575,7 +586,7 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
-    console.error("Creatives error:", e);
+    console.error("Creatives error:", errorMessage(e));
     return new Response(JSON.stringify({ error: "Internal server error" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });

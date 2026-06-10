@@ -21,9 +21,72 @@ import {
   normalizeVaultPlatform,
   selectMediaSources,
 } from "../_shared/vault-save-logic.ts";
+import { errorMessage } from "../_shared/error-message.ts";
+
+// Supabase Edge Runtime global (not in Deno's lib types).
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
 const CHROME_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
+// Cap on a single downloaded media file. Meta ad videos are far below this;
+// anything larger is either abuse or something we don't want in the bucket.
+const MAX_MEDIA_BYTES = 200 * 1024 * 1024; // 200MB
+
+/**
+ * SSRF / arbitrary-download guard: only fetch media from hosts that
+ * legitimately flow in from the analytics frontend (src/lib/vaultSave.ts and
+ * the CreativeDetailModal pass `creatives` row URLs, optionally rewritten by
+ * cache-creative-image):
+ *   • *.fbcdn.net — the only host Meta serves creative media from
+ *     (see _shared/media-discovery.ts)
+ *   • *.cdninstagram.com — Meta's Instagram CDN
+ *   • this project's own Supabase storage (cache-creative-image rewrites
+ *     recovered URLs to /storage/v1/object/public/ on SUPABASE_URL)
+ */
+function isAllowedMediaUrl(raw: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== "https:") return false;
+  const host = u.hostname.toLowerCase();
+  try {
+    const supaHost = new URL(Deno.env.get("SUPABASE_URL")!).hostname.toLowerCase();
+    if (host === supaHost) return true;
+  } catch { /* no SUPABASE_URL — fall through to CDN allowlist */ }
+  return (
+    host === "fbcdn.net" || host.endsWith(".fbcdn.net") ||
+    host === "cdninstagram.com" || host.endsWith(".cdninstagram.com")
+  );
+}
+
+/** Read a response body into one Uint8Array, aborting past MAX_MEDIA_BYTES. */
+async function readBodyCapped(res: Response, srcUrl: string): Promise<Uint8Array> {
+  const reader = res.body?.getReader();
+  if (!reader) return new Uint8Array(await res.arrayBuffer());
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    if (received > MAX_MEDIA_BYTES) {
+      await reader.cancel();
+      throw new Error(`Refusing to store media from ${srcUrl}: exceeds ${MAX_MEDIA_BYTES} bytes`);
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(received);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.byteLength;
+  }
+  return out;
+}
 
 /** Download a remote URL and upload it into inspiration-media. Throws on failure. */
 async function copyMedia(
@@ -33,7 +96,17 @@ async function copyMedia(
   storageBase: string,
   kind: "image" | "video",
 ): Promise<{ path: string; contentType: string }> {
-  const res = await fetch(srcUrl, { headers: { "User-Agent": CHROME_UA } });
+  if (!isAllowedMediaUrl(srcUrl)) {
+    throw new Error(`Refusing to download ${kind}: ${srcUrl} is not an allowed media host`);
+  }
+  const fetchAbort = new AbortController();
+  const fetchTimeout = setTimeout(() => fetchAbort.abort(), 60_000);
+  let res: Response;
+  try {
+    res = await fetch(srcUrl, { headers: { "User-Agent": CHROME_UA }, signal: fetchAbort.signal });
+  } finally {
+    clearTimeout(fetchTimeout);
+  }
   if (!res.ok) {
     throw new Error(`Failed to download ${kind} (${res.status}) from ${srcUrl}`);
   }
@@ -47,7 +120,14 @@ async function copyMedia(
       `Refusing to store ${kind}: ${srcUrl} returned non-${kind} content (${contentType})`,
     );
   }
-  const bytes = await res.arrayBuffer();
+  // Size cap: trust content-length when present, but always enforce while
+  // streaming (content-length can be absent or lie).
+  const declaredLength = Number(res.headers.get("content-length") || "0");
+  if (declaredLength > MAX_MEDIA_BYTES) {
+    fetchAbort.abort();
+    throw new Error(`Refusing to store ${kind} from ${srcUrl}: declared size exceeds ${MAX_MEDIA_BYTES} bytes`);
+  }
+  const bytes = await readBodyCapped(res, srcUrl);
   const path = `${storageBase}.${extFor(contentType, kind)}`;
   const { error: uploadErr } = await db.storage
     .from("inspiration-media")
@@ -215,25 +295,67 @@ Deno.serve(async (req) => {
       throw new Error(insertErr?.message || "Failed to create inspiration item");
     }
 
-    // ─── Best-effort fire-and-forget AI pipeline. Enter at vault-transcribe ───
+    // ─── AI pipeline kick-off. Enter at vault-transcribe ───────────────────────
     // (NOT vault-analyze): transcribe downloads the stored media, writes the
     // raw transcript, then chains to vault-analyze itself. Calling analyze
     // directly throws "No transcript found for item" and marks the item errored.
     // A failed pipeline must NOT fail the save — the item is already committed.
-    EdgeRuntime.waitUntil(
-      fetch(`${supabaseUrl}/functions/v1/vault-transcribe`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${serviceRoleKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ item_id: item.id }),
-      }).catch((e) => console.error("vault-transcribe chain failed (non-fatal):", e)),
-    );
+    //
+    // Per policy (verdanote-edge-fn-no-waituntil-for-required-calls), don't rely
+    // on a bare EdgeRuntime.waitUntil(fetch(...)) — it can silently drop the call,
+    // leaving the item stuck at status='pending' while looking saved. Initiate the
+    // fetch eagerly and await it for a bounded ack window (so the request is
+    // guaranteed dispatched and fast failures surface); a kick-off failure marks
+    // the item status='error' with an error_message, which the vault UI's
+    // useItemStatus polling surfaces. If transcription is still running past the
+    // window, the remainder rides on waitUntil — downstream owns the item status
+    // from the moment it receives the request.
+    const KICKOFF_ACK_TIMEOUT_MS = 10_000;
+
+    const markKickoffFailed = async (reason: string) => {
+      console.error(`vault-save-creative: vault-transcribe kick-off failed for item ${item.id}:`, reason);
+      const { error: markError } = await db
+        .from("inspiration_items")
+        .update({ status: "error", error_message: `Pipeline kick-off failed: ${reason}` })
+        .eq("id", item.id);
+      if (markError) console.error("vault-save-creative: failed to mark item errored:", markError);
+    };
+
+    const kickoff = (async () => {
+      try {
+        const res = await fetch(`${supabaseUrl}/functions/v1/vault-transcribe`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${serviceRoleKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ item_id: item.id }),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          await markKickoffFailed(`vault-transcribe responded ${res.status}${text ? `: ${text.slice(0, 300)}` : ""}`);
+        }
+      } catch (e) {
+        await markKickoffFailed(errorMessage(e));
+      }
+    })();
+
+    const TIMED_OUT = Symbol("kickoff-ack-timeout");
+    let ackTimer: ReturnType<typeof setTimeout> | undefined;
+    const settled = await Promise.race([
+      kickoff,
+      new Promise((resolve) => {
+        ackTimer = setTimeout(() => resolve(TIMED_OUT), KICKOFF_ACK_TIMEOUT_MS);
+      }),
+    ]);
+    if (ackTimer !== undefined) clearTimeout(ackTimer);
+    if (settled === TIMED_OUT) {
+      EdgeRuntime.waitUntil(kickoff);
+    }
 
     return json({ ok: true, item_id: item.id, already_saved: false });
   } catch (err) {
-    console.error("vault-save-creative error:", err);
-    return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    console.error("vault-save-creative error:", errorMessage(err));
+    return json({ error: errorMessage(err) }, 500);
   }
 });

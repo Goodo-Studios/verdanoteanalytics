@@ -11,7 +11,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
+
 const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
+// Bounded ack window for the vault-analyze kick-off (same pattern as vault-save):
+// await the dispatch long enough to guarantee it left this isolate, then let the
+// slow remainder ride on waitUntil.
+const KICKOFF_ACK_TIMEOUT_MS = 10_000;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -112,16 +118,54 @@ Deno.serve(async (req) => {
 
     await db.from("inspiration_items").update({ status: "analyzing" }).eq("id", itemId);
 
-    EdgeRuntime.waitUntil(
-      fetch(`${supabaseUrl}/functions/v1/vault-analyze`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${serviceRoleKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ item_id: itemId }),
-      }).catch(console.error),
-    );
+    // Per policy (verdanote-edge-fn-no-waituntil-for-required-calls), this chain
+    // must not be fire-and-forget: a silently dropped dispatch leaves the item
+    // stuck at status='analyzing' forever. vault-analyze does its full Anthropic
+    // work before responding, so a full await would extend this function's wall
+    // clock by minutes. Bounded ack instead: await the dispatch for a short
+    // window (guarantees the request left this isolate; immediate failures mark
+    // the item errored so useItemStatus surfaces them), then let the in-flight
+    // call ride on waitUntil — at that point vault-analyze owns item status.
+    const markKickoffFailed = async (reason: string) => {
+      console.error(`vault-transcribe: vault-analyze kick-off failed for item ${itemId}:`, reason);
+      const { error: markError } = await db
+        .from("inspiration_items")
+        .update({ status: "error", error_message: `Analyze kick-off failed: ${reason}` })
+        .eq("id", itemId);
+      if (markError) console.error("vault-transcribe: failed to mark item errored:", markError);
+    };
+
+    const kickoff = (async () => {
+      try {
+        const res = await fetch(`${supabaseUrl}/functions/v1/vault-analyze`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${serviceRoleKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ item_id: itemId }),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          await markKickoffFailed(`vault-analyze responded ${res.status}${text ? `: ${text.slice(0, 300)}` : ""}`);
+        }
+      } catch (e) {
+        await markKickoffFailed(e instanceof Error ? e.message : String(e));
+      }
+    })();
+
+    const TIMED_OUT = Symbol("kickoff-ack-timeout");
+    let ackTimer: ReturnType<typeof setTimeout> | undefined;
+    const settled = await Promise.race([
+      kickoff,
+      new Promise((resolve) => {
+        ackTimer = setTimeout(() => resolve(TIMED_OUT), KICKOFF_ACK_TIMEOUT_MS);
+      }),
+    ]);
+    if (ackTimer !== undefined) clearTimeout(ackTimer);
+    if (settled === TIMED_OUT) {
+      EdgeRuntime.waitUntil(kickoff);
+    }
 
     return json({ ok: true, item_id: itemId });
   } catch (err) {

@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { errorMessage } from "../_shared/error-message.ts";
 
 
 serve(async (req) => {
@@ -25,8 +26,11 @@ serve(async (req) => {
       status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-  const { data: userRole } = await supabase.from("user_roles").select("role").eq("user_id", user.id).single();
-  if (!userRole || userRole.role !== "builder") {
+  // Fetch ALL role rows (a user may hold multiple) — `.single()` throws on >1
+  // rows, turning a legitimate multi-role builder into a 403/500.
+  const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
+  const roles = (roleRows || []).map((r) => r.role);
+  if (!roles.includes("builder")) {
     return new Response(JSON.stringify({ error: "Forbidden: builder only" }), {
       status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -162,7 +166,7 @@ serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
-    console.error("Settings error:", e);
+    console.error("Settings error:", errorMessage(e));
     return new Response(JSON.stringify({ error: "Internal server error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

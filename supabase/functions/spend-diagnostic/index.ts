@@ -17,13 +17,30 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    if (authHeader) {
+    // Auth is mandatory. The old `if (authHeader)` guard silently skipped
+    // validation for header-less requests, so anyone past the gateway (e.g.
+    // holding the public anon key) reached service-role DB reads unauthenticated.
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    {
       const token = authHeader.replace("Bearer ", "");
       const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!);
       const { data: { user }, error } = await anonClient.auth.getUser(token);
       if (error || !user) {
         return new Response(JSON.stringify({ error: "Unauthorized" }), {
           status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      // Diagnostic exposes account-level spend — staff only. Fetch ALL role rows
+      // (a user may hold multiple; .single() would throw).
+      const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
+      const roles = (roleRows || []).map((r: { role: string }) => r.role);
+      if (!roles.includes("builder") && !roles.includes("employee")) {
+        return new Response(JSON.stringify({ error: "Forbidden" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
     }
