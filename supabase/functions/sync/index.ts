@@ -47,8 +47,10 @@ function mappingTags(m: Record<string, unknown> | null): PartialTags | null {
 
 const META_API_VERSION = "v22.0";
 const MAX_RATE_LIMIT_RETRIES = 5; // Up from 3 — handles large account rate pressure
+// Overridable so tests can run the exhaustion path without real 30s+ backoffs.
+const BACKOFF_BASE_SEC = Number(Deno.env.get("SYNC_BACKOFF_BASE_SEC") ?? "30");
 
-async function metaFetch(
+export async function metaFetch(
   url: string,
   ctx: { metaApiCalls: number; apiErrors: { timestamp: string; message: string }[]; isTimedOut: () => boolean }
 ): Promise<{ data: any[] | null; next: string | null; error: boolean; rateLimited: boolean; retriableUrl: string | null }> {
@@ -70,7 +72,7 @@ async function metaFetch(
         if (isRateLimitError && rateLimitRetries < MAX_RATE_LIMIT_RETRIES) {
           rateLimitRetries++;
           // Exponential backoff: 30s, 60s, 120s, 180s, 300s — capped at 5 min
-          const waitSec = Math.min(300, 30 * Math.pow(2, rateLimitRetries - 1));
+          const waitSec = Math.min(300, BACKOFF_BASE_SEC * Math.pow(2, rateLimitRetries - 1));
           console.log(`Rate limited, waiting ${waitSec}s (retry ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES})...`);
           ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Rate limited, backing off ${waitSec}s` });
           // Interruptible wait: check timeout every second instead of sleeping the full duration.
@@ -107,11 +109,19 @@ async function metaFetch(
           }
           return { data: null, next: null, error: true, rateLimited: false, retriableUrl: null };
         }
+        if (isRateLimitError) {
+          // Retries exhausted but the URL is still valid — hand the cursor back so the
+          // next invocation resumes this exact page instead of restarting the phase
+          // (restart caused duplicate upserts and wasted budget under app-wide limits).
+          console.error(`Rate limit retries exhausted (${MAX_RATE_LIMIT_RETRIES}) — pausing with resumable cursor`);
+          ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Rate limit retries exhausted — paused with resumable cursor` });
+          return { data: null, next: null, error: false, rateLimited: true, retriableUrl: url };
+        }
         // Log full error details for debugging (especially useful for NDC "unknown error")
         const fullErrMsg = `Meta API error — code: ${json.error.code ?? "?"}, subcode: ${json.error.error_subcode ?? "?"}, type: ${json.error.type ?? "?"}, msg: ${json.error.message ?? "?"}`;
         console.error(fullErrMsg, JSON.stringify(json.error));
         ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: fullErrMsg });
-        return { data: null, next: null, error: true, rateLimited: isRateLimitError, retriableUrl: null };
+        return { data: null, next: null, error: true, rateLimited: false, retriableUrl: null };
       }
 
       return { data: json.data || [], next: json.paging?.next || null, error: false, rateLimited: false, retriableUrl: null };
@@ -537,9 +547,23 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             await saveState(1, { campaigns: [], creatives_fetched: fetchedCount });
             return;
           }
+          if (result.rateLimited && result.retriableUrl) {
+            // Rate-limit pause mid-list: never persist a partial campaign list — the
+            // campaign loop below would treat it as the complete account and the
+            // missing campaigns' ads would never be fetched. Restart the list next run.
+            console.log("Campaign list fetch paused (rate-limited) — will refetch next continue");
+            await saveState(1, { campaigns: [], creatives_fetched: fetchedCount });
+            return;
+          }
           campaigns.push(...(result.data || []).map((c: any) => ({ id: c.id, name: c.name })));
           campUrl = result.next;
           if (campUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
+        }
+        if (campUrl) {
+          // Timed out mid-list — same rule: a partial campaign list must not survive.
+          console.log("Campaign list fetch timed out — will refetch next continue");
+          await saveState(1, { campaigns: [], creatives_fetched: fetchedCount });
+          return;
         }
         console.log(`  Found ${campaigns.length} ACTIVE/PAUSED campaigns`);
 
@@ -567,6 +591,13 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
               activeSet.clear();
               break;
             }
+            if (result.rateLimited && result.retriableUrl) {
+              // Partial spend data would silently drop campaigns whose spend rows live in
+              // the unfetched pages. The filter is an optimization only — fall back to all.
+              console.warn("Spend pre-filter rate-limited mid-pagination — proceeding with all campaigns");
+              activeSet.clear();
+              break;
+            }
             for (const row of result.data || []) {
               if (parseFloat(row.spend || "0") > 0) {
                 activeSet.add(row.campaign_id);
@@ -574,6 +605,11 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             }
             spendUrl = result.next;
             if (spendUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
+          }
+          if (spendUrl) {
+            // Timed out mid-pagination — same rule: partial spend data must not filter.
+            console.warn("Spend pre-filter timed out mid-pagination — proceeding with all campaigns");
+            activeSet.clear();
           }
 
           if (activeSet.size > 0) {
@@ -653,7 +689,8 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           return;
         }
 
-        if (!campError) {
+        if (!campError && (campIdx % 10 === 0 || campIdx === campaigns.length - 1)) {
+          // Throttled: per-campaign lines on 200-campaign accounts drown real errors
           console.log(`  Campaign ${campIdx + 1}/${campaigns.length} (${campaign.name}): ${campFetched} ads`);
         }
 
@@ -728,6 +765,15 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           // Returning leaves status=running with insights_cursor set, so the
           // next /continue resumes Phase 2 from where it failed.
           await saveState(2, { insights_cursor: nextUrl, insights_count: insightsCount, insights_time_range: phase2TimeRange, insights_since_date: phase2SinceDate });
+          return;
+        }
+        if (result.rateLimited && result.retriableUrl) {
+          // Rate-limit pause (timeout during backoff or retries exhausted). Without this
+          // check, data=null/next=null falls through the loop exit as "Phase 2 complete",
+          // bumps last_data_sync, and the unfetched pages become a PERMANENT data gap —
+          // incremental runs never look back. Save the exact page URL and resume.
+          console.log(`Phase 2 paused (rate-limited) at ${insightsCount} insights`);
+          await saveState(2, { insights_cursor: result.retriableUrl, insights_count: insightsCount, insights_time_range: phase2TimeRange, insights_since_date: phase2SinceDate });
           return;
         }
         if (result.data) {
@@ -978,7 +1024,10 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
 
         console.log(`  Chunk ${currentChunk + 1}/${totalChunks}: ${chunkSince} → ${chunkUntil}`);
 
-        const insightsFields = "ad_id,spend,purchase_roas,cost_per_action_type,ctr,clicks,impressions,cpm,cpc,frequency,actions,action_values,video_avg_time_watched_actions,video_thruplay_watched_actions,video_play_curve_actions";
+        // date_start is requested explicitly — Meta auto-includes it with time_increment=1
+        // today, but row.date_start feeds the (ad_id, date) upsert key, so we must not
+        // depend on undocumented behavior.
+        const insightsFields = "ad_id,date_start,spend,purchase_roas,cost_per_action_type,ctr,clicks,impressions,cpm,cpc,frequency,actions,action_values,video_avg_time_watched_actions,video_thruplay_watched_actions,video_play_curve_actions";
 
         let nextUrl = paginationCursor || (
           `https://graph.facebook.com/${META_API_VERSION}/${accountId}/insights?` +
@@ -998,6 +1047,14 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             nextUrl = null;
             await saveState(4, { daily_chunk_offset: currentChunk, daily_cursor: null, daily_days: dailyDays, daily_since_date: dailySinceDate });
             break;
+          }
+          if (result.rateLimited && result.retriableUrl) {
+            // Rate-limit pause mid-chunk: save the exact page URL so the next /continue
+            // resumes this page. Without this, the chunk's remaining pages were silently
+            // dropped and the outer loop advanced to the next chunk as if complete.
+            console.log(`Phase 4 paused (rate-limited) mid-chunk ${currentChunk + 1}/${totalChunks}`);
+            await saveState(4, { daily_chunk_offset: currentChunk, daily_cursor: result.retriableUrl, daily_days: dailyDays, daily_since_date: dailySinceDate });
+            return;
           }
           if (result.data && result.data.length > 0) {
             // For large accounts (NDC has 18k+ creatives), loading all ad_ids into memory
@@ -1037,12 +1094,21 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             }
 
             const rows = result.data
-              .filter((row: any) => validAdIds.has(row.ad_id))
+              .filter((row: any) => {
+                if (!validAdIds.has(row.ad_id)) return false;
+                // date feeds the (ad_id, date) upsert key — a missing date_start would
+                // silently corrupt daily attribution. Skip and record instead.
+                if (!row.date_start) {
+                  ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Phase 4: missing date_start for ad_id=${row.ad_id} — row skipped` });
+                  return false;
+                }
+                return true;
+              })
               .map((row: any) => {
-                // Strip the frame-retention keys (US-002): creative_daily_metrics has no
-                // play_curve / retention_p* columns, and PostgREST upsert errors on unknown
-                // columns rather than ignoring them. These persist via the Phase-2 RPC only.
-                const { play_curve, retention_p25, retention_p50, retention_p75, retention_p100, ...daily } =
+                // Strip columns that don't exist in creative_daily_metrics:
+                // - play_curve / retention_p* (US-002): only on creatives via Phase-2 RPC
+                // - result_count / cost_per_result (US-003): only on creatives table
+                const { play_curve, retention_p25, retention_p50, retention_p75, retention_p100, result_count, cost_per_result, ...daily } =
                   parseInsightsRow(row, account?.optimization_goal);
                 return {
                   ad_id: row.ad_id,
@@ -1136,6 +1202,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           });
         }
         // Batch update in chunks of 200 — check timeout between chunks
+        let tagSuccessCount = 0;
         for (let i = 0; i < tagUpdates.length; i += 200) {
           if (isTimedOut()) {
             console.log(`  Auto-tag paused at ${i}/${tagUpdates.length} — budget exceeded`);
@@ -1149,10 +1216,17 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           results.forEach((r, idx) => {
             if (r.status === "rejected") {
               ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Auto-tag failed for row ${i + idx}: ${r.reason}` });
+            } else if (r.value?.error) {
+              // PostgREST failures resolve (fulfilled) with { error } in the response —
+              // they are NOT rejections. Without this check, failed tag writes were
+              // counted as successes and the sync reported tags that never persisted.
+              ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Auto-tag DB error for row ${i + idx}: ${r.value.error.message}` });
+            } else {
+              tagSuccessCount++;
             }
           });
         }
-        if (tagUpdates.length > 0) console.log(`  Auto-tagged ${tagUpdates.length} creatives from ad names`);
+        if (tagUpdates.length > 0) console.log(`  Auto-tagged ${tagSuccessCount}/${tagUpdates.length} creatives from ad names`);
       } catch (autoErr) {
         console.error("Auto-tag error (non-fatal):", autoErr);
       }
@@ -1348,20 +1422,21 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           });
         }
 
-        // Batch insert changelog (limit 50)
-        if (changelogEntries.length > 0) {
-          const batch = changelogEntries.slice(0, 50);
+        // Insert ALL changelog entries in chunks — the old slice(0, 50) cap silently
+        // dropped every event past 50, so active accounts missed most notifications.
+        for (let i = 0; i < changelogEntries.length; i += 100) {
+          const batch = changelogEntries.slice(i, i + 100);
           const { error: clErr } = await supabase.from("performance_changelog").insert(batch);
           if (clErr) console.error("Changelog insert error (non-fatal):", clErr.message);
-          else console.log(`  Logged ${batch.length} changelog entries`);
         }
+        if (changelogEntries.length > 0) console.log(`  Logged ${changelogEntries.length} changelog entries`);
 
-        // Batch insert notifications (limit 50)
-        if (notifications.length > 0) {
-          const batch = notifications.slice(0, 50);
-          await supabase.from("notifications").insert(batch);
-          console.log(`  Created ${batch.length} notifications`);
+        for (let i = 0; i < notifications.length; i += 100) {
+          const batch = notifications.slice(i, i + 100);
+          const { error: notifErr } = await supabase.from("notifications").insert(batch);
+          if (notifErr) console.error("Notification insert error (non-fatal):", notifErr.message);
         }
+        if (notifications.length > 0) console.log(`  Created ${notifications.length} notifications`);
       } catch (changelogNotifErr) {
         console.error("Changelog/notification error (non-fatal):", changelogNotifErr);
       }
@@ -1402,8 +1477,16 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
               let localImpressions = 0;
               let localAdIds = 0;
               let offset = 0;
+              let auditComplete = true;
               const PAGE = 1000;
               while (true) {
+                if (isTimedOut()) {
+                  // Partial sums must not masquerade as a completed audit — they read
+                  // as massive under-reporting and would fire false drift alerts.
+                  console.warn("  Post-sync audit interrupted by budget — marking incomplete");
+                  auditComplete = false;
+                  break;
+                }
                 const { data: rows } = await supabase
                   .from("creative_daily_metrics")
                   .select("spend, impressions")
@@ -1423,9 +1506,10 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
 
               const spendDelta = localSpend - metaSpend;
               const spendDeltaPct = metaSpend > 0 ? (spendDelta / metaSpend) * 100 : 0;
-              const driftExceeded = Math.abs(spendDeltaPct) >= 2;
+              const driftExceeded = auditComplete && Math.abs(spendDeltaPct) >= 2;
 
               auditResult = {
+                audit_complete: auditComplete,
                 meta_spend: Math.round(metaSpend * 100) / 100,
                 local_spend: Math.round(localSpend * 100) / 100,
                 spend_delta: Math.round(spendDelta * 100) / 100,
@@ -1459,18 +1543,25 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         console.log("  Skipping post-sync audit — budget exceeded");
       }
 
-      // Fire-and-forget media enrichment — runs independently after data sync is fresh.
+      // Media enrichment kick-off — awaited so the request is guaranteed to leave
+      // before the isolate is torn down (fire-and-forget here silently dropped the
+      // call and left thumbnails stale while the sync reported complete).
       // Explicit scope=all: discovery (image+video) runs first, then enrich-thumbnails
       // chains a separate caching invocation. Don't rely on the server-side default.
-      fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/enrich-thumbnails?scope=all`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-        },
-        body: JSON.stringify({ account_id: accountId }),
-      }).catch((e: Error) => console.error("enrich-thumbnails fire-and-forget error:", e.message));
-      console.log(`  Media enrichment triggered for account ${accountId}`);
+      try {
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/enrich-thumbnails?scope=all`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({ account_id: accountId }),
+        });
+        console.log(`  Media enrichment triggered for account ${accountId}`);
+      } catch (enrichErr) {
+        console.error("enrich-thumbnails invocation error (non-fatal):", enrichErr);
+        ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Media enrichment kick-off failed: ${String(enrichErr)}` });
+      }
 
       const finalStatus = ((JSON.parse(syncLog.api_errors || "[]")).length > 0 || ctx.apiErrors.length > 0) ? "completed_with_errors" : "completed";
       // Save audit result to sync_state for visibility
@@ -1490,14 +1581,28 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         completed_at: new Date().toISOString(),
         duration_ms: (syncLog.duration_ms || 0) + (Date.now() - startMs),
       }).eq("id", syncLog.id);
-    } catch (_) { /* can't save error status */ }
+    } catch (saveErr) {
+      // If this save is lost the sync is stranded: cleanup-stuck-syncs only rescues
+      // `running` rows, so a missed `failed` write means nobody ever retries it.
+      // One minimal retry covers transient DB blips.
+      console.error("Failed to mark sync failed — retrying with minimal fields:", saveErr);
+      try {
+        await supabase.from("sync_logs").update({
+          status: "failed",
+          completed_at: new Date().toISOString(),
+        }).eq("id", syncLog.id);
+      } catch (_) {
+        console.error("Failed to save error status (unrecoverable) — sync row may be stranded");
+      }
+    }
     await promoteNextQueued(supabase);
   }
 }
 
 // ─── Main Handler ────────────────────────────────────────────────────────────
 
-serve(async (req) => {
+// SYNC_NO_SERVE lets tests import this module (for metaFetch) without binding a server.
+const handler = async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -1537,8 +1642,11 @@ serve(async (req) => {
     if (!isAnonKey && !isPublishableKey && !isSecretKey) {
       const { data: { user }, error: authError } = await supabase.auth.getUser(authToken);
       if (authError || !user) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      const { data: userRole } = await supabase.from("user_roles").select("role").eq("user_id", user.id).single();
-      if (!userRole || !["builder", "employee"].includes(userRole.role)) {
+      // Fetch ALL role rows (a user may hold multiple) — `.single()` throws on >1
+      // rows, turning a legitimate multi-role staff user into a spurious 500.
+      const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
+      const roles = (roleRows || []).map((r: { role: string }) => r.role);
+      if (!roles.includes("builder") && !roles.includes("employee")) {
         return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
     }
@@ -1758,4 +1866,6 @@ serve(async (req) => {
     console.error("Sync error:", e);
     return new Response(JSON.stringify({ error: "Internal server error" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
-});
+};
+
+if (!Deno.env.get("SYNC_NO_SERVE")) serve(handler);
