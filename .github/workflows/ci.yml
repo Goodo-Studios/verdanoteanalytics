@@ -121,6 +121,35 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so the migration-warning step can diff the push range.
+          fetch-depth: 0
+
+      - name: Warn if migrations changed (CI does not deploy them)
+        # Never fails the build — purely an annotation reminding the operator
+        # that supabase/migrations/ are applied manually via `supabase db push`.
+        run: |
+          BEFORE="${{ github.event.before }}"
+          if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] \
+            && git cat-file -e "$BEFORE" 2>/dev/null; then
+            RANGE="$BEFORE..HEAD"
+          elif git rev-parse -q --verify 'HEAD^' >/dev/null 2>&1; then
+            # Fallback (force push / missing before-sha): compare the last commit.
+            RANGE="HEAD^..HEAD"
+          else
+            # First push to the branch — nothing to diff against.
+            echo "No previous commit to diff against; skipping migration check."
+            exit 0
+          fi
+          CHANGED="$(git diff --name-only "$RANGE" -- supabase/migrations/ || true)"
+          if [ -n "$CHANGED" ]; then
+            echo "::warning::Migration files changed in this push — Supabase migrations are NOT deployed by CI. Run 'supabase db push' manually."
+            echo "Changed migration files ($RANGE):"
+            echo "$CHANGED"
+          else
+            echo "No migration changes in $RANGE."
+          fi
+          exit 0
 
       - uses: supabase/setup-cli@v1
         with:

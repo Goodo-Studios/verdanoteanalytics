@@ -185,3 +185,84 @@ verify_jwt = true
 
 [functions.ad-preview]
 verify_jwt = false
+
+# ─── Config-drift fix (2026-06-09): previously-unregistered functions ─────────
+# These functions were deployed by scripts/deploy-functions.sh but missing from
+# config.toml, so they silently rode the platform default (verify_jwt = true).
+# Each is now registered with a deliberate setting matched to its auth model.
+
+# Browser-called with the end-user JWT (apiFetch / functions.invoke); also
+# validates the JWT internally via supabase.auth.getUser().
+[functions.ai-chat]
+verify_jwt = true
+
+# Debug tool for inspecting Apify actor runs. Does NO auth of its own — the
+# platform JWT check is the only gate, so it must stay on.
+[functions.apify-debug]
+verify_jwt = true
+
+# One-time backfill of ad_post_url for historical creatives. Invoked manually
+# (or by an internal caller) with the service-role bearer — no end-user JWT
+# (same pattern as backfill-retag / backfill-play-curves). NOTE: the function
+# does no auth of its own; do not link it from any client.
+[functions.backfill-post-urls]
+verify_jwt = false
+
+# Browser-called; validates the user JWT internally via auth.getUser(token).
+[functions.cache-creative-image]
+verify_jwt = true
+
+# Destructive ops tool (wipes cached thumbnails/videos + storage). Does NO auth
+# of its own — the platform JWT check is the only gate, so it must stay on.
+[functions.clear-media-cache]
+verify_jwt = true
+
+# Browser-called; validates the user JWT internally via auth.getUser().
+[functions.client-insights]
+verify_jwt = true
+
+# Browser-called; validates the user JWT internally AND enforces a
+# builder/employee role check.
+[functions.competitor-ads]
+verify_jwt = true
+
+# Public read-only portfolio page resolved by slug — serves anonymous viewers
+# by design (mirrors vault-share-item). Exposure is gated by the per-account
+# portfolio_enabled opt-in flag + unguessable portfolio_slug; no JWT possible.
+[functions.portfolio]
+verify_jwt = false
+
+# Browser/bookmarklet-called; validates the user JWT internally via
+# auth.getUser().
+[functions.quick-save]
+verify_jwt = true
+
+# External read API for Sadie. Caller sends no Supabase JWT; auth is the
+# x-sadie-key shared secret (SADIE_API_KEY) checked internally — 401 on miss.
+[functions.sadie-read]
+verify_jwt = false
+
+# Browser-called; validates the user JWT internally via auth.getUser().
+[functions.scrape-ad]
+verify_jwt = true
+
+# Browser-called; validates the user JWT internally via auth.getUser().
+[functions.send-digest]
+verify_jwt = true
+
+# Browser-called via apiFetch (always sends the session JWT). The internal
+# check only runs when an Authorization header is present, so the platform
+# gate here is load-bearing — keep it on.
+[functions.spend-diagnostic]
+verify_jwt = true
+
+# Browser-called; validates the user JWT internally via auth.getUser().
+[functions.transcribe-ad]
+verify_jwt = true
+
+# API-key authenticated via withApiAuth (hashed api_keys table lookup with
+# rate limiting) — the Bearer/x-api-key value is a provisioned API key, NOT a
+# JWT, so platform verification would reject legitimate callers (same as
+# [functions.api]).
+[functions.webhooks-dispatch]
+verify_jwt = false
