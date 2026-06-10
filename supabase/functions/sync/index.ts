@@ -50,6 +50,21 @@ const MAX_RATE_LIMIT_RETRIES = 5; // Up from 3 — handles large account rate pr
 // Overridable so tests can run the exhaustion path without real 30s+ backoffs.
 const BACKOFF_BASE_SEC = Number(Deno.env.get("SYNC_BACKOFF_BASE_SEC") ?? "30");
 
+// Informational notes pushed into apiErrors for operator visibility (throttle
+// backoffs, resumable pauses) — the sync handled them and lost no data, so they
+// must not flip the final status to completed_with_errors. A run whose only
+// log entries are backoffs is a fully successful sync.
+const INFORMATIONAL_NOTE_PATTERNS = [
+  /^Rate limited, backing off /,
+  /^Rate limit retries exhausted — paused with resumable cursor$/,
+];
+export function isInformationalSyncNote(message: string): boolean {
+  return INFORMATIONAL_NOTE_PATTERNS.some((re) => re.test(message));
+}
+export function countRealErrors(errs: { message?: string }[]): number {
+  return errs.filter((e) => !isInformationalSyncNote(e.message || "")).length;
+}
+
 export async function metaFetch(
   url: string,
   ctx: { metaApiCalls: number; apiErrors: { timestamp: string; message: string }[]; isTimedOut: () => boolean }
@@ -453,7 +468,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       await saveState(nextAllowed, {});
       return;
     } else {
-      const finalStatus = (JSON.parse(syncLog.api_errors || "[]")).length > 0 ? "completed_with_errors" : "completed";
+      const finalStatus = countRealErrors(JSON.parse(syncLog.api_errors || "[]")) > 0 ? "completed_with_errors" : "completed";
       await saveState(5, {}, finalStatus);
       return;
     }
@@ -1563,7 +1578,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Media enrichment kick-off failed: ${String(enrichErr)}` });
       }
 
-      const finalStatus = ((JSON.parse(syncLog.api_errors || "[]")).length > 0 || ctx.apiErrors.length > 0) ? "completed_with_errors" : "completed";
+      const finalStatus = countRealErrors([...JSON.parse(syncLog.api_errors || "[]"), ...ctx.apiErrors]) > 0 ? "completed_with_errors" : "completed";
       // Save audit result to sync_state for visibility
       await saveState(5, { audit: auditResult }, finalStatus);
       console.log(`\n✅ Sync complete for ${account.name}: ${finalStatus}`);

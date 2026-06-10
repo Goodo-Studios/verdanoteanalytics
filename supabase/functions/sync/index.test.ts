@@ -20,7 +20,7 @@ Deno.env.set("SYNC_BACKOFF_BASE_SEC", "0");
 Deno.env.set("SUPABASE_URL", "https://example.supabase.co");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "fake-service-role");
 
-const { metaFetch } = await import("./index.ts");
+const { metaFetch, isInformationalSyncNote, countRealErrors } = await import("./index.ts");
 
 function ctx(timedOut = false) {
   return {
@@ -93,4 +93,27 @@ Deno.test("metaFetch returns retriableUrl without fetching when already timed ou
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+// Regression: a sync whose only apiErrors entries are throttle backoffs must
+// finalize as "completed", not "completed_with_errors" (sync 369, 2026-06-09:
+// 5 backoff notes, data matched Meta +0.00%, yet history showed errors).
+Deno.test("informational throttle notes are not real errors", () => {
+  assertEquals(isInformationalSyncNote("Rate limited, backing off 30s"), true);
+  assertEquals(isInformationalSyncNote("Rate limited, backing off 300s"), true);
+  assertEquals(isInformationalSyncNote("Rate limit retries exhausted — paused with resumable cursor"), true);
+  assertEquals(isInformationalSyncNote("Meta API error — code: 100, subcode: ?, type: ?, msg: Unsupported get request"), false);
+  assertEquals(isInformationalSyncNote("Daily upsert failed: duplicate key"), false);
+  assertEquals(isInformationalSyncNote(""), false);
+});
+
+Deno.test("countRealErrors filters backoff notes but keeps genuine errors", () => {
+  const onlyBackoffs = [
+    { message: "Rate limited, backing off 30s" },
+    { message: "Rate limited, backing off 60s" },
+    { message: "Rate limit retries exhausted — paused with resumable cursor" },
+  ];
+  assertEquals(countRealErrors(onlyBackoffs), 0);
+  const mixed = [...onlyBackoffs, { message: "Phase 2 pagination halted on API error" }, {}];
+  assertEquals(countRealErrors(mixed), 2);
 });
