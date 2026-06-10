@@ -29,7 +29,10 @@ export function useAllCreatives(filters: Record<string, string> = {}) {
       const result = await apiFetch("creatives", `?${qs.toString()}`);
       return Array.isArray(result) ? result : (result?.data ?? []);
     },
-    staleTime: 10 * 60 * 1000, // Cache for 10 minutes
+    // 2 hours: this payload only changes when a Meta sync completes (~2h
+    // cadence), so refetching more often than the sync interval just re-runs
+    // the expensive full-set aggregation for identical data.
+    staleTime: 2 * 60 * 60 * 1000,
     refetchOnWindowFocus: false,
     // Intentionally no keepPreviousData — on account switch, stale cross-account data must not render.
   });
