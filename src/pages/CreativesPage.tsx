@@ -85,6 +85,10 @@ const CreativesPage = () => {
 
   const { data: creativesResult, isLoading } = useCreatives(allFilters, page);
   const creatives = creativesResult?.data || [];
+  // True when the picked date range has zero synced daily-metrics rows (vs. the
+  // account simply having no creatives). Lets the empty state explain "no data
+  // for this range" instead of the misleading "add an account" message.
+  const noDailyData = Boolean((creativesResult as any)?.no_daily_data);
   const totalCreatives = creativesResult?.total || 0;
   const totalPages = Math.ceil(totalCreatives / CREATIVES_PAGE_SIZE);
   const { data: filterOptions } = useCreativeFilters();
@@ -345,6 +349,12 @@ const CreativesPage = () => {
 
       {isLoading ? (
         <TableSkeleton rows={10} cols={8} />
+      ) : creatives.length === 0 && noDailyData ? (
+        <div className="glass-panel flex flex-col items-center justify-center py-20 text-center">
+          <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-4"><CalendarDays className="h-6 w-6 text-sage" /></div>
+          <h3 className="font-heading text-[20px] text-forest mb-1">No data for this date range</h3>
+          <p className="font-body text-[14px] text-slate max-w-md">No spend was synced for the selected dates. Try widening the range or picking earlier dates — today's metrics usually aren't available until the next sync.</p>
+        </div>
       ) : creatives.length === 0 ? (
         <div className="glass-panel flex flex-col items-center justify-center py-20 text-center">
           <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-4"><LayoutGrid className="h-6 w-6 text-sage" /></div>

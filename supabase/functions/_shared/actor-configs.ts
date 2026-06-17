@@ -103,6 +103,10 @@ export const ACTOR_CONFIGS: Record<string, ActorConfig> = {
     // the active_status / ad_type / country params that the actor needs to return results. The
     // actor interprets a bare ?id= URL as an empty search and returns nothing. Enrich the URL
     // with these required params before passing to the actor.
+    // country=ALL — single-ad ID lookups should not be geo-filtered. The previous default of
+    // country=US silently dropped any non-US ad ("no_items / Empty or private data for provided
+    // input"), even when the ad ID was valid and the ad was live. Meta's own Ad Library UI uses
+    // "All" for global lookup; the actor accepts country=ALL the same way.
     actorId: "apify~facebook-ads-scraper",
     buildInput: (url) => {
       let enrichedUrl = url;
@@ -111,7 +115,7 @@ export const ACTOR_CONFIGS: Record<string, ActorConfig> = {
         if (u.searchParams.get("id") && !u.searchParams.get("active_status")) {
           u.searchParams.set("active_status", "all");
           u.searchParams.set("ad_type", "all");
-          u.searchParams.set("country", "US");
+          u.searchParams.set("country", "ALL");
           enrichedUrl = u.toString();
         }
       } catch { /* keep original */ }

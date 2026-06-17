@@ -33,7 +33,10 @@ function Calendar({ className, classNames, showOutsideDays = true, ...props }: C
         day_range_end: "day-range-end",
         day_selected:
           "bg-verdant text-white hover:bg-verdant hover:text-white focus:bg-verdant focus:text-white rounded-full",
-        day_today: "bg-verdant text-white rounded-full",
+        // "Today" must read differently from a selected day — a ring, not a
+        // fill. When today is also selected/in-range, day_selected's solid fill
+        // applies on top and wins.
+        day_today: "ring-1 ring-inset ring-verdant/50 text-verdant font-semibold rounded-full",
         day_outside:
           "day-outside text-sage opacity-50 aria-selected:bg-accent/50 aria-selected:text-muted-foreground aria-selected:opacity-30",
         day_disabled: "text-muted-foreground opacity-50",

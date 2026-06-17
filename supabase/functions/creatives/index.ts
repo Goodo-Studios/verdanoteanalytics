@@ -6,6 +6,7 @@ import { parseAdName, type ParsedAdName, type AdNameTags } from "../_shared/pars
 import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
 import { sanitizeSearchTerm } from "../_shared/postgrest-search.ts";
 import { errorMessage } from "../_shared/error-message.ts";
+import { aggregateDailyByAd, computeWeightedAggregates } from "../_shared/creatives-aggregate.ts";
 
 
 const DISPLAY_NAMES: Record<string, string> = {
@@ -227,71 +228,24 @@ serve(async (req) => {
           dmOffset += DM_PAGE;
         }
 
-        // If no daily metrics exist for this date range, fall back to lifetime metrics
+        // No daily-metrics rows for this date range → genuinely no delivery on
+        // these dates. Return an honest empty/zero result. The old code fell
+        // back to LIFETIME metrics here, which mislabeled all-time spend as
+        // range spend (e.g. picking "Today" before the daily sync ran showed
+        // lifetime totals) and contradicted get_period_metrics, which returns 0
+        // for the same empty range. `no_daily_data` lets the UI optionally show
+        // a "no data for this range" notice instead of an unexplained empty set.
         if (!dailyData || dailyData.length === 0) {
-          let cQuery = supabase.from("creatives").select(CREATIVE_COLS).order("spend", { ascending: false });
-          if (accountId) cQuery = cQuery.eq("account_id", accountId);
-          if (adType) cQuery = cQuery.eq("ad_type", adType);
-          if (person) cQuery = cQuery.eq("person", person);
-          if (style) cQuery = cQuery.eq("style", style);
-          if (hook) cQuery = cQuery.eq("hook", hook);
-          if (product) cQuery = cQuery.eq("product", product);
-          if (theme) cQuery = cQuery.eq("theme", theme);
-          if (tagSource) cQuery = cQuery.eq("tag_source", tagSource);
-          if (adStatus) cQuery = cQuery.eq("ad_status", adStatus);
-          if (delivery === "had_delivery") cQuery = cQuery.gt("spend", 0);
-          if (delivery === "active") cQuery = cQuery.eq("ad_status", "ACTIVE");
-          if (search) cQuery = cQuery.or(`ad_name.ilike.%${search}%,unique_code.ilike.%${search}%,campaign_name.ilike.%${search}%`);
-
-          // Get total count
-          const { count } = await applyCreativeFilters(
-            supabase.from("creatives").select("*", { count: "exact", head: true })
-          );
-
-          let allC: any[];
-          if (all) {
-            allC = await fetchAllCreatives();
-          } else {
-            const { data: pageData, error: cErr } = await cQuery.range(offset, offset + limit - 1);
-            if (cErr) throw cErr;
-            allC = pageData || [];
-          }
-
-          // Compute aggregates from lifetime data for this fallback path
-          const fbAggTotalSpend = (allC || []).reduce((s: number, c: any) => s + (Number(c.spend) || 0), 0);
-          const fbWithSpend = (allC || []).filter((c: any) => (Number(c.spend) || 0) > 0);
-          const fbAvgCpa = fbWithSpend.length > 0 ? fbWithSpend.reduce((s: number, c: any) => s + (Number(c.cpa) || 0), 0) / fbWithSpend.length : 0;
-          const fbAvgRoas = fbWithSpend.length > 0 ? fbWithSpend.reduce((s: number, c: any) => s + (Number(c.roas) || 0), 0) / fbWithSpend.length : 0;
-          return new Response(JSON.stringify({ data: allC || [], total: count || 0, aggregates: { total_spend: fbAggTotalSpend, avg_cpa: fbAvgCpa, avg_roas: fbAvgRoas } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({
+            data: [],
+            total: 0,
+            aggregates: { total_spend: 0, avg_cpa: 0, avg_roas: 0 },
+            no_daily_data: true,
+          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
         } else {
-          // Aggregate by ad_id
-          const aggMap: Record<string, any> = {};
-          for (const row of dailyData) {
-            if (!aggMap[row.ad_id]) {
-              aggMap[row.ad_id] = { spend: 0, impressions: 0, clicks: 0, purchases: 0, purchase_value: 0, adds_to_cart: 0, video_views: 0, _freq_weighted: 0, _freq_imp: 0, _tsr_weighted: 0, _tsr_imp: 0, _hr_weighted: 0, _hr_vv: 0, _vpt_weighted: 0, _vpt_vv: 0, _days: 0 };
-            }
-            const a = aggMap[row.ad_id];
-            const imp = Number(row.impressions) || 0;
-            const vv = Number(row.video_views) || 0;
-            const freq = Number(row.frequency) || 0;
-            const tsr = Number(row.thumb_stop_rate) || 0;
-            const hr = Number(row.hold_rate) || 0;
-            const vpt = Number(row.video_avg_play_time) || 0;
-            a.spend += Number(row.spend) || 0;
-            a.impressions += imp;
-            a.clicks += Number(row.clicks) || 0;
-            a.purchases += Number(row.purchases) || 0;
-            a.purchase_value += Number(row.purchase_value) || 0;
-            a.adds_to_cart += Number(row.adds_to_cart) || 0;
-            a.video_views += vv;
-            // Impressions-weighted average for frequency & thumb stop rate
-            if (freq > 0 && imp > 0) { a._freq_weighted += freq * imp; a._freq_imp += imp; }
-            if (tsr > 0 && imp > 0) { a._tsr_weighted += tsr * imp; a._tsr_imp += imp; }
-            // Video-views-weighted average for hold rate & avg play time
-            if (hr > 0 && vv > 0) { a._hr_weighted += hr * vv; a._hr_vv += vv; }
-            if (vpt > 0 && vv > 0) { a._vpt_weighted += vpt * vv; a._vpt_vv += vv; }
-            a._days += 1;
-          }
+          // Aggregate by ad_id — sums spend/conversions and impression-weighted
+          // rate metrics across the picked date range (see _shared/creatives-aggregate.ts).
+          const aggMap = aggregateDailyByAd(dailyData);
 
           // Filter to ads with delivery if needed
           let relevantAdIds = Object.keys(aggMap);
@@ -348,11 +302,10 @@ serve(async (req) => {
 
           result.sort((a: any, b: any) => (b.spend || 0) - (a.spend || 0));
           const total = result.length;
-          // Compute aggregate totals across ALL creatives (not just the page slice)
-          const aggTotalSpend = result.reduce((s: number, c: any) => s + (Number(c.spend) || 0), 0);
-          const withSpend = result.filter((c: any) => c.spend > 0);
-          const aggAvgCpa = withSpend.length > 0 ? withSpend.reduce((s: number, c: any) => s + (Number(c.cpa) || 0), 0) / withSpend.length : 0;
-          const aggAvgRoas = withSpend.length > 0 ? withSpend.reduce((s: number, c: any) => s + (Number(c.roas) || 0), 0) / withSpend.length : 0;
+          // Aggregate totals across ALL creatives in range (not just the page
+          // slice). Spend-weighted to match get_period_metrics — see
+          // computeWeightedAggregates.
+          const { total_spend: aggTotalSpend, avg_cpa: aggAvgCpa, avg_roas: aggAvgRoas } = computeWeightedAggregates(result);
           return new Response(JSON.stringify({ data: all ? result : result.slice(offset, offset + limit), total, aggregates: { total_spend: aggTotalSpend, avg_cpa: aggAvgCpa, avg_roas: aggAvgRoas } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       }
@@ -379,8 +332,9 @@ serve(async (req) => {
 
       // Aggregates cover ALL matching creatives (not just the page slice).
       // When ?all=1 the full filtered set is already in memory — compute from
-      // it directly instead of re-scanning the table. Only the paged path
-      // needs a second scan, and that scan stays narrow (spend/cpa/roas only).
+      // it directly instead of re-scanning the table. Only the paged path needs
+      // a second scan, and that scan stays narrow (spend/purchases/value — the
+      // inputs to the spend-weighted average).
       let aggRows: any[];
       if (all) {
         aggRows = data;
@@ -390,7 +344,7 @@ serve(async (req) => {
         const AGG_PAGE = 1000;
         while (true) {
           const { data: aggData } = await applyCreativeFilters(
-            supabase.from("creatives").select("spend, cpa, roas")
+            supabase.from("creatives").select("spend, purchases, purchase_value")
           ).order("ad_id", { ascending: true }).range(aggOffset, aggOffset + AGG_PAGE - 1);
           if (!aggData || aggData.length === 0) break;
           aggRows.push(...aggData);
@@ -398,18 +352,8 @@ serve(async (req) => {
           aggOffset += AGG_PAGE;
         }
       }
-      let aggTotalSpend = 0, aggCpaSum = 0, aggRoasSum = 0, aggWithSpend = 0;
-      for (const row of aggRows) {
-        const s = Number(row.spend) || 0;
-        aggTotalSpend += s;
-        if (s > 0) {
-          aggWithSpend++;
-          aggCpaSum += Number(row.cpa) || 0;
-          aggRoasSum += Number(row.roas) || 0;
-        }
-      }
-      const aggAvgCpa = aggWithSpend > 0 ? aggCpaSum / aggWithSpend : 0;
-      const aggAvgRoas = aggWithSpend > 0 ? aggRoasSum / aggWithSpend : 0;
+      // Spend-weighted, consistent with the date-filtered path and the RPC.
+      const { total_spend: aggTotalSpend, avg_cpa: aggAvgCpa, avg_roas: aggAvgRoas } = computeWeightedAggregates(aggRows);
 
       return new Response(JSON.stringify({ data: data || [], total, aggregates: { total_spend: aggTotalSpend, avg_cpa: aggAvgCpa, avg_roas: aggAvgRoas } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }

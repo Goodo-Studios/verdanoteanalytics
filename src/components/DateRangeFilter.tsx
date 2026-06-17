@@ -2,6 +2,8 @@ import { useState } from "react";
 import { format, subDays, startOfMonth, startOfWeek, subMonths } from "date-fns";
 import { CalendarIcon, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { parsePickerDate, formatPickerDate } from "@/lib/dateRange";
+import type { DateRange } from "react-day-picker";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -31,26 +33,23 @@ interface DateRangeFilterProps {
 
 export function DateRangeFilter({ dateFrom, dateTo, onChange }: DateRangeFilterProps) {
   const [open, setOpen] = useState(false);
-  const [pickingFrom, setPickingFrom] = useState(true);
 
-  const fromDate = dateFrom ? new Date(dateFrom) : undefined;
-  const toDate = dateTo ? new Date(dateTo) : undefined;
+  const fromDate = dateFrom ? parsePickerDate(dateFrom) : undefined;
+  const toDate = dateTo ? parsePickerDate(dateTo) : undefined;
 
   const handlePreset = (preset: typeof PRESETS[number]) => {
     onChange(format(preset.from(), "yyyy-MM-dd"), format(preset.to(), "yyyy-MM-dd"));
     setOpen(false);
   };
 
-  const handleCalendarSelect = (date?: Date) => {
-    if (!date) return;
-    const formatted = format(date, "yyyy-MM-dd");
-    if (pickingFrom) {
-      onChange(formatted, dateTo && formatted > dateTo ? formatted : dateTo);
-      setPickingFrom(false);
-    } else {
-      onChange(dateFrom && formatted < dateFrom ? formatted : dateFrom, formatted);
-      setPickingFrom(true);
-    }
+  // Range mode: the calendar builds {from, to} natively (1st click = from,
+  // 2nd = to) and highlights the whole span. Format with local `format()` —
+  // the Date is already a local-midnight calendar date.
+  const handleRangeSelect = (range?: DateRange) => {
+    onChange(
+      range?.from ? format(range.from, "yyyy-MM-dd") : undefined,
+      range?.to ? format(range.to, "yyyy-MM-dd") : undefined,
+    );
   };
 
   const activePreset = PRESETS.find(p => {
@@ -63,7 +62,7 @@ export function DateRangeFilter({ dateFrom, dateTo, onChange }: DateRangeFilterP
   const displayLabel = activePreset
     ? activePreset.label
     : hasRange
-      ? `${dateFrom ? format(new Date(dateFrom), "MMM d") : "…"} – ${dateTo ? format(new Date(dateTo), "MMM d") : "…"}`
+      ? `${dateFrom ? formatPickerDate(dateFrom, "MMM d") : "…"} – ${dateTo ? formatPickerDate(dateTo, "MMM d") : "…"}`
       : "Date Range";
 
   return (
@@ -103,30 +102,28 @@ export function DateRangeFilter({ dateFrom, dateTo, onChange }: DateRangeFilterP
             {/* Calendar */}
             <div>
               <div className="flex items-center gap-1.5 pb-2 border-b border-border-light mb-1.5">
-                <button
-                  onClick={() => setPickingFrom(true)}
+                <span
                   className={cn(
-                    "font-label text-[10px] font-medium tracking-wide px-2 py-0.5 rounded-[4px] transition-colors",
-                    pickingFrom ? "bg-verdant text-white" : "text-slate bg-transparent hover:text-forest"
+                    "font-label text-[10px] font-medium tracking-wide px-2 py-0.5 rounded-[4px]",
+                    dateFrom ? "bg-verdant text-white" : "text-slate"
                   )}
                 >
-                  {dateFrom ? format(new Date(dateFrom), "MMM d, yyyy") : "Start date"}
-                </button>
+                  {dateFrom ? formatPickerDate(dateFrom, "MMM d, yyyy") : "Start date"}
+                </span>
                 <span className="text-[10px] text-sage">–</span>
-                <button
-                  onClick={() => setPickingFrom(false)}
+                <span
                   className={cn(
-                    "font-label text-[10px] font-medium tracking-wide px-2 py-0.5 rounded-[4px] transition-colors",
-                    !pickingFrom ? "bg-verdant text-white" : "text-slate bg-transparent hover:text-forest"
+                    "font-label text-[10px] font-medium tracking-wide px-2 py-0.5 rounded-[4px]",
+                    dateTo ? "bg-verdant text-white" : "text-slate"
                   )}
                 >
-                  {dateTo ? format(new Date(dateTo), "MMM d, yyyy") : "End date"}
-                </button>
+                  {dateTo ? formatPickerDate(dateTo, "MMM d, yyyy") : "End date"}
+                </span>
               </div>
               <Calendar
-                mode="single"
-                selected={pickingFrom ? fromDate : toDate}
-                onSelect={handleCalendarSelect}
+                mode="range"
+                selected={fromDate ? { from: fromDate, to: toDate } : undefined}
+                onSelect={handleRangeSelect}
                 disabled={(date) => date > new Date()}
                 initialFocus
                 className="p-0 pointer-events-auto"
@@ -141,7 +138,7 @@ export function DateRangeFilter({ dateFrom, dateTo, onChange }: DateRangeFilterP
           variant="ghost"
           size="sm"
           className="h-8 w-8 p-0"
-          onClick={() => { onChange(undefined, undefined); setPickingFrom(true); }}
+          onClick={() => onChange(undefined, undefined)}
         >
           <X className="h-3.5 w-3.5" />
         </Button>
