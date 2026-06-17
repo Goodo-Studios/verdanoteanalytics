@@ -10,7 +10,7 @@ export function useCreatives(filters: Record<string, string> = {}, page = 0) {
   params.set("limit", String(PAGE_SIZE));
   params.set("offset", String(page * PAGE_SIZE));
   const qs = params.toString();
-  return useQuery<{ data: any[]; total: number }>({
+  return useQuery<{ data: any[]; total: number; no_daily_data?: boolean }>({
     queryKey: ["creatives", qs],
     queryFn: () => apiFetch("creatives", qs ? `?${qs}` : ""),
     // Intentionally no keepPreviousData — on account switch, stale cross-account data must not render.

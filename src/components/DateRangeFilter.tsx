@@ -2,6 +2,7 @@ import { useState } from "react";
 import { format, subDays, startOfMonth, startOfWeek, subMonths } from "date-fns";
 import { CalendarIcon, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { parsePickerDate, formatPickerDate } from "@/lib/dateRange";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -33,8 +34,8 @@ export function DateRangeFilter({ dateFrom, dateTo, onChange }: DateRangeFilterP
   const [open, setOpen] = useState(false);
   const [pickingFrom, setPickingFrom] = useState(true);
 
-  const fromDate = dateFrom ? new Date(dateFrom) : undefined;
-  const toDate = dateTo ? new Date(dateTo) : undefined;
+  const fromDate = dateFrom ? parsePickerDate(dateFrom) : undefined;
+  const toDate = dateTo ? parsePickerDate(dateTo) : undefined;
 
   const handlePreset = (preset: typeof PRESETS[number]) => {
     onChange(format(preset.from(), "yyyy-MM-dd"), format(preset.to(), "yyyy-MM-dd"));
@@ -63,7 +64,7 @@ export function DateRangeFilter({ dateFrom, dateTo, onChange }: DateRangeFilterP
   const displayLabel = activePreset
     ? activePreset.label
     : hasRange
-      ? `${dateFrom ? format(new Date(dateFrom), "MMM d") : "…"} – ${dateTo ? format(new Date(dateTo), "MMM d") : "…"}`
+      ? `${dateFrom ? formatPickerDate(dateFrom, "MMM d") : "…"} – ${dateTo ? formatPickerDate(dateTo, "MMM d") : "…"}`
       : "Date Range";
 
   return (
@@ -110,7 +111,7 @@ export function DateRangeFilter({ dateFrom, dateTo, onChange }: DateRangeFilterP
                     pickingFrom ? "bg-verdant text-white" : "text-slate bg-transparent hover:text-forest"
                   )}
                 >
-                  {dateFrom ? format(new Date(dateFrom), "MMM d, yyyy") : "Start date"}
+                  {dateFrom ? formatPickerDate(dateFrom, "MMM d, yyyy") : "Start date"}
                 </button>
                 <span className="text-[10px] text-sage">–</span>
                 <button
@@ -120,7 +121,7 @@ export function DateRangeFilter({ dateFrom, dateTo, onChange }: DateRangeFilterP
                     !pickingFrom ? "bg-verdant text-white" : "text-slate bg-transparent hover:text-forest"
                   )}
                 >
-                  {dateTo ? format(new Date(dateTo), "MMM d, yyyy") : "End date"}
+                  {dateTo ? formatPickerDate(dateTo, "MMM d, yyyy") : "End date"}
                 </button>
               </div>
               <Calendar
