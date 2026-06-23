@@ -61,22 +61,51 @@ serve(async (req) => {
     }
 
     // ─── 3. Stale Accounts (active but no sync in 7+ days) ─────
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const { data: staleAccounts } = await supabase
+    // Freshness is judged against each account's OWN cadence, not a flat 7-day window.
+    // A flat threshold let a 12h-cadence account silently rot for ~2 weeks before
+    // tripping (the 2026-06-09 outage). Here a scheduled account is "stale" once it
+    // has missed ~2.5 cadence windows, and a badly overdue scheduled account (>3 days)
+    // is a hard fail. Manual accounts only warn at 7+ days (no automatic cadence).
+    const cadenceHours: Record<string, number> = { "6h": 6, "12h": 12, daily: 24 };
+    const { data: freshnessRows } = await supabase
       .from("ad_accounts")
-      .select("id, name, last_synced_at")
-      .eq("is_active", true)
-      .or(`last_synced_at.is.null,last_synced_at.lt.${sevenDaysAgo}`);
+      .select("id, name, last_synced_at, sync_frequency")
+      .eq("is_active", true);
 
-    if (staleAccounts?.length) {
+    const staleWarn: Array<Record<string, unknown>> = [];
+    const staleFail: Array<Record<string, unknown>> = [];
+    for (const a of freshnessRows || []) {
+      const ageMs = a.last_synced_at ? now.getTime() - new Date(a.last_synced_at).getTime() : Infinity;
+      const ageHours = ageMs / 36e5;
+      const row = { id: a.id, name: a.name, last: a.last_synced_at, frequency: a.sync_frequency, age_hours: Math.round(ageHours) };
+
+      if (a.sync_frequency === "manual") {
+        if (ageHours > 7 * 24) staleWarn.push(row);
+        continue;
+      }
+      const cadence = cadenceHours[a.sync_frequency] ?? 24;
+      if (ageHours > 72) staleFail.push(row);            // scheduled but >3 days dead
+      else if (ageHours > cadence * 2.5) staleWarn.push(row); // missed ~2.5 cadence windows
+    }
+
+    if (staleFail.length) {
+      findings.push({
+        severity: "fail",
+        category: "freshness",
+        message: `${staleFail.length} scheduled account(s) have not synced in 3+ days — automated sync may be broken`,
+        details: { accounts: staleFail },
+      });
+    }
+    if (staleWarn.length) {
       findings.push({
         severity: "warn",
         category: "freshness",
-        message: `${staleAccounts.length} active account(s) not synced in 7+ days`,
-        details: { accounts: staleAccounts.map((a: any) => ({ id: a.id, name: a.name, last: a.last_synced_at })) },
+        message: `${staleWarn.length} account(s) overdue for their sync cadence`,
+        details: { accounts: staleWarn },
       });
-    } else {
-      findings.push({ severity: "pass", category: "freshness", message: "All active accounts synced within 7 days" });
+    }
+    if (!staleFail.length && !staleWarn.length) {
+      findings.push({ severity: "pass", category: "freshness", message: "All active accounts fresh for their cadence" });
     }
 
     // ─── 4. Recent Sync Failures (last 8h) ──────────────────────
