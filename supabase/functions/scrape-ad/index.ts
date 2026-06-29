@@ -1,6 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { isMediaContentType } from "../_shared/vault-save-logic.ts";
+import { ACTOR_CONFIGS } from "../_shared/actor-configs.ts";
+
+const APIFY_BASE = "https://api.apify.com/v2";
 
 
 const CHROME_UA =
@@ -219,8 +222,23 @@ Deno.serve(async (req) => {
     let result: ScrapeResult | null = null;
     const country = (() => { try { return new URL(url).searchParams.get("country") || "US"; } catch { return "US"; } })();
 
+    // Method 0: Apify Meta Ad Library actor (primary).
+    // Facebook now blocks server-side fetches of the Ad Library page/async endpoint
+    // with an HTTP 403 JS bot-challenge, so Methods 1–3 below (direct fetch / HTML
+    // scrape) return no media. The Apify `apify~facebook-ads-scraper` actor renders
+    // the page and returns the real CDN media URLs. Same actor already used by
+    // vault-extract. CDN URLs (*.fbcdn.net) are time-limited, so downloadAndStore
+    // (below) must run right after this returns — which it does, synchronously.
+    if (url.includes("facebook.com/ads/library")) {
+      try {
+        result = await tryApifyAdLibrary(url, adId, Deno.env.get("APIFY_TOKEN"));
+      } catch (e) {
+        console.error("Apify ad-library fetch failed:", e);
+      }
+    }
+
     // Method 1: Meta search endpoint
-    if (pageId || adId) {
+    if (!result && (pageId || adId)) {
       try {
         result = await tryMetaSearchEndpoint(pageId || "", adId, country);
       } catch (e) {
@@ -349,6 +367,107 @@ interface ScrapeResult {
   started_running: string | null;
   country_targeting: string[];
   raw_data: Record<string, unknown>;
+}
+
+/**
+ * Method 0: fetch a single Meta Ad Library ad via the Apify
+ * `apify~facebook-ads-scraper` actor (run-sync, blocks until the run finishes and
+ * returns the dataset items). This is the only path that survives Facebook's
+ * server-side anti-bot challenge. Returns a ScrapeResult with every media URL the
+ * actor surfaced (videos first, then images), or null to fall through to the
+ * legacy direct-fetch methods / partial response.
+ */
+async function tryApifyAdLibrary(
+  url: string,
+  adId: string | null,
+  apifyToken?: string,
+): Promise<ScrapeResult | null> {
+  if (!apifyToken) {
+    console.warn("APIFY_TOKEN not set — skipping Apify ad-library fetch");
+    return null;
+  }
+  const config = ACTOR_CONFIGS.facebook_ad;
+  const input = config.buildInput(url);
+
+  // run-sync-get-dataset-items: start the actor and block until it finishes,
+  // returning dataset items directly. memory=2048 (FB pages are heavy); timeout
+  // caps the actor run so a stuck run can't hang this edge function.
+  const runUrl =
+    `${APIFY_BASE}/acts/${config.actorId}/run-sync-get-dataset-items` +
+    `?token=${apifyToken}&memory=2048&timeout=110`;
+  const resp = await fetch(runUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => "");
+    if (resp.status === 401 || resp.status === 403) {
+      throw new Error("Invalid or unauthorized APIFY_TOKEN");
+    }
+    if (resp.status === 402) throw new Error("Apify quota exhausted (402)");
+    throw new Error(`Apify run-sync error ${resp.status}: ${text.slice(0, 200)}`);
+  }
+  const items = await resp.json();
+  if (!Array.isArray(items) || items.length === 0) return null;
+
+  const item = items[0];
+  const snap = item?.snapshot ?? {};
+  const cards: any[] = Array.isArray(snap.cards) ? snap.cards : [];
+  const videos: any[] = Array.isArray(snap.videos) ? snap.videos : [];
+
+  // Collect all media URLs, videos first then images, deduped.
+  const media: string[] = [];
+  const push = (u: unknown) => {
+    if (typeof u === "string" && u.startsWith("http") && !media.includes(u)) media.push(u);
+  };
+  for (const v of videos) {
+    push(v?.videoHdUrl ?? v?.videoSdUrl ?? v?.video_hd_url ?? v?.video_sd_url ?? v?.videoUrl ?? v?.video_url ?? v?.url ?? v?.src);
+  }
+  for (const c of cards) {
+    push(c?.videoHdUrl ?? c?.videoSdUrl ?? c?.video_hd_url ?? c?.video_sd_url ?? c?.videoUrl ?? c?.video_url);
+  }
+  push(item?.videoUrl1);
+  push(item?.videoUrl);
+  const images: any[] = Array.isArray(snap.images)
+    ? snap.images
+    : (Array.isArray(snap.resized_images) ? snap.resized_images : []);
+  for (const im of images) {
+    push(im?.originalImageUrl ?? im?.original_image_url ?? im?.resizedImageUrl ?? im?.resized_image_url ?? im?.url ?? im?.src);
+  }
+  for (const c of cards) {
+    push(c?.originalImageUrl ?? c?.resizedImageUrl ?? c?.imageUrl ?? c?.image_url);
+  }
+  for (let i = 1; i <= 5; i++) push(item?.[`imageUrl${i}`]);
+
+  if (media.length === 0) return null;
+
+  const hasVideo =
+    videos.length > 0 ||
+    cards.some((c) => c?.videoHdUrl || c?.videoSdUrl || c?.videoUrl || c?.video_url);
+  const imageCount = media.filter((u) => !isVideoUrl(u)).length;
+  const adFormat = hasVideo ? "video" : (imageCount > 1 || cards.length > 1 ? "carousel" : "image");
+
+  const bodyRaw = typeof snap.body === "object" ? (snap.body?.text ?? snap.body?.markup?.__html) : snap.body;
+  const started = item?.startDateFormatted ?? item?.startDate ?? snap.startDate ?? snap.creationTime ?? null;
+
+  return {
+    advertiser_name: item?.pageName ?? item?.page_name ?? snap.pageName ?? snap.page_name ?? null,
+    advertiser_page_id: item?.pageId ?? item?.page_id ?? snap.pageId ?? null,
+    ad_id: item?.adArchiveID ?? item?.ad_archive_id ?? adId ?? null,
+    platform: "facebook",
+    ad_status: (item?.isActive ?? item?.is_active) ? "active" : "inactive",
+    ad_format: adFormat,
+    headline: cards[0]?.title ?? snap.title ?? null,
+    body_text: typeof bodyRaw === "string" ? bodyRaw : (typeof cards[0]?.body === "string" ? cards[0].body : null),
+    cta_text: cards[0]?.ctaText ?? cards[0]?.cta_text ?? snap.ctaText ?? snap.cta_text ?? null,
+    landing_page_url: cards[0]?.linkUrl ?? cards[0]?.link_url ?? snap.linkUrl ?? snap.link_url ?? null,
+    media_urls: media,
+    thumbnail_url: config.extractThumbnailUrl?.(item) ?? null,
+    started_running: started != null ? String(started) : null,
+    country_targeting: [],
+    raw_data: item,
+  };
 }
 
 async function fetchAdPageHtml(adId: string): Promise<string | null> {
