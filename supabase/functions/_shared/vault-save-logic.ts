@@ -127,7 +127,13 @@ export function selectMediaSources(input: {
   const video = cleanUrl(input.video_url);
   const fullRes = cleanUrl(input.full_res_url);
   const thumb = cleanUrl(input.thumbnail_url);
-  return { videoSrc: video, imageSrc: fullRes ?? thumb };
+  // Prefer durable storage URLs regardless of which field they come from.
+  // refresh-thumbnails can overwrite full_res_url with a fresh CDN URL even
+  // when thumbnail_url is already a storage URL, making imageSrc = expiredCDN
+  // → copyMedia 403 → 500. Pick: storage full_res > storage thumb > CDN full_res > CDN thumb.
+  const storageFull = isDurableStorageUrl(fullRes) ? fullRes : null;
+  const storageThumb = isDurableStorageUrl(thumb) ? thumb : null;
+  return { videoSrc: video, imageSrc: storageFull ?? storageThumb ?? fullRes ?? thumb };
 }
 
 /** Pick a storage extension from a content-type, defaulting per media kind. */

@@ -176,14 +176,32 @@ serve(async (req) => {
   // ── Video ────────────────────────────────────────────────────────────────
   if (!skipVideo) {
     if (creative.video_url) {
-      // Already have a CDN URL — just try to upload it to storage (no rediscovery).
-      // If upload fails, preserve the existing CDN URL rather than writing a sentinel.
+      // Already have a CDN URL — try to cache it to storage first.
       console.log(`[${ad_id}] Caching existing CDN video URL to storage...`);
       const storageUrl = await downloadAndCache(
         supabase, VIDEO_BUCKET, account_id, ad_id, creative.video_url, "video"
       );
-      if (storageUrl) updates.video_url = storageUrl;
-      // No else — leave CDN URL intact if download/upload fails.
+      if (storageUrl) {
+        updates.video_url = storageUrl;
+      } else {
+        // CDN URL is expired or undownloadable — fall through to full re-discovery
+        // so we get a fresh URL rather than silently returning a stale one that
+        // vault-save-creative's copyMedia will also fail to download (→ 500).
+        console.log(`[${ad_id}] CDN video URL download failed — attempting re-discovery...`);
+        const accountVideoMap = await fetchAccountVideoMap(account_id, metaToken!);
+        const freshUrl = await discoverVideoUrl(ad_id, metaToken!, 30_000, accountVideoMap);
+        if (freshUrl && freshUrl !== NO_VIDEO_SENTINEL) {
+          const freshStorageUrl = await downloadAndCache(
+            supabase, VIDEO_BUCKET, account_id, ad_id, freshUrl, "video"
+          );
+          // Use storage URL if caching succeeded, otherwise use the fresh CDN URL.
+          // Either is better than the expired original — don't write the sentinel
+          // (that would permanently block future re-discovery for a video that exists).
+          updates.video_url = freshStorageUrl ?? freshUrl;
+        }
+        // If re-discovery also failed, don't update — preserve the expired CDN URL
+        // as-is rather than poisoning the row with a sentinel.
+      }
     } else {
       // No URL yet — run full discovery then cache.
       console.log(`[${ad_id}] Discovering video...`);

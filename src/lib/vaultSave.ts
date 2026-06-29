@@ -67,7 +67,21 @@ export async function saveCreativeToVault(creative: {
     },
   });
 
-  if (error) throw error;
+  // supabase-js sets data=null on non-2xx; the actual server body lives in
+  // error.context (the raw Response). Extract it so the toast shows the real
+  // error instead of the generic "Edge Function returned a non-2xx status code".
+  if (error) {
+    const resp = (error as unknown as { context?: unknown }).context;
+    if (resp instanceof Response) {
+      let serverMsg: string | null = null;
+      try {
+        const body = await resp.json();
+        serverMsg = body?.error ?? null;
+      } catch { /* not JSON */ }
+      if (serverMsg) throw new Error(serverMsg);
+    }
+    throw error;
+  }
   if (data?.error) throw new Error(data.error);
 
   return {
