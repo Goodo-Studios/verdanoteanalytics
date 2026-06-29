@@ -101,6 +101,33 @@ export function needsMediaRecovery(input: {
   return !(settled(input.video_url) && settled(input.thumbnail_url));
 }
 
+/** Image file extensions — a vault item whose primary file is an image has no
+ * audio/video track to transcribe. */
+const IMAGE_EXT = /\.(jpe?g|png|webp|gif|avif|bmp|tiff?)$/i;
+
+/**
+ * Decide whether a saved vault item's primary media is a still image (so there is
+ * nothing for vault-transcribe to send to Whisper).
+ *
+ * Regression: vault-save-creative sets `file_path` = the still-image path when a
+ * creative has no video (so `file_path === thumbnail_path`). vault-transcribe used
+ * to send that image to Groq Whisper, which 400s "no audio track found in file" —
+ * a case the graceful-skip path didn't catch, so the item landed status='error'
+ * despite a successful save. This predicate lets the transcribe step skip cleanly.
+ *
+ * True when the primary file equals the thumbnail (image-only save) OR the
+ * file_path carries an image extension. Pure.
+ */
+export function isImageOnlyItem(input: {
+  file_path?: unknown;
+  thumbnail_path?: unknown;
+}): boolean {
+  const file = typeof input.file_path === "string" ? input.file_path : "";
+  const thumb = typeof input.thumbnail_path === "string" ? input.thumbnail_path : "";
+  if (file && thumb && file === thumb) return true;
+  return IMAGE_EXT.test(file);
+}
+
 export interface MediaSources {
   /** The playable video URL to copy, or null. */
   videoSrc: string | null;

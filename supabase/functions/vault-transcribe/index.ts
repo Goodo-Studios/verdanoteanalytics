@@ -10,6 +10,7 @@
 // 413, or Groq "could not process") the item is marked ready without an error.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { isImageOnlyItem } from "../_shared/vault-save-logic.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
@@ -37,11 +38,23 @@ Deno.serve(async (req) => {
 
     const { data: item } = await db
       .from("inspiration_items")
-      .select("id, file_path, video_url")
+      .select("id, file_path, thumbnail_path, video_url")
       .eq("id", itemId)
       .single();
 
     if (!item) return json({ error: "Item not found" }, 404);
+
+    // Image-only items have no audio/video track to transcribe. vault-save-creative
+    // sets file_path = the still-image path when there is no video (so file_path ===
+    // thumbnail_path), and other paths can save an image as the primary file too.
+    // Sending an image to Whisper returns 400 "no audio track found in file", which
+    // previously threw and marked the item status='error' despite a successful save.
+    // Detect this up front and finish the item cleanly — the thumbnail + snapshot
+    // are already saved and viewable.
+    if (isImageOnlyItem(item)) {
+      await db.from("inspiration_items").update({ status: "ready" }).eq("id", itemId);
+      return json({ ok: true, item_id: itemId, skipped_transcription: true, reason: "image_only" });
+    }
 
     await db.from("inspiration_items").update({ status: "transcribing" }).eq("id", itemId);
 
@@ -96,9 +109,16 @@ Deno.serve(async (req) => {
 
     if (!groqRes.ok) {
       const errText = await groqRes.text();
+      const lowerErr = errText.toLowerCase();
       // 413: file too large. 400 "could not process file": incompatible format.
-      // In both cases the video is saved and viewable — skip transcription and mark ready.
-      if (groqRes.status === 413 || (groqRes.status === 400 && errText.includes("could not process"))) {
+      // 400 "no audio track found": the media has no audio (e.g. an image, or a
+      // silent video) — nothing to transcribe. In all of these the media is saved
+      // and viewable, so skip transcription and mark ready rather than erroring.
+      if (
+        groqRes.status === 413 ||
+        (groqRes.status === 400 &&
+          (lowerErr.includes("could not process") || lowerErr.includes("no audio track")))
+      ) {
         await db.from("inspiration_items").update({ status: "ready" }).eq("id", itemId);
         return json({ ok: true, item_id: itemId, skipped_transcription: true, reason: "groq_unsupported" });
       }
