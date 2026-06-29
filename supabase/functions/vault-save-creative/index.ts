@@ -252,10 +252,19 @@ Deno.serve(async (req) => {
     const storageBase = `analytics/${user.id}/${ad_id}`;
     let filePath: string | null = null;
     let thumbnailPath: string | null = null;
+    let videoError: string | null = null;
 
     if (videoSrc) {
-      const { path } = await copyMedia(db, videoSrc, `${storageBase}/media`, "video");
-      filePath = path;
+      try {
+        const { path } = await copyMedia(db, videoSrc, `${storageBase}/media`, "video");
+        filePath = path;
+      } catch (e) {
+        // Video download failed (expired CDN link, restricted, etc.) — fall back to
+        // image-only so the save doesn't fail entirely. The vault item will be saved
+        // with thumbnail + perf snapshot; error_message records why video is absent.
+        videoError = errorMessage(e);
+        console.error(`vault-save-creative: video copy failed for ${ad_id} — saving image-only: ${videoError}`);
+      }
     }
 
     if (imageSrc) {
@@ -287,6 +296,7 @@ Deno.serve(async (req) => {
         source_account_id: account_id ?? null,
         performance_snapshot: performance_snapshot ?? null,
         status: "pending",
+        error_message: videoError ? `Video unavailable — saved thumbnail only (${videoError})` : null,
       })
       .select("id")
       .single();
