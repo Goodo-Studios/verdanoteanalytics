@@ -14,12 +14,24 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
 const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
+
+// Groq Whisper rejects some media we still want to save without erroring:
+//   • 413                       — file too large.
+//   • 400 "could not process"   — incompatible / corrupt format.
+//   • 400 "no audio track …"    — silent video (music-only / text-overlay ad).
+// In all three the video is saved and viewable, so the item is marked ready
+// and transcription is skipped rather than surfaced as an error.
+export function isUnsupportedMediaError(status: number, errText: string): boolean {
+  if (status === 413) return true;
+  if (status !== 400) return false;
+  return errText.includes("could not process") || errText.includes("no audio track");
+}
 // Bounded ack window for the vault-analyze kick-off (same pattern as vault-save):
 // await the dispatch long enough to guarantee it left this isolate, then let the
 // slow remainder ride on waitUntil.
 const KICKOFF_ACK_TIMEOUT_MS = 10_000;
 
-Deno.serve(async (req) => {
+export const handler = async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -96,9 +108,7 @@ Deno.serve(async (req) => {
 
     if (!groqRes.ok) {
       const errText = await groqRes.text();
-      // 413: file too large. 400 "could not process file": incompatible format.
-      // In both cases the video is saved and viewable — skip transcription and mark ready.
-      if (groqRes.status === 413 || (groqRes.status === 400 && errText.includes("could not process"))) {
+      if (isUnsupportedMediaError(groqRes.status, errText)) {
         await db.from("inspiration_items").update({ status: "ready" }).eq("id", itemId);
         return json({ ok: true, item_id: itemId, skipped_transcription: true, reason: "groq_unsupported" });
       }
@@ -178,4 +188,9 @@ Deno.serve(async (req) => {
     }
     return json({ error: String(err) }, 500);
   }
-});
+};
+
+// Skip binding the server under test so importing this module is side-effect free.
+if (Deno.env.get("VAULT_TRANSCRIBE_NO_SERVE") !== "1") {
+  Deno.serve(handler);
+}
