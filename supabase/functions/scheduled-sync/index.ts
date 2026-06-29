@@ -117,6 +117,28 @@ serve(async (req) => {
           continue;
         }
 
+        // A 200 from /sync does NOT guarantee a sync was actually enqueued: when the
+        // sync_logs INSERT is rejected (e.g. a sync_type the check constraint doesn't
+        // allow) /sync swallows the error and still returns 200 with
+        // {"message":"All requested accounts already syncing"} and no `started` rows.
+        // Treat "nothing started" as a failed trigger so we DO NOT advance next_sync_at
+        // a full cadence forward — otherwise the account looks scheduled while
+        // last_synced_at silently rots (this caused a 14-day outage starting 2026-06-09).
+        const syncBody = await syncResp.json().catch(() => ({}));
+        const started = Array.isArray(syncBody?.started) ? syncBody.started : [];
+        if (started.length === 0) {
+          console.error(
+            `/sync accepted but enqueued nothing for account_id=${account.id} name=${account.name}: ${JSON.stringify(syncBody)} — retrying next cycle`,
+          );
+          // Park next_sync_at a few minutes out (not a full cadence) so the cron
+          // retries promptly instead of waiting the whole sync_frequency window.
+          await supabase
+            .from("ad_accounts")
+            .update({ next_sync_at: new Date(Date.now() + 10 * 60 * 1000).toISOString() })
+            .eq("id", account.id);
+          continue;
+        }
+
         // Calculate next_sync_at based on frequency (DST-aware)
         const nextSync = calculateNextSync(account.sync_frequency, account.sync_hour, account.sync_timezone);
 

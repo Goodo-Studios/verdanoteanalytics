@@ -1797,6 +1797,7 @@ const handler = async (req: Request) => {
       if (!accounts.length) return new Response(JSON.stringify({ error: "No accounts to sync" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
       const created: any[] = [];
+      const insertErrors: Array<{ account_id: string; error: string }> = [];
 
       for (let i = 0; i < accounts.length; i++) {
         const account = accounts[i];
@@ -1824,12 +1825,23 @@ const handler = async (req: Request) => {
 
         if (logError) {
           console.error("Log create error:", logError);
+          insertErrors.push({ account_id: account.id, error: logError.message });
           continue;
         }
         created.push({ id: logEntry.id, account_id: account.id, account_name: account.name });
       }
 
       if (!created.length) {
+        // Distinguish a real failure (every insert errored — e.g. a check-constraint
+        // violation) from the benign "all accounts already have an active sync" case.
+        // Returning 200 for an insert failure made callers (scheduled-sync) treat a
+        // dead sync as success and advance next_sync_at, silently freezing data.
+        if (insertErrors.length) {
+          return new Response(
+            JSON.stringify({ error: "Failed to enqueue sync", insert_errors: insertErrors }),
+            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
         return new Response(JSON.stringify({ message: "All requested accounts already syncing" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
