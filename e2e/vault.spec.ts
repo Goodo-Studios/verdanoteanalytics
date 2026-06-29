@@ -316,7 +316,13 @@ test.describe("Vault — save analytics creative to global library (US-006)", ()
     // storage (the edge function can be cold right after a deploy) + library
     // navigation + a dedup reopen. The 30s project-default per-test timeout is
     // too tight for a cold save; give it room. (Budget, not a loosened assertion.)
-    test.setTimeout(150_000);
+    //
+    // Budget also covers a WIDE saveability scan (see MAX_SCAN below): media-less
+    // ads (no usable creative media) can cluster at the top of the default sort, so
+    // the test may reject many candidates before finding a genuinely-saveable one.
+    // Each rejection fails fast (the error toast fires promptly), but the window is
+    // wide, so the per-test budget is generous.
+    test.setTimeout(360_000);
 
     if (!hasCredentials) {
       // Fallback: confirm the creatives and vault library routes are reachable
@@ -352,21 +358,28 @@ test.describe("Vault — save analytics creative to global library (US-006)", ()
 
     const modal = page.locator("[role='dialog']");
 
-    // Scan the first few creatives until one is vault-saveable. A creative's
-    // remote CDN media can be expired/missing (Meta ad assets rotate out), in
-    // which case vault-save-creative legitimately rejects it — the exact
-    // message varies (e.g. "No usable creative media to copy", "Refusing to
-    // store … non-video content", or a non-2xx error). That is a real, expected
-    // outcome for media-less ads — not a save-flow bug — so we move to the next
-    // creative. We still REQUIRE that at least one creative is genuinely saved
-    // (no assertion is loosened): if none can be, that is a true failure.
+    // Scan creatives until one is vault-saveable. A creative's remote CDN media
+    // can be expired/missing (Meta ad assets rotate out), in which case
+    // vault-save-creative legitimately rejects it — the exact message varies
+    // (e.g. "No usable creative media to copy", "Refusing to store … non-video
+    // content", or a non-2xx error). That is a real, expected outcome for
+    // media-less ads — not a save-flow bug — so we move to the next creative. We
+    // still REQUIRE that at least one creative is genuinely saved (no assertion is
+    // loosened): if none can be, that is a true failure.
+    //
+    // The scan window must be WIDE, not just the first few rows. Media-less ads
+    // (sentinels / no durable media) cluster near the top of the default sort, so
+    // a narrow window (was 6) intermittently found zero saveable candidates and
+    // red-X'd CI even though ~70% of an account's creatives are saveable. Scan up
+    // to 30 rows; rejections fail fast (the error toast fires promptly), so the
+    // wide window costs little and the test timeout above covers the worst case.
     //
     // Success is keyed on the DURABLE button state (the affordance flips to
     // "Saved"/"Already in Vault" and disables) rather than the transient toast,
     // which auto-dismisses and whose copy varies; failure is detected via the
     // Sonner error toast TYPE (`data-type="error"`), not its text. Whichever
     // terminal signal appears first ends the per-creative wait.
-    const MAX_SCAN = Math.min(rowCount, 6);
+    const MAX_SCAN = Math.min(rowCount, 30);
     let saved = false;
     let savedIndex = -1;
     let lastFailureMessage = "";

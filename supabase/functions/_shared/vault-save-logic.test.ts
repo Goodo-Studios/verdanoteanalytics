@@ -1,7 +1,7 @@
 // deno test supabase/functions/_shared/vault-save-logic.test.ts
 
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { selectMediaSources, needsMediaRecovery, cleanUrl, isDurableStorageUrl } from "./vault-save-logic.ts";
+import { selectMediaSources, needsMediaRecovery, cleanUrl, isDurableStorageUrl, isImageOnlyItem } from "./vault-save-logic.ts";
 
 const STORAGE = "https://gwyxaqoaldnaavkjqquv.supabase.co/storage/v1/object/public/ad-thumbnails/abc/123.jpg";
 const CDN = "https://video.xx.fbcdn.net/v/signed-token/abc.jpg";
@@ -83,4 +83,32 @@ Deno.test("needsMediaRecovery: null video → true", () => {
 
 Deno.test("needsMediaRecovery: sentinels → false (confirmed absent)", () => {
   assertEquals(needsMediaRecovery({ video_url: "no-video", thumbnail_url: "no-thumbnail" }), false);
+});
+
+// ── isImageOnlyItem (vault-transcribe skip guard) ──────────────────────────────
+
+Deno.test("isImageOnlyItem: file_path === thumbnail_path → true (image-only save)", () => {
+  const p = "analytics/u/ad/thumb.jpg";
+  assertEquals(isImageOnlyItem({ file_path: p, thumbnail_path: p }), true);
+});
+
+Deno.test("isImageOnlyItem: image extension on file_path → true", () => {
+  assertEquals(isImageOnlyItem({ file_path: "analytics/u/ad/thumb.png", thumbnail_path: null }), true);
+  assertEquals(isImageOnlyItem({ file_path: "analytics/u/ad/thumb.webp" }), true);
+});
+
+Deno.test("isImageOnlyItem: video file_path distinct from thumb → false", () => {
+  assertEquals(
+    isImageOnlyItem({ file_path: "analytics/u/ad/media.mp4", thumbnail_path: "analytics/u/ad/thumb.jpg" }),
+    false,
+  );
+});
+
+Deno.test("isImageOnlyItem: webm video → false", () => {
+  assertEquals(isImageOnlyItem({ file_path: "analytics/u/ad/media.webm", thumbnail_path: "analytics/u/ad/thumb.jpg" }), false);
+});
+
+Deno.test("isImageOnlyItem: missing/empty paths → false", () => {
+  assertEquals(isImageOnlyItem({ file_path: null, thumbnail_path: null }), false);
+  assertEquals(isImageOnlyItem({}), false);
 });
