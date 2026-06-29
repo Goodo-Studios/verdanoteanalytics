@@ -229,10 +229,12 @@ Deno.serve(async (req) => {
     // the page and returns the real CDN media URLs. Same actor already used by
     // vault-extract. CDN URLs (*.fbcdn.net) are time-limited, so downloadAndStore
     // (below) must run right after this returns — which it does, synchronously.
+    const apifyCtx: { reason?: string; ended?: boolean } = {};
     if (url.includes("facebook.com/ads/library")) {
       try {
-        result = await tryApifyAdLibrary(url, adId, Deno.env.get("APIFY_TOKEN"));
+        result = await tryApifyAdLibrary(url, adId, Deno.env.get("APIFY_TOKEN"), apifyCtx);
       } catch (e) {
+        if (!apifyCtx.reason) apifyCtx.reason = "error";
         console.error("Apify ad-library fetch failed:", e);
       }
     }
@@ -269,6 +271,9 @@ Deno.serve(async (req) => {
 
     // If we got NOTHING, return partial data so the user can fill in manually
     if (!result) {
+      const message = apifyCtx.reason === "timeout"
+        ? "Facebook took too long to respond for this ad. Please try importing it again in a moment."
+        : "Could not auto-fetch ad details from Facebook. The source URL has been saved — you can fill in the details manually.";
       return json({
         success: true,
         partial: true,
@@ -278,7 +283,7 @@ Deno.serve(async (req) => {
           platform,
           ad_format: "image",
         },
-        message: "Could not auto-fetch ad details from Facebook. The source URL has been saved — you can fill in the details manually.",
+        message,
       });
     }
 
@@ -321,7 +326,23 @@ Deno.serve(async (req) => {
     let adFormat = result.ad_format;
     if (videoUrls.length > 0 && adFormat !== "carousel") adFormat = "video";
 
-    const isPartial = !result.advertiser_name;
+    // "No media" = nothing downloadable came back (and none stored). For an ad the
+    // actor still resolved, this is almost always an ENDED ad whose creative Meta no
+    // longer serves — tell the user that plainly instead of a generic prompt.
+    const successfulMedia = storedMedia.filter(m => !m.download_failed);
+    const noMedia = successfulMedia.length === 0 && allMediaUrls.length === 0;
+    const isPartial = !result.advertiser_name || noMedia;
+
+    let message: string;
+    if (noMedia) {
+      message = apifyCtx.ended
+        ? "Imported the ad's details, but it has ended — Facebook no longer serves its image or video, so there's nothing to download."
+        : "Imported the ad's details, but Facebook returned no downloadable media for this ad.";
+    } else if (isPartial) {
+      message = "Some details could not be fetched automatically. Please fill in the rest below.";
+    } else {
+      message = "Ad data extracted successfully.";
+    }
 
     return json({
       success: true,
@@ -333,9 +354,7 @@ Deno.serve(async (req) => {
         stored_media: storedMedia,
         media_urls: allMediaUrls,
       },
-      message: isPartial
-        ? "Some details could not be fetched automatically. Please fill in the rest below."
-        : "Ad data extracted successfully.",
+      message,
     });
   } catch (e) {
     // NEVER let this crash — always return a graceful response
@@ -381,6 +400,7 @@ async function tryApifyAdLibrary(
   url: string,
   adId: string | null,
   apifyToken?: string,
+  ctx?: { reason?: string; ended?: boolean },
 ): Promise<ScrapeResult | null> {
   if (!apifyToken) {
     console.warn("APIFY_TOKEN not set — skipping Apify ad-library fetch");
@@ -389,27 +409,52 @@ async function tryApifyAdLibrary(
   const config = ACTOR_CONFIGS.facebook_ad;
   const input = config.buildInput(url);
 
-  // run-sync-get-dataset-items: start the actor and block until it finishes,
-  // returning dataset items directly. memory=2048 (FB pages are heavy); timeout
-  // caps the actor run so a stuck run can't hang this edge function.
+  // run-sync-get-dataset-items blocks until the actor run finishes. The Supabase
+  // edge gateway hard-caps a request at ~150s and returns a raw 504 past that, so
+  // we cap the actor run well under it (timeout=90) AND abort the fetch at 125s.
+  // A slow/large scrape (e.g. a whole-page URL) then fails fast with reason=timeout
+  // and a graceful message, instead of a 504. Single-ad ?id= lookups finish in
+  // ~10–45s, comfortably inside the window.
   const runUrl =
     `${APIFY_BASE}/acts/${config.actorId}/run-sync-get-dataset-items` +
-    `?token=${apifyToken}&memory=2048&timeout=110`;
-  const resp = await fetch(runUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
+    `?token=${apifyToken}&memory=2048&timeout=90`;
+  const ctrl = new AbortController();
+  const abortTimer = setTimeout(() => ctrl.abort(), 125_000);
+  let resp: Response;
+  try {
+    resp = await fetch(runUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+      signal: ctrl.signal,
+    });
+  } catch (e) {
+    if ((e as Error).name === "AbortError") {
+      if (ctx) ctx.reason = "timeout";
+      throw new Error("Apify run-sync aborted after 125s");
+    }
+    throw e;
+  } finally {
+    clearTimeout(abortTimer);
+  }
   if (!resp.ok) {
     const text = await resp.text().catch(() => "");
     if (resp.status === 401 || resp.status === 403) {
       throw new Error("Invalid or unauthorized APIFY_TOKEN");
     }
     if (resp.status === 402) throw new Error("Apify quota exhausted (402)");
+    // The actor hit its own run timeout (a large scrape that won't fit the window).
+    if (text.includes("TIMED-OUT") || text.includes("run-failed")) {
+      if (ctx) ctx.reason = "timeout";
+      throw new Error("Apify actor run timed out");
+    }
     throw new Error(`Apify run-sync error ${resp.status}: ${text.slice(0, 200)}`);
   }
   const items = await resp.json();
-  if (!Array.isArray(items) || items.length === 0) return null;
+  if (!Array.isArray(items) || items.length === 0) {
+    if (ctx) ctx.reason = "not_found";
+    return null;
+  }
 
   const item = items[0];
   const snap = item?.snapshot ?? {};
@@ -440,8 +485,6 @@ async function tryApifyAdLibrary(
   }
   for (let i = 1; i <= 5; i++) push(item?.[`imageUrl${i}`]);
 
-  if (media.length === 0) return null;
-
   const hasVideo =
     videos.length > 0 ||
     cards.some((c) => c?.videoHdUrl || c?.videoSdUrl || c?.videoUrl || c?.video_url);
@@ -451,7 +494,7 @@ async function tryApifyAdLibrary(
   const bodyRaw = typeof snap.body === "object" ? (snap.body?.text ?? snap.body?.markup?.__html) : snap.body;
   const started = item?.startDateFormatted ?? item?.startDate ?? snap.startDate ?? snap.creationTime ?? null;
 
-  return {
+  const result: ScrapeResult = {
     advertiser_name: item?.pageName ?? item?.page_name ?? snap.pageName ?? snap.page_name ?? null,
     advertiser_page_id: item?.pageId ?? item?.page_id ?? snap.pageId ?? null,
     ad_id: item?.adArchiveID ?? item?.ad_archive_id ?? adId ?? null,
@@ -468,6 +511,21 @@ async function tryApifyAdLibrary(
     country_targeting: [],
     raw_data: item,
   };
+
+  // The actor found the ad but it carries no downloadable media — almost always an
+  // ENDED ad (Meta strips the creative once an ad stops running). Return the
+  // metadata we DO have (advertiser, body, dates) with a no-media signal so the
+  // caller can explain WHY, instead of a blank "fill in manually". Fall through to
+  // null only when there's no useful metadata either.
+  if (media.length === 0) {
+    const endDateNum = Number(item?.endDate);
+    if (ctx) {
+      ctx.reason = "no_media";
+      ctx.ended = Number.isFinite(endDateNum) && endDateNum > 0 && endDateNum * 1000 < Date.now();
+    }
+    if (!result.advertiser_name && !result.body_text) return null;
+  }
+  return result;
 }
 
 async function fetchAdPageHtml(adId: string): Promise<string | null> {
