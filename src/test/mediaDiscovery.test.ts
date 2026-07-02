@@ -85,6 +85,33 @@ describe("extractPreviewVideoSrc", () => {
     const html = `<video src="${VIDEO}"></video><video src="${v2}"></video>`;
     expect(extractPreviewVideoSrc(html)).toBe(VIDEO);
   });
+
+  // Regression (image ads saving as videos): a "/v/" path segment is NOT a video
+  // signal — it appears in fbcdn IMAGE URLs. High-res stills that don't carry the
+  // "_n" suffix must never be returned as a video source.
+  it("does NOT treat an fbcdn image with /v/ as a video (non-_n suffix)", () => {
+    const img = "https://scontent.xx.fbcdn.net/v/t45.1600-4/abc123_o.jpg?_nc_cat=1";
+    const html = `<img src="${img}" />`;
+    expect(extractPreviewVideoSrc(html)).toBeNull();
+  });
+
+  it("does NOT treat an extension-less /v/ image transform as a video", () => {
+    const img = "https://scontent.xx.fbcdn.net/v/t45.1600-4/abc123?stp=dst-jpg&_nc_cat=1";
+    const html = `<img src="${img}" />`;
+    expect(extractPreviewVideoSrc(html)).toBeNull();
+  });
+
+  it("returns a real video (video CDN host) even when an image with /v/ is also present", () => {
+    const img = "https://scontent.xx.fbcdn.net/v/t45.1600-4/still_o.jpg";
+    const html = `<img src="${img}" /><video src="${VIDEO}"></video>`;
+    expect(extractPreviewVideoSrc(html)).toBe(VIDEO);
+  });
+
+  it("accepts a video-CDN-host source without a .mp4 extension", () => {
+    const v = "https://video-lax3-1.xx.fbcdn.net/v/t42.1790-2/streamed?efg=1";
+    const html = `<video src="${v}"></video>`;
+    expect(extractPreviewVideoSrc(html)).toBe(v);
+  });
 });
 
 // Regression coverage for the "Saved 0, 1 failed" vault-save bug.
