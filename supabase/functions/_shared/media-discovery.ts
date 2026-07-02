@@ -76,12 +76,28 @@ export function extractPreviewImageSrc(previewBody: string): string | null {
   return matches.length > 0 ? matches[matches.length - 1] : null;
 }
 
+// A still-image URL is never a video source, whatever its path shape. Matches an
+// image extension at the end of the path (before any ?query or #fragment).
+const PREVIEW_IMAGE_EXT = /\.(jpe?g|png|webp|gif|avif|bmp|tiff?)(\?|#|$)/i;
+// Meta serves playable video from its dedicated video CDN host only —
+// video.<region>.fbcdn.net or video-<...>.fbcdn.net. scontent/external hosts
+// are image hosts. Used as the positive video signal alongside a .mp4 asset.
+const PREVIEW_VIDEO_HOST = /:\/\/video[.-][^/]*\.fbcdn\.net/i;
+
 /**
  * Pick a VIDEO src from Ad Preview API HTML.
  * Require *.fbcdn.net (Meta's only media host) so a facebook.com page URL can never
- * be returned as a video src; then require an actual video marker (.mp4 or /v/) and
- * exclude obvious thumbnail stills (_n.jpg / _n.png). Returns first match or null.
- * Pure + dependency-free so it can be unit-tested without network.
+ * be returned as a video src; exclude any still-image URL; then require a POSITIVE
+ * video signal — an actual .mp4 asset OR Meta's dedicated video CDN host. Returns
+ * first match or null. Pure + dependency-free so it can be unit-tested without network.
+ *
+ * Regression (image ads saving as videos): the old filter accepted any fbcdn URL
+ * containing "/v/", excluding only "_n.jpg"/"_n.png" stills. But "/v/" is a path
+ * segment in fbcdn IMAGE URLs too (e.g. scontent.xx.fbcdn.net/v/t45.../still.jpg),
+ * and high-res creative images don't all carry the "_n" suffix (_o.jpg, stp=dst-jpg,
+ * extension-less transforms). Those slipped through as a "video", poisoning an
+ * image-only ad's video_url via cache-creative-image → the ad was then treated as a
+ * video everywhere downstream. The bare "/v/" is no longer a video signal.
  */
 export function extractPreviewVideoSrc(previewBody: string): string | null {
   if (!previewBody) return null;
@@ -90,9 +106,8 @@ export function extractPreviewVideoSrc(previewBody: string): string | null {
     .filter(
       (url) =>
         url.includes("fbcdn.net") &&
-        !url.includes("_n.jpg") &&
-        !url.includes("_n.png") &&
-        (url.includes(".mp4") || url.includes("/v/"))
+        !PREVIEW_IMAGE_EXT.test(url) &&
+        (url.includes(".mp4") || PREVIEW_VIDEO_HOST.test(url))
     );
   return matches.length > 0 ? matches[0] : null;
 }
