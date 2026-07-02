@@ -136,41 +136,43 @@ export default function ItemDetailPage() {
     },
   });
 
+  // Signed URL for the stored still (thumbnail_path). Needed because analytics
+  // saves (vault-save-creative) store the still in storage but never populate the
+  // thumbnail_url / video_url columns — and for image-only items the file_path
+  // signed-URL query above is disabled (it targets videos). Without this, an
+  // image-only item has no URL to render and shows "No preview" despite the image
+  // being saved. Storage signed URLs also outlive expiring CDN links.
+  const { data: signedThumbnailUrl } = useQuery({
+    queryKey: ["vault-item-signed-thumb", data?.thumbnail_path],
+    enabled: !!data?.thumbnail_path,
+    staleTime: 50 * 60 * 1000,
+    queryFn: async () => {
+      const { data: result, error } = await supabase.storage
+        .from("inspiration-media")
+        .createSignedUrl(data!.thumbnail_path!, 3600);
+      if (error) throw error;
+      return result.signedUrl;
+    },
+  });
+
   const reanalyze = useMutation({
     mutationFn: async () => {
       if (!id) throw new Error("No item id");
       setReanalyzeInFlight(true);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error: delErr } = await supabase
         .from("inspiration_frameworks")
         .delete()
         .eq("item_id", id);
       if (delErr) throw delErr;
 
-      // Call the edge function first — only mark the DB row as 'analyzing'
-      // after confirming the fetch succeeded. This prevents the row from being
-      // permanently stuck at 'analyzing' if the network call fails.
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const res = await fetch(`${supabaseUrl}/functions/v1/vault-analyze`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session?.access_token ?? ""}`,
-        },
-        body: JSON.stringify({ item_id: id }),
-      });
-      // Surface non-2xx errors before touching the DB.
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `vault-analyze returned ${res.status}`);
-      }
-
-      // Fetch succeeded — now safe to flip the DB status.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // Mark the row 'analyzing' BEFORE calling vault-analyze — never after.
+      // vault-analyze runs synchronously and writes the terminal status
+      // ('ready', or 'error' on throw) itself before it responds. Writing
+      // 'analyzing' *after* awaiting it therefore clobbers that just-written
+      // result and pins the item at 'analyzing' forever, even on success. Set it
+      // first (so the UI reflects in-flight work), let the function's terminal
+      // write land last, and revert to 'error' only if the call never completes.
       const { data: statusData, error: statusErr } = await supabase
         .from("inspiration_items")
         .update({ status: "analyzing", error_message: null })
@@ -180,12 +182,52 @@ export default function ItemDetailPage() {
       if (!statusData?.length) {
         throw new Error("Re-analyze failed — could not update item status");
       }
+      queryClient.invalidateQueries({ queryKey: ["vault-item", id] });
 
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      // Revert the row to 'error' if the call can't complete, so a failed
+      // re-analyze can never leave the item stuck at 'analyzing'.
+      const revertToError = async (message: string) => {
+        await supabase
+          .from("inspiration_items")
+          .update({ status: "error", error_message: message })
+          .eq("id", id);
+      };
+
+      let res: Response;
+      try {
+        res = await fetch(`${supabaseUrl}/functions/v1/vault-analyze`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session?.access_token ?? ""}`,
+          },
+          body: JSON.stringify({ item_id: id }),
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Re-analyze request failed to reach the server";
+        await revertToError(msg);
+        throw e;
+      }
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const msg = body.error ?? `vault-analyze returned ${res.status}`;
+        await revertToError(msg);
+        throw new Error(msg);
+      }
+
+      // Success: vault-analyze has already written the terminal status. Just
+      // refetch to pick it up — do NOT write 'analyzing' here.
       queryClient.invalidateQueries({ queryKey: ["vault-item", id] });
     },
     onSuccess: () => {
       setReanalyzeInFlight(false);
-      toast.success("Re-analysis kicked off");
+      toast.success("Re-analysis complete");
     },
     onError: (err) => {
       setReanalyzeInFlight(false);
@@ -314,7 +356,11 @@ export default function ItemDetailPage() {
   // A static image upload has no video_url — its signed file URL is the image, not
   // a video. Render it in an <img>, not a <video> (which would show a broken player).
   const isImageFile = /\.(jpg|jpeg|png|gif|webp|avif)$/i.test(data.file_path ?? "");
-  const imageSrc = (isImageFile ? signedUrl : null) ?? data.thumbnail_url ?? null;
+  // Prefer the signed stored still (durable), then the signed file (image-only
+  // items), then the CDN thumbnail. Covers analytics saves whose thumbnail_url /
+  // video_url columns are never populated — the image lives only in storage.
+  const imageSrc =
+    signedThumbnailUrl ?? (isImageFile ? signedUrl : null) ?? data.thumbnail_url ?? null;
   const reanalyzeDisabled = reanalyzeInFlight || reanalyze.isPending || isProcessing;
   const createdAt = new Date(data.created_at);
 
@@ -381,7 +427,7 @@ export default function ItemDetailPage() {
                 <video
                   src={signedUrl ?? data.video_url ?? undefined}
                   controls
-                  poster={data.thumbnail_url ?? undefined}
+                  poster={signedThumbnailUrl ?? data.thumbnail_url ?? undefined}
                   className="w-full h-full object-contain"
                 />
               ) : imageSrc ? (
