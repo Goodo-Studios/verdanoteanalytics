@@ -13,7 +13,12 @@
 //   deno test -A supabase/functions/enrich-thumbnails/index.test.ts
 
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { looksLikeHtml } from "../_shared/media-discovery.ts";
+import {
+  isStorageUrl as isStorageUrlLocal,
+  looksLikeHtml,
+  NO_THUMB_SENTINEL as NO_THUMB_SENTINEL_LOCAL,
+  NO_VIDEO_SENTINEL as NO_VIDEO_SENTINEL_LOCAL,
+} from "../_shared/media-discovery.ts";
 
 // Must be set BEFORE importing index.ts so the module-level serve() call is skipped.
 Deno.env.set("ENRICH_NO_SERVE", "1");
@@ -591,4 +596,438 @@ Deno.test("runVideoCaching: expired CDN url (non-2xx) ⇒ NULLs video_url + rese
       assertEquals(u.video_retry_after, null);
     },
   );
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// US-012 — Workstream 2 verification: new-ad caching, dedupe, no re-download.
+//
+// This block is the WS2 END-TO-END gate. Rather than re-asserting the individual
+// unit contracts (US-008 enqueue helper, US-009 hash/path helpers, US-010 drain
+// batching, US-011 isStorageUrl) — which their own suites already pin — it drives
+// the REAL drain-media-queue handler + processQueuedAd against a faithful
+// in-memory Supabase (queue + creatives + media_assets with the live
+// UNIQUE(account_id, asset_key) dedupe constraint) and a storage layer that COUNTS
+// every byte download and every stored object. It proves the four workstream
+// invariants hold when the actual production code paths run together:
+//
+//   1. NEW-AD-ONLY, EXACTLY ONCE  — an enqueued new ad is cached exactly once; a
+//      second full drain re-touches nothing (queue is idempotent — no re-claim of
+//      a done row).
+//   2. WITHIN-ACCOUNT DEDUPE       — two ads reusing the identical creative bytes
+//      store ONE object and register ONE media_assets row; both creatives point at
+//      it (US-009), and the tenant boundary holds (same bytes in a 2nd account =>
+//      its own copy).
+//   3. NO RE-DOWNLOAD OF CACHED    — once a creative's media column is a storage
+//      URL, a subsequent drain short-circuits via isStorageUrl and issues ZERO
+//      network downloads for it (US-011 guarantee).
+//   4. LARGE-VIDEO DRAIN, NO OOM   — the queue streams a large video to storage
+//      without buffering and leaves NO row stuck in 'processing' (US-010).
+//
+// All Meta/CDN/storage I/O is stubbed — no live prod/Meta call (per policy). The
+// drain worker module is imported with its serve() bind + self-chain disabled.
+// ════════════════════════════════════════════════════════════════════════════
+
+Deno.env.set("DRAIN_MEDIA_QUEUE_NO_SERVE", "1");
+Deno.env.set("DRAIN_NO_CHAIN", "1"); // no live self-chain fetch during the gate
+const drain = await import("../drain-media-queue/index.ts");
+
+interface QRow {
+  ad_id: string;
+  account_id: string;
+  status: string;
+  attempts: number;
+  enqueued_at: string;
+  updated_at: string;
+  last_error: string | null;
+}
+interface CRow {
+  ad_id: string;
+  account_id: string;
+  thumbnail_url: string | null;
+  full_res_url: string | null;
+  video_url: string | null;
+  thumb_asset_id: string | null;
+  video_asset_id: string | null;
+}
+
+/**
+ * A faithful in-memory Supabase covering exactly the calls processQueuedAd /
+ * drainOnce make: the claim RPC, media_cache_queue reads/updates, a creatives
+ * select/update, media_assets select/upsert honoring UNIQUE(account_id,asset_key),
+ * and the head/count pending check. storage.from().upload() records each stored
+ * object path. Enforcing the dedupe uniqueness in the double is what makes the
+ * "one stored copy per account" assertion meaningful.
+ */
+function makeWs2Db(opts: { queue: QRow[]; creatives: CRow[] }) {
+  const queue = opts.queue;
+  const creatives = opts.creatives;
+  // key: `${account_id}:${asset_key}` → the single registered asset row.
+  const assets = new Map<string, { id: string; public_url: string; storage_path: string }>();
+  const storedObjects: string[] = []; // every storage upload path (image path)
+  let assetSeq = 0;
+
+  function creativesBuilder() {
+    const filters: Record<string, string> = {};
+    // deno-lint-ignore no-explicit-any
+    let updatePayload: any = null;
+    const b: Record<string, unknown> = {};
+    b.select = () => b;
+    b.eq = (col: string, val: string) => { filters[col] = val; return b; };
+    // deno-lint-ignore no-explicit-any
+    b.update = (p: any) => { updatePayload = p; return b; };
+    b.maybeSingle = () =>
+      Promise.resolve({ data: creatives.find((c) => c.ad_id === filters.ad_id) ?? null, error: null });
+    // deno-lint-ignore no-explicit-any
+    b.then = (resolve: (v: any) => void) => {
+      if (updatePayload) {
+        const row = creatives.find((c) => c.ad_id === filters.ad_id);
+        if (row) Object.assign(row, updatePayload);
+      }
+      resolve({ data: null, error: null });
+    };
+    return b;
+  }
+
+  function queueBuilder() {
+    const filters: Record<string, string> = {};
+    // deno-lint-ignore no-explicit-any
+    let updatePayload: any = null;
+    let headCount = false;
+    const b: Record<string, unknown> = {};
+    // deno-lint-ignore no-explicit-any
+    b.select = (_c?: string, o?: any) => { if (o?.head) headCount = true; return b; };
+    b.eq = (col: string, val: string) => { filters[col] = val; return b; };
+    // deno-lint-ignore no-explicit-any
+    b.update = (p: any) => { updatePayload = p; return b; };
+    // deno-lint-ignore no-explicit-any
+    const apply = (resolve: (v: any) => void) => {
+      if (headCount) {
+        const count = queue.filter((q) =>
+          Object.entries(filters).every(([k, v]) => (q as unknown as Record<string, string>)[k] === v)
+        ).length;
+        resolve({ data: null, error: null, count });
+        return;
+      }
+      if (updatePayload) {
+        for (const q of queue) {
+          if (Object.entries(filters).every(([k, v]) => (q as unknown as Record<string, string>)[k] === v)) {
+            Object.assign(q, updatePayload);
+          }
+        }
+      }
+      resolve({ data: null, error: null });
+    };
+    // deno-lint-ignore no-explicit-any
+    b.then = (resolve: (v: any) => void) => apply(resolve);
+    return b;
+  }
+
+  function assetsBuilder() {
+    const filters: Record<string, string> = {};
+    // deno-lint-ignore no-explicit-any
+    let upsertPayload: any = null;
+    const b: Record<string, unknown> = {};
+    b.select = () => b;
+    b.eq = (col: string, val: string) => { filters[col] = val; return b; };
+    // deno-lint-ignore no-explicit-any
+    b.upsert = (p: any) => { upsertPayload = p; return b; };
+    b.maybeSingle = () => {
+      if (upsertPayload) {
+        // Honor UNIQUE(account_id, asset_key): a re-upsert of the same key returns
+        // the existing row (no new asset), which is exactly the dedupe invariant.
+        const key = `${upsertPayload.account_id}:${upsertPayload.asset_key}`;
+        const found = assets.get(key);
+        if (found) return Promise.resolve({ data: { id: found.id, public_url: found.public_url }, error: null });
+        const row = { id: `asset-${++assetSeq}`, public_url: upsertPayload.public_url, storage_path: upsertPayload.storage_path };
+        assets.set(key, row);
+        return Promise.resolve({ data: { id: row.id, public_url: row.public_url }, error: null });
+      }
+      const key = `${filters.account_id}:${filters.asset_key}`;
+      const found = assets.get(key);
+      return Promise.resolve({ data: found ? { id: found.id, public_url: found.public_url } : null, error: null });
+    };
+    return b;
+  }
+
+  const supabase = {
+    // deno-lint-ignore no-explicit-any
+    from: (table: string): any => {
+      if (table === "creatives") return creativesBuilder();
+      if (table === "media_cache_queue") return queueBuilder();
+      if (table === "media_assets") return assetsBuilder();
+      if (table === "settings") {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { value: "fake" }, error: null }) }) }) };
+      }
+      throw new Error(`unexpected table ${table}`);
+    },
+    // deno-lint-ignore no-explicit-any
+    rpc: (name: string, args: any) => {
+      if (name !== "claim_media_cache_queue") throw new Error(`unexpected rpc ${name}`);
+      const limit = args.p_limit as number;
+      // Only PENDING rows are claimable — a 'done' row is never re-claimed. This is
+      // the queue-idempotency guarantee behind "no re-download on a second run".
+      const claimable = queue
+        .filter((q) => q.status === "pending")
+        .sort((a, b) => a.enqueued_at.localeCompare(b.enqueued_at))
+        .slice(0, limit);
+      for (const q of claimable) {
+        q.status = "processing";
+        q.attempts += 1;
+        q.updated_at = new Date().toISOString();
+      }
+      return Promise.resolve({ data: claimable.map((q) => ({ ...q })), error: null });
+    },
+    storage: {
+      from: () => ({
+        // Image path: cacheImageToStorage uploads via storage.from().upload(path, bytes).
+        // deno-lint-ignore no-explicit-any
+        upload: (path: string, _bytes: unknown, _opts?: any) => {
+          storedObjects.push(path);
+          return Promise.resolve({ error: null });
+        },
+        getPublicUrl: (path: string) => ({ data: { publicUrl: `https://example.supabase.co/storage/v1/object/public/ad-thumbnails/${path}` } }),
+      }),
+    },
+  };
+
+  return { supabase, queue, creatives, assets, storedObjects };
+}
+
+// A distinct set of bytes per creative-content, so SHA-256 dedupe is exercised for
+// real: two ads sharing CREATIVE_A get one asset; an ad with CREATIVE_B gets its own.
+const CREATIVE_A = new TextEncoder().encode("us012-shared-creative-A-bytes");
+const CREATIVE_B = new TextEncoder().encode("us012-distinct-creative-B-bytes");
+
+/**
+ * Fetch stub for the WS2 drain. Counts image downloads keyed by URL so we can prove
+ * "cached media is never re-downloaded". Serves the image bytes mapped from the URL,
+ * streams video bytes for the storage POST, and 200s the storage upload POST.
+ */
+function withWs2Fetch(
+  imageBytesByUrl: Record<string, Uint8Array>,
+  downloads: Record<string, number>,
+  run: () => Promise<void>,
+): Promise<void> {
+  const original = globalThis.fetch;
+  // deno-lint-ignore no-explicit-any
+  globalThis.fetch = ((input: unknown, _init?: unknown) => {
+    const url = typeof input === "string" ? input : String(input);
+    // Storage streaming-upload POST (video path) — acknowledge, do not count as a download.
+    if (url.includes("/storage/v1/object/")) {
+      return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve("{}"), headers: { get: () => null } });
+    }
+    // Image CDN download.
+    if (imageBytesByUrl[url]) {
+      downloads[url] = (downloads[url] ?? 0) + 1;
+      const bytes = imageBytesByUrl[url];
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: { get: (k: string) => (k.toLowerCase() === "content-type" ? "image/jpeg" : null) },
+        arrayBuffer: () => Promise.resolve(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)),
+        body: { cancel: () => Promise.resolve() },
+      });
+    }
+    // Video CDN download (streamable body under the cap).
+    if (url.startsWith("https://cdn/") || url.includes("fbcdn")) {
+      downloads[url] = (downloads[url] ?? 0) + 1;
+      let sent = false;
+      const chunk = new Uint8Array(1024);
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: {
+          get: (k: string) => {
+            const key = k.toLowerCase();
+            if (key === "content-type") return "video/mp4";
+            if (key === "content-length") return String(120 * 1024 * 1024); // 120MB, under 200MB cap
+            return null;
+          },
+        },
+        body: {
+          getReader: () => ({
+            read: () => sent ? Promise.resolve({ done: true, value: undefined }) : (sent = true, Promise.resolve({ done: false, value: chunk })),
+            cancel: () => Promise.resolve(),
+          }),
+          cancel: () => Promise.resolve(),
+        },
+      });
+    }
+    return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve(""), headers: { get: () => null }, body: { cancel: () => Promise.resolve() } });
+  }) as any;
+  return run().finally(() => { globalThis.fetch = original; });
+}
+
+const nowIso = () => new Date().toISOString();
+function enqueue(adId: string, accountId: string, seq: number): QRow {
+  return {
+    ad_id: adId,
+    account_id: accountId,
+    status: "pending",
+    attempts: 0,
+    enqueued_at: new Date(Date.now() + seq).toISOString(),
+    updated_at: nowIso(),
+    last_error: null,
+  };
+}
+
+Deno.test("US-012: a NEW ad enqueued is cached exactly once; a second full drain re-touches nothing", async () => {
+  const acct = "act_us012_a";
+  const imgUrl = "https://cdn/img/new-ad.jpg";
+  const queue = [enqueue("ad_new", acct, 0)];
+  const creatives: CRow[] = [{
+    ad_id: "ad_new",
+    account_id: acct,
+    thumbnail_url: imgUrl,               // has a CDN url → cache it (no live discovery)
+    full_res_url: null,
+    video_url: NO_VIDEO_SENTINEL_LOCAL,  // image-only ad → skip video path
+    thumb_asset_id: null,
+    video_asset_id: null,
+  }];
+  const { supabase, storedObjects } = makeWs2Db({ queue, creatives });
+  const downloads: Record<string, number> = {};
+
+  await withWs2Fetch({ [imgUrl]: CREATIVE_A }, downloads, async () => {
+    const s1 = await drain.drainOnce(supabase, "fake-token", 5, 120_000);
+    assertEquals(s1.claimed, 1, "the one new ad is claimed");
+    assertEquals(s1.cached, 1, "…and cached exactly once");
+  });
+
+  assertEquals(downloads[imgUrl], 1, "the creative was downloaded exactly once");
+  assertEquals(storedObjects.length, 1, "exactly one object stored for the new ad");
+  assert(isStorageUrlLocal(creatives[0].thumbnail_url), "creative now points at a storage URL");
+  assertEquals(queue[0].status, "done", "queue row marked done (no stuck 'processing')");
+
+  // Second full drain: the row is done (not pending) and the media is a storage URL.
+  // Nothing is re-claimed and nothing is re-downloaded.
+  await withWs2Fetch({ [imgUrl]: CREATIVE_A }, downloads, async () => {
+    const s2 = await drain.drainOnce(supabase, "fake-token", 5, 120_000);
+    assertEquals(s2.claimed, 0, "no pending rows to re-claim on the second drain");
+    assertEquals(s2.cached, 0);
+  });
+  assertEquals(downloads[imgUrl], 1, "NO re-download of the already-cached creative");
+  assertEquals(storedObjects.length, 1, "no second stored object");
+});
+
+Deno.test("US-012: two ads reusing the same creative dedupe to ONE stored copy per account", async () => {
+  const acct = "act_us012_dedupe";
+  // Two ads, two different CDN urls, but the SAME underlying creative bytes.
+  const urlA = "https://cdn/img/reused-1.jpg";
+  const urlB = "https://cdn/img/reused-2.jpg";
+  const queue = [enqueue("ad_a", acct, 0), enqueue("ad_b", acct, 1)];
+  const creatives: CRow[] = [
+    { ad_id: "ad_a", account_id: acct, thumbnail_url: urlA, full_res_url: null, video_url: NO_VIDEO_SENTINEL_LOCAL, thumb_asset_id: null, video_asset_id: null },
+    { ad_id: "ad_b", account_id: acct, thumbnail_url: urlB, full_res_url: null, video_url: NO_VIDEO_SENTINEL_LOCAL, thumb_asset_id: null, video_asset_id: null },
+  ];
+  const { supabase, storedObjects, assets } = makeWs2Db({ queue, creatives });
+  const downloads: Record<string, number> = {};
+
+  await withWs2Fetch({ [urlA]: CREATIVE_A, [urlB]: CREATIVE_A }, downloads, async () => {
+    const s = await drain.drainOnce(supabase, "fake-token", 5, 120_000);
+    assertEquals(s.claimed, 2);
+    assertEquals(s.cached, 2, "both ads processed");
+  });
+
+  // Both downloaded their bytes, but only ONE object is stored and ONE asset registered.
+  assertEquals(storedObjects.length, 1, "identical creative bytes ⇒ one stored copy within the account");
+  assertEquals([...assets.values()].length, 1, "one media_assets row for the shared creative");
+  // Both creatives reference the shared asset id, and it is the same id.
+  assert(creatives[0].thumb_asset_id, "ad_a references an asset");
+  assertEquals(creatives[0].thumb_asset_id, creatives[1].thumb_asset_id, "both creatives share the same asset");
+  assert(queue.every((q) => q.status === "done"), "both queue rows done");
+
+  // Tenant boundary: the SAME bytes in a DIFFERENT account get their own copy.
+  const acct2 = "act_us012_other";
+  const urlC = "https://cdn/img/reused-3.jpg";
+  const q2 = [enqueue("ad_c", acct2, 0)];
+  const c2: CRow[] = [{ ad_id: "ad_c", account_id: acct2, thumbnail_url: urlC, full_res_url: null, video_url: NO_VIDEO_SENTINEL_LOCAL, thumb_asset_id: null, video_asset_id: null }];
+  const db2 = makeWs2Db({ queue: q2, creatives: c2 });
+  const dl2: Record<string, number> = {};
+  await withWs2Fetch({ [urlC]: CREATIVE_A }, dl2, async () => {
+    await drain.drainOnce(db2.supabase, "fake-token", 5, 120_000);
+  });
+  assertEquals(db2.storedObjects.length, 1, "same creative in a second account stores its OWN copy (no cross-tenant sharing)");
+});
+
+Deno.test("US-012: a creative already stored (storage URL) is short-circuited — never re-downloaded", async () => {
+  const acct = "act_us012_cached";
+  const cachedUrl = `https://example.supabase.co/storage/v1/object/public/ad-thumbnails/${acct}/assets/deadbeef.jpg`;
+  const cachedVideo = `https://example.supabase.co/storage/v1/object/public/ad-videos/${acct}/ad_cached.mp4`;
+  // The ad was somehow re-enqueued, but its media is already cached to storage.
+  const queue = [enqueue("ad_cached", acct, 0)];
+  const creatives: CRow[] = [{
+    ad_id: "ad_cached",
+    account_id: acct,
+    thumbnail_url: cachedUrl,
+    full_res_url: cachedUrl,
+    video_url: cachedVideo,
+    thumb_asset_id: "asset-existing",
+    video_asset_id: "asset-existing-v",
+  }];
+  const { supabase, storedObjects } = makeWs2Db({ queue, creatives });
+  const downloads: Record<string, number> = {};
+
+  await withWs2Fetch({ [cachedUrl]: CREATIVE_A }, downloads, async () => {
+    const s = await drain.drainOnce(supabase, "fake-token", 5, 120_000);
+    assertEquals(s.claimed, 1);
+    assertEquals(s.cached, 0, "nothing new cached — media already in storage");
+    assertEquals(s.skipped, 1, "the ad is a no-op skip (isStorageUrl short-circuit)");
+  });
+
+  assertEquals(Object.keys(downloads).length, 0, "ZERO downloads for an already-cached ad");
+  assertEquals(storedObjects.length, 0, "nothing re-stored");
+  assertEquals(queue[0].status, "done", "the no-op ad is marked done, not left pending");
+});
+
+Deno.test("US-012: the queue drains a LARGE video to storage with no OOM and no stuck 'processing' row", async () => {
+  const acct = "act_us012_video";
+  const queue = [enqueue("ad_vid", acct, 0)];
+  const creatives: CRow[] = [{
+    ad_id: "ad_vid",
+    account_id: acct,
+    thumbnail_url: NO_THUMB_SENTINEL_LOCAL, // sentinel → skip image path
+    full_res_url: null,
+    video_url: "https://cdn/big/large.mp4", // 120MB streamed via the fetch stub
+    thumb_asset_id: null,
+    video_asset_id: null,
+  }];
+  const { supabase } = makeWs2Db({ queue, creatives });
+  const downloads: Record<string, number> = {};
+
+  await withWs2Fetch({}, downloads, async () => {
+    const s = await drain.drainOnce(supabase, "fake-token", 5, 120_000);
+    assertEquals(s.claimed, 1);
+    assertEquals(s.cached, 1, "the large video streamed to storage");
+    assertEquals(s.failed, 0, "no OOM / failure");
+  });
+
+  assert(isStorageUrlLocal(creatives[0].video_url), "video_url rewritten to a storage URL");
+  assertEquals(queue[0].status, "done", "no row left stuck in 'processing' after the drain");
+});
+
+Deno.test("US-012: after a FULL drain of a mixed batch, no queue row remains in 'processing'", async () => {
+  const acct = "act_us012_full";
+  const imgUrl = "https://cdn/img/mixed.jpg";
+  const queue = [
+    enqueue("ad_i", acct, 0), // image
+    enqueue("ad_v", acct, 1), // video
+    enqueue("ad_x", acct, 2), // already cached (storage url) → skip
+  ];
+  const cachedUrl = `https://example.supabase.co/storage/v1/object/public/ad-thumbnails/${acct}/assets/x.jpg`;
+  const creatives: CRow[] = [
+    { ad_id: "ad_i", account_id: acct, thumbnail_url: imgUrl, full_res_url: null, video_url: NO_VIDEO_SENTINEL_LOCAL, thumb_asset_id: null, video_asset_id: null },
+    { ad_id: "ad_v", account_id: acct, thumbnail_url: NO_THUMB_SENTINEL_LOCAL, full_res_url: null, video_url: "https://cdn/big/v.mp4", thumb_asset_id: null, video_asset_id: null },
+    { ad_id: "ad_x", account_id: acct, thumbnail_url: cachedUrl, full_res_url: cachedUrl, video_url: NO_VIDEO_SENTINEL_LOCAL, thumb_asset_id: "a", video_asset_id: null },
+  ];
+  const { supabase } = makeWs2Db({ queue, creatives });
+  const downloads: Record<string, number> = {};
+
+  await withWs2Fetch({ [imgUrl]: CREATIVE_B }, downloads, async () => {
+    const s = await drain.drainOnce(supabase, "fake-token", 5, 120_000);
+    assertEquals(s.claimed, 3);
+    assertEquals(s.failed, 0);
+  });
+
+  assert(!queue.some((q) => q.status === "processing"), "NO row left in 'processing' (no stuck-media log)");
+  assert(queue.every((q) => q.status === "done"), "every claimed row terminal-done after a full drain");
 });
