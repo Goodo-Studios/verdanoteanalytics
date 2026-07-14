@@ -3233,6 +3233,33 @@ export type Database = {
         }[]
       }
       get_convention: { Args: { p_account_id?: string }; Returns: Json }
+      get_creative_window_aggregates: {
+        Args: { p_account_id: string; p_from: string; p_to: string }
+        Returns: {
+          ad_id: string
+          spend: number
+          impressions: number
+          clicks: number
+          purchases: number
+          purchase_value: number
+          adds_to_cart: number
+          video_views: number
+          roas: number
+          cpa: number
+          ctr: number
+          cpm: number
+          cpc: number
+          cost_per_add_to_cart: number
+          thumb_stop_rate: number
+          hold_rate: number
+          video_avg_play_time: number
+          frequency: number
+          retention_p25: number
+          retention_p50: number
+          retention_p75: number
+          retention_p100: number
+        }[]
+      }
       get_daily_trends: {
         Args: { p_account_id?: string; p_from?: string; p_to?: string }
         Returns: {
