@@ -60,6 +60,89 @@ export function computeDailyWindowDays(opts: {
   return Math.min(window, RETENTION_DAYS);
 }
 
+// US-003: Canonical reference for the LOCAL snapshot rollup.
+//
+// The production rollup runs in Postgres (rollup_creatives_from_daily, migration
+// 20260714000002) so the aggregation happens next to the data. This TS function
+// is the authoritative ARITHMETIC SPEC for that SQL — the two MUST stay in sync.
+// It exists so the rollup contract is unit-testable without a live DB: summable
+// base metrics are summed; ratios are DERIVED from those sums (never averaged);
+// retention scalars are video-view weighted. Keeping the math here documented +
+// tested guards against silent drift when the SQL is edited.
+export interface DailyRollupInputRow {
+  spend?: number | null;
+  impressions?: number | null;
+  clicks?: number | null;
+  purchases?: number | null;
+  purchase_value?: number | null;
+  adds_to_cart?: number | null;
+  video_views?: number | null;
+  hold_rate?: number | null;
+  frequency?: number | null;
+  video_avg_play_time?: number | null;
+  retention_p25?: number | null;
+  retention_p50?: number | null;
+  retention_p75?: number | null;
+  retention_p100?: number | null;
+}
+
+export function rollupDailyRows(rows: DailyRollupInputRow[]) {
+  const n = (v: number | null | undefined) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+
+  let spend = 0, impressions = 0, clicks = 0, purchases = 0, purchase_value = 0;
+  let adds_to_cart = 0, video_views = 0, thruplays = 0, vaptWeighted = 0, freqWeighted = 0;
+  // Retention: video-view weighted; only days with a scalar AND views contribute.
+  let p25Num = 0, p50Num = 0, p75Num = 0, p100Num = 0, retWeight = 0;
+
+  for (const r of rows) {
+    const vv = n(r.video_views);
+    spend += n(r.spend);
+    impressions += n(r.impressions);
+    clicks += n(r.clicks);
+    purchases += n(r.purchases);
+    purchase_value += n(r.purchase_value);
+    adds_to_cart += n(r.adds_to_cart);
+    video_views += vv;
+    // Reconstruct daily thruplays from hold_rate so aggregate hold_rate derives
+    // from summed base metrics (the daily table stores hold_rate, not thruplays).
+    if (r.hold_rate != null && vv > 0) thruplays += (n(r.hold_rate) / 100) * vv;
+    vaptWeighted += n(r.video_avg_play_time) * vv;
+    freqWeighted += n(r.frequency) * n(r.impressions);
+    if (vv > 0) {
+      if (r.retention_p50 != null) { retWeight += vv; }
+      if (r.retention_p25 != null) p25Num += n(r.retention_p25) * vv;
+      if (r.retention_p50 != null) p50Num += n(r.retention_p50) * vv;
+      if (r.retention_p75 != null) p75Num += n(r.retention_p75) * vv;
+      if (r.retention_p100 != null) p100Num += n(r.retention_p100) * vv;
+    }
+  }
+
+  return {
+    // Summable base metrics.
+    spend, impressions, clicks, purchases, purchase_value, adds_to_cart, video_views,
+    // Ratios DERIVED from sums (never averaged).
+    roas: spend > 0 ? purchase_value / spend : 0,
+    cpa: purchases > 0 ? spend / purchases : 0,
+    ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
+    cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
+    cpc: clicks > 0 ? spend / clicks : 0,
+    cost_per_add_to_cart: adds_to_cart > 0 ? spend / adds_to_cart : 0,
+    thumb_stop_rate: impressions > 0 && video_views > 0 ? (video_views / impressions) * 100 : 0,
+    hold_rate: video_views > 0 && thruplays > 0 ? (thruplays / video_views) * 100 : 0,
+    video_avg_play_time: video_views > 0 ? vaptWeighted / video_views : 0,
+    // APPROXIMATE — impression-weighted mean daily frequency; summed daily reach
+    // would overcount so no exact aggregate frequency exists locally (accepted).
+    frequency: impressions > 0 ? freqWeighted / impressions : 0,
+    result_count: purchases,
+    cost_per_result: purchases > 0 ? spend / purchases : 0,
+    // Retention scalars: view-weighted, null when no weighted days.
+    retention_p25: retWeight > 0 ? p25Num / retWeight : null,
+    retention_p50: retWeight > 0 ? p50Num / retWeight : null,
+    retention_p75: retWeight > 0 ? p75Num / retWeight : null,
+    retention_p100: retWeight > 0 ? p100Num / retWeight : null,
+  };
+}
+
 // US-003: Phase 5 tagging flows through the single canonical parser + precedence
 // resolver — no inline regex. Stored tag columns hold display names, so parser
 // output (canonical vocab) is mapped through toDisplayName before the resolver.
@@ -285,6 +368,94 @@ function parseInsightsRow(row: any, optimizationGoal?: string) {
     parsePlayCurve(row.video_play_curve_actions);
 
   return { spend, roas, cpa, ctr, clicks, impressions, cpm, cpc, frequency, purchases, purchase_value: purchaseValue, thumb_stop_rate: thumbStopRate, hold_rate: holdRate, video_avg_play_time: videoAvgPlayTime, adds_to_cart: addsToCart, cost_per_add_to_cart: costPerAtc, video_views: videoViews, play_curve, retention_p25, retention_p50, retention_p75, retention_p100, result_count: resultCount, cost_per_result: costPerResult };
+}
+
+// US-003: Winner/concern Slack alert. Extracted from the old Phase-2 aggregate
+// fetch so it can run AFTER the LOCAL rollup produces the snapshot (the snapshot
+// is no longer built by a full-window Meta pull). Reads the freshly-rolled-up
+// creatives snapshot + prior_roas and notifies on threshold crossings. Non-fatal.
+async function runSnapshotAlerts(supabase: any, account: any, accountId: string) {
+  try {
+    const slackUrl = Deno.env.get("SLACK_WEBHOOK_URL");
+    if (!slackUrl) return;
+
+    const spendThreshold = account.iteration_spend_threshold || 50;
+    const scaleThreshold = account.scale_threshold || 2.0;
+    const killThreshold = account.kill_threshold || 1.0;
+
+    const { data: candidates } = await supabase
+      .from("creatives")
+      .select("ad_id, ad_name, roas, prior_roas, spend")
+      .eq("account_id", accountId)
+      .gt("spend", spendThreshold);
+
+    // Extract a readable display name from raw Meta ad names / naming convention strings.
+    // e.g. "iAT:IMG>iName:SomeCoolAd>iSrc:Branded>..." → "SomeCoolAd"
+    // e.g. "Canada>iCR:PelaCreative>..." → "Canada"
+    // e.g. "BM_Bearaby_R8V1E_Video" → as-is (truncated if long)
+    const cleanName = (name: string) => {
+      if (!name) return "Unknown";
+      const m = name.match(/(?:^|>)iName:([^>]+)/i);
+      if (m) return m[1];
+      if (name.includes(">")) return name.split(">")[0] || name.substring(0, 40);
+      return name.length > 45 ? name.substring(0, 42) + "…" : name;
+    };
+
+    const newWinners: { name: string; roas: number; spend: number }[] = [];
+    const newConcerns: { name: string; roas: number; prior_roas: number }[] = [];
+
+    for (const c of (candidates || [])) {
+      const roas = Number(c.roas) || 0;
+      const priorRoas = c.prior_roas != null ? Number(c.prior_roas) : null;
+
+      // Only fire when we've seen this ad before and it just crossed the threshold.
+      // Skipping priorRoas === null prevents 100+ "new winner" alerts on first sync.
+      if (roas >= scaleThreshold && priorRoas !== null && priorRoas < scaleThreshold) {
+        newWinners.push({ name: cleanName(c.ad_name), roas, spend: Number(c.spend) || 0 });
+      }
+      if (roas < killThreshold && priorRoas !== null && priorRoas >= killThreshold) {
+        newConcerns.push({ name: cleanName(c.ad_name), roas, prior_roas: priorRoas });
+      }
+    }
+
+    if (newWinners.length > 0 || newConcerns.length > 0) {
+      const appUrl = Deno.env.get("APP_URL") || "https://verdanote.com";
+      const blocks: any[] = [];
+
+      if (newWinners.length > 0) {
+        // Sort by spend desc, show top 5
+        const top = [...newWinners].sort((a, b) => b.spend - a.spend).slice(0, 5);
+        const lines = top.map(w =>
+          `• ${w.name} — *${w.roas.toFixed(2)}x* ROAS · $${w.spend.toLocaleString("en-US", { maximumFractionDigits: 0 })} spend`
+        ).join("\n");
+        const extra = newWinners.length > 5 ? `\n_+${newWinners.length - 5} more_` : "";
+        blocks.push({ type: "header", text: { type: "plain_text", text: `🟢 New Winners — ${account.name}`, emoji: true } });
+        blocks.push({ type: "section", text: { type: "mrkdwn", text: lines + extra } });
+      }
+
+      if (newConcerns.length > 0) {
+        const top = [...newConcerns].sort((a, b) => b.prior_roas - a.prior_roas).slice(0, 5);
+        const lines = top.map(c =>
+          `• ${c.name} — *${c.roas.toFixed(2)}x* ROAS (was ${c.prior_roas.toFixed(2)}x)`
+        ).join("\n");
+        const extra = newConcerns.length > 5 ? `\n_+${newConcerns.length - 5} more_` : "";
+        if (blocks.length > 0) blocks.push({ type: "divider" });
+        blocks.push({ type: "header", text: { type: "plain_text", text: `🔴 New Concerns — ${account.name}`, emoji: true } });
+        blocks.push({ type: "section", text: { type: "mrkdwn", text: lines + extra } });
+      }
+
+      blocks.push({ type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "View in Verdanote →", emoji: true }, url: `${appUrl}/creatives` }] });
+
+      console.log(`Sending Slack alert: ${newWinners.length} winners, ${newConcerns.length} concerns`);
+      await fetch(slackUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ blocks }),
+      });
+    }
+  } catch (slackErr) {
+    console.error("Slack notification error (non-fatal):", slackErr);
+  }
 }
 
 // ─── Phase Budget ────────────────────────────────────────────────────────────
@@ -778,226 +949,25 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // PHASE 2: Fetch aggregated insights → BATCH upsert to creatives
-    //   Groups metrics by ad_id and upserts in batches of 200
-    //   instead of individual row updates.
+    // PHASE 2: (US-003) No-op — the aggregate snapshot is now built LOCALLY.
+    //   The full-window aggregate insights fetch to Meta has been REMOVED.
+    //   Previously Phase 2 re-pulled the entire date_range_days window from
+    //   Meta a SECOND time (Phase 4 already pulls the daily grain) just to
+    //   populate the creatives snapshot. Since daily rows freeze once the
+    //   attribution window closes and are stored permanently per (ad_id,date),
+    //   the snapshot can be recomputed from those daily rows with zero extra
+    //   Meta calls. That local rollup + Slack alerting + last_data_sync bump
+    //   now run in Phase 5, AFTER Phase 4 has written the daily rows for this
+    //   run (see rollup_creatives_from_daily RPC, migration
+    //   20260714000002_rpc_rollup_creatives_from_daily.sql).
+    //
+    //   Phase 2 is retained as an explicit no-op transition so the resumable
+    //   phase machine, sync_scope maps ("insights": [2,3,5]), and any saved
+    //   sync_state referencing phase 2 keep working unchanged.
     // ═══════════════════════════════════════════════════════════════════
     if (phase === 2) {
-      const endDate = new Date();
-
-      // ── Phase 2 ALWAYS uses the full date range ──────────────────────────
-      // Phase 2 writes aggregated totals to the creatives table (spend, roas, etc.).
-      // Using an incremental window would OVERWRITE full-period totals with partial
-      // values, causing spend discrepancies vs Meta Ads Manager.
-      // Incremental optimization is only safe for Phase 4 (daily metrics) where
-      // data is additive per-day and keyed by (ad_id, date).
-      let phase2TimeRange: string;
-      let phase2SinceDate: string;
-      if (state.insights_cursor) {
-        // Resuming — timeRange is embedded in the saved cursor URL, don't recalculate
-        phase2TimeRange = state.insights_time_range || "";
-        phase2SinceDate = state.insights_since_date || "";
-        console.log(`Phase 2 resuming from cursor — time range: ${phase2TimeRange}`);
-      } else {
-        // Always use full date range for snapshot accuracy
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - dateRangeDays);
-        phase2SinceDate = startDate.toISOString().split("T")[0];
-        phase2TimeRange = JSON.stringify({ since: phase2SinceDate, until: endDate.toISOString().split("T")[0] });
-        console.log(`Phase 2 full: ${phase2SinceDate} → ${endDate.toISOString().split("T")[0]} (always full range for snapshot accuracy)`);
-      }
-      // ────────────────────────────────────────────────────────────────────
-
-      const insightsFields = "ad_id,spend,purchase_roas,cost_per_action_type,ctr,clicks,impressions,cpm,cpc,frequency,actions,action_values,video_avg_time_watched_actions,video_thruplay_watched_actions,video_play_curve_actions";
-      const cursor = state.insights_cursor || null;
-      let insightsCount = state.insights_count || 0;
-
-      let nextUrl = cursor || (
-        `https://graph.facebook.com/${META_API_VERSION}/${accountId}/insights?` +
-        `time_range=${encodeURIComponent(phase2TimeRange)}&level=ad` +
-        `&fields=${insightsFields}` +
-        `&${attributionSetting}` +
-        `&limit=${insightsPageSize}&access_token=${encodeURIComponent(metaToken)}`
-      );
-
-      while (nextUrl && !isTimedOut()) {
-        await heartbeat();
-        const result = await metaFetch(nextUrl, ctx);
-        if (result.error) {
-          // metaFetch already pushed the full Meta error detail to ctx.apiErrors.
-          // result.error is a boolean, so `.message` is undefined — record a phase marker instead.
-          ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Phase 2 pagination halted on API error (see preceding Meta API error); cursor preserved at ${insightsCount} insights` });
-          // Preserve the cursor and STOP. Do NOT `break` here: the loop-exit
-          // branch below treats "not timed out" as "Phase 2 complete", bumps
-          // last_data_sync, and saveState(3) — which would skip the unfetched
-          // insights pages on the next incremental run (silent data gap).
-          // Returning leaves status=running with insights_cursor set, so the
-          // next /continue resumes Phase 2 from where it failed.
-          await saveState(2, { insights_cursor: nextUrl, insights_count: insightsCount, insights_time_range: phase2TimeRange, insights_since_date: phase2SinceDate });
-          return;
-        }
-        if (result.rateLimited && result.retriableUrl) {
-          // Rate-limit pause (timeout during backoff or retries exhausted). Without this
-          // check, data=null/next=null falls through the loop exit as "Phase 2 complete",
-          // bumps last_data_sync, and the unfetched pages become a PERMANENT data gap —
-          // incremental runs never look back. Save the exact page URL and resume.
-          console.log(`Phase 2 paused (rate-limited) at ${insightsCount} insights`);
-          await saveState(2, { insights_cursor: result.retriableUrl, insights_count: insightsCount, insights_time_range: phase2TimeRange, insights_since_date: phase2SinceDate });
-          return;
-        }
-        if (result.data) {
-
-          // Bulk update via DB function — single RPC call per batch instead of N individual updates
-          const BATCH_SIZE = 500;
-          const metricRows = result.data.map((row: any) => ({
-            ad_id: row.ad_id,
-            ...parseInsightsRow(row, account?.optimization_goal),
-          }));
-
-          // Auto-create missing creatives so bulk_update_creative_metrics can UPDATE them
-          // This prevents silently dropping metrics for ads not ingested in Phase 1
-          const batchAdIds = [...new Set(metricRows.map((r: any) => r.ad_id))];
-          const { data: existingAds } = await supabase
-            .from("creatives")
-            .select("ad_id")
-            .eq("account_id", accountId)
-            .in("ad_id", batchAdIds);
-          const existingSet = new Set((existingAds || []).map((e: any) => e.ad_id));
-          const missingIds = batchAdIds.filter((id: string) => !existingSet.has(id));
-          if (missingIds.length > 0) {
-            const newCreatives = missingIds.map((adId: string) => ({
-              ad_id: adId,
-              account_id: accountId,
-              ad_name: adId,
-              platform: "meta",
-              tag_source: "untagged",
-            }));
-            const { error: createErr } = await supabase
-              .from("creatives")
-              .upsert(newCreatives, { onConflict: "ad_id", ignoreDuplicates: true });
-            if (createErr) console.error(`Phase 2 auto-create error: ${createErr.message}`);
-            else if (missingIds.length > 0) console.log(`  Auto-created ${missingIds.length} missing creatives in Phase 2`);
-          }
-
-          for (let i = 0; i < metricRows.length; i += BATCH_SIZE) {
-            const batch = metricRows.slice(i, i + BATCH_SIZE);
-            const { error } = await supabase.rpc("bulk_update_creative_metrics", { payload: batch });
-            if (error) console.error("Phase 2 bulk RPC error:", error.message);
-            if (isTimedOut()) break;
-          }
-          insightsCount += result.data.length;
-          console.log(`  Insights bulk-upserted: ${insightsCount}`);
-        }
-        nextUrl = result.next;
-        if (nextUrl) await new Promise(r => setTimeout(r, interRequestDelayMs));
-      }
-
-      if (nextUrl && isTimedOut()) {
-        console.log(`Phase 2 paused at ${insightsCount} insights`);
-        await saveState(2, { insights_cursor: nextUrl, insights_count: insightsCount, insights_time_range: phase2TimeRange, insights_since_date: phase2SinceDate });
-      } else {
-        console.log(`Phase 2 complete: ${insightsCount} insights`);
-
-        // ── Threshold check + Slack notification ──────────────────────────
-        try {
-          const slackUrl = Deno.env.get("SLACK_WEBHOOK_URL");
-          if (slackUrl) {
-            const spendThreshold = account.iteration_spend_threshold || 50;
-            const scaleThreshold = account.scale_threshold || 2.0;
-            const killThreshold = account.kill_threshold || 1.0;
-
-            const { data: candidates } = await supabase
-              .from("creatives")
-              .select("ad_id, ad_name, roas, prior_roas, spend")
-              .eq("account_id", accountId)
-              .gt("spend", spendThreshold);
-
-            // Extract a readable display name from raw Meta ad names / naming convention strings.
-            // e.g. "iAT:IMG>iName:SomeCoolAd>iSrc:Branded>..." → "SomeCoolAd"
-            // e.g. "Canada>iCR:PelaCreative>..." → "Canada"
-            // e.g. "BM_Bearaby_R8V1E_Video" → as-is (truncated if long)
-            const cleanName = (name: string) => {
-              if (!name) return "Unknown";
-              const m = name.match(/(?:^|>)iName:([^>]+)/i);
-              if (m) return m[1];
-              if (name.includes(">")) return name.split(">")[0] || name.substring(0, 40);
-              return name.length > 45 ? name.substring(0, 42) + "…" : name;
-            };
-
-            const newWinners: { name: string; roas: number; spend: number }[] = [];
-            const newConcerns: { name: string; roas: number; prior_roas: number }[] = [];
-
-            for (const c of (candidates || [])) {
-              const roas = Number(c.roas) || 0;
-              const priorRoas = c.prior_roas != null ? Number(c.prior_roas) : null;
-
-              // Only fire when we've seen this ad before and it just crossed the threshold.
-              // Skipping priorRoas === null prevents 100+ "new winner" alerts on first sync.
-              if (roas >= scaleThreshold && priorRoas !== null && priorRoas < scaleThreshold) {
-                newWinners.push({ name: cleanName(c.ad_name), roas, spend: Number(c.spend) || 0 });
-              }
-              if (roas < killThreshold && priorRoas !== null && priorRoas >= killThreshold) {
-                newConcerns.push({ name: cleanName(c.ad_name), roas, prior_roas: priorRoas });
-              }
-            }
-
-            if (newWinners.length > 0 || newConcerns.length > 0) {
-              const appUrl = Deno.env.get("APP_URL") || "https://verdanote.com";
-              const blocks: any[] = [];
-
-              if (newWinners.length > 0) {
-                // Sort by spend desc, show top 5
-                const top = [...newWinners].sort((a, b) => b.spend - a.spend).slice(0, 5);
-                const lines = top.map(w =>
-                  `• ${w.name} — *${w.roas.toFixed(2)}x* ROAS · $${w.spend.toLocaleString("en-US", { maximumFractionDigits: 0 })} spend`
-                ).join("\n");
-                const extra = newWinners.length > 5 ? `\n_+${newWinners.length - 5} more_` : "";
-                blocks.push({ type: "header", text: { type: "plain_text", text: `🟢 New Winners — ${account.name}`, emoji: true } });
-                blocks.push({ type: "section", text: { type: "mrkdwn", text: lines + extra } });
-              }
-
-              if (newConcerns.length > 0) {
-                const top = [...newConcerns].sort((a, b) => b.prior_roas - a.prior_roas).slice(0, 5);
-                const lines = top.map(c =>
-                  `• ${c.name} — *${c.roas.toFixed(2)}x* ROAS (was ${c.prior_roas.toFixed(2)}x)`
-                ).join("\n");
-                const extra = newConcerns.length > 5 ? `\n_+${newConcerns.length - 5} more_` : "";
-                if (blocks.length > 0) blocks.push({ type: "divider" });
-                blocks.push({ type: "header", text: { type: "plain_text", text: `🔴 New Concerns — ${account.name}`, emoji: true } });
-                blocks.push({ type: "section", text: { type: "mrkdwn", text: lines + extra } });
-              }
-
-              blocks.push({ type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "View in Verdanote →", emoji: true }, url: `${appUrl}/creatives` }] });
-
-              console.log(`Sending Slack alert: ${newWinners.length} winners, ${newConcerns.length} concerns`);
-              await fetch(slackUrl, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ blocks }),
-              });
-            }
-          }
-        } catch (slackErr) {
-          console.error("Slack notification error (non-fatal):", slackErr);
-        }
-
-        // ── CHANGE 2: Record last_data_sync timestamp after successful Phase 2 ──
-        // This is the key timestamp that enables incremental sync on next run.
-        // We set it to the start of the sync's effective date window so next run
-        // only fetches data after this point.
-        try {
-          await supabase
-            .from("ad_accounts")
-            .update({ last_data_sync: new Date().toISOString() })
-            .eq("id", accountId);
-          console.log(`  Updated last_data_sync for ${account.name}`);
-        } catch (syncTimestampErr) {
-          console.error("Failed to update last_data_sync (non-fatal):", syncTimestampErr);
-        }
-        // ────────────────────────────────────────────────────────────────
-
-        await saveState(3, { insights_cursor: null, insights_count: insightsCount, insights_time_range: null, insights_since_date: null });
-      }
+      console.log("Phase 2: aggregate snapshot deferred to local rollup in Phase 5 (no Meta fetch)");
+      await saveState(3, { insights_cursor: null, insights_count: 0, insights_time_range: null, insights_since_date: null });
       return;
     }
 
@@ -1190,16 +1160,22 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
                 return true;
               })
               .map((row: any) => {
-                // Strip columns that don't exist in creative_daily_metrics:
-                // - play_curve / retention_p* (US-002): only on creatives via Phase-2 RPC
-                // - result_count / cost_per_result (US-003): only on creatives table
-                const { play_curve, retention_p25, retention_p50, retention_p75, retention_p100, result_count, cost_per_result, ...daily } =
+                // US-003: persist the daily-grain play-curve + retention scalars
+                // (US-001 columns) so the LOCAL snapshot rollup
+                // (rollup_creatives_from_daily) can reconstruct the aggregate
+                // retention curve from stored daily rows — no second Meta pull.
+                // The parser's normalized `play_curve` number[] maps to the daily
+                // jsonb column `video_play_curve_actions`.
+                // Still stripped (not columns on creative_daily_metrics):
+                // - result_count / cost_per_result: only on the creatives table.
+                const { play_curve, result_count, cost_per_result, ...daily } =
                   parseInsightsRow(row, account?.optimization_goal);
                 return {
                   ad_id: row.ad_id,
                   account_id: accountId,
                   date: row.date_start,
-                  ...daily,
+                  ...daily, // includes retention_p25/p50/p75/p100
+                  video_play_curve_actions: play_curve,
                 };
               });
             // Upsert in one call (up to 500 rows, matching Meta page size)
@@ -1241,6 +1217,55 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     // ═══════════════════════════════════════════════════════════════════
     if (phase === 5) {
       console.log("Phase 5: Finalizing...");
+
+      // ── US-003: LOCAL rollup of the per-ad snapshot ──────────────────────
+      // Replaces the old Phase-2 full-window Meta aggregate fetch. Now that
+      // Phase 4 has written the daily rows for this run, recompute the
+      // creatives snapshot (spend, roas, ctr, play_curve, retention_p*, …)
+      // purely from creative_daily_metrics — zero extra Meta calls. The rollup
+      // window matches the retention window we serve (up to RETENTION_DAYS,
+      // never narrower than the configured date_range_days) so the snapshot
+      // reflects the full promised history, not just the rolling recent window
+      // Phase 4 re-pulled this run. Idempotent: re-running produces identical
+      // totals. Non-fatal — a rollup failure must not abandon finalize.
+      try {
+        const rollupDays = Math.max(dateRangeDays, RETENTION_DAYS);
+        const rollupFrom = new Date();
+        rollupFrom.setDate(rollupFrom.getDate() - rollupDays);
+        const rollupFromDate = rollupFrom.toISOString().split("T")[0];
+        const rollupToDate = new Date().toISOString().split("T")[0];
+        const { data: rolledCount, error: rollupErr } = await supabase.rpc(
+          "rollup_creatives_from_daily",
+          { p_account_id: accountId, p_from: rollupFromDate, p_to: rollupToDate },
+        );
+        if (rollupErr) {
+          console.error("Local rollup RPC error:", rollupErr.message);
+          ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Local snapshot rollup failed: ${rollupErr.message}` });
+        } else {
+          console.log(`  Local rollup: refreshed snapshot for ${rolledCount ?? 0} creatives (${rollupFromDate} → ${rollupToDate})`);
+        }
+      } catch (rollupCatch) {
+        console.error("Local rollup error (non-fatal):", rollupCatch);
+        ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Local snapshot rollup threw: ${String(rollupCatch)}` });
+      }
+
+      // ── Winner/concern Slack alert — runs AFTER the local rollup so it reads
+      //    the freshly-recomputed snapshot (moved here from the old Phase 2). ──
+      await runSnapshotAlerts(supabase, account, accountId);
+
+      // ── Record last_data_sync — enables the rolling incremental window on the
+      //    next run (moved here from the old Phase 2; the snapshot it gated is
+      //    now produced by the rollup above). ──
+      try {
+        await supabase
+          .from("ad_accounts")
+          .update({ last_data_sync: new Date().toISOString() })
+          .eq("id", accountId);
+        console.log(`  Updated last_data_sync for ${account.name}`);
+      } catch (syncTimestampErr) {
+        console.error("Failed to update last_data_sync (non-fatal):", syncTimestampErr);
+      }
+      // ─────────────────────────────────────────────────────────────────────
 
       // ── Auto-tag untagged creatives via canonical parser + resolver (BATCHED) ──
       try {

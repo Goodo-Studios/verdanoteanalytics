@@ -20,7 +20,7 @@ Deno.env.set("SYNC_BACKOFF_BASE_SEC", "0");
 Deno.env.set("SUPABASE_URL", "https://example.supabase.co");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "fake-service-role");
 
-const { metaFetch, isInformationalSyncNote, countRealErrors, computeDailyWindowDays } = await import("./index.ts");
+const { metaFetch, isInformationalSyncNote, countRealErrors, computeDailyWindowDays, rollupDailyRows } = await import("./index.ts");
 const { RECENT_WINDOW_DAYS, RETENTION_DAYS } = await import("../_shared/retention-config.ts");
 
 function ctx(timedOut = false) {
@@ -214,4 +214,98 @@ Deno.test("US-002: never-synced backfilled account still gets at least the recen
     now: NOW,
   });
   assertEquals(days, RECENT_WINDOW_DAYS);
+});
+
+// ── US-003: local rollup of the per-ad snapshot ───────────────────────────
+// rollupDailyRows is the authoritative arithmetic spec for the SQL RPC
+// rollup_creatives_from_daily. These tests lock the contract from the story's
+// acceptance criteria + e2eTests: summed base metrics equal the sum of the
+// underlying daily rows, and ratios are DERIVED from those sums.
+
+function approx(a: number, b: number, tol = 1e-9): boolean {
+  return Math.abs(a - b) <= tol;
+}
+
+Deno.test("US-003: snapshot totals equal the sum of the underlying daily rows (spend/impressions/clicks/purchases)", () => {
+  // 30 days of daily rows for one ad — mirror the e2eTest scenario.
+  const rows = [];
+  let expSpend = 0, expImpr = 0, expClicks = 0, expPurch = 0, expPV = 0;
+  for (let d = 0; d < 30; d++) {
+    const spend = 10 + d;           // 10..39
+    const impressions = 1000 + d * 10;
+    const clicks = 20 + d;
+    const purchases = 1 + (d % 3);
+    const purchase_value = (1 + (d % 3)) * 50;
+    expSpend += spend; expImpr += impressions; expClicks += clicks;
+    expPurch += purchases; expPV += purchase_value;
+    rows.push({ spend, impressions, clicks, purchases, purchase_value, video_views: 0 });
+  }
+  const agg = rollupDailyRows(rows);
+  // Summable base metrics equal the daily sums exactly.
+  assertEquals(agg.spend, expSpend);
+  assertEquals(agg.impressions, expImpr);
+  assertEquals(agg.clicks, expClicks);
+  assertEquals(agg.purchases, expPurch);
+  assertEquals(agg.purchase_value, expPV);
+  // roas is DERIVED: purchase_value / spend (not an average of daily roas).
+  assertEquals(approx(agg.roas, expPV / expSpend), true);
+  // ctr / cpc / cpm derived from the sums.
+  assertEquals(approx(agg.ctr, (expClicks / expImpr) * 100), true);
+  assertEquals(approx(agg.cpc, expSpend / expClicks), true);
+  assertEquals(approx(agg.cpm, (expSpend / expImpr) * 1000), true);
+  // cpa derived, result columns mirror purchases/cpa.
+  assertEquals(approx(agg.cpa, expSpend / expPurch), true);
+  assertEquals(agg.result_count, expPurch);
+});
+
+Deno.test("US-003: derived ratios never average daily ratios (a high-spend low-roas day dominates)", () => {
+  // Day A: heavy spend, poor roas. Day B: light spend, great roas.
+  // Averaging daily roas would give (0.5 + 5)/2 = 2.75; the correct spend-weighted
+  // roas is total_value/total_spend = (500+50)/(1000+10) ≈ 0.5446.
+  const rows = [
+    { spend: 1000, purchase_value: 500, impressions: 100000, clicks: 500, purchases: 5 },
+    { spend: 10, purchase_value: 50, impressions: 200, clicks: 4, purchases: 1 },
+  ];
+  const agg = rollupDailyRows(rows);
+  assertEquals(agg.spend, 1010);
+  assertEquals(agg.purchase_value, 550);
+  assertEquals(approx(agg.roas, 550 / 1010), true);
+  // Explicitly NOT the naive mean of daily roas (0.5, 5.0).
+  assertEquals(agg.roas < 1, true);
+});
+
+Deno.test("US-003: retention_p50 is reconstructed within tolerance of the daily video-view-weighted value", () => {
+  // Two days with different retention and different video volume. The rollup is
+  // view-weighted, so the high-volume day dominates.
+  const rows = [
+    { video_views: 900, retention_p25: 80, retention_p50: 60, retention_p75: 40, retention_p100: 20, hold_rate: 30 },
+    { video_views: 100, retention_p25: 40, retention_p50: 20, retention_p75: 10, retention_p100: 5, hold_rate: 10 },
+  ];
+  const agg = rollupDailyRows(rows);
+  // Weighted p50 = (60*900 + 20*100) / 1000 = 56.
+  assertEquals(approx(agg.retention_p50 ?? NaN, 56, 1e-6), true);
+  assertEquals(approx(agg.retention_p25 ?? NaN, (80 * 900 + 40 * 100) / 1000, 1e-6), true);
+  // hold_rate derived from reconstructed thruplays: (0.30*900 + 0.10*100)/1000*100 = 28.
+  assertEquals(approx(agg.hold_rate, 28, 1e-6), true);
+  // thumb_stop_rate needs impressions; with none it is 0.
+  assertEquals(agg.thumb_stop_rate, 0);
+});
+
+Deno.test("US-003: days without a retention curve are excluded, not zero-filled", () => {
+  // Only one day carries retention; a null day must not drag the weighted mean to 0.
+  const rows = [
+    { video_views: 500, retention_p50: 50 },
+    { video_views: 500, retention_p50: null },
+  ];
+  const agg = rollupDailyRows(rows);
+  // Weight comes only from the day with a scalar → p50 stays 50, not 25.
+  assertEquals(approx(agg.retention_p50 ?? NaN, 50, 1e-6), true);
+});
+
+Deno.test("US-003: no daily rows → zeroed snapshot with null retention (no divide-by-zero)", () => {
+  const agg = rollupDailyRows([]);
+  assertEquals(agg.spend, 0);
+  assertEquals(agg.roas, 0);
+  assertEquals(agg.ctr, 0);
+  assertEquals(agg.retention_p50, null);
 });

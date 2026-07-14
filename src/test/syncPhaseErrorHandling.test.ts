@@ -39,27 +39,45 @@ const cleanupSrc = readFileSync(
   "utf8",
 );
 
-describe("sync Phase 2 insights error handling (#1 data-gap fix)", () => {
-  it("the Phase 2 pagination error branch returns and does not break", () => {
-    // Capture from the Phase 2 error marker to the end of its if-block (the
-    // first line that is only a closing brace).
-    const block = syncSrc.match(/Phase 2 pagination halted[\s\S]*?\n\s*\}/);
-    expect(block, "Phase 2 error branch not found").not.toBeNull();
-    // Must return so control never reaches the last_data_sync bump + saveState(3).
+describe("sync Phase 2 snapshot is a local rollup, not a Meta fetch (US-003)", () => {
+  // US-003 removed the Phase-2 full-window aggregate insights fetch to Meta.
+  // The snapshot is now recomputed LOCALLY (rollup_creatives_from_daily) in
+  // Phase 5, AFTER Phase 4 writes the daily rows. The original #1 data-gap bug
+  // (Phase 2's metaFetch pause falling through as "complete" and bumping
+  // last_data_sync) is therefore structurally impossible in Phase 2 — there is
+  // no Phase-2 Meta pagination loop left. These guards lock the new shape and
+  // keep the last_data_sync bump correctly downstream of the data write.
+
+  it("Phase 2 no longer issues a Meta insights fetch (no Phase-2 pagination loop)", () => {
+    // The old loop's markers must be gone from Phase 2.
+    expect(syncSrc).not.toContain("Phase 2 pagination halted");
+    expect(syncSrc).not.toContain("Phase 2 complete");
+    // Phase 2 is now an explicit no-op transition that advances to phase 3.
+    const block = syncSrc.match(/if \(phase === 2\) \{[\s\S]*?\n {4}\}/);
+    expect(block, "Phase 2 block not found").not.toBeNull();
+    expect(block![0]).toContain("saveState(3");
     expect(block![0]).toContain("return;");
-    // A bare `break` here is the bug — it falls through to "Phase 2 complete".
-    expect(block![0]).not.toContain("break;");
+    // No Meta call inside Phase 2 anymore.
+    expect(block![0]).not.toContain("metaFetch");
   });
 
-  it("Phase 2 only bumps last_data_sync / advances to phase 3 in the complete branch", () => {
-    // last_data_sync update and saveState(3) must appear AFTER the
-    // "Phase 2 complete" log, never inside the error branch.
-    const completeIdx = syncSrc.indexOf("Phase 2 complete");
+  it("the local rollup runs in Phase 5 (after Phase 4 writes daily rows)", () => {
+    const phase5Idx = syncSrc.indexOf("if (phase === 5)");
+    // Match the RPC CALL SITE (not the doc comment) via its p_account_id arg.
+    const rollupIdx = syncSrc.search(/"rollup_creatives_from_daily"[\s\S]*?p_account_id:\s*accountId/);
+    expect(phase5Idx).toBeGreaterThan(-1);
+    expect(rollupIdx).toBeGreaterThan(phase5Idx);
+  });
+
+  it("last_data_sync is bumped in Phase 5 only after the local rollup", () => {
+    // The rollup must produce the snapshot BEFORE last_data_sync advances, so a
+    // rollup that is skipped never leaves the incremental watermark ahead of the
+    // data it gates (the spiritual successor to the #1 data-gap invariant).
+    // Match the RPC CALL SITE (not the doc comment) via its p_account_id arg.
+    const rollupIdx = syncSrc.search(/"rollup_creatives_from_daily"[\s\S]*?p_account_id:\s*accountId/);
     const lastDataSyncIdx = syncSrc.indexOf("last_data_sync: new Date()");
-    const saveState3Idx = syncSrc.indexOf("saveState(3");
-    expect(completeIdx).toBeGreaterThan(-1);
-    expect(lastDataSyncIdx).toBeGreaterThan(completeIdx);
-    expect(saveState3Idx).toBeGreaterThan(completeIdx);
+    expect(rollupIdx).toBeGreaterThan(-1);
+    expect(lastDataSyncIdx).toBeGreaterThan(rollupIdx);
   });
 });
 
