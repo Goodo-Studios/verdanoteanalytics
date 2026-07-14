@@ -5,6 +5,60 @@ import { resolveConvention } from "../_shared/naming-convention.ts";
 import { parseAdName, type ParsedAdName, type AdNameTags } from "../_shared/parse-ad-name.ts";
 import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
 import { parsePlayCurve } from "../_shared/play-curve.ts";
+import { RECENT_WINDOW_DAYS, RETENTION_DAYS } from "../_shared/retention-config.ts";
+
+// US-002: Rolling-window incremental daily sync.
+//
+// A scheduled sync on an already-backfilled account only needs to re-pull a
+// rolling recent window (RECENT_WINDOW_DAYS) instead of the full
+// date_range_days retention window — Meta daily numbers for a past date freeze
+// once the attribution window closes (~7d, safely inside 28d), so historical
+// daily rows are immutable and fetched once (by the US-004 backfill). This
+// turns a daily update from 180–365 days of Meta calls into ~28.
+//
+// Safety: the window must comfortably exceed the max gap between daily syncs
+// so no day is ever missed. We take max(RECENT_WINDOW_DAYS,
+// days-since-last-successful-sync + attribution buffer). RECENT_WINDOW_DAYS=28
+// dominates for a healthy daily cadence; the max() only widens the window if a
+// sync was skipped for longer than the recent window (e.g. an outage), keeping
+// the "always full range to prevent gaps" guarantee without the full-range cost.
+export function computeDailyWindowDays(opts: {
+  /** true only for a scheduled/incremental sync on an already-backfilled account */
+  rollingEligible: boolean;
+  /** account.date_range_days-derived full window (fallback / non-rolling path) */
+  dateRangeDays: number;
+  /** account.last_data_sync ISO string, or null if never synced */
+  lastDataSync: string | null;
+  /** attribution click window in days, used as the recency buffer */
+  clickWindow: number;
+  /** injectable clock for tests */
+  now?: Date;
+}): number {
+  const { rollingEligible, dateRangeDays, lastDataSync, clickWindow } = opts;
+  // Not eligible for the rolling optimization (initial sync, or account not yet
+  // backfilled by US-004): keep the prior full-window behavior so coverage is
+  // never silently narrowed before history exists locally.
+  if (!rollingEligible) return dateRangeDays;
+
+  const now = opts.now ?? new Date();
+  let gapDays = 0;
+  if (lastDataSync) {
+    const lastMs = new Date(lastDataSync).getTime();
+    if (!Number.isNaN(lastMs)) {
+      gapDays = Math.ceil((now.getTime() - lastMs) / (24 * 60 * 60 * 1000));
+      if (gapDays < 0) gapDays = 0;
+    }
+  }
+  // Recency buffer covers late-arriving conversions still inside the attribution
+  // window when the last sync ran.
+  const gapWithBuffer = gapDays + Math.max(0, clickWindow);
+  const window = Math.max(RECENT_WINDOW_DAYS, gapWithBuffer);
+  // Cap at the retention window — history beyond this lives locally (never
+  // re-fetched from Meta). We do NOT clamp to date_range_days here: that field
+  // was the legacy incremental window (default 14d) and is smaller than the
+  // rolling window we now want, so clamping to it would defeat the point.
+  return Math.min(window, RETENTION_DAYS);
+}
 
 // US-003: Phase 5 tagging flows through the single canonical parser + precedence
 // resolver — no inline regex. Stored tag columns hold display names, so parser
@@ -986,23 +1040,39 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         .select("*", { count: "exact", head: true }).eq("account_id", accountId);
       const hasExistingAds = (existingCount || 0) > 0;
 
-      // ── Phase 4: Always fetch full date range ─────────────────────────
-      // Daily metrics are keyed by (ad_id, date) — upserts are idempotent.
-      // Always fetching the full dateRangeDays window prevents historical gaps
-      // that occur when incremental windows miss days between syncs.
-      // This matches Phase 2's approach and ensures spend totals reconcile with Meta.
+      // ── Phase 4: Rolling recent window (US-002) ───────────────────────
+      // Daily metrics are keyed by (ad_id, date) — upserts are idempotent, so a
+      // late-arriving conversion inside the recent window still corrects the
+      // prior day it belongs to. Historical daily rows freeze once the
+      // attribution window closes and are fetched once (US-004 backfill), so a
+      // scheduled sync on an already-backfilled account re-pulls only a rolling
+      // ~28d window instead of the full retention window. computeDailyWindowDays
+      // widens the window if a sync was skipped, preserving the old
+      // "no gaps between syncs" guarantee without the full-range cost.
       let dailyDays: number;
       let dailySinceDate: string;
       const CHUNK_DAYS = 15;
       const endDate = new Date();
 
       if (!state.daily_chunk_offset) {
-        // Always use the full date_range_days window
-        dailyDays = dateRangeDays;
+        // Rolling optimization is only safe once history exists locally: an
+        // already-backfilled account (daily_backfilled_since set) on a
+        // scheduled/incremental (non-initial) sync. Initial syncs and
+        // not-yet-backfilled accounts keep the full date_range_days window.
+        const rollingEligible = !isInitialSync && !!account.daily_backfilled_since;
+        dailyDays = computeDailyWindowDays({
+          rollingEligible,
+          dateRangeDays,
+          lastDataSync,
+          clickWindow,
+        });
         const fullStart = new Date();
         fullStart.setDate(fullStart.getDate() - dailyDays);
         dailySinceDate = fullStart.toISOString().split("T")[0];
-        console.log(`Phase 4 full: ${dailyDays} days of daily data (always full range to prevent gaps)`);
+        console.log(
+          `Phase 4 window: ${dailyDays} days ` +
+          `(${rollingEligible ? `rolling recent, RECENT_WINDOW=${RECENT_WINDOW_DAYS}d` : "full range — initial/not-yet-backfilled"})`
+        );
       } else {
         // Resuming — use saved values
         dailyDays = state.daily_days || dateRangeDays;

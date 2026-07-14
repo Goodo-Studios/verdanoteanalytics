@@ -20,7 +20,8 @@ Deno.env.set("SYNC_BACKOFF_BASE_SEC", "0");
 Deno.env.set("SUPABASE_URL", "https://example.supabase.co");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "fake-service-role");
 
-const { metaFetch, isInformationalSyncNote, countRealErrors } = await import("./index.ts");
+const { metaFetch, isInformationalSyncNote, countRealErrors, computeDailyWindowDays } = await import("./index.ts");
+const { RECENT_WINDOW_DAYS, RETENTION_DAYS } = await import("../_shared/retention-config.ts");
 
 function ctx(timedOut = false) {
   return {
@@ -116,4 +117,101 @@ Deno.test("countRealErrors filters backoff notes but keeps genuine errors", () =
   assertEquals(countRealErrors(onlyBackoffs), 0);
   const mixed = [...onlyBackoffs, { message: "Phase 2 pagination halted on API error" }, {}];
   assertEquals(countRealErrors(mixed), 2);
+});
+
+// ── US-002: rolling-window incremental daily sync ─────────────────────────
+// The core cost win: a scheduled sync on an already-backfilled account must
+// re-pull only the ~28d recent window, not the full 180/365d retention window.
+
+const NOW = new Date("2026-07-14T12:00:00Z");
+
+Deno.test("US-002: scheduled sync on backfilled account requests the ~28d recent window, not 180/365", () => {
+  // Synced yesterday → gap is 1d; buffer is the 7d attribution window →
+  // RECENT_WINDOW_DAYS (28) dominates. Requested window is ~28, far below the
+  // full retention window.
+  const days = computeDailyWindowDays({
+    rollingEligible: true,
+    dateRangeDays: 180,
+    lastDataSync: "2026-07-13T12:00:00Z",
+    clickWindow: 7,
+    now: NOW,
+  });
+  assertEquals(days, RECENT_WINDOW_DAYS);
+  assertEquals(days, 28);
+  // Explicitly assert it is NOT the full window.
+  assertEquals(days < 180, true);
+  assertEquals(days < RETENTION_DAYS, true);
+});
+
+Deno.test("US-002: the 28d window comfortably exceeds a healthy daily-sync gap (no gaps)", () => {
+  // For any gap up to RECENT_WINDOW_DAYS - clickWindow, the window stays at the
+  // recent window and still spans more days than have elapsed — no day can be
+  // missed between daily syncs.
+  const clickWindow = 7;
+  for (let gap = 0; gap <= RECENT_WINDOW_DAYS - clickWindow; gap++) {
+    const last = new Date(NOW.getTime() - gap * 24 * 60 * 60 * 1000).toISOString();
+    const days = computeDailyWindowDays({
+      rollingEligible: true,
+      dateRangeDays: 180,
+      lastDataSync: last,
+      clickWindow,
+      now: NOW,
+    });
+    assertEquals(days, RECENT_WINDOW_DAYS);
+    // Window must cover every elapsed day plus the attribution buffer.
+    assertEquals(days >= gap, true);
+  }
+});
+
+Deno.test("US-002: a long outage widens the window past 28d so skipped days are re-pulled", () => {
+  // Last synced 40 days ago → gap(40) + buffer(7) = 47 > 28, so the window
+  // widens to cover the outage rather than silently dropping days.
+  const last = new Date(NOW.getTime() - 40 * 24 * 60 * 60 * 1000).toISOString();
+  const days = computeDailyWindowDays({
+    rollingEligible: true,
+    dateRangeDays: 180,
+    lastDataSync: last,
+    clickWindow: 7,
+    now: NOW,
+  });
+  assertEquals(days, 47);
+  assertEquals(days > RECENT_WINDOW_DAYS, true);
+});
+
+Deno.test("US-002: window is capped at RETENTION_DAYS even after a very long gap", () => {
+  const last = new Date(NOW.getTime() - 900 * 24 * 60 * 60 * 1000).toISOString();
+  const days = computeDailyWindowDays({
+    rollingEligible: true,
+    dateRangeDays: 180,
+    lastDataSync: last,
+    clickWindow: 7,
+    now: NOW,
+  });
+  assertEquals(days, RETENTION_DAYS);
+});
+
+Deno.test("US-002: not-yet-backfilled / initial sync keeps the full date_range_days window", () => {
+  // rollingEligible=false covers both initial syncs and accounts without
+  // daily_backfilled_since — history does not yet exist locally, so we must not
+  // narrow the window before the backfill (US-004) lands.
+  const days = computeDailyWindowDays({
+    rollingEligible: false,
+    dateRangeDays: 180,
+    lastDataSync: "2026-07-13T12:00:00Z",
+    clickWindow: 7,
+    now: NOW,
+  });
+  assertEquals(days, 180);
+});
+
+Deno.test("US-002: never-synced backfilled account still gets at least the recent window", () => {
+  // No last_data_sync → gap treated as 0, window = max(28, 0+7) = 28.
+  const days = computeDailyWindowDays({
+    rollingEligible: true,
+    dateRangeDays: 180,
+    lastDataSync: null,
+    clickWindow: 7,
+    now: NOW,
+  });
+  assertEquals(days, RECENT_WINDOW_DAYS);
 });
