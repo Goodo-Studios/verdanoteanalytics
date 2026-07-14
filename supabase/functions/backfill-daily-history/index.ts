@@ -347,7 +347,7 @@ export async function handler(
     if (body.account_id) {
       const { data, error } = await supabase
         .from("ad_accounts")
-        .select("id, name, click_window, view_window, daily_backfilled_since, created_time")
+        .select("id, name, click_window, view_window, daily_backfilled_since")
         .eq("id", body.account_id);
       if (error) throw error;
       accounts = data || [];
@@ -358,7 +358,7 @@ export async function handler(
       // with a null check + gt on the target date.
       const { data, error } = await supabase
         .from("ad_accounts")
-        .select("id, name, click_window, view_window, daily_backfilled_since, created_time")
+        .select("id, name, click_window, view_window, daily_backfilled_since")
         .eq("is_active", true)
         .or(`daily_backfilled_since.is.null,daily_backfilled_since.gt.${globalTarget}`)
         .order("daily_backfilled_since", { ascending: false, nullsFirst: true })
@@ -377,14 +377,13 @@ export async function handler(
       const counters = newCounters();
       perAccount.set(accountId, counters);
 
-      // Per-account target: RETENTION_DAYS ago, but never older than account
-      // creation (Meta has no data before the account existed). created_time is
-      // a full ISO timestamp; take its date part.
-      let target = globalTarget;
-      if (account.created_time) {
-        const createdDate = isoDate(new Date(account.created_time));
-        if (createdDate > target) target = createdDate;
-      }
+      // Per-account target: RETENTION_DAYS ago. We do NOT clamp to a stored
+      // account-creation date — `ad_accounts.created_at` is our onboarding
+      // timestamp, not the Meta account's age, so clamping to it would wrongly
+      // truncate the backfill for recently-onboarded accounts. Meta simply
+      // returns empty pages for dates before the account had activity, which the
+      // chunk loop below handles, so walking to the global target is safe.
+      const target = globalTarget;
 
       // Frontier: the coverage edge. NULL watermark => never backfilled => start
       // from today and walk back. Otherwise start from the earliest covered date.

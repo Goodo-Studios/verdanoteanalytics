@@ -178,11 +178,11 @@ Deno.test("buildDailyRow drops rows missing date_start, missing ad_id, or unknow
 
 // ── 3. Watermark advances backward after upsert; pins to target ──────────────
 
-Deno.test("handler advances daily_backfilled_since backward and pins at the target", async () => {
-  // Small window so it drains in one run: target = 20 days ago, frontier = today.
-  const today = new Date();
-  const createdTime = new Date(today.getTime() - 20 * 24 * 60 * 60 * 1000).toISOString();
-  const account = { id: "act_1", name: "A", click_window: 7, view_window: 1, daily_backfilled_since: null, created_time: createdTime };
+Deno.test("handler advances daily_backfilled_since backward and pins at the 365d target", async () => {
+  // No creation-date clamp anymore: the target is always RETENTION_DAYS ago.
+  // The fetcher serves one page per backward chunk and backoff waits are
+  // collapsed to 0 in this module, so the account drains to the target in one run.
+  const account = { id: "act_1", name: "A", click_window: 7, view_window: 1, daily_backfilled_since: null };
   const { supabase, updates } = makeRecorder([account], ["ad_a"]);
 
   const res = await mod.handler(req({ account_id: "act_1" }), supabase, fetcherServingOncePerChunk([dailyRow("ad_a", "2026-06-01", "5")]));
@@ -191,8 +191,8 @@ Deno.test("handler advances daily_backfilled_since backward and pins at the targ
   assertEquals(body.success, true);
   assertEquals(body.drained, true);
   assertEquals(body.totals.reached_target, 1);
-  // Final watermark write pins to the account's creation-clamped target.
-  const target = mod.isoDate(new Date(createdTime));
+  // Final watermark write pins to the global RETENTION_DAYS target.
+  const target = mod.dateDaysAgo(new Date(), RETENTION_DAYS);
   const lastWatermark = updates.filter((u) => "daily_backfilled_since" in u.patch).at(-1)?.patch.daily_backfilled_since;
   assertEquals(lastWatermark, target);
   // Upserts landed on creative_daily_metrics keyed by (ad_id,date).
