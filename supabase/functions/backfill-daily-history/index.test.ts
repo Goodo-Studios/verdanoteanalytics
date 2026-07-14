@@ -146,6 +146,12 @@ Deno.test("nextChunk clamps since to the target and never undershoots", () => {
   assertEquals(c!.until, "2026-01-10");
 });
 
+Deno.test("nextChunk honors an explicit (small) chunkDays for dense accounts", () => {
+  const c = mod.nextChunk("2026-07-14", "2026-01-01", mod.CHUNK_DAYS_LARGE);
+  assertEquals(c!.until, "2026-07-14");
+  assertEquals(c!.since, "2026-07-11"); // 3 days older, not 15
+});
+
 Deno.test("nextChunk returns null once the frontier reaches the target", () => {
   assertEquals(mod.nextChunk("2026-01-01", "2026-01-01"), null);
   assertEquals(mod.nextChunk("2025-12-01", "2026-01-01"), null); // already beyond
@@ -199,6 +205,25 @@ Deno.test("handler advances daily_backfilled_since backward and pins at the 365d
   const dmUpserts = updates; // updates only holds watermark writes; check via body totals
   assert(body.totals.upserted > 0, "should have upserted daily rows");
   assert(dmUpserts.length > 0);
+});
+
+Deno.test("a dense (large) account steps the watermark by the small chunk size", async () => {
+  // creative_count over the large-account threshold => CHUNK_DAYS_LARGE steps so a
+  // chunk fits inside one invocation's deadline instead of stalling forever.
+  const account = { id: "act_1", name: "A", click_window: 7, view_window: 1, daily_backfilled_since: null, creative_count: mod.LARGE_ACCOUNT_CREATIVES + 1000 };
+  const { supabase, updates } = makeRecorder([account], ["ad_a"]);
+
+  const res = await mod.handler(req({ account_id: "act_1" }), supabase, fetcherServingOncePerChunk([dailyRow("ad_a", "2026-06-01", "5")]));
+  const body = await res.json();
+
+  assertEquals(body.success, true);
+  // First watermark write is exactly CHUNK_DAYS_LARGE older than today (small step).
+  const firstStep = mod.dateDaysAgo(new Date(), mod.CHUNK_DAYS_LARGE);
+  const firstWatermark = updates.filter((u) => "daily_backfilled_since" in u.patch)[0]?.patch.daily_backfilled_since;
+  assertEquals(firstWatermark, firstStep);
+  // Still walks all the way to the 365d target.
+  const lastWatermark = updates.filter((u) => "daily_backfilled_since" in u.patch).at(-1)?.patch.daily_backfilled_since;
+  assertEquals(lastWatermark, mod.dateDaysAgo(new Date(), RETENTION_DAYS));
 });
 
 // ── 4. Rate-limit pause is NOT completion (watermark not advanced past chunk) ─

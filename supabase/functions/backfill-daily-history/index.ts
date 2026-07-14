@@ -45,8 +45,17 @@ import { RETENTION_DAYS } from "../_shared/retention-config.ts";
 
 const META_API_VERSION = "v22.0";
 
-// Day-chunk size for one Graph time_range request (matches sync Phase-4 CHUNK_DAYS).
+// Day-chunk size for one Graph time_range request. A chunk is the atomic unit of
+// progress: the watermark only advances once a chunk's full pagination completes,
+// so a chunk MUST fit inside DEADLINE_MS. Large/dense accounts pull ~500+ ad-rows
+// per day at 200 rows/page (~12s/page), so a 15-day chunk cannot finish in one
+// invocation — it would loop forever writing partial windows. Use a much smaller
+// chunk for large accounts so every invocation completes ≥1 chunk and advances.
 export const CHUNK_DAYS = 15;
+export const CHUNK_DAYS_LARGE = 3;
+// Accounts above this creative count use the small chunk (mirrors sync's
+// isLargeAccount page-size split at 3000).
+export const LARGE_ACCOUNT_CREATIVES = 3000;
 
 // Per-invocation wall budget. Edge fn hard wall ~150s here; leave margin to flush
 // the final upsert + watermark update + serialize the response.
@@ -131,14 +140,15 @@ export function dateDaysAgo(now: Date, days: number): string {
 export function nextChunk(
   frontier: string,
   target: string,
+  chunkDays: number = CHUNK_DAYS,
 ): { since: string; until: string } | null {
   if (frontier <= target) return null; // already at/beyond the target
   const frontierDate = new Date(frontier + "T00:00:00Z");
   // until = the frontier day itself (1-day overlap, no-op upsert on the PK).
   const until = isoDate(frontierDate);
-  // since = CHUNK_DAYS older than the frontier, clamped to the target.
+  // since = chunkDays older than the frontier, clamped to the target.
   const sinceDate = new Date(frontierDate);
-  sinceDate.setUTCDate(sinceDate.getUTCDate() - CHUNK_DAYS);
+  sinceDate.setUTCDate(sinceDate.getUTCDate() - chunkDays);
   let since = isoDate(sinceDate);
   if (since < target) since = target;
   return { since, until };
@@ -290,6 +300,39 @@ const defaultMetaFetch: MetaFetcher = async (url: string) => {
 };
 
 /**
+ * Fire a non-blocking follow-up invocation of this function to continue the
+ * backfill past this run's deadline. A full-year backfill of a dense account is
+ * far larger than one invocation's wall budget, so — rather than wait for the
+ * 20-minute cron between every chunk — we self-chain: each run that ends
+ * un-drained kicks the next immediately. The watermark makes it resumable and
+ * idempotent, and the pg_cron drain remains the backstop if a chain link drops.
+ * Fire-and-forget (mirrors sync's selfContinue); never throws into the caller.
+ */
+async function selfContinue(accountId?: string): Promise<void> {
+  try {
+    // No-serve (test) mode: never fire a real network invocation.
+    if (Deno.env.get("BACKFILL_DAILY_HISTORY_NO_SERVE")) return;
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !serviceKey) {
+      console.warn("backfill selfContinue: missing env vars — falling back to cron");
+      return;
+    }
+    const body = accountId ? { account_id: accountId } : {};
+    const continuePromise = fetch(`${supabaseUrl}/functions/v1/backfill-daily-history`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+      body: JSON.stringify(body),
+    }).catch((err) => console.warn("backfill selfContinue fetch error (non-fatal):", err));
+    const edgeRuntime = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
+    if (edgeRuntime?.waitUntil) edgeRuntime.waitUntil(continuePromise);
+    console.log("backfill selfContinue: fired non-blocking continue invocation");
+  } catch (err) {
+    console.warn("backfill selfContinue error (non-fatal):", err);
+  }
+}
+
+/**
  * @param req               inbound request ({ account_id?, dry_run? } body)
  * @param supabaseOverride  injected Supabase client (tests); a real client is
  *                          created from env otherwise. A non-client second arg
@@ -347,7 +390,7 @@ export async function handler(
     if (body.account_id) {
       const { data, error } = await supabase
         .from("ad_accounts")
-        .select("id, name, click_window, view_window, daily_backfilled_since")
+        .select("id, name, click_window, view_window, daily_backfilled_since, creative_count")
         .eq("id", body.account_id);
       if (error) throw error;
       accounts = data || [];
@@ -358,7 +401,7 @@ export async function handler(
       // with a null check + gt on the target date.
       const { data, error } = await supabase
         .from("ad_accounts")
-        .select("id, name, click_window, view_window, daily_backfilled_since")
+        .select("id, name, click_window, view_window, daily_backfilled_since, creative_count")
         .eq("is_active", true)
         .or(`daily_backfilled_since.is.null,daily_backfilled_since.gt.${globalTarget}`)
         .order("daily_backfilled_since", { ascending: false, nullsFirst: true })
@@ -385,26 +428,18 @@ export async function handler(
       // chunk loop below handles, so walking to the global target is safe.
       const target = globalTarget;
 
-      // Frontier: the coverage edge to walk backward from.
-      //  - Watermark set  => resume from it (the earliest date backfill confirmed).
-      //  - Watermark NULL => never backfilled. Rather than start at today and waste
-      //    the whole run re-pulling the recent window the regular sync already
-      //    covers, seed the frontier from the EARLIEST daily row we already have
-      //    so the first chunk immediately fills the gap below sync's window. This
-      //    also lands us in older, sparser history that fits inside one run's
-      //    deadline. Falls back to today when the account has no daily data yet.
-      let frontier: string;
-      if (account.daily_backfilled_since) {
-        frontier = account.daily_backfilled_since;
-      } else {
-        const { data: earliestRows } = await supabase
-          .from("creative_daily_metrics")
-          .select("date")
-          .eq("account_id", accountId)
-          .order("date", { ascending: true })
-          .limit(1);
-        frontier = (earliestRows && earliestRows[0]?.date) ? earliestRows[0].date : today;
-      }
+      // Per-account chunk size: dense accounts must use a small chunk so each
+      // chunk's full pagination completes within DEADLINE_MS (see CHUNK_DAYS).
+      const chunkDays = (account.creative_count ?? 0) > LARGE_ACCOUNT_CREATIVES
+        ? CHUNK_DAYS_LARGE
+        : CHUNK_DAYS;
+
+      // Frontier: the coverage edge to walk backward from. NULL watermark => never
+      // backfilled => start from today and walk back, re-covering (idempotent
+      // upsert) any window the regular sync already holds so coverage is verified
+      // complete end-to-end — including any window a prior interrupted run left
+      // partial. Otherwise resume from the earliest date backfill has confirmed.
+      let frontier: string = account.daily_backfilled_since || today;
       counters.watermark = frontier;
 
       // Attribution windows — same shape the sync uses for accurate conversions.
@@ -423,7 +458,7 @@ export async function handler(
       while (true) {
         if (timedOut()) { drained = false; break; }
 
-        const chunk = nextChunk(frontier, target);
+        const chunk = nextChunk(frontier, target, chunkDays);
         if (!chunk) {
           // Already at/beyond target — the account is fully backfilled. Leave the
           // watermark exactly as-is: it is already <= target (nextChunk returned
@@ -563,6 +598,13 @@ export async function handler(
       }),
       { chunks: 0, fetched: 0, upserted: 0, errors: 0, reached_target: 0 },
     );
+
+    // Self-chain when work remains: a deadline/pause cut this run short but the
+    // account(s) haven't reached the target. Kick the next invocation now instead
+    // of waiting for the cron. Skipped for dry runs (no state was written).
+    if (!dryRun && !drained) {
+      await selfContinue(body.account_id);
+    }
 
     const summary = {
       success: true,
