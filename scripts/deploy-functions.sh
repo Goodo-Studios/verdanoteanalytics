@@ -20,6 +20,7 @@ FUNCTIONS=(
   cleanup-stuck-syncs
   clear-media-cache
   client-insights
+  drain-media-queue
   competitor-ads
   create-coda-brief
   creatives

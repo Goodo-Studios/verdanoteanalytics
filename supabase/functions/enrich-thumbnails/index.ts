@@ -1,3 +1,10 @@
+// US-010 NOTE: heavy video downloads are now driven by the in-stack QUEUE worker
+// (drain-media-queue draining public.media_cache_queue), and this function's
+// blind-fanout media crons (media-cache-fanout-maint, media-video-discover-maint)
+// have been UNSCHEDULED (see 20260714000008_drain_media_queue_worker.sql). The
+// discovery/caching phases below are preserved for manual/backfill use and are the
+// staging ground for the WS2 cutover (US-011), which retires the fanout scans here
+// in favor of the queue path. No behavior change in this file for US-010.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";

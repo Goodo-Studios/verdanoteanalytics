@@ -213,6 +213,13 @@ verify_jwt = true
 [functions.client-insights]
 verify_jwt = true
 
+# US-010: queue-backed, self-chaining video download worker. Poked by pg_cron and
+# by its own self-chain via the service-role key (no user JWT), so JWT verification
+# is off — mirrors backfill-daily-history / cleanup-stuck-media. It only drains
+# public.media_cache_queue and writes to storage; there is no client entry point.
+[functions.drain-media-queue]
+verify_jwt = false
+
 # Browser-called; validates the user JWT internally AND enforces a
 # builder/employee role check.
 [functions.competitor-ads]
