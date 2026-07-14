@@ -60,6 +60,31 @@ export function computeDailyWindowDays(opts: {
   return Math.min(window, RETENTION_DAYS);
 }
 
+// US-008: Event-driven media cache enqueue helper.
+//
+// Given the ad_ids in a Phase-1 upsert batch and the set of ad_ids that ALREADY
+// existed in public.creatives before this run, return the ad_ids that are NEWLY
+// inserted this run — the only ones that should be enqueued for media caching.
+// Sync must enqueue ONLY new ads, never the whole account (that is the blind
+// fanout this workstream replaces). Pure + deterministic so the "enqueue exactly
+// the new ads" contract is unit-testable without a live DB. De-dupes within the
+// batch (Meta can page the same ad twice) and excludes any id already present.
+export function newlyInsertedAdIds(
+  batchAdIds: readonly string[],
+  existingAdIds: ReadonlySet<string>,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of batchAdIds) {
+    if (!id) continue;
+    if (existingAdIds.has(id)) continue; // already in creatives → not new
+    if (seen.has(id)) continue;          // dedupe within the batch
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
 // US-003: Canonical reference for the LOCAL snapshot rollup.
 //
 // The production rollup runs in Postgres (rollup_creatives_from_daily, migration
@@ -753,8 +778,44 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           }
         }
         if (upsertBatch.length > 0) {
+          // US-008: event-driven media caching — enqueue ONLY ads this run newly
+          // inserts into creatives (never the whole account). Determine "new" by
+          // diffing the batch's ad_ids against those that already exist BEFORE the
+          // upsert, then upsert, then enqueue the diff into media_cache_queue.
+          // Cheap: one indexed .in() lookup per batch (batches are one Meta page).
+          const batchAdIds = upsertBatch.map((r) => r.ad_id as string);
+          const { data: existingRows, error: existingErr } = await supabase
+            .from("creatives")
+            .select("ad_id")
+            .in("ad_id", batchAdIds);
+          if (existingErr) {
+            // If we can't tell which are new, skip enqueue for this batch rather
+            // than risk enqueuing the whole batch (blind fanout is exactly what
+            // US-008 removes). Caching still happens via the existing pipeline.
+            console.error("Phase 1 new-ad lookup error:", existingErr.message);
+          }
+          const existingAdIds = new Set<string>((existingRows || []).map((r: { ad_id: string }) => r.ad_id));
+
           const { error } = await supabase.from("creatives").upsert(upsertBatch, { onConflict: "ad_id" });
-          if (error) console.error("Phase 1 upsert error:", error.message);
+          if (error) {
+            console.error("Phase 1 upsert error:", error.message);
+          } else if (!existingErr) {
+            // Only enqueue after a clean upsert AND a reliable existing-id read.
+            const newAdIds = newlyInsertedAdIds(batchAdIds, existingAdIds);
+            if (newAdIds.length > 0) {
+              const queueRows = newAdIds.map((ad_id) => ({ ad_id, account_id: accountId, status: "pending" }));
+              // ignoreDuplicates: an ad already queued (e.g. a resumed Phase 1
+              // re-processing the same page) must not error or reset its state.
+              const { error: queueErr } = await supabase
+                .from("media_cache_queue")
+                .upsert(queueRows, { onConflict: "ad_id", ignoreDuplicates: true });
+              if (queueErr) {
+                console.error("Phase 1 media_cache_queue enqueue error:", queueErr.message);
+              } else {
+                console.log(`  Enqueued ${newAdIds.length} new ad(s) for media caching`);
+              }
+            }
+          }
         }
         if (metadataBatch.length > 0) {
           const rpcPayload = metadataBatch.map(({ ad_id, data }) => ({ ad_id, ...data }));

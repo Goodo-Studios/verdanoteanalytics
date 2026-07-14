@@ -25,7 +25,7 @@ Deno.env.set("BACKFILL_DAILY_HISTORY_NO_SERVE", "1");
 Deno.env.set("BACKFILL_BACKOFF_BASE_SEC", "0");
 Deno.env.set("META_ACCESS_TOKEN", "fake-meta-token");
 
-const { metaFetch, isInformationalSyncNote, countRealErrors, computeDailyWindowDays, rollupDailyRows } = await import("./index.ts");
+const { metaFetch, isInformationalSyncNote, countRealErrors, computeDailyWindowDays, rollupDailyRows, newlyInsertedAdIds } = await import("./index.ts");
 const { RECENT_WINDOW_DAYS, RETENTION_DAYS } = await import("../_shared/retention-config.ts");
 
 function ctx(timedOut = false) {
@@ -733,5 +733,58 @@ Deno.test(
     }
     // The exact 400d row is kept (predicate is strict `<`, not `<=`).
     assert(kept.includes(iso(today, 400)), "the 400d boundary row is retained");
+  },
+);
+
+// ── US-008: event-driven media cache enqueue (cache on new ads only) ──────────
+// newlyInsertedAdIds is the pure contract behind Phase 1's enqueue: given a Meta
+// ad batch and the ad_ids that ALREADY existed in creatives, it returns exactly
+// the ads that are new this run — the only ids sync enqueues into
+// media_cache_queue. This guards the core "cache on new ads only, never blind
+// fanout" guarantee without a live DB.
+
+Deno.test(
+  "US-008: a sync that adds 3 new ads enqueues exactly those 3 ads",
+  () => {
+    // Account already has ad_1, ad_2 cached; Meta returns them plus 3 brand-new ads.
+    const existing = new Set(["ad_1", "ad_2"]);
+    const batch = ["ad_1", "ad_2", "ad_3", "ad_4", "ad_5"];
+    const toEnqueue = newlyInsertedAdIds(batch, existing);
+    assertEquals(toEnqueue, ["ad_3", "ad_4", "ad_5"]);
+    assertEquals(toEnqueue.length, 3, "exactly the 3 new ads are enqueued, not the whole account");
+  },
+);
+
+Deno.test(
+  "US-008: a sync with no new ads enqueues nothing (fully-cached account)",
+  () => {
+    // Every ad Meta returns is already in creatives → nothing new → no fanout.
+    const existing = new Set(["ad_1", "ad_2", "ad_3"]);
+    const batch = ["ad_1", "ad_2", "ad_3"];
+    assertEquals(newlyInsertedAdIds(batch, existing), []);
+  },
+);
+
+Deno.test(
+  "US-008: newly-inserted ads are de-duped within a batch (Meta paging repeats)",
+  () => {
+    // Meta can surface the same ad twice across pages/campaigns in one run; an ad
+    // must be enqueued at most once (mirrors the media_cache_queue ad_id PK +
+    // ON CONFLICT DO NOTHING enqueue).
+    const existing = new Set<string>();
+    const batch = ["ad_9", "ad_9", "ad_10", "ad_9", "ad_10"];
+    assertEquals(newlyInsertedAdIds(batch, existing), ["ad_9", "ad_10"]);
+  },
+);
+
+Deno.test(
+  "US-008: already-cached ids never re-enqueue; empty/falsy ids are skipped",
+  () => {
+    // Already-in-creatives ads are excluded (they are already cached / will be
+    // via the immutable pipeline) so cached media is never re-downloaded via the
+    // queue. Guard against empty ad ids sneaking a bogus row into the queue.
+    const existing = new Set(["ad_1"]);
+    const batch = ["ad_1", "", "ad_2"];
+    assertEquals(newlyInsertedAdIds(batch, existing), ["ad_2"]);
   },
 );
