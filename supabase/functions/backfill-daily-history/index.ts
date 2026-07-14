@@ -385,9 +385,26 @@ export async function handler(
       // chunk loop below handles, so walking to the global target is safe.
       const target = globalTarget;
 
-      // Frontier: the coverage edge. NULL watermark => never backfilled => start
-      // from today and walk back. Otherwise start from the earliest covered date.
-      let frontier: string = account.daily_backfilled_since || today;
+      // Frontier: the coverage edge to walk backward from.
+      //  - Watermark set  => resume from it (the earliest date backfill confirmed).
+      //  - Watermark NULL => never backfilled. Rather than start at today and waste
+      //    the whole run re-pulling the recent window the regular sync already
+      //    covers, seed the frontier from the EARLIEST daily row we already have
+      //    so the first chunk immediately fills the gap below sync's window. This
+      //    also lands us in older, sparser history that fits inside one run's
+      //    deadline. Falls back to today when the account has no daily data yet.
+      let frontier: string;
+      if (account.daily_backfilled_since) {
+        frontier = account.daily_backfilled_since;
+      } else {
+        const { data: earliestRows } = await supabase
+          .from("creative_daily_metrics")
+          .select("date")
+          .eq("account_id", accountId)
+          .order("date", { ascending: true })
+          .limit(1);
+        frontier = (earliestRows && earliestRows[0]?.date) ? earliestRows[0].date : today;
+      }
       counters.watermark = frontier;
 
       // Attribution windows — same shape the sync uses for accurate conversions.
