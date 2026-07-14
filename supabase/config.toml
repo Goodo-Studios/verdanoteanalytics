@@ -79,6 +79,14 @@ verify_jwt = false
 [functions.backfill-play-curves]
 verify_jwt = false
 
+# US-004 (long-horizon-retention): one-time, chunked, rate-limit-aware backfill
+# of daily creative_daily_metrics history back to RETENTION_DAYS=365. Invoked by
+# the backfill-daily-history-20min pg_cron with the service-role bearer (Vault
+# secret), or manually with the service-role bearer — no end-user JWT. Does no
+# auth of its own; do not link it from any client.
+[functions.backfill-daily-history]
+verify_jwt = false
+
 [functions.system-health-check]
 verify_jwt = false
 

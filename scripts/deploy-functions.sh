@@ -11,6 +11,7 @@ FUNCTIONS=(
   accounts
   ai-chat
   api
+  backfill-daily-history
   backfill-play-curves
   backfill-post-urls
   backfill-retag
