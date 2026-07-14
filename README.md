@@ -95,6 +95,8 @@ Role is resolved via the `get_user_role` Postgres RPC on login.
 | `reports` | AI-generated performance reports |
 | `creatives` | Fetch and filter ad creatives with pagination |
 | `sync` | Meta Marketing API sync — pulls ad data into DB |
+| `backfill-daily-history` | One-time backfill of daily metrics to a full year |
+| `drain-media-queue` | Event-driven media caching worker (dedupe, no re-download) |
 | `enrich-thumbnails` | Downloads Meta ad thumbnails → Supabase Storage |
 | `send-digest` | Sends scheduled email digests |
 | `scheduled-reports` | Cron-triggered report generation |

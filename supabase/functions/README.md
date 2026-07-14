@@ -32,9 +32,11 @@ supabase secrets set META_ACCESS_TOKEN=<token>    # for Meta/Facebook sync
 
 | Function | Trigger | Purpose |
 |---|---|---|
-| `sync` | Manual / scheduled | Pulls creative performance data from Meta Marketing API and upserts into `creatives` and `creative_daily_metrics` |
+| `sync` | Manual / scheduled | Pulls creative performance data from Meta Marketing API and upserts into `creatives` and `creative_daily_metrics`. Uses a rolling incremental window (`max(28d, days-since-last-sync + attribution buffer)`) once an account is backfilled instead of re-pulling the full window, rolls up the per-ad snapshot locally (`rollup_creatives_from_daily`), and enqueues media caching into `media_cache_queue` for newly-inserted ads only. |
 | `scheduled-sync` | Cron | Wrapper around `sync` that runs automatically on configured intervals |
-| `enrich-thumbnails` | Post-sync | Downloads thumbnail images from Meta CDN and uploads them to Supabase Storage |
+| `backfill-daily-history` | One-time / Cron drain | Chunked, rate-limit-aware backward walk that fills `creative_daily_metrics` back to `RETENTION_DAYS` (365) so an account reaches a full year of daily-grain history. Idempotent/resumable via `ad_accounts.daily_backfilled_since`; self-limits to a few accounts per run and reuses the `sync` Meta rate-limit pause/resume contract. Drained by a pg_cron job. |
+| `enrich-thumbnails` | Post-sync | Downloads thumbnail images from Meta CDN and uploads them to Supabase Storage. Media caching is now event-driven via `media_cache_queue` (see `drain-media-queue`) — blind whole-account fanout has been retired. |
+| `drain-media-queue` | Cron (every 2 min) / self-chaining | Sole media-caching worker. Claims `media_cache_queue` rows (`FOR UPDATE SKIP LOCKED` via `claim_media_cache_queue`), streams the thumbnail/video into Supabase Storage (200MB cap; oversized → keep CDN URL), dedupes per account against `media_assets` (SHA-256 content key), short-circuits already-cached storage URLs, and self-chains until the queue is drained. Replaces the old OOM/stuck media churn. |
 | `refresh-thumbnails` | Manual | Re-fetches thumbnails for creatives that have stale or missing media |
 | `fetch-thumbnail` | On-demand | Fetches a single creative's thumbnail by ad ID |
 | `cache-creative-image` | On-demand (modal open) | Downloads a single creative's thumbnail/video from Meta and caches it in Supabase Storage. Invoked by the `CreativeDetailModal` when a creative has a `null` thumbnail, so the next view shows it without re-hitting Meta. Uses `_shared/media-discovery.ts` for URL resolution. |
@@ -126,7 +128,7 @@ The Vault is a creative-inspiration library: paste a TikTok, Instagram, YouTube,
 | `system-health-check` | Cron / Manual | Runs sanity checks on data freshness, sync status, and edge function reachability. Returns a JSON health report. |
 | `spend-diagnostic` | Manual | Diagnoses discrepancies between Meta-reported spend and spend stored in `creative_daily_metrics`. |
 | `cleanup-stuck-syncs` | Cron | Clears sync locks that have been held for over 30 minutes (stuck syncs). |
-| `cleanup-stuck-media` | Cron | Removes orphaned media upload jobs that never completed. |
+| `cleanup-stuck-media` | Manual (repair only) | Clears orphaned/stuck media jobs. No longer on a cron — the `drain-media-queue` worker owns the media pipeline; this is kept for manual repair/force use only. |
 | `clear-media-cache` | Manual | Clears the media URL cache for an account, forcing re-fetch on next load. |
 
 ### Internal / Misc
@@ -143,7 +145,8 @@ The Vault is a creative-inspiration library: paste a TikTok, Instagram, YouTube,
 |---|---|
 | `cors.ts` | Standard CORS headers returned by all functions |
 | `api-auth.ts` | Shared auth helpers — validates the calling user's session/role and exposes a `hashKey` SHA-256 utility used by API-style endpoints |
-| `media-discovery.ts` | Meta Graph API v22.0 media URL resolver. Provides `discoverImageUrl` / `discoverVideoUrl` / `fetchWithTimeout` and the `NO_THUMB_SENTINEL` / `NO_VIDEO_SENTINEL` markers used to short-circuit known-empty creatives. Consumed by `refresh-thumbnails`, `enrich-thumbnails`, `fetch-thumbnail`, and `cache-creative-image`. |
+| `media-discovery.ts` | Meta Graph API v22.0 media URL resolver. Provides `discoverImageUrl` / `discoverVideoUrl` / `fetchWithTimeout` and the `NO_THUMB_SENTINEL` / `NO_VIDEO_SENTINEL` markers used to short-circuit known-empty creatives. Also owns `assetStoragePath` (account-scoped, hash-keyed storage path for `media_assets` dedupe) and `isStorageUrl` (canonical guard that short-circuits re-discovery/re-download of already-cached media). Consumed by `refresh-thumbnails`, `enrich-thumbnails`, `fetch-thumbnail`, `cache-creative-image`, and `drain-media-queue`. |
+| `retention-config.ts` | Single source of truth for long-horizon retention windows: `RETENTION_DAYS` (365 — daily-history target), `RECENT_WINDOW_DAYS` (28 — incremental re-pull window), `TRIM_BUFFER_DAYS` (400 — nightly-trim floor, never deletes within the 365d window). Consumed by `sync`, `backfill-daily-history`, and the retention-trim cron. |
 | `platform.ts` | URL → platform detection for the Vault. Owns `PLATFORM_MAP`, `VIDEO_PLATFORMS`, `VIDEO_URL_PATTERN`, and `detectPlatform(url)`. Add a new platform here first before wiring it elsewhere. |
 | `actor-configs.ts` | Apify actor registry for the Vault. `ACTOR_CONFIGS[platform]` returns `{ actorId, buildInput, extractVideoUrl, extractThumbnailUrl, extractCreatorHandle, extractTitle, apiRunOptions }`. New ingestion platforms drop in here without touching `vault-extract` / `vault-extract-webhook`. |
 
