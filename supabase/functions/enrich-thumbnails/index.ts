@@ -1,10 +1,14 @@
-// US-010 NOTE: heavy video downloads are now driven by the in-stack QUEUE worker
-// (drain-media-queue draining public.media_cache_queue), and this function's
-// blind-fanout media crons (media-cache-fanout-maint, media-video-discover-maint)
-// have been UNSCHEDULED (see 20260714000008_drain_media_queue_worker.sql). The
-// discovery/caching phases below are preserved for manual/backfill use and are the
-// staging ground for the WS2 cutover (US-011), which retires the fanout scans here
-// in favor of the queue path. No behavior change in this file for US-010.
+// US-011 CUTOVER: this function is NO LONGER on any sync or cron path. Media caching
+// is fully event-driven now — sync enqueues only newly-inserted ads into
+// public.media_cache_queue (US-008) and the in-stack drain-media-queue worker
+// (US-010) discovers + caches exactly those, short-circuiting anything already in
+// storage (isStorageUrl guard). US-010 UNSCHEDULED the blind-fanout crons
+// (media-cache-fanout-maint, media-video-discover-maint, …) and US-011 removed the
+// last blind-fanout caller: sync's per-run `enrich-thumbnails?scope=all` kick-off
+// (which re-scanned the WHOLE account every sync) is replaced by a drain-media-queue
+// poke. The discovery/caching/repair phases below are KEPT only for MANUAL recovery
+// (scope=repair / force / force-video) — invoked by hand, never by a scheduler — so
+// no function directory is removed and config.toml/deploy-functions.sh are untouched.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
@@ -13,6 +17,7 @@ import {
   discoverVideoUrl,
   fetchAccountVideoMap,
   fetchWithTimeout,
+  isStorageUrl,
   looksLikeHtml,
   NO_THUMB_SENTINEL,
   NO_VIDEO_SENTINEL,
@@ -918,9 +923,9 @@ export async function runVideoCaching(
 }
 
 // ── Repair phase ────────────────────────────────────────────────────────────
-
-const isStorageUrl = (url: string | null | undefined): boolean =>
-  typeof url === "string" && url.includes("/storage/v1/object/public/");
+// US-011: isStorageUrl is the shared short-circuit guard (imported above). This
+// function is no longer on any sync/cron path — kept only for manual repair/force
+// flows — but its skip-gate routes through the same predicate as the queue drain.
 
 /**
  * Split a Supabase public storage URL into its bucket + object key so the object

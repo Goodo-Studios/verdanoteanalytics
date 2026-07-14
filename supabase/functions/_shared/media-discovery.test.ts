@@ -12,7 +12,7 @@
 //     account maps to one shared path (within-account dedupe).
 
 import { assertEquals, assertNotEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { assetStoragePath, computeContentHash } from "./media-discovery.ts";
+import { assetStoragePath, computeContentHash, isStorageUrl } from "./media-discovery.ts";
 
 const bytesOf = (s: string) => new TextEncoder().encode(s);
 
@@ -77,4 +77,38 @@ Deno.test("same asset key in one account → one shared path (within-account ded
 
 Deno.test("assetStoragePath tolerates a leading dot in the extension", () => {
   assertEquals(assetStoragePath("act_1", "hash", ".png"), "act_1/assets/hash.png");
+});
+
+// ── US-011: isStorageUrl short-circuit guard ─────────────────────────────────
+// The cutover's core guarantee — "cached media is never re-touched" — rests on this
+// predicate: a media column holding a permanent Supabase Storage URL means the asset
+// is ALREADY cached, so the pipeline must short-circuit BEFORE any re-discovery or
+// re-download. Both drain-media-queue and the manual repair/force paths route their
+// skip-gate through this one function, so these tests pin the contract shared by both.
+
+Deno.test("isStorageUrl: a public storage URL is recognized as already-cached", () => {
+  assertEquals(
+    isStorageUrl(
+      "https://gwyxaqoaldnaavkjqquv.supabase.co/storage/v1/object/public/ad-videos/act_1/ad_9.mp4",
+    ),
+    true,
+  );
+  assertEquals(
+    isStorageUrl(
+      "https://gwyxaqoaldnaavkjqquv.supabase.co/storage/v1/object/public/ad-thumbnails/act_1/assets/abc.jpg",
+    ),
+    true,
+  );
+});
+
+Deno.test("isStorageUrl: a live Meta CDN url is NOT storage (must still be cached)", () => {
+  assertEquals(isStorageUrl("https://scontent.xx.fbcdn.net/v/t42.1790-2/xyz.mp4?oh=abc"), false);
+});
+
+Deno.test("isStorageUrl: null / sentinel / empty are not storage urls", () => {
+  assertEquals(isStorageUrl(null), false);
+  assertEquals(isStorageUrl(undefined), false);
+  assertEquals(isStorageUrl(""), false);
+  assertEquals(isStorageUrl("no-video"), false);
+  assertEquals(isStorageUrl("no-thumbnail"), false);
 });

@@ -158,6 +158,21 @@ export function assetStoragePath(
   return `${accountId}/assets/${assetKey}.${cleanExt}`;
 }
 
+/**
+ * US-011: canonical "is this already a permanent Supabase Storage URL?" check.
+ *
+ * A media column holding a storage URL means the asset is ALREADY cached — the
+ * media pipeline must short-circuit on it BEFORE any re-discovery or re-download.
+ * This is the guard behind the workstream's core guarantee: "cached media is never
+ * re-touched." Both the queue drain worker (drain-media-queue) and the manual
+ * repair/force paths (enrich-thumbnails) route their skip-gate through this single
+ * predicate so the check can never drift between the two. Pure + dependency-free so
+ * the short-circuit contract is unit-testable without a live storage object.
+ */
+export function isStorageUrl(url: string | null | undefined): boolean {
+  return typeof url === "string" && url.includes("/storage/v1/object/public/");
+}
+
 /** Fetch with a timeout — aborts if the request takes longer than timeoutMs */
 export async function fetchWithTimeout(url: string, timeoutMs = 30_000): Promise<Response> {
   const controller = new AbortController();

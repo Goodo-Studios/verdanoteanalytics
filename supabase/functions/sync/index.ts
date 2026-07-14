@@ -1714,24 +1714,32 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         console.log("  Skipping post-sync audit — budget exceeded");
       }
 
-      // Media enrichment kick-off — awaited so the request is guaranteed to leave
-      // before the isolate is torn down (fire-and-forget here silently dropped the
-      // call and left thumbnails stale while the sync reported complete).
-      // Explicit scope=all: discovery (image+video) runs first, then enrich-thumbnails
-      // chains a separate caching invocation. Don't rely on the server-side default.
+      // US-011 cutover: media caching is now event-driven. Phase 1 already ENQUEUED
+      // only the ads this run newly inserted (US-008 → media_cache_queue), and the
+      // in-stack drain-media-queue worker (US-010) discovers + caches exactly those,
+      // short-circuiting any ad already cached to storage. The old blind fanout —
+      // `enrich-thumbnails?scope=all`, which re-scanned the WHOLE account (every
+      // creative, cached or not) on every sync — is RETIRED here: that path re-touched
+      // already-cached media and wasted Meta discovery budget, the exact churn this
+      // workstream removes. We just POKE the queue drain so newly-enqueued ads are
+      // picked up promptly; the drain's own pg_cron + self-chain handle the rest. A
+      // poke that finds an empty queue is a cheap no-op (claims 0 rows, chains
+      // nothing). Awaited so the request leaves before the isolate is torn down.
+      // enrich-thumbnails is kept ONLY for manual repair/force flows (scope=repair /
+      // force / force-video) — it is no longer on any sync or cron path.
       try {
-        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/enrich-thumbnails?scope=all`, {
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/drain-media-queue`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
           },
-          body: JSON.stringify({ account_id: accountId }),
+          body: "{}",
         });
-        console.log(`  Media enrichment triggered for account ${accountId}`);
+        console.log(`  Media queue drain poked for account ${accountId}`);
       } catch (enrichErr) {
-        console.error("enrich-thumbnails invocation error (non-fatal):", enrichErr);
-        ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Media enrichment kick-off failed: ${String(enrichErr)}` });
+        console.error("drain-media-queue poke error (non-fatal):", enrichErr);
+        ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Media queue drain poke failed: ${String(enrichErr)}` });
       }
 
       const finalStatus = countRealErrors([...JSON.parse(syncLog.api_errors || "[]"), ...ctx.apiErrors]) > 0 ? "completed_with_errors" : "completed";

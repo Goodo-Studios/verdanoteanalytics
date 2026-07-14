@@ -43,6 +43,7 @@ import {
   discoverImageUrl,
   discoverVideoUrl,
   fetchAccountVideoMap,
+  isStorageUrl,
   looksLikeHtml,
   NO_THUMB_SENTINEL,
   NO_VIDEO_SENTINEL,
@@ -87,8 +88,8 @@ export interface DrainSummary {
   reasons: Record<string, number>;
 }
 
-const isStorageUrl = (url: string | null | undefined): boolean =>
-  typeof url === "string" && url.includes("/storage/v1/object/public/");
+// US-011: isStorageUrl is the shared short-circuit guard (imported above) so the
+// "already cached → never re-touch" check can never drift from the repair path.
 
 // deno-lint-ignore no-explicit-any
 type Supa = any;
