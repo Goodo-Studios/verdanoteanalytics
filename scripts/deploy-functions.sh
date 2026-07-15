@@ -19,6 +19,8 @@ FUNCTIONS=(
   backfill-retag
   creative-rotation
   cache-creative-image
+  creative-library
+  creative-media-archive
   cleanup-stuck-media
   cleanup-stuck-syncs
   clear-media-cache

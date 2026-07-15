@@ -33,6 +33,17 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.entity-report]
+# Creative Library (Feature 4 + F3). Like leaderboard, does its OWN session-JWT
+# verification + per-account ownership check inside the handler, then calls the
+# SECURITY DEFINER RPCs (get_creative_library / get_creative_classification) with
+# the service role. verify_jwt=false so the gateway does not reject the request
+# before our handler runs (matches leaderboard).
+[functions.creative-library]
+verify_jwt = false
+
+# F3 bulk-zip export of durably-archived creative media. Same session-authed
+# pattern as creative-library.
+[functions.creative-media-archive]
 verify_jwt = false
 
 [functions.reports]

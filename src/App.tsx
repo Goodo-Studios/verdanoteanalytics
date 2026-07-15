@@ -46,6 +46,7 @@ const AgencyDashboardPage = lazy(routeImports.agencyDashboard);
 const ContentPipelinePage = lazy(routeImports.contentPipeline);
 // Old Ad Library is replaced by the Creative Vault Library page (US-006).
 // The old page lives at features/ad-library/AdLibraryPage.tsx and is no longer routed.
+const CreativeLibraryPage = lazy(routeImports.creativeLibrary);
 const AdLibraryPage = lazy(routeImports.adLibrary);
 const VaultItemDetailPage = lazy(routeImports.vaultItemDetail);
 const BoardsPage = lazy(routeImports.boards);
@@ -142,6 +143,9 @@ export function RoleGuardedRoutes() {
           <Route path="/agency" element={isBuilder ? <AgencyDashboardPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/creatives" element={<CreativesPage />} />
           <Route path="/creatives/compare" element={<ComparePage />} />
+          {/* Creative Library (Feature 4 + F3 + F6). Builder/employee only; the
+              page itself gates to the builder account for the dogfood rollout. */}
+          <Route path="/creative-library" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <CreativeLibraryPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/tagging" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <TaggingPage />} />
           
