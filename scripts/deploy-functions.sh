@@ -16,6 +16,8 @@ FUNCTIONS=(
   backfill-post-urls
   backfill-retag
   cache-creative-image
+  creative-library
+  creative-media-archive
   cleanup-stuck-media
   cleanup-stuck-syncs
   clear-media-cache

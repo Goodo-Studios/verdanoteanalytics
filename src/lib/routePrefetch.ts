@@ -17,6 +17,7 @@ export const routeImports = {
   briefs: () => import("@/pages/BriefsPage"),
   agencyDashboard: () => import("@/pages/AgencyDashboardPage"),
   contentPipeline: () => import("@/pages/ContentPipelinePage"),
+  creativeLibrary: () => import("@/features/creative-library/CreativeLibraryPage"),
   adLibrary: () => import("@/features/vault/LibraryPage"),
   vaultItemDetail: () => import("@/features/vault/ItemDetailPage"),
   boards: () => import("@/features/vault/BoardsPage"),
@@ -32,6 +33,7 @@ type Loader = () => Promise<unknown>;
 const PATH_PREFETCH: Record<string, Loader[]> = {
   "/": [routeImports.overview],
   "/creatives": [routeImports.creatives, routeImports.compare],
+  "/creative-library": [routeImports.creativeLibrary],
   "/analytics": [routeImports.analytics],
   "/tagging": [routeImports.tagging],
   "/pipeline": [routeImports.contentPipeline],

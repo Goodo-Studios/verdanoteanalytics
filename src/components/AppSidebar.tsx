@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Vault,
   ClipboardList,
+  Film,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
@@ -52,6 +53,7 @@ export const builderSections: NavSection[] = [
     items: [
       { title: "Overview", url: "/", icon: LayoutGrid },
       { title: "Creatives", url: "/creatives", icon: Zap },
+      { title: "Creative Library", url: "/creative-library", icon: Film },
       { title: "Analytics", url: "/analytics", icon: BarChart3 },
       { title: "Tagging", url: "/tagging", icon: Tags },
       { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
