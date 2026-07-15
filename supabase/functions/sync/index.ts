@@ -6,6 +6,7 @@ import { parseAdName, type ParsedAdName, type AdNameTags } from "../_shared/pars
 import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
 import { parsePlayCurve } from "../_shared/play-curve.ts";
 import { RECENT_WINDOW_DAYS, RETENTION_DAYS } from "../_shared/retention-config.ts";
+import { extractDestinationLink, normalizeDestinationUrl } from "../_shared/normalize-destination.ts";
 
 // US-002: Rolling-window incremental daily sync.
 //
@@ -765,6 +766,27 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             ad_post_url: adPostUrl,
             created_time: ad.created_time || null,
           };
+          // Story B — landing-page forward-fill (ADDITIVE + FAILSAFE).
+          // Derive the ad's destination from object_story_spec/asset_feed_spec (now
+          // requested on the existing Phase 1 fetch) so new/changed ads carry
+          // landing_page_url + destination_key without a manual backfill. Wrapped in
+          // try/catch: any failure leaves BOTH null and must never throw or alter
+          // sync control flow. Same extractor + normalizer the backfill uses.
+          let landingPageUrl: string | null = null;
+          let destinationKey: string | null = null;
+          try {
+            const rawLink = extractDestinationLink(ad.creative);
+            const key = normalizeDestinationUrl(rawLink);
+            if (key !== null) {
+              landingPageUrl = rawLink;
+              destinationKey = key;
+            }
+          } catch (_destErr) {
+            // Purely best-effort: leave landing_page_url/destination_key null.
+            landingPageUrl = null;
+            destinationKey = null;
+          }
+
           if (taggedAdIds.has(ad.id)) {
             metadataBatch.push({ ad_id: ad.id, data: metadata });
           } else {
@@ -774,6 +796,11 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
               platform: "meta",
               unique_code: ad.name.split("_")[0],
               ...metadata,
+              // Only include the columns when we resolved a real destination, so a
+              // no-link ad never overwrites a previously-backfilled value with null.
+              ...(destinationKey !== null
+                ? { landing_page_url: landingPageUrl, destination_key: destinationKey }
+                : {}),
             });
           }
         }
@@ -936,7 +963,11 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         // Fetch ads for this campaign
         let nextUrl: string | null = campCursor || (
           `https://graph.facebook.com/${META_API_VERSION}/${campaign.id}/ads?` +
-          `fields=id,name,status,created_time,campaign{name},adset{name},creative{effective_object_story_id}` +
+          // object_story_spec/asset_feed_spec are requested INSIDE the existing
+          // creative{...} expansion (Story B landing-page forward-fill). This adds
+          // fields to a request already being made — NOT a new Meta call and NOT a
+          // batching change — so the hot-path fetch/rate-limit contract is unchanged.
+          `fields=id,name,status,created_time,campaign{name},adset{name},creative{effective_object_story_id,object_story_spec,asset_feed_spec}` +
           `&filtering=${deliveredFilter}` +
           `&limit=200&access_token=${encodeURIComponent(metaToken)}`
         );
