@@ -28,6 +28,7 @@ FUNCTIONS=(
   enrich-thumbnails
   fetch-thumbnail
   ingest-reviews
+  landing-pages
   leaderboard
   portfolio
   quick-save

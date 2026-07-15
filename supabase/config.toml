@@ -15,6 +15,12 @@ verify_jwt = false
 [functions.leaderboard]
 verify_jwt = false
 
+# Session-authed read for the Landing Pages report. Validates the user JWT
+# internally (auth.getUser) + enforces account ownership, then calls the
+# SECURITY DEFINER RPC with the service role. Do not link from anon.
+[functions.landing-pages]
+verify_jwt = false
+
 [functions.reports]
 verify_jwt = false
 
