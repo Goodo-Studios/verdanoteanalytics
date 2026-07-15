@@ -17,6 +17,7 @@ import {
   Vault,
   ClipboardList,
   RefreshCw,
+  Layers,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
@@ -59,6 +60,7 @@ export const builderSections: NavSection[] = [
       { title: "Briefs", url: "/briefs", icon: ClipboardList },
       { title: "Reports", url: "/reports", icon: FileText },
       { title: "Creative Rotation", url: "/creative-rotation", icon: RefreshCw },
+      { title: "Entities", url: "/entities", icon: Layers },
     ],
   },
   {

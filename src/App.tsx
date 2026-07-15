@@ -31,6 +31,7 @@ const AnalyticsPage = lazy(routeImports.analytics);
 const ComparePage = lazy(routeImports.compare);
 const TaggingPage = lazy(routeImports.tagging);
 const ReportsPage = lazy(routeImports.reports);
+const EntityReportPage = lazy(routeImports.entityReport);
 const ClientReportsPage = lazy(routeImports.clientReports);
 const ReportDetailPage = lazy(routeImports.reportDetail);
 const ReportBuilderPage = lazy(routeImports.reportBuilder);
@@ -146,6 +147,7 @@ export function RoleGuardedRoutes() {
           
           <Route path="/landing-pages" element={isBuilder ? <LandingPagesPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : <ReportsPage />} />
+          <Route path="/entities" element={isBuilder ? <EntityReportPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/reports/:id" element={<ReportDetailPage />} />
           <Route path="/reports/:id/build" element={<ReportBuilderPage />} />
           <Route path="/creative-rotation" element={isBuilder ? <CreativeRotationPage /> : <Navigate to={`${prefix}/`} replace />} />

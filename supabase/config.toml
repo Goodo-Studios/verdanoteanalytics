@@ -19,6 +19,20 @@ verify_jwt = false
 # internally (auth.getUser) + enforces account ownership, then calls the
 # SECURITY DEFINER RPC with the service role. Do not link from anon.
 [functions.landing-pages]
+# ─── Entity Report (Feature 2, v1 text clustering) ───────────────────────────
+# creative-embed + cluster-creatives are internal/service-role batch jobs (same
+# model as vault-embed / backfill-*): invoked by the orchestrator with the
+# service-role bearer, never linked from a client, no user JWT. entity-report is
+# the browser read path — it validates the session JWT internally and enforces
+# account ownership before invoking the IDOR-guarded SECURITY DEFINER RPCs
+# (mirrors leaderboard), so verify_jwt stays false here.
+[functions.creative-embed]
+verify_jwt = false
+
+[functions.cluster-creatives]
+verify_jwt = false
+
+[functions.entity-report]
 verify_jwt = false
 
 [functions.reports]
