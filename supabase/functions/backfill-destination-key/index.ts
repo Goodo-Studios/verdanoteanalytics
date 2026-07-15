@@ -13,30 +13,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
-import { normalizeDestinationUrl } from "../_shared/normalize-destination.ts";
+import { extractDestinationLink, normalizeDestinationUrl } from "../_shared/normalize-destination.ts";
 
 const META_API_VERSION = "v22.0";
 const BUDGET_MS = 100_000; // 100s budget
 const META_BATCH = 50;
 
-// Best-effort extraction of the ad's click destination from a Meta creative object.
-function extractDestinationLink(creative: any): string | null {
-  const spec = creative?.object_story_spec;
-  if (spec) {
-    const fromLinkData = spec.link_data?.link;
-    if (fromLinkData) return fromLinkData;
-    const fromVideoCta = spec.video_data?.call_to_action?.value?.link;
-    if (fromVideoCta) return fromVideoCta;
-    const fromTemplate = spec.template_data?.link;
-    if (fromTemplate) return fromTemplate;
-    const child = spec.link_data?.child_attachments?.find((c: any) => c?.link)?.link;
-    if (child) return child;
-  }
-  const feed = creative?.asset_feed_spec;
-  const feedLink = feed?.link_urls?.find((l: any) => l?.website_url)?.website_url;
-  if (feedLink) return feedLink;
-  return null;
-}
+// extractDestinationLink now lives in _shared/normalize-destination.ts so the sync
+// forward-fill uses the exact same extraction (no split/merge drift).
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
