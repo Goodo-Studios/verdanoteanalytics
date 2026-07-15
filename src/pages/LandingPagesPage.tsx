@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { LandingPageCreativesDialog } from "@/components/landing-pages/LandingPageCreativesDialog";
 
 const BUILDER_ACCOUNT_ID = "act_782159176742035";
 const WINDOWS = [7, 14, 30, 90] as const;
@@ -67,6 +68,8 @@ export default function LandingPagesPage() {
   const [minSpend, setMinSpend] = useState<number>(0);
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("spend");
+  // US-004 drill-in: the destination whose creatives are open in the dialog (null = closed).
+  const [drillKey, setDrillKey] = useState<string | null>(null);
 
   const from = useMemo(() => isoDaysAgo(windowDays), [windowDays]);
   const to = useMemo(() => isoDaysAgo(0), []);
@@ -183,10 +186,21 @@ export default function LandingPagesPage() {
           {/* Destination cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {visible.map((r) => (
-              <Card key={r.destination_key} className="p-4 space-y-3">
+              <Card
+                key={r.destination_key}
+                className="p-4 space-y-3 cursor-pointer transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                role="button"
+                tabIndex={0}
+                aria-label={`View creatives for ${hostPath(r.destination_key)}`}
+                onClick={() => setDrillKey(r.destination_key)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDrillKey(r.destination_key); }
+                }}
+              >
                 <div className="flex items-start justify-between gap-2">
                   <a
                     href={r.destination_key} target="_blank" rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
                     className="text-sm font-medium text-primary hover:underline break-all"
                     title={r.destination_key}
                   >
@@ -207,6 +221,16 @@ export default function LandingPagesPage() {
               </Card>
             ))}
           </div>
+
+          {/* US-004 drill-in: creatives for the clicked destination over the current window. */}
+          <LandingPageCreativesDialog
+            accountId={selectedAccountId as string}
+            destinationKey={drillKey}
+            from={from}
+            to={to}
+            open={drillKey !== null}
+            onClose={() => setDrillKey(null)}
+          />
         </>
       )}
     </div>

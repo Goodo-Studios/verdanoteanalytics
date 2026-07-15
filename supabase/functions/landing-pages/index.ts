@@ -72,10 +72,32 @@ serve(async (req) => {
   const defaultFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const from = url.searchParams.get("from") || isoDate(defaultFrom);
   const to = url.searchParams.get("to") || isoDate(now);
-  const parsedMin = parseFloat(url.searchParams.get("min_spend") || "0");
-  const minSpend = Number.isFinite(parsedMin) && parsedMin > 0 ? parsedMin : 0;
+
+  // US-004 drill-in: when destination_key is present, return the per-creative rows
+  // for that destination (get_landing_page_creatives). Same JWT + ownership gate
+  // above already applied; the RPC trusts p_account_id (authenticated EXECUTE revoked),
+  // so this function stays the only sanctioned caller. Otherwise behave as US-003.
+  const destinationKey = url.searchParams.get("destination_key");
 
   try {
+    if (destinationKey) {
+      const { data, error } = await supabase.rpc("get_landing_page_creatives", {
+        p_account_id: accountId,
+        p_from: from,
+        p_to: to,
+        p_destination_key: destinationKey,
+      });
+      if (error) throw error;
+
+      return new Response(
+        JSON.stringify({ account_id: accountId, from, to, destination_key: destinationKey, rows: data ?? [] }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const parsedMin = parseFloat(url.searchParams.get("min_spend") || "0");
+    const minSpend = Number.isFinite(parsedMin) && parsedMin > 0 ? parsedMin : 0;
+
     const { data, error } = await supabase.rpc("get_landing_pages_report", {
       p_account_id: accountId,
       p_from: from,

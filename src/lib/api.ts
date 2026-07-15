@@ -135,3 +135,53 @@ export async function getLandingPages(
   if (to) params.set("to", to);
   return apiFetch("landing-pages", `?${params.toString()}`) as Promise<LandingPagesResponse>;
 }
+
+/** One creative row from the Landing Pages drill-in (US-004): the ads pointing at a
+ * single destination_key over the window. Ratios are derived in the SQL RPC from
+ * summed base metrics — render verbatim, never recompute. `ctr` is a true percentage.
+ * Media columns are the render source of truth off creatives (may be NULL or a
+ * "no-thumbnail"/"no-video" sentinel — callers must filter sentinels before rendering). */
+export interface LandingPageCreativeRow {
+  ad_id: string;
+  ad_name: string | null;
+  thumbnail_url: string | null;
+  preview_url: string | null;
+  video_url: string | null;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  purchases: number;
+  purchase_value: number;
+  roas: number;
+  cpa: number;
+  ctr: number;
+  cpc: number;
+}
+
+export interface LandingPageCreativesResponse {
+  account_id: string;
+  from: string;
+  to: string;
+  destination_key: string;
+  rows: LandingPageCreativeRow[];
+}
+
+/**
+ * Drill-in for one destination on the Landing Pages report (US-004): every creative
+ * pointing at `destinationKey` over the window, with per-creative performance +
+ * playable media. Served by the same session-authed `landing-pages` edge function
+ * (JWT + per-account ownership, then the SECURITY DEFINER RPC via service role —
+ * direct authenticated RPC access is revoked to close a cross-account IDOR).
+ * Aggregation lives only in the SQL RPC; callers render `rows` in the order received.
+ */
+export async function getLandingPageCreatives(
+  accountId: string,
+  destinationKey: string,
+  from?: string,
+  to?: string,
+): Promise<LandingPageCreativesResponse> {
+  const params = new URLSearchParams({ account_id: accountId, destination_key: destinationKey });
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  return apiFetch("landing-pages", `?${params.toString()}`) as Promise<LandingPageCreativesResponse>;
+}
