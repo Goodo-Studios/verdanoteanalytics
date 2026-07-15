@@ -79,6 +79,14 @@ verify_jwt = false
 [functions.backfill-play-curves]
 verify_jwt = false
 
+# US-004 (long-horizon-retention): one-time, chunked, rate-limit-aware backfill
+# of daily creative_daily_metrics history back to RETENTION_DAYS=365. Invoked by
+# the backfill-daily-history-20min pg_cron with the service-role bearer (Vault
+# secret), or manually with the service-role bearer — no end-user JWT. Does no
+# auth of its own; do not link it from any client.
+[functions.backfill-daily-history]
+verify_jwt = false
+
 [functions.system-health-check]
 verify_jwt = false
 
@@ -204,6 +212,13 @@ verify_jwt = true
 # Browser-called; validates the user JWT internally via auth.getUser().
 [functions.client-insights]
 verify_jwt = true
+
+# US-010: queue-backed, self-chaining video download worker. Poked by pg_cron and
+# by its own self-chain via the service-role key (no user JWT), so JWT verification
+# is off — mirrors backfill-daily-history / cleanup-stuck-media. It only drains
+# public.media_cache_queue and writes to storage; there is no client entry point.
+[functions.drain-media-queue]
+verify_jwt = false
 
 # Browser-called; validates the user JWT internally AND enforces a
 # builder/employee role check.

@@ -11,6 +11,7 @@ FUNCTIONS=(
   accounts
   ai-chat
   api
+  backfill-daily-history
   backfill-play-curves
   backfill-post-urls
   backfill-retag
@@ -19,6 +20,7 @@ FUNCTIONS=(
   cleanup-stuck-syncs
   clear-media-cache
   client-insights
+  drain-media-queue
   competitor-ads
   create-coda-brief
   creatives

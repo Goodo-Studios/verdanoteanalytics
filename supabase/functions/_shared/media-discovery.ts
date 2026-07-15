@@ -112,6 +112,67 @@ export function extractPreviewVideoSrc(previewBody: string): string | null {
   return matches.length > 0 ? matches[0] : null;
 }
 
+/**
+ * US-009: Compute the SHA-256 content hash (hex) of downloaded media bytes.
+ *
+ * This is the within-account dedupe key (media_assets.asset_key): identical
+ * creatives reused across many ads hash to the same value, so the second ad
+ * reuses the already-stored copy instead of downloading and storing the bytes
+ * again. Format-agnostic (works for image and video) and stable across Meta CDN
+ * URL re-issues for the same underlying asset. Pure + dependency-free (Web Crypto
+ * only) so it can be unit-tested without network or storage.
+ */
+export async function computeContentHash(
+  bytes: Uint8Array | ArrayBuffer,
+): Promise<string> {
+  // Normalize to a fresh ArrayBuffer-backed view so the digest input is a plain
+  // BufferSource (a SharedArrayBuffer-backed Uint8Array would fail the type).
+  const src = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const buf = new Uint8Array(src.byteLength);
+  buf.set(src);
+  const digest = await crypto.subtle.digest("SHA-256", buf);
+  const view = new Uint8Array(digest);
+  let hex = "";
+  for (let i = 0; i < view.length; i++) {
+    hex += view[i].toString(16).padStart(2, "0");
+  }
+  return hex;
+}
+
+/**
+ * US-009: Build the per-account, asset-keyed storage object path for a deduped
+ * media asset: `<accountId>/assets/<assetKey>.<ext>`.
+ *
+ * Embedding accountId FIRST preserves the tenant boundary — the same creative
+ * (same assetKey) appearing in two accounts resolves to two DISTINCT paths, so
+ * there is never a cross-account shared file. Keying by assetKey (not adId) is
+ * what makes the copy shared WITHIN the account: every ad reusing the creative
+ * maps to the identical path. Pure + dependency-free.
+ */
+export function assetStoragePath(
+  accountId: string,
+  assetKey: string,
+  ext: string,
+): string {
+  const cleanExt = ext.replace(/^\.+/, "");
+  return `${accountId}/assets/${assetKey}.${cleanExt}`;
+}
+
+/**
+ * US-011: canonical "is this already a permanent Supabase Storage URL?" check.
+ *
+ * A media column holding a storage URL means the asset is ALREADY cached — the
+ * media pipeline must short-circuit on it BEFORE any re-discovery or re-download.
+ * This is the guard behind the workstream's core guarantee: "cached media is never
+ * re-touched." Both the queue drain worker (drain-media-queue) and the manual
+ * repair/force paths (enrich-thumbnails) route their skip-gate through this single
+ * predicate so the check can never drift between the two. Pure + dependency-free so
+ * the short-circuit contract is unit-testable without a live storage object.
+ */
+export function isStorageUrl(url: string | null | undefined): boolean {
+  return typeof url === "string" && url.includes("/storage/v1/object/public/");
+}
+
 /** Fetch with a timeout — aborts if the request takes longer than timeoutMs */
 export async function fetchWithTimeout(url: string, timeoutMs = 30_000): Promise<Response> {
   const controller = new AbortController();

@@ -2,6 +2,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
+  assetStoragePath,
+  computeContentHash,
   discoverImageUrl,
   discoverVideoUrl,
   fetchAccountVideoMap,
@@ -22,6 +24,29 @@ const THUMB_BUCKET = "ad-thumbnails";
 const VIDEO_BUCKET = "ad-videos";
 const MAX_VIDEO_SIZE = 150 * 1024 * 1024;
 
+// A cached asset: the shared per-account stored copy plus its media_assets row id
+// so the calling creative can reference it (US-009 within-account dedupe).
+interface CachedAsset {
+  publicUrl: string;
+  assetId: string;
+}
+
+/**
+ * Download media and store it ONCE per unique creative within the account
+ * (US-009). Flow:
+ *   1. Fetch bytes and run the existing non-media / HTML guards.
+ *   2. Hash the bytes (SHA-256) → asset_key. This is the within-account dedupe key.
+ *   3. If media_assets already holds (account_id, asset_key), the copy is already
+ *      stored → NO-OP DOWNLOAD-to-storage: reuse the existing storage_path/public_url
+ *      and row id. (The re-fetch above is unavoidable to obtain the hash, but no
+ *      second copy is ever written to storage and no per-ad file is created.)
+ *   4. Otherwise store the bytes at an ASSET-keyed path — <account>/assets/<hash>.<ext>
+ *      (never per-ad) — and register the media_assets row.
+ *
+ * Tenant boundary: account_id scopes both the media_assets lookup AND the storage
+ * path, so the same creative in two accounts stores one copy per account — no
+ * cross-account sharing.
+ */
 async function downloadAndCache(
   supabase: ReturnType<typeof createClient>,
   bucket: string,
@@ -29,7 +54,7 @@ async function downloadAndCache(
   adId: string,
   url: string,
   type: "image" | "video"
-): Promise<string | null> {
+): Promise<CachedAsset | null> {
   try {
     const resp = await fetchWithTimeout(url, 60_000);
     if (!resp.ok) return null;
@@ -39,18 +64,34 @@ async function downloadAndCache(
     const contentType =
       resp.headers.get("content-type") ??
       (type === "video" ? "video/mp4" : "image/jpeg");
-    // Guard: never store a non-media payload (e.g. a text/html ad page) as <adId>.jpg/.mp4.
+    // Guard: never store a non-media payload (e.g. a text/html ad page) as an asset.
     if (!isMediaContentType(contentType, type)) {
       console.log(`Refusing to cache ${type} for ${adId}: non-${type} content (${contentType})`);
       return null;
     }
     // Magic-byte guard: an HTML login/error page can slip past the content-type
     // check (Meta sometimes serves it as application/octet-stream). Sniff the
-    // leading bytes so a page is never stored as <adId>.jpg/.mp4.
+    // leading bytes so a page is never stored as an asset.
     if (looksLikeHtml(new Uint8Array(buffer))) {
       console.log(`Refusing to cache ${type} for ${adId}: HTML page bytes (content-type ${contentType})`);
       return null;
     }
+
+    // ── Within-account dedupe key ────────────────────────────────────────────
+    const assetKey = await computeContentHash(buffer);
+
+    // Already stored for this account? Reuse — no second copy, no per-ad file.
+    const { data: existing } = await supabase
+      .from("media_assets")
+      .select("id, public_url")
+      .eq("account_id", accountId)
+      .eq("asset_key", assetKey)
+      .maybeSingle() as { data: { id: string; public_url: string } | null };
+    if (existing?.id && existing?.public_url) {
+      console.log(`[${adId}] Dedupe hit: reusing ${type} asset ${assetKey.slice(0, 12)}… for account ${accountId} (no re-download to storage)`);
+      return { publicUrl: existing.public_url, assetId: existing.id };
+    }
+
     const ext =
       type === "video"
         ? contentType.includes("webm") ? "webm" : "mp4"
@@ -59,12 +100,44 @@ async function downloadAndCache(
         : contentType.includes("webp")
         ? "webp"
         : "jpg";
-    const path = `${accountId}/${adId}.${ext}`;
+    // Asset-keyed path (NOT per-ad): every ad reusing this creative maps here.
+    const path = assetStoragePath(accountId, assetKey, ext);
     const { error } = await supabase.storage
       .from(bucket)
       .upload(path, new Uint8Array(buffer), { contentType, upsert: true });
     if (error) return null;
-    return `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`;
+    const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`;
+
+    // Register the asset. ON CONFLICT (account_id, asset_key) makes a concurrent
+    // caller's insert a safe no-op — we re-select to return the winning row's id.
+    const { data: upserted, error: assetErr } = await supabase
+      .from("media_assets")
+      .upsert(
+        {
+          account_id: accountId,
+          asset_key: assetKey,
+          media_type: type,
+          bucket,
+          storage_path: path,
+          public_url: publicUrl,
+          byte_size: buffer.byteLength,
+          content_type: contentType,
+          updated_at: new Date().toISOString(),
+        } as never,
+        { onConflict: "account_id,asset_key" }
+      )
+      .select("id, public_url")
+      .maybeSingle() as {
+        data: { id: string; public_url: string } | null;
+        error: { message: string } | null;
+      };
+    if (assetErr || !upserted?.id) {
+      // Registry write failed but bytes are stored — still return the URL so the
+      // creative renders; asset linkage is best-effort and re-attempted next run.
+      console.log(`[${adId}] media_assets upsert failed (${assetErr?.message ?? "no row"}) — returning storage URL without asset id`);
+      return { publicUrl, assetId: "" };
+    }
+    return { publicUrl: upserted.public_url, assetId: upserted.id };
   } catch {
     return null;
   }
@@ -106,7 +179,7 @@ serve(async (req) => {
 
   const { data: creative, error: fetchErr } = await supabase
     .from("creatives")
-    .select("ad_id, account_id, thumbnail_url, full_res_url, video_url")
+    .select("ad_id, account_id, thumbnail_url, full_res_url, video_url, thumb_asset_id, video_asset_id")
     .eq("ad_id", ad_id)
     .single();
 
@@ -117,7 +190,8 @@ serve(async (req) => {
     });
   }
 
-  const updates: Record<string, string> = {};
+  // string columns (urls) + nullable asset-id FKs (US-009 dedupe references).
+  const updates: Record<string, string | null> = {};
 
   // Skip flags (hoisted): don't re-discover media already cached to storage or
   // confirmed absent (sentinel). Re-run discovery only for null / stale CDN URLs.
@@ -156,12 +230,13 @@ serve(async (req) => {
     console.log(`[${ad_id}] Discovering image...`);
     const result = await discoverImageUrl(ad_id, account_id, metaToken!);
     if (result?.thumbnailUrl) {
-      const storageUrl = await downloadAndCache(
+      const asset = await downloadAndCache(
         supabase, THUMB_BUCKET, account_id, ad_id, result.thumbnailUrl, "image"
       );
-      if (storageUrl) {
-        updates.thumbnail_url = storageUrl;
-        updates.full_res_url = storageUrl;
+      if (asset) {
+        updates.thumbnail_url = asset.publicUrl;
+        updates.full_res_url = asset.publicUrl;
+        if (asset.assetId) updates.thumb_asset_id = asset.assetId;
       } else {
         // Download failed — store CDN URL as fallback so modal has something
         if (!creative.thumbnail_url) updates.thumbnail_url = result.thumbnailUrl;
@@ -178,11 +253,12 @@ serve(async (req) => {
     if (creative.video_url) {
       // Already have a CDN URL — try to cache it to storage first.
       console.log(`[${ad_id}] Caching existing CDN video URL to storage...`);
-      const storageUrl = await downloadAndCache(
+      const asset = await downloadAndCache(
         supabase, VIDEO_BUCKET, account_id, ad_id, creative.video_url, "video"
       );
-      if (storageUrl) {
-        updates.video_url = storageUrl;
+      if (asset) {
+        updates.video_url = asset.publicUrl;
+        if (asset.assetId) updates.video_asset_id = asset.assetId;
       } else {
         // CDN URL is expired or undownloadable — fall through to full re-discovery
         // so we get a fresh URL rather than silently returning a stale one that
@@ -191,13 +267,14 @@ serve(async (req) => {
         const accountVideoMap = await fetchAccountVideoMap(account_id, metaToken!);
         const freshUrl = await discoverVideoUrl(ad_id, metaToken!, 30_000, accountVideoMap);
         if (freshUrl && freshUrl !== NO_VIDEO_SENTINEL) {
-          const freshStorageUrl = await downloadAndCache(
+          const freshAsset = await downloadAndCache(
             supabase, VIDEO_BUCKET, account_id, ad_id, freshUrl, "video"
           );
           // Use storage URL if caching succeeded, otherwise use the fresh CDN URL.
           // Either is better than the expired original — don't write the sentinel
           // (that would permanently block future re-discovery for a video that exists).
-          updates.video_url = freshStorageUrl ?? freshUrl;
+          updates.video_url = freshAsset?.publicUrl ?? freshUrl;
+          if (freshAsset?.assetId) updates.video_asset_id = freshAsset.assetId;
         }
         // If re-discovery also failed, don't update — preserve the expired CDN URL
         // as-is rather than poisoning the row with a sentinel.
@@ -209,11 +286,12 @@ serve(async (req) => {
       const accountVideoMap = await fetchAccountVideoMap(account_id, metaToken!);
       const videoUrl = await discoverVideoUrl(ad_id, metaToken!, 30_000, accountVideoMap);
       if (videoUrl && videoUrl !== NO_VIDEO_SENTINEL) {
-        const storageUrl = await downloadAndCache(
+        const asset = await downloadAndCache(
           supabase, VIDEO_BUCKET, account_id, ad_id, videoUrl, "video"
         );
         // Use storage URL if download succeeded, otherwise fall back to CDN URL
-        updates.video_url = storageUrl ?? videoUrl;
+        updates.video_url = asset?.publicUrl ?? videoUrl;
+        if (asset?.assetId) updates.video_asset_id = asset.assetId;
       } else {
         // Only set sentinel for null video_url (never tried before) — discovery found nothing
         updates.video_url = NO_VIDEO_SENTINEL;
