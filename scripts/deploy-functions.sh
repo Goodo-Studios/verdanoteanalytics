@@ -13,9 +13,11 @@ FUNCTIONS=(
   api
   backfill-daily-history
   backfill-destination-key
+  backfill-launch-dates
   backfill-play-curves
   backfill-post-urls
   backfill-retag
+  creative-rotation
   cache-creative-image
   cleanup-stuck-media
   cleanup-stuck-syncs

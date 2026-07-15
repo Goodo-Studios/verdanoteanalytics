@@ -34,6 +34,7 @@ const ReportsPage = lazy(routeImports.reports);
 const ClientReportsPage = lazy(routeImports.clientReports);
 const ReportDetailPage = lazy(routeImports.reportDetail);
 const ReportBuilderPage = lazy(routeImports.reportBuilder);
+const CreativeRotationPage = lazy(routeImports.creativeRotation);
 const PublicReportPage = lazy(() => import("./pages/PublicReportPage"));
 const SettingsPage = lazy(routeImports.settings);
 const LandingPagesPage = lazy(routeImports.landingPages);
@@ -147,6 +148,7 @@ export function RoleGuardedRoutes() {
           <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : <ReportsPage />} />
           <Route path="/reports/:id" element={<ReportDetailPage />} />
           <Route path="/reports/:id/build" element={<ReportBuilderPage />} />
+          <Route path="/creative-rotation" element={isBuilder ? <CreativeRotationPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/user-settings" element={<Navigate to={`${prefix}/settings`} replace />} />
           
