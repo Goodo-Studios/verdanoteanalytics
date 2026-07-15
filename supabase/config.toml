@@ -200,6 +200,20 @@ verify_jwt = true
 [functions.backfill-post-urls]
 verify_jwt = false
 
+# F2: one-time / periodic backfill of creatives.created_time + derivation of the
+# lifecycle-date columns. Invoked by an internal/trusted caller with the
+# service-role bearer — no end-user JWT (same pattern as the other backfill-*
+# functions). Does no auth of its own; do not link it from any client.
+[functions.backfill-launch-dates]
+verify_jwt = false
+
+# Session-authed read fn for the Creative Rotation report. Validates the user
+# JWT internally (auth.getUser + verifyAccountOwnership) and invokes the
+# IDOR-gated rpc_creative_rotation_* RPCs with the service-role client — same
+# shape as [functions.leaderboard].
+[functions.creative-rotation]
+verify_jwt = false
+
 # Browser-called; validates the user JWT internally via auth.getUser(token).
 [functions.cache-creative-image]
 verify_jwt = true

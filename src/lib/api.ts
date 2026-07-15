@@ -84,3 +84,93 @@ export async function getLibrary(
   });
   return apiFetch("leaderboard", `?${params.toString()}`) as Promise<LibraryResponse>;
 }
+
+// ── Creative Rotation report (Feature 3) ────────────────────────────────────
+/** The fresh-window toggle: creative counts as "fresh" if age <= this many days. */
+export type FreshDays = 7 | 14 | 30;
+
+/** Window-level freshness KPIs (the RPC's synthetic 'total' row). All ratios are
+ * derived in SQL from summed base metrics — never recomputed client-side. */
+export interface RotationKpis {
+  bucket: "total";
+  week_start: null;
+  total_spend: number;
+  fresh_spend: number;
+  mid_spend: number;
+  stale_spend: number;
+  fresh_spend_pct: number;       // true percentage
+  spend_weighted_age: number;    // days
+  fresh_purchases: number;
+  fresh_spend_conv: number;
+  stale_purchases: number;
+  fresh_cpa: number;
+  stale_cpa: number;
+}
+
+/** One ISO-week row for the stacked spend-by-age + freshness-vs-CPA series. */
+export interface RotationWeeklyAge {
+  bucket: "week";
+  week_start: string;            // Monday, YYYY-MM-DD
+  total_spend: number;
+  fresh_spend: number;
+  mid_spend: number;
+  stale_spend: number;
+  fresh_spend_pct: number;
+  spend_weighted_age: number;
+  fresh_purchases: number;
+  fresh_spend_conv: number;
+  stale_purchases: number;
+  fresh_cpa: number;
+  stale_cpa: number;
+}
+
+/** One launch-cohort row (creatives grouped by launch week). */
+export interface RotationCohort {
+  launch_week: string;           // Monday, YYYY-MM-DD
+  creative_count: number;
+  still_live: number;
+  spend: number;
+  spend_share: number;           // true percentage
+  purchases: number;
+  purchase_value: number;
+  cpa: number;
+  roas: number;
+}
+
+/** One "new ads added over time" row. */
+export interface RotationNewAds {
+  week_start: string;            // Monday, YYYY-MM-DD
+  new_ads: number;
+  cumulative: number;
+}
+
+export interface CreativeRotationResponse {
+  fresh_days: FreshDays;
+  from: string;
+  to: string;
+  kpis: RotationKpis | null;
+  weekly_age: RotationWeeklyAge[];
+  cohorts: RotationCohort[];
+  new_ads_timeline: RotationNewAds[];
+}
+
+/**
+ * Creative Rotation report data for one account + window. Served by the
+ * session-authed `creative-rotation` edge fn (verifies the session JWT, enforces
+ * per-account ownership, then calls the IDOR-gated rpc_creative_rotation_* RPCs
+ * via service role). All aggregation lives in SQL — render rows verbatim.
+ */
+export async function getCreativeRotation(
+  accountId: string,
+  from: string,
+  to: string,
+  freshDays: FreshDays = 14
+): Promise<CreativeRotationResponse> {
+  const params = new URLSearchParams({
+    account_id: accountId,
+    from,
+    to,
+    fresh_days: String(freshDays),
+  });
+  return apiFetch("creative-rotation", `?${params.toString()}`) as Promise<CreativeRotationResponse>;
+}

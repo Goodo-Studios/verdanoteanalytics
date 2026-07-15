@@ -12,9 +12,11 @@ FUNCTIONS=(
   ai-chat
   api
   backfill-daily-history
+  backfill-launch-dates
   backfill-play-curves
   backfill-post-urls
   backfill-retag
+  creative-rotation
   cache-creative-image
   cleanup-stuck-media
   cleanup-stuck-syncs
