@@ -20,8 +20,11 @@ FUNCTIONS=(
   cleanup-stuck-syncs
   clear-media-cache
   client-insights
+  cluster-creatives
+  creative-embed
   drain-media-queue
   competitor-ads
+  entity-report
   create-coda-brief
   creatives
   enrich-thumbnails
