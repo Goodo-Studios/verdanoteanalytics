@@ -200,6 +200,11 @@ verify_jwt = true
 [functions.backfill-post-urls]
 verify_jwt = false
 
+# One-off backfill of creatives.destination_key (Landing Pages report, F4).
+# Does no auth of its own; do not link it from any client — invoke with the secret key.
+[functions.backfill-destination-key]
+verify_jwt = false
+
 # Browser-called; validates the user JWT internally via auth.getUser(token).
 [functions.cache-creative-image]
 verify_jwt = true

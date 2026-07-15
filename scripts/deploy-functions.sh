@@ -12,6 +12,7 @@ FUNCTIONS=(
   ai-chat
   api
   backfill-daily-history
+  backfill-destination-key
   backfill-play-curves
   backfill-post-urls
   backfill-retag
