@@ -84,3 +84,54 @@ export async function getLibrary(
   });
   return apiFetch("leaderboard", `?${params.toString()}`) as Promise<LibraryResponse>;
 }
+
+/** One destination row from the Landing Pages report (Creative Terminal — Feature 1).
+ * Ratios are derived in the SQL RPC from summed base metrics — render verbatim,
+ * never recompute. Percentages (cvr, atc_rate, ctr) are already true percentages. */
+export interface LandingPageRow {
+  destination_key: string;
+  creative_count: number;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  purchases: number;
+  purchase_value: number;
+  adds_to_cart: number;
+  video_views: number;
+  roas: number;
+  cpa: number;
+  cvr: number;
+  atc_rate: number;
+  aov: number;
+  ctr: number;
+  cpm: number;
+  cpc: number;
+}
+
+export interface LandingPagesResponse {
+  account_id: string;
+  from: string;
+  to: string;
+  min_spend: number;
+  rows: LandingPageRow[];
+}
+
+/**
+ * Landing Pages report for one account: every ad destination consolidated across
+ * duplicate/UTM-variant links, over a date window. Served by the first-party,
+ * session-authed `landing-pages` edge function (verifies the session JWT, enforces
+ * per-account ownership, then calls the SECURITY DEFINER RPC via service role —
+ * direct authenticated RPC access was revoked to close a cross-account IDOR).
+ * Aggregation lives only in the SQL RPC; callers render `rows` in the order received.
+ */
+export async function getLandingPages(
+  accountId: string,
+  from?: string,
+  to?: string,
+  minSpend = 0,
+): Promise<LandingPagesResponse> {
+  const params = new URLSearchParams({ account_id: accountId, min_spend: String(minSpend) });
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  return apiFetch("landing-pages", `?${params.toString()}`) as Promise<LandingPagesResponse>;
+}

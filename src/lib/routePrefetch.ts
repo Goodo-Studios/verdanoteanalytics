@@ -13,6 +13,7 @@ export const routeImports = {
   clientReports: () => import("@/pages/ClientReportsPage"),
   reportDetail: () => import("@/pages/ReportDetailPage"),
   reportBuilder: () => import("@/pages/ReportBuilderPage"),
+  landingPages: () => import("@/pages/LandingPagesPage"),
   settings: () => import("@/pages/SettingsPage"),
   briefs: () => import("@/pages/BriefsPage"),
   agencyDashboard: () => import("@/pages/AgencyDashboardPage"),
