@@ -53,9 +53,12 @@ const META_API_VERSION = "v22.0";
 // chunk for large accounts so every invocation completes ≥1 chunk and advances.
 export const CHUNK_DAYS = 15;
 export const CHUNK_DAYS_LARGE = 3;
-// Accounts above this creative count use the small chunk (mirrors sync's
-// isLargeAccount page-size split at 3000).
-export const LARGE_ACCOUNT_CREATIVES = 3000;
+// Accounts above this creative count use the small chunk. Set well below the
+// per-day density that stalls a 15-day chunk: an account with ~2800 creatives
+// (Miracle Brand) stalled at 15-day chunks (watermark stuck, chunks=0), so the
+// threshold is low enough that any account with a non-trivial ad volume gets the
+// small chunk. Only genuinely tiny accounts keep the 15-day chunk.
+export const LARGE_ACCOUNT_CREATIVES = 500;
 
 // Per-invocation wall budget. Edge fn hard wall ~150s here; leave margin to flush
 // the final upsert + watermark update + serialize the response.
