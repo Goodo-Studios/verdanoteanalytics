@@ -19,7 +19,6 @@ import { downloadCSV } from "@/lib/csv";
 // (roadmap §4 "Rollout sequencing" — dogfood on Goodo before any account-wide
 // rollout). Gate = builder ROLE (matches the /agency, /tagging, /ad-library
 // role gates) AND the selected account being the builder account.
-const BUILDER_ACCOUNT_ID = "act_782159176742035"; // Goodo Studios
 
 const FRESH_OPTIONS: FreshDays[] = [7, 14, 30];
 
@@ -53,7 +52,9 @@ const CreativeRotationPage = () => {
     () => format(subDays(new Date(), 1), "yyyy-MM-dd"),
   );
 
-  const gated = isBuilder && selectedAccountId === BUILDER_ACCOUNT_ID;
+  // Builder-view rollout: available (here `gated` means allowed) for the builder
+  // role on ANY account; the route already gates non-builders away.
+  const gated = isBuilder;
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["creative-rotation", selectedAccountId, dateFrom, dateTo, freshDays],

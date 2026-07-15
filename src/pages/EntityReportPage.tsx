@@ -22,7 +22,6 @@ import {
 // Builder-account-first rollout: the Entity Report ships gated to the Goodo
 // builder account only (see roadmap §"Rollout sequencing"). Account ids are
 // stored with the Meta `act_` prefix.
-const BUILDER_ACCOUNT_ID = "act_782159176742035";
 
 type TierFilter = "all" | ConfidenceTier;
 
@@ -169,7 +168,8 @@ export default function EntityReportPage() {
   const [openCluster, setOpenCluster] = useState<EntityCluster | null>(null);
 
   // Builder-account-first gate: only the builder role, only the Goodo account.
-  const gated = !isBuilder || selectedAccountId !== BUILDER_ACCOUNT_ID;
+  // Builder-view rollout: available for the builder role on ANY account.
+  const gated = !isBuilder;
 
   const { data, isLoading, error } = useEntityReport(gated ? undefined : selectedAccountId ?? undefined);
 

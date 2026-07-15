@@ -21,7 +21,6 @@ import {
 } from "@/components/ui/select";
 import { LandingPageCreativesDialog } from "@/components/landing-pages/LandingPageCreativesDialog";
 
-const BUILDER_ACCOUNT_ID = "act_782159176742035";
 const WINDOWS = [7, 14, 30, 90] as const;
 
 type SortKey = "spend" | "roas" | "cpa" | "cvr" | "purchases";
@@ -74,7 +73,9 @@ export default function LandingPagesPage() {
   const from = useMemo(() => isoDaysAgo(windowDays), [windowDays]);
   const to = useMemo(() => isoDaysAgo(0), []);
 
-  const gated = !isBuilder || selectedAccountId !== BUILDER_ACCOUNT_ID;
+  // Builder-view rollout: available for the builder role on ANY account (route
+  // already gates non-builders away). Account data is backfilled per-account.
+  const gated = !isBuilder;
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["landing-pages", selectedAccountId, from, to, minSpend],

@@ -145,7 +145,7 @@ export function RoleGuardedRoutes() {
           <Route path="/creatives/compare" element={<ComparePage />} />
           {/* Creative Library (Feature 4 + F3 + F6). Builder/employee only; the
               page itself gates to the builder account for the dogfood rollout. */}
-          <Route path="/creative-library" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <CreativeLibraryPage />} />
+          <Route path="/creative-library" element={isBuilder ? <CreativeLibraryPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/tagging" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <TaggingPage />} />
           

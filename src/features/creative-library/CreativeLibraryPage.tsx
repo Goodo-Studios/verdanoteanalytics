@@ -24,8 +24,6 @@ import { CLASS_META } from "./components/classMeta";
 // the internal builder account (Goodo) first. Non-matching accounts see a notice
 // until it is proven and rolled out. The env-overridable constant keeps the gate
 // in one place for the eventual rollout story.
-const BUILDER_ACCOUNT_ID =
-  (import.meta.env.VITE_BUILDER_ACCOUNT_ID as string) || "act_782159176742035";
 
 const WINDOWS: { label: string; days: number }[] = [
   { label: "Last 7 days", days: 7 },
@@ -71,7 +69,9 @@ export default function CreativeLibraryPage() {
   const from = useMemo(() => isoDaysAgo(windowDays), [windowDays]);
   const to = useMemo(() => today(), []);
 
-  const gated = !!selectedAccountId && selectedAccountId !== BUILDER_ACCOUNT_ID;
+  // Builder-view rollout: available for any selected account (the /creative-library
+  // route is builder-only). Only "gated" when no account is chosen yet.
+  const gated = !selectedAccountId;
 
   const { data, isLoading, isError, error, refetch } = useCreativeLibrary(
     gated ? null : selectedAccountId,
@@ -174,7 +174,7 @@ export default function CreativeLibraryPage() {
         <div className="text-center py-24 space-y-2">
           <LayoutGrid className="w-10 h-10 text-muted-foreground mx-auto" />
           <p className="text-muted-foreground">
-            The Creative Library is being dogfooded on the builder account first and isn't enabled for this account yet.
+            Select an account to view its Creative Library.
           </p>
         </div>
       </div>
