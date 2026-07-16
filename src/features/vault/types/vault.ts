@@ -50,6 +50,34 @@ export interface InspirationItem {
   created_at: string;
 }
 
+// Creative carousel/multi-frame media (US-004).
+// `public.creative_frames` + joined `media_assets` — neither is in the generated
+// Verdanote `types.ts`, so we hand-type the row here and cast supabase calls with
+// `as any` (same approach as InspirationItem above).
+export type CreativeFrameMediaType =
+  | "image"
+  | "video"
+  | "carousel_frame"
+  | "video_thumbnail";
+
+export interface CreativeFrame {
+  id: string;
+  ad_id: string;
+  // 0-based render order; frames are queried `order("frame_index", ascending)`.
+  frame_index: number;
+  media_type: string;
+  // FK → media_assets.id. NULL when the frame's media has not been cached yet.
+  asset_id: string | null;
+  created_at?: string;
+  updated_at?: string;
+  // Joined from media_assets on asset_id (may be absent when asset_id is NULL).
+  media_assets?: {
+    public_url: string | null;
+    content_type: string | null;
+    byte_size: number | null;
+  } | null;
+}
+
 export interface InspirationTranscript {
   id: string;
   item_id: string;
