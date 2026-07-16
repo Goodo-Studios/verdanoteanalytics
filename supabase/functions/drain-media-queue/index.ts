@@ -15,9 +15,11 @@
 //      (FOR UPDATE SKIP LOCKED) so two concurrent invocations never grab the same ad.
 //   2. For each claimed ad, DISCOVER its media CDN url (short-circuiting if already
 //      cached to storage), then STREAM the download straight to storage — the same
-//      streaming upload + 200MB cap + oversized→keep-CDN handling proven in
-//      enrich-thumbnails. Within-account dedupe (US-009) is preserved: bytes are
-//      hashed and a second ad reusing the identical creative reuses the stored asset.
+//      streaming upload proven in enrich-thumbnails, now with a deliberate 2GB capture
+//      ceiling (US-007: streaming keeps memory flat, so the ceiling is a storage policy,
+//      not a memory guard; a video above it is recorded oversized, not left on the CDN).
+//      Within-account dedupe (US-009) is preserved: bytes are hashed and a second ad
+//      reusing the identical creative reuses the stored asset.
 //   3. Mark each row done/failed and, while any pending rows remain (and within the
 //      wall/self-chain budget), fire a FRESH invocation of THIS worker (a new worker
 //      with fresh memory) so an account of any size drains fully without OOM.
@@ -47,6 +49,7 @@ import {
   looksLikeHtml,
   NO_THUMB_SENTINEL,
   NO_VIDEO_DELETED_SENTINEL,
+  NO_VIDEO_OVERSIZED_SENTINEL,
   NO_VIDEO_PERMISSION_SENTINEL,
   NO_VIDEO_SENTINEL,
   NO_VIDEO_SENTINELS,
@@ -59,11 +62,26 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const THUMB_BUCKET = "ad-thumbnails";
 const VIDEO_BUCKET = "ad-videos";
 
-// 200 MB — matches the ad-videos bucket limit and enrich-thumbnails' MAX_VIDEO_SIZE.
-// cacheVideoToStorage STREAMS the upload (no full-file buffering), so worker memory
-// no longer caps this; oversized videos keep their live CDN url (still previewable)
-// rather than risking WORKER_RESOURCE_LIMIT.
-export const MAX_VIDEO_SIZE = 200 * 1024 * 1024;
+// US-007: deliberate capture ceiling — 2 GB.
+//
+// RATIONALE (replaces the old 200 MB wire, which was a MEMORY guard, not a policy):
+// cacheVideoToStorage STREAMS the download straight to storage with `duplex:"half"`
+// (peeked chunk + untouched remainder), so worker memory stays FLAT regardless of the
+// file's size. Memory is therefore NOT the binding constraint — the old 200 MB cap left
+// large-but-perfectly-cacheable videos stranded on an expiring Meta CDN url for no
+// memory reason (the US-007 gap). The ceiling now exists only as a STORAGE/BANDWIDTH
+// policy limit: a runaway/corrupt multi-GB response should not be streamed into the
+// bucket unbounded. 2 GB comfortably exceeds real Meta ad videos (typically <200 MB;
+// long-form/high-bitrate outliers reach a few hundred MB), so genuine ad creatives are
+// captured while a pathological response is still bounded. The companion migration
+// raises the ad-videos bucket file_size_limit to match (SQL cannot exceed the
+// project-level storage upload cap; if that is lower, it becomes the true ceiling and
+// an upload-error is recorded rather than a silent truncation).
+//
+// A video whose content-length exceeds this ceiling is NOT streamed; it is recorded as
+// the distinct NO_VIDEO_OVERSIZED_SENTINEL (honest-terminal, NOT video_ok) so coverage
+// reporting shows "too large to capture under policy" separately from unresolved/gone.
+export const MAX_VIDEO_SIZE = 2 * 1024 * 1024 * 1024;
 
 // Per-invocation wall budget. Edge fn hard wall ~150s; leave margin to flush the
 // final status writes + serialize the response + fire the self-chain.
@@ -115,7 +133,8 @@ export type VideoCacheReason =
   | "non-video" // content-type is not a video payload
   | "empty" // US-003: 200 but zero bytes — not a playable video
   | "html" // US-003: 200 but the body is an HTML/login/error page, not media
-  | "too-large" // exceeds MAX_VIDEO_SIZE → keep CDN url, do not store
+  | "too-large" // US-007: content-length exceeds the 2GB MAX_VIDEO_SIZE ceiling → do not
+  // stream; caller records the distinct NO_VIDEO_OVERSIZED_SENTINEL (honest-terminal)
   | "upload-error" // storage upload failed
   | "exception"; // network/other throw
 export interface VideoCacheResult {
@@ -392,10 +411,18 @@ export async function processQueuedAd(
         updates.video_url = result.url;
         didCache = true;
       } else if (result.reason === "too-large") {
-        // Oversized — keep the CDN url (still previewable), do not store. This is a
-        // successful terminal outcome for this ad, not a failure.
-        updates.video_url = cdnUrl;
-        reasons.push("too-large");
+        // US-007: exceeds the deliberate 2GB capture ceiling. Streaming keeps worker
+        // memory flat, so this is a POLICY limit, not a memory failure — the video is
+        // genuinely-unhandleable under our storage policy and will not shrink, so it is
+        // honest-TERMINAL: record the distinct NO_VIDEO_OVERSIZED_SENTINEL (NOT
+        // video_ok, its own coverage failure_reason) rather than leaving the live CDN
+        // url (which would read as the generic 'video_uncached' and be pointlessly
+        // re-attempted every drain, only to hit the same size ceiling). The prior
+        // behavior kept the CDN url as "previewable", but such links expire within
+        // hours/days and re-discovery cannot fix the size — so the sentinel is both
+        // more honest and stops the ad re-clogging the queue.
+        updates.video_url = NO_VIDEO_OVERSIZED_SENTINEL;
+        reasons.push(NO_VIDEO_OVERSIZED_SENTINEL);
       } else if (result.reason === "expired") {
         // Stale CDN url — NULL it so the next drain re-discovers a fresh one.
         updates.video_url = null;
@@ -472,9 +499,12 @@ export async function processQueuedAd(
   }
 
   if (didCache) return { outcome: "cached", reason: reasons.join(",") || undefined };
-  // Oversized (too-large) or already-cached (skipVideo && skipImage) → this ad is
-  // done; there is nothing more to store. Only a hard failure re-queues.
-  if (reasons.some((r) => r === "too-large") || (skipVideo && skipImage)) {
+  // Already-cached (skipVideo && skipImage) → this ad is done; there is nothing more to
+  // store. Only a hard failure re-queues. (US-007: an oversized video is no longer a
+  // 'too-large' skip that keeps the CDN url — it is written the NO_VIDEO_OVERSIZED_
+  // SENTINEL and falls through to the terminal-sentinel skip below, so it is done and
+  // will not re-clog the queue.)
+  if (skipVideo && skipImage) {
     return { outcome: "skipped", reason: reasons.join(",") || "already-cached" };
   }
   // US-003: a genuinely-unresolvable video is a TERMINAL, honest outcome — NOT a

@@ -30,14 +30,27 @@ export const NO_VIDEO_SENTINEL = "no-video";
 //                            "removed"). It will NEVER resolve; re-discovery is wasted
 //                            work. Recorded distinctly so coverage reporting can show
 //                            "genuinely gone" separately from "we couldn't get to it".
+//   • no-video-oversized   — TERMINAL (US-007). The video resolves and is playable, but
+//                            its byte size exceeds the deliberate hard capture ceiling
+//                            (MAX_VIDEO_SIZE in drain-media-queue). Streaming-to-storage
+//                            keeps worker memory flat regardless of size, so the ceiling
+//                            is a policy limit (storage/bandwidth), NOT a memory limit —
+//                            and it is set generously (2GB) so this bucket is tiny.
+//                            Recorded distinctly so coverage reporting shows "too large
+//                            to capture under our policy" separately from unresolved /
+//                            gone / permission-blocked. Re-discovery is wasted work (the
+//                            size will not shrink), so it is honest-terminal.
 //
-// Coverage honesty (AC#3/#4): ALL three are NOT a storage url, so isVideoOk and the
+// Coverage honesty (AC#3/#4): ALL four are NOT a storage url, so isVideoOk and the
 // media_coverage SQL view already classify every one of them as NOT video_ok — the
 // distinction is purely about WHY, for an honest residual-reason breakdown, and does
-// NOT loosen coverage. The residual set for AC#4 is exactly the permission + deleted
-// rows (genuinely-unresolvable) plus whatever no-video rows survive a re-discovery run.
+// NOT loosen coverage. The residual set for AC#4 is exactly the permission + deleted +
+// oversized rows (genuinely-unhandleable) plus whatever no-video rows survive a
+// re-discovery run.
 export const NO_VIDEO_PERMISSION_SENTINEL = "no-video-permission";
 export const NO_VIDEO_DELETED_SENTINEL = "no-video-deleted";
+// US-007: a genuinely-playable video too large to capture under the deliberate ceiling.
+export const NO_VIDEO_OVERSIZED_SENTINEL = "no-video-oversized";
 
 // The full set of no-video-* sentinels. Any of these means "Meta reports a video ad
 // but we have no cached, playable video for it" → NOT video_ok. Kept as one set so
@@ -46,6 +59,7 @@ export const NO_VIDEO_SENTINELS: ReadonlySet<string> = new Set([
   NO_VIDEO_SENTINEL,
   NO_VIDEO_PERMISSION_SENTINEL,
   NO_VIDEO_DELETED_SENTINEL,
+  NO_VIDEO_OVERSIZED_SENTINEL,
 ]);
 
 /**
