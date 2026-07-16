@@ -7,6 +7,15 @@ import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
 import { parsePlayCurve } from "../_shared/play-curve.ts";
 import { RECENT_WINDOW_DAYS, RETENTION_DAYS } from "../_shared/retention-config.ts";
 import { extractDestinationLink, normalizeDestinationUrl } from "../_shared/normalize-destination.ts";
+import {
+  assetStoragePath,
+  computeContentHash,
+  discoverAllVideoUrls,
+  fetchAccountVideoMap,
+  isStorageUrl,
+  looksLikeHtml,
+} from "../_shared/media-discovery.ts";
+import { isMediaContentType } from "../_shared/vault-save-logic.ts";
 
 // US-002: Rolling-window incremental daily sync.
 //
@@ -84,6 +93,241 @@ export function newlyInsertedAdIds(
     out.push(id);
   }
   return out;
+}
+
+// ── US-004: carousel frame capture ────────────────────────────────────────────
+//
+// A carousel / multi-frame ad's coverage used to key off a single thumbnail, so a
+// 5-card carousel with only card #1 cached read as "covered". US-004 makes the sync
+// declare the EXPECTED frame count on the creative and populate an ordered per-frame
+// ledger (public.creative_frames) so media_coverage.frames_ok can hold it honest.
+//
+// The sync already fetches creative{object_story_spec, asset_feed_spec} on its
+// Phase-1 ad fetch (Story B), so deriving the frames adds NO extra Meta call on the
+// hot path — the ordered frame set comes straight from the spec in hand.
+
+/** One discovered frame of an ad, before it is written to creative_frames. */
+export interface DiscoveredFrame {
+  frame_index: number; // 0-based ordered position (matches scrape-ad `position`)
+  media_type: "image" | "video" | "carousel_frame" | "video_thumbnail";
+  /** live source url (CDN) for the frame, used to fetch+hash for asset linking */
+  url: string | null;
+}
+
+/**
+ * US-004: Meta's REPORTED frame count for a creative — the "expected" side of
+ * frames_ok. Only a genuine multi-card carousel (object_story_spec.link_data.
+ * child_attachments with >1 card) declares an expected count here; the count is the
+ * number of cards Meta reports. A single-image / single-video / single-card ad, or
+ * an ad whose card count cannot be reliably read, returns null — NEVER a guess. A
+ * false >1 count would create a false 'frames_incomplete', so the rule is: only
+ * count when Meta explicitly enumerates >1 carousel cards. Pure + dependency-free so
+ * the contract is unit-testable without a live creative.
+ *
+ * Mirrors migration 20260714000027: expected_frame_count NULL/<=1 → frames_ok
+ * trivially TRUE (no regression); >1 → captured creative_frames COUNT must reach it.
+ */
+export function expectedFrameCount(creative: unknown): number | null {
+  // deno-lint-ignore no-explicit-any
+  const c = creative as any;
+  const children = c?.object_story_spec?.link_data?.child_attachments;
+  if (Array.isArray(children) && children.length > 1) return children.length;
+  // No reliable multi-frame signal — leave null rather than guess (a single-asset
+  // ad, or a spec we can't confidently count, must stay frames_ok-trivial).
+  return null;
+}
+
+/**
+ * US-004: derive the ORDERED frame ledger for an ad from the creative spec already
+ * in hand (object_story_spec.link_data.child_attachments — every carousel card — and
+ * asset_feed_spec.videos — every dynamic-creative video variant). Returns frames in
+ * a stable order with 0-based frame_index so a re-sync UPSERTs each frame in place
+ * (keyed on (ad_id, frame_index)) and never duplicates. media_type mirrors the
+ * scrape-ad taxonomy: a carousel card is 'carousel_frame', a feed video is 'video'.
+ *
+ * Only produces a ledger for a GENUINE multi-frame ad (a carousel with >1 card, or an
+ * asset_feed_spec carrying >1 video) — a single-asset ad yields no rows (its
+ * frames_ok is trivially TRUE via expected_frame_count null/<=1, so a ledger would be
+ * noise). Pure + dependency-free so ordering is unit-testable without a live creative.
+ */
+export function deriveFrames(creative: unknown): DiscoveredFrame[] {
+  // deno-lint-ignore no-explicit-any
+  const c = creative as any;
+  const frames: DiscoveredFrame[] = [];
+  let idx = 0;
+
+  const children = c?.object_story_spec?.link_data?.child_attachments;
+  if (Array.isArray(children) && children.length > 1) {
+    for (const child of children) {
+      const isVideo = !!child?.video_id;
+      const url =
+        child?.picture ??
+        child?.image_url ??
+        child?.original_image_url ??
+        null;
+      frames.push({
+        frame_index: idx++,
+        media_type: isVideo ? "video" : "carousel_frame",
+        url: typeof url === "string" ? url : null,
+      });
+    }
+    return frames;
+  }
+
+  const feedVideos = c?.asset_feed_spec?.videos;
+  if (Array.isArray(feedVideos) && feedVideos.length > 1) {
+    for (const v of feedVideos) {
+      const url =
+        (typeof v?.video_url === "string" ? v.video_url : null) ??
+        (typeof v?.thumbnail_url === "string" ? v.thumbnail_url : null);
+      frames.push({ frame_index: idx++, media_type: "video", url });
+    }
+    return frames;
+  }
+
+  return frames;
+}
+
+// US-004: cap on the number of frame BYTES fetched+hashed for asset linking within a
+// single Phase-1 batch. The frame LEDGER (index + media_type) is always written from
+// the spec (free, no download); asset_id linking is the only part that touches the
+// network, so it is bounded here so a large-account sync can never turn frame capture
+// into the blind media fanout the workstream removed. Frames beyond the cap (or on a
+// timed-out phase) are written with asset_id NULL — the drain worker / a later
+// re-sync links them; frames_ok already holds on the row COUNT, not asset presence.
+export const MAX_FRAME_ASSET_FETCHES_PER_BATCH = 40;
+
+/**
+ * US-004: fetch a frame's bytes, hash them, and upsert into the shared per-account
+ * media_assets registry (the SAME content-hash dedupe drain-media-queue uses), then
+ * return the asset id to link on the frame. Returns null on any failure / non-image
+ * bytes so the frame is simply stored with asset_id NULL (still counted by
+ * frames_ok). Best-effort and never throws.
+ */
+async function linkFrameAsset(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  accountId: string,
+  url: string,
+): Promise<string | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      return null;
+    }
+    const contentType = res.headers.get("content-type") || "image/jpeg";
+    // Only image frames are hashed here (carousel cards); a video frame's heavy
+    // download stays the drain worker's job.
+    if (!isMediaContentType(contentType, "image")) {
+      await res.body?.cancel().catch(() => {});
+      return null;
+    }
+    const buffer = await res.arrayBuffer();
+    const uint8 = new Uint8Array(buffer);
+    if (looksLikeHtml(uint8)) return null;
+
+    const assetKey = await computeContentHash(buffer);
+    // Reuse an already-stored asset (dedupe) — no re-upload of identical bytes.
+    const { data: existing } = await supabase
+      .from("media_assets")
+      .select("id")
+      .eq("account_id", accountId)
+      .eq("asset_key", assetKey)
+      .maybeSingle();
+    if (existing?.id) return existing.id as string;
+
+    const ext = contentType.includes("png")
+      ? "png"
+      : contentType.includes("webp")
+        ? "webp"
+        : "jpg";
+    const path = assetStoragePath(accountId, assetKey, ext);
+    const { error: upErr } = await supabase.storage
+      .from("ad-thumbnails")
+      .upload(path, uint8, { contentType, upsert: true });
+    if (upErr) return null;
+    const publicUrl = `${Deno.env.get("SUPABASE_URL")}/storage/v1/object/public/ad-thumbnails/${path}`;
+
+    const { data: upserted } = await supabase
+      .from("media_assets")
+      .upsert(
+        {
+          account_id: accountId,
+          asset_key: assetKey,
+          media_type: "image",
+          bucket: "ad-thumbnails",
+          storage_path: path,
+          public_url: publicUrl,
+          byte_size: uint8.byteLength,
+          content_type: contentType,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "account_id,asset_key" },
+      )
+      .select("id")
+      .maybeSingle();
+    return (upserted?.id as string) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * US-004: upsert the ordered creative_frames ledger for one ad. Writes one row per
+ * derived frame keyed on (ad_id, frame_index) so a re-sync updates in place and never
+ * duplicates (mirrors migration 20260714000027's UNIQUE(ad_id, frame_index)). The
+ * ledger (index + media_type) is always written; asset_id is linked to a shared
+ * media_assets content-hash row when the frame's bytes are fetched within the batch
+ * budget, else left NULL (drain / a later re-sync links it). Best-effort: any DB
+ * error is logged and swallowed so frame capture never breaks the sync control flow.
+ */
+export async function upsertCreativeFrames(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  adId: string,
+  accountId: string,
+  frames: DiscoveredFrame[],
+  opts?: { fetchAssets?: boolean; assetBudget?: { remaining: number } },
+): Promise<void> {
+  if (frames.length === 0) return;
+  const fetchAssets = opts?.fetchAssets ?? false;
+  const budget = opts?.assetBudget;
+  const rows: {
+    ad_id: string;
+    frame_index: number;
+    media_type: string;
+    asset_id: string | null;
+  }[] = [];
+  for (const f of frames) {
+    let assetId: string | null = null;
+    // Link an asset only for image frames with a live (non-storage) CDN url, and
+    // only while the per-batch fetch budget allows — keeps frame capture off the
+    // large-account blind-fanout path.
+    if (
+      fetchAssets &&
+      f.media_type !== "video" &&
+      typeof f.url === "string" &&
+      f.url.startsWith("http") &&
+      !isStorageUrl(f.url) &&
+      (!budget || budget.remaining > 0)
+    ) {
+      assetId = await linkFrameAsset(supabase, accountId, f.url);
+      if (budget) budget.remaining -= 1;
+    }
+    rows.push({
+      ad_id: adId,
+      frame_index: f.frame_index,
+      media_type: f.media_type,
+      asset_id: assetId,
+    });
+  }
+  const { error } = await supabase
+    .from("creative_frames")
+    .upsert(rows, { onConflict: "ad_id,frame_index" });
+  if (error) {
+    console.error(`US-004 creative_frames upsert error for ${adId}:`, error.message);
+  }
 }
 
 // US-003: Canonical reference for the LOCAL snapshot rollup.
@@ -747,6 +991,11 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       const upsertAds = async (ads: any[]) => {
         const upsertBatch: any[] = [];
         const metadataBatch: { ad_id: string; data: any }[] = [];
+        // US-004: ordered frame ledger per multi-frame ad in this batch, derived from
+        // the creative spec already in hand (no extra Meta call). Written to
+        // creative_frames AFTER the creatives upsert succeeds (the FK requires the
+        // parent row to exist first).
+        const framesByAd = new Map<string, DiscoveredFrame[]>();
         for (const ad of ads) {
           // Build post URL: prefer effective_object_story_id, fall back to permalink_url
           let adPostUrl: string | null = null;
@@ -787,6 +1036,15 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             destinationKey = null;
           }
 
+          // US-004: declare Meta's REPORTED frame count on the creative. Only a
+          // genuine multi-card carousel yields a >1 count; everything else stays
+          // null (never guessed) so frames_ok is trivially TRUE (no regression).
+          const frameCount = expectedFrameCount(ad.creative);
+          // Derive the ordered frame ledger for a genuine multi-frame ad (carousel
+          // cards / >1 dynamic video). Single-asset ads yield [] (no ledger needed).
+          const frames = deriveFrames(ad.creative);
+          if (frames.length > 0) framesByAd.set(ad.id, frames);
+
           if (taggedAdIds.has(ad.id)) {
             metadataBatch.push({ ad_id: ad.id, data: metadata });
           } else {
@@ -801,6 +1059,10 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
               ...(destinationKey !== null
                 ? { landing_page_url: landingPageUrl, destination_key: destinationKey }
                 : {}),
+              // Only set expected_frame_count when Meta reports a genuine multi-frame
+              // count (>1); leaving it out for single-asset ads avoids overwriting a
+              // prior value with null and keeps frames_ok trivially TRUE for them.
+              ...(frameCount != null ? { expected_frame_count: frameCount } : {}),
             });
           }
         }
@@ -848,6 +1110,49 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           const rpcPayload = metadataBatch.map(({ ad_id, data }) => ({ ad_id, ...data }));
           const { error } = await supabase.rpc("bulk_update_creative_metadata", { payload: JSON.stringify(rpcPayload) });
           if (error) console.error("Phase 1 metadata RPC error:", error.message);
+        }
+
+        // US-004: write the ordered creative_frames ledger for the multi-frame ads in
+        // this batch. Runs AFTER the creatives upsert / metadata RPC so the parent row
+        // the frame FK references exists. Best-effort + resumable-safe: keyed on
+        // (ad_id, frame_index) so a re-sync UPSERTs in place (never duplicates), and a
+        // per-batch asset-fetch budget + isTimedOut() gate keep it off the blind
+        // large-account fanout path — frames beyond the budget are written with
+        // asset_id NULL (drain / a later re-sync links them; frames_ok holds on COUNT).
+        if (framesByAd.size > 0) {
+          const assetBudget = { remaining: MAX_FRAME_ASSET_FETCHES_PER_BATCH };
+          // Reused across this batch's video-frame ads so page-owned video sources
+          // resolve via the account library map (avoids #10 permission errors);
+          // built lazily on first need so image-only carousel batches never pay for it.
+          let accountVideoMap: Map<string, string> | undefined;
+          for (const [adId, frames] of framesByAd) {
+            // US-004: for a multi-VIDEO ad (asset_feed_spec) whose frames have no
+            // inline source url, resolve EVERY variant via discoverAllVideoUrls (the
+            // multi-result sibling of discoverVideoUrl) and fill the ledger's video
+            // frame urls in order. Gated on remaining phase time so it never turns
+            // frame capture into a large-account blind fanout.
+            const needsVideoResolve =
+              !isTimedOut() &&
+              frames.some((f) => f.media_type === "video" && !f.url);
+            if (needsVideoResolve) {
+              if (!accountVideoMap) {
+                accountVideoMap = await fetchAccountVideoMap(accountId, metaToken);
+              }
+              const sources = await discoverAllVideoUrls(adId, metaToken, 30_000, accountVideoMap);
+              let si = 0;
+              for (const f of frames) {
+                if (f.media_type === "video" && !f.url && si < sources.length) {
+                  f.url = sources[si++];
+                }
+              }
+            }
+            await upsertCreativeFrames(supabase, adId, accountId, frames, {
+              // Only spend the network budget on asset linking while the phase has
+              // time left; a timed-out phase still writes the ledger (asset_id NULL).
+              fetchAssets: !isTimedOut(),
+              assetBudget,
+            });
+          }
         }
       };
 

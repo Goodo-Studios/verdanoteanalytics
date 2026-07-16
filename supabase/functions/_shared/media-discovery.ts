@@ -1068,3 +1068,116 @@ export async function discoverVideoUrlWithReason(
     return { url: null, reason: failReason ?? NO_VIDEO_SENTINEL };
   }
 }
+
+/**
+ * Shared single-video-id → source resolution, factored out of the discovery loop so
+ * both `discoverVideoUrlWithReason` (single result) and `discoverAllVideoUrls`
+ * (multi result) resolve a video_id the SAME way: prefer the account video map
+ * (avoids #10 permission errors on page-owned videos), then fall back to a direct
+ * GET /{video_id}?fields=source. Pure of any short-circuit policy — it just returns
+ * the resolved source url for ONE id, or null. Kept package-private (not exported)
+ * so it does not widen the module's public contract.
+ */
+async function resolveVideoSourceById(
+  videoId: string,
+  accessToken: string,
+  timeoutMs: number,
+  accountVideoMap?: Map<string, string>,
+): Promise<string | null> {
+  if (accountVideoMap) {
+    const mapped = accountVideoMap.get(videoId);
+    if (mapped) return mapped;
+  }
+  const vidRes = await fetchWithTimeout(
+    `https://graph.facebook.com/${META_API_VERSION}/${videoId}?fields=source&access_token=${accessToken}`,
+    timeoutMs,
+  );
+  const vidData = await vidRes.json().catch(() => null);
+  if (vidRes.ok && vidData?.source) return vidData.source as string;
+  return null;
+}
+
+/**
+ * US-004 (carousel frame capture): discover EVERY resolvable video source of an ad,
+ * in stable frame order — the multi-variant sibling of `discoverVideoUrl`.
+ *
+ * `discoverVideoUrl` intentionally returns after the FIRST resolved source (its
+ * single-result contract, relied on by US-002/US-003 callers + tests — UNCHANGED).
+ * A carousel / dynamic-creative ad can carry MANY videos (one per card, or several
+ * asset_feed_spec variants); to populate one creative_frames row per captured frame
+ * the sync needs them ALL. This walks the same object_story_spec /
+ * asset_feed_spec.videos / child_attachments sources, resolves each distinct
+ * video_id to a source (map-first, then direct), and returns an ORDERED, deduped
+ * array of source urls — order preserved so frame_index is stable across re-syncs.
+ *
+ * It reuses `resolveVideoSourceById` (the exact map-first/direct resolution the
+ * single-result path uses) so the two never drift. It deliberately covers only the
+ * spec-embedded sources the sync already has in hand from its Phase-1 creative fetch
+ * (object_story_spec + asset_feed_spec); it does NOT walk the heavier
+ * effective_object_story_id / preview-API fallbacks — those exist to rescue a SINGLE
+ * hard-to-resolve video, not to enumerate a carousel's ordered frames, and running
+ * them per ad would work against the large-account fetch budget.
+ */
+export async function discoverAllVideoUrls(
+  adId: string,
+  accessToken: string,
+  timeoutMs = 30_000,
+  accountVideoMap?: Map<string, string>,
+): Promise<string[]> {
+  const sources: string[] = [];
+  const pushSource = (u: string | null | undefined) => {
+    if (typeof u === "string" && u.length > 0 && !sources.includes(u)) sources.push(u);
+  };
+  try {
+    const res = await fetchWithTimeout(
+      `https://graph.facebook.com/${META_API_VERSION}/${adId}?fields=creative{id,video_id,object_story_spec,asset_feed_spec}&access_token=${accessToken}`,
+      timeoutMs,
+    );
+    if (!res.ok) {
+      await res.text().catch(() => {});
+      return sources;
+    }
+    const data = await res.json();
+    const creative = data?.creative;
+    if (!creative) return sources;
+
+    const spec = creative.object_story_spec;
+    // Ordered video_ids across every spec-embedded video source. Order matters: it
+    // is the frame order the sync writes as frame_index. Direct inline source urls
+    // (video_data.video_url) are captured in place so they keep their slot.
+    const orderedIds: string[] = [];
+
+    // Path 1: top-level video_id.
+    if (creative.video_id) orderedIds.push(String(creative.video_id));
+    // Path 2: standard video_data — inline url first, else id.
+    if (spec?.video_data?.video_url) pushSource(spec.video_data.video_url);
+    else if (spec?.video_data?.video_id) orderedIds.push(String(spec.video_data.video_id));
+    // Path 3: template / DPA video.
+    if (spec?.template_data?.video_data?.video_id) {
+      orderedIds.push(String(spec.template_data.video_data.video_id));
+    }
+    // Path 4: carousel child attachments — EVERY card, in card order.
+    const children: any[] = spec?.link_data?.child_attachments || [];
+    for (const child of children) {
+      if (child?.video_id) orderedIds.push(String(child.video_id));
+    }
+    // Path 5: asset_feed_spec (Advantage+ / dynamic creative) — EVERY variant.
+    const feedVideos: any[] = creative.asset_feed_spec?.videos || [];
+    for (const v of feedVideos) {
+      if (v?.video_id) orderedIds.push(String(v.video_id));
+      else if (v?.video_url) pushSource(v.video_url);
+    }
+
+    // Resolve each DISTINCT id (dedupe preserves first-seen order) to a source.
+    const seen = new Set<string>();
+    for (const vid of orderedIds) {
+      if (seen.has(vid)) continue;
+      seen.add(vid);
+      const source = await resolveVideoSourceById(vid, accessToken, timeoutMs, accountVideoMap);
+      if (source) pushSource(source);
+    }
+  } catch (e) {
+    console.log(`Meta multi-video discovery error for ${adId}:`, e);
+  }
+  return sources;
+}
