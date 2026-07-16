@@ -55,12 +55,20 @@ Deno.test("winner: high spend + strong ROAS", () => {
   assertEquals(r.klass, "winner");
 });
 
-Deno.test("winner: high spend + strong thumbstop (ROAS below threshold)", () => {
+Deno.test("winner is SPEND-FIRST: top-spend ad wins with mediocre ROAS + flat trend", () => {
+  // roas 1.5 (below roasWinner 2.0), thumbstop 20 (below 30), flat trend.
+  // Winners are decided by spend first, not ROAS — a top-spend, non-fatiguing ad
+  // is a Winner regardless of efficiency.
+  const r = classifyOne(baseline({ roas: 1.5, thumb_stop_rate: 20 }), 0.9, CFG);
+  assertEquals(r.klass, "winner");
+});
+
+Deno.test("winner: high spend, low ROAS but strong thumbstop", () => {
   const r = classifyOne(baseline({ roas: 1.2, thumb_stop_rate: 35 }), 0.9, CFG);
   assertEquals(r.klass, "winner");
 });
 
-Deno.test("strong ROAS but LOW relative spend is NOT a winner", () => {
+Deno.test("high ROAS but LOW relative spend is NOT a winner (spend-first)", () => {
   // Not high spend (percentile below highSpendPercentile) and flat trend => neutral.
   const r = classifyOne(baseline({ roas: 3.0 }), 0.1, CFG);
   assertEquals(r.klass, "neutral");

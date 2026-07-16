@@ -114,8 +114,8 @@ export interface ClassificationResult {
  *      (CTR falling OR CPA rising) OR is frequency-saturated. Caught FIRST so a
  *      still-high-ROAS ad that is visibly decaying is surfaced as a risk, not
  *      hidden inside "winner".
- *   2. Winner — high relative spend AND strong efficiency (ROAS at/above
- *      threshold, or a strong thumbstop) and NOT fatiguing.
+ *   2. Winner — high relative spend and NOT fatiguing. Decided by SPEND FIRST,
+ *      not ROAS (Meta backs its winners with budget); ROAS/thumbstop are context.
  *   3. Rising — improving recent-vs-prior trend (ROAS or CTR up) on a
  *      meaningfully-spending ad that hasn't yet earned Winner scale.
  *   4. Neutral — everything else (incl. sub-minSpend ads).
@@ -159,12 +159,16 @@ export function classifyOne(
     return { ...base(), klass: "fatiguing" };
   }
 
-  // ── 2. Winner ───────────────────────────────────────────────────────────
-  const strongRoas = (input.roas || 0) >= cfg.roasWinner;
-  const strongThumbstop = (input.thumb_stop_rate || 0) >= cfg.thumbstopWinner;
-  if (highSpend && (strongRoas || strongThumbstop)) {
-    if (strongRoas) reasons.push(`ROAS ${input.roas.toFixed(2)}x at scale`);
-    if (strongThumbstop) reasons.push(`Thumbstop ${input.thumb_stop_rate.toFixed(0)}%`);
+  // ── 2. Winner — decided by SPEND FIRST, not ROAS ─────────────────────────
+  // A top-spend, non-fatiguing ad is a Winner regardless of ROAS/efficiency:
+  // Meta backs its winners with budget, so relative spend is the primary signal.
+  // ROAS and thumbstop are surfaced as context only — never the gate.
+  if (highSpend) {
+    reasons.push(`Top-spend (${Math.round(spendPercentile * 100)}th pct) at scale`);
+    if ((input.roas || 0) >= cfg.roasWinner) reasons.push(`ROAS ${input.roas.toFixed(2)}x`);
+    if ((input.thumb_stop_rate || 0) >= cfg.thumbstopWinner) {
+      reasons.push(`Thumbstop ${input.thumb_stop_rate.toFixed(0)}%`);
+    }
     return { ...base(), klass: "winner" };
   }
 
