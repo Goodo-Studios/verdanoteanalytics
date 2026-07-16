@@ -20,6 +20,7 @@ import { routeImports } from "@/lib/routePrefetch";
 import LoginPage from "./pages/LoginPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import UpdatePasswordPage from "./pages/UpdatePasswordPage";
+import { PrivacyPolicyPage, TermsPage, DataDeletionPage } from "./pages/LegalPages";
 
 // Non-critical pages — lazy loaded for bundle splitting. The shell pages share
 // their import thunks with the hover-prefetch registry (src/lib/routePrefetch)
@@ -220,7 +221,12 @@ const App = () => {
                       <BookmarkletReceiver />
                     </Suspense>
                   } />
-                  
+
+                  {/* Public legal pages — linked from the Meta App dashboard */}
+                  <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+                  <Route path="/terms" element={<TermsPage />} />
+                  <Route path="/data-deletion" element={<DataDeletionPage />} />
+
                   {/* Root → redirect to role prefix */}
                   <Route path="/" element={<RoleRedirect />} />
                   
