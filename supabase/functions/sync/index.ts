@@ -980,6 +980,16 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     //   Small accounts fall through to the flat sweep as before.
     // ═══════════════════════════════════════════════════════════════════
     if (phase === 1) {
+      // US-006: per-account scope widening. Both flags default FALSE, so an account
+      // that has not opted in fetches EXACTLY today's universe (non-archived campaigns,
+      // impressions>0 ads) and behaves byte-for-byte as before. The widened fetch
+      // reuses the identical paginated, rate-limit-aware, resumable machinery below —
+      // no new unbounded request path — so the 18k+ ad large-account safeguards are
+      // preserved (AC#3). Declared at the top of Phase 1 so the upsertAds closure
+      // (defined below) captures them.
+      const includeArchived = account.include_archived === true;
+      const includeZeroImpression = account.include_zero_impression === true;
+
       // Get manual/csv-tagged ad IDs to preserve their tags (only update metadata)
       const { data: taggedAds } = await supabase.from("creatives").select("ad_id")
         .eq("account_id", accountId).in("tag_source", ["manual", "csv"]);
@@ -1156,7 +1166,11 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         }
       };
 
-      const deliveredFilter = encodeURIComponent(JSON.stringify([
+      // Ad-level delivery filter: normally impressions>0 (today's scope). When the
+      // account opts into zero-impression ads, drop the filter entirely so
+      // instantly-paused / test creatives (impressions=0) are ingested too. Still
+      // bounded + resumable (limit=200, cursor-paged) — only the predicate changes.
+      const deliveredFilter = includeZeroImpression ? null : encodeURIComponent(JSON.stringify([
         { field: "impressions", operator: "GREATER_THAN", value: "0" }
       ]));
 
@@ -1165,10 +1179,17 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       let campaigns: { id: string; name: string }[] = state.campaigns || [];
 
       if (campaigns.length === 0) {
-        console.log("Phase 1 (large): fetching campaign list...");
-        // Filter out DELETED and ARCHIVED campaigns to reduce API calls
+        console.log(
+          `Phase 1 (large): fetching campaign list... (include_archived=${includeArchived}, include_zero_impression=${includeZeroImpression})`,
+        );
+        // Campaign statuses to fetch. Default excludes DELETED + ARCHIVED to reduce
+        // API calls; opting into archived ads adds ARCHIVED so historical campaigns
+        // (and their ads) are reachable. DELETED is never included (irrecoverable).
+        const campStatuses = includeArchived
+          ? ["ACTIVE", "PAUSED", "ARCHIVED"]
+          : ["ACTIVE", "PAUSED"];
         const campStatusFilter = encodeURIComponent(JSON.stringify([
-          { field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED"] }
+          { field: "effective_status", operator: "IN", value: campStatuses }
         ]));
         let campUrl: string | null =
           `https://graph.facebook.com/${META_API_VERSION}/${accountId}/campaigns?` +
@@ -1198,11 +1219,15 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           await saveState(1, { campaigns: [], creatives_fetched: fetchedCount });
           return;
         }
-        console.log(`  Found ${campaigns.length} ACTIVE/PAUSED campaigns`);
+        console.log(`  Found ${campaigns.length} campaigns (statuses: ${campStatuses.join("/")})`);
 
         // ── Spend-based pre-filter: only keep campaigns with spend in the date window ──
         // This dramatically reduces API calls for accounts with many paused/inactive campaigns.
-        if (campaigns.length > 0 && !isTimedOut()) {
+        // US-006: SKIP the pre-filter when the account opts into archived or
+        // zero-impression ads — those campaigns typically have no spend in the recent
+        // window, so the pre-filter would silently discard exactly the historical /
+        // test campaigns the flags are meant to include (defeating the widening).
+        if (campaigns.length > 0 && !isTimedOut() && !includeArchived && !includeZeroImpression) {
           const filterEndDate = new Date().toISOString().split("T")[0];
           const filterStartDate = incrementalSinceDate || (() => {
             const d = new Date();
@@ -1273,7 +1298,9 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           // fields to a request already being made — NOT a new Meta call and NOT a
           // batching change — so the hot-path fetch/rate-limit contract is unchanged.
           `fields=id,name,status,created_time,campaign{name},adset{name},creative{effective_object_story_id,object_story_spec,asset_feed_spec}` +
-          `&filtering=${deliveredFilter}` +
+          // US-006: omit the impressions>0 filter entirely when the account opts into
+          // zero-impression ads (deliveredFilter is null then); otherwise keep it.
+          (deliveredFilter ? `&filtering=${deliveredFilter}` : "") +
           `&limit=200&access_token=${encodeURIComponent(metaToken)}`
         );
         campCursor = null; // reset for next campaign
@@ -1374,18 +1401,29 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     if (phase === 3) {
       console.log("Phase 3: Cleanup zero-spend creatives...");
 
-      // Delete zero-spend creatives EXCEPT:
-      // - manually/csv-tagged ones (user investment)
-      // - placeholder ads created by Phase 4 auto-create (ad_name = ad_id pattern)
-      //   These will get real metrics in Phase 4 of the current sync.
-      const { count: zeroSpendCount } = await supabase.from("creatives")
-        .delete({ count: "exact" })
-        .eq("account_id", accountId)
-        .lte("spend", 0)
-        .is("impressions", null)  // Only delete truly empty rows (never had data)
-        .not("tag_source", "in", '("manual","csv")');
-      if (zeroSpendCount && zeroSpendCount > 0) {
-        console.log(`  Cleaned up ${zeroSpendCount} zero-spend creatives`);
+      // US-006: when the account opts into zero-impression ads, SKIP the zero-spend
+      // cleanup. A genuinely zero-impression ad is ingested in Phase 1 with
+      // spend<=0 AND impressions IS NULL (Meta never reports metrics for it, so
+      // Phase 4 never populates it), which is EXACTLY the row this cleanup deletes.
+      // Deleting it would silently undo include_zero_impression on every sync. The
+      // media_coverage view already counts these rows as eligible (impressions NULL
+      // OR the flag), so keeping them is correct.
+      if (account.include_zero_impression === true) {
+        console.log("  include_zero_impression=true → skipping zero-spend cleanup (retaining zero-impression ads)");
+      } else {
+        // Delete zero-spend creatives EXCEPT:
+        // - manually/csv-tagged ones (user investment)
+        // - placeholder ads created by Phase 4 auto-create (ad_name = ad_id pattern)
+        //   These will get real metrics in Phase 4 of the current sync.
+        const { count: zeroSpendCount } = await supabase.from("creatives")
+          .delete({ count: "exact" })
+          .eq("account_id", accountId)
+          .lte("spend", 0)
+          .is("impressions", null)  // Only delete truly empty rows (never had data)
+          .not("tag_source", "in", '("manual","csv")');
+        if (zeroSpendCount && zeroSpendCount > 0) {
+          console.log(`  Cleaned up ${zeroSpendCount} zero-spend creatives`);
+        }
       }
 
       // Count remaining

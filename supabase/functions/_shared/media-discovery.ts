@@ -356,17 +356,32 @@ export function isStorageUrl(url: string | null | undefined): boolean {
  * measure against the intended universe and no silently-excluded ad is ever counted
  * as "covered".
  *
- * US-006 will widen this (per-account include_archived / include_zero_impression
- * flags); when it lands, update BOTH this helper AND the view's eligibility CTE
- * together so they never drift. Pure + dependency-free so it is unit-testable.
+ * US-006 widens this to be PER-ACCOUNT-FLAG-AWARE. The optional `scope` mirrors
+ * ad_accounts.include_archived / include_zero_impression (both default FALSE, so a
+ * call with no scope is byte-identical to the US-001 predicate — no caller breaks).
+ * An ad is eligible when:
+ *     (NOT archived  OR  scope.include_archived)
+ * AND (impressions>0 OR  scope.include_zero_impression)
+ * This is the EXACT TS mirror of the widened WHERE clause in the public.media_coverage
+ * view (migration 20260714000029) — update BOTH together so they never drift.
+ * Pure + dependency-free so it is unit-testable.
  */
-export function isEligibleForCoverage(creative: {
-  ad_status?: string | null;
-  impressions?: number | null;
-}): boolean {
+export function isEligibleForCoverage(
+  creative: {
+    ad_status?: string | null;
+    impressions?: number | null;
+  },
+  scope: {
+    include_archived?: boolean | null;
+    include_zero_impression?: boolean | null;
+  } = {},
+): boolean {
   const status = (creative.ad_status ?? "UNKNOWN").toUpperCase();
-  if (status === "ARCHIVED") return false;
-  return (creative.impressions ?? 0) > 0;
+  const includeArchived = scope.include_archived ?? false;
+  const includeZeroImpression = scope.include_zero_impression ?? false;
+  if (status === "ARCHIVED" && !includeArchived) return false;
+  if ((creative.impressions ?? 0) <= 0 && !includeZeroImpression) return false;
+  return true;
 }
 
 /**
@@ -426,6 +441,10 @@ export function classifyCoverage(
     video_url?: string | null;
   },
   framesOk = true,
+  scope: {
+    include_archived?: boolean | null;
+    include_zero_impression?: boolean | null;
+  } = {},
 ): {
   eligible: boolean;
   image_ok: boolean;
@@ -437,7 +456,7 @@ export function classifyCoverage(
   const video_ok = isVideoOk(creative);
   const frames_ok = framesOk;
   return {
-    eligible: isEligibleForCoverage(creative),
+    eligible: isEligibleForCoverage(creative, scope),
     image_ok,
     video_ok,
     frames_ok,

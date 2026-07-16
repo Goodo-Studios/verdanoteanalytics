@@ -153,6 +153,37 @@ Deno.test("isEligibleForCoverage: archived or zero-impression is NOT eligible (t
   assertEquals(isEligibleForCoverage({ ad_status: "ACTIVE", impressions: null }), false);
 });
 
+// US-006: per-account scope widening. The optional scope mirrors
+// ad_accounts.include_archived / include_zero_impression and is the TS mirror of the
+// widened media_coverage view eligibility (migration 20260714000029).
+Deno.test("US-006 isEligibleForCoverage: include_archived admits archived ads only when on", () => {
+  const archived = { ad_status: "ARCHIVED", impressions: 5 };
+  assertEquals(isEligibleForCoverage(archived, { include_archived: false }), false);
+  assertEquals(isEligibleForCoverage(archived, { include_archived: true }), true);
+  // case-insensitive under the flag too
+  assertEquals(isEligibleForCoverage({ ad_status: "archived", impressions: 5 }, { include_archived: true }), true);
+});
+
+Deno.test("US-006 isEligibleForCoverage: include_zero_impression admits 0/null impressions only when on", () => {
+  assertEquals(isEligibleForCoverage({ ad_status: "ACTIVE", impressions: 0 }, { include_zero_impression: false }), false);
+  assertEquals(isEligibleForCoverage({ ad_status: "ACTIVE", impressions: 0 }, { include_zero_impression: true }), true);
+  assertEquals(isEligibleForCoverage({ ad_status: "ACTIVE", impressions: null }, { include_zero_impression: true }), true);
+});
+
+Deno.test("US-006 isEligibleForCoverage: both predicates must pass (archived + zero needs both flags)", () => {
+  const archivedZero = { ad_status: "ARCHIVED", impressions: 0 };
+  assertEquals(isEligibleForCoverage(archivedZero, { include_archived: true }), false);
+  assertEquals(isEligibleForCoverage(archivedZero, { include_zero_impression: true }), false);
+  assertEquals(isEligibleForCoverage(archivedZero, { include_archived: true, include_zero_impression: true }), true);
+});
+
+Deno.test("US-006 isEligibleForCoverage: no-scope call is byte-identical to today's predicate", () => {
+  // Guards against a default-arg regression widening the universe for opted-out accounts.
+  assertEquals(isEligibleForCoverage({ ad_status: "ARCHIVED", impressions: 999 }), false);
+  assertEquals(isEligibleForCoverage({ ad_status: "ACTIVE", impressions: 0 }), false);
+  assertEquals(isEligibleForCoverage({ ad_status: "ACTIVE", impressions: 10 }), true);
+});
+
 Deno.test("isImageOk: a cached full-res image is ok", () => {
   assertEquals(isImageOk({ full_res_url: STORAGE_IMG }), true);
 });
