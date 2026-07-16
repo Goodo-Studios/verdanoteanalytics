@@ -82,18 +82,22 @@ describe("discoverImageUrl video-thumbnail fallback (P2.5)", () => {
       })
     );
     const result = await discoverImageUrl("ad1", "act_1", "token", 1000);
-    expect(result).toEqual({ thumbnailUrl: big, fullResUrl: null });
+    // US-002: a video thumbnail returned with fullResUrl:null is a low-res
+    // placeholder for coverage purposes (imageQuality tracks fullResUrl).
+    expect(result).toEqual({ thumbnailUrl: big, fullResUrl: null, imageQuality: "low_res" });
   });
 
   it("prefers the 1080 /picture endpoint over a sub-480 thumb when it succeeds", async () => {
     vi.stubGlobal("fetch", stubFetch({ thumbWidth: 320, pictureOk: true }));
     const result = await discoverImageUrl("ad1", "act_1", "token", 1000);
-    expect(result).toEqual({ thumbnailUrl: PICTURE_1080, fullResUrl: PICTURE_1080 });
+    // US-002: the 1080 /picture render is a real full-res source.
+    expect(result).toEqual({ thumbnailUrl: PICTURE_1080, fullResUrl: PICTURE_1080, imageQuality: "full_res" });
   });
 
   it("falls back to the sub-480 thumb when the 1080 /picture endpoint fails (the fix)", async () => {
     vi.stubGlobal("fetch", stubFetch({ thumbWidth: 320, pictureOk: false }));
     const result = await discoverImageUrl("ad1", "act_1", "token", 1000);
-    expect(result).toEqual({ thumbnailUrl: SMALL_THUMB, fullResUrl: null });
+    // US-002: the sub-480 fallback is a low-res placeholder (fullResUrl:null).
+    expect(result).toEqual({ thumbnailUrl: SMALL_THUMB, fullResUrl: null, imageQuality: "low_res" });
   });
 });

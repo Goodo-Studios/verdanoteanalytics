@@ -280,16 +280,34 @@ export async function fetchWithTimeout(url: string, timeoutMs = 30_000): Promise
 }
 
 /**
+ * US-002: quality classification of a discovered image source.
+ *   'full_res' — a real, full-resolution creative asset (adimages high-res,
+ *                asset_feed_spec image, effective_object_story_id full_picture,
+ *                a >=480px video thumbnail, or the Preview API render).
+ *   'low_res'  — a placeholder only: the ~130px creative.thumbnail_url last-resort
+ *                fallback (Strategy 6) or a sub-480px video thumbnail. These are
+ *                the rows the US-002 re-discovery job re-attempts.
+ * Mirrors the migration's creatives.image_quality domain.
+ */
+export type ImageQuality = "full_res" | "low_res";
+
+/**
  * Discover a high-res image URL from Meta Graph API.
- * Returns { thumbnailUrl, fullResUrl } where fullResUrl is the highest-resolution
- * source available (stored separately so the modal can use it without rescaling).
+ * Returns { thumbnailUrl, fullResUrl, imageQuality } where fullResUrl is the
+ * highest-resolution source available (stored separately so the modal can use it
+ * without rescaling) and imageQuality flags whether the result is a real full-res
+ * asset ('full_res') or only a low-res placeholder ('low_res' — the ~130px
+ * thumbnail_url fallback or a sub-480px video thumbnail). The full-res sources are
+ * PREFERRED and only the ~130px thumbnail_url is recorded as a last resort, flagged
+ * low_res (US-002 AC#1). imageQuality tracks with fullResUrl: a 'full_res' result
+ * always carries a non-null fullResUrl; a 'low_res' result carries fullResUrl:null.
  */
 export async function discoverImageUrl(
   adId: string,
   accountId: string,
   accessToken: string,
   timeoutMs = 30_000
-): Promise<{ thumbnailUrl: string; fullResUrl: string | null } | null> {
+): Promise<{ thumbnailUrl: string; fullResUrl: string | null; imageQuality: ImageQuality } | null> {
   try {
     const res = await fetchWithTimeout(
       `https://graph.facebook.com/${META_API_VERSION}/${adId}?fields=creative{thumbnail_url,image_url,image_hash,object_story_spec,asset_feed_spec}&access_token=${accessToken}`,
@@ -324,7 +342,7 @@ export async function discoverImageUrl(
           const w = img.original_width || img.width || 0;
           console.log(`image_hash for ${adId}: ${w}px wide, url length: ${fullUrl?.length}`);
           if (fullUrl && fullUrl.length > 100) {
-            return { thumbnailUrl: fullUrl, fullResUrl: fullUrl };
+            return { thumbnailUrl: fullUrl, fullResUrl: fullUrl, imageQuality: "full_res" };
           }
         }
       } else {
@@ -348,7 +366,7 @@ export async function discoverImageUrl(
             const fullUrl = images[0].url;
             if (fullUrl && fullUrl.length > 100) {
               console.log(`asset_feed_spec image_hash for ${adId}: ${images[0].original_width}px`);
-              return { thumbnailUrl: fullUrl, fullResUrl: fullUrl };
+              return { thumbnailUrl: fullUrl, fullResUrl: fullUrl, imageQuality: "full_res" };
             }
           }
         } else {
@@ -358,7 +376,7 @@ export async function discoverImageUrl(
       // Some feed images have a direct url field
       if (feedImg?.url) {
         console.log(`asset_feed_spec direct URL for ${adId}`);
-        return { thumbnailUrl: feedImg.url, fullResUrl: feedImg.url };
+        return { thumbnailUrl: feedImg.url, fullResUrl: feedImg.url, imageQuality: "full_res" };
       }
     }
 
@@ -384,7 +402,7 @@ export async function discoverImageUrl(
           const best = sorted[0];
           if (best?.uri && (best.width || 0) >= 480) {
             console.log(`Video thumbnail for ${adId}: ${best.width}x${best.height}`);
-            return { thumbnailUrl: best.uri, fullResUrl: null };
+            return { thumbnailUrl: best.uri, fullResUrl: null, imageQuality: "low_res" };
           } else if (best?.uri) {
             console.log(`Video thumbnail below 480px for ${adId}: ${best?.width}x${best?.height} — keeping as fallback`);
             smallVideoThumb = best.uri;
@@ -402,7 +420,7 @@ export async function discoverImageUrl(
         const picData = await picRes.json();
         if (picData?.data?.url) {
           console.log(`Video picture fallback (1080px) for ${adId}`);
-          return { thumbnailUrl: picData.data.url, fullResUrl: picData.data.url };
+          return { thumbnailUrl: picData.data.url, fullResUrl: picData.data.url, imageQuality: "full_res" };
         }
       } else {
         await picRes.text();
@@ -411,7 +429,7 @@ export async function discoverImageUrl(
       // 1080 picture endpoint failed — use the smaller thumb rather than dropping it.
       if (smallVideoThumb) {
         console.log(`Using sub-480px video thumbnail fallback for ${adId}`);
-        return { thumbnailUrl: smallVideoThumb, fullResUrl: null };
+        return { thumbnailUrl: smallVideoThumb, fullResUrl: null, imageQuality: "low_res" };
       }
     }
 
@@ -427,7 +445,7 @@ export async function discoverImageUrl(
           const picData = await picRes.json();
           if (picData?.data?.url) {
             console.log(`asset_feed_spec video poster for ${adId} (video ${v.video_id})`);
-            return { thumbnailUrl: picData.data.url, fullResUrl: picData.data.url };
+            return { thumbnailUrl: picData.data.url, fullResUrl: picData.data.url, imageQuality: "full_res" };
           }
         } else {
           await picRes.text();
@@ -448,7 +466,7 @@ export async function discoverImageUrl(
         // Try image_url from creative endpoint first — this is often full resolution
         if (creativeData.image_url) {
           console.log(`Creative image_url for ${adId}`);
-          return { thumbnailUrl: creativeData.image_url, fullResUrl: creativeData.image_url };
+          return { thumbnailUrl: creativeData.image_url, fullResUrl: creativeData.image_url, imageQuality: "full_res" };
         }
 
         if (creativeData.effective_object_story_id) {
@@ -460,7 +478,7 @@ export async function discoverImageUrl(
             const postData = await postRes.json();
             if (postData.full_picture) {
               console.log(`Post full_picture for ${adId}`);
-              return { thumbnailUrl: postData.full_picture, fullResUrl: postData.full_picture };
+              return { thumbnailUrl: postData.full_picture, fullResUrl: postData.full_picture, imageQuality: "full_res" };
             }
           } else {
             await postRes.text();
@@ -474,12 +492,12 @@ export async function discoverImageUrl(
     // Strategy 4: Direct fallback fields — image_url is usually full-res
     if (creative.image_url) {
       console.log(`Using image_url for ${adId}`);
-      return { thumbnailUrl: creative.image_url, fullResUrl: creative.image_url };
+      return { thumbnailUrl: creative.image_url, fullResUrl: creative.image_url, imageQuality: "full_res" };
     }
 
     if (spec) {
       const imageUrl = spec.link_data?.image_url || spec.photo_data?.url || spec.photo_data?.image_url;
-      if (imageUrl) return { thumbnailUrl: imageUrl, fullResUrl: imageUrl };
+      if (imageUrl) return { thumbnailUrl: imageUrl, fullResUrl: imageUrl, imageQuality: "full_res" };
     }
 
     // Strategy 5: Ad Preview API — extract rendered image from preview HTML
@@ -496,7 +514,7 @@ export async function discoverImageUrl(
           const bestImg = extractPreviewImageSrc(previewBody);
           if (bestImg) {
             console.log(`Ad Preview API image for ${adId}`);
-            return { thumbnailUrl: bestImg, fullResUrl: bestImg };
+            return { thumbnailUrl: bestImg, fullResUrl: bestImg, imageQuality: "full_res" };
           }
         }
       } else {
@@ -509,7 +527,7 @@ export async function discoverImageUrl(
     // Strategy 6: creative.thumbnail_url is last resort (~130px placeholder from Meta)
     if (creative.thumbnail_url) {
       console.log(`LOW-RES FALLBACK for ${adId}: using thumbnail_url (~130px) — all higher-res strategies failed`);
-      return { thumbnailUrl: creative.thumbnail_url, fullResUrl: null };
+      return { thumbnailUrl: creative.thumbnail_url, fullResUrl: null, imageQuality: "low_res" };
     }
 
     return null;

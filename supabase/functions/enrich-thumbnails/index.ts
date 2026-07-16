@@ -403,8 +403,10 @@ export async function runDiscovery(supabase: any, accountFilter: string | null, 
         const result = await discoverImageUrl(c.ad_id, c.account_id, metaAccessToken, 8_000);
         if (result) {
           // Success — clear the backoff bookkeeping so a future regression starts fresh.
+          // US-002: record the discovered image quality so low-res placeholders are
+          // visible + re-discoverable and coverage stays honest.
           await supabase.from("creatives")
-            .update({ thumbnail_url: result.thumbnailUrl, thumb_retry_count: 0, thumb_retry_after: null })
+            .update({ thumbnail_url: result.thumbnailUrl, image_quality: result.imageQuality, thumb_retry_count: 0, thumb_retry_after: null })
             .eq("ad_id", c.ad_id);
           return "enriched";
         } else {
@@ -435,7 +437,7 @@ export async function runDiscovery(supabase: any, accountFilter: string | null, 
 export async function runCaching(supabase: any, accountFilter: string | null) {
   let query = supabase
     .from("creatives")
-    .select("ad_id, account_id, thumbnail_url, full_res_url")
+    .select("ad_id, account_id, thumbnail_url, full_res_url, image_quality")
     .not("thumbnail_url", "is", null)
     .neq("thumbnail_url", NO_THUMB_SENTINEL)
     .is("thumbnail_storage_path", null);
@@ -473,7 +475,11 @@ export async function runCaching(supabase: any, accountFilter: string | null) {
             thumbnail_url: result.publicUrl,
             thumbnail_storage_path: result.storagePath,
           };
-          if (!c.full_res_url) {
+          // US-002: a low-res placeholder (~130px thumbnail_url fallback) must NEVER
+          // populate full_res_url — that is the root-cause bug behind blurry statics
+          // being counted as image_ok. Only promote full_res_url when this image is
+          // not a known low_res placeholder (image_quality <> 'low_res').
+          if (!c.full_res_url && c.image_quality !== "low_res") {
             updatePayload.full_res_url = result.publicUrl;
           }
           await supabase.from("creatives")
@@ -633,8 +639,12 @@ export async function runForcedRediscovery(supabase: any, accountFilter: string 
       batch.map(async (c: any) => {
         const result = await discoverImageUrl(c.ad_id, c.account_id, metaAccessToken, 8_000);
         if (result) {
+          // US-002: only promote full_res_url when a real full-res source was found;
+          // a low_res result (~130px fallback) must NOT masquerade as full-res. Set
+          // full_res_url from result.fullResUrl (NULL for low_res) and record the
+          // quality so the coverage view + re-discovery job stay honest.
           await supabase.from("creatives")
-            .update({ thumbnail_url: result.thumbnailUrl, full_res_url: result.fullResUrl || result.thumbnailUrl, thumbnail_storage_path: null, thumb_retry_count: 0, thumb_retry_after: null })
+            .update({ thumbnail_url: result.thumbnailUrl, full_res_url: result.fullResUrl, image_quality: result.imageQuality, thumbnail_storage_path: null, thumb_retry_count: 0, thumb_retry_after: null })
             .eq("ad_id", c.ad_id);
           return "enriched";
         }

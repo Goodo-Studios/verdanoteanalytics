@@ -16,6 +16,7 @@ import {
   assetStoragePath,
   classifyCoverage,
   computeContentHash,
+  discoverImageUrl,
   isEligibleForCoverage,
   isImageOk,
   isStorageUrl,
@@ -220,4 +221,71 @@ Deno.test("classifyCoverage: frames_ok=false blocks covered even with image+vide
   assertEquals(c.video_ok, true);
   assertEquals(c.frames_ok, false);
   assertEquals(c.covered, false);
+});
+
+// ── US-002: discoverImageUrl quality classification ──────────────────────────
+// The root cause of blurry statics is the ~130px creative.thumbnail_url last-resort
+// fallback. US-002 makes discoverImageUrl flag that (and any sub-480 video-thumb
+// placeholder) as imageQuality:'low_res' with fullResUrl:null, while real high-res
+// sources are 'full_res'. These tests pin that mapping with a mocked Graph fetch so
+// a regression that lets a placeholder masquerade as full-res is caught. imageQuality
+// always tracks fullResUrl: 'full_res' ⇒ non-null fullResUrl, 'low_res' ⇒ null.
+
+interface FakeResp {
+  ok: boolean;
+  status: number;
+  json: () => Promise<unknown>;
+  text: () => Promise<string>;
+}
+const fakeResp = (ok: boolean, body: unknown, status = ok ? 200 : 404): FakeResp => ({
+  ok,
+  status,
+  json: () => Promise.resolve(body),
+  text: () => Promise.resolve(typeof body === "string" ? body : JSON.stringify(body)),
+});
+
+Deno.test("discoverImageUrl: the ~130px thumbnail_url last resort is flagged low_res (fullResUrl null)", async () => {
+  const THUMB_130 = "https://scontent.xx.fbcdn.net/v/t45/130x130_n.jpg";
+  const originalFetch = globalThis.fetch;
+  // Creative has ONLY thumbnail_url — every higher-res strategy has no source, so
+  // discovery falls through to Strategy 6 (the placeholder).
+  globalThis.fetch = ((url: string) => {
+    if (url.includes("?fields=creative")) {
+      return Promise.resolve(fakeResp(true, { creative: { thumbnail_url: THUMB_130 } }));
+    }
+    return Promise.resolve(fakeResp(false, "x"));
+    // deno-lint-ignore no-explicit-any
+  }) as any;
+  try {
+    const result = await discoverImageUrl("ad1", "act_1", "token", 1000);
+    assertEquals(result, { thumbnailUrl: THUMB_130, fullResUrl: null, imageQuality: "low_res" });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("discoverImageUrl: a real adimages high-res url is flagged full_res", async () => {
+  // Must be > 100 chars — discoverImageUrl Strategy 1 requires url.length > 100 to
+  // accept an adimages result (guards against truncated/placeholder urls).
+  const HI_RES =
+    "https://scontent.xx.fbcdn.net/v/t45.1600-4/hi_res_creative_1600x1600_o.jpg?stp=dst-jpg&_nc_cat=1&_nc_ohc=abcdef1234567890&oe=DEADBEEF";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((url: string) => {
+    if (url.includes("?fields=creative")) {
+      return Promise.resolve(fakeResp(true, { creative: { image_hash: "hash1" } }));
+    }
+    if (url.includes("adimages")) {
+      return Promise.resolve(
+        fakeResp(true, { data: [{ url: HI_RES, original_width: 1600, original_height: 1600 }] }),
+      );
+    }
+    return Promise.resolve(fakeResp(false, "x"));
+    // deno-lint-ignore no-explicit-any
+  }) as any;
+  try {
+    const result = await discoverImageUrl("ad1", "act_1", "token", 1000);
+    assertEquals(result, { thumbnailUrl: HI_RES, fullResUrl: HI_RES, imageQuality: "full_res" });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
