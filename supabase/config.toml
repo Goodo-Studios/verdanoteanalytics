@@ -268,6 +268,14 @@ verify_jwt = true
 [functions.drain-media-queue]
 verify_jwt = false
 
+# US-005: the self-healing media refresh poller. Poked by the refresh-media-queue-15min
+# pg_cron with the service-role bearer and self-chains fresh invocations, so JWT
+# verification is off — mirrors drain-media-queue. It only re-enqueues rotted media into
+# media_cache_queue (the existing drain does the caching) and checks for a coverage
+# regression; there is no client entry point.
+[functions.refresh-media-queue]
+verify_jwt = false
+
 # Browser-called; validates the user JWT internally AND enforces a
 # builder/employee role check.
 [functions.competitor-ads]
