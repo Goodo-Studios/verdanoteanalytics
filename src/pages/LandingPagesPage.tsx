@@ -40,10 +40,10 @@ const x = (n: number) => `${(n || 0).toFixed(2)}x`;
 const pct = (n: number) => `${(n || 0).toFixed(1)}%`;
 const hostPath = (url: string) => url.replace(/^https?:\/\//, "");
 
-function mean(rows: LandingPageRow[], key: keyof LandingPageRow): number {
-  if (!rows.length) return 0;
-  return rows.reduce((s, r) => s + (Number(r[key]) || 0), 0) / rows.length;
-}
+// Cost per add-to-cart, derived from the row's summed spend + adds-to-cart
+// (the RPC returns both; no server change needed).
+const costPerAtc = (r: LandingPageRow): number =>
+  r.adds_to_cart > 0 ? r.spend / r.adds_to_cart : 0;
 
 // Delta vs report average. lowerIsBetter flips the good/bad colour (e.g. CPA).
 function Delta({ value, avg, lowerIsBetter = false }: { value: number; avg: number; lowerIsBetter?: boolean }) {
@@ -84,10 +84,27 @@ export default function LandingPagesPage() {
   });
 
   const rows = data?.rows ?? [];
-  const avg = useMemo(() => ({
-    spend: mean(rows, "spend"), roas: mean(rows, "roas"), cpa: mean(rows, "cpa"),
-    cvr: mean(rows, "cvr"), aov: mean(rows, "aov"), creative_count: mean(rows, "creative_count"),
-  }), [rows]);
+  // Report baseline: spend/purchases/adds-to-cart are per-page means; ratios are
+  // aggregates (from summed totals), NOT means-of-ratios, so they reconcile.
+  const avg = useMemo(() => {
+    const t = rows.reduce((a, r) => {
+      a.spend += r.spend; a.purchases += r.purchases; a.purchase_value += r.purchase_value;
+      a.adds_to_cart += r.adds_to_cart; a.clicks += r.clicks; a.creatives += r.creative_count;
+      return a;
+    }, { spend: 0, purchases: 0, purchase_value: 0, adds_to_cart: 0, clicks: 0, creatives: 0 });
+    const n = rows.length || 1;
+    return {
+      spend: t.spend / n,
+      purchases: t.purchases / n,
+      adds_to_cart: t.adds_to_cart / n,
+      creative_count: t.creatives / n,
+      roas: t.spend > 0 ? t.purchase_value / t.spend : 0,
+      cpa: t.purchases > 0 ? t.spend / t.purchases : 0,
+      cvr: t.clicks > 0 ? (t.purchases / t.clicks) * 100 : 0,
+      atc_rate: t.clicks > 0 ? (t.adds_to_cart / t.clicks) * 100 : 0,
+      cost_per_atc: t.adds_to_cart > 0 ? t.spend / t.adds_to_cart : 0,
+    };
+  }, [rows]);
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -98,11 +115,11 @@ export default function LandingPagesPage() {
   }, [rows, search, sortKey]);
 
   const exportCsv = () => {
-    const headers = ["Destination", "Ads", "Spend", "ROAS", "CPA", "CVR %", "ATC %", "AOV", "Clicks", "Purchases"];
+    const headers = ["Destination", "Ads", "Spend", "Purchases", "Purchase ROAS", "CPA", "CVR %", "ATC Rate %", "Adds to Cart", "Cost per ATC"];
     const body = visible.map((r) => [
-      r.destination_key, String(r.creative_count), r.spend.toFixed(2), r.roas.toFixed(2),
-      r.cpa.toFixed(2), r.cvr.toFixed(1), r.atc_rate.toFixed(1), r.aov.toFixed(2),
-      String(r.clicks), String(r.purchases),
+      r.destination_key, String(r.creative_count), r.spend.toFixed(2), String(r.purchases),
+      r.roas.toFixed(2), r.cpa.toFixed(2), r.cvr.toFixed(1), r.atc_rate.toFixed(1),
+      String(r.adds_to_cart), costPerAtc(r).toFixed(2),
     ]);
     downloadCSV(`landing-pages-${from}-to-${to}.csv`, headers, body);
   };
@@ -164,13 +181,15 @@ export default function LandingPagesPage() {
             <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
               Report average · {rows.length} destination{rows.length === 1 ? "" : "s"}
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 text-sm">
-              <Metric label="Avg spend" value={usd(avg.spend)} />
-              <Metric label="Avg ROAS" value={x(avg.roas)} />
-              <Metric label="Avg CPA" value={usd(avg.cpa)} />
-              <Metric label="Avg CVR" value={pct(avg.cvr)} />
-              <Metric label="Avg AOV" value={usd(avg.aov)} />
-              <Metric label="Avg ads/page" value={avg.creative_count.toFixed(1)} />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+              <Metric label="Avg spend/page" value={usd(avg.spend)} />
+              <Metric label="Purchases/page" value={avg.purchases.toFixed(1)} />
+              <Metric label="Purchase ROAS" value={x(avg.roas)} />
+              <Metric label="CPA" value={usd(avg.cpa)} />
+              <Metric label="CVR" value={pct(avg.cvr)} />
+              <Metric label="ATC rate" value={pct(avg.atc_rate)} />
+              <Metric label="Adds to cart/page" value={avg.adds_to_cart.toFixed(1)} />
+              <Metric label="Cost / ATC" value={usd(avg.cost_per_atc)} />
             </div>
           </Card>
 
@@ -211,13 +230,13 @@ export default function LandingPagesPage() {
                 </div>
                 <div className="grid grid-cols-4 gap-3 text-sm">
                   <Stat label="Spend" value={usd(r.spend)} delta={<Delta value={r.spend} avg={avg.spend} />} />
-                  <Stat label="ROAS" value={x(r.roas)} delta={<Delta value={r.roas} avg={avg.roas} />} />
+                  <Stat label="Purchases" value={num(r.purchases)} delta={<Delta value={r.purchases} avg={avg.purchases} />} />
+                  <Stat label="Purchase ROAS" value={x(r.roas)} delta={<Delta value={r.roas} avg={avg.roas} />} />
                   <Stat label="CPA" value={usd(r.cpa)} delta={<Delta value={r.cpa} avg={avg.cpa} lowerIsBetter />} />
                   <Stat label="CVR" value={pct(r.cvr)} delta={<Delta value={r.cvr} avg={avg.cvr} />} />
-                  <Stat label="CTR" value={pct(r.ctr)} />
-                  <Stat label="CPC" value={usd(r.cpc)} />
-                  <Stat label="AOV" value={usd(r.aov)} />
-                  <Stat label="Clicks" value={num(r.clicks)} />
+                  <Stat label="ATC Rate" value={pct(r.atc_rate)} delta={<Delta value={r.atc_rate} avg={avg.atc_rate} />} />
+                  <Stat label="Adds to Cart" value={num(r.adds_to_cart)} delta={<Delta value={r.adds_to_cart} avg={avg.adds_to_cart} />} />
+                  <Stat label="Cost / ATC" value={usd(costPerAtc(r))} delta={<Delta value={costPerAtc(r)} avg={avg.cost_per_atc} lowerIsBetter />} />
                 </div>
               </Card>
             ))}
