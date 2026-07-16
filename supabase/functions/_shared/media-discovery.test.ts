@@ -18,6 +18,9 @@ import {
   classifyVideoFailure,
   computeContentHash,
   discoverImageUrl,
+  discoverVideoUrl,
+  extractCoverImageHash,
+  extractCoverVideoIds,
   isEligibleForCoverage,
   isImageOk,
   isStorageUrl,
@@ -451,6 +454,134 @@ Deno.test("discoverImageUrl: a real adimages high-res url is flagged full_res", 
   try {
     const result = await discoverImageUrl("ad1", "act_1", "token", 1000);
     assertEquals(result, { thumbnailUrl: HI_RES, fullResUrl: HI_RES, imageQuality: "full_res" });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// ── US-008: exotic formats — Collection / Canvas (Instant Experience) / Form ──
+// These ad types place their representable cover media on slots the standard
+// strategies skipped (a first child_attachment hero card, or a top-level
+// link_data cover video), so they rendered blank in Verdanote. The pure
+// extractors pin cover-first precedence; the discovery tests prove each format's
+// cover is actually resolved end-to-end (with a mocked Graph fetch), one fixture
+// per newly-supported format (AC#5).
+
+Deno.test("extractCoverImageHash: prefers link_data.image_hash (Collection/Canvas/Form hero)", () => {
+  assertEquals(
+    extractCoverImageHash({ link_data: { image_hash: "hero1" } }),
+    "hero1",
+  );
+});
+
+Deno.test("extractCoverImageHash: falls back to the first child_attachment hero card", () => {
+  // Collection product-grid / Canvas cover card: no direct link_data.image_hash, the
+  // representable hero is the first child attachment.
+  assertEquals(
+    extractCoverImageHash({
+      link_data: {
+        child_attachments: [
+          { image_hash: null },
+          { image_hash: "card2" },
+        ],
+      },
+    }),
+    "card2",
+  );
+});
+
+Deno.test("extractCoverImageHash: falls back to photo_data.image_hash (lead-gen still)", () => {
+  assertEquals(
+    extractCoverImageHash({ photo_data: { image_hash: "photo1" } }),
+    "photo1",
+  );
+});
+
+Deno.test("extractCoverImageHash: no cover hash → null (blank exotic ad)", () => {
+  assertEquals(extractCoverImageHash(null), null);
+  assertEquals(extractCoverImageHash(undefined), null);
+  assertEquals(extractCoverImageHash({}), null);
+  assertEquals(extractCoverImageHash({ link_data: { child_attachments: [] } }), null);
+});
+
+Deno.test("extractCoverVideoIds: surfaces the top-level cover video then hero cards, deduped in order", () => {
+  assertEquals(
+    extractCoverVideoIds({
+      link_data: {
+        video_id: "cover",
+        child_attachments: [{ video_id: "card1" }, { video_id: "cover" }, { video_id: "card2" }],
+      },
+    }),
+    ["cover", "card1", "card2"], // cover-first; duplicate "cover" child dropped
+  );
+});
+
+Deno.test("extractCoverVideoIds: no cover video → empty array", () => {
+  assertEquals(extractCoverVideoIds(null), []);
+  assertEquals(extractCoverVideoIds({}), []);
+  assertEquals(extractCoverVideoIds({ link_data: {} }), []);
+  assertEquals(extractCoverVideoIds({ link_data: { child_attachments: [{ video_id: null }] } }), []);
+});
+
+Deno.test("discoverImageUrl: a Collection/Canvas hero-card cover resolves full_res (Strategy 4b)", async () => {
+  // Exotic-format ad: no link_data.image_hash, no image_url, no video — the ONLY
+  // representable image is the first child_attachment's hero hash. Strategy 1 skips
+  // it; Strategy 4b must resolve it via /adimages rather than falling to the ~130px
+  // placeholder.
+  const HERO =
+    "https://scontent.xx.fbcdn.net/v/t45.1600-4/collection_hero_1200x1200_o.jpg?stp=dst-jpg&_nc_cat=9&_nc_ohc=feedface99887766&oe=CAFEBABE";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((url: string) => {
+    if (url.includes("?fields=creative")) {
+      return Promise.resolve(
+        fakeResp(true, {
+          creative: {
+            object_story_spec: {
+              link_data: { child_attachments: [{ image_hash: "herohash" }] },
+            },
+          },
+        }),
+      );
+    }
+    if (url.includes("adimages") && url.includes("herohash")) {
+      return Promise.resolve(
+        fakeResp(true, { data: [{ url: HERO, original_width: 1200, original_height: 1200 }] }),
+      );
+    }
+    return Promise.resolve(fakeResp(false, "x"));
+    // deno-lint-ignore no-explicit-any
+  }) as any;
+  try {
+    const result = await discoverImageUrl("collection_ad", "act_1", "token", 1000);
+    assertEquals(result, { thumbnailUrl: HERO, fullResUrl: HERO, imageQuality: "full_res" });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("discoverVideoUrl: a Collection/Form top-level cover video resolves (Path 4b)", async () => {
+  // Collection/Form ad whose only video is link_data.video_id (no video_data, no
+  // child video, no asset_feed_spec) — the slot Paths 1-5 never walked. Path 4b must
+  // collect it and resolve its source.
+  const COVER_SRC = "https://video.xx.fbcdn.net/v/t42.1790-2/collection_cover.mp4?oh=deadbeef";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((url: string) => {
+    if (url.includes("?fields=creative")) {
+      return Promise.resolve(
+        fakeResp(true, {
+          creative: { object_story_spec: { link_data: { video_id: "covervid" } } },
+        }),
+      );
+    }
+    if (url.includes("/covervid?") && url.includes("fields=source")) {
+      return Promise.resolve(fakeResp(true, { source: COVER_SRC }));
+    }
+    return Promise.resolve(fakeResp(false, "x"));
+    // deno-lint-ignore no-explicit-any
+  }) as any;
+  try {
+    const result = await discoverVideoUrl("form_ad", "token", 1000);
+    assertEquals(result, COVER_SRC);
   } finally {
     globalThis.fetch = originalFetch;
   }

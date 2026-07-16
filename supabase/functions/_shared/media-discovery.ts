@@ -248,6 +248,93 @@ export async function peekAndValidateMediaStream(
   return { ok: true, stream: rebuilt };
 }
 
+// ── US-008: exotic-format cover-media extraction ─────────────────────────────
+// Collection, Instant Experience / Canvas, and Form (lead-gen) ads do not always
+// carry their representable media on the plain link_data.image_hash / video_data
+// paths that Strategy 1 already covers. Instead the cover/hero often lives on the
+// FIRST child_attachment (Collection product-grid hero card, Canvas cover card) or
+// on link_data itself as a top-level cover video (Collection/Form). The existing
+// discovery skipped those slots, so these ads rendered blank in Verdanote. US-008
+// adds narrow, spec-embedded extraction of the *representable cover* (the notes
+// deliberately scope to "cover media first", not full product-grid capture) so each
+// format contributes to US-001 coverage. All helpers below are pure + dependency-
+// free (they read a spec object, never call the network) so they are unit-testable.
+//
+// Honest-failure (AC#4): when a spec IS one of these exotic shapes but carries no
+// resolvable cover media at all, discovery records the distinct NO_COVER_MEDIA
+// sentinel via classify — NOT a blank — so coverage reporting shows "exotic format,
+// no representable cover" separately from a plain unresolved image.
+export const NO_COVER_MEDIA_SENTINEL = "no-cover-media";
+
+/**
+ * US-008: pull the FIRST resolvable cover image_hash from an object_story_spec,
+ * covering the exotic-format slots Strategy 1 misses. Precedence, cover-first:
+ *   1. link_data.image_hash            (Collection/Canvas/Form hero — already caught
+ *                                        by Strategy 1, included here for a single
+ *                                        source of truth so callers can reuse this).
+ *   2. link_data.child_attachments[0].image_hash
+ *                                        (Collection product-grid hero card, Canvas
+ *                                        cover card) — the common gap.
+ *   3. photo_data.image_hash           (photo/lead-gen still).
+ * Returns the hash string or null. Pure — resolution to a URL is the caller's job
+ * (via the /{account}/adimages edge, exactly like Strategy 1).
+ */
+export function extractCoverImageHash(
+  spec: {
+    link_data?: {
+      image_hash?: string | null;
+      child_attachments?: Array<{ image_hash?: string | null } | null> | null;
+    } | null;
+    photo_data?: { image_hash?: string | null } | null;
+  } | null | undefined,
+): string | null {
+  if (!spec) return null;
+  const link = spec.link_data;
+  if (link?.image_hash) return link.image_hash;
+  const children = link?.child_attachments;
+  if (Array.isArray(children)) {
+    for (const child of children) {
+      if (child?.image_hash) return child.image_hash;
+    }
+  }
+  if (spec.photo_data?.image_hash) return spec.photo_data.image_hash;
+  return null;
+}
+
+/**
+ * US-008: pull the ORDERED set of cover video_ids from an object_story_spec for the
+ * exotic formats. Collection/Form ads carry a top-level cover video on
+ * link_data.video_id that the video-discovery loop (Paths 1-5) never walked; Canvas /
+ * Collection hero cards carry it on the first child_attachment. This surfaces both,
+ * cover-first, deduped in first-seen order:
+ *   1. link_data.video_id                       (Collection/Form top-level cover video)
+ *   2. link_data.child_attachments[*].video_id  (hero card video, in card order)
+ * Returns an ordered, deduped array of video_ids (may be empty). Pure — the caller
+ * resolves each id to a source via the same map-first/direct path as every other
+ * video strategy, so no new resolution logic is introduced.
+ */
+export function extractCoverVideoIds(
+  spec: {
+    link_data?: {
+      video_id?: string | null;
+      child_attachments?: Array<{ video_id?: string | null } | null> | null;
+    } | null;
+  } | null | undefined,
+): string[] {
+  const ids: string[] = [];
+  const push = (v: string | null | undefined) => {
+    if (typeof v === "string" && v.length > 0 && !ids.includes(v)) ids.push(v);
+  };
+  const link = spec?.link_data;
+  if (!link) return ids;
+  push(link.video_id);
+  const children = link.child_attachments;
+  if (Array.isArray(children)) {
+    for (const child of children) push(child?.video_id);
+  }
+  return ids;
+}
+
 /**
  * Pick the best creative IMAGE src from Ad Preview API HTML.
  * Only *.fbcdn.net image assets qualify — never a facebook.com page URL (those
@@ -711,6 +798,40 @@ export async function discoverImageUrl(
       if (imageUrl) return { thumbnailUrl: imageUrl, fullResUrl: imageUrl, imageQuality: "full_res" };
     }
 
+    // Strategy 4b (US-008): exotic-format cover hero. Collection / Instant Experience
+    // (Canvas) / Form ads often place their representable image_hash on the FIRST
+    // child_attachment (the product-grid / cover card), which Strategy 1 does not walk.
+    // Resolve that cover hash to a full-res url via the same /{account}/adimages edge
+    // Strategy 1 uses, so the cover renders full-res rather than falling through to the
+    // ~130px placeholder (Strategy 6).
+    if (spec) {
+      const coverHash = extractCoverImageHash(spec);
+      // Only worth a call when it is a hash Strategy 1 did NOT already try (Strategy 1
+      // covers link_data.image_hash + photo_data.image_hash; the new slot is the first
+      // child_attachment hero card).
+      const alreadyTried =
+        spec.link_data?.image_hash || spec.photo_data?.image_hash || undefined;
+      if (coverHash && coverHash !== alreadyTried) {
+        const imgRes = await fetchWithTimeout(
+          `https://graph.facebook.com/${META_API_VERSION}/${accountId}/adimages?hashes=["${coverHash}"]&fields=url,original_width,original_height&access_token=${accessToken}`,
+          timeoutMs
+        );
+        if (imgRes.ok) {
+          const imgData = await imgRes.json();
+          const images = imgData?.data;
+          if (images && images.length > 0) {
+            const fullUrl = images[0].url;
+            if (fullUrl && fullUrl.length > 100) {
+              console.log(`Exotic-format cover image_hash for ${adId} (Collection/Canvas/Form hero)`);
+              return { thumbnailUrl: fullUrl, fullResUrl: fullUrl, imageQuality: "full_res" };
+            }
+          }
+        } else {
+          await imgRes.text();
+        }
+      }
+    }
+
     // Strategy 5: Ad Preview API — extract rendered image from preview HTML
     // Works for whitelisted ads where we can't access the source page
     try {
@@ -930,6 +1051,15 @@ export async function discoverVideoUrlWithReason(
     for (const child of children) {
       if (child?.video_id) videoIds.push(child.video_id);
     }
+
+    // Path 4b (US-008): exotic-format cover video. Collection / Form ads carry a
+    // top-level cover video on link_data.video_id (never a child attachment); Canvas /
+    // Collection hero cards carry it on the first child. extractCoverVideoIds surfaces
+    // both, cover-first, so a Collection/Form cover VIDEO is resolved (its image cover
+    // was already handled in discoverImageUrl Strategy 4b). link_data.video_id is the
+    // slot Paths 1-5 never walked; child video_ids overlap Path 4 but push() below is
+    // deduped by the Set, so no double-fetch.
+    for (const coverVid of extractCoverVideoIds(spec)) videoIds.push(coverVid);
 
     // Path 5: asset_feed_spec (Advantage+/dynamic creative)
     const feedVideos: any[] = creative.asset_feed_spec?.videos || [];
@@ -1194,6 +1324,11 @@ export async function discoverAllVideoUrls(
     for (const child of children) {
       if (child?.video_id) orderedIds.push(String(child.video_id));
     }
+    // Path 4b (US-008): exotic-format top-level cover video (Collection/Form). The
+    // link_data.video_id cover has no card slot of its own; surface it so a Collection/
+    // Form cover video becomes a frame too. Child video_ids overlap Path 4 but the
+    // seen-Set dedupe below keeps frame_index stable and avoids a double-fetch.
+    for (const coverVid of extractCoverVideoIds(spec)) orderedIds.push(coverVid);
     // Path 5: asset_feed_spec (Advantage+ / dynamic creative) — EVERY variant.
     const feedVideos: any[] = creative.asset_feed_spec?.videos || [];
     for (const v of feedVideos) {
