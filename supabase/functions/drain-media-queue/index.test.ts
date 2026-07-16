@@ -795,3 +795,115 @@ Deno.test("US-007 AC (e2e#2): normal-sized videos are cached exactly as before (
   assert(isVideoOk({ video_url: creatives[0].video_url }), "normal video still reports video_ok");
   assertEquals(queue[0].status, "done");
 });
+
+// ── Throttle handling: never record no-video, keep the ad retryable ───────────
+// Meta app-level throttling (#4) was being written to video_url as the no-video
+// sentinel — permanently recording a merely-rate-limited ad as "no video". A throttle
+// must leave the media columns UNCHANGED and re-queue the ad for a short retry WITHOUT
+// burning an attempt or marking it done/no-video.
+Deno.test("drainOnce: a Meta #4 throttle during video discovery leaves video_url unchanged and the ad retryable", async () => {
+  const now = new Date().toISOString();
+  const queue: QueueRow[] = [{
+    ad_id: "ad_throttled",
+    account_id: "act_1",
+    status: "pending",
+    attempts: 0, // becomes 1 after claim; a throttle must NOT keep that bump
+    enqueued_at: now,
+    updated_at: now,
+    last_error: null,
+  }];
+  const creatives: Creative[] = [{
+    ad_id: "ad_throttled",
+    account_id: "act_1",
+    thumbnail_url: "no-thumbnail", // image sentinel → image path is a no-op
+    full_res_url: null,
+    video_url: "no-video", // generic no-video → a re-discovery TARGET this drain
+    thumb_asset_id: null,
+    video_asset_id: null,
+    image_quality: "full_res",
+  }];
+  const { supabase } = makeDb({ queue, creatives });
+
+  await withFetch((url) => {
+    if (url.includes("/advideos")) {
+      // fetchAccountVideoMap — the account library call is itself throttled (400 #4).
+      return new Response(
+        JSON.stringify({ error: { code: 4, message: "(#4) Application request limit reached" } }),
+        { status: 400, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (url.includes("graph.facebook.com") && url.includes("?fields=creative")) {
+      // discoverVideoUrlWithReason's top-level ad lookup is throttled.
+      return new Response(
+        JSON.stringify({ error: { code: 4, message: "(#4) Application request limit reached" } }),
+        { status: 400, headers: { "content-type": "application/json" } },
+      );
+    }
+    throw new Error(`unexpected fetch in throttle test: ${url}`);
+  }, async () => {
+    const summary = await mod.drainOnce(supabase, "fake-token", 5, 120_000);
+    assertEquals(summary.claimed, 1);
+    assertEquals(summary.throttled, 1, "the throttle is counted as throttled, not failed/cached");
+    assertEquals(summary.failed, 0, "a throttle is NOT a hard failure");
+    assertEquals(summary.cached, 0);
+  });
+
+  const creative = creatives[0];
+  // The invariant: media column UNCHANGED — never overwritten with a sentinel.
+  assertEquals(
+    creative.video_url,
+    "no-video",
+    "a throttle leaves video_url exactly as it was — never rewritten to no-video/permission/deleted",
+  );
+  assert(!isVideoOk({ video_url: creative.video_url }), "row is still not video_ok (unchanged), never falsely resolved");
+  // Retryable: back to pending, attempt not burned (still 0), not done/failed.
+  assertEquals(queue[0].status, "pending", "the ad is re-queued for a short transient retry, not marked done/failed");
+  assertEquals(queue[0].attempts, 0, "a throttle does not consume an attempt toward MAX_ATTEMPTS");
+});
+
+Deno.test("drainOnce: a #4 throttle on IMAGE discovery never writes the no-thumbnail sentinel", async () => {
+  const now = new Date().toISOString();
+  const queue: QueueRow[] = [{
+    ad_id: "ad_img_throttled",
+    account_id: "act_1",
+    status: "pending",
+    attempts: 0,
+    enqueued_at: now,
+    updated_at: now,
+    last_error: null,
+  }];
+  const creatives: Creative[] = [{
+    ad_id: "ad_img_throttled",
+    account_id: "act_1",
+    thumbnail_url: null, // no image yet → image discovery runs and gets throttled
+    full_res_url: null,
+    video_url: null, // not a video ad → video path is a no-op
+    thumb_asset_id: null,
+    video_asset_id: null,
+    image_quality: null,
+  }];
+  const { supabase } = makeDb({ queue, creatives });
+
+  await withFetch((url) => {
+    if (url.includes("graph.facebook.com") && url.includes("?fields=creative")) {
+      return new Response(
+        JSON.stringify({ error: { code: 4, message: "Application request limit reached" } }),
+        { status: 400, headers: { "content-type": "application/json" } },
+      );
+    }
+    throw new Error(`unexpected fetch in image throttle test: ${url}`);
+  }, async () => {
+    const summary = await mod.drainOnce(supabase, "fake-token", 5, 120_000);
+    assertEquals(summary.throttled, 1);
+    assertEquals(summary.failed, 0);
+  });
+
+  const creative = creatives[0];
+  assertEquals(
+    creative.thumbnail_url,
+    null,
+    "a throttle must never write the no-thumbnail sentinel — image column stays untouched",
+  );
+  assertEquals(queue[0].status, "pending", "the ad remains retryable after an image throttle");
+  assertEquals(queue[0].attempts, 0, "an image throttle does not consume an attempt");
+});

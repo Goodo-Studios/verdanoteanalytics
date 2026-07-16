@@ -42,7 +42,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import {
   assetStoragePath,
   computeContentHash,
-  discoverImageUrl,
+  discoverImageUrlWithReason,
   discoverVideoUrlWithReason,
   fetchAccountVideoMap,
   isStorageUrl,
@@ -55,6 +55,7 @@ import {
   NO_VIDEO_SENTINELS,
   peekAndValidateMediaStream,
   resolveMetaToken,
+  THROTTLED,
 } from "../_shared/media-discovery.ts";
 import { isMediaContentType } from "../_shared/vault-save-logic.ts";
 
@@ -106,6 +107,7 @@ export interface DrainSummary {
   cached: number;
   skipped: number; // already cached / nothing to cache (no-op)
   failed: number;
+  throttled: number; // Meta rate-limited — re-queued for a short retry, no attempt burned
   chained: boolean;
   reasons: Record<string, number>;
 }
@@ -311,7 +313,7 @@ export async function processQueuedAd(
   adId: string,
   accountId: string,
   metaToken: string,
-): Promise<{ outcome: "cached" | "skipped" | "failed"; reason?: string }> {
+): Promise<{ outcome: "cached" | "skipped" | "failed" | "throttled"; reason?: string }> {
   const { data: creative, error: fetchErr } = await supabase
     .from("creatives")
     .select("ad_id, account_id, thumbnail_url, full_res_url, video_url, thumb_asset_id, video_asset_id, image_quality")
@@ -328,6 +330,7 @@ export async function processQueuedAd(
   // deno-lint-ignore no-explicit-any
   const updates: Record<string, any> = {};
   let didCache = false;
+  let throttled = false; // a throttle on video OR image discovery — retry, record nothing
   const reasons: string[] = [];
 
   // US-003 (AC#2/#3): decide the video disposition honestly.
@@ -397,12 +400,21 @@ export async function processQueuedAd(
       cdnUrl =
         discovered && !NO_VIDEO_SENTINELS.has(discovered) ? discovered : null;
       if (!cdnUrl) {
-        // Genuinely could not resolve. Record the DISTINCT honest reason (AC#3):
-        //   permission / deleted → TERMINAL sentinel (skipped on future drains);
-        //   unknown → generic no-video (still a re-discovery target next time,
-        //   bounded by the queue's attempts/backoff so it is not an infinite loop).
-        updates.video_url = reason ?? NO_VIDEO_SENTINEL;
-        reasons.push(reason ?? NO_VIDEO_SENTINEL);
+        if (reason === THROTTLED) {
+          // Meta rate-limited us — the "no video found" conclusion is UNRELIABLE. Do
+          // NOT write any sentinel to video_url (leave the existing value untouched),
+          // flag the ad for a short transient retry, and record NOTHING. A throttle
+          // means "we could not check", never "no video exists".
+          throttled = true;
+          reasons.push(THROTTLED);
+        } else {
+          // Genuinely could not resolve. Record the DISTINCT honest reason (AC#3):
+          //   permission / deleted → TERMINAL sentinel (skipped on future drains);
+          //   unknown → generic no-video (still a re-discovery target next time,
+          //   bounded by the queue's attempts/backoff so it is not an infinite loop).
+          updates.video_url = reason ?? NO_VIDEO_SENTINEL;
+          reasons.push(reason ?? NO_VIDEO_SENTINEL);
+        }
       }
     }
     if (cdnUrl) {
@@ -459,10 +471,20 @@ export async function processQueuedAd(
       isLowResPlaceholder ? "low_res" : "full_res";
 
     if (!imgUrl) {
-      const discovered = await discoverImageUrl(adId, accountId, metaToken, 8_000);
+      const { result: discovered, reason: imgReason } =
+        await discoverImageUrlWithReason(adId, accountId, metaToken, 8_000);
       imgUrl = discovered?.thumbnailUrl ?? null;
       discoveredQuality = discovered?.imageQuality ?? "low_res";
-      if (!imgUrl && !isLowResPlaceholder) updates.thumbnail_url = NO_THUMB_SENTINEL;
+      if (!imgUrl && imgReason === THROTTLED) {
+        // Meta rate-limited the image lookup — inconclusive. Never write the
+        // NO_THUMB_SENTINEL ("no-thumbnail") for a mere throttle (that would
+        // permanently mark a rate-limited ad as having no image). Leave the image
+        // columns untouched and flag for a short transient retry.
+        throttled = true;
+        reasons.push(THROTTLED);
+      } else if (!imgUrl && !isLowResPlaceholder) {
+        updates.thumbnail_url = NO_THUMB_SENTINEL;
+      }
     }
 
     if (imgUrl && discoveredQuality === "full_res") {
@@ -497,6 +519,15 @@ export async function processQueuedAd(
   if (Object.keys(updates).length > 0) {
     await supabase.from("creatives").update(updates).eq("ad_id", adId).eq("account_id", accountId);
   }
+
+  // Throttle takes priority for the queue disposition: a throttle on EITHER media path
+  // means that path's conclusion is unreliable and must be retried soon. The row's
+  // media columns for the throttled path were deliberately left untouched (no sentinel
+  // written), and any half we DID cache this run is already persisted in `updates`, so
+  // a re-queue safely short-circuits the cached half (isStorageUrl) and only re-attempts
+  // the throttled half. Returning 'throttled' keeps the ad eligible for a normal retry
+  // WITHOUT consuming a hard-failure attempt or a terminal disposition.
+  if (throttled) return { outcome: "throttled", reason: reasons.join(",") || THROTTLED };
 
   if (didCache) return { outcome: "cached", reason: reasons.join(",") || undefined };
   // Already-cached (skipVideo && skipImage) → this ad is done; there is nothing more to
@@ -538,6 +569,7 @@ export async function drainOnce(
     cached: 0,
     skipped: 0,
     failed: 0,
+    throttled: 0,
     chained: false,
     reasons: {},
   };
@@ -576,7 +608,25 @@ export async function drainOnce(
     );
     if (reason) summary.reasons[reason] = (summary.reasons[reason] ?? 0) + 1;
 
-    if (outcome === "cached" || outcome === "skipped") {
+    if (outcome === "throttled") {
+      // Meta rate-limited this ad's discovery — NOT a data verdict and NOT a hard
+      // failure. Re-queue it to 'pending' for a SHORT transient retry (the next
+      // drain-media-queue-2min poke picks it up soon), leave its media columns
+      // untouched, and DO NOT burn an attempt: the claim RPC already bumped attempts,
+      // so decrement it back so a throttle never advances the ad toward MAX_ATTEMPTS
+      // or the escalating permanent-failure backoff. It is neither done/cached nor a
+      // hard failure — just deferred.
+      summary.throttled++;
+      await supabase
+        .from("media_cache_queue")
+        .update({
+          status: "pending",
+          attempts: Math.max(0, (row.attempts ?? 1) - 1),
+          updated_at: new Date().toISOString(),
+          last_error: reason ?? THROTTLED,
+        })
+        .eq("ad_id", row.ad_id);
+    } else if (outcome === "cached" || outcome === "skipped") {
       if (outcome === "cached") summary.cached++;
       else summary.skipped++;
       await supabase
