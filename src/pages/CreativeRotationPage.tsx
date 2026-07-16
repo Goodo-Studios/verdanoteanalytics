@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, subDays } from "date-fns";
-import { Download, Loader2 } from "lucide-react";
+import { Download } from "lucide-react";
 
 import { PageHeader } from "@/components/PageHeader";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
@@ -15,26 +15,47 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getCreativeRotation, type FreshDays } from "@/lib/api";
 import { downloadCSV } from "@/lib/csv";
 
-// Feature 3 (Creative Rotation) ships behind the builder account first
-// (roadmap §4 "Rollout sequencing" — dogfood on Goodo before any account-wide
-// rollout). Gate = builder ROLE (matches the /agency, /tagging, /ad-library
-// role gates) AND the selected account being the builder account.
-
 const FRESH_OPTIONS: FreshDays[] = [7, 14, 30];
 
 const fmtMoney = (n: number) =>
   `$${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+const fmtMoney2 = (n: number) =>
+  `$${(n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtPct = (n: number) => `${(n ?? 0).toFixed(1)}%`;
-const fmtDays = (n: number) => `${(n ?? 0).toFixed(1)}d`;
 const fmtNum = (n: number) => (n ?? 0).toLocaleString();
 
-function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }) {
+type CohortView = "weekly" | "monthly";
+interface CohortRow {
+  launch_week: string;
+  creative_count: number;
+  still_live: number;
+  spend: number;
+  spend_share: number;
+  purchases: number;
+  purchase_value: number;
+  cpa: number;
+  roas: number;
+}
+
+/** Big headline KPI tile (matches the Data-Druid reference top strip). `accent`
+ *  emphasises the freshness tile; `delta` shows the vs-prior trend chip. */
+function KpiTile({
+  label, value, sub, accent = false, delta,
+}: {
+  label: string; value: string; sub?: string; accent?: boolean;
+  delta?: { pp: number } | null;
+}) {
   return (
-    <Card>
+    <Card className={accent ? "border-verdant/40 bg-sage-light/30" : undefined}>
       <CardContent className="p-4">
-        <p className="font-body text-[12px] text-slate">{label}</p>
-        <p className="font-heading text-[24px] text-charcoal mt-1">{value}</p>
+        <p className="font-body text-[11px] uppercase tracking-wide text-slate leading-tight">{label}</p>
+        <p className={`font-heading text-[28px] mt-1 ${accent ? "text-verdant" : "text-charcoal"}`}>{value}</p>
         {sub && <p className="font-body text-[12px] text-muted-foreground mt-0.5">{sub}</p>}
+        {delta && (
+          <p className={`font-body text-[12px] mt-0.5 ${delta.pp < 0 ? "text-red-500" : "text-verdant"}`}>
+            {delta.pp < 0 ? "▼" : "▲"} {Math.abs(delta.pp).toFixed(1)}pp vs prior
+          </p>
+        )}
       </CardContent>
     </Card>
   );
@@ -45,6 +66,7 @@ const CreativeRotationPage = () => {
   const { selectedAccountId, selectedAccount, isLoading: accountLoading } = useAccountContext();
 
   const [freshDays, setFreshDays] = useState<FreshDays>(14);
+  const [cohortView, setCohortView] = useState<CohortView>("weekly");
   const [dateFrom, setDateFrom] = useState<string | undefined>(
     () => format(subDays(new Date(), 90), "yyyy-MM-dd"),
   );
@@ -62,7 +84,6 @@ const CreativeRotationPage = () => {
     queryFn: () => getCreativeRotation(selectedAccountId!, dateFrom!, dateTo!, freshDays),
   });
 
-  // Weekly series for the two charts (stacked spend-by-age + freshness-vs-CPA).
   const weekly = data?.weekly_age ?? [];
   const weekDates = useMemo(() => weekly.map((w) => w.week_start), [weekly]);
 
@@ -87,14 +108,87 @@ const CreativeRotationPage = () => {
   }, [data]);
   const newAdsDates = useMemo(() => (data?.new_ads_timeline ?? []).map((r) => r.week_start), [data]);
 
+  // Freshness vs prior: spend-weighted % on ≤freshDays creative over the most
+  // recent N weeks (N = the "New" window) vs the N weeks before it.
+  const freshnessDelta = useMemo(() => {
+    const w = weekly.filter((x) => x.total_spend > 0);
+    const span = Math.max(1, Math.round(freshDays / 7));
+    if (w.length < span * 2) return null;
+    const freshPct = (arr: typeof w) => {
+      const t = arr.reduce((a, x) => ({ f: a.f + x.fresh_spend, s: a.s + x.total_spend }), { f: 0, s: 0 });
+      return t.s > 0 ? (t.f / t.s) * 100 : 0;
+    };
+    const cur = freshPct(w.slice(-span));
+    const prev = freshPct(w.slice(-span * 2, -span));
+    return { cur, prev, pp: cur - prev };
+  }, [weekly, freshDays]);
+
+  // Insight banner: median account CPA in the weeks with the most vs least fresh spend.
+  const insight = useMemo(() => {
+    const w = weekly.filter((x) => x.total_spend > 0);
+    if (w.length < 6) return null;
+    const n = Math.min(6, Math.floor(w.length / 2));
+    const byFresh = [...w].sort((a, b) => b.fresh_spend_pct - a.fresh_spend_pct);
+    const weekCpa = (x: typeof w[number]) => {
+      const p = (x.fresh_purchases ?? 0) + (x.stale_purchases ?? 0);
+      return p > 0 ? x.total_spend / p : null;
+    };
+    const median = (arr: typeof w) => {
+      const v = arr.map(weekCpa).filter((x): x is number => x != null).sort((a, b) => a - b);
+      if (!v.length) return null;
+      const m = Math.floor(v.length / 2);
+      return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+    };
+    const top = byFresh.slice(0, n), bottom = byFresh.slice(-n);
+    const topCpa = median(top), botCpa = median(bottom);
+    if (topCpa == null || botCpa == null) return null;
+    const avgFresh = (arr: typeof w) => arr.reduce((s, x) => s + x.fresh_spend_pct, 0) / arr.length;
+    return { n, topCpa, botCpa, topFresh: avgFresh(top), botFresh: avgFresh(bottom) };
+  }, [weekly]);
+
+  // Launch cohorts: filter to the selected date window, aggregate weekly→monthly
+  // when requested, recompute share over the visible set, and order recent-first.
+  const cohortRows = useMemo<CohortRow[]>(() => {
+    let rows: CohortRow[] = (data?.cohorts ?? []).filter(
+      (c) => (!dateFrom || c.launch_week >= dateFrom) && (!dateTo || c.launch_week <= dateTo),
+    );
+    if (cohortView === "monthly") {
+      const byMonth = new Map<string, CohortRow>();
+      for (const c of rows) {
+        const key = c.launch_week.slice(0, 7); // YYYY-MM
+        const m = byMonth.get(key) ?? {
+          launch_week: `${key}-01`, creative_count: 0, still_live: 0, spend: 0,
+          spend_share: 0, purchases: 0, purchase_value: 0, cpa: 0, roas: 0,
+        };
+        m.creative_count += c.creative_count; m.still_live += c.still_live; m.spend += c.spend;
+        m.purchases += c.purchases; m.purchase_value += c.purchase_value;
+        byMonth.set(key, m);
+      }
+      rows = [...byMonth.values()];
+    }
+    const grand = rows.reduce((s, c) => s + c.spend, 0) || 1;
+    rows = rows.map((c) => ({
+      ...c,
+      spend_share: (c.spend / grand) * 100,
+      cpa: c.purchases > 0 ? c.spend / c.purchases : 0,
+      roas: c.spend > 0 ? c.purchase_value / c.spend : 0,
+    }));
+    return rows.sort((a, b) => b.launch_week.localeCompare(a.launch_week)); // recent first
+  }, [data, dateFrom, dateTo, cohortView]);
+
+  const cohortLabel = (launchWeek: string) =>
+    cohortView === "monthly"
+      ? format(new Date(launchWeek), "MMM yyyy")
+      : `Wk of ${format(new Date(launchWeek), "MMM d, yyyy")}`;
+
   const handleExportCohorts = () => {
-    const headers = ["Launch Week", "Creatives", "Still Live", "Spend", "Spend Share %", "Purchases", "Purchase Value", "CPA", "ROAS"];
-    const rows = (data?.cohorts ?? []).map((c) => [
-      c.launch_week, String(c.creative_count), String(c.still_live),
+    const headers = [cohortView === "monthly" ? "Month" : "Launch week", "Creatives", "Still Live", "Spend", "Share %", "Purchases", "Purchase Value", "CPA", "ROAS"];
+    const rows = cohortRows.map((c) => [
+      cohortLabel(c.launch_week), String(c.creative_count), String(c.still_live),
       c.spend.toFixed(2), c.spend_share.toFixed(1), String(c.purchases),
       c.purchase_value.toFixed(2), c.cpa.toFixed(2), c.roas.toFixed(2),
     ]);
-    downloadCSV(`creative-rotation-cohorts-${dateFrom}_${dateTo}.csv`, headers, rows);
+    downloadCSV(`creative-rotation-cohorts-${cohortView}-${dateFrom}_${dateTo}.csv`, headers, rows);
   };
 
   if (accountLoading) {
@@ -114,8 +208,7 @@ const CreativeRotationPage = () => {
         <Card>
           <CardContent className="p-8 text-center">
             <p className="font-body text-[14px] text-slate">
-              Creative Rotation is currently available on the builder account only while we validate it.
-              Switch to the Goodo Studios account to view this report.
+              Creative Rotation is available to the builder role. Switch to a builder account to view it.
             </p>
           </CardContent>
         </Card>
@@ -129,9 +222,10 @@ const CreativeRotationPage = () => {
     <>
       <PageHeader
         title="Creative Rotation"
-        description="How fresh is your creative? Spend by age, fresh vs stale CPA, launch cohorts, and new-ad cadence."
+        description="How much spend goes to new creative — and what happens to CPA as spend concentrates on fresh vs old."
         actions={
           <div className="flex items-center gap-2">
+            <span className="font-body text-[12px] text-slate">&ldquo;New&rdquo; =</span>
             <div className="flex items-center rounded-md border border-border-light overflow-hidden">
               {FRESH_OPTIONS.map((n) => (
                 <button
@@ -141,7 +235,7 @@ const CreativeRotationPage = () => {
                     freshDays === n ? "bg-verdant text-white" : "text-slate hover:bg-cream-dark"
                   }`}
                 >
-                  {n}d
+                  ≤{n} days
                 </button>
               ))}
             </div>
@@ -171,13 +265,42 @@ const CreativeRotationPage = () => {
         </Card>
       ) : (
         <div className="space-y-6">
-          {/* Freshness KPIs */}
+          {/* Headline KPI strip */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Kpi label={`% Spend on ≤${freshDays}d creative`} value={fmtPct(kpis.fresh_spend_pct)} sub={`${fmtMoney(kpis.fresh_spend)} of ${fmtMoney(kpis.total_spend)}`} />
-            <Kpi label="Spend-weighted creative age" value={fmtDays(kpis.spend_weighted_age)} />
-            <Kpi label="Fresh CPA" value={fmtMoney(kpis.fresh_cpa)} sub={`${fmtNum(kpis.fresh_purchases)} purchases`} />
-            <Kpi label="Stale CPA" value={fmtMoney(kpis.stale_cpa)} sub={`${fmtNum(kpis.stale_purchases)} purchases`} />
+            <KpiTile
+              accent
+              label={`Freshness · % of spend on ≤${freshDays}d creative`}
+              value={fmtPct(kpis.fresh_spend_pct)}
+              sub={`${fmtMoney(kpis.fresh_spend)} of ${fmtMoney(kpis.total_spend)}`}
+              delta={freshnessDelta ? { pp: freshnessDelta.pp } : null}
+            />
+            <KpiTile
+              label="Spend-weighted creative age"
+              value={`${Math.round(kpis.spend_weighted_age ?? 0)} days`}
+              sub="mean age of a spent dollar"
+            />
+            <KpiTile
+              label={`Fresh CPA (≤${freshDays}d)`}
+              value={fmtMoney2(kpis.fresh_cpa)}
+              sub={`${fmtNum(kpis.fresh_purchases)} purchases`}
+            />
+            <KpiTile
+              label={`Stale CPA (>${freshDays}d)`}
+              value={fmtMoney2(kpis.stale_cpa)}
+              sub={kpis.stale_cpa > kpis.fresh_cpa ? "fresh converts cheaper" : "stale converts cheaper"}
+            />
           </div>
+
+          {/* Insight banner */}
+          {insight && (
+            <div className="rounded-md border-l-2 border-verdant bg-sage-light/20 px-4 py-3">
+              <p className="font-body text-[14px] text-charcoal">
+                In the {insight.n} weeks with the most spend on fresh creative (~{Math.round(insight.topFresh)}% ≤{freshDays}d),
+                median CPA was {fmtMoney2(insight.topCpa)} — vs {fmtMoney2(insight.botCpa)} in the {insight.n} weeks with the least
+                (~{Math.round(insight.botFresh)}%).
+              </p>
+            </div>
+          )}
 
           {/* Weekly spend share by creative age */}
           <Card>
@@ -197,43 +320,62 @@ const CreativeRotationPage = () => {
 
           {/* Launch-cohort table */}
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-[16px]">Launch cohorts</CardTitle>
-              <Button size="sm" variant="outline" onClick={handleExportCohorts} disabled={!(data?.cohorts?.length)}>
-                <Download className="h-3.5 w-3.5 mr-1.5" />Export CSV
-              </Button>
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
+              <CardTitle className="text-[16px]">Launch cohorts — spend & CPA of creatives by when they launched</CardTitle>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center rounded-md border border-border-light overflow-hidden">
+                  {(["weekly", "monthly"] as CohortView[]).map((v) => (
+                    <button
+                      key={v}
+                      onClick={() => setCohortView(v)}
+                      className={`px-3 py-1.5 font-body text-[13px] capitalize ${
+                        cohortView === v ? "bg-verdant text-white" : "text-slate hover:bg-cream-dark"
+                      }`}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+                <Button size="sm" variant="outline" onClick={handleExportCohorts} disabled={!cohortRows.length}>
+                  <Download className="h-3.5 w-3.5 mr-1.5" />Export CSV
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full text-[13px]">
-                  <thead>
-                    <tr className="border-b border-border-light text-left text-slate">
-                      <th className="py-2 pr-4 font-medium">Launch week</th>
-                      <th className="py-2 pr-4 font-medium text-right">Creatives</th>
-                      <th className="py-2 pr-4 font-medium text-right">Still live</th>
-                      <th className="py-2 pr-4 font-medium text-right">Spend</th>
-                      <th className="py-2 pr-4 font-medium text-right">Share</th>
-                      <th className="py-2 pr-4 font-medium text-right">Purchases</th>
-                      <th className="py-2 pr-4 font-medium text-right">CPA</th>
-                      <th className="py-2 pr-4 font-medium text-right">ROAS</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(data?.cohorts ?? []).map((c) => (
-                      <tr key={c.launch_week} className="border-b border-border-light/50">
-                        <td className="py-2 pr-4">{format(new Date(c.launch_week), "MMM d, yyyy")}</td>
-                        <td className="py-2 pr-4 text-right">{fmtNum(c.creative_count)}</td>
-                        <td className="py-2 pr-4 text-right">{fmtNum(c.still_live)}</td>
-                        <td className="py-2 pr-4 text-right">{fmtMoney(c.spend)}</td>
-                        <td className="py-2 pr-4 text-right">{fmtPct(c.spend_share)}</td>
-                        <td className="py-2 pr-4 text-right">{fmtNum(c.purchases)}</td>
-                        <td className="py-2 pr-4 text-right">{fmtMoney(c.cpa)}</td>
-                        <td className="py-2 pr-4 text-right">{(c.roas ?? 0).toFixed(2)}x</td>
+              {cohortRows.length === 0 ? (
+                <p className="font-body text-[13px] text-slate py-4">No creatives launched in the selected window.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[13px]">
+                    <thead>
+                      <tr className="border-b border-border-light text-left text-slate">
+                        <th className="py-2 pr-4 font-medium">Cohort</th>
+                        <th className="py-2 pr-4 font-medium text-right">Creatives</th>
+                        <th className="py-2 pr-4 font-medium text-right">Still live</th>
+                        <th className="py-2 pr-4 font-medium text-right">Spend</th>
+                        <th className="py-2 pr-4 font-medium text-right">Share</th>
+                        <th className="py-2 pr-4 font-medium text-right">Purchases</th>
+                        <th className="py-2 pr-4 font-medium text-right">CPA</th>
+                        <th className="py-2 pr-4 font-medium text-right">ROAS</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {cohortRows.map((c) => (
+                        <tr key={c.launch_week} className="border-b border-border-light/50">
+                          <td className="py-2 pr-4">{cohortLabel(c.launch_week)}</td>
+                          <td className="py-2 pr-4 text-right">{fmtNum(c.creative_count)}</td>
+                          <td className="py-2 pr-4 text-right">{fmtNum(c.still_live)}</td>
+                          <td className="py-2 pr-4 text-right">{fmtMoney(c.spend)}</td>
+                          <td className="py-2 pr-4 text-right">{fmtPct(c.spend_share)}</td>
+                          <td className="py-2 pr-4 text-right">{fmtNum(c.purchases)}</td>
+                          <td className="py-2 pr-4 text-right">{fmtMoney2(c.cpa)}</td>
+                          <td className="py-2 pr-4 text-right">{(c.roas ?? 0).toFixed(2)}x</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </CardContent>
           </Card>
 
