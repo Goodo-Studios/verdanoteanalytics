@@ -17,7 +17,10 @@ import { extractDestinationLink, normalizeDestinationUrl } from "../_shared/norm
 
 const META_API_VERSION = "v22.0";
 const BUDGET_MS = 100_000; // 100s budget
-const META_BATCH = 50;
+// 20, not 50: requesting object_story_spec + asset_feed_spec for 50 ads at once
+// makes Meta reject the batch with "Please reduce the amount of data you're asking
+// for" on creative-heavy accounts. Smaller batches get through.
+const META_BATCH = 20;
 
 // extractDestinationLink now lives in _shared/normalize-destination.ts so the sync
 // forward-fill uses the exact same extraction (no split/merge drift).
