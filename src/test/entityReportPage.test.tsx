@@ -60,11 +60,19 @@ beforeEach(() => {
 });
 
 describe("EntityReportPage gate", () => {
-  it("blocks non-builder accounts with a rollout message", () => {
+  it("blocks a non-builder role with a builder-role message", () => {
+    mockIsBuilder = false;
+    mockReport.mockReturnValue({ data: undefined, isLoading: false, error: null });
+    renderPage();
+    expect(screen.getByText(/available to the builder role/i)).toBeInTheDocument();
+  });
+
+  it("a builder on a non-builder account is NOT gated — the account no longer gates", () => {
     mockAccountId = "act_999";
     mockReport.mockReturnValue({ data: undefined, isLoading: false, error: null });
     renderPage();
-    expect(screen.getByText(/builder-account-first rollout/i)).toBeInTheDocument();
+    // Role is builder → no gate, regardless of which account is selected.
+    expect(screen.queryByText(/available to the builder role/i)).not.toBeInTheDocument();
   });
 });
 

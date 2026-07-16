@@ -1,11 +1,12 @@
 /**
  * Creative Rotation page — gating + freshness-toggle wiring.
  *
- * The report ships behind the builder account first (roadmap §4). These lock:
- *   - a non-builder (or builder on a non-builder account) sees the gated notice,
- *     never the report, and never calls the edge fn;
- *   - a builder on the builder account renders KPIs from the edge fn, and the
- *     7/14/30 toggle re-queries with the new fresh_days (fireEvent, per repo
+ * The builder-view rollout gates on the builder ROLE only, on ANY account (the
+ * route already keeps non-builders away; see CreativeRotationPage `gated`). These lock:
+ *   - a non-builder role sees the gated notice, never the report, never calls the edge fn;
+ *   - a builder on ANY account (including a non-builder account) renders KPIs from the
+ *     edge fn — the account no longer gates;
+ *   - the ≤7/≤14/≤30 day toggle re-queries with the new fresh_days (fireEvent, per repo
  *     convention — no @testing-library/user-event).
  */
 import { render, screen, waitFor, fireEvent, cleanup } from "@testing-library/react";
@@ -62,17 +63,18 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("CreativeRotationPage gating", () => {
-  it("shows the gated notice and never queries when not the builder account", async () => {
+  it("a builder on a non-builder account still renders the report — the account no longer gates", async () => {
     mockAccount = { ...mockAccount, selectedAccountId: "act_999", selectedAccount: { id: "act_999", name: "Client" } };
     renderPage();
-    expect(screen.getByText(/builder account only/i)).toBeInTheDocument();
-    expect(getCreativeRotation).not.toHaveBeenCalled();
+    // Builder role → the report loads for any account (gating is role-only).
+    await waitFor(() => expect(getCreativeRotation).toHaveBeenCalled());
+    expect(await screen.findByText("60.0%")).toBeInTheDocument();
   });
 
-  it("shows the gated notice for a non-builder role even on the builder account", async () => {
+  it("shows the gated notice for a non-builder role, and never queries", async () => {
     mockAuth = { isBuilder: false };
     renderPage();
-    expect(screen.getByText(/builder account only/i)).toBeInTheDocument();
+    expect(screen.getByText(/available to the builder role/i)).toBeInTheDocument();
     expect(getCreativeRotation).not.toHaveBeenCalled();
   });
 });
@@ -82,7 +84,7 @@ describe("CreativeRotationPage report", () => {
     renderPage();
     await waitFor(() => expect(getCreativeRotation).toHaveBeenCalled());
     expect(await screen.findByText("60.0%")).toBeInTheDocument();       // % spend fresh
-    expect(screen.getByText("12.3d")).toBeInTheDocument();               // spend-weighted age
+    expect(screen.getByText("12 days")).toBeInTheDocument();             // spend-weighted age (rounded)
     // default fresh window is 14 days
     const call = getCreativeRotation.mock.calls[0];
     expect(call[3]).toBe(14);
@@ -91,7 +93,7 @@ describe("CreativeRotationPage report", () => {
   it("re-queries with fresh_days=7 when the 7d toggle is clicked", async () => {
     renderPage();
     await waitFor(() => expect(getCreativeRotation).toHaveBeenCalled());
-    fireEvent.click(screen.getByText("7d"));
+    fireEvent.click(screen.getByText("≤7 days"));
     await waitFor(() =>
       expect(getCreativeRotation.mock.calls.some((c) => c[3] === 7)).toBe(true),
     );

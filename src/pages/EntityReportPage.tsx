@@ -167,8 +167,8 @@ export default function EntityReportPage() {
   const [tierFilter, setTierFilter] = useState<TierFilter>("all");
   const [openCluster, setOpenCluster] = useState<EntityCluster | null>(null);
 
-  // Builder-account-first gate: only the builder role, only the Goodo account.
-  // Builder-view rollout: available for the builder role on ANY account.
+  // Builder-view rollout: available for the builder role on ANY account (the
+  // account no longer gates). Non-builder roles see the gate below.
   const gated = !isBuilder;
 
   const { data, isLoading, error } = useEntityReport(gated ? undefined : selectedAccountId ?? undefined);
@@ -190,8 +190,8 @@ export default function EntityReportPage() {
         />
         <Card>
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
-            The Entity Report is in builder-account-first rollout. Select the Goodo
-            builder account to view it.
+            The Entity Report is available to the builder role. Switch to a builder
+            account to view it.
           </CardContent>
         </Card>
       </div>
