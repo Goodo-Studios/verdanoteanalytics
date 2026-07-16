@@ -15,6 +15,7 @@ import { assertEquals, assertNotEquals } from "https://deno.land/std@0.224.0/ass
 import {
   assetStoragePath,
   classifyCoverage,
+  classifyVideoFailure,
   computeContentHash,
   discoverImageUrl,
   isEligibleForCoverage,
@@ -22,6 +23,10 @@ import {
   isStorageUrl,
   isVideoAd,
   isVideoOk,
+  NO_VIDEO_DELETED_SENTINEL,
+  NO_VIDEO_PERMISSION_SENTINEL,
+  NO_VIDEO_SENTINEL,
+  peekAndValidateMediaStream,
 } from "./media-discovery.ts";
 
 const STORAGE_IMG =
@@ -177,6 +182,136 @@ Deno.test("isVideoOk: a cached storage video is ok; sentinel and live CDN are NO
   assertEquals(isVideoOk({ video_url: STORAGE_VID }), true);
   assertEquals(isVideoOk({ video_url: "no-video" }), false); // unresolved
   assertEquals(isVideoOk({ video_url: LIVE_CDN }), false); // never cached
+});
+
+// ── US-003: distinct no-video-* sentinels are ALL NOT video_ok ────────────────
+// The honest-failure taxonomy adds permission/deleted sentinels alongside the
+// generic no-video. Coverage must treat every one of them as NOT video_ok — the
+// distinction is only about WHY, never a loosening of "is there a playable video".
+Deno.test("isVideoOk: every no-video-* sentinel is NOT video_ok", () => {
+  assertEquals(isVideoOk({ video_url: NO_VIDEO_SENTINEL }), false);
+  assertEquals(isVideoOk({ video_url: NO_VIDEO_PERMISSION_SENTINEL }), false);
+  assertEquals(isVideoOk({ video_url: NO_VIDEO_DELETED_SENTINEL }), false);
+});
+
+Deno.test("classifyCoverage: a no-video-permission ad is not covered (video_ok false)", () => {
+  const c = classifyCoverage({
+    ad_status: "ACTIVE",
+    impressions: 100,
+    full_res_url: STORAGE_IMG,
+    video_url: NO_VIDEO_PERMISSION_SENTINEL,
+  });
+  assertEquals(c.image_ok, true);
+  assertEquals(c.video_ok, false); // genuinely-unresolvable video
+  assertEquals(c.covered, false);
+});
+
+// ── US-003: classifyVideoFailure — honest failure taxonomy ────────────────────
+// The generic no-video sentinel conflated "unknown/unresolved" with "permission-
+// blocked" and "deleted". This maps a Meta Graph error to the DISTINCT terminal
+// sentinel so coverage reporting is honest (permission/deleted are terminal; anything
+// else stays the generic no-video "still worth re-attempting").
+
+Deno.test("classifyVideoFailure: permission errors (#10, #200, 'permission') → permission sentinel", () => {
+  assertEquals(classifyVideoFailure({ code: 10, message: "..." }), NO_VIDEO_PERMISSION_SENTINEL);
+  assertEquals(classifyVideoFailure({ code: "10" }), NO_VIDEO_PERMISSION_SENTINEL);
+  assertEquals(classifyVideoFailure({ code: 200 }), NO_VIDEO_PERMISSION_SENTINEL);
+  assertEquals(
+    classifyVideoFailure({ code: 3, message: "A permission error occurred" }),
+    NO_VIDEO_PERMISSION_SENTINEL,
+  );
+});
+
+Deno.test("classifyVideoFailure: deleted/missing object → deleted sentinel", () => {
+  assertEquals(
+    classifyVideoFailure({ code: 100, message: "Object does not exist" }),
+    NO_VIDEO_DELETED_SENTINEL,
+  );
+  assertEquals(
+    classifyVideoFailure({ code: 100, message: "This node has been deleted" }),
+    NO_VIDEO_DELETED_SENTINEL,
+  );
+  assertEquals(
+    classifyVideoFailure({ code: 12, message: "The video has been removed" }),
+    NO_VIDEO_DELETED_SENTINEL,
+  );
+});
+
+Deno.test("classifyVideoFailure: unknown/absent error → generic no-video (still re-attemptable)", () => {
+  assertEquals(classifyVideoFailure(null), NO_VIDEO_SENTINEL);
+  assertEquals(classifyVideoFailure(undefined), NO_VIDEO_SENTINEL);
+  assertEquals(classifyVideoFailure({}), NO_VIDEO_SENTINEL);
+  assertEquals(classifyVideoFailure({ code: 1, message: "Some transient error" }), NO_VIDEO_SENTINEL);
+});
+
+// ── US-003: peekAndValidateMediaStream — playability guard without buffering ──
+// cacheVideoToStorage streams the body straight to storage, so we validate only the
+// LEADING chunk: reject an empty (0-byte) body and an HTML/login/error page, and on a
+// valid media stream hand back the SAME bytes re-assembled (peeked chunk + remainder)
+// so the upload streams identical content with flat memory.
+
+// Build a ReadableStream that yields the given chunks in order.
+function streamOf(chunks: Uint8Array[]): ReadableStream<Uint8Array> {
+  let i = 0;
+  return new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (i < chunks.length) controller.enqueue(chunks[i++]);
+      else controller.close();
+    },
+  });
+}
+// Drain a stream back into one contiguous Uint8Array (test-only; the worker never does
+// this — it streams to storage).
+async function collect(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const parts: Uint8Array[] = [];
+  const reader = stream.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) parts.push(value);
+  }
+  const total = parts.reduce((n, p) => n + p.byteLength, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const p of parts) { out.set(p, off); off += p.byteLength; }
+  return out;
+}
+const mp4Bytes = () => new Uint8Array([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]); // ftyp box
+
+Deno.test("peekAndValidateMediaStream: a real media stream passes and re-emits identical bytes", async () => {
+  const head = mp4Bytes();
+  const tail = new Uint8Array([1, 2, 3, 4, 5]);
+  const res = await peekAndValidateMediaStream(streamOf([head, tail]));
+  assertEquals(res.ok, true);
+  const bytes = await collect(res.stream!);
+  // The re-assembled stream must be byte-for-byte the original (peeked chunk first).
+  const expected = new Uint8Array([...head, ...tail]);
+  assertEquals(bytes, expected);
+});
+
+Deno.test("peekAndValidateMediaStream: an HTML error page is rejected (reason=html)", async () => {
+  const html = new TextEncoder().encode("<!DOCTYPE html><html><head><title>Login</title>");
+  const res = await peekAndValidateMediaStream(streamOf([html]));
+  assertEquals(res.ok, false);
+  assertEquals(res.reason, "html");
+  assertEquals(res.stream, undefined);
+});
+
+Deno.test("peekAndValidateMediaStream: a zero-byte body is rejected (reason=empty)", async () => {
+  const res = await peekAndValidateMediaStream(streamOf([]));
+  assertEquals(res.ok, false);
+  assertEquals(res.reason, "empty");
+});
+
+Deno.test("peekAndValidateMediaStream: skips leading empty chunks, then validates real bytes", async () => {
+  // A stream may legally yield 0-length chunks before real data — those must not be
+  // mistaken for an empty body.
+  const res = await peekAndValidateMediaStream(
+    streamOf([new Uint8Array([]), new Uint8Array([]), mp4Bytes()]),
+  );
+  assertEquals(res.ok, true);
+  const bytes = await collect(res.stream!);
+  assertEquals(bytes, mp4Bytes());
 });
 
 Deno.test("classifyCoverage: fully-covered image+video ad", () => {

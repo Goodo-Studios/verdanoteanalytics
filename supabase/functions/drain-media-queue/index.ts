@@ -41,12 +41,16 @@ import {
   assetStoragePath,
   computeContentHash,
   discoverImageUrl,
-  discoverVideoUrl,
+  discoverVideoUrlWithReason,
   fetchAccountVideoMap,
   isStorageUrl,
   looksLikeHtml,
   NO_THUMB_SENTINEL,
+  NO_VIDEO_DELETED_SENTINEL,
+  NO_VIDEO_PERMISSION_SENTINEL,
   NO_VIDEO_SENTINEL,
+  NO_VIDEO_SENTINELS,
+  peekAndValidateMediaStream,
   resolveMetaToken,
 } from "../_shared/media-discovery.ts";
 import { isMediaContentType } from "../_shared/vault-save-logic.ts";
@@ -109,6 +113,8 @@ type Supa = any;
 export type VideoCacheReason =
   | "expired" // CDN responded non-2xx — the time-limited fbcdn url is dead
   | "non-video" // content-type is not a video payload
+  | "empty" // US-003: 200 but zero bytes — not a playable video
+  | "html" // US-003: 200 but the body is an HTML/login/error page, not media
   | "too-large" // exceeds MAX_VIDEO_SIZE → keep CDN url, do not store
   | "upload-error" // storage upload failed
   | "exception"; // network/other throw
@@ -144,6 +150,24 @@ export async function cacheVideoToStorage(
       return { url: null, reason: "too-large" };
     }
 
+    // US-003 (AC#1): validate PLAYABILITY before committing to storage. The
+    // content-type header + content-length above are not enough — a Meta CDN /
+    // login / error page can 200 with a text/html body (or a video-typed HTML body),
+    // and a broken CDN can 200 with a ZERO-byte body; either would otherwise be
+    // stored as <adId>.mp4 and wrongly treated as a playable video. We CANNOT buffer
+    // the whole stream (256MB worker), so peek ONLY the leading chunk: reject if it
+    // is empty or looks like HTML, then stream the re-assembled body (peeked chunk +
+    // untouched remainder) on to storage with flat memory.
+    const peek = await peekAndValidateMediaStream(res.body);
+    if (!peek.ok || !peek.stream) {
+      // Reader is released inside the peek; cancel the source Response to free the
+      // socket. `empty`/`html` are DISTINCT terminal reasons the caller records.
+      await res.body.cancel().catch(() => {});
+      const reason: VideoCacheReason = peek.reason === "empty" ? "empty" : "html";
+      console.warn(`Rejecting non-playable video for ${adId}: ${reason} (content-type ${contentType})`);
+      return { url: null, reason };
+    }
+
     // Per-ad path here (not asset-keyed): streaming the upload precludes hashing the
     // bytes without buffering, so the video path uses the ad-keyed path exactly as
     // enrich-thumbnails does. Image dedupe (buffered) runs on the image path below.
@@ -159,7 +183,8 @@ export async function cacheVideoToStorage(
           "x-upsert": "true",
           ...(lenHeader ? { "Content-Length": lenHeader } : {}),
         },
-        body: res.body,
+        // Stream the VALIDATED, re-assembled body (peeked chunk re-prepended).
+        body: peek.stream,
         // Deno requires duplex:'half' to send a streaming request body.
         // deno-lint-ignore no-explicit-any
         duplex: "half",
@@ -286,8 +311,28 @@ export async function processQueuedAd(
   let didCache = false;
   const reasons: string[] = [];
 
-  const skipVideo =
-    creative.video_url === NO_VIDEO_SENTINEL || isStorageUrl(creative.video_url);
+  // US-003 (AC#2/#3): decide the video disposition honestly.
+  //   • already a storage url → cached, playable → SKIP (never re-touch, US-011).
+  //   • a TERMINAL no-video sentinel (permission / deleted) → the video is
+  //     genuinely-unresolvable under our access; re-discovery would fail identically,
+  //     so SKIP forever (this is the honest residual set for AC#4).
+  //   • the GENERIC no-video sentinel → previously skipped FOREVER (the AC#2 bug:
+  //     an ad sitting on 'no-video' whose video is still resolvable was never
+  //     re-discovered). Now it is a RE-DISCOVERY TARGET — treated the same as a
+  //     never-attempted ad. The queue's attempts/backoff + MAX_ATTEMPTS bound the
+  //     retries, and a run that STILL cannot resolve records the classified terminal
+  //     reason (permission/deleted) or leaves the generic no-video, so there is no
+  //     infinite re-discovery loop.
+  //   • a NULLed url (an earlier drain found an expired CDN url and NULLed it) →
+  //     re-discovery target (null triggers discovery below).
+  const videoIsTerminalSentinel =
+    creative.video_url === NO_VIDEO_PERMISSION_SENTINEL ||
+    creative.video_url === NO_VIDEO_DELETED_SENTINEL;
+  const skipVideo = isStorageUrl(creative.video_url) || videoIsTerminalSentinel;
+  // A stored value that is NOT a usable CDN url (the generic no-video sentinel, or a
+  // NULL) means "no live CDN url to download — go discover one".
+  const videoNeedsDiscovery =
+    creative.video_url == null || creative.video_url === NO_VIDEO_SENTINEL;
 
   // US-002: a creative sitting on a low-res placeholder (image_quality='low_res',
   // e.g. only the ~130px thumbnail_url fallback) is a re-discovery TARGET, not
@@ -315,15 +360,30 @@ export async function processQueuedAd(
 
   // ── Video (the heavy path) ──────────────────────────────────────────────────
   if (!skipVideo) {
-    let cdnUrl: string | null = creative.video_url;
-    if (!cdnUrl) {
-      // No CDN url yet — discover one. Build the account video map once.
+    // A usable live CDN url only if the stored value is one (never the generic
+    // no-video sentinel — that is a re-discovery target, not a downloadable url).
+    let cdnUrl: string | null = videoNeedsDiscovery ? null : creative.video_url;
+    if (videoNeedsDiscovery) {
+      // No usable CDN url (never attempted, generic no-video, or NULLed-expired) —
+      // run FULL discovery through every existing strategy (top-level video_id,
+      // object_story_spec, template_data, asset_feed_spec.videos, account video map,
+      // post attachments). Build the account video map once (AC#2).
       const accountVideoMap = await fetchAccountVideoMap(accountId, metaToken);
-      const discovered = await discoverVideoUrl(adId, metaToken, 30_000, accountVideoMap);
-      cdnUrl = discovered && discovered !== NO_VIDEO_SENTINEL ? discovered : null;
+      const { url: discovered, reason } = await discoverVideoUrlWithReason(
+        adId,
+        metaToken,
+        30_000,
+        accountVideoMap,
+      );
+      cdnUrl =
+        discovered && !NO_VIDEO_SENTINELS.has(discovered) ? discovered : null;
       if (!cdnUrl) {
-        // Genuinely no video — sentinel so we don't re-discover on every drain.
-        updates.video_url = NO_VIDEO_SENTINEL;
+        // Genuinely could not resolve. Record the DISTINCT honest reason (AC#3):
+        //   permission / deleted → TERMINAL sentinel (skipped on future drains);
+        //   unknown → generic no-video (still a re-discovery target next time,
+        //   bounded by the queue's attempts/backoff so it is not an infinite loop).
+        updates.video_url = reason ?? NO_VIDEO_SENTINEL;
+        reasons.push(reason ?? NO_VIDEO_SENTINEL);
       }
     }
     if (cdnUrl) {
@@ -340,6 +400,18 @@ export async function processQueuedAd(
         // Stale CDN url — NULL it so the next drain re-discovers a fresh one.
         updates.video_url = null;
         reasons.push("expired");
+      } else if (
+        result.reason === "empty" ||
+        result.reason === "html" ||
+        result.reason === "non-video"
+      ) {
+        // US-003 (AC#1): the "cached" bytes are NOT a playable video — a zero-byte
+        // 200, an HTML/login/error page, or a non-video payload. This url must NEVER
+        // be marked video_ok. NULL the url so a fresh CDN url is re-discovered next
+        // drain (the current one may simply be a stale/expired link that now serves
+        // an error page); the row stays NOT video_ok until a real video is cached.
+        updates.video_url = null;
+        reasons.push(result.reason);
       } else {
         reasons.push(result.reason ?? "video-failed");
       }
@@ -404,6 +476,19 @@ export async function processQueuedAd(
   // done; there is nothing more to store. Only a hard failure re-queues.
   if (reasons.some((r) => r === "too-large") || (skipVideo && skipImage)) {
     return { outcome: "skipped", reason: reasons.join(",") || "already-cached" };
+  }
+  // US-003: a genuinely-unresolvable video is a TERMINAL, honest outcome — NOT a
+  // transient failure to re-queue. When discovery classified the reason as one of the
+  // no-video-* sentinels (permission/deleted/generic-unknown), the row is written with
+  // that distinct sentinel and marked done; a later targeted re-discovery run
+  // (AC#4) re-enqueues the still-generic 'no-video' rows to re-attempt them. This
+  // stops a permanently-unresolvable ad from re-clogging the queue every drain while
+  // keeping coverage honest (all no-video-* are NOT video_ok). `empty`/`html`/`expired`
+  // NULLed the url and DO warrant a retry (a fresh CDN url may serve real bytes).
+  const onlyTerminalVideoReasons =
+    reasons.length > 0 && reasons.every((r) => NO_VIDEO_SENTINELS.has(r));
+  if (onlyTerminalVideoReasons) {
+    return { outcome: "skipped", reason: reasons.join(",") };
   }
   if (reasons.length > 0) return { outcome: "failed", reason: reasons.join(",") };
   // Nothing to cache (sentineled both / no media): terminal skip, not a retry.

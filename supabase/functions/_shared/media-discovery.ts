@@ -8,6 +8,94 @@ const META_API_VERSION = "v22.0";
 export const NO_THUMB_SENTINEL = "no-thumbnail";
 export const NO_VIDEO_SENTINEL = "no-video";
 
+// ── US-003: honest video-failure taxonomy ────────────────────────────────────
+// A video ad whose source cannot be resolved was previously ALWAYS written the
+// blanket `no-video` sentinel, which conflated three very different truths and made
+// coverage reporting dishonest:
+//   • no-video             — GENUINELY-UNRESOLVED / unknown. Meta reports the ad as a
+//                            video, but no discovery strategy surfaced a source and no
+//                            classifiable Graph error explained why. This is the set a
+//                            future re-discovery run should keep re-attempting (it may
+//                            be a transient token/permission blip), so it is the only
+//                            NON-terminal sentinel — the residual "we don't know yet".
+//   • no-video-permission  — TERMINAL for our current credentials. The Graph API told
+//                            us the source is permission-blocked (error code #10 /
+//                            #200, or a message containing "permission"). Re-discovery
+//                            with the SAME token will keep failing identically, so this
+//                            is honest-terminal: not a bug, a genuinely-unresolvable
+//                            video under our access. Distinguishing it stops it from
+//                            inflating the "we haven't tried hard enough" bucket.
+//   • no-video-deleted     — TERMINAL. The underlying video/post no longer exists
+//                            (error code #100 with "does not exist" / "deleted" /
+//                            "removed"). It will NEVER resolve; re-discovery is wasted
+//                            work. Recorded distinctly so coverage reporting can show
+//                            "genuinely gone" separately from "we couldn't get to it".
+//
+// Coverage honesty (AC#3/#4): ALL three are NOT a storage url, so isVideoOk and the
+// media_coverage SQL view already classify every one of them as NOT video_ok — the
+// distinction is purely about WHY, for an honest residual-reason breakdown, and does
+// NOT loosen coverage. The residual set for AC#4 is exactly the permission + deleted
+// rows (genuinely-unresolvable) plus whatever no-video rows survive a re-discovery run.
+export const NO_VIDEO_PERMISSION_SENTINEL = "no-video-permission";
+export const NO_VIDEO_DELETED_SENTINEL = "no-video-deleted";
+
+// The full set of no-video-* sentinels. Any of these means "Meta reports a video ad
+// but we have no cached, playable video for it" → NOT video_ok. Kept as one set so
+// isVideoOk (and any other caller) can never miss a newly-added reason.
+export const NO_VIDEO_SENTINELS: ReadonlySet<string> = new Set([
+  NO_VIDEO_SENTINEL,
+  NO_VIDEO_PERMISSION_SENTINEL,
+  NO_VIDEO_DELETED_SENTINEL,
+]);
+
+/**
+ * US-003: classify a Meta Graph API error object (`data.error` from a failed video
+ * lookup) into the honest-failure taxonomy above. Returns the DISTINCT terminal
+ * sentinel when the error is unambiguous, else the generic NO_VIDEO_SENTINEL (the
+ * non-terminal "unknown/unresolved" residual). Pure + dependency-free so it is
+ * unit-testable without a live Graph call.
+ *
+ * Mapping (kept deliberately narrow so we never mislabel a transient error as
+ * terminal — a mislabel would wrongly stop re-discovery):
+ *   • code #10 / #200, or a message mentioning "permission" → PERMISSION (terminal
+ *     for our token: pages_read_engagement-style block on page-owned videos).
+ *   • code #100 with "does not exist" / "deleted" / "removed" → DELETED (terminal:
+ *     the object is gone).
+ *   • anything else (including no error object at all) → generic no-video (unknown,
+ *     still worth a future re-attempt).
+ */
+export function classifyVideoFailure(
+  error: { code?: number | string | null; message?: string | null } | null | undefined,
+): string {
+  if (!error) return NO_VIDEO_SENTINEL;
+  const code = error.code != null ? String(error.code) : "";
+  const msg = (error.message ?? "").toLowerCase();
+
+  // Permission-blocked: #10 (page-owned media needs pages_read_engagement) or #200
+  // (generic permissions error), or any message explicitly citing a permission issue.
+  if (code === "10" || code === "200" || msg.includes("permission")) {
+    return NO_VIDEO_PERMISSION_SENTINEL;
+  }
+  // Deleted / missing object: #100 ("does not exist") is the canonical signal, but
+  // guard on the message too since #100 is a broad "invalid parameter" bucket.
+  if (
+    (code === "100" &&
+      (msg.includes("does not exist") ||
+        msg.includes("deleted") ||
+        msg.includes("removed") ||
+        msg.includes("cannot be loaded") ||
+        msg.includes("unsupported get request"))) ||
+    // A clear "gone" message is terminal whatever the code — Meta is inconsistent
+    // about the numeric code for a deleted/removed video/post.
+    msg.includes("does not exist") ||
+    msg.includes("deleted") ||
+    msg.includes("removed")
+  ) {
+    return NO_VIDEO_DELETED_SENTINEL;
+  }
+  return NO_VIDEO_SENTINEL;
+}
+
 /**
  * Resolve the Meta Graph API access token from the two configured sources, in
  * the same precedence sync / backfill-play-curves use: the `META_ACCESS_TOKEN`
@@ -58,6 +146,92 @@ export function looksLikeHtml(bytes: Uint8Array | null | undefined): boolean {
     trimmed.startsWith("<?xml") ||
     trimmed.startsWith("<!--")
   );
+}
+
+/**
+ * US-003: peek the LEADING bytes of a streamed response body to validate that the
+ * download is a real, non-empty media payload BEFORE it is committed to storage —
+ * WITHOUT buffering the whole video (worker is ~256MB-limited).
+ *
+ * The gap this closes (AC#1): cacheVideoToStorage streams the body straight to
+ * storage and previously trusted the content-type header + content-length. But a
+ * Meta CDN / login / error page can 200 with a `text/html` (or a mislabeled
+ * video/octet-stream) body, and a broken CDN can 200 with a ZERO-byte body — either
+ * would be stored as `<adId>.mp4` and treated as a playable video. We cannot buffer
+ * the whole stream to check, so we pull only the FIRST chunk from the reader, run
+ * looksLikeHtml on it, and require at least one non-empty byte; then we hand back a
+ * re-assembled stream (peeked chunk re-prepended + the untouched remainder) so the
+ * caller streams the identical bytes on to storage with flat memory.
+ *
+ * Returns:
+ *   • { ok: true, stream } — a fresh ReadableStream that yields the peeked first
+ *     chunk followed by the rest of the original body, byte-for-byte. Stream on.
+ *   • { ok: false, reason: "empty" } — the body produced no bytes (0-byte 200).
+ *   • { ok: false, reason: "html" }  — the leading bytes are an HTML/login/error
+ *     page, not media. Reject; do NOT store.
+ *
+ * On a rejection the underlying reader is released and the source is cancelled by the
+ * caller (which owns the Response). Depends only on Web Streams / Uint8Array so it is
+ * unit-testable with a hand-built ReadableStream, no network.
+ */
+export interface VideoPeekResult {
+  ok: boolean;
+  stream?: ReadableStream<Uint8Array>;
+  reason?: "empty" | "html";
+}
+
+export async function peekAndValidateMediaStream(
+  body: ReadableStream<Uint8Array>,
+): Promise<VideoPeekResult> {
+  const reader = body.getReader();
+  // Pull the first non-empty chunk (a stream may legally yield a 0-length chunk
+  // before real data, so skip empties until we get bytes or the stream ends).
+  let first: Uint8Array | undefined;
+  let done = false;
+  while (!done) {
+    const r = await reader.read();
+    done = r.done;
+    if (r.value && r.value.byteLength > 0) {
+      first = r.value;
+      break;
+    }
+  }
+
+  // Empty body (0-byte 200 / immediately-closed stream): not a playable video.
+  if (!first) {
+    reader.releaseLock();
+    return { ok: false, reason: "empty" };
+  }
+
+  // HTML/login/error page masquerading as media: reject on the leading bytes.
+  if (looksLikeHtml(first)) {
+    reader.releaseLock();
+    return { ok: false, reason: "html" };
+  }
+
+  // Valid so far — re-assemble a stream that emits the peeked chunk first, then the
+  // untouched remainder. Memory stays flat: we hold exactly ONE chunk, never the
+  // whole file. Backpressure is preserved by awaiting each downstream read.
+  const rebuilt = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(first as Uint8Array);
+    },
+    async pull(controller) {
+      const { done: rDone, value } = await reader.read();
+      if (rDone) {
+        controller.close();
+        reader.releaseLock();
+        return;
+      }
+      if (value) controller.enqueue(value);
+    },
+    cancel(reason) {
+      // Downstream cancelled (e.g. upload aborted) — propagate to the source.
+      return reader.cancel(reason);
+    },
+  });
+
+  return { ok: true, stream: rebuilt };
 }
 
 /**
@@ -229,7 +403,11 @@ export function isVideoAd(creative: { video_url?: string | null }): boolean {
 export function isVideoOk(creative: { video_url?: string | null }): boolean {
   const v = creative.video_url;
   if (v == null || v === "") return true; // not a video ad → trivially ok
-  if (v === NO_VIDEO_SENTINEL) return false; // unresolved video
+  // US-003: ANY no-video-* sentinel (unresolved / permission-blocked / deleted) is
+  // NOT ok. They are plain strings, never a storage url, so isStorageUrl already
+  // excludes them — but check the set explicitly so the intent is unmistakable and a
+  // newly-added distinct sentinel can never accidentally read as "ok".
+  if (NO_VIDEO_SENTINELS.has(v)) return false;
   return isStorageUrl(v); // cached storage url = playable
 }
 
@@ -636,6 +814,44 @@ export async function discoverVideoUrl(
   timeoutMs = 30_000,
   accountVideoMap?: Map<string, string>
 ): Promise<string | null> {
+  return (await discoverVideoUrlWithReason(adId, accessToken, timeoutMs, accountVideoMap)).url;
+}
+
+/**
+ * US-003: the video-discovery core, returning BOTH the resolved source url (or null)
+ * AND the honest failure reason when it could not be resolved. `discoverVideoUrl`
+ * (unchanged signature, all existing callers) delegates here and drops the reason;
+ * the drain worker uses this variant so a genuinely-unresolvable video can be recorded
+ * on a DISTINCT sentinel (permission vs deleted vs unknown) rather than the blanket
+ * `no-video` (AC#3).
+ *
+ * `reason` is set ONLY when `url` is null. It is the classified terminal/residual
+ * sentinel from classifyVideoFailure applied to the first classifiable Graph error we
+ * saw along the way (permission/deleted are terminal; everything else stays the
+ * generic no-video "unknown, still worth re-attempting"). Every discovery STRATEGY is
+ * still tried exactly as before — we only observe the errors, never short-circuit on
+ * them, so a permission error on one path never suppresses a later path that succeeds.
+ */
+export async function discoverVideoUrlWithReason(
+  adId: string,
+  accessToken: string,
+  timeoutMs = 30_000,
+  accountVideoMap?: Map<string, string>
+): Promise<{ url: string | null; reason?: string }> {
+  // Track the most specific classifiable error seen across all strategies. Once we
+  // have a TERMINAL classification (permission/deleted) we keep it; a later generic
+  // error must not downgrade it. A resolved url wins over any error.
+  let failReason: string | null = null;
+  const noteError = (
+    error: { code?: number | string | null; message?: string | null } | null | undefined,
+  ) => {
+    if (!error) return;
+    const classified = classifyVideoFailure(error);
+    // Prefer a terminal reason; don't let a later generic no-video overwrite it.
+    if (failReason === null || failReason === NO_VIDEO_SENTINEL) {
+      failReason = classified;
+    }
+  };
   try {
     const res = await fetchWithTimeout(
       `https://graph.facebook.com/${META_API_VERSION}/${adId}?fields=creative{id,video_id,object_story_spec,effective_object_story_id,asset_feed_spec}&access_token=${accessToken}`,
@@ -643,7 +859,11 @@ export async function discoverVideoUrl(
     );
     if (!res.ok) {
       console.log(`Meta video API failed for ${adId}: ${res.status}`);
-      return null;
+      // Try to read the error body so a permission/deleted status is classified
+      // rather than bucketed as generic unknown.
+      const errData = await res.json().catch(() => null);
+      noteError(errData?.error);
+      return { url: null, reason: failReason ?? NO_VIDEO_SENTINEL };
     }
     const data = await res.json();
     const creative = data?.creative;
@@ -653,7 +873,8 @@ export async function discoverVideoUrl(
       if (errCode || errMsg) {
         console.log(`Meta video: no creative for ${adId} — error ${errCode}: ${errMsg}`);
       }
-      return null;
+      noteError(data?.error);
+      return { url: null, reason: failReason ?? NO_VIDEO_SENTINEL };
     }
 
     const spec = creative.object_story_spec;
@@ -664,7 +885,7 @@ export async function discoverVideoUrl(
 
     // Path 2: standard video_data
     if (spec?.video_data?.video_id) videoIds.push(spec.video_data.video_id);
-    if (spec?.video_data?.video_url) return spec.video_data.video_url;
+    if (spec?.video_data?.video_url) return { url: spec.video_data.video_url };
 
     // Path 3: template / DPA video
     if (spec?.template_data?.video_data?.video_id) {
@@ -691,20 +912,23 @@ export async function discoverVideoUrl(
         const mapped = accountVideoMap.get(vid);
         if (mapped) {
           console.log(`Got video source from account library map for ${adId} (video ${vid})`);
-          return mapped;
+          return { url: mapped };
         }
       }
       const vidRes = await fetchWithTimeout(
         `https://graph.facebook.com/${META_API_VERSION}/${vid}?fields=source&access_token=${accessToken}`,
         timeoutMs
       );
+      const vidData = await vidRes.json().catch(() => null);
       if (vidRes.ok) {
-        const vidData = await vidRes.json();
         if (vidData?.source) {
           console.log(`Got video source from video_id ${vid} for ${adId}`);
-          return vidData.source;
+          return { url: vidData.source };
         }
       }
+      // A direct /{video_id} fetch is where #10 (page-owned, permission-blocked) and
+      // #100 (deleted video) most often surface — classify it toward the honest reason.
+      noteError(vidData?.error);
     }
 
     // Path 6: effective_object_story_id → post video
@@ -721,7 +945,7 @@ export async function discoverVideoUrl(
         // Direct source on the post object (common for native video posts)
         if (postData?.source && postData.source.includes("video")) {
           console.log(`Got video source directly from post for ${adId}`);
-          return postData.source;
+          return { url: postData.source };
         }
 
         const attachments: any[] = postData?.attachments?.data || [];
@@ -729,7 +953,7 @@ export async function discoverVideoUrl(
           // Some video posts expose the playable URL directly on media.source
           if (att?.media?.source) {
             console.log(`Got video from attachment media.source for ${adId}`);
-            return att.media.source;
+            return { url: att.media.source };
           }
           // Standard path: media.video.id → fetch source
           const videoId = att?.media?.video?.id;
@@ -738,20 +962,19 @@ export async function discoverVideoUrl(
               `https://graph.facebook.com/${META_API_VERSION}/${videoId}?fields=source&access_token=${accessToken}`,
               timeoutMs
             );
-            if (vidRes.ok) {
-              const vidData = await vidRes.json();
-              if (vidData?.source) {
-                console.log(`Got video via effective_object_story_id for ${adId}`);
-                return vidData.source;
-              }
+            const vidData = await vidRes.json().catch(() => null);
+            if (vidRes.ok && vidData?.source) {
+              console.log(`Got video via effective_object_story_id for ${adId}`);
+              return { url: vidData.source };
             }
+            noteError(vidData?.error);
           }
           // Check subattachments (carousel / album posts)
           const subattachments: any[] = att?.subattachments?.data || [];
           for (const sub of subattachments) {
             if (sub?.media?.source) {
               console.log(`Got video from subattachment media.source for ${adId}`);
-              return sub.media.source;
+              return { url: sub.media.source };
             }
             const subVideoId = sub?.media?.video?.id;
             if (subVideoId) {
@@ -759,18 +982,18 @@ export async function discoverVideoUrl(
                 `https://graph.facebook.com/${META_API_VERSION}/${subVideoId}?fields=source&access_token=${accessToken}`,
                 timeoutMs
               );
-              if (vidRes.ok) {
-                const vidData = await vidRes.json();
-                if (vidData?.source) {
-                  console.log(`Got video via subattachment video_id for ${adId}`);
-                  return vidData.source;
-                }
+              const vidData = await vidRes.json().catch(() => null);
+              if (vidRes.ok && vidData?.source) {
+                console.log(`Got video via subattachment video_id for ${adId}`);
+                return { url: vidData.source };
               }
+              noteError(vidData?.error);
             }
           }
         }
       } else {
-        await postSourceRes.text();
+        const errData = await postSourceRes.json().catch(() => null);
+        noteError(errData?.error);
       }
     }
 
@@ -794,20 +1017,19 @@ export async function discoverVideoUrl(
             const mapped = accountVideoMap.get(vid);
             if (mapped) {
               console.log(`Got video via adcreatives fallback (map) for ${adId}`);
-              return mapped;
+              return { url: mapped };
             }
           }
           const vidRes = await fetchWithTimeout(
             `https://graph.facebook.com/${META_API_VERSION}/${vid}?fields=source&access_token=${accessToken}`,
             timeoutMs
           );
-          if (vidRes.ok) {
-            const vidData = await vidRes.json();
-            if (vidData?.source) {
-              console.log(`Got video via adcreatives fallback for ${adId}`);
-              return vidData.source;
-            }
+          const vidData = await vidRes.json().catch(() => null);
+          if (vidRes.ok && vidData?.source) {
+            console.log(`Got video via adcreatives fallback for ${adId}`);
+            return { url: vidData.source };
           }
+          noteError(vidData?.error);
         }
       }
     }
@@ -826,19 +1048,23 @@ export async function discoverVideoUrl(
           const videoSrc = extractPreviewVideoSrc(previewBody);
           if (videoSrc) {
             console.log(`Got video via Ad Preview API for ${adId}`);
-            return videoSrc;
+            return { url: videoSrc };
           }
         }
       } else {
-        await previewRes.text();
+        const errData = await previewRes.json().catch(() => null);
+        noteError(errData?.error);
       }
     } catch (e) {
       console.log(`Video preview API fallback error for ${adId}:`, e);
     }
 
-    return null;
+    // Exhausted every strategy without a source. Return the honest failure reason:
+    // a classified terminal sentinel (permission/deleted) when we saw one, else the
+    // generic no-video "unknown / still worth re-attempting" residual.
+    return { url: null, reason: failReason ?? NO_VIDEO_SENTINEL };
   } catch (e) {
     console.log(`Meta video API error for ${adId}:`, e);
-    return null;
+    return { url: null, reason: failReason ?? NO_VIDEO_SENTINEL };
   }
 }
