@@ -10,7 +10,10 @@ import { extractDestinationLink, normalizeDestinationUrl } from "../_shared/norm
 import {
   assetStoragePath,
   computeContentHash,
+  deriveFrames,
+  type DiscoveredFrame,
   discoverAllVideoUrls,
+  expectedFrameCount,
   fetchAccountVideoMap,
   isStorageUrl,
   looksLikeHtml,
@@ -105,88 +108,11 @@ export function newlyInsertedAdIds(
 // The sync already fetches creative{object_story_spec, asset_feed_spec} on its
 // Phase-1 ad fetch (Story B), so deriving the frames adds NO extra Meta call on the
 // hot path — the ordered frame set comes straight from the spec in hand.
-
-/** One discovered frame of an ad, before it is written to creative_frames. */
-export interface DiscoveredFrame {
-  frame_index: number; // 0-based ordered position (matches scrape-ad `position`)
-  media_type: "image" | "video" | "carousel_frame" | "video_thumbnail";
-  /** live source url (CDN) for the frame, used to fetch+hash for asset linking */
-  url: string | null;
-}
-
-/**
- * US-004: Meta's REPORTED frame count for a creative — the "expected" side of
- * frames_ok. Only a genuine multi-card carousel (object_story_spec.link_data.
- * child_attachments with >1 card) declares an expected count here; the count is the
- * number of cards Meta reports. A single-image / single-video / single-card ad, or
- * an ad whose card count cannot be reliably read, returns null — NEVER a guess. A
- * false >1 count would create a false 'frames_incomplete', so the rule is: only
- * count when Meta explicitly enumerates >1 carousel cards. Pure + dependency-free so
- * the contract is unit-testable without a live creative.
- *
- * Mirrors migration 20260714000027: expected_frame_count NULL/<=1 → frames_ok
- * trivially TRUE (no regression); >1 → captured creative_frames COUNT must reach it.
- */
-export function expectedFrameCount(creative: unknown): number | null {
-  // deno-lint-ignore no-explicit-any
-  const c = creative as any;
-  const children = c?.object_story_spec?.link_data?.child_attachments;
-  if (Array.isArray(children) && children.length > 1) return children.length;
-  // No reliable multi-frame signal — leave null rather than guess (a single-asset
-  // ad, or a spec we can't confidently count, must stay frames_ok-trivial).
-  return null;
-}
-
-/**
- * US-004: derive the ORDERED frame ledger for an ad from the creative spec already
- * in hand (object_story_spec.link_data.child_attachments — every carousel card — and
- * asset_feed_spec.videos — every dynamic-creative video variant). Returns frames in
- * a stable order with 0-based frame_index so a re-sync UPSERTs each frame in place
- * (keyed on (ad_id, frame_index)) and never duplicates. media_type mirrors the
- * scrape-ad taxonomy: a carousel card is 'carousel_frame', a feed video is 'video'.
- *
- * Only produces a ledger for a GENUINE multi-frame ad (a carousel with >1 card, or an
- * asset_feed_spec carrying >1 video) — a single-asset ad yields no rows (its
- * frames_ok is trivially TRUE via expected_frame_count null/<=1, so a ledger would be
- * noise). Pure + dependency-free so ordering is unit-testable without a live creative.
- */
-export function deriveFrames(creative: unknown): DiscoveredFrame[] {
-  // deno-lint-ignore no-explicit-any
-  const c = creative as any;
-  const frames: DiscoveredFrame[] = [];
-  let idx = 0;
-
-  const children = c?.object_story_spec?.link_data?.child_attachments;
-  if (Array.isArray(children) && children.length > 1) {
-    for (const child of children) {
-      const isVideo = !!child?.video_id;
-      const url =
-        child?.picture ??
-        child?.image_url ??
-        child?.original_image_url ??
-        null;
-      frames.push({
-        frame_index: idx++,
-        media_type: isVideo ? "video" : "carousel_frame",
-        url: typeof url === "string" ? url : null,
-      });
-    }
-    return frames;
-  }
-
-  const feedVideos = c?.asset_feed_spec?.videos;
-  if (Array.isArray(feedVideos) && feedVideos.length > 1) {
-    for (const v of feedVideos) {
-      const url =
-        (typeof v?.video_url === "string" ? v.video_url : null) ??
-        (typeof v?.thumbnail_url === "string" ? v.thumbnail_url : null);
-      frames.push({ frame_index: idx++, media_type: "video", url });
-    }
-    return frames;
-  }
-
-  return frames;
-}
+//
+// The pure derivations — expectedFrameCount, deriveFrames, and the DiscoveredFrame
+// shape — live in ../_shared/media-discovery.ts (imported above) so they sit on the
+// same Deno-free, vitest-importable seam as the frames_ok classifier and can be unit
+// tested without this Deno-only module. See carouselFrameCoverage.test.ts.
 
 // US-004: cap on the number of frame BYTES fetched+hashed for asset linking within a
 // single Phase-1 batch. The frame LEDGER (index + media_type) is always written from
@@ -1056,7 +982,21 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           if (frames.length > 0) framesByAd.set(ad.id, frames);
 
           if (taggedAdIds.has(ad.id)) {
-            metadataBatch.push({ ad_id: ad.id, data: metadata });
+            // Tagged ads only get metadata updated (their tags are preserved), so they
+            // route through the bulk_update_creative_metadata RPC instead of the upsert
+            // above. Thread expected_frame_count through that path too — otherwise a
+            // tagged carousel/dynamic-creative ad captures + renders its frames but its
+            // expected count stays null, leaving frames_ok trivially TRUE (completeness
+            // unenforced). Included only when Meta reports a genuine multi-frame count
+            // (>1); absent for single-asset ads so the RPC never overwrites a prior
+            // value with null (matching the upsert path below).
+            metadataBatch.push({
+              ad_id: ad.id,
+              data: {
+                ...metadata,
+                ...(frameCount != null ? { expected_frame_count: frameCount } : {}),
+              },
+            });
           } else {
             upsertBatch.push({
               ad_id: ad.id,

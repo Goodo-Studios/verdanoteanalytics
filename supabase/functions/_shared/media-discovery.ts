@@ -565,6 +565,104 @@ export function classifyCoverage(
   };
 }
 
+// ── US-004: carousel / multi-frame capture seam ──────────────────────────────
+// A carousel / multi-frame ad's coverage used to key off a single thumbnail, so a
+// 5-card carousel with only card #1 cached read as "covered". US-004 makes the sync
+// declare the EXPECTED frame count on the creative and populate an ordered per-frame
+// ledger (public.creative_frames) so media_coverage.frames_ok can hold it honest.
+//
+// These derivations are pure (no network, no Deno) so they live in the shared module
+// alongside classifyCoverage — the same testable seam the frames_ok contract mirrors
+// (migration 20260714000027) — and are imported by the sync edge function, which
+// writes the ledger from the creative spec it already fetches (no extra Meta call).
+
+/** One discovered frame of an ad, before it is written to creative_frames. */
+export interface DiscoveredFrame {
+  frame_index: number; // 0-based ordered position (matches scrape-ad `position`)
+  media_type: "image" | "video" | "carousel_frame" | "video_thumbnail";
+  /** live source url (CDN) for the frame, used to fetch+hash for asset linking */
+  url: string | null;
+}
+
+/**
+ * US-004: derive the ORDERED frame ledger for an ad from the creative spec already
+ * in hand. Two multi-frame shapes are captured, in priority order:
+ *   1. object_story_spec.link_data.child_attachments (>1) — every carousel card.
+ *   2. asset_feed_spec.videos (>1) — every dynamic-creative / Advantage+ video
+ *      variant (the shape flagged in review: multiple frames Meta reports here).
+ * Returns frames in a stable order with 0-based frame_index so a re-sync UPSERTs each
+ * frame in place (keyed on (ad_id, frame_index)) and never duplicates. media_type
+ * mirrors the scrape-ad taxonomy: a carousel card is 'carousel_frame', a feed video
+ * is 'video'.
+ *
+ * Only produces a ledger for a GENUINE multi-frame ad (>1 card, or >1 dynamic video) —
+ * a single-asset ad yields no rows (its frames_ok is trivially TRUE via
+ * expected_frame_count null/<=1, so a ledger would be noise). asset_feed_spec.images
+ * is intentionally NOT captured here: those variants carry hashes (not resolvable frame
+ * urls) and are not rendered as ordered frames, so declaring an expectation for them
+ * would create a permanent false 'frames_incomplete' (violating the never-guess rule).
+ * Pure + dependency-free so ordering is unit-testable without a live creative.
+ */
+export function deriveFrames(creative: unknown): DiscoveredFrame[] {
+  // deno-lint-ignore no-explicit-any
+  const c = creative as any;
+  const frames: DiscoveredFrame[] = [];
+  let idx = 0;
+
+  const children = c?.object_story_spec?.link_data?.child_attachments;
+  if (Array.isArray(children) && children.length > 1) {
+    for (const child of children) {
+      const isVideo = !!child?.video_id;
+      const url =
+        child?.picture ??
+        child?.image_url ??
+        child?.original_image_url ??
+        null;
+      frames.push({
+        frame_index: idx++,
+        media_type: isVideo ? "video" : "carousel_frame",
+        url: typeof url === "string" ? url : null,
+      });
+    }
+    return frames;
+  }
+
+  const feedVideos = c?.asset_feed_spec?.videos;
+  if (Array.isArray(feedVideos) && feedVideos.length > 1) {
+    for (const v of feedVideos) {
+      const url =
+        (typeof v?.video_url === "string" ? v.video_url : null) ??
+        (typeof v?.thumbnail_url === "string" ? v.thumbnail_url : null);
+      frames.push({ frame_index: idx++, media_type: "video", url });
+    }
+    return frames;
+  }
+
+  return frames;
+}
+
+/**
+ * US-004: Meta's REPORTED frame count for a creative — the "expected" side of
+ * frames_ok. Defined as the length of the ordered ledger deriveFrames() will write,
+ * when that ledger has >1 frame; otherwise null (NEVER a guess).
+ *
+ * Deriving the count FROM deriveFrames keeps the two in exact lockstep: the expected
+ * count can never exceed the number of frames the sync actually attempts to capture,
+ * so a fully-captured multi-frame ad ALWAYS reaches frames_ok and a false
+ * 'frames_incomplete' is structurally impossible. This is what extends enforcement to
+ * the dynamic-creative asset_feed_spec.videos shape flagged in review (those frames ARE
+ * captured into creative_frames, so their expectation is now declared) while a
+ * single-asset ad — carousel with a single card, one video, one image, or a spec we
+ * cannot confidently enumerate — stays null and therefore frames_ok = TRUE (no
+ * regression; mirrors migration 20260714000027).
+ */
+export function expectedFrameCount(creative: unknown): number | null {
+  const captured = deriveFrames(creative).length;
+  // deriveFrames only ever yields 0 or >1 rows (each branch requires >1), so this is
+  // "declare the count for a genuine multi-frame ad, else leave null".
+  return captured > 1 ? captured : null;
+}
+
 /** Fetch with a timeout — aborts if the request takes longer than timeoutMs */
 export async function fetchWithTimeout(url: string, timeoutMs = 30_000): Promise<Response> {
   const controller = new AbortController();
