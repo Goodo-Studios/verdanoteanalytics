@@ -28,6 +28,7 @@ FUNCTIONS=(
   cluster-creatives
   creative-embed
   drain-media-queue
+  refresh-media-queue
   competitor-ads
   entity-report
   create-coda-brief

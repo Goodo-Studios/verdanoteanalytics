@@ -12,7 +12,31 @@
 //     account maps to one shared path (within-account dedupe).
 
 import { assertEquals, assertNotEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { assetStoragePath, computeContentHash, isStorageUrl } from "./media-discovery.ts";
+import {
+  assetStoragePath,
+  classifyCoverage,
+  classifyVideoFailure,
+  computeContentHash,
+  discoverImageUrl,
+  discoverVideoUrl,
+  extractCoverImageHash,
+  extractCoverVideoIds,
+  isEligibleForCoverage,
+  isImageOk,
+  isStorageUrl,
+  isVideoAd,
+  isVideoOk,
+  NO_VIDEO_DELETED_SENTINEL,
+  NO_VIDEO_PERMISSION_SENTINEL,
+  NO_VIDEO_SENTINEL,
+  peekAndValidateMediaStream,
+} from "./media-discovery.ts";
+
+const STORAGE_IMG =
+  "https://gwyxaqoaldnaavkjqquv.supabase.co/storage/v1/object/public/ad-thumbnails/act_1/assets/abc.jpg";
+const STORAGE_VID =
+  "https://gwyxaqoaldnaavkjqquv.supabase.co/storage/v1/object/public/ad-videos/act_1/ad_9.mp4";
+const LIVE_CDN = "https://scontent.xx.fbcdn.net/v/t42.1790-2/xyz.mp4?oh=abc";
 
 const bytesOf = (s: string) => new TextEncoder().encode(s);
 
@@ -111,4 +135,454 @@ Deno.test("isStorageUrl: null / sentinel / empty are not storage urls", () => {
   assertEquals(isStorageUrl(""), false);
   assertEquals(isStorageUrl("no-video"), false);
   assertEquals(isStorageUrl("no-thumbnail"), false);
+});
+
+// ── US-001: media-coverage classification helpers ────────────────────────────
+// These pure helpers are the TS mirror of the public.media_coverage SQL view.
+// Both sides MUST agree on "eligible" and on each of image_ok / video_ok /
+// frames_ok / covered so the coverage numerator/denominator never drift between
+// the DB metric and any TS caller. These tests pin that shared contract.
+
+Deno.test("isEligibleForCoverage: non-archived with impressions is eligible", () => {
+  assertEquals(isEligibleForCoverage({ ad_status: "ACTIVE", impressions: 10 }), true);
+  assertEquals(isEligibleForCoverage({ ad_status: "PAUSED", impressions: 1 }), true);
+  assertEquals(isEligibleForCoverage({ ad_status: "UNKNOWN", impressions: 500 }), true);
+});
+
+Deno.test("isEligibleForCoverage: archived or zero-impression is NOT eligible (today's scope)", () => {
+  assertEquals(isEligibleForCoverage({ ad_status: "ARCHIVED", impressions: 999 }), false);
+  assertEquals(isEligibleForCoverage({ ad_status: "archived", impressions: 999 }), false); // case-insensitive
+  assertEquals(isEligibleForCoverage({ ad_status: "ACTIVE", impressions: 0 }), false);
+  assertEquals(isEligibleForCoverage({ ad_status: "ACTIVE", impressions: null }), false);
+});
+
+// US-006: per-account scope widening. The optional scope mirrors
+// ad_accounts.include_archived / include_zero_impression and is the TS mirror of the
+// widened media_coverage view eligibility (migration 20260714000029).
+Deno.test("US-006 isEligibleForCoverage: include_archived admits archived ads only when on", () => {
+  const archived = { ad_status: "ARCHIVED", impressions: 5 };
+  assertEquals(isEligibleForCoverage(archived, { include_archived: false }), false);
+  assertEquals(isEligibleForCoverage(archived, { include_archived: true }), true);
+  // case-insensitive under the flag too
+  assertEquals(isEligibleForCoverage({ ad_status: "archived", impressions: 5 }, { include_archived: true }), true);
+});
+
+Deno.test("US-006 isEligibleForCoverage: include_zero_impression admits 0/null impressions only when on", () => {
+  assertEquals(isEligibleForCoverage({ ad_status: "ACTIVE", impressions: 0 }, { include_zero_impression: false }), false);
+  assertEquals(isEligibleForCoverage({ ad_status: "ACTIVE", impressions: 0 }, { include_zero_impression: true }), true);
+  assertEquals(isEligibleForCoverage({ ad_status: "ACTIVE", impressions: null }, { include_zero_impression: true }), true);
+});
+
+Deno.test("US-006 isEligibleForCoverage: both predicates must pass (archived + zero needs both flags)", () => {
+  const archivedZero = { ad_status: "ARCHIVED", impressions: 0 };
+  assertEquals(isEligibleForCoverage(archivedZero, { include_archived: true }), false);
+  assertEquals(isEligibleForCoverage(archivedZero, { include_zero_impression: true }), false);
+  assertEquals(isEligibleForCoverage(archivedZero, { include_archived: true, include_zero_impression: true }), true);
+});
+
+Deno.test("US-006 isEligibleForCoverage: no-scope call is byte-identical to today's predicate", () => {
+  // Guards against a default-arg regression widening the universe for opted-out accounts.
+  assertEquals(isEligibleForCoverage({ ad_status: "ARCHIVED", impressions: 999 }), false);
+  assertEquals(isEligibleForCoverage({ ad_status: "ACTIVE", impressions: 0 }), false);
+  assertEquals(isEligibleForCoverage({ ad_status: "ACTIVE", impressions: 10 }), true);
+});
+
+Deno.test("isImageOk: a cached full-res image is ok", () => {
+  assertEquals(isImageOk({ full_res_url: STORAGE_IMG }), true);
+});
+
+Deno.test("isImageOk: the ~130px thumbnail fallback (full_res_url NULL) is NOT image_ok", () => {
+  // Root-cause of blurry statics: the only image is the tiny thumbnail fallback,
+  // which never populates full_res_url. That ad must report NOT image_ok.
+  assertEquals(isImageOk({ full_res_url: null }), false);
+  assertEquals(isImageOk({ full_res_url: undefined }), false);
+  assertEquals(isImageOk({ full_res_url: "" }), false);
+  assertEquals(isImageOk({ full_res_url: "no-thumbnail" }), false);
+});
+
+Deno.test("isVideoAd: only a populated video_url counts as a video ad", () => {
+  assertEquals(isVideoAd({ video_url: STORAGE_VID }), true);
+  assertEquals(isVideoAd({ video_url: "no-video" }), true); // Meta reported a video, unresolved
+  assertEquals(isVideoAd({ video_url: null }), false);
+  assertEquals(isVideoAd({ video_url: "" }), false);
+});
+
+Deno.test("isVideoOk: non-video ad is trivially ok", () => {
+  assertEquals(isVideoOk({ video_url: null }), true);
+  assertEquals(isVideoOk({ video_url: "" }), true);
+});
+
+Deno.test("isVideoOk: a cached storage video is ok; sentinel and live CDN are NOT", () => {
+  assertEquals(isVideoOk({ video_url: STORAGE_VID }), true);
+  assertEquals(isVideoOk({ video_url: "no-video" }), false); // unresolved
+  assertEquals(isVideoOk({ video_url: LIVE_CDN }), false); // never cached
+});
+
+// ── US-003: distinct no-video-* sentinels are ALL NOT video_ok ────────────────
+// The honest-failure taxonomy adds permission/deleted sentinels alongside the
+// generic no-video. Coverage must treat every one of them as NOT video_ok — the
+// distinction is only about WHY, never a loosening of "is there a playable video".
+Deno.test("isVideoOk: every no-video-* sentinel is NOT video_ok", () => {
+  assertEquals(isVideoOk({ video_url: NO_VIDEO_SENTINEL }), false);
+  assertEquals(isVideoOk({ video_url: NO_VIDEO_PERMISSION_SENTINEL }), false);
+  assertEquals(isVideoOk({ video_url: NO_VIDEO_DELETED_SENTINEL }), false);
+});
+
+Deno.test("classifyCoverage: a no-video-permission ad is not covered (video_ok false)", () => {
+  const c = classifyCoverage({
+    ad_status: "ACTIVE",
+    impressions: 100,
+    full_res_url: STORAGE_IMG,
+    video_url: NO_VIDEO_PERMISSION_SENTINEL,
+  });
+  assertEquals(c.image_ok, true);
+  assertEquals(c.video_ok, false); // genuinely-unresolvable video
+  assertEquals(c.covered, false);
+});
+
+// ── US-003: classifyVideoFailure — honest failure taxonomy ────────────────────
+// The generic no-video sentinel conflated "unknown/unresolved" with "permission-
+// blocked" and "deleted". This maps a Meta Graph error to the DISTINCT terminal
+// sentinel so coverage reporting is honest (permission/deleted are terminal; anything
+// else stays the generic no-video "still worth re-attempting").
+
+Deno.test("classifyVideoFailure: permission errors (#10, #200, 'permission') → permission sentinel", () => {
+  assertEquals(classifyVideoFailure({ code: 10, message: "..." }), NO_VIDEO_PERMISSION_SENTINEL);
+  assertEquals(classifyVideoFailure({ code: "10" }), NO_VIDEO_PERMISSION_SENTINEL);
+  assertEquals(classifyVideoFailure({ code: 200 }), NO_VIDEO_PERMISSION_SENTINEL);
+  assertEquals(
+    classifyVideoFailure({ code: 3, message: "A permission error occurred" }),
+    NO_VIDEO_PERMISSION_SENTINEL,
+  );
+});
+
+Deno.test("classifyVideoFailure: deleted/missing object → deleted sentinel", () => {
+  assertEquals(
+    classifyVideoFailure({ code: 100, message: "Object does not exist" }),
+    NO_VIDEO_DELETED_SENTINEL,
+  );
+  assertEquals(
+    classifyVideoFailure({ code: 100, message: "This node has been deleted" }),
+    NO_VIDEO_DELETED_SENTINEL,
+  );
+  assertEquals(
+    classifyVideoFailure({ code: 12, message: "The video has been removed" }),
+    NO_VIDEO_DELETED_SENTINEL,
+  );
+});
+
+Deno.test("classifyVideoFailure: unknown/absent error → generic no-video (still re-attemptable)", () => {
+  assertEquals(classifyVideoFailure(null), NO_VIDEO_SENTINEL);
+  assertEquals(classifyVideoFailure(undefined), NO_VIDEO_SENTINEL);
+  assertEquals(classifyVideoFailure({}), NO_VIDEO_SENTINEL);
+  assertEquals(classifyVideoFailure({ code: 1, message: "Some transient error" }), NO_VIDEO_SENTINEL);
+});
+
+// ── US-003: peekAndValidateMediaStream — playability guard without buffering ──
+// cacheVideoToStorage streams the body straight to storage, so we validate only the
+// LEADING chunk: reject an empty (0-byte) body and an HTML/login/error page, and on a
+// valid media stream hand back the SAME bytes re-assembled (peeked chunk + remainder)
+// so the upload streams identical content with flat memory.
+
+// Build a ReadableStream that yields the given chunks in order.
+function streamOf(chunks: Uint8Array[]): ReadableStream<Uint8Array> {
+  let i = 0;
+  return new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (i < chunks.length) controller.enqueue(chunks[i++]);
+      else controller.close();
+    },
+  });
+}
+// Drain a stream back into one contiguous Uint8Array (test-only; the worker never does
+// this — it streams to storage).
+async function collect(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const parts: Uint8Array[] = [];
+  const reader = stream.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) parts.push(value);
+  }
+  const total = parts.reduce((n, p) => n + p.byteLength, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const p of parts) { out.set(p, off); off += p.byteLength; }
+  return out;
+}
+const mp4Bytes = () => new Uint8Array([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]); // ftyp box
+
+Deno.test("peekAndValidateMediaStream: a real media stream passes and re-emits identical bytes", async () => {
+  const head = mp4Bytes();
+  const tail = new Uint8Array([1, 2, 3, 4, 5]);
+  const res = await peekAndValidateMediaStream(streamOf([head, tail]));
+  assertEquals(res.ok, true);
+  const bytes = await collect(res.stream!);
+  // The re-assembled stream must be byte-for-byte the original (peeked chunk first).
+  const expected = new Uint8Array([...head, ...tail]);
+  assertEquals(bytes, expected);
+});
+
+Deno.test("peekAndValidateMediaStream: an HTML error page is rejected (reason=html)", async () => {
+  const html = new TextEncoder().encode("<!DOCTYPE html><html><head><title>Login</title>");
+  const res = await peekAndValidateMediaStream(streamOf([html]));
+  assertEquals(res.ok, false);
+  assertEquals(res.reason, "html");
+  assertEquals(res.stream, undefined);
+});
+
+Deno.test("peekAndValidateMediaStream: a zero-byte body is rejected (reason=empty)", async () => {
+  const res = await peekAndValidateMediaStream(streamOf([]));
+  assertEquals(res.ok, false);
+  assertEquals(res.reason, "empty");
+});
+
+Deno.test("peekAndValidateMediaStream: skips leading empty chunks, then validates real bytes", async () => {
+  // A stream may legally yield 0-length chunks before real data — those must not be
+  // mistaken for an empty body.
+  const res = await peekAndValidateMediaStream(
+    streamOf([new Uint8Array([]), new Uint8Array([]), mp4Bytes()]),
+  );
+  assertEquals(res.ok, true);
+  const bytes = await collect(res.stream!);
+  assertEquals(bytes, mp4Bytes());
+});
+
+Deno.test("classifyCoverage: fully-covered image+video ad", () => {
+  const c = classifyCoverage({
+    ad_status: "ACTIVE",
+    impressions: 100,
+    full_res_url: STORAGE_IMG,
+    video_url: STORAGE_VID,
+  });
+  assertEquals(c, {
+    eligible: true,
+    image_ok: true,
+    video_ok: true,
+    frames_ok: true,
+    covered: true,
+  });
+});
+
+Deno.test("classifyCoverage: tiny-thumbnail image ad is not covered (image_ok false)", () => {
+  const c = classifyCoverage({
+    ad_status: "ACTIVE",
+    impressions: 100,
+    full_res_url: null, // only the 130px fallback
+    video_url: null, // image-only ad
+  });
+  assertEquals(c.image_ok, false);
+  assertEquals(c.video_ok, true); // not a video ad
+  assertEquals(c.covered, false);
+});
+
+Deno.test("classifyCoverage: frames_ok=false blocks covered even with image+video ok", () => {
+  const c = classifyCoverage(
+    {
+      ad_status: "ACTIVE",
+      impressions: 100,
+      full_res_url: STORAGE_IMG,
+      video_url: STORAGE_VID,
+    },
+    false, // a carousel missing a frame
+  );
+  assertEquals(c.image_ok, true);
+  assertEquals(c.video_ok, true);
+  assertEquals(c.frames_ok, false);
+  assertEquals(c.covered, false);
+});
+
+// ── US-002: discoverImageUrl quality classification ──────────────────────────
+// The root cause of blurry statics is the ~130px creative.thumbnail_url last-resort
+// fallback. US-002 makes discoverImageUrl flag that (and any sub-480 video-thumb
+// placeholder) as imageQuality:'low_res' with fullResUrl:null, while real high-res
+// sources are 'full_res'. These tests pin that mapping with a mocked Graph fetch so
+// a regression that lets a placeholder masquerade as full-res is caught. imageQuality
+// always tracks fullResUrl: 'full_res' ⇒ non-null fullResUrl, 'low_res' ⇒ null.
+
+interface FakeResp {
+  ok: boolean;
+  status: number;
+  json: () => Promise<unknown>;
+  text: () => Promise<string>;
+}
+const fakeResp = (ok: boolean, body: unknown, status = ok ? 200 : 404): FakeResp => ({
+  ok,
+  status,
+  json: () => Promise.resolve(body),
+  text: () => Promise.resolve(typeof body === "string" ? body : JSON.stringify(body)),
+});
+
+Deno.test("discoverImageUrl: the ~130px thumbnail_url last resort is flagged low_res (fullResUrl null)", async () => {
+  const THUMB_130 = "https://scontent.xx.fbcdn.net/v/t45/130x130_n.jpg";
+  const originalFetch = globalThis.fetch;
+  // Creative has ONLY thumbnail_url — every higher-res strategy has no source, so
+  // discovery falls through to Strategy 6 (the placeholder).
+  globalThis.fetch = ((url: string) => {
+    if (url.includes("?fields=creative")) {
+      return Promise.resolve(fakeResp(true, { creative: { thumbnail_url: THUMB_130 } }));
+    }
+    return Promise.resolve(fakeResp(false, "x"));
+    // deno-lint-ignore no-explicit-any
+  }) as any;
+  try {
+    const result = await discoverImageUrl("ad1", "act_1", "token", 1000);
+    assertEquals(result, { thumbnailUrl: THUMB_130, fullResUrl: null, imageQuality: "low_res" });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("discoverImageUrl: a real adimages high-res url is flagged full_res", async () => {
+  // Must be > 100 chars — discoverImageUrl Strategy 1 requires url.length > 100 to
+  // accept an adimages result (guards against truncated/placeholder urls).
+  const HI_RES =
+    "https://scontent.xx.fbcdn.net/v/t45.1600-4/hi_res_creative_1600x1600_o.jpg?stp=dst-jpg&_nc_cat=1&_nc_ohc=abcdef1234567890&oe=DEADBEEF";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((url: string) => {
+    if (url.includes("?fields=creative")) {
+      return Promise.resolve(fakeResp(true, { creative: { image_hash: "hash1" } }));
+    }
+    if (url.includes("adimages")) {
+      return Promise.resolve(
+        fakeResp(true, { data: [{ url: HI_RES, original_width: 1600, original_height: 1600 }] }),
+      );
+    }
+    return Promise.resolve(fakeResp(false, "x"));
+    // deno-lint-ignore no-explicit-any
+  }) as any;
+  try {
+    const result = await discoverImageUrl("ad1", "act_1", "token", 1000);
+    assertEquals(result, { thumbnailUrl: HI_RES, fullResUrl: HI_RES, imageQuality: "full_res" });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// ── US-008: exotic formats — Collection / Canvas (Instant Experience) / Form ──
+// These ad types place their representable cover media on slots the standard
+// strategies skipped (a first child_attachment hero card, or a top-level
+// link_data cover video), so they rendered blank in Verdanote. The pure
+// extractors pin cover-first precedence; the discovery tests prove each format's
+// cover is actually resolved end-to-end (with a mocked Graph fetch), one fixture
+// per newly-supported format (AC#5).
+
+Deno.test("extractCoverImageHash: prefers link_data.image_hash (Collection/Canvas/Form hero)", () => {
+  assertEquals(
+    extractCoverImageHash({ link_data: { image_hash: "hero1" } }),
+    "hero1",
+  );
+});
+
+Deno.test("extractCoverImageHash: falls back to the first child_attachment hero card", () => {
+  // Collection product-grid / Canvas cover card: no direct link_data.image_hash, the
+  // representable hero is the first child attachment.
+  assertEquals(
+    extractCoverImageHash({
+      link_data: {
+        child_attachments: [
+          { image_hash: null },
+          { image_hash: "card2" },
+        ],
+      },
+    }),
+    "card2",
+  );
+});
+
+Deno.test("extractCoverImageHash: falls back to photo_data.image_hash (lead-gen still)", () => {
+  assertEquals(
+    extractCoverImageHash({ photo_data: { image_hash: "photo1" } }),
+    "photo1",
+  );
+});
+
+Deno.test("extractCoverImageHash: no cover hash → null (blank exotic ad)", () => {
+  assertEquals(extractCoverImageHash(null), null);
+  assertEquals(extractCoverImageHash(undefined), null);
+  assertEquals(extractCoverImageHash({}), null);
+  assertEquals(extractCoverImageHash({ link_data: { child_attachments: [] } }), null);
+});
+
+Deno.test("extractCoverVideoIds: surfaces the top-level cover video then hero cards, deduped in order", () => {
+  assertEquals(
+    extractCoverVideoIds({
+      link_data: {
+        video_id: "cover",
+        child_attachments: [{ video_id: "card1" }, { video_id: "cover" }, { video_id: "card2" }],
+      },
+    }),
+    ["cover", "card1", "card2"], // cover-first; duplicate "cover" child dropped
+  );
+});
+
+Deno.test("extractCoverVideoIds: no cover video → empty array", () => {
+  assertEquals(extractCoverVideoIds(null), []);
+  assertEquals(extractCoverVideoIds({}), []);
+  assertEquals(extractCoverVideoIds({ link_data: {} }), []);
+  assertEquals(extractCoverVideoIds({ link_data: { child_attachments: [{ video_id: null }] } }), []);
+});
+
+Deno.test("discoverImageUrl: a Collection/Canvas hero-card cover resolves full_res (Strategy 4b)", async () => {
+  // Exotic-format ad: no link_data.image_hash, no image_url, no video — the ONLY
+  // representable image is the first child_attachment's hero hash. Strategy 1 skips
+  // it; Strategy 4b must resolve it via /adimages rather than falling to the ~130px
+  // placeholder.
+  const HERO =
+    "https://scontent.xx.fbcdn.net/v/t45.1600-4/collection_hero_1200x1200_o.jpg?stp=dst-jpg&_nc_cat=9&_nc_ohc=feedface99887766&oe=CAFEBABE";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((url: string) => {
+    if (url.includes("?fields=creative")) {
+      return Promise.resolve(
+        fakeResp(true, {
+          creative: {
+            object_story_spec: {
+              link_data: { child_attachments: [{ image_hash: "herohash" }] },
+            },
+          },
+        }),
+      );
+    }
+    if (url.includes("adimages") && url.includes("herohash")) {
+      return Promise.resolve(
+        fakeResp(true, { data: [{ url: HERO, original_width: 1200, original_height: 1200 }] }),
+      );
+    }
+    return Promise.resolve(fakeResp(false, "x"));
+    // deno-lint-ignore no-explicit-any
+  }) as any;
+  try {
+    const result = await discoverImageUrl("collection_ad", "act_1", "token", 1000);
+    assertEquals(result, { thumbnailUrl: HERO, fullResUrl: HERO, imageQuality: "full_res" });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("discoverVideoUrl: a Collection/Form top-level cover video resolves (Path 4b)", async () => {
+  // Collection/Form ad whose only video is link_data.video_id (no video_data, no
+  // child video, no asset_feed_spec) — the slot Paths 1-5 never walked. Path 4b must
+  // collect it and resolve its source.
+  const COVER_SRC = "https://video.xx.fbcdn.net/v/t42.1790-2/collection_cover.mp4?oh=deadbeef";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((url: string) => {
+    if (url.includes("?fields=creative")) {
+      return Promise.resolve(
+        fakeResp(true, {
+          creative: { object_story_spec: { link_data: { video_id: "covervid" } } },
+        }),
+      );
+    }
+    if (url.includes("/covervid?") && url.includes("fields=source")) {
+      return Promise.resolve(fakeResp(true, { source: COVER_SRC }));
+    }
+    return Promise.resolve(fakeResp(false, "x"));
+    // deno-lint-ignore no-explicit-any
+  }) as any;
+  try {
+    const result = await discoverVideoUrl("form_ad", "token", 1000);
+    assertEquals(result, COVER_SRC);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

@@ -15,6 +15,7 @@ import { CreativeTagEditor } from "@/components/creative-detail/CreativeTagEdito
 
 import { CreativeComments } from "@/components/creative-detail/CreativeComments";
 import { CreativeVersions } from "@/components/creative-detail/CreativeVersions";
+import { CreativeFrames } from "@/components/creative-detail/CreativeFrames";
 import { GradeBadge } from "@/components/creatives/GradeBadge";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -362,6 +363,24 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
           </TabsList>
 
           <TabsContent value="details" className="space-y-4 mt-4">
+            {/* Carousel frames rendered in order (US-004). Only shows when the ad has
+                multiple creative_frames; falls back to the ad thumbnail / a pending
+                placeholder for frames whose media isn't cached yet. */}
+            <CreativeFrames
+              adId={creative.ad_id}
+              fallbackThumbnailUrl={
+                displayCreative.full_res_url && displayCreative.full_res_url !== "no-thumbnail"
+                  ? displayCreative.full_res_url
+                  : displayCreative.thumbnail_url && displayCreative.thumbnail_url !== "no-thumbnail"
+                    ? displayCreative.thumbnail_url
+                    : null
+              }
+              expectedFrameCount={
+                // expected_frame_count isn't in the generated types yet (US-004 schema).
+                (creative as unknown as { expected_frame_count?: number | null }).expected_frame_count
+              }
+            />
+
             <CreativeMetrics creative={creative} />
 
             {/* Frame-by-frame retention drop-off (US-004) — reads creative.play_curve */}

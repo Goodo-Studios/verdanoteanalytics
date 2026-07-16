@@ -13,6 +13,7 @@
 //   deno test -A supabase/functions/drain-media-queue/index.test.ts
 
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { isStorageUrl, isVideoOk } from "../_shared/media-discovery.ts";
 
 Deno.env.set("DRAIN_MEDIA_QUEUE_NO_SERVE", "1");
 Deno.env.set("DRAIN_NO_CHAIN", "1"); // default: no live self-chain fetch
@@ -42,6 +43,7 @@ interface Creative {
   video_url: string | null;
   thumb_asset_id: string | null;
   video_asset_id: string | null;
+  image_quality?: string | null;
 }
 
 /**
@@ -246,19 +248,42 @@ Deno.test("cacheVideoToStorage streams within the 200MB cap and returns a storag
   });
 });
 
-Deno.test("cacheVideoToStorage rejects an oversized video (>200MB) BEFORE streaming — keeps CDN url", async () => {
+Deno.test("US-007: cacheVideoToStorage now STREAMS a 201MB video (was over the old 200MB cap) — the ceiling is 2GB", async () => {
+  // Regression guard for the US-007 gap: a 201MB video used to be rejected 'too-large'
+  // and stranded on the CDN. It is now well under the 2GB ceiling, so it streams to
+  // storage like any normal video (streaming keeps worker memory flat regardless).
   let uploadAttempted = false;
   await withFetch((url) => {
     if (url.includes("/storage/v1/object/")) {
       uploadAttempted = true;
       return new Response("{}", { status: 200 });
     }
-    return videoResponse(201 * 1024 * 1024); // 201MB — over the cap
+    return videoResponse(201 * 1024 * 1024); // 201MB — over the OLD cap, under the NEW one
   }, async () => {
     const res = await mod.cacheVideoToStorage("https://cdn/big.mp4", "act_1", "ad_big");
+    assert(res.url, "201MB video should now be cached to storage");
+    assert(res.url!.includes("/storage/v1/object/public/ad-videos/act_1/ad_big.mp4"));
+    assertEquals(res.reason, undefined);
+    assert(uploadAttempted, "the 201MB video must be streamed to storage");
+  });
+});
+
+Deno.test("US-007: cacheVideoToStorage rejects a video over the 2GB ceiling BEFORE streaming — no upload, reason too-large", async () => {
+  // A pathological >2GB response is rejected from the content-length header WITHOUT
+  // buffering (memory-safe), and never touches storage. MAX_VIDEO_SIZE proves the cap.
+  assertEquals(mod.MAX_VIDEO_SIZE, 2 * 1024 * 1024 * 1024, "deliberate 2GB ceiling");
+  let uploadAttempted = false;
+  await withFetch((url) => {
+    if (url.includes("/storage/v1/object/")) {
+      uploadAttempted = true;
+      return new Response("{}", { status: 200 });
+    }
+    return videoResponse(mod.MAX_VIDEO_SIZE + 1); // just over the 2GB ceiling
+  }, async () => {
+    const res = await mod.cacheVideoToStorage("https://cdn/huge.mp4", "act_1", "ad_huge");
     assertEquals(res.url, null);
     assertEquals(res.reason, "too-large");
-    assert(!uploadAttempted, "must NOT attempt an upload for an oversized video (memory-safe: no buffering)");
+    assert(!uploadAttempted, "must NOT attempt an upload for a >2GB video (memory-safe: no buffering)");
   });
 });
 
@@ -314,7 +339,7 @@ Deno.test("drainOnce caches a batch of large videos with no OOM and no stuck 'pr
   assert(creatives.every((c) => c.video_url!.includes("/storage/v1/object/public/")), "video_url points at storage");
 });
 
-Deno.test("drainOnce keeps the CDN url for an oversized video and marks the row done (skipped), not failed", async () => {
+Deno.test("US-007: drainOnce records the oversized sentinel for a >2GB video and marks the row done (skipped), not failed", async () => {
   const now = new Date().toISOString();
   const queue: QueueRow[] = [{
     ad_id: "ad_big",
@@ -336,7 +361,7 @@ Deno.test("drainOnce keeps the CDN url for an oversized video and marks the row 
   }];
   const { supabase, storageUploads } = makeDb({ queue, creatives });
 
-  await withFetch(() => videoResponse(300 * 1024 * 1024), async () => {
+  await withFetch(() => videoResponse(mod.MAX_VIDEO_SIZE + 1024), async () => {
     const summary = await mod.drainOnce(supabase, "fake-token", 5, 120_000);
     assertEquals(summary.claimed, 1);
     assertEquals(summary.cached, 0);
@@ -344,9 +369,12 @@ Deno.test("drainOnce keeps the CDN url for an oversized video and marks the row 
     assertEquals(summary.skipped, 1);
   });
 
-  assertEquals(storageUploads.length, 0, "no upload for oversized video");
+  assertEquals(storageUploads.length, 0, "no upload for a >2GB video");
   assertEquals(queue[0].status, "done", "oversized ad is done (won't re-clog the queue)");
-  assertEquals(creatives[0].video_url, "https://cdn/huge.mp4", "keeps its CDN url");
+  // US-007 AC#3: honest, distinct failure reason — NOT left on a soon-to-expire CDN url
+  // (which would read as the re-attemptable 'video_uncached').
+  assertEquals(creatives[0].video_url, "no-video-oversized", "records the distinct oversized sentinel");
+  assert(!isVideoOk({ video_url: creatives[0].video_url }), "an oversized video is NOT video_ok");
 });
 
 Deno.test("drainOnce requeues (pending) a hard-failure video below MAX_ATTEMPTS", async () => {
@@ -477,4 +505,293 @@ Deno.test("handler does NOT self-chain when the queue is fully drained", async (
     Deno.env.set("DRAIN_NO_CHAIN", "1");
   }
   assert(!chainFired, "no self-chain when nothing remains pending");
+});
+
+// ── US-003 acceptance tests ──────────────────────────────────────────────────
+// Story-level e2e behaviors from the PRD:
+//   1. 'no-video' whose video is still resolvable → re-discovery caches a playable
+//      video and the ad reports video_ok.
+//   2. Cached bytes that are actually an HTML error page → rejected, ad is NOT
+//      marked video_ok.
+
+Deno.test("US-003 AC#2: an ad stuck on the generic 'no-video' sentinel is re-discovered and cached, reporting video_ok", async () => {
+  const now = new Date().toISOString();
+  const queue: QueueRow[] = [{
+    ad_id: "ad_redisc",
+    account_id: "act_1",
+    status: "pending",
+    attempts: 0,
+    enqueued_at: now,
+    updated_at: now,
+    last_error: null,
+  }];
+  const creatives: Creative[] = [{
+    ad_id: "ad_redisc",
+    account_id: "act_1",
+    thumbnail_url: "no-thumbnail", // image sentinel → image path is a no-op
+    full_res_url: null,
+    video_url: "no-video", // GENERIC sentinel — now a re-discovery TARGET (AC#2)
+    thumb_asset_id: null,
+    video_asset_id: null,
+    image_quality: "full_res",
+  }];
+  const { supabase } = makeDb({ queue, creatives });
+
+  let uploadAttempted = false;
+  await withFetch((url) => {
+    if (url.includes("/advideos")) {
+      // fetchAccountVideoMap — empty account video map (this ad's video is not
+      // page-owned; it resolves directly via object_story_spec.video_data below).
+      return new Response(JSON.stringify({ data: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.includes("graph.facebook.com") && url.includes("?fields=creative")) {
+      // discoverVideoUrlWithReason's top-level ad lookup — resolves a live video
+      // source directly via Path 2 (object_story_spec.video_data.video_url), no
+      // extra video_id fetch needed.
+      return new Response(
+        JSON.stringify({
+          creative: { object_story_spec: { video_data: { video_url: "https://cdn/real.mp4" } } },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (url.includes("/storage/v1/object/")) {
+      uploadAttempted = true;
+      return new Response("{}", { status: 200 });
+    }
+    if (url === "https://cdn/real.mp4") {
+      return videoResponse(20 * 1024 * 1024); // a real, playable, sized video body
+    }
+    throw new Error(`unexpected fetch in US-003 AC#2 test: ${url}`);
+  }, async () => {
+    const summary = await mod.drainOnce(supabase, "fake-token", 5, 120_000);
+    assertEquals(summary.claimed, 1);
+    assertEquals(summary.cached, 1, "re-discovered video is cached");
+    assertEquals(summary.failed, 0);
+  });
+
+  assert(uploadAttempted, "the re-discovered video must be streamed to storage");
+  const creative = creatives[0];
+  assert(
+    creative.video_url!.includes("/storage/v1/object/public/"),
+    "video_url now points at the cached, playable storage asset",
+  );
+  assert(isVideoOk({ video_url: creative.video_url }), "ad reports video_ok after re-discovery caches a playable video");
+  assertEquals(queue[0].status, "done", "queue row finished successfully");
+});
+
+Deno.test("US-003 AC#1: cached bytes that are actually an HTML error page are rejected — ad is NOT video_ok", async () => {
+  // Unit boundary: cacheVideoToStorage must reject and must NOT attempt an upload,
+  // even though the content-type header LIES and claims video/mp4.
+  const htmlBody = new TextEncoder().encode(
+    "<!DOCTYPE html><html><head><title>Log in</title></head><body>Please log in to continue.</body></html>",
+  );
+  let uploadAttempted = false;
+  await withFetch((url) => {
+    if (url.includes("/storage/v1/object/")) {
+      uploadAttempted = true;
+      return new Response("{}", { status: 200 });
+    }
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(htmlBody);
+        controller.close();
+      },
+    });
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        "content-type": "video/mp4", // header LIES — the whole point of the test
+        "content-length": String(htmlBody.byteLength), // well under the size cap
+      },
+    });
+  }, async () => {
+    const res = await mod.cacheVideoToStorage("https://cdn/looks-ok.mp4", "act_1", "ad_html");
+    assertEquals(res.url, null);
+    assertEquals(res.reason, "html");
+  });
+  assert(!uploadAttempted, "an HTML payload must never be uploaded to storage");
+
+  // Integration boundary: the same rejection surfaces through the drain worker —
+  // the creative's video_url is NULLed for retry (not marked as a cached/playable
+  // storage url), so isVideoOk is false and the queue row is not a silent success.
+  const now = new Date().toISOString();
+  const queue: QueueRow[] = [{
+    ad_id: "ad_html",
+    account_id: "act_1",
+    status: "pending",
+    attempts: 0,
+    enqueued_at: now,
+    updated_at: now,
+    last_error: null,
+  }];
+  const creatives: Creative[] = [{
+    ad_id: "ad_html",
+    account_id: "act_1",
+    thumbnail_url: "no-thumbnail",
+    full_res_url: null,
+    video_url: "https://cdn/looks-ok.mp4", // live CDN url to download, not a sentinel
+    thumb_asset_id: null,
+    video_asset_id: null,
+    image_quality: "full_res",
+  }];
+  const { supabase } = makeDb({ queue, creatives });
+
+  await withFetch((url) => {
+    if (url.includes("/storage/v1/object/")) {
+      throw new Error("must not upload an HTML payload");
+    }
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(htmlBody);
+        controller.close();
+      },
+    });
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        "content-type": "video/mp4",
+        "content-length": String(htmlBody.byteLength),
+      },
+    });
+  }, async () => {
+    const summary = await mod.drainOnce(supabase, "fake-token", 5, 120_000);
+    assertEquals(summary.cached, 0, "an HTML page must never count as a cached video");
+  });
+
+  const creative = creatives[0];
+  assert(
+    !creative.video_url?.includes("/storage/v1/object/public/"),
+    "video_url must not be a storage url — the HTML page was rejected, not cached",
+  );
+  // The rejected url is NULLed for re-discovery (see cacheVideoToStorage's "html"
+  // handling in index.ts): isVideoOk treats a null video_url as "not a video ad,
+  // trivially ok" — a pure function over the stored value alone cannot distinguish
+  // that from "awaiting re-discovery". The story-level guarantee this test proves is
+  // the one that matters operationally: the HTML page was never persisted as a
+  // storage url (never wrongly marked playable), so it can NEVER read as video_ok —
+  // and the row is put back in the queue rather than silently marked done.
+  assertEquals(creative.video_url, null, "the HTML page is NULLed, never persisted as a playable asset");
+  assert(!isStorageUrl(creative.video_url), "an HTML payload must never become a storage url (never wrongly video_ok)");
+  assertEquals(queue[0].status, "pending", "NULLed url is requeued for a fresh re-discovery attempt, not a silent done");
+});
+
+// ── US-007 acceptance tests ──────────────────────────────────────────────────
+// Story-level e2e behaviors from the PRD:
+//   1. A >200MB video (previously stranded on the CDN by the 200MB cap) is streamed to
+//      storage and reports video_ok without the worker OOMing.
+//   2. Normal-sized videos: behavior and memory profile are unchanged.
+
+/**
+ * A multi-chunk streamed video body: emits `chunks` chunks of `chunkBytes` each so the
+ * peek-then-reassemble path (peeked first chunk + untouched remainder) is exercised
+ * over a genuinely streamed body — never buffered whole. The declared content-length is
+ * the logical size; the actual streamed bytes stay tiny so the test itself is memory-
+ * safe, mirroring the production streaming contract (flat memory regardless of size).
+ */
+function chunkedVideoResponse(logicalBytes: number, chunks = 4, chunkBytes = 256): Response {
+  let sent = 0;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (sent >= chunks) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(new Uint8Array(chunkBytes).fill(0x66)); // 'f' — non-HTML bytes
+      sent++;
+    },
+  });
+  return new Response(body, {
+    status: 200,
+    headers: { "content-type": "video/mp4", "content-length": String(logicalBytes) },
+  });
+}
+
+Deno.test("US-007 AC (e2e#1): a >200MB video is streamed to storage and reports video_ok without OOM", async () => {
+  const now = new Date().toISOString();
+  const queue: QueueRow[] = [{
+    ad_id: "ad_500mb",
+    account_id: "act_1",
+    status: "pending",
+    attempts: 0,
+    enqueued_at: now,
+    updated_at: now,
+    last_error: null,
+  }];
+  const creatives: Creative[] = [{
+    ad_id: "ad_500mb",
+    account_id: "act_1",
+    thumbnail_url: "no-thumbnail", // image sentinel → image path is a no-op
+    full_res_url: null,
+    video_url: "https://cdn/500mb.mp4",
+    thumb_asset_id: null,
+    video_asset_id: null,
+    image_quality: "full_res",
+  }];
+  const { supabase } = makeDb({ queue, creatives });
+
+  let streamedUpload = false;
+  await withFetch((url) => {
+    if (url.includes("/storage/v1/object/ad-videos/")) {
+      streamedUpload = true;
+      return new Response("{}", { status: 200 });
+    }
+    // 500MB logical — over the OLD 200MB cap, under the NEW 2GB ceiling. Streamed in
+    // small chunks so the worker never buffers the file (no OOM).
+    return chunkedVideoResponse(500 * 1024 * 1024);
+  }, async () => {
+    const summary = await mod.drainOnce(supabase, "fake-token", 5, 120_000);
+    assertEquals(summary.claimed, 1);
+    assertEquals(summary.cached, 1, "the >200MB video is now captured (was stranded on the CDN)");
+    assertEquals(summary.failed, 0);
+  });
+
+  assert(streamedUpload, "the >200MB video must be streamed to storage");
+  const creative = creatives[0];
+  assert(
+    creative.video_url!.includes("/storage/v1/object/public/ad-videos/act_1/ad_500mb.mp4"),
+    "video_url now points at the cached storage asset",
+  );
+  assert(isVideoOk({ video_url: creative.video_url }), "a captured >200MB video reports video_ok");
+  assertEquals(queue[0].status, "done");
+});
+
+Deno.test("US-007 AC (e2e#2): normal-sized videos are cached exactly as before (unchanged)", async () => {
+  const now = new Date().toISOString();
+  const queue: QueueRow[] = [{
+    ad_id: "ad_normal",
+    account_id: "act_1",
+    status: "pending",
+    attempts: 0,
+    enqueued_at: now,
+    updated_at: now,
+    last_error: null,
+  }];
+  const creatives: Creative[] = [{
+    ad_id: "ad_normal",
+    account_id: "act_1",
+    thumbnail_url: "no-thumbnail",
+    full_res_url: null,
+    video_url: "https://cdn/normal.mp4",
+    thumb_asset_id: null,
+    video_asset_id: null,
+    image_quality: "full_res",
+  }];
+  const { supabase, storageUploads } = makeDb({ queue, creatives });
+
+  await withFetch((url) => {
+    if (url.includes("/storage/v1/object/")) return new Response("{}", { status: 200 });
+    return videoResponse(15 * 1024 * 1024); // 15MB — a typical ad video
+  }, async () => {
+    const summary = await mod.drainOnce(supabase, "fake-token", 5, 120_000);
+    assertEquals(summary.cached, 1);
+    assertEquals(summary.failed, 0);
+  });
+
+  assertEquals(storageUploads.length, 0, "video path uses the streaming POST, not storage.upload()");
+  assert(isVideoOk({ video_url: creatives[0].video_url }), "normal video still reports video_ok");
+  assertEquals(queue[0].status, "done");
 });

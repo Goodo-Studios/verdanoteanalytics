@@ -8,6 +8,108 @@ const META_API_VERSION = "v22.0";
 export const NO_THUMB_SENTINEL = "no-thumbnail";
 export const NO_VIDEO_SENTINEL = "no-video";
 
+// ── US-003: honest video-failure taxonomy ────────────────────────────────────
+// A video ad whose source cannot be resolved was previously ALWAYS written the
+// blanket `no-video` sentinel, which conflated three very different truths and made
+// coverage reporting dishonest:
+//   • no-video             — GENUINELY-UNRESOLVED / unknown. Meta reports the ad as a
+//                            video, but no discovery strategy surfaced a source and no
+//                            classifiable Graph error explained why. This is the set a
+//                            future re-discovery run should keep re-attempting (it may
+//                            be a transient token/permission blip), so it is the only
+//                            NON-terminal sentinel — the residual "we don't know yet".
+//   • no-video-permission  — TERMINAL for our current credentials. The Graph API told
+//                            us the source is permission-blocked (error code #10 /
+//                            #200, or a message containing "permission"). Re-discovery
+//                            with the SAME token will keep failing identically, so this
+//                            is honest-terminal: not a bug, a genuinely-unresolvable
+//                            video under our access. Distinguishing it stops it from
+//                            inflating the "we haven't tried hard enough" bucket.
+//   • no-video-deleted     — TERMINAL. The underlying video/post no longer exists
+//                            (error code #100 with "does not exist" / "deleted" /
+//                            "removed"). It will NEVER resolve; re-discovery is wasted
+//                            work. Recorded distinctly so coverage reporting can show
+//                            "genuinely gone" separately from "we couldn't get to it".
+//   • no-video-oversized   — TERMINAL (US-007). The video resolves and is playable, but
+//                            its byte size exceeds the deliberate hard capture ceiling
+//                            (MAX_VIDEO_SIZE in drain-media-queue). Streaming-to-storage
+//                            keeps worker memory flat regardless of size, so the ceiling
+//                            is a policy limit (storage/bandwidth), NOT a memory limit —
+//                            and it is set generously (2GB) so this bucket is tiny.
+//                            Recorded distinctly so coverage reporting shows "too large
+//                            to capture under our policy" separately from unresolved /
+//                            gone / permission-blocked. Re-discovery is wasted work (the
+//                            size will not shrink), so it is honest-terminal.
+//
+// Coverage honesty (AC#3/#4): ALL four are NOT a storage url, so isVideoOk and the
+// media_coverage SQL view already classify every one of them as NOT video_ok — the
+// distinction is purely about WHY, for an honest residual-reason breakdown, and does
+// NOT loosen coverage. The residual set for AC#4 is exactly the permission + deleted +
+// oversized rows (genuinely-unhandleable) plus whatever no-video rows survive a
+// re-discovery run.
+export const NO_VIDEO_PERMISSION_SENTINEL = "no-video-permission";
+export const NO_VIDEO_DELETED_SENTINEL = "no-video-deleted";
+// US-007: a genuinely-playable video too large to capture under the deliberate ceiling.
+export const NO_VIDEO_OVERSIZED_SENTINEL = "no-video-oversized";
+
+// The full set of no-video-* sentinels. Any of these means "Meta reports a video ad
+// but we have no cached, playable video for it" → NOT video_ok. Kept as one set so
+// isVideoOk (and any other caller) can never miss a newly-added reason.
+export const NO_VIDEO_SENTINELS: ReadonlySet<string> = new Set([
+  NO_VIDEO_SENTINEL,
+  NO_VIDEO_PERMISSION_SENTINEL,
+  NO_VIDEO_DELETED_SENTINEL,
+  NO_VIDEO_OVERSIZED_SENTINEL,
+]);
+
+/**
+ * US-003: classify a Meta Graph API error object (`data.error` from a failed video
+ * lookup) into the honest-failure taxonomy above. Returns the DISTINCT terminal
+ * sentinel when the error is unambiguous, else the generic NO_VIDEO_SENTINEL (the
+ * non-terminal "unknown/unresolved" residual). Pure + dependency-free so it is
+ * unit-testable without a live Graph call.
+ *
+ * Mapping (kept deliberately narrow so we never mislabel a transient error as
+ * terminal — a mislabel would wrongly stop re-discovery):
+ *   • code #10 / #200, or a message mentioning "permission" → PERMISSION (terminal
+ *     for our token: pages_read_engagement-style block on page-owned videos).
+ *   • code #100 with "does not exist" / "deleted" / "removed" → DELETED (terminal:
+ *     the object is gone).
+ *   • anything else (including no error object at all) → generic no-video (unknown,
+ *     still worth a future re-attempt).
+ */
+export function classifyVideoFailure(
+  error: { code?: number | string | null; message?: string | null } | null | undefined,
+): string {
+  if (!error) return NO_VIDEO_SENTINEL;
+  const code = error.code != null ? String(error.code) : "";
+  const msg = (error.message ?? "").toLowerCase();
+
+  // Permission-blocked: #10 (page-owned media needs pages_read_engagement) or #200
+  // (generic permissions error), or any message explicitly citing a permission issue.
+  if (code === "10" || code === "200" || msg.includes("permission")) {
+    return NO_VIDEO_PERMISSION_SENTINEL;
+  }
+  // Deleted / missing object: #100 ("does not exist") is the canonical signal, but
+  // guard on the message too since #100 is a broad "invalid parameter" bucket.
+  if (
+    (code === "100" &&
+      (msg.includes("does not exist") ||
+        msg.includes("deleted") ||
+        msg.includes("removed") ||
+        msg.includes("cannot be loaded") ||
+        msg.includes("unsupported get request"))) ||
+    // A clear "gone" message is terminal whatever the code — Meta is inconsistent
+    // about the numeric code for a deleted/removed video/post.
+    msg.includes("does not exist") ||
+    msg.includes("deleted") ||
+    msg.includes("removed")
+  ) {
+    return NO_VIDEO_DELETED_SENTINEL;
+  }
+  return NO_VIDEO_SENTINEL;
+}
+
 /**
  * Resolve the Meta Graph API access token from the two configured sources, in
  * the same precedence sync / backfill-play-curves use: the `META_ACCESS_TOKEN`
@@ -58,6 +160,179 @@ export function looksLikeHtml(bytes: Uint8Array | null | undefined): boolean {
     trimmed.startsWith("<?xml") ||
     trimmed.startsWith("<!--")
   );
+}
+
+/**
+ * US-003: peek the LEADING bytes of a streamed response body to validate that the
+ * download is a real, non-empty media payload BEFORE it is committed to storage —
+ * WITHOUT buffering the whole video (worker is ~256MB-limited).
+ *
+ * The gap this closes (AC#1): cacheVideoToStorage streams the body straight to
+ * storage and previously trusted the content-type header + content-length. But a
+ * Meta CDN / login / error page can 200 with a `text/html` (or a mislabeled
+ * video/octet-stream) body, and a broken CDN can 200 with a ZERO-byte body — either
+ * would be stored as `<adId>.mp4` and treated as a playable video. We cannot buffer
+ * the whole stream to check, so we pull only the FIRST chunk from the reader, run
+ * looksLikeHtml on it, and require at least one non-empty byte; then we hand back a
+ * re-assembled stream (peeked chunk re-prepended + the untouched remainder) so the
+ * caller streams the identical bytes on to storage with flat memory.
+ *
+ * Returns:
+ *   • { ok: true, stream } — a fresh ReadableStream that yields the peeked first
+ *     chunk followed by the rest of the original body, byte-for-byte. Stream on.
+ *   • { ok: false, reason: "empty" } — the body produced no bytes (0-byte 200).
+ *   • { ok: false, reason: "html" }  — the leading bytes are an HTML/login/error
+ *     page, not media. Reject; do NOT store.
+ *
+ * On a rejection the underlying reader is released and the source is cancelled by the
+ * caller (which owns the Response). Depends only on Web Streams / Uint8Array so it is
+ * unit-testable with a hand-built ReadableStream, no network.
+ */
+export interface VideoPeekResult {
+  ok: boolean;
+  stream?: ReadableStream<Uint8Array>;
+  reason?: "empty" | "html";
+}
+
+export async function peekAndValidateMediaStream(
+  body: ReadableStream<Uint8Array>,
+): Promise<VideoPeekResult> {
+  const reader = body.getReader();
+  // Pull the first non-empty chunk (a stream may legally yield a 0-length chunk
+  // before real data, so skip empties until we get bytes or the stream ends).
+  let first: Uint8Array | undefined;
+  let done = false;
+  while (!done) {
+    const r = await reader.read();
+    done = r.done;
+    if (r.value && r.value.byteLength > 0) {
+      first = r.value;
+      break;
+    }
+  }
+
+  // Empty body (0-byte 200 / immediately-closed stream): not a playable video.
+  if (!first) {
+    reader.releaseLock();
+    return { ok: false, reason: "empty" };
+  }
+
+  // HTML/login/error page masquerading as media: reject on the leading bytes.
+  if (looksLikeHtml(first)) {
+    reader.releaseLock();
+    return { ok: false, reason: "html" };
+  }
+
+  // Valid so far — re-assemble a stream that emits the peeked chunk first, then the
+  // untouched remainder. Memory stays flat: we hold exactly ONE chunk, never the
+  // whole file. Backpressure is preserved by awaiting each downstream read.
+  const rebuilt = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(first as Uint8Array);
+    },
+    async pull(controller) {
+      const { done: rDone, value } = await reader.read();
+      if (rDone) {
+        controller.close();
+        reader.releaseLock();
+        return;
+      }
+      if (value) controller.enqueue(value);
+    },
+    cancel(reason) {
+      // Downstream cancelled (e.g. upload aborted) — propagate to the source.
+      return reader.cancel(reason);
+    },
+  });
+
+  return { ok: true, stream: rebuilt };
+}
+
+// ── US-008: exotic-format cover-media extraction ─────────────────────────────
+// Collection, Instant Experience / Canvas, and Form (lead-gen) ads do not always
+// carry their representable media on the plain link_data.image_hash / video_data
+// paths that Strategy 1 already covers. Instead the cover/hero often lives on the
+// FIRST child_attachment (Collection product-grid hero card, Canvas cover card) or
+// on link_data itself as a top-level cover video (Collection/Form). The existing
+// discovery skipped those slots, so these ads rendered blank in Verdanote. US-008
+// adds narrow, spec-embedded extraction of the *representable cover* (the notes
+// deliberately scope to "cover media first", not full product-grid capture) so each
+// format contributes to US-001 coverage. All helpers below are pure + dependency-
+// free (they read a spec object, never call the network) so they are unit-testable.
+//
+// Honest-failure (AC#4): when a spec IS one of these exotic shapes but carries no
+// resolvable cover media at all, discovery records the distinct NO_COVER_MEDIA
+// sentinel via classify — NOT a blank — so coverage reporting shows "exotic format,
+// no representable cover" separately from a plain unresolved image.
+export const NO_COVER_MEDIA_SENTINEL = "no-cover-media";
+
+/**
+ * US-008: pull the FIRST resolvable cover image_hash from an object_story_spec,
+ * covering the exotic-format slots Strategy 1 misses. Precedence, cover-first:
+ *   1. link_data.image_hash            (Collection/Canvas/Form hero — already caught
+ *                                        by Strategy 1, included here for a single
+ *                                        source of truth so callers can reuse this).
+ *   2. link_data.child_attachments[0].image_hash
+ *                                        (Collection product-grid hero card, Canvas
+ *                                        cover card) — the common gap.
+ *   3. photo_data.image_hash           (photo/lead-gen still).
+ * Returns the hash string or null. Pure — resolution to a URL is the caller's job
+ * (via the /{account}/adimages edge, exactly like Strategy 1).
+ */
+export function extractCoverImageHash(
+  spec: {
+    link_data?: {
+      image_hash?: string | null;
+      child_attachments?: Array<{ image_hash?: string | null } | null> | null;
+    } | null;
+    photo_data?: { image_hash?: string | null } | null;
+  } | null | undefined,
+): string | null {
+  if (!spec) return null;
+  const link = spec.link_data;
+  if (link?.image_hash) return link.image_hash;
+  const children = link?.child_attachments;
+  if (Array.isArray(children)) {
+    for (const child of children) {
+      if (child?.image_hash) return child.image_hash;
+    }
+  }
+  if (spec.photo_data?.image_hash) return spec.photo_data.image_hash;
+  return null;
+}
+
+/**
+ * US-008: pull the ORDERED set of cover video_ids from an object_story_spec for the
+ * exotic formats. Collection/Form ads carry a top-level cover video on
+ * link_data.video_id that the video-discovery loop (Paths 1-5) never walked; Canvas /
+ * Collection hero cards carry it on the first child_attachment. This surfaces both,
+ * cover-first, deduped in first-seen order:
+ *   1. link_data.video_id                       (Collection/Form top-level cover video)
+ *   2. link_data.child_attachments[*].video_id  (hero card video, in card order)
+ * Returns an ordered, deduped array of video_ids (may be empty). Pure — the caller
+ * resolves each id to a source via the same map-first/direct path as every other
+ * video strategy, so no new resolution logic is introduced.
+ */
+export function extractCoverVideoIds(
+  spec: {
+    link_data?: {
+      video_id?: string | null;
+      child_attachments?: Array<{ video_id?: string | null } | null> | null;
+    } | null;
+  } | null | undefined,
+): string[] {
+  const ids: string[] = [];
+  const push = (v: string | null | undefined) => {
+    if (typeof v === "string" && v.length > 0 && !ids.includes(v)) ids.push(v);
+  };
+  const link = spec?.link_data;
+  if (!link) return ids;
+  push(link.video_id);
+  const children = link.child_attachments;
+  if (Array.isArray(children)) {
+    for (const child of children) push(child?.video_id);
+  }
+  return ids;
 }
 
 /**
@@ -173,6 +448,123 @@ export function isStorageUrl(url: string | null | undefined): boolean {
   return typeof url === "string" && url.includes("/storage/v1/object/public/");
 }
 
+/**
+ * US-001 (meta-media-completeness): the single, documented ELIGIBILITY predicate
+ * for media-coverage measurement — the TS mirror of the WHERE clause in the
+ * public.media_coverage SQL view. An ad is eligible when it is in the universe we
+ * actually sync today: it is NOT archived and has at least one impression. Keeping
+ * one predicate on both sides means the coverage numerator/denominator always
+ * measure against the intended universe and no silently-excluded ad is ever counted
+ * as "covered".
+ *
+ * US-006 widens this to be PER-ACCOUNT-FLAG-AWARE. The optional `scope` mirrors
+ * ad_accounts.include_archived / include_zero_impression (both default FALSE, so a
+ * call with no scope is byte-identical to the US-001 predicate — no caller breaks).
+ * An ad is eligible when:
+ *     (NOT archived  OR  scope.include_archived)
+ * AND (impressions>0 OR  scope.include_zero_impression)
+ * This is the EXACT TS mirror of the widened WHERE clause in the public.media_coverage
+ * view (migration 20260714000029) — update BOTH together so they never drift.
+ * Pure + dependency-free so it is unit-testable.
+ */
+export function isEligibleForCoverage(
+  creative: {
+    ad_status?: string | null;
+    impressions?: number | null;
+  },
+  scope: {
+    include_archived?: boolean | null;
+    include_zero_impression?: boolean | null;
+  } = {},
+): boolean {
+  const status = (creative.ad_status ?? "UNKNOWN").toUpperCase();
+  const includeArchived = scope.include_archived ?? false;
+  const includeZeroImpression = scope.include_zero_impression ?? false;
+  if (status === "ARCHIVED" && !includeArchived) return false;
+  if ((creative.impressions ?? 0) <= 0 && !includeZeroImpression) return false;
+  return true;
+}
+
+/**
+ * US-001: classify whether a creative has a cached, full-resolution static IMAGE
+ * (image_ok). The ~130px creative.thumbnail_url last-resort fallback (discoverImageUrl
+ * Strategy 6) returns fullResUrl:null, and drain-media-queue only populates
+ * full_res_url when a REAL asset is cached — so an image whose only source is that
+ * tiny-thumbnail fallback has a NULL full_res_url and is explicitly NOT image_ok.
+ * A non-null full_res_url that is not the no-thumbnail sentinel means a real cached
+ * full-res image. Pure mirror of the view's image_ok expression.
+ */
+export function isImageOk(creative: {
+  full_res_url?: string | null;
+}): boolean {
+  const full = creative.full_res_url;
+  return typeof full === "string" && full.length > 0 && full !== NO_THUMB_SENTINEL;
+}
+
+/**
+ * US-001: is this ad a VIDEO ad at all? video_url is NULL for image-only ads; a
+ * populated value (a real url OR the no-video sentinel) means Meta reports it as a
+ * video ad. Used to make video_ok trivially true for non-video ads.
+ */
+export function isVideoAd(creative: { video_url?: string | null }): boolean {
+  return creative.video_url != null && creative.video_url !== "";
+}
+
+/**
+ * US-001: classify video_ok. A non-video ad is trivially ok. A video ad is ok only
+ * when its video_url is a cached Supabase Storage url (playable); the no-video
+ * sentinel (unresolved) and any bare live CDN url (never cached) are NOT ok. Pure
+ * mirror of the view's video_ok expression.
+ */
+export function isVideoOk(creative: { video_url?: string | null }): boolean {
+  const v = creative.video_url;
+  if (v == null || v === "") return true; // not a video ad → trivially ok
+  // US-003: ANY no-video-* sentinel (unresolved / permission-blocked / deleted) is
+  // NOT ok. They are plain strings, never a storage url, so isStorageUrl already
+  // excludes them — but check the set explicitly so the intent is unmistakable and a
+  // newly-added distinct sentinel can never accidentally read as "ok".
+  if (NO_VIDEO_SENTINELS.has(v)) return false;
+  return isStorageUrl(v); // cached storage url = playable
+}
+
+/**
+ * US-001: fully classify a creative's media coverage. frames_ok defaults to the
+ * passed value (TRUE until US-004's creative_frames junction lands and can declare
+ * an expected frame set). covered = image_ok AND video_ok AND frames_ok. This is the
+ * TS mirror of one public.media_coverage row so callers outside SQL (e.g. the media
+ * worker deciding whether an ad still needs work) share the exact same definition.
+ */
+export function classifyCoverage(
+  creative: {
+    ad_status?: string | null;
+    impressions?: number | null;
+    full_res_url?: string | null;
+    video_url?: string | null;
+  },
+  framesOk = true,
+  scope: {
+    include_archived?: boolean | null;
+    include_zero_impression?: boolean | null;
+  } = {},
+): {
+  eligible: boolean;
+  image_ok: boolean;
+  video_ok: boolean;
+  frames_ok: boolean;
+  covered: boolean;
+} {
+  const image_ok = isImageOk(creative);
+  const video_ok = isVideoOk(creative);
+  const frames_ok = framesOk;
+  return {
+    eligible: isEligibleForCoverage(creative, scope),
+    image_ok,
+    video_ok,
+    frames_ok,
+    covered: image_ok && video_ok && frames_ok,
+  };
+}
+
 /** Fetch with a timeout — aborts if the request takes longer than timeoutMs */
 export async function fetchWithTimeout(url: string, timeoutMs = 30_000): Promise<Response> {
   const controller = new AbortController();
@@ -186,16 +578,34 @@ export async function fetchWithTimeout(url: string, timeoutMs = 30_000): Promise
 }
 
 /**
+ * US-002: quality classification of a discovered image source.
+ *   'full_res' — a real, full-resolution creative asset (adimages high-res,
+ *                asset_feed_spec image, effective_object_story_id full_picture,
+ *                a >=480px video thumbnail, or the Preview API render).
+ *   'low_res'  — a placeholder only: the ~130px creative.thumbnail_url last-resort
+ *                fallback (Strategy 6) or a sub-480px video thumbnail. These are
+ *                the rows the US-002 re-discovery job re-attempts.
+ * Mirrors the migration's creatives.image_quality domain.
+ */
+export type ImageQuality = "full_res" | "low_res";
+
+/**
  * Discover a high-res image URL from Meta Graph API.
- * Returns { thumbnailUrl, fullResUrl } where fullResUrl is the highest-resolution
- * source available (stored separately so the modal can use it without rescaling).
+ * Returns { thumbnailUrl, fullResUrl, imageQuality } where fullResUrl is the
+ * highest-resolution source available (stored separately so the modal can use it
+ * without rescaling) and imageQuality flags whether the result is a real full-res
+ * asset ('full_res') or only a low-res placeholder ('low_res' — the ~130px
+ * thumbnail_url fallback or a sub-480px video thumbnail). The full-res sources are
+ * PREFERRED and only the ~130px thumbnail_url is recorded as a last resort, flagged
+ * low_res (US-002 AC#1). imageQuality tracks with fullResUrl: a 'full_res' result
+ * always carries a non-null fullResUrl; a 'low_res' result carries fullResUrl:null.
  */
 export async function discoverImageUrl(
   adId: string,
   accountId: string,
   accessToken: string,
   timeoutMs = 30_000
-): Promise<{ thumbnailUrl: string; fullResUrl: string | null } | null> {
+): Promise<{ thumbnailUrl: string; fullResUrl: string | null; imageQuality: ImageQuality } | null> {
   try {
     const res = await fetchWithTimeout(
       `https://graph.facebook.com/${META_API_VERSION}/${adId}?fields=creative{thumbnail_url,image_url,image_hash,object_story_spec,asset_feed_spec}&access_token=${accessToken}`,
@@ -230,7 +640,7 @@ export async function discoverImageUrl(
           const w = img.original_width || img.width || 0;
           console.log(`image_hash for ${adId}: ${w}px wide, url length: ${fullUrl?.length}`);
           if (fullUrl && fullUrl.length > 100) {
-            return { thumbnailUrl: fullUrl, fullResUrl: fullUrl };
+            return { thumbnailUrl: fullUrl, fullResUrl: fullUrl, imageQuality: "full_res" };
           }
         }
       } else {
@@ -254,7 +664,7 @@ export async function discoverImageUrl(
             const fullUrl = images[0].url;
             if (fullUrl && fullUrl.length > 100) {
               console.log(`asset_feed_spec image_hash for ${adId}: ${images[0].original_width}px`);
-              return { thumbnailUrl: fullUrl, fullResUrl: fullUrl };
+              return { thumbnailUrl: fullUrl, fullResUrl: fullUrl, imageQuality: "full_res" };
             }
           }
         } else {
@@ -264,7 +674,7 @@ export async function discoverImageUrl(
       // Some feed images have a direct url field
       if (feedImg?.url) {
         console.log(`asset_feed_spec direct URL for ${adId}`);
-        return { thumbnailUrl: feedImg.url, fullResUrl: feedImg.url };
+        return { thumbnailUrl: feedImg.url, fullResUrl: feedImg.url, imageQuality: "full_res" };
       }
     }
 
@@ -290,7 +700,7 @@ export async function discoverImageUrl(
           const best = sorted[0];
           if (best?.uri && (best.width || 0) >= 480) {
             console.log(`Video thumbnail for ${adId}: ${best.width}x${best.height}`);
-            return { thumbnailUrl: best.uri, fullResUrl: null };
+            return { thumbnailUrl: best.uri, fullResUrl: null, imageQuality: "low_res" };
           } else if (best?.uri) {
             console.log(`Video thumbnail below 480px for ${adId}: ${best?.width}x${best?.height} — keeping as fallback`);
             smallVideoThumb = best.uri;
@@ -308,7 +718,7 @@ export async function discoverImageUrl(
         const picData = await picRes.json();
         if (picData?.data?.url) {
           console.log(`Video picture fallback (1080px) for ${adId}`);
-          return { thumbnailUrl: picData.data.url, fullResUrl: picData.data.url };
+          return { thumbnailUrl: picData.data.url, fullResUrl: picData.data.url, imageQuality: "full_res" };
         }
       } else {
         await picRes.text();
@@ -317,7 +727,7 @@ export async function discoverImageUrl(
       // 1080 picture endpoint failed — use the smaller thumb rather than dropping it.
       if (smallVideoThumb) {
         console.log(`Using sub-480px video thumbnail fallback for ${adId}`);
-        return { thumbnailUrl: smallVideoThumb, fullResUrl: null };
+        return { thumbnailUrl: smallVideoThumb, fullResUrl: null, imageQuality: "low_res" };
       }
     }
 
@@ -333,7 +743,7 @@ export async function discoverImageUrl(
           const picData = await picRes.json();
           if (picData?.data?.url) {
             console.log(`asset_feed_spec video poster for ${adId} (video ${v.video_id})`);
-            return { thumbnailUrl: picData.data.url, fullResUrl: picData.data.url };
+            return { thumbnailUrl: picData.data.url, fullResUrl: picData.data.url, imageQuality: "full_res" };
           }
         } else {
           await picRes.text();
@@ -354,7 +764,7 @@ export async function discoverImageUrl(
         // Try image_url from creative endpoint first — this is often full resolution
         if (creativeData.image_url) {
           console.log(`Creative image_url for ${adId}`);
-          return { thumbnailUrl: creativeData.image_url, fullResUrl: creativeData.image_url };
+          return { thumbnailUrl: creativeData.image_url, fullResUrl: creativeData.image_url, imageQuality: "full_res" };
         }
 
         if (creativeData.effective_object_story_id) {
@@ -366,7 +776,7 @@ export async function discoverImageUrl(
             const postData = await postRes.json();
             if (postData.full_picture) {
               console.log(`Post full_picture for ${adId}`);
-              return { thumbnailUrl: postData.full_picture, fullResUrl: postData.full_picture };
+              return { thumbnailUrl: postData.full_picture, fullResUrl: postData.full_picture, imageQuality: "full_res" };
             }
           } else {
             await postRes.text();
@@ -380,12 +790,46 @@ export async function discoverImageUrl(
     // Strategy 4: Direct fallback fields — image_url is usually full-res
     if (creative.image_url) {
       console.log(`Using image_url for ${adId}`);
-      return { thumbnailUrl: creative.image_url, fullResUrl: creative.image_url };
+      return { thumbnailUrl: creative.image_url, fullResUrl: creative.image_url, imageQuality: "full_res" };
     }
 
     if (spec) {
       const imageUrl = spec.link_data?.image_url || spec.photo_data?.url || spec.photo_data?.image_url;
-      if (imageUrl) return { thumbnailUrl: imageUrl, fullResUrl: imageUrl };
+      if (imageUrl) return { thumbnailUrl: imageUrl, fullResUrl: imageUrl, imageQuality: "full_res" };
+    }
+
+    // Strategy 4b (US-008): exotic-format cover hero. Collection / Instant Experience
+    // (Canvas) / Form ads often place their representable image_hash on the FIRST
+    // child_attachment (the product-grid / cover card), which Strategy 1 does not walk.
+    // Resolve that cover hash to a full-res url via the same /{account}/adimages edge
+    // Strategy 1 uses, so the cover renders full-res rather than falling through to the
+    // ~130px placeholder (Strategy 6).
+    if (spec) {
+      const coverHash = extractCoverImageHash(spec);
+      // Only worth a call when it is a hash Strategy 1 did NOT already try (Strategy 1
+      // covers link_data.image_hash + photo_data.image_hash; the new slot is the first
+      // child_attachment hero card).
+      const alreadyTried =
+        spec.link_data?.image_hash || spec.photo_data?.image_hash || undefined;
+      if (coverHash && coverHash !== alreadyTried) {
+        const imgRes = await fetchWithTimeout(
+          `https://graph.facebook.com/${META_API_VERSION}/${accountId}/adimages?hashes=["${coverHash}"]&fields=url,original_width,original_height&access_token=${accessToken}`,
+          timeoutMs
+        );
+        if (imgRes.ok) {
+          const imgData = await imgRes.json();
+          const images = imgData?.data;
+          if (images && images.length > 0) {
+            const fullUrl = images[0].url;
+            if (fullUrl && fullUrl.length > 100) {
+              console.log(`Exotic-format cover image_hash for ${adId} (Collection/Canvas/Form hero)`);
+              return { thumbnailUrl: fullUrl, fullResUrl: fullUrl, imageQuality: "full_res" };
+            }
+          }
+        } else {
+          await imgRes.text();
+        }
+      }
     }
 
     // Strategy 5: Ad Preview API — extract rendered image from preview HTML
@@ -402,7 +846,7 @@ export async function discoverImageUrl(
           const bestImg = extractPreviewImageSrc(previewBody);
           if (bestImg) {
             console.log(`Ad Preview API image for ${adId}`);
-            return { thumbnailUrl: bestImg, fullResUrl: bestImg };
+            return { thumbnailUrl: bestImg, fullResUrl: bestImg, imageQuality: "full_res" };
           }
         }
       } else {
@@ -415,7 +859,7 @@ export async function discoverImageUrl(
     // Strategy 6: creative.thumbnail_url is last resort (~130px placeholder from Meta)
     if (creative.thumbnail_url) {
       console.log(`LOW-RES FALLBACK for ${adId}: using thumbnail_url (~130px) — all higher-res strategies failed`);
-      return { thumbnailUrl: creative.thumbnail_url, fullResUrl: null };
+      return { thumbnailUrl: creative.thumbnail_url, fullResUrl: null, imageQuality: "low_res" };
     }
 
     return null;
@@ -524,6 +968,44 @@ export async function discoverVideoUrl(
   timeoutMs = 30_000,
   accountVideoMap?: Map<string, string>
 ): Promise<string | null> {
+  return (await discoverVideoUrlWithReason(adId, accessToken, timeoutMs, accountVideoMap)).url;
+}
+
+/**
+ * US-003: the video-discovery core, returning BOTH the resolved source url (or null)
+ * AND the honest failure reason when it could not be resolved. `discoverVideoUrl`
+ * (unchanged signature, all existing callers) delegates here and drops the reason;
+ * the drain worker uses this variant so a genuinely-unresolvable video can be recorded
+ * on a DISTINCT sentinel (permission vs deleted vs unknown) rather than the blanket
+ * `no-video` (AC#3).
+ *
+ * `reason` is set ONLY when `url` is null. It is the classified terminal/residual
+ * sentinel from classifyVideoFailure applied to the first classifiable Graph error we
+ * saw along the way (permission/deleted are terminal; everything else stays the
+ * generic no-video "unknown, still worth re-attempting"). Every discovery STRATEGY is
+ * still tried exactly as before — we only observe the errors, never short-circuit on
+ * them, so a permission error on one path never suppresses a later path that succeeds.
+ */
+export async function discoverVideoUrlWithReason(
+  adId: string,
+  accessToken: string,
+  timeoutMs = 30_000,
+  accountVideoMap?: Map<string, string>
+): Promise<{ url: string | null; reason?: string }> {
+  // Track the most specific classifiable error seen across all strategies. Once we
+  // have a TERMINAL classification (permission/deleted) we keep it; a later generic
+  // error must not downgrade it. A resolved url wins over any error.
+  let failReason: string | null = null;
+  const noteError = (
+    error: { code?: number | string | null; message?: string | null } | null | undefined,
+  ) => {
+    if (!error) return;
+    const classified = classifyVideoFailure(error);
+    // Prefer a terminal reason; don't let a later generic no-video overwrite it.
+    if (failReason === null || failReason === NO_VIDEO_SENTINEL) {
+      failReason = classified;
+    }
+  };
   try {
     const res = await fetchWithTimeout(
       `https://graph.facebook.com/${META_API_VERSION}/${adId}?fields=creative{id,video_id,object_story_spec,effective_object_story_id,asset_feed_spec}&access_token=${accessToken}`,
@@ -531,7 +1013,11 @@ export async function discoverVideoUrl(
     );
     if (!res.ok) {
       console.log(`Meta video API failed for ${adId}: ${res.status}`);
-      return null;
+      // Try to read the error body so a permission/deleted status is classified
+      // rather than bucketed as generic unknown.
+      const errData = await res.json().catch(() => null);
+      noteError(errData?.error);
+      return { url: null, reason: failReason ?? NO_VIDEO_SENTINEL };
     }
     const data = await res.json();
     const creative = data?.creative;
@@ -541,7 +1027,8 @@ export async function discoverVideoUrl(
       if (errCode || errMsg) {
         console.log(`Meta video: no creative for ${adId} — error ${errCode}: ${errMsg}`);
       }
-      return null;
+      noteError(data?.error);
+      return { url: null, reason: failReason ?? NO_VIDEO_SENTINEL };
     }
 
     const spec = creative.object_story_spec;
@@ -552,7 +1039,7 @@ export async function discoverVideoUrl(
 
     // Path 2: standard video_data
     if (spec?.video_data?.video_id) videoIds.push(spec.video_data.video_id);
-    if (spec?.video_data?.video_url) return spec.video_data.video_url;
+    if (spec?.video_data?.video_url) return { url: spec.video_data.video_url };
 
     // Path 3: template / DPA video
     if (spec?.template_data?.video_data?.video_id) {
@@ -564,6 +1051,15 @@ export async function discoverVideoUrl(
     for (const child of children) {
       if (child?.video_id) videoIds.push(child.video_id);
     }
+
+    // Path 4b (US-008): exotic-format cover video. Collection / Form ads carry a
+    // top-level cover video on link_data.video_id (never a child attachment); Canvas /
+    // Collection hero cards carry it on the first child. extractCoverVideoIds surfaces
+    // both, cover-first, so a Collection/Form cover VIDEO is resolved (its image cover
+    // was already handled in discoverImageUrl Strategy 4b). link_data.video_id is the
+    // slot Paths 1-5 never walked; child video_ids overlap Path 4 but push() below is
+    // deduped by the Set, so no double-fetch.
+    for (const coverVid of extractCoverVideoIds(spec)) videoIds.push(coverVid);
 
     // Path 5: asset_feed_spec (Advantage+/dynamic creative)
     const feedVideos: any[] = creative.asset_feed_spec?.videos || [];
@@ -579,20 +1075,23 @@ export async function discoverVideoUrl(
         const mapped = accountVideoMap.get(vid);
         if (mapped) {
           console.log(`Got video source from account library map for ${adId} (video ${vid})`);
-          return mapped;
+          return { url: mapped };
         }
       }
       const vidRes = await fetchWithTimeout(
         `https://graph.facebook.com/${META_API_VERSION}/${vid}?fields=source&access_token=${accessToken}`,
         timeoutMs
       );
+      const vidData = await vidRes.json().catch(() => null);
       if (vidRes.ok) {
-        const vidData = await vidRes.json();
         if (vidData?.source) {
           console.log(`Got video source from video_id ${vid} for ${adId}`);
-          return vidData.source;
+          return { url: vidData.source };
         }
       }
+      // A direct /{video_id} fetch is where #10 (page-owned, permission-blocked) and
+      // #100 (deleted video) most often surface — classify it toward the honest reason.
+      noteError(vidData?.error);
     }
 
     // Path 6: effective_object_story_id → post video
@@ -609,7 +1108,7 @@ export async function discoverVideoUrl(
         // Direct source on the post object (common for native video posts)
         if (postData?.source && postData.source.includes("video")) {
           console.log(`Got video source directly from post for ${adId}`);
-          return postData.source;
+          return { url: postData.source };
         }
 
         const attachments: any[] = postData?.attachments?.data || [];
@@ -617,7 +1116,7 @@ export async function discoverVideoUrl(
           // Some video posts expose the playable URL directly on media.source
           if (att?.media?.source) {
             console.log(`Got video from attachment media.source for ${adId}`);
-            return att.media.source;
+            return { url: att.media.source };
           }
           // Standard path: media.video.id → fetch source
           const videoId = att?.media?.video?.id;
@@ -626,20 +1125,19 @@ export async function discoverVideoUrl(
               `https://graph.facebook.com/${META_API_VERSION}/${videoId}?fields=source&access_token=${accessToken}`,
               timeoutMs
             );
-            if (vidRes.ok) {
-              const vidData = await vidRes.json();
-              if (vidData?.source) {
-                console.log(`Got video via effective_object_story_id for ${adId}`);
-                return vidData.source;
-              }
+            const vidData = await vidRes.json().catch(() => null);
+            if (vidRes.ok && vidData?.source) {
+              console.log(`Got video via effective_object_story_id for ${adId}`);
+              return { url: vidData.source };
             }
+            noteError(vidData?.error);
           }
           // Check subattachments (carousel / album posts)
           const subattachments: any[] = att?.subattachments?.data || [];
           for (const sub of subattachments) {
             if (sub?.media?.source) {
               console.log(`Got video from subattachment media.source for ${adId}`);
-              return sub.media.source;
+              return { url: sub.media.source };
             }
             const subVideoId = sub?.media?.video?.id;
             if (subVideoId) {
@@ -647,18 +1145,18 @@ export async function discoverVideoUrl(
                 `https://graph.facebook.com/${META_API_VERSION}/${subVideoId}?fields=source&access_token=${accessToken}`,
                 timeoutMs
               );
-              if (vidRes.ok) {
-                const vidData = await vidRes.json();
-                if (vidData?.source) {
-                  console.log(`Got video via subattachment video_id for ${adId}`);
-                  return vidData.source;
-                }
+              const vidData = await vidRes.json().catch(() => null);
+              if (vidRes.ok && vidData?.source) {
+                console.log(`Got video via subattachment video_id for ${adId}`);
+                return { url: vidData.source };
               }
+              noteError(vidData?.error);
             }
           }
         }
       } else {
-        await postSourceRes.text();
+        const errData = await postSourceRes.json().catch(() => null);
+        noteError(errData?.error);
       }
     }
 
@@ -682,20 +1180,19 @@ export async function discoverVideoUrl(
             const mapped = accountVideoMap.get(vid);
             if (mapped) {
               console.log(`Got video via adcreatives fallback (map) for ${adId}`);
-              return mapped;
+              return { url: mapped };
             }
           }
           const vidRes = await fetchWithTimeout(
             `https://graph.facebook.com/${META_API_VERSION}/${vid}?fields=source&access_token=${accessToken}`,
             timeoutMs
           );
-          if (vidRes.ok) {
-            const vidData = await vidRes.json();
-            if (vidData?.source) {
-              console.log(`Got video via adcreatives fallback for ${adId}`);
-              return vidData.source;
-            }
+          const vidData = await vidRes.json().catch(() => null);
+          if (vidRes.ok && vidData?.source) {
+            console.log(`Got video via adcreatives fallback for ${adId}`);
+            return { url: vidData.source };
           }
+          noteError(vidData?.error);
         }
       }
     }
@@ -714,19 +1211,141 @@ export async function discoverVideoUrl(
           const videoSrc = extractPreviewVideoSrc(previewBody);
           if (videoSrc) {
             console.log(`Got video via Ad Preview API for ${adId}`);
-            return videoSrc;
+            return { url: videoSrc };
           }
         }
       } else {
-        await previewRes.text();
+        const errData = await previewRes.json().catch(() => null);
+        noteError(errData?.error);
       }
     } catch (e) {
       console.log(`Video preview API fallback error for ${adId}:`, e);
     }
 
-    return null;
+    // Exhausted every strategy without a source. Return the honest failure reason:
+    // a classified terminal sentinel (permission/deleted) when we saw one, else the
+    // generic no-video "unknown / still worth re-attempting" residual.
+    return { url: null, reason: failReason ?? NO_VIDEO_SENTINEL };
   } catch (e) {
     console.log(`Meta video API error for ${adId}:`, e);
-    return null;
+    return { url: null, reason: failReason ?? NO_VIDEO_SENTINEL };
   }
+}
+
+/**
+ * Shared single-video-id → source resolution, factored out of the discovery loop so
+ * both `discoverVideoUrlWithReason` (single result) and `discoverAllVideoUrls`
+ * (multi result) resolve a video_id the SAME way: prefer the account video map
+ * (avoids #10 permission errors on page-owned videos), then fall back to a direct
+ * GET /{video_id}?fields=source. Pure of any short-circuit policy — it just returns
+ * the resolved source url for ONE id, or null. Kept package-private (not exported)
+ * so it does not widen the module's public contract.
+ */
+async function resolveVideoSourceById(
+  videoId: string,
+  accessToken: string,
+  timeoutMs: number,
+  accountVideoMap?: Map<string, string>,
+): Promise<string | null> {
+  if (accountVideoMap) {
+    const mapped = accountVideoMap.get(videoId);
+    if (mapped) return mapped;
+  }
+  const vidRes = await fetchWithTimeout(
+    `https://graph.facebook.com/${META_API_VERSION}/${videoId}?fields=source&access_token=${accessToken}`,
+    timeoutMs,
+  );
+  const vidData = await vidRes.json().catch(() => null);
+  if (vidRes.ok && vidData?.source) return vidData.source as string;
+  return null;
+}
+
+/**
+ * US-004 (carousel frame capture): discover EVERY resolvable video source of an ad,
+ * in stable frame order — the multi-variant sibling of `discoverVideoUrl`.
+ *
+ * `discoverVideoUrl` intentionally returns after the FIRST resolved source (its
+ * single-result contract, relied on by US-002/US-003 callers + tests — UNCHANGED).
+ * A carousel / dynamic-creative ad can carry MANY videos (one per card, or several
+ * asset_feed_spec variants); to populate one creative_frames row per captured frame
+ * the sync needs them ALL. This walks the same object_story_spec /
+ * asset_feed_spec.videos / child_attachments sources, resolves each distinct
+ * video_id to a source (map-first, then direct), and returns an ORDERED, deduped
+ * array of source urls — order preserved so frame_index is stable across re-syncs.
+ *
+ * It reuses `resolveVideoSourceById` (the exact map-first/direct resolution the
+ * single-result path uses) so the two never drift. It deliberately covers only the
+ * spec-embedded sources the sync already has in hand from its Phase-1 creative fetch
+ * (object_story_spec + asset_feed_spec); it does NOT walk the heavier
+ * effective_object_story_id / preview-API fallbacks — those exist to rescue a SINGLE
+ * hard-to-resolve video, not to enumerate a carousel's ordered frames, and running
+ * them per ad would work against the large-account fetch budget.
+ */
+export async function discoverAllVideoUrls(
+  adId: string,
+  accessToken: string,
+  timeoutMs = 30_000,
+  accountVideoMap?: Map<string, string>,
+): Promise<string[]> {
+  const sources: string[] = [];
+  const pushSource = (u: string | null | undefined) => {
+    if (typeof u === "string" && u.length > 0 && !sources.includes(u)) sources.push(u);
+  };
+  try {
+    const res = await fetchWithTimeout(
+      `https://graph.facebook.com/${META_API_VERSION}/${adId}?fields=creative{id,video_id,object_story_spec,asset_feed_spec}&access_token=${accessToken}`,
+      timeoutMs,
+    );
+    if (!res.ok) {
+      await res.text().catch(() => {});
+      return sources;
+    }
+    const data = await res.json();
+    const creative = data?.creative;
+    if (!creative) return sources;
+
+    const spec = creative.object_story_spec;
+    // Ordered video_ids across every spec-embedded video source. Order matters: it
+    // is the frame order the sync writes as frame_index. Direct inline source urls
+    // (video_data.video_url) are captured in place so they keep their slot.
+    const orderedIds: string[] = [];
+
+    // Path 1: top-level video_id.
+    if (creative.video_id) orderedIds.push(String(creative.video_id));
+    // Path 2: standard video_data — inline url first, else id.
+    if (spec?.video_data?.video_url) pushSource(spec.video_data.video_url);
+    else if (spec?.video_data?.video_id) orderedIds.push(String(spec.video_data.video_id));
+    // Path 3: template / DPA video.
+    if (spec?.template_data?.video_data?.video_id) {
+      orderedIds.push(String(spec.template_data.video_data.video_id));
+    }
+    // Path 4: carousel child attachments — EVERY card, in card order.
+    const children: any[] = spec?.link_data?.child_attachments || [];
+    for (const child of children) {
+      if (child?.video_id) orderedIds.push(String(child.video_id));
+    }
+    // Path 4b (US-008): exotic-format top-level cover video (Collection/Form). The
+    // link_data.video_id cover has no card slot of its own; surface it so a Collection/
+    // Form cover video becomes a frame too. Child video_ids overlap Path 4 but the
+    // seen-Set dedupe below keeps frame_index stable and avoids a double-fetch.
+    for (const coverVid of extractCoverVideoIds(spec)) orderedIds.push(coverVid);
+    // Path 5: asset_feed_spec (Advantage+ / dynamic creative) — EVERY variant.
+    const feedVideos: any[] = creative.asset_feed_spec?.videos || [];
+    for (const v of feedVideos) {
+      if (v?.video_id) orderedIds.push(String(v.video_id));
+      else if (v?.video_url) pushSource(v.video_url);
+    }
+
+    // Resolve each DISTINCT id (dedupe preserves first-seen order) to a source.
+    const seen = new Set<string>();
+    for (const vid of orderedIds) {
+      if (seen.has(vid)) continue;
+      seen.add(vid);
+      const source = await resolveVideoSourceById(vid, accessToken, timeoutMs, accountVideoMap);
+      if (source) pushSource(source);
+    }
+  } catch (e) {
+    console.log(`Meta multi-video discovery error for ${adId}:`, e);
+  }
+  return sources;
 }

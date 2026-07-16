@@ -15,9 +15,11 @@
 //      (FOR UPDATE SKIP LOCKED) so two concurrent invocations never grab the same ad.
 //   2. For each claimed ad, DISCOVER its media CDN url (short-circuiting if already
 //      cached to storage), then STREAM the download straight to storage — the same
-//      streaming upload + 200MB cap + oversized→keep-CDN handling proven in
-//      enrich-thumbnails. Within-account dedupe (US-009) is preserved: bytes are
-//      hashed and a second ad reusing the identical creative reuses the stored asset.
+//      streaming upload proven in enrich-thumbnails, now with a deliberate 2GB capture
+//      ceiling (US-007: streaming keeps memory flat, so the ceiling is a storage policy,
+//      not a memory guard; a video above it is recorded oversized, not left on the CDN).
+//      Within-account dedupe (US-009) is preserved: bytes are hashed and a second ad
+//      reusing the identical creative reuses the stored asset.
 //   3. Mark each row done/failed and, while any pending rows remain (and within the
 //      wall/self-chain budget), fire a FRESH invocation of THIS worker (a new worker
 //      with fresh memory) so an account of any size drains fully without OOM.
@@ -41,12 +43,17 @@ import {
   assetStoragePath,
   computeContentHash,
   discoverImageUrl,
-  discoverVideoUrl,
+  discoverVideoUrlWithReason,
   fetchAccountVideoMap,
   isStorageUrl,
   looksLikeHtml,
   NO_THUMB_SENTINEL,
+  NO_VIDEO_DELETED_SENTINEL,
+  NO_VIDEO_OVERSIZED_SENTINEL,
+  NO_VIDEO_PERMISSION_SENTINEL,
   NO_VIDEO_SENTINEL,
+  NO_VIDEO_SENTINELS,
+  peekAndValidateMediaStream,
   resolveMetaToken,
 } from "../_shared/media-discovery.ts";
 import { isMediaContentType } from "../_shared/vault-save-logic.ts";
@@ -55,11 +62,26 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const THUMB_BUCKET = "ad-thumbnails";
 const VIDEO_BUCKET = "ad-videos";
 
-// 200 MB — matches the ad-videos bucket limit and enrich-thumbnails' MAX_VIDEO_SIZE.
-// cacheVideoToStorage STREAMS the upload (no full-file buffering), so worker memory
-// no longer caps this; oversized videos keep their live CDN url (still previewable)
-// rather than risking WORKER_RESOURCE_LIMIT.
-export const MAX_VIDEO_SIZE = 200 * 1024 * 1024;
+// US-007: deliberate capture ceiling — 2 GB.
+//
+// RATIONALE (replaces the old 200 MB wire, which was a MEMORY guard, not a policy):
+// cacheVideoToStorage STREAMS the download straight to storage with `duplex:"half"`
+// (peeked chunk + untouched remainder), so worker memory stays FLAT regardless of the
+// file's size. Memory is therefore NOT the binding constraint — the old 200 MB cap left
+// large-but-perfectly-cacheable videos stranded on an expiring Meta CDN url for no
+// memory reason (the US-007 gap). The ceiling now exists only as a STORAGE/BANDWIDTH
+// policy limit: a runaway/corrupt multi-GB response should not be streamed into the
+// bucket unbounded. 2 GB comfortably exceeds real Meta ad videos (typically <200 MB;
+// long-form/high-bitrate outliers reach a few hundred MB), so genuine ad creatives are
+// captured while a pathological response is still bounded. The companion migration
+// raises the ad-videos bucket file_size_limit to match (SQL cannot exceed the
+// project-level storage upload cap; if that is lower, it becomes the true ceiling and
+// an upload-error is recorded rather than a silent truncation).
+//
+// A video whose content-length exceeds this ceiling is NOT streamed; it is recorded as
+// the distinct NO_VIDEO_OVERSIZED_SENTINEL (honest-terminal, NOT video_ok) so coverage
+// reporting shows "too large to capture under policy" separately from unresolved/gone.
+export const MAX_VIDEO_SIZE = 2 * 1024 * 1024 * 1024;
 
 // Per-invocation wall budget. Edge fn hard wall ~150s; leave margin to flush the
 // final status writes + serialize the response + fire the self-chain.
@@ -109,7 +131,10 @@ type Supa = any;
 export type VideoCacheReason =
   | "expired" // CDN responded non-2xx — the time-limited fbcdn url is dead
   | "non-video" // content-type is not a video payload
-  | "too-large" // exceeds MAX_VIDEO_SIZE → keep CDN url, do not store
+  | "empty" // US-003: 200 but zero bytes — not a playable video
+  | "html" // US-003: 200 but the body is an HTML/login/error page, not media
+  | "too-large" // US-007: content-length exceeds the 2GB MAX_VIDEO_SIZE ceiling → do not
+  // stream; caller records the distinct NO_VIDEO_OVERSIZED_SENTINEL (honest-terminal)
   | "upload-error" // storage upload failed
   | "exception"; // network/other throw
 export interface VideoCacheResult {
@@ -144,6 +169,24 @@ export async function cacheVideoToStorage(
       return { url: null, reason: "too-large" };
     }
 
+    // US-003 (AC#1): validate PLAYABILITY before committing to storage. The
+    // content-type header + content-length above are not enough — a Meta CDN /
+    // login / error page can 200 with a text/html body (or a video-typed HTML body),
+    // and a broken CDN can 200 with a ZERO-byte body; either would otherwise be
+    // stored as <adId>.mp4 and wrongly treated as a playable video. We CANNOT buffer
+    // the whole stream (256MB worker), so peek ONLY the leading chunk: reject if it
+    // is empty or looks like HTML, then stream the re-assembled body (peeked chunk +
+    // untouched remainder) on to storage with flat memory.
+    const peek = await peekAndValidateMediaStream(res.body);
+    if (!peek.ok || !peek.stream) {
+      // Reader is released inside the peek; cancel the source Response to free the
+      // socket. `empty`/`html` are DISTINCT terminal reasons the caller records.
+      await res.body.cancel().catch(() => {});
+      const reason: VideoCacheReason = peek.reason === "empty" ? "empty" : "html";
+      console.warn(`Rejecting non-playable video for ${adId}: ${reason} (content-type ${contentType})`);
+      return { url: null, reason };
+    }
+
     // Per-ad path here (not asset-keyed): streaming the upload precludes hashing the
     // bytes without buffering, so the video path uses the ad-keyed path exactly as
     // enrich-thumbnails does. Image dedupe (buffered) runs on the image path below.
@@ -159,7 +202,8 @@ export async function cacheVideoToStorage(
           "x-upsert": "true",
           ...(lenHeader ? { "Content-Length": lenHeader } : {}),
         },
-        body: res.body,
+        // Stream the VALIDATED, re-assembled body (peeked chunk re-prepended).
+        body: peek.stream,
         // Deno requires duplex:'half' to send a streaming request body.
         // deno-lint-ignore no-explicit-any
         duplex: "half",
@@ -270,7 +314,7 @@ export async function processQueuedAd(
 ): Promise<{ outcome: "cached" | "skipped" | "failed"; reason?: string }> {
   const { data: creative, error: fetchErr } = await supabase
     .from("creatives")
-    .select("ad_id, account_id, thumbnail_url, full_res_url, video_url, thumb_asset_id, video_asset_id")
+    .select("ad_id, account_id, thumbnail_url, full_res_url, video_url, thumb_asset_id, video_asset_id, image_quality")
     .eq("ad_id", adId)
     .maybeSingle();
 
@@ -286,22 +330,79 @@ export async function processQueuedAd(
   let didCache = false;
   const reasons: string[] = [];
 
-  const skipVideo =
-    creative.video_url === NO_VIDEO_SENTINEL || isStorageUrl(creative.video_url);
+  // US-003 (AC#2/#3): decide the video disposition honestly.
+  //   • already a storage url → cached, playable → SKIP (never re-touch, US-011).
+  //   • a TERMINAL no-video sentinel (permission / deleted) → the video is
+  //     genuinely-unresolvable under our access; re-discovery would fail identically,
+  //     so SKIP forever (this is the honest residual set for AC#4).
+  //   • the GENERIC no-video sentinel → previously skipped FOREVER (the AC#2 bug:
+  //     an ad sitting on 'no-video' whose video is still resolvable was never
+  //     re-discovered). Now it is a RE-DISCOVERY TARGET — treated the same as a
+  //     never-attempted ad. The queue's attempts/backoff + MAX_ATTEMPTS bound the
+  //     retries, and a run that STILL cannot resolve records the classified terminal
+  //     reason (permission/deleted) or leaves the generic no-video, so there is no
+  //     infinite re-discovery loop.
+  //   • a NULLed url (an earlier drain found an expired CDN url and NULLed it) →
+  //     re-discovery target (null triggers discovery below).
+  const videoIsTerminalSentinel =
+    creative.video_url === NO_VIDEO_PERMISSION_SENTINEL ||
+    creative.video_url === NO_VIDEO_DELETED_SENTINEL;
+  const skipVideo = isStorageUrl(creative.video_url) || videoIsTerminalSentinel;
+  // A stored value that is NOT a usable CDN url (the generic no-video sentinel, or a
+  // NULL) means "no live CDN url to download — go discover one".
+  const videoNeedsDiscovery =
+    creative.video_url == null || creative.video_url === NO_VIDEO_SENTINEL;
+
+  // US-002: a creative sitting on a low-res placeholder (image_quality='low_res',
+  // e.g. only the ~130px thumbnail_url fallback) is a re-discovery TARGET, not
+  // "already cached" — even when that placeholder is itself a storage URL. So the
+  // image is skippable only when it is already a REAL full-res cached asset
+  // (image_quality='full_res') or a genuinely-no-image sentinel. Everything else
+  // (NULL image_quality, or an explicit low_res placeholder) gets a fresh full-res
+  // discovery attempt. cacheImageToStorage dedupes by content hash, so an ad whose
+  // full-res bytes are already stored is a no-op download (US-002 AC#3).
+  const hasRealFullRes =
+    creative.full_res_url != null && creative.full_res_url !== NO_THUMB_SENTINEL;
+  // A placeholder = explicitly flagged low_res, OR (pre-backfill legacy) a stored
+  // thumbnail with no real full_res_url behind it.
+  const isLowResPlaceholder =
+    creative.image_quality === "low_res" ||
+    (creative.image_quality !== "full_res" && isStorageUrl(creative.thumbnail_url) && !hasRealFullRes);
+  // Skippable only when: the no-thumbnail sentinel, OR a REAL full-res cached asset
+  // (a stored thumbnail with real full_res_url and not a low-res placeholder). A
+  // low-res placeholder is a re-discovery TARGET (US-002 AC#3), never skipped —
+  // cacheImageToStorage dedupes by content hash, so an already-full-res ad re-runs
+  // as a no-op download.
   const skipImage =
-    creative.thumbnail_url === NO_THUMB_SENTINEL || isStorageUrl(creative.thumbnail_url);
+    creative.thumbnail_url === NO_THUMB_SENTINEL ||
+    (isStorageUrl(creative.thumbnail_url) && hasRealFullRes && !isLowResPlaceholder);
 
   // ── Video (the heavy path) ──────────────────────────────────────────────────
   if (!skipVideo) {
-    let cdnUrl: string | null = creative.video_url;
-    if (!cdnUrl) {
-      // No CDN url yet — discover one. Build the account video map once.
+    // A usable live CDN url only if the stored value is one (never the generic
+    // no-video sentinel — that is a re-discovery target, not a downloadable url).
+    let cdnUrl: string | null = videoNeedsDiscovery ? null : creative.video_url;
+    if (videoNeedsDiscovery) {
+      // No usable CDN url (never attempted, generic no-video, or NULLed-expired) —
+      // run FULL discovery through every existing strategy (top-level video_id,
+      // object_story_spec, template_data, asset_feed_spec.videos, account video map,
+      // post attachments). Build the account video map once (AC#2).
       const accountVideoMap = await fetchAccountVideoMap(accountId, metaToken);
-      const discovered = await discoverVideoUrl(adId, metaToken, 30_000, accountVideoMap);
-      cdnUrl = discovered && discovered !== NO_VIDEO_SENTINEL ? discovered : null;
+      const { url: discovered, reason } = await discoverVideoUrlWithReason(
+        adId,
+        metaToken,
+        30_000,
+        accountVideoMap,
+      );
+      cdnUrl =
+        discovered && !NO_VIDEO_SENTINELS.has(discovered) ? discovered : null;
       if (!cdnUrl) {
-        // Genuinely no video — sentinel so we don't re-discover on every drain.
-        updates.video_url = NO_VIDEO_SENTINEL;
+        // Genuinely could not resolve. Record the DISTINCT honest reason (AC#3):
+        //   permission / deleted → TERMINAL sentinel (skipped on future drains);
+        //   unknown → generic no-video (still a re-discovery target next time,
+        //   bounded by the queue's attempts/backoff so it is not an infinite loop).
+        updates.video_url = reason ?? NO_VIDEO_SENTINEL;
+        reasons.push(reason ?? NO_VIDEO_SENTINEL);
       }
     }
     if (cdnUrl) {
@@ -310,14 +411,34 @@ export async function processQueuedAd(
         updates.video_url = result.url;
         didCache = true;
       } else if (result.reason === "too-large") {
-        // Oversized — keep the CDN url (still previewable), do not store. This is a
-        // successful terminal outcome for this ad, not a failure.
-        updates.video_url = cdnUrl;
-        reasons.push("too-large");
+        // US-007: exceeds the deliberate 2GB capture ceiling. Streaming keeps worker
+        // memory flat, so this is a POLICY limit, not a memory failure — the video is
+        // genuinely-unhandleable under our storage policy and will not shrink, so it is
+        // honest-TERMINAL: record the distinct NO_VIDEO_OVERSIZED_SENTINEL (NOT
+        // video_ok, its own coverage failure_reason) rather than leaving the live CDN
+        // url (which would read as the generic 'video_uncached' and be pointlessly
+        // re-attempted every drain, only to hit the same size ceiling). The prior
+        // behavior kept the CDN url as "previewable", but such links expire within
+        // hours/days and re-discovery cannot fix the size — so the sentinel is both
+        // more honest and stops the ad re-clogging the queue.
+        updates.video_url = NO_VIDEO_OVERSIZED_SENTINEL;
+        reasons.push(NO_VIDEO_OVERSIZED_SENTINEL);
       } else if (result.reason === "expired") {
         // Stale CDN url — NULL it so the next drain re-discovers a fresh one.
         updates.video_url = null;
         reasons.push("expired");
+      } else if (
+        result.reason === "empty" ||
+        result.reason === "html" ||
+        result.reason === "non-video"
+      ) {
+        // US-003 (AC#1): the "cached" bytes are NOT a playable video — a zero-byte
+        // 200, an HTML/login/error page, or a non-video payload. This url must NEVER
+        // be marked video_ok. NULL the url so a fresh CDN url is re-discovered next
+        // drain (the current one may simply be a stale/expired link that now serves
+        // an error page); the row stays NOT video_ok until a real video is cached.
+        updates.video_url = null;
+        reasons.push(result.reason);
       } else {
         reasons.push(result.reason ?? "video-failed");
       }
@@ -326,22 +447,50 @@ export async function processQueuedAd(
 
   // ── Image ───────────────────────────────────────────────────────────────────
   if (!skipImage) {
-    let imgUrl: string | null = creative.thumbnail_url;
+    // For a low-res placeholder (US-002 re-discovery), the stored thumbnail_url is
+    // the ~130px placeholder itself — never re-cache THAT. Force a fresh discovery
+    // to look for a full-res source. For a first-time ad, use its existing live CDN
+    // thumbnail_url if present, else discover one.
+    let imgUrl: string | null = isLowResPlaceholder ? null : creative.thumbnail_url;
+    // Track the discovered quality so we only promote to full_res when a real
+    // full-res source was found; a fresh live CDN thumbnail_url on a first-time ad
+    // is treated as full_res (that is the standard non-placeholder path).
+    let discoveredQuality: "full_res" | "low_res" =
+      isLowResPlaceholder ? "low_res" : "full_res";
+
     if (!imgUrl) {
       const discovered = await discoverImageUrl(adId, accountId, metaToken, 8_000);
       imgUrl = discovered?.thumbnailUrl ?? null;
-      if (!imgUrl) updates.thumbnail_url = NO_THUMB_SENTINEL;
+      discoveredQuality = discovered?.imageQuality ?? "low_res";
+      if (!imgUrl && !isLowResPlaceholder) updates.thumbnail_url = NO_THUMB_SENTINEL;
     }
-    if (imgUrl) {
+
+    if (imgUrl && discoveredQuality === "full_res") {
+      // Cache the full-res source. Content-hash dedupe (US-009) makes this a no-op
+      // download when the same full-res bytes are already stored for the account,
+      // satisfying "no re-download of media already full-res" (US-002 AC#3).
       const asset = await cacheImageToStorage(supabase, imgUrl, accountId, adId);
       if (asset) {
         updates.thumbnail_url = asset.publicUrl;
-        if (!creative.full_res_url) updates.full_res_url = asset.publicUrl;
+        updates.full_res_url = asset.publicUrl;
+        updates.image_quality = "full_res";
         if (asset.assetId) updates.thumb_asset_id = asset.assetId;
         didCache = true;
       } else if (!creative.thumbnail_url) {
-        updates.thumbnail_url = imgUrl; // fall back to CDN url so the card renders
+        // Caching failed (e.g. non-image bytes) and no existing image — fall back to
+        // the CDN url so the card at least renders; leave quality unresolved (NULL).
+        updates.thumbnail_url = imgUrl;
       }
+    } else if (imgUrl && discoveredQuality === "low_res") {
+      // Only a low-res placeholder is available. Record it as low_res so US-001
+      // coverage honestly reports NOT image_ok and the US-002 re-discovery job knows
+      // to re-attempt later — but do NOT keep re-downloading the same 130px bytes.
+      // Preserve an already-stored placeholder (don't overwrite it with the raw CDN
+      // url); only write the CDN url when we have nothing stored yet.
+      if (!isStorageUrl(creative.thumbnail_url)) {
+        updates.thumbnail_url = imgUrl;
+      }
+      if (creative.image_quality !== "low_res") updates.image_quality = "low_res";
     }
   }
 
@@ -350,10 +499,26 @@ export async function processQueuedAd(
   }
 
   if (didCache) return { outcome: "cached", reason: reasons.join(",") || undefined };
-  // Oversized (too-large) or already-cached (skipVideo && skipImage) → this ad is
-  // done; there is nothing more to store. Only a hard failure re-queues.
-  if (reasons.some((r) => r === "too-large") || (skipVideo && skipImage)) {
+  // Already-cached (skipVideo && skipImage) → this ad is done; there is nothing more to
+  // store. Only a hard failure re-queues. (US-007: an oversized video is no longer a
+  // 'too-large' skip that keeps the CDN url — it is written the NO_VIDEO_OVERSIZED_
+  // SENTINEL and falls through to the terminal-sentinel skip below, so it is done and
+  // will not re-clog the queue.)
+  if (skipVideo && skipImage) {
     return { outcome: "skipped", reason: reasons.join(",") || "already-cached" };
+  }
+  // US-003: a genuinely-unresolvable video is a TERMINAL, honest outcome — NOT a
+  // transient failure to re-queue. When discovery classified the reason as one of the
+  // no-video-* sentinels (permission/deleted/generic-unknown), the row is written with
+  // that distinct sentinel and marked done; a later targeted re-discovery run
+  // (AC#4) re-enqueues the still-generic 'no-video' rows to re-attempt them. This
+  // stops a permanently-unresolvable ad from re-clogging the queue every drain while
+  // keeping coverage honest (all no-video-* are NOT video_ok). `empty`/`html`/`expired`
+  // NULLed the url and DO warrant a retry (a fresh CDN url may serve real bytes).
+  const onlyTerminalVideoReasons =
+    reasons.length > 0 && reasons.every((r) => NO_VIDEO_SENTINELS.has(r));
+  if (onlyTerminalVideoReasons) {
+    return { outcome: "skipped", reason: reasons.join(",") };
   }
   if (reasons.length > 0) return { outcome: "failed", reason: reasons.join(",") };
   // Nothing to cache (sentineled both / no media): terminal skip, not a retry.
