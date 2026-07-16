@@ -10,6 +10,7 @@ cd "$(dirname "$0")/.."
 FUNCTIONS=(
   accounts
   ai-chat
+  analyze-creative
   api
   backfill-daily-history
   backfill-destination-key

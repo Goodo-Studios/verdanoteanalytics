@@ -29,6 +29,12 @@ verify_jwt = false
 [functions.creative-embed]
 verify_jwt = false
 
+# Creative Intelligence (WS1). Internal/service-role only — poked with { account_id }
+# for the builder-first rollout and self-chains via the service-role key; no client
+# entry point, so JWT verification is off (mirrors creative-embed / drain-media-queue).
+[functions.analyze-creative]
+verify_jwt = false
+
 [functions.cluster-creatives]
 verify_jwt = false
 
