@@ -18,18 +18,23 @@ import {
   classifyVideoFailure,
   computeContentHash,
   discoverImageUrl,
+  discoverImageUrlWithReason,
   discoverVideoUrl,
+  discoverVideoUrlWithReason,
   extractCoverImageHash,
   extractCoverVideoIds,
   isEligibleForCoverage,
   isImageOk,
   isStorageUrl,
+  isThrottleError,
   isVideoAd,
   isVideoOk,
   NO_VIDEO_DELETED_SENTINEL,
   NO_VIDEO_PERMISSION_SENTINEL,
   NO_VIDEO_SENTINEL,
+  NO_VIDEO_SENTINELS,
   peekAndValidateMediaStream,
+  THROTTLED,
 } from "./media-discovery.ts";
 
 const STORAGE_IMG =
@@ -276,6 +281,61 @@ Deno.test("classifyVideoFailure: unknown/absent error → generic no-video (stil
   assertEquals(classifyVideoFailure(undefined), NO_VIDEO_SENTINEL);
   assertEquals(classifyVideoFailure({}), NO_VIDEO_SENTINEL);
   assertEquals(classifyVideoFailure({ code: 1, message: "Some transient error" }), NO_VIDEO_SENTINEL);
+});
+
+// ── Throttling: transient rate-limit, NEVER a "no video" verdict ──────────────
+// Meta app/user/page/BUC throttling was being MISCLASSIFIED as the generic no-video
+// sentinel and permanently recorded as "no video". A throttle means "we could not
+// check — retry later", so it must map to the THROTTLED marker, not any sentinel.
+
+Deno.test("classifyVideoFailure: #4 (Application request limit reached) → THROTTLED, not a sentinel", () => {
+  assertEquals(
+    classifyVideoFailure({ code: 4, message: "(#4) Application request limit reached" }),
+    THROTTLED,
+  );
+  assertEquals(classifyVideoFailure({ code: "4" }), THROTTLED);
+});
+
+Deno.test("classifyVideoFailure: #17 user request limit → THROTTLED", () => {
+  assertEquals(
+    classifyVideoFailure({ code: 17, message: "(#17) User request limit reached" }),
+    THROTTLED,
+  );
+});
+
+Deno.test("classifyVideoFailure: a 'request limit reached' message alone → THROTTLED (whatever the code)", () => {
+  assertEquals(
+    classifyVideoFailure({ code: 1, message: "Please reduce the amount of data you're requesting" }),
+    THROTTLED,
+  );
+  assertEquals(classifyVideoFailure({ message: "request limit reached, try again later" }), THROTTLED);
+});
+
+Deno.test("classifyVideoFailure: other throttle codes (#32, #613, BUC 80000–80009) → THROTTLED", () => {
+  assertEquals(classifyVideoFailure({ code: 32 }), THROTTLED);
+  assertEquals(classifyVideoFailure({ code: 613 }), THROTTLED);
+  assertEquals(classifyVideoFailure({ code: 80004 }), THROTTLED);
+  assertEquals(classifyVideoFailure({ code: 80000 }), THROTTLED);
+  assertEquals(classifyVideoFailure({ code: 80009 }), THROTTLED);
+});
+
+Deno.test("THROTTLED is a transient marker, NOT a no-video sentinel (coverage never sees it)", () => {
+  // It must not be in the sentinel set (isVideoOk / coverage would otherwise treat it
+  // as a stored no-video verdict) and must never read as video_ok=false-via-sentinel.
+  assertEquals(NO_VIDEO_SENTINELS.has(THROTTLED), false);
+  // A throttle is not one of the permission/deleted/oversized/no-video family.
+  assertEquals(THROTTLED, "throttled");
+});
+
+Deno.test("isThrottleError: recognizes codes + messages; false for non-throttle errors", () => {
+  assertEquals(isThrottleError({ code: 4 }), true);
+  assertEquals(isThrottleError({ code: 80005 }), true);
+  assertEquals(isThrottleError({ message: "too many calls to this API" }), true);
+  assertEquals(isThrottleError({ code: 10, message: "permission" }), false);
+  assertEquals(isThrottleError({ code: 100, message: "does not exist" }), false);
+  assertEquals(isThrottleError(null), false);
+  assertEquals(isThrottleError(undefined), false);
+  assertEquals(isThrottleError({}), false);
 });
 
 // ── US-003: peekAndValidateMediaStream — playability guard without buffering ──
@@ -582,6 +642,87 @@ Deno.test("discoverVideoUrl: a Collection/Form top-level cover video resolves (P
   try {
     const result = await discoverVideoUrl("form_ad", "token", 1000);
     assertEquals(result, COVER_SRC);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// ── Throttle during discovery must NOT produce a no-video / permission / deleted ──
+Deno.test("discoverVideoUrlWithReason: a #4 throttle on the top-level fetch → reason THROTTLED, no url", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((url: string) => {
+    if (url.includes("?fields=creative")) {
+      // Meta 400s with the app-level throttle error body.
+      return Promise.resolve(
+        fakeResp(false, { error: { code: 4, message: "(#4) Application request limit reached" } }, 400),
+      );
+    }
+    return Promise.resolve(fakeResp(false, "x"));
+    // deno-lint-ignore no-explicit-any
+  }) as any;
+  try {
+    const { url, reason } = await discoverVideoUrlWithReason("ad_throttled", "token", 1000);
+    assertEquals(url, null);
+    assertEquals(reason, THROTTLED, "a throttle must be reported as THROTTLED, never a no-video sentinel");
+    // It must NOT be any stored no-video verdict.
+    assertEquals(NO_VIDEO_SENTINELS.has(reason!), false);
+    assertEquals(reason !== NO_VIDEO_SENTINEL, true);
+    assertEquals(reason !== NO_VIDEO_PERMISSION_SENTINEL, true);
+    assertEquals(reason !== NO_VIDEO_DELETED_SENTINEL, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("discoverVideoUrlWithReason: THROTTLED wins over a permission error seen on another strategy", async () => {
+  // The top-level fetch succeeds with a creative + a video_id, the direct video fetch
+  // is permission-blocked (#10), and a later strategy is throttled (#4). Because a
+  // throttle makes the whole 'no video found' conclusion unreliable, THROTTLED must
+  // win over the permission classification (bias: retry, record nothing).
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((url: string) => {
+    if (url.includes("?fields=creative{id,video_id")) {
+      return Promise.resolve(
+        fakeResp(true, { creative: { video_id: "vidperm" } }),
+      );
+    }
+    if (url.includes("/vidperm?") && url.includes("fields=source")) {
+      // Permission-blocked page-owned video.
+      return Promise.resolve(fakeResp(false, { error: { code: 10, message: "permission" } }, 403));
+    }
+    if (url.includes("/previews")) {
+      // Preview API is throttled.
+      return Promise.resolve(
+        fakeResp(false, { error: { code: 4, message: "Application request limit reached" } }, 400),
+      );
+    }
+    return Promise.resolve(fakeResp(false, "x"));
+    // deno-lint-ignore no-explicit-any
+  }) as any;
+  try {
+    const { url, reason } = await discoverVideoUrlWithReason("ad_mix", "token", 1000);
+    assertEquals(url, null);
+    assertEquals(reason, THROTTLED, "throttle beats permission — the conclusion is unreliable, retry later");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("discoverImageUrlWithReason: a #4 throttle on the top-level fetch → reason THROTTLED, no result", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((url: string) => {
+    if (url.includes("?fields=creative")) {
+      return Promise.resolve(
+        fakeResp(false, { error: { code: 4, message: "(#4) Application request limit reached" } }, 400),
+      );
+    }
+    return Promise.resolve(fakeResp(false, "x"));
+    // deno-lint-ignore no-explicit-any
+  }) as any;
+  try {
+    const { result, reason } = await discoverImageUrlWithReason("ad_img_throttled", "act_1", "token", 1000);
+    assertEquals(result, null);
+    assertEquals(reason, THROTTLED, "an image-discovery throttle must be THROTTLED, never no-thumbnail");
   } finally {
     globalThis.fetch = originalFetch;
   }
