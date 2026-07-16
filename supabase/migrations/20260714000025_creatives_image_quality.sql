@@ -63,6 +63,14 @@ COMMENT ON COLUMN public.creatives.image_quality IS
 -- Everything else (no image at all) is left NULL. WHERE image_quality IS NULL
 -- keeps the backfill idempotent and non-destructive on re-run — it never
 -- overwrites a value already set (e.g. by the US-002 backend classifier).
+--
+-- Lift the per-statement timeout for THIS migration's transaction only. The
+-- one-time backfill scans the full creatives table, which exceeds the remote's
+-- default statement_timeout on production-sized data. SET LOCAL is scoped to the
+-- migration transaction and reverts automatically at COMMIT — it does not change
+-- any session/role default. Idempotent: re-running only touches rows still NULL.
+SET LOCAL statement_timeout = 0;
+
 UPDATE public.creatives
 SET image_quality = 'full_res'
 WHERE image_quality IS NULL
