@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Layers,
   Film,
+  Globe,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
@@ -61,6 +62,7 @@ export const builderSections: NavSection[] = [
       { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
       { title: "Briefs", url: "/briefs", icon: ClipboardList },
       { title: "Reports", url: "/reports", icon: FileText },
+      { title: "Landing Pages", url: "/landing-pages", icon: Globe },
       { title: "Creative Rotation", url: "/creative-rotation", icon: RefreshCw },
       { title: "Entities", url: "/entities", icon: Layers },
     ],
