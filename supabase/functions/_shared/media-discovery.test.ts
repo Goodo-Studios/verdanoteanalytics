@@ -12,7 +12,22 @@
 //     account maps to one shared path (within-account dedupe).
 
 import { assertEquals, assertNotEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { assetStoragePath, computeContentHash, isStorageUrl } from "./media-discovery.ts";
+import {
+  assetStoragePath,
+  classifyCoverage,
+  computeContentHash,
+  isEligibleForCoverage,
+  isImageOk,
+  isStorageUrl,
+  isVideoAd,
+  isVideoOk,
+} from "./media-discovery.ts";
+
+const STORAGE_IMG =
+  "https://gwyxaqoaldnaavkjqquv.supabase.co/storage/v1/object/public/ad-thumbnails/act_1/assets/abc.jpg";
+const STORAGE_VID =
+  "https://gwyxaqoaldnaavkjqquv.supabase.co/storage/v1/object/public/ad-videos/act_1/ad_9.mp4";
+const LIVE_CDN = "https://scontent.xx.fbcdn.net/v/t42.1790-2/xyz.mp4?oh=abc";
 
 const bytesOf = (s: string) => new TextEncoder().encode(s);
 
@@ -111,4 +126,98 @@ Deno.test("isStorageUrl: null / sentinel / empty are not storage urls", () => {
   assertEquals(isStorageUrl(""), false);
   assertEquals(isStorageUrl("no-video"), false);
   assertEquals(isStorageUrl("no-thumbnail"), false);
+});
+
+// ── US-001: media-coverage classification helpers ────────────────────────────
+// These pure helpers are the TS mirror of the public.media_coverage SQL view.
+// Both sides MUST agree on "eligible" and on each of image_ok / video_ok /
+// frames_ok / covered so the coverage numerator/denominator never drift between
+// the DB metric and any TS caller. These tests pin that shared contract.
+
+Deno.test("isEligibleForCoverage: non-archived with impressions is eligible", () => {
+  assertEquals(isEligibleForCoverage({ ad_status: "ACTIVE", impressions: 10 }), true);
+  assertEquals(isEligibleForCoverage({ ad_status: "PAUSED", impressions: 1 }), true);
+  assertEquals(isEligibleForCoverage({ ad_status: "UNKNOWN", impressions: 500 }), true);
+});
+
+Deno.test("isEligibleForCoverage: archived or zero-impression is NOT eligible (today's scope)", () => {
+  assertEquals(isEligibleForCoverage({ ad_status: "ARCHIVED", impressions: 999 }), false);
+  assertEquals(isEligibleForCoverage({ ad_status: "archived", impressions: 999 }), false); // case-insensitive
+  assertEquals(isEligibleForCoverage({ ad_status: "ACTIVE", impressions: 0 }), false);
+  assertEquals(isEligibleForCoverage({ ad_status: "ACTIVE", impressions: null }), false);
+});
+
+Deno.test("isImageOk: a cached full-res image is ok", () => {
+  assertEquals(isImageOk({ full_res_url: STORAGE_IMG }), true);
+});
+
+Deno.test("isImageOk: the ~130px thumbnail fallback (full_res_url NULL) is NOT image_ok", () => {
+  // Root-cause of blurry statics: the only image is the tiny thumbnail fallback,
+  // which never populates full_res_url. That ad must report NOT image_ok.
+  assertEquals(isImageOk({ full_res_url: null }), false);
+  assertEquals(isImageOk({ full_res_url: undefined }), false);
+  assertEquals(isImageOk({ full_res_url: "" }), false);
+  assertEquals(isImageOk({ full_res_url: "no-thumbnail" }), false);
+});
+
+Deno.test("isVideoAd: only a populated video_url counts as a video ad", () => {
+  assertEquals(isVideoAd({ video_url: STORAGE_VID }), true);
+  assertEquals(isVideoAd({ video_url: "no-video" }), true); // Meta reported a video, unresolved
+  assertEquals(isVideoAd({ video_url: null }), false);
+  assertEquals(isVideoAd({ video_url: "" }), false);
+});
+
+Deno.test("isVideoOk: non-video ad is trivially ok", () => {
+  assertEquals(isVideoOk({ video_url: null }), true);
+  assertEquals(isVideoOk({ video_url: "" }), true);
+});
+
+Deno.test("isVideoOk: a cached storage video is ok; sentinel and live CDN are NOT", () => {
+  assertEquals(isVideoOk({ video_url: STORAGE_VID }), true);
+  assertEquals(isVideoOk({ video_url: "no-video" }), false); // unresolved
+  assertEquals(isVideoOk({ video_url: LIVE_CDN }), false); // never cached
+});
+
+Deno.test("classifyCoverage: fully-covered image+video ad", () => {
+  const c = classifyCoverage({
+    ad_status: "ACTIVE",
+    impressions: 100,
+    full_res_url: STORAGE_IMG,
+    video_url: STORAGE_VID,
+  });
+  assertEquals(c, {
+    eligible: true,
+    image_ok: true,
+    video_ok: true,
+    frames_ok: true,
+    covered: true,
+  });
+});
+
+Deno.test("classifyCoverage: tiny-thumbnail image ad is not covered (image_ok false)", () => {
+  const c = classifyCoverage({
+    ad_status: "ACTIVE",
+    impressions: 100,
+    full_res_url: null, // only the 130px fallback
+    video_url: null, // image-only ad
+  });
+  assertEquals(c.image_ok, false);
+  assertEquals(c.video_ok, true); // not a video ad
+  assertEquals(c.covered, false);
+});
+
+Deno.test("classifyCoverage: frames_ok=false blocks covered even with image+video ok", () => {
+  const c = classifyCoverage(
+    {
+      ad_status: "ACTIVE",
+      impressions: 100,
+      full_res_url: STORAGE_IMG,
+      video_url: STORAGE_VID,
+    },
+    false, // a carousel missing a frame
+  );
+  assertEquals(c.image_ok, true);
+  assertEquals(c.video_ok, true);
+  assertEquals(c.frames_ok, false);
+  assertEquals(c.covered, false);
 });

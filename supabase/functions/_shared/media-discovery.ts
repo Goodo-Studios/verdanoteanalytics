@@ -173,6 +173,100 @@ export function isStorageUrl(url: string | null | undefined): boolean {
   return typeof url === "string" && url.includes("/storage/v1/object/public/");
 }
 
+/**
+ * US-001 (meta-media-completeness): the single, documented ELIGIBILITY predicate
+ * for media-coverage measurement — the TS mirror of the WHERE clause in the
+ * public.media_coverage SQL view. An ad is eligible when it is in the universe we
+ * actually sync today: it is NOT archived and has at least one impression. Keeping
+ * one predicate on both sides means the coverage numerator/denominator always
+ * measure against the intended universe and no silently-excluded ad is ever counted
+ * as "covered".
+ *
+ * US-006 will widen this (per-account include_archived / include_zero_impression
+ * flags); when it lands, update BOTH this helper AND the view's eligibility CTE
+ * together so they never drift. Pure + dependency-free so it is unit-testable.
+ */
+export function isEligibleForCoverage(creative: {
+  ad_status?: string | null;
+  impressions?: number | null;
+}): boolean {
+  const status = (creative.ad_status ?? "UNKNOWN").toUpperCase();
+  if (status === "ARCHIVED") return false;
+  return (creative.impressions ?? 0) > 0;
+}
+
+/**
+ * US-001: classify whether a creative has a cached, full-resolution static IMAGE
+ * (image_ok). The ~130px creative.thumbnail_url last-resort fallback (discoverImageUrl
+ * Strategy 6) returns fullResUrl:null, and drain-media-queue only populates
+ * full_res_url when a REAL asset is cached — so an image whose only source is that
+ * tiny-thumbnail fallback has a NULL full_res_url and is explicitly NOT image_ok.
+ * A non-null full_res_url that is not the no-thumbnail sentinel means a real cached
+ * full-res image. Pure mirror of the view's image_ok expression.
+ */
+export function isImageOk(creative: {
+  full_res_url?: string | null;
+}): boolean {
+  const full = creative.full_res_url;
+  return typeof full === "string" && full.length > 0 && full !== NO_THUMB_SENTINEL;
+}
+
+/**
+ * US-001: is this ad a VIDEO ad at all? video_url is NULL for image-only ads; a
+ * populated value (a real url OR the no-video sentinel) means Meta reports it as a
+ * video ad. Used to make video_ok trivially true for non-video ads.
+ */
+export function isVideoAd(creative: { video_url?: string | null }): boolean {
+  return creative.video_url != null && creative.video_url !== "";
+}
+
+/**
+ * US-001: classify video_ok. A non-video ad is trivially ok. A video ad is ok only
+ * when its video_url is a cached Supabase Storage url (playable); the no-video
+ * sentinel (unresolved) and any bare live CDN url (never cached) are NOT ok. Pure
+ * mirror of the view's video_ok expression.
+ */
+export function isVideoOk(creative: { video_url?: string | null }): boolean {
+  const v = creative.video_url;
+  if (v == null || v === "") return true; // not a video ad → trivially ok
+  if (v === NO_VIDEO_SENTINEL) return false; // unresolved video
+  return isStorageUrl(v); // cached storage url = playable
+}
+
+/**
+ * US-001: fully classify a creative's media coverage. frames_ok defaults to the
+ * passed value (TRUE until US-004's creative_frames junction lands and can declare
+ * an expected frame set). covered = image_ok AND video_ok AND frames_ok. This is the
+ * TS mirror of one public.media_coverage row so callers outside SQL (e.g. the media
+ * worker deciding whether an ad still needs work) share the exact same definition.
+ */
+export function classifyCoverage(
+  creative: {
+    ad_status?: string | null;
+    impressions?: number | null;
+    full_res_url?: string | null;
+    video_url?: string | null;
+  },
+  framesOk = true,
+): {
+  eligible: boolean;
+  image_ok: boolean;
+  video_ok: boolean;
+  frames_ok: boolean;
+  covered: boolean;
+} {
+  const image_ok = isImageOk(creative);
+  const video_ok = isVideoOk(creative);
+  const frames_ok = framesOk;
+  return {
+    eligible: isEligibleForCoverage(creative),
+    image_ok,
+    video_ok,
+    frames_ok,
+    covered: image_ok && video_ok && frames_ok,
+  };
+}
+
 /** Fetch with a timeout — aborts if the request takes longer than timeoutMs */
 export async function fetchWithTimeout(url: string, timeoutMs = 30_000): Promise<Response> {
   const controller = new AbortController();
