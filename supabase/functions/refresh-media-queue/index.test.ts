@@ -75,25 +75,25 @@ Deno.test("refreshOnce calls the feeder and reports the enqueued count", async (
   assertEquals(summary.regressionAlerted, false);
 });
 
-Deno.test("refreshOnce pokes drain-media-queue when something was enqueued", async () => {
+Deno.test("refreshOnce does NOT poke drain-media-queue (decoupled — drain runs on its own guarded cadence)", async () => {
+  // The feeder used to fire-and-forget a drain poke here; that stacked on top of the
+  // drain's own cron + self-chain and the overlapping workers throttled Meta on
+  // re-enable. The feeder now only fills the queue; the drain drains it single-flight.
   const { supabase } = makeDb({ enqueued: 5 });
   Deno.env.delete("REFRESH_NO_CHAIN");
   let drainPoked = false;
   try {
     await withFetch((url) => {
-      if (url.includes("/functions/v1/drain-media-queue")) {
-        drainPoked = true;
-        return new Response("{}", { status: 200 });
-      }
+      if (url.includes("/functions/v1/drain-media-queue")) drainPoked = true;
       return new Response("{}", { status: 200 });
     }, async () => {
       const summary = await mod.refreshOnce(supabase);
-      assertEquals(summary.drainPoked, true);
+      assertEquals(summary.drainPoked, false);
     });
   } finally {
     Deno.env.set("REFRESH_NO_CHAIN", "1");
   }
-  assert(drainPoked, "must poke the existing drain worker to start caching immediately");
+  assert(!drainPoked, "feeder must NOT poke the drain — decoupled so only one bounded drain chain runs at a time");
 });
 
 Deno.test("refreshOnce does NOT poke the drain when nothing was enqueued (no-op poll)", async () => {

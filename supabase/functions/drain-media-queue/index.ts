@@ -768,6 +768,28 @@ export async function handler(req: Request, supabaseOverride?: unknown): Promise
     const url = new URL(req.url);
     const chainDepth = Number(url.searchParams.get("chain") || "0");
 
+    // Single-flight guard: a cron poke (chain=0) must NOT start a NEW chain while an
+    // earlier one is still draining. Overlapping self-chaining workers were the
+    // throttle trigger on re-enable (one bounded chain is rate-safe; many at once is
+    // not). A live chain leaves fresh 'processing' rows (each batch marks 5;
+    // claim_media_cache_queue only reclaims them after 5 min stale), so if any
+    // processing row was touched in the last 3 min a chain is active and this poke is
+    // a no-op. Self-chain continuations (chain>0) skip the guard — they ARE that chain.
+    if (chainDepth === 0) {
+      const { count: liveProcessing } = await supabase
+        .from("media_cache_queue")
+        .select("ad_id", { count: "exact", head: true })
+        .eq("status", "processing")
+        .gt("updated_at", new Date(Date.now() - 3 * 60_000).toISOString());
+      if ((liveProcessing ?? 0) > 0) {
+        console.log(`drain-media-queue: chain already active (${liveProcessing} processing < 3m) — skipping poke`);
+        return new Response(
+          JSON.stringify({ status: "skipped", reason: "chain-active", processing: liveProcessing }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    }
+
     // Resolve Meta token — env first, then settings table (same as sync).
     let metaToken = resolveMetaToken(Deno.env.get("META_ACCESS_TOKEN"), null);
     if (!metaToken) {

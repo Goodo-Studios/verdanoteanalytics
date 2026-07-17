@@ -123,20 +123,12 @@ export async function refreshOnce(supabase: Supa): Promise<RefreshSummary> {
     summary.enqueued = Number(enqueuedCount) || 0;
   }
 
-  // ── 2. Poke the drain to start caching immediately (only if we enqueued) ─────
-  if (summary.enqueued > 0 && !Deno.env.get("REFRESH_NO_CHAIN")) {
-    const drainUrl = `${SUPABASE_URL}/functions/v1/drain-media-queue`;
-    // Fire-and-forget a fresh drain invocation (its own self-chain finishes the batch).
-    fetch(drainUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-      },
-      body: "{}",
-    }).catch((e: Error) => console.error("refresh-media-queue drain poke error:", e.message));
-    summary.drainPoked = true;
-  }
+  // ── 2. (No drain poke.) The feeder only FILLS the queue; the drain drains it on
+  // its OWN cron cadence, guarded so exactly one bounded self-chain runs at a time.
+  // The feeder used to fire-and-forget a fresh drain here, but that poke stacked on
+  // top of the drain's own cron + self-chain — overlapping workers were the throttle
+  // trigger on re-enable. Decoupling them keeps concurrency bounded (one chain).
+  // drainPoked stays false; retained on the summary for response back-compat.
 
   // ── 4. Coverage-regression alert (AC#4) ──────────────────────────────────────
   summary.regressionAlerted = await maybeAlertCoverageRegression(supabase);
