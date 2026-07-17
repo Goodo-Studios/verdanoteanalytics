@@ -1277,7 +1277,11 @@ export async function discoverVideoUrlWithReason(
   timeoutMs = 30_000,
   accountVideoMap?: Map<string, string>,
   pageTokenMap?: Map<string, string>
-): Promise<{ url: string | null; reason?: string }> {
+): Promise<{ url: string | null; reason?: string; videoId?: string }> {
+  // The Meta video_id that produced the resolved source, when a source resolved from
+  // a known id (not from an inline url or a preview scrape). Callers dedupe stored
+  // video by this id — the same video_id backs many ads, so storing per-video (not
+  // per-ad) both skips re-downloads and collapses N copies to one.
   // Track the most specific classifiable error seen across all strategies. Priority,
   // highest-wins:
   //   THROTTLED  — a throttle on ANY strategy makes the whole "no video found"
@@ -1379,7 +1383,7 @@ export async function discoverVideoUrlWithReason(
         const mapped = accountVideoMap.get(vid);
         if (mapped) {
           console.log(`Got video source from account library map for ${adId} (video ${vid})`);
-          return { url: mapped };
+          return { url: mapped, videoId: vid };
         }
       }
       const vidRes = await fetchWithTimeout(
@@ -1390,7 +1394,7 @@ export async function discoverVideoUrlWithReason(
       if (vidRes.ok) {
         if (vidData?.source) {
           console.log(`Got video source from video_id ${vid} for ${adId}`);
-          return { url: vidData.source };
+          return { url: vidData.source, videoId: vid };
         }
       }
       // Page-owned video: the account/system-user token comes back empty or (#10)
@@ -1404,7 +1408,7 @@ export async function discoverVideoUrlWithReason(
         const ptData = await ptRes.json().catch(() => null);
         if (ptRes.ok && ptData?.source) {
           console.log(`Got video source via page token for ${adId} (video ${vid}, page ${pageId})`);
-          return { url: ptData.source };
+          return { url: ptData.source, videoId: vid };
         }
       }
       // A direct /{video_id} fetch is where #10 (page-owned, permission-blocked) and
@@ -1444,7 +1448,7 @@ export async function discoverVideoUrlWithReason(
             const src = await resolveVideoSourceById(videoId, accessToken, timeoutMs, accountVideoMap, pageToken);
             if (src) {
               console.log(`Got video via effective_object_story_id for ${adId}`);
-              return { url: src };
+              return { url: src, videoId };
             }
           }
           // Check subattachments (carousel / album posts)
@@ -1459,7 +1463,7 @@ export async function discoverVideoUrlWithReason(
               const src = await resolveVideoSourceById(subVideoId, accessToken, timeoutMs, accountVideoMap, pageToken);
               if (src) {
                 console.log(`Got video via subattachment video_id for ${adId}`);
-                return { url: src };
+                return { url: src, videoId: subVideoId };
               }
             }
           }
@@ -1489,7 +1493,7 @@ export async function discoverVideoUrlWithReason(
           const src = await resolveVideoSourceById(vid, accessToken, timeoutMs, accountVideoMap, pageToken);
           if (src) {
             console.log(`Got video via adcreatives fallback for ${adId}`);
-            return { url: src };
+            return { url: src, videoId: vid };
           }
         }
       }

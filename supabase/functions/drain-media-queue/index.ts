@@ -143,14 +143,42 @@ export type VideoCacheReason =
 export interface VideoCacheResult {
   url: string | null;
   reason?: VideoCacheReason;
+  // media_assets.id of the stored/shared video asset (US: video dedupe by video_id),
+  // set only when a supabase client + videoId were supplied. Callers stamp it onto
+  // creatives.video_asset_id so sibling ads reference the one shared copy.
+  assetId?: string;
+  // True when the video was already cached for this (account, video_id) and reused
+  // WITHOUT re-downloading — the whole point of the dedupe.
+  deduped?: boolean;
 }
 
 export async function cacheVideoToStorage(
   videoUrl: string,
   accountId: string,
   adId: string,
+  supabase?: Supa,
+  videoId?: string,
 ): Promise<VideoCacheResult> {
+  // Dedupe key: Meta's video_id, scoped to the account (tenant isolation). The same
+  // video backs many ads, so we store ONE copy per (account, video_id) and let every
+  // ad reference it. Only active when a supabase client + videoId are supplied;
+  // otherwise this falls back to the legacy per-ad path unchanged.
+  const dedupeKey = videoId ? `video:${videoId}` : null;
   try {
+    // Dedupe HIT: already cached for this (account, video_id) — skip the download
+    // entirely and reuse the stored copy. This is the bulk of the savings (one video
+    // reused across dozens of ads never re-downloads).
+    if (supabase && dedupeKey) {
+      const { data: existing } = await supabase
+        .from("media_assets")
+        .select("id, public_url")
+        .eq("account_id", accountId)
+        .eq("asset_key", dedupeKey)
+        .maybeSingle();
+      if (existing?.id && existing?.public_url) {
+        return { url: existing.public_url, assetId: existing.id, deduped: true };
+      }
+    }
     // Plain fetch (not fetchWithTimeout): an abort timer would sever the body
     // mid-stream during the upload. The edge fn's own ~150s wall limit bounds it.
     const res = await fetch(videoUrl);
@@ -190,10 +218,13 @@ export async function cacheVideoToStorage(
       return { url: null, reason };
     }
 
-    // Per-ad path here (not asset-keyed): streaming the upload precludes hashing the
-    // bytes without buffering, so the video path uses the ad-keyed path exactly as
-    // enrich-thumbnails does. Image dedupe (buffered) runs on the image path below.
-    const storagePath = `${accountId}/${adId}.mp4`;
+    // Storage path: asset-keyed by video_id when we have it (so sibling ads share the
+    // one object and dedupe by id — we can't content-hash a streamed upload without
+    // buffering, but the Meta video_id is an equally stable key). Falls back to the
+    // legacy per-ad path when no videoId was supplied.
+    const storagePath = dedupeKey
+      ? `${accountId}/assets/video-${videoId}.mp4`
+      : `${accountId}/${adId}.mp4`;
     const uploadResp = await fetch(
       `${SUPABASE_URL}/storage/v1/object/${VIDEO_BUCKET}/${storagePath}`,
       {
@@ -219,7 +250,35 @@ export async function cacheVideoToStorage(
       return { url: null, reason: "upload-error" };
     }
 
-    return { url: `${SUPABASE_URL}/storage/v1/object/public/${VIDEO_BUCKET}/${storagePath}` };
+    const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${VIDEO_BUCKET}/${storagePath}`;
+
+    // Register the stored copy in the dedupe ledger so sibling ads reuse it (mirrors
+    // the image path's media_assets upsert, keyed by video_id instead of a content
+    // hash). onConflict makes a concurrent double-store idempotent.
+    let assetId: string | undefined;
+    if (supabase && dedupeKey) {
+      const { data: upserted } = await supabase
+        .from("media_assets")
+        .upsert(
+          {
+            account_id: accountId,
+            asset_key: dedupeKey,
+            media_type: "video",
+            bucket: VIDEO_BUCKET,
+            storage_path: storagePath,
+            public_url: publicUrl,
+            byte_size: lenHeader ? Number(lenHeader) : null,
+            content_type: contentType,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "account_id,asset_key" },
+        )
+        .select("id")
+        .maybeSingle();
+      assetId = upserted?.id ?? undefined;
+    }
+
+    return { url: publicUrl, assetId };
   } catch (e) {
     console.error(`Cache video to storage error for ${adId}:`, e);
     return { url: null, reason: "exception" };
@@ -388,6 +447,9 @@ export async function processQueuedAd(
     // A usable live CDN url only if the stored value is one (never the generic
     // no-video sentinel — that is a re-discovery target, not a downloadable url).
     let cdnUrl: string | null = videoNeedsDiscovery ? null : creative.video_url;
+    // The Meta video_id behind cdnUrl, when discovery resolved one — the dedupe key
+    // for cacheVideoToStorage (store once per (account, video_id)).
+    let resolvedVideoId: string | undefined;
     if (videoNeedsDiscovery) {
       // No usable CDN url (never attempted, generic no-video, or NULLed-expired) —
       // run FULL discovery through every existing strategy (top-level video_id,
@@ -397,7 +459,7 @@ export async function processQueuedAd(
       // N+1 that hammered the rate limit); fall back to building it here so direct
       // callers/tests still work.
       const videoMap = accountVideoMap ?? await fetchAccountVideoMap(accountId, metaToken);
-      const { url: discovered, reason } = await discoverVideoUrlWithReason(
+      const { url: discovered, reason, videoId } = await discoverVideoUrlWithReason(
         adId,
         metaToken,
         30_000,
@@ -406,6 +468,7 @@ export async function processQueuedAd(
       );
       cdnUrl =
         discovered && !NO_VIDEO_SENTINELS.has(discovered) ? discovered : null;
+      resolvedVideoId = videoId;
       if (!cdnUrl) {
         if (reason === THROTTLED) {
           // Meta rate-limited us — the "no video found" conclusion is UNRELIABLE. Do
@@ -425,9 +488,12 @@ export async function processQueuedAd(
       }
     }
     if (cdnUrl) {
-      const result = await cacheVideoToStorage(cdnUrl, accountId, adId);
+      const result = await cacheVideoToStorage(cdnUrl, accountId, adId, supabase, resolvedVideoId);
       if (result.url) {
         updates.video_url = result.url;
+        // Link the shared asset so sibling ads dedupe against it (US: video dedupe).
+        if (result.assetId) updates.video_asset_id = result.assetId;
+        if (result.deduped) console.log(`Video dedupe hit for ${adId} (video ${resolvedVideoId}) — reused stored copy, no download`);
         didCache = true;
       } else if (result.reason === "too-large") {
         // US-007: exceeds the deliberate 2GB capture ceiling. Streaming keeps worker

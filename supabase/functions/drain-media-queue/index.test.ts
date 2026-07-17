@@ -907,3 +907,75 @@ Deno.test("drainOnce: a #4 throttle on IMAGE discovery never writes the no-thumb
   assertEquals(queue[0].status, "pending", "the ad remains retryable after an image throttle");
   assertEquals(queue[0].attempts, 0, "an image throttle does not consume an attempt");
 });
+
+// ── Video dedupe by video_id (store once per (account, video_id)) ─────────────
+
+Deno.test("cacheVideoToStorage: dedupe HIT reuses the stored video and skips the download entirely", async () => {
+  // media_assets already has this (account, video_id) → return the stored url without
+  // downloading. This is the core dedupe win: the same video across N ads = 1 download.
+  const hitSupa = {
+    from: () => {
+      // deno-lint-ignore no-explicit-any
+      const b: any = {};
+      b.select = () => b;
+      b.eq = () => b;
+      b.maybeSingle = () =>
+        Promise.resolve({ data: { id: "asset-existing", public_url: "https://store/existing.mp4" } });
+      return b;
+    },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  let fetched = false;
+  await withFetch(() => {
+    fetched = true;
+    return videoResponse(10 * 1024 * 1024);
+  }, async () => {
+    const res = await mod.cacheVideoToStorage("https://cdn/v.mp4", "act_1", "ad_a", hitSupa, "vid999");
+    assertEquals(res.url, "https://store/existing.mp4");
+    assertEquals(res.assetId, "asset-existing");
+    assertEquals(res.deduped, true);
+    assert(!fetched, "a dedupe hit must NOT download the video");
+  });
+});
+
+Deno.test("cacheVideoToStorage: dedupe MISS stores under the video-id asset path and registers the ledger row", async () => {
+  // deno-lint-ignore no-explicit-any
+  let upsertPayload: any = null;
+  let upserted = false;
+  const missSupa = {
+    from: () => {
+      // deno-lint-ignore no-explicit-any
+      const b: any = {};
+      b.select = () => b;
+      b.eq = () => b;
+      // deno-lint-ignore no-explicit-any
+      b.upsert = (p: any) => { upsertPayload = p; upserted = true; return b; };
+      b.maybeSingle = () => Promise.resolve({ data: upserted ? { id: "asset-new" } : null });
+      return b;
+    },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  await withFetch((url) => {
+    if (url.includes("/storage/v1/object/")) return new Response("{}", { status: 200 });
+    return videoResponse(12 * 1024 * 1024);
+  }, async () => {
+    const res = await mod.cacheVideoToStorage("https://cdn/v.mp4", "act_1", "ad_b", missSupa, "vidmiss");
+    assert(res.url!.includes("/storage/v1/object/public/ad-videos/act_1/assets/video-vidmiss.mp4"), "stored under the video-id asset path");
+    assertEquals(res.assetId, "asset-new");
+    assertEquals(res.deduped, undefined);
+    assertEquals(upsertPayload.asset_key, "video:vidmiss");
+    assertEquals(upsertPayload.media_type, "video");
+    assertEquals(upsertPayload.storage_path, "act_1/assets/video-vidmiss.mp4");
+  });
+});
+
+Deno.test("cacheVideoToStorage: no videoId → legacy per-ad path, no ledger touch (back-compat)", async () => {
+  await withFetch((url) => {
+    if (url.includes("/storage/v1/object/")) return new Response("{}", { status: 200 });
+    return videoResponse(8 * 1024 * 1024);
+  }, async () => {
+    const res = await mod.cacheVideoToStorage("https://cdn/v.mp4", "act_1", "ad_legacy");
+    assert(res.url!.includes("/storage/v1/object/public/ad-videos/act_1/ad_legacy.mp4"), "legacy per-ad path preserved");
+    assertEquals(res.assetId, undefined);
+  });
+});
