@@ -45,6 +45,7 @@ import {
   discoverImageUrlWithReason,
   discoverVideoUrlWithReason,
   fetchAccountVideoMap,
+  fetchPageTokenMap,
   isStorageUrl,
   looksLikeHtml,
   NO_THUMB_SENTINEL,
@@ -313,6 +314,7 @@ export async function processQueuedAd(
   adId: string,
   accountId: string,
   metaToken: string,
+  pageTokenMap?: Map<string, string>,
 ): Promise<{ outcome: "cached" | "skipped" | "failed" | "throttled"; reason?: string }> {
   const { data: creative, error: fetchErr } = await supabase
     .from("creatives")
@@ -396,6 +398,7 @@ export async function processQueuedAd(
         metaToken,
         30_000,
         accountVideoMap,
+        pageTokenMap,
       );
       cdnUrl =
         discovered && !NO_VIDEO_SENTINELS.has(discovered) ? discovered : null;
@@ -588,6 +591,11 @@ export async function drainOnce(
   const rows: any[] = claimed || [];
   summary.claimed = rows.length;
 
+  // Build the page-token map ONCE per invocation (it is account-independent — the set
+  // of Pages assigned to our system user). Threaded into every ad so page-owned video
+  // resolves via the owning Page's token. Empty map ⇒ behaves exactly as before.
+  const pageTokenMap = rows.length ? await fetchPageTokenMap(metaToken) : undefined;
+
   for (const row of rows) {
     if (timedOut()) {
       // Release un-processed claims back to pending so the next invocation retries
@@ -605,6 +613,7 @@ export async function drainOnce(
       row.ad_id,
       row.account_id,
       metaToken,
+      pageTokenMap,
     );
     if (reason) summary.reasons[reason] = (summary.reasons[reason] ?? 0) + 1;
 

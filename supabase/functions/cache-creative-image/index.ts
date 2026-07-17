@@ -7,6 +7,7 @@ import {
   discoverImageUrl,
   discoverVideoUrl,
   fetchAccountVideoMap,
+  fetchPageTokenMap,
   fetchWithTimeout,
   looksLikeHtml,
   NO_THUMB_SENTINEL,
@@ -265,7 +266,8 @@ serve(async (req) => {
         // vault-save-creative's copyMedia will also fail to download (→ 500).
         console.log(`[${ad_id}] CDN video URL download failed — attempting re-discovery...`);
         const accountVideoMap = await fetchAccountVideoMap(account_id, metaToken!);
-        const freshUrl = await discoverVideoUrl(ad_id, metaToken!, 30_000, accountVideoMap);
+        const pageTokenMap = await fetchPageTokenMap(metaToken!);
+        const freshUrl = await discoverVideoUrl(ad_id, metaToken!, 30_000, accountVideoMap, pageTokenMap);
         if (freshUrl && freshUrl !== NO_VIDEO_SENTINEL) {
           const freshAsset = await downloadAndCache(
             supabase, VIDEO_BUCKET, account_id, ad_id, freshUrl, "video"
@@ -284,7 +286,8 @@ serve(async (req) => {
       console.log(`[${ad_id}] Discovering video...`);
       // Build account video map so page-owned videos are discoverable despite (#10) permission errors.
       const accountVideoMap = await fetchAccountVideoMap(account_id, metaToken!);
-      const videoUrl = await discoverVideoUrl(ad_id, metaToken!, 30_000, accountVideoMap);
+      const pageTokenMap = await fetchPageTokenMap(metaToken!);
+      const videoUrl = await discoverVideoUrl(ad_id, metaToken!, 30_000, accountVideoMap, pageTokenMap);
       if (videoUrl && videoUrl !== NO_VIDEO_SENTINEL) {
         const asset = await downloadAndCache(
           supabase, VIDEO_BUCKET, account_id, ad_id, videoUrl, "video"

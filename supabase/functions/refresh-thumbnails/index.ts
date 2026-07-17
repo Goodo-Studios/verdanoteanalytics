@@ -5,6 +5,7 @@ import {
   discoverImageUrl,
   discoverPreviewUrl,
   discoverVideoUrl,
+  fetchPageTokenMap,
   fetchWithTimeout,
   NO_THUMB_SENTINEL,
   NO_VIDEO_SENTINEL,
@@ -573,12 +574,14 @@ export async function handler(req: Request, supabaseOverride?: any): Promise<Res
 
     let videosFetched = 0, videosMarkedNA = 0;
     if (!budgetExceeded) {
+      // Page-token map (assigned Pages) so page-owned video resolves via the Page's token.
+      const pageTokenMap = await fetchPageTokenMap(META_ACCESS_TOKEN);
       for (let i = 0; i < noVideos.length; i += DISCOVERY_BATCH_SIZE) {
         if (isOverBudget(invocationStart)) { budgetExceeded = true; break; }
         const batch = noVideos.slice(i, i + DISCOVERY_BATCH_SIZE);
         for (const c of batch) {
           if (isOverBudget(invocationStart)) continue;
-          const freshUrl = await discoverVideoUrl(c.ad_id, META_ACCESS_TOKEN, FETCH_TIMEOUT_MS);
+          const freshUrl = await discoverVideoUrl(c.ad_id, META_ACCESS_TOKEN, FETCH_TIMEOUT_MS, undefined, pageTokenMap);
           if (!freshUrl) {
             const nextCount = (c.video_retry_count ?? 0) + 1;
             await supabase.from("creatives").update({

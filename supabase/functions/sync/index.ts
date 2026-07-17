@@ -13,6 +13,7 @@ import {
   deriveFrames,
   type DiscoveredFrame,
   discoverAllVideoUrls,
+  fetchPageTokenMap,
   expectedFrameCount,
   fetchAccountVideoMap,
   isStorageUrl,
@@ -1075,6 +1076,9 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           // resolve via the account library map (avoids #10 permission errors);
           // built lazily on first need so image-only carousel batches never pay for it.
           let accountVideoMap: Map<string, string> | undefined;
+          // Page-token map (account-independent) so page-owned carousel frames resolve
+          // via the owning Page's token; built lazily on first need alongside the map.
+          let pageTokenMap: Map<string, string> | undefined;
           for (const [adId, frames] of framesByAd) {
             // US-004: for a multi-VIDEO ad (asset_feed_spec) whose frames have no
             // inline source url, resolve EVERY variant via discoverAllVideoUrls (the
@@ -1088,7 +1092,10 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
               if (!accountVideoMap) {
                 accountVideoMap = await fetchAccountVideoMap(accountId, metaToken);
               }
-              const sources = await discoverAllVideoUrls(adId, metaToken, 30_000, accountVideoMap);
+              if (!pageTokenMap) {
+                pageTokenMap = await fetchPageTokenMap(metaToken);
+              }
+              const sources = await discoverAllVideoUrls(adId, metaToken, 30_000, accountVideoMap, pageTokenMap);
               let si = 0;
               for (const f of frames) {
                 if (f.media_type === "video" && !f.url && si < sources.length) {

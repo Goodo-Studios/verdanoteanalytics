@@ -17,6 +17,7 @@ import {
   classifyCoverage,
   classifyVideoFailure,
   computeContentHash,
+  derivePageId,
   discoverImageUrl,
   discoverImageUrlWithReason,
   discoverVideoUrl,
@@ -723,6 +724,80 @@ Deno.test("discoverImageUrlWithReason: a #4 throttle on the top-level fetch → 
     const { result, reason } = await discoverImageUrlWithReason("ad_img_throttled", "act_1", "token", 1000);
     assertEquals(result, null);
     assertEquals(reason, THROTTLED, "an image-discovery throttle must be THROTTLED, never no-thumbnail");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// ── Page-token video resolution (page-owned video: the account/system-user token
+//    can't read `source`; the owning Page's token can, once the Page is assigned). ──
+
+Deno.test("derivePageId: prefers object_story_spec.page_id", () => {
+  assertEquals(
+    derivePageId({ object_story_spec: { page_id: "12345" }, effective_object_story_id: "99999_888" }),
+    "12345",
+  );
+});
+
+Deno.test("derivePageId: falls back to the effective_object_story_id prefix", () => {
+  assertEquals(derivePageId({ effective_object_story_id: "655268648153121_1668284371972472" }), "655268648153121");
+});
+
+Deno.test("derivePageId: null when neither source is present", () => {
+  assertEquals(derivePageId({}), null);
+  assertEquals(derivePageId(null), null);
+  assertEquals(derivePageId({ effective_object_story_id: "no-underscore" }), null);
+});
+
+Deno.test("discoverVideoUrlWithReason: page-owned video resolves via the page token when the account token returns empty", async () => {
+  const PAGE_SRC = "https://video-sea1-1.xx.fbcdn.net/pageowned.mp4";
+  const PAGE_TOKEN = "PAGE_TOKEN_XYZ";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((url: string) => {
+    if (url.includes("?fields=creative{id,video_id")) {
+      // Creative is a page-owned video: has a video_id and an object_story_spec.page_id.
+      return Promise.resolve(
+        fakeResp(true, { creative: { video_id: "pv1", object_story_spec: { page_id: "655" } } }),
+      );
+    }
+    if (url.includes("/pv1?") && url.includes("fields=source")) {
+      // Page token resolves the source; the account/system-user token returns empty (200, no source).
+      if (url.includes(`access_token=${PAGE_TOKEN}`)) return Promise.resolve(fakeResp(true, { source: PAGE_SRC }));
+      return Promise.resolve(fakeResp(true, {}));
+    }
+    return Promise.resolve(fakeResp(false, "x"));
+    // deno-lint-ignore no-explicit-any
+  }) as any;
+  try {
+    const pageTokenMap = new Map<string, string>([["655", PAGE_TOKEN]]);
+    const { url } = await discoverVideoUrlWithReason("ad_pageowned", "acct_token", 1000, undefined, pageTokenMap);
+    assertEquals(url, PAGE_SRC, "page-owned video must resolve via the owning Page's token");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("discoverVideoUrlWithReason: page-owned video stays unresolved-but-retryable when its Page is not in the token map", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((url: string) => {
+    if (url.includes("?fields=creative{id,video_id")) {
+      return Promise.resolve(
+        fakeResp(true, { creative: { video_id: "pv2", object_story_spec: { page_id: "999" } } }),
+      );
+    }
+    if (url.includes("/pv2?") && url.includes("fields=source")) {
+      // Account token: empty. No page token is available for page 999.
+      return Promise.resolve(fakeResp(true, {}));
+    }
+    return Promise.resolve(fakeResp(false, "x"));
+    // deno-lint-ignore no-explicit-any
+  }) as any;
+  try {
+    const pageTokenMap = new Map<string, string>([["655", "OTHER_PAGE_TOKEN"]]); // page 999 not assigned
+    const { url, reason } = await discoverVideoUrlWithReason("ad_unassigned", "acct_token", 1000, undefined, pageTokenMap);
+    assertEquals(url, null);
+    // Retryable generic no-video — it self-heals once page 999 is assigned + appears in the map.
+    assertEquals(reason, NO_VIDEO_SENTINEL);
   } finally {
     globalThis.fetch = originalFetch;
   }

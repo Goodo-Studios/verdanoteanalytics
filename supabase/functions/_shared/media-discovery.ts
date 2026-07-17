@@ -1170,6 +1170,76 @@ export async function fetchAccountVideoMap(
 }
 
 /**
+ * Build a map of page_id → Page access token for every Facebook Page assigned to
+ * the current (system-user) token, via GET /me/accounts.
+ *
+ * Why this exists: page-OWNED video (an organic Page post boosted into an ad) is
+ * not in the ad account's /advideos library, and GET /{video_id}?fields=source on
+ * the account/system-user token returns empty or (#10) — the `source` read is gated
+ * at the PAGE level. The reliable fix is to read the video's source with the owning
+ * Page's OWN access token. A system-user token can mint those tokens only for Pages
+ * that have been assigned to it in Business Manager (client partner-sharing alone is
+ * not enough — the Page must be assigned to this system user). /me/accounts returns
+ * exactly that assigned set, each row carrying an `access_token`.
+ *
+ * Build this once per worker run and pass it into discoverVideoUrl* alongside the
+ * account video map. Pages the token is not assigned to simply won't be in the map,
+ * so their videos stay unresolved-but-retryable and self-heal once assignment lands.
+ */
+export async function fetchPageTokenMap(
+  accessToken: string,
+  maxPages = 20,
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  let afterCursor: string | null = null;
+
+  for (let page = 0; page < maxPages; page++) {
+    const cursorParam = afterCursor ? `&after=${encodeURIComponent(afterCursor)}` : "";
+    const url = `https://graph.facebook.com/${META_API_VERSION}/me/accounts?fields=id,name,access_token&limit=200${cursorParam}&access_token=${accessToken}`;
+    try {
+      const res = await fetchWithTimeout(url, 30_000);
+      if (!res.ok) { await res.text().catch(() => {}); break; }
+      const data = await res.json();
+      const pages: any[] = data?.data || [];
+      for (const p of pages) {
+        if (p?.id && p?.access_token) map.set(String(p.id), p.access_token as string);
+      }
+      afterCursor = data?.paging?.cursors?.after ?? null;
+      if (!afterCursor || !data?.paging?.next) break;
+    } catch {
+      break;
+    }
+  }
+
+  console.log(`Page-token map: ${map.size} assigned pages`);
+  return map;
+}
+
+/**
+ * Derive the owning Facebook Page id for a creative, so we can pick the right Page
+ * token to resolve page-owned video. Two sources, in order of reliability:
+ *   1. object_story_spec.page_id — present on most native ad creatives.
+ *   2. effective_object_story_id — formatted `{page_id}_{post_id}`; the prefix is the
+ *      page id. This covers boosted organic posts where object_story_spec is absent.
+ * Returns null when neither is present. Pure + dependency-free (unit-testable).
+ */
+export function derivePageId(
+  creative:
+    | { object_story_spec?: { page_id?: string | null } | null; effective_object_story_id?: string | null }
+    | null
+    | undefined,
+): string | null {
+  const direct = creative?.object_story_spec?.page_id;
+  if (direct) return String(direct);
+  const eos = creative?.effective_object_story_id;
+  if (typeof eos === "string" && eos.includes("_")) {
+    const prefix = eos.split("_", 1)[0];
+    if (prefix) return prefix;
+  }
+  return null;
+}
+
+/**
  * Discover a video source URL from Meta Graph API.
  * Covers all known creative formats (standard, carousel, DPA, Advantage+, whitelisted).
  *
@@ -1180,9 +1250,10 @@ export async function discoverVideoUrl(
   adId: string,
   accessToken: string,
   timeoutMs = 30_000,
-  accountVideoMap?: Map<string, string>
+  accountVideoMap?: Map<string, string>,
+  pageTokenMap?: Map<string, string>
 ): Promise<string | null> {
-  return (await discoverVideoUrlWithReason(adId, accessToken, timeoutMs, accountVideoMap)).url;
+  return (await discoverVideoUrlWithReason(adId, accessToken, timeoutMs, accountVideoMap, pageTokenMap)).url;
 }
 
 /**
@@ -1204,7 +1275,8 @@ export async function discoverVideoUrlWithReason(
   adId: string,
   accessToken: string,
   timeoutMs = 30_000,
-  accountVideoMap?: Map<string, string>
+  accountVideoMap?: Map<string, string>,
+  pageTokenMap?: Map<string, string>
 ): Promise<{ url: string | null; reason?: string }> {
   // Track the most specific classifiable error seen across all strategies. Priority,
   // highest-wins:
@@ -1259,6 +1331,11 @@ export async function discoverVideoUrlWithReason(
     }
 
     const spec = creative.object_story_spec;
+    // The owning Page's token (when the Page is assigned to us) resolves page-owned
+    // video that the account/system-user token cannot read. Derived once here and
+    // threaded into every per-video source lookup below.
+    const pageId = derivePageId(creative);
+    const pageToken = pageId ? (pageTokenMap?.get(pageId) ?? null) : null;
     const videoIds: string[] = [];
 
     // Path 1: top-level video_id
@@ -1316,6 +1393,20 @@ export async function discoverVideoUrlWithReason(
           return { url: vidData.source };
         }
       }
+      // Page-owned video: the account/system-user token comes back empty or (#10)
+      // because `source` is Page-gated. Retry with the owning Page's token before
+      // recording a failure for this id.
+      if (pageToken) {
+        const ptRes = await fetchWithTimeout(
+          `https://graph.facebook.com/${META_API_VERSION}/${vid}?fields=source&access_token=${pageToken}`,
+          timeoutMs
+        );
+        const ptData = await ptRes.json().catch(() => null);
+        if (ptRes.ok && ptData?.source) {
+          console.log(`Got video source via page token for ${adId} (video ${vid}, page ${pageId})`);
+          return { url: ptData.source };
+        }
+      }
       // A direct /{video_id} fetch is where #10 (page-owned, permission-blocked) and
       // #100 (deleted video) most often surface — classify it toward the honest reason.
       noteError(vidData?.error);
@@ -1324,9 +1415,11 @@ export async function discoverVideoUrlWithReason(
     // Path 6: effective_object_story_id → post video
     const storyId = creative.effective_object_story_id;
     if (storyId) {
-      // 6a: Try post-level source field first (video posts often expose this directly)
+      // 6a: Try post-level source field first (video posts often expose this directly).
+      // Page-owned posts are readable only with the owning Page's token, so prefer it.
+      const storyToken = pageToken ?? accessToken;
       const postSourceRes = await fetchWithTimeout(
-        `https://graph.facebook.com/${META_API_VERSION}/${storyId}?fields=source,attachments{media,media_type,subattachments{media,media_type}}&access_token=${accessToken}`,
+        `https://graph.facebook.com/${META_API_VERSION}/${storyId}?fields=source,attachments{media,media_type,subattachments{media,media_type}}&access_token=${storyToken}`,
         timeoutMs
       );
       if (postSourceRes.ok) {
@@ -1345,19 +1438,14 @@ export async function discoverVideoUrlWithReason(
             console.log(`Got video from attachment media.source for ${adId}`);
             return { url: att.media.source };
           }
-          // Standard path: media.video.id → fetch source
+          // Standard path: media.video.id → fetch source (map → account → page token)
           const videoId = att?.media?.video?.id;
           if (videoId) {
-            const vidRes = await fetchWithTimeout(
-              `https://graph.facebook.com/${META_API_VERSION}/${videoId}?fields=source&access_token=${accessToken}`,
-              timeoutMs
-            );
-            const vidData = await vidRes.json().catch(() => null);
-            if (vidRes.ok && vidData?.source) {
+            const src = await resolveVideoSourceById(videoId, accessToken, timeoutMs, accountVideoMap, pageToken);
+            if (src) {
               console.log(`Got video via effective_object_story_id for ${adId}`);
-              return { url: vidData.source };
+              return { url: src };
             }
-            noteError(vidData?.error);
           }
           // Check subattachments (carousel / album posts)
           const subattachments: any[] = att?.subattachments?.data || [];
@@ -1368,16 +1456,11 @@ export async function discoverVideoUrlWithReason(
             }
             const subVideoId = sub?.media?.video?.id;
             if (subVideoId) {
-              const vidRes = await fetchWithTimeout(
-                `https://graph.facebook.com/${META_API_VERSION}/${subVideoId}?fields=source&access_token=${accessToken}`,
-                timeoutMs
-              );
-              const vidData = await vidRes.json().catch(() => null);
-              if (vidRes.ok && vidData?.source) {
+              const src = await resolveVideoSourceById(subVideoId, accessToken, timeoutMs, accountVideoMap, pageToken);
+              if (src) {
                 console.log(`Got video via subattachment video_id for ${adId}`);
-                return { url: vidData.source };
+                return { url: src };
               }
-              noteError(vidData?.error);
             }
           }
         }
@@ -1403,23 +1486,11 @@ export async function discoverVideoUrlWithReason(
         }
         for (const vid of [...new Set(fallbackIds)]) {
           if (videoIds.includes(vid)) continue;
-          if (accountVideoMap) {
-            const mapped = accountVideoMap.get(vid);
-            if (mapped) {
-              console.log(`Got video via adcreatives fallback (map) for ${adId}`);
-              return { url: mapped };
-            }
-          }
-          const vidRes = await fetchWithTimeout(
-            `https://graph.facebook.com/${META_API_VERSION}/${vid}?fields=source&access_token=${accessToken}`,
-            timeoutMs
-          );
-          const vidData = await vidRes.json().catch(() => null);
-          if (vidRes.ok && vidData?.source) {
+          const src = await resolveVideoSourceById(vid, accessToken, timeoutMs, accountVideoMap, pageToken);
+          if (src) {
             console.log(`Got video via adcreatives fallback for ${adId}`);
-            return { url: vidData.source };
+            return { url: src };
           }
-          noteError(vidData?.error);
         }
       }
     }
@@ -1473,6 +1544,7 @@ async function resolveVideoSourceById(
   accessToken: string,
   timeoutMs: number,
   accountVideoMap?: Map<string, string>,
+  pageToken?: string | null,
 ): Promise<string | null> {
   if (accountVideoMap) {
     const mapped = accountVideoMap.get(videoId);
@@ -1484,6 +1556,17 @@ async function resolveVideoSourceById(
   );
   const vidData = await vidRes.json().catch(() => null);
   if (vidRes.ok && vidData?.source) return vidData.source as string;
+  // Page-owned video: the account/system-user token returns empty or (#10) because
+  // `source` is gated at the Page level. Retry with the owning Page's own token,
+  // which resolves the source for Pages assigned to us in Business Manager.
+  if (pageToken) {
+    const ptRes = await fetchWithTimeout(
+      `https://graph.facebook.com/${META_API_VERSION}/${videoId}?fields=source&access_token=${pageToken}`,
+      timeoutMs,
+    );
+    const ptData = await ptRes.json().catch(() => null);
+    if (ptRes.ok && ptData?.source) return ptData.source as string;
+  }
   return null;
 }
 
@@ -1513,6 +1596,7 @@ export async function discoverAllVideoUrls(
   accessToken: string,
   timeoutMs = 30_000,
   accountVideoMap?: Map<string, string>,
+  pageTokenMap?: Map<string, string>,
 ): Promise<string[]> {
   const sources: string[] = [];
   const pushSource = (u: string | null | undefined) => {
@@ -1532,6 +1616,9 @@ export async function discoverAllVideoUrls(
     if (!creative) return sources;
 
     const spec = creative.object_story_spec;
+    // Owning Page's token (when assigned to us) resolves page-owned carousel frames.
+    const pageId = derivePageId(creative);
+    const pageToken = pageId ? (pageTokenMap?.get(pageId) ?? null) : null;
     // Ordered video_ids across every spec-embedded video source. Order matters: it
     // is the frame order the sync writes as frame_index. Direct inline source urls
     // (video_data.video_url) are captured in place so they keep their slot.
@@ -1568,7 +1655,7 @@ export async function discoverAllVideoUrls(
     for (const vid of orderedIds) {
       if (seen.has(vid)) continue;
       seen.add(vid);
-      const source = await resolveVideoSourceById(vid, accessToken, timeoutMs, accountVideoMap);
+      const source = await resolveVideoSourceById(vid, accessToken, timeoutMs, accountVideoMap, pageToken);
       if (source) pushSource(source);
     }
   } catch (e) {
