@@ -45,6 +45,7 @@ import {
   discoverImageUrlWithReason,
   discoverVideoUrlWithReason,
   fetchAccountVideoMap,
+  fetchPageTokenMap,
   isStorageUrl,
   looksLikeHtml,
   NO_THUMB_SENTINEL,
@@ -313,6 +314,8 @@ export async function processQueuedAd(
   adId: string,
   accountId: string,
   metaToken: string,
+  pageTokenMap?: Map<string, string>,
+  accountVideoMap?: Map<string, string>,
 ): Promise<{ outcome: "cached" | "skipped" | "failed" | "throttled"; reason?: string }> {
   const { data: creative, error: fetchErr } = await supabase
     .from("creatives")
@@ -389,13 +392,17 @@ export async function processQueuedAd(
       // No usable CDN url (never attempted, generic no-video, or NULLed-expired) —
       // run FULL discovery through every existing strategy (top-level video_id,
       // object_story_spec, template_data, asset_feed_spec.videos, account video map,
-      // post attachments). Build the account video map once (AC#2).
-      const accountVideoMap = await fetchAccountVideoMap(accountId, metaToken);
+      // post attachments). Prefer the caller's per-account map (built ONCE per drain
+      // invocation in drainOnce — paginating the whole advideos library per ad was an
+      // N+1 that hammered the rate limit); fall back to building it here so direct
+      // callers/tests still work.
+      const videoMap = accountVideoMap ?? await fetchAccountVideoMap(accountId, metaToken);
       const { url: discovered, reason } = await discoverVideoUrlWithReason(
         adId,
         metaToken,
         30_000,
-        accountVideoMap,
+        videoMap,
+        pageTokenMap,
       );
       cdnUrl =
         discovered && !NO_VIDEO_SENTINELS.has(discovered) ? discovered : null;
@@ -588,6 +595,24 @@ export async function drainOnce(
   const rows: any[] = claimed || [];
   summary.claimed = rows.length;
 
+  // Build the page-token map ONCE per invocation (it is account-independent — the set
+  // of Pages assigned to our system user). Threaded into every ad so page-owned video
+  // resolves via the owning Page's token. Empty map ⇒ behaves exactly as before.
+  const pageTokenMap = rows.length ? await fetchPageTokenMap(metaToken) : undefined;
+
+  // Cache the account video-library map per account across this claimed batch. A batch
+  // can span accounts, so key by account_id and build each at most ONCE (previously
+  // fetchAccountVideoMap re-paginated the entire advideos library for EVERY ad — a
+  // per-ad N+1 that was a primary throttle source at scale).
+  const videoMapCache = new Map<string, Map<string, string>>();
+  const getVideoMap = async (acct: string): Promise<Map<string, string>> => {
+    const hit = videoMapCache.get(acct);
+    if (hit) return hit;
+    const built = await fetchAccountVideoMap(acct, metaToken);
+    videoMapCache.set(acct, built);
+    return built;
+  };
+
   for (const row of rows) {
     if (timedOut()) {
       // Release un-processed claims back to pending so the next invocation retries
@@ -600,11 +625,14 @@ export async function drainOnce(
       continue;
     }
 
+    const accountVideoMap = await getVideoMap(row.account_id);
     const { outcome, reason } = await processQueuedAd(
       supabase,
       row.ad_id,
       row.account_id,
       metaToken,
+      pageTokenMap,
+      accountVideoMap,
     );
     if (reason) summary.reasons[reason] = (summary.reasons[reason] ?? 0) + 1;
 
