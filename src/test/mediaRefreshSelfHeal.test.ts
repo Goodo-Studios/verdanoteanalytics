@@ -90,15 +90,17 @@ describe("US-005 AC#2: bounded batch per invocation + self-chain, NOT a blind fa
 });
 
 describe("US-005: re-cacheable selection excludes the terminal residual (never churned)", () => {
-  it("selects the re-cacheable rot reasons", () => {
-    for (const r of ["video_uncached", "image_low_res", "image_missing", "video_unresolved"]) {
+  it("selects the re-cacheable rot reasons (incl. video_permission — page-token self-heal)", () => {
+    // video_permission moved terminal → re-cacheable: Page tokens resolve page-owned
+    // video once the owning Page is assigned, so the backlog self-heals.
+    for (const r of ["video_uncached", "image_low_res", "image_missing", "video_unresolved", "video_permission"]) {
       expect(isRecacheable(r)).toBe(true);
       expect(RECACHEABLE_FAILURE_REASONS.has(r)).toBe(true);
     }
   });
 
-  it("excludes terminal / out-of-scope reasons (permission, deleted, frames)", () => {
-    for (const r of ["video_permission", "video_deleted", "frames_incomplete"]) {
+  it("excludes terminal / out-of-scope reasons (deleted, frames)", () => {
+    for (const r of ["video_deleted", "frames_incomplete"]) {
       expect(isRecacheable(r)).toBe(false);
       expect(TERMINAL_FAILURE_REASONS.has(r)).toBe(true);
     }

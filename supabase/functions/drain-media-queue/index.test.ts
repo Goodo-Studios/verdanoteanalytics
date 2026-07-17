@@ -979,3 +979,48 @@ Deno.test("cacheVideoToStorage: no videoId → legacy per-ad path, no ledger tou
     assertEquals(res.assetId, undefined);
   });
 });
+
+Deno.test("permission-blocked video is now RE-DISCOVERED, not a terminal skip", async () => {
+  // Regression for the page-token backlog fix: an ad stamped 'no-video-permission'
+  // used to be skipped forever (terminal). It is now a re-discovery target — the drain
+  // re-runs discovery (page-token path) and caches the resolved video.
+  const now = new Date().toISOString();
+  const queue: QueueRow[] = [{
+    ad_id: "ad_perm", account_id: "act_1", status: "pending",
+    attempts: 0, enqueued_at: now, updated_at: now, last_error: null,
+  }];
+  const creatives: Creative[] = [{
+    ad_id: "ad_perm", account_id: "act_1",
+    thumbnail_url: "no-thumbnail", full_res_url: null,
+    video_url: "no-video-permission", // was TERMINAL, now a re-discovery target
+    thumb_asset_id: null, video_asset_id: null, image_quality: "full_res",
+  }];
+  const { supabase } = makeDb({ queue, creatives });
+
+  let uploadAttempted = false;
+  await withFetch((url) => {
+    if (url.includes("/me/accounts")) {
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("/advideos")) {
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("graph.facebook.com") && url.includes("?fields=creative")) {
+      return new Response(
+        JSON.stringify({ creative: { object_story_spec: { video_data: { video_url: "https://cdn/perm.mp4" } } } }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (url.includes("/storage/v1/object/")) { uploadAttempted = true; return new Response("{}", { status: 200 }); }
+    if (url === "https://cdn/perm.mp4") return videoResponse(15 * 1024 * 1024);
+    throw new Error(`unexpected fetch in permission-rediscovery test: ${url}`);
+  }, async () => {
+    const summary = await mod.drainOnce(supabase, "fake-token", 5, 120_000);
+    assertEquals(summary.claimed, 1);
+    assertEquals(summary.cached, 1, "permission ad is re-discovered + cached, not skipped");
+    assertEquals(summary.skipped, 0, "permission is no longer a terminal skip");
+  });
+  assert(uploadAttempted, "the re-discovered permission video must be streamed to storage");
+  assert(creatives[0].video_url!.includes("/storage/v1/object/public/"), "video_url now points at the cached storage asset");
+  assert(isVideoOk({ video_url: creatives[0].video_url }), "ad reports video_ok after re-discovery");
+})
