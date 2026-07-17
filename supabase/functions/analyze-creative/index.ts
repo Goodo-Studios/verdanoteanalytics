@@ -27,6 +27,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { json } from "../_shared/cors.ts";
 import { parseLooseJson } from "../_shared/vault-analyze-logic.ts";
+import { NO_VIDEO_SENTINEL } from "../_shared/media-discovery.ts";
 import {
   BRAND_METADATA_PROMPT,
   CLEAN_TRANSCRIPT_PROMPT,
@@ -209,8 +210,13 @@ function buildTagSuggestions(
 // Analyze one claimed creative. Returns the columns to write + the USD spent.
 async function analyzeOne(c: CreativeRow): Promise<{ update: Record<string, unknown>; costUsd: number }> {
   let cost = 0;
-  const thumb = c.full_res_url || c.thumbnail_url;
-  const hasVideo = !!c.video_url;
+  // Respect the media sentinels: video_url can be the "no-video" sentinel (an
+  // image ad or an uncached video) and thumbnail_url can be "no-thumbnail". A
+  // real video is a cached, non-sentinel video_url; anything else = image branch.
+  const NO_THUMB_SENTINEL = "no-thumbnail";
+  const rawThumb = c.full_res_url || c.thumbnail_url;
+  const thumb = rawThumb && rawThumb !== NO_THUMB_SENTINEL ? rawThumb : null;
+  const hasVideo = !!c.video_url && c.video_url !== NO_VIDEO_SENTINEL;
 
   // ── STATIC IMAGE branch: no video → single vision call (framework + metadata
   //    + visual + copy analysis together). ──
