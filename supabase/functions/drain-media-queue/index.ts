@@ -409,14 +409,19 @@ export async function processQueuedAd(
   //     infinite re-discovery loop.
   //   • a NULLed url (an earlier drain found an expired CDN url and NULLed it) →
   //     re-discovery target (null triggers discovery below).
+  // no-video-permission is NO LONGER terminal: page-owned video is resolvable via the
+  // owning Page's token once that Page is assigned to us, so a permission row is a
+  // re-discovery target (it self-heals when access lands, or re-fails + backs off if
+  // the Page is still unassigned). Only a genuinely-gone object (deleted) stays terminal.
   const videoIsTerminalSentinel =
-    creative.video_url === NO_VIDEO_PERMISSION_SENTINEL ||
     creative.video_url === NO_VIDEO_DELETED_SENTINEL;
   const skipVideo = isStorageUrl(creative.video_url) || videoIsTerminalSentinel;
-  // A stored value that is NOT a usable CDN url (the generic no-video sentinel, or a
-  // NULL) means "no live CDN url to download — go discover one".
+  // A stored value that is NOT a usable CDN url (a no-video / no-video-permission
+  // sentinel, or a NULL) means "no live CDN url to download — go discover one".
   const videoNeedsDiscovery =
-    creative.video_url == null || creative.video_url === NO_VIDEO_SENTINEL;
+    creative.video_url == null ||
+    creative.video_url === NO_VIDEO_SENTINEL ||
+    creative.video_url === NO_VIDEO_PERMISSION_SENTINEL;
 
   // US-002: a creative sitting on a low-res placeholder (image_quality='low_res',
   // e.g. only the ~130px thumbnail_url fallback) is a re-discovery TARGET, not

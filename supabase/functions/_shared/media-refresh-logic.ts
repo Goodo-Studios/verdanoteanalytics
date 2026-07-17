@@ -17,18 +17,24 @@
 //   • image_low_res   — only the ~130px thumbnail fallback was cached.
 //   • image_missing   — no image cached at all.
 //   • video_unresolved— generic 'no-video' sentinel, still re-attemptable.
+//   • video_permission— page-owned video the account token can't read. NOW RE-CACHEABLE:
+//     Page access tokens resolve it once the owning Page is assigned to us in Business
+//     Manager, so a permission row is a re-discovery target that self-heals when access
+//     lands (was terminal under the old account-token-only pipeline). Accounts whose
+//     Page is still unassigned simply re-fail and back off — bounded, never nulls data.
 export const RECACHEABLE_FAILURE_REASONS: ReadonlySet<string> = new Set([
   "video_uncached",
   "image_low_res",
   "image_missing",
   "video_unresolved",
+  "video_permission",
 ]);
 
 // Terminal / out-of-scope failure_reasons the poller must NEVER re-enqueue: the
-// genuinely-unresolvable residual (permission/deleted) and the carousel-frame gap
-// (owned by the US-004 sync path, not a CDN-expiry re-cache).
+// genuinely-gone object (deleted) and the carousel-frame gap (owned by the US-004
+// sync path, not a CDN-expiry re-cache). NB: video_permission moved OUT of this set —
+// it is recoverable via Page tokens now (see RECACHEABLE_FAILURE_REASONS above).
 export const TERMINAL_FAILURE_REASONS: ReadonlySet<string> = new Set([
-  "video_permission",
   "video_deleted",
   "frames_incomplete",
 ]);
