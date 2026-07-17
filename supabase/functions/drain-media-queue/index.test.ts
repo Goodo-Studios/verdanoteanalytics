@@ -105,6 +105,9 @@ function makeDb(opts: { queue: QueueRow[]; creatives: Creative[] }) {
       filters[col] = val;
       return b;
     };
+    // Single-flight guard uses .gt("updated_at", …); equality filters already decide
+    // the processing count in these tests (pending-only queue → 0), so gt is a no-op.
+    b.gt = () => b;
     // deno-lint-ignore no-explicit-any
     b.update = (payload: any) => {
       updatePayload = payload;
@@ -1023,4 +1026,21 @@ Deno.test("permission-blocked video is now RE-DISCOVERED, not a terminal skip", 
   assert(uploadAttempted, "the re-discovered permission video must be streamed to storage");
   assert(creatives[0].video_url!.includes("/storage/v1/object/public/"), "video_url now points at the cached storage asset");
   assert(isVideoOk({ video_url: creatives[0].video_url }), "ad reports video_ok after re-discovery");
+})
+
+Deno.test("handler single-flight guard: a chain=0 poke is a no-op while a chain is active", async () => {
+  // A live chain leaves fresh 'processing' rows. A cron poke (chain=0) must skip
+  // rather than start a second overlapping chain (the throttle trigger on re-enable).
+  const now = new Date().toISOString();
+  const queue: QueueRow[] = [
+    { ad_id: "ad_live", account_id: "act_1", status: "processing", attempts: 1, enqueued_at: now, updated_at: now, last_error: null },
+    { ad_id: "ad_wait", account_id: "act_1", status: "pending", attempts: 0, enqueued_at: now, updated_at: now, last_error: null },
+  ];
+  const { supabase } = makeDb({ queue, creatives: [] });
+  const req = new Request("https://example.supabase.co/functions/v1/drain-media-queue?chain=0", { method: "POST", body: "{}" });
+  const resp = await mod.handler(req, supabase);
+  const json = await resp.json();
+  assertEquals(json.status, "skipped");
+  assertEquals(json.reason, "chain-active");
+  assertEquals(queue.find((q) => q.ad_id === "ad_wait")!.status, "pending", "pending row left untouched — no second chain started");
 })
