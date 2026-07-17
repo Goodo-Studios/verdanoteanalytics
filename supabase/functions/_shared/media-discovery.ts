@@ -52,6 +52,47 @@ export const NO_VIDEO_DELETED_SENTINEL = "no-video-deleted";
 // US-007: a genuinely-playable video too large to capture under the deliberate ceiling.
 export const NO_VIDEO_OVERSIZED_SENTINEL = "no-video-oversized";
 
+// ── Meta app-level throttling: a TRANSIENT signal, never a stored verdict ──────
+// Meta Graph API app/BUC/user rate-limiting (error #4 "Application request limit
+// reached", #17 user-request-limit, #32 page-level limit, #613 calls-to-this-api,
+// and the Business-Use-Case throttle codes 80000–80009) means "we could NOT check
+// right now — try again later", NOT "there is no video / no thumbnail". Previously a
+// #4 throttle fell through classifyVideoFailure to the generic NO_VIDEO_SENTINEL,
+// which the drain worker then WROTE to creatives.video_url — permanently recording a
+// merely-rate-limited ad as "no video" and tanking media coverage.
+//
+// THROTTLED is therefore a MARKER, not a sentinel: it is deliberately NOT a member of
+// NO_VIDEO_SENTINELS (so isVideoOk / coverage never see it) and is NEVER written to a
+// media column. It exists only to tell the drain worker "this discovery was
+// inconclusive because we were throttled — leave the row's media untouched and retry
+// soon." Bias is always toward "retry, record nothing."
+export const THROTTLED = "throttled";
+
+// Numeric Graph error codes that denote throttling (app / user / page / BUC limits).
+const THROTTLE_CODES: ReadonlySet<string> = new Set(["4", "17", "32", "613"]);
+// A message matching this is a throttle regardless of code — Meta is inconsistent
+// about which numeric code accompanies a rate-limit body.
+const THROTTLE_MESSAGE =
+  /request limit|rate limit|reduce the amount|too many calls|user request limit|calls to this api|throttl/i;
+
+/**
+ * Is this Graph error a throttle (transient rate-limit), not a data verdict?
+ * True for numeric codes 4 / 17 / 32 / 613, the Business-Use-Case throttle codes
+ * 80000–80009, or a throttle-shaped message. Pure + dependency-free.
+ */
+export function isThrottleError(
+  error: { code?: number | string | null; message?: string | null } | null | undefined,
+): boolean {
+  if (!error) return false;
+  const code = error.code != null ? String(error.code) : "";
+  if (THROTTLE_CODES.has(code)) return true;
+  // Business-Use-Case throttling: codes 80000–80009.
+  const numeric = Number(code);
+  if (Number.isInteger(numeric) && numeric >= 80000 && numeric <= 80009) return true;
+  const msg = error.message ?? "";
+  return THROTTLE_MESSAGE.test(msg);
+}
+
 // The full set of no-video-* sentinels. Any of these means "Meta reports a video ad
 // but we have no cached, playable video for it" → NOT video_ok. Kept as one set so
 // isVideoOk (and any other caller) can never miss a newly-added reason.
@@ -84,6 +125,15 @@ export function classifyVideoFailure(
   if (!error) return NO_VIDEO_SENTINEL;
   const code = error.code != null ? String(error.code) : "";
   const msg = (error.message ?? "").toLowerCase();
+
+  // Throttling (app/user/page/BUC rate-limit): TRANSIENT, checked BEFORE permission /
+  // deleted so a #4 (or a throttle-shaped body) can never be mislabeled as a terminal
+  // "no video" verdict. Returns the THROTTLED marker (NOT a no-video sentinel) so the
+  // caller retries later and records NOTHING. This is the core US-* fix: a merely
+  // rate-limited ad must never be written as no-video/permission/deleted.
+  if (isThrottleError(error)) {
+    return THROTTLED;
+  }
 
   // Permission-blocked: #10 (page-owned media needs pages_read_engagement) or #200
   // (generic permissions error), or any message explicitly citing a permission issue.
@@ -698,12 +748,44 @@ export type ImageQuality = "full_res" | "low_res";
  * low_res (US-002 AC#1). imageQuality tracks with fullResUrl: a 'full_res' result
  * always carries a non-null fullResUrl; a 'low_res' result carries fullResUrl:null.
  */
+export interface ImageDiscovery {
+  thumbnailUrl: string;
+  fullResUrl: string | null;
+  imageQuality: ImageQuality;
+}
+
+/**
+ * Discover a high-res image URL from Meta Graph API. Unchanged public contract — all
+ * existing callers use this. Delegates to discoverImageUrlWithReason and drops the
+ * reason (so a non-null result is byte-identical to before).
+ */
 export async function discoverImageUrl(
   adId: string,
   accountId: string,
   accessToken: string,
   timeoutMs = 30_000
-): Promise<{ thumbnailUrl: string; fullResUrl: string | null; imageQuality: ImageQuality } | null> {
+): Promise<ImageDiscovery | null> {
+  return (await discoverImageUrlWithReason(adId, accountId, accessToken, timeoutMs)).result;
+}
+
+/**
+ * IMAGE-discovery core that ALSO reports a THROTTLED marker when the lookup could not
+ * be performed because Meta rate-limited us. Mirrors the video path (US-*): a throttle
+ * on the image discovery must NEVER be recorded as the NO_THUMB_SENTINEL ("no-thumbnail")
+ * — that would permanently mark a merely-rate-limited ad as having no image. When
+ * `result` is null and `reason === THROTTLED`, the caller must leave the row's image
+ * columns untouched and retry soon. `reason` is only ever set when `result` is null.
+ *
+ * The top-level ad fetch is the first Graph call per ad and the point at which
+ * app-level throttling (#4 "Application request limit reached") surfaces, so its error
+ * body is classified here; a resolved image on any strategy still wins over a throttle.
+ */
+export async function discoverImageUrlWithReason(
+  adId: string,
+  accountId: string,
+  accessToken: string,
+  timeoutMs = 30_000
+): Promise<{ result: ImageDiscovery | null; reason?: string }> {
   try {
     const res = await fetchWithTimeout(
       `https://graph.facebook.com/${META_API_VERSION}/${adId}?fields=creative{thumbnail_url,image_url,image_hash,object_story_spec,asset_feed_spec}&access_token=${accessToken}`,
@@ -711,13 +793,47 @@ export async function discoverImageUrl(
     );
     if (!res.ok) {
       console.log(`Meta API failed for ${adId}: ${res.status}`);
-      await res.text();
-      return null;
+      // Read the error body so an app-level throttle (#4 / rate-limit message) is
+      // detected rather than swallowed and later mis-recorded as no-thumbnail.
+      const errData = await res.json().catch(() => null);
+      if (isThrottleError(errData?.error)) {
+        return { result: null, reason: THROTTLED };
+      }
+      return { result: null };
     }
     const data = await res.json();
+    // A 200 body can still carry a throttle error object (Meta sometimes 200s with an
+    // error payload). Treat that as a throttle too, never as "no creative".
+    if (isThrottleError(data?.error)) {
+      return { result: null, reason: THROTTLED };
+    }
     const creative = data?.creative;
-    if (!creative) return null;
+    if (!creative) return { result: null };
+    const found = await discoverImageStrategies(
+      adId, accountId, accessToken, timeoutMs, creative,
+    );
+    return { result: found };
+  } catch (e) {
+    console.log(`Meta API error for ${adId}:`, e);
+    return { result: null };
+  }
+}
 
+/**
+ * The ordered image-discovery strategy ladder, factored out of discoverImageUrl so the
+ * reason-aware wrapper (discoverImageUrlWithReason) can classify the top-level fetch's
+ * throttle before delegating here. Behavior is byte-identical to the prior inline
+ * strategies — this is a pure extraction. Returns the discovered image or null.
+ */
+async function discoverImageStrategies(
+  adId: string,
+  accountId: string,
+  accessToken: string,
+  timeoutMs: number,
+  // deno-lint-ignore no-explicit-any
+  creative: any,
+): Promise<ImageDiscovery | null> {
+  try {
     // Strategy 1: Resolve image_hash → full-res URL
     const imageHash =
       creative.image_hash ||
@@ -1054,6 +1170,76 @@ export async function fetchAccountVideoMap(
 }
 
 /**
+ * Build a map of page_id → Page access token for every Facebook Page assigned to
+ * the current (system-user) token, via GET /me/accounts.
+ *
+ * Why this exists: page-OWNED video (an organic Page post boosted into an ad) is
+ * not in the ad account's /advideos library, and GET /{video_id}?fields=source on
+ * the account/system-user token returns empty or (#10) — the `source` read is gated
+ * at the PAGE level. The reliable fix is to read the video's source with the owning
+ * Page's OWN access token. A system-user token can mint those tokens only for Pages
+ * that have been assigned to it in Business Manager (client partner-sharing alone is
+ * not enough — the Page must be assigned to this system user). /me/accounts returns
+ * exactly that assigned set, each row carrying an `access_token`.
+ *
+ * Build this once per worker run and pass it into discoverVideoUrl* alongside the
+ * account video map. Pages the token is not assigned to simply won't be in the map,
+ * so their videos stay unresolved-but-retryable and self-heal once assignment lands.
+ */
+export async function fetchPageTokenMap(
+  accessToken: string,
+  maxPages = 20,
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  let afterCursor: string | null = null;
+
+  for (let page = 0; page < maxPages; page++) {
+    const cursorParam = afterCursor ? `&after=${encodeURIComponent(afterCursor)}` : "";
+    const url = `https://graph.facebook.com/${META_API_VERSION}/me/accounts?fields=id,name,access_token&limit=200${cursorParam}&access_token=${accessToken}`;
+    try {
+      const res = await fetchWithTimeout(url, 30_000);
+      if (!res.ok) { await res.text().catch(() => {}); break; }
+      const data = await res.json();
+      const pages: any[] = data?.data || [];
+      for (const p of pages) {
+        if (p?.id && p?.access_token) map.set(String(p.id), p.access_token as string);
+      }
+      afterCursor = data?.paging?.cursors?.after ?? null;
+      if (!afterCursor || !data?.paging?.next) break;
+    } catch {
+      break;
+    }
+  }
+
+  console.log(`Page-token map: ${map.size} assigned pages`);
+  return map;
+}
+
+/**
+ * Derive the owning Facebook Page id for a creative, so we can pick the right Page
+ * token to resolve page-owned video. Two sources, in order of reliability:
+ *   1. object_story_spec.page_id — present on most native ad creatives.
+ *   2. effective_object_story_id — formatted `{page_id}_{post_id}`; the prefix is the
+ *      page id. This covers boosted organic posts where object_story_spec is absent.
+ * Returns null when neither is present. Pure + dependency-free (unit-testable).
+ */
+export function derivePageId(
+  creative:
+    | { object_story_spec?: { page_id?: string | null } | null; effective_object_story_id?: string | null }
+    | null
+    | undefined,
+): string | null {
+  const direct = creative?.object_story_spec?.page_id;
+  if (direct) return String(direct);
+  const eos = creative?.effective_object_story_id;
+  if (typeof eos === "string" && eos.includes("_")) {
+    const prefix = eos.split("_", 1)[0];
+    if (prefix) return prefix;
+  }
+  return null;
+}
+
+/**
  * Discover a video source URL from Meta Graph API.
  * Covers all known creative formats (standard, carousel, DPA, Advantage+, whitelisted).
  *
@@ -1064,9 +1250,10 @@ export async function discoverVideoUrl(
   adId: string,
   accessToken: string,
   timeoutMs = 30_000,
-  accountVideoMap?: Map<string, string>
+  accountVideoMap?: Map<string, string>,
+  pageTokenMap?: Map<string, string>
 ): Promise<string | null> {
-  return (await discoverVideoUrlWithReason(adId, accessToken, timeoutMs, accountVideoMap)).url;
+  return (await discoverVideoUrlWithReason(adId, accessToken, timeoutMs, accountVideoMap, pageTokenMap)).url;
 }
 
 /**
@@ -1088,18 +1275,36 @@ export async function discoverVideoUrlWithReason(
   adId: string,
   accessToken: string,
   timeoutMs = 30_000,
-  accountVideoMap?: Map<string, string>
-): Promise<{ url: string | null; reason?: string }> {
-  // Track the most specific classifiable error seen across all strategies. Once we
-  // have a TERMINAL classification (permission/deleted) we keep it; a later generic
-  // error must not downgrade it. A resolved url wins over any error.
+  accountVideoMap?: Map<string, string>,
+  pageTokenMap?: Map<string, string>
+): Promise<{ url: string | null; reason?: string; videoId?: string }> {
+  // The Meta video_id that produced the resolved source, when a source resolved from
+  // a known id (not from an inline url or a preview scrape). Callers dedupe stored
+  // video by this id — the same video_id backs many ads, so storing per-video (not
+  // per-ad) both skips re-downloads and collapses N copies to one.
+  // Track the most specific classifiable error seen across all strategies. Priority,
+  // highest-wins:
+  //   THROTTLED  — a throttle on ANY strategy makes the whole "no video found"
+  //                conclusion UNRELIABLE (we may simply have been rate-limited before
+  //                the strategy that would have resolved the url). It must WIN over
+  //                generic no-video AND over permission/deleted so the worker retries
+  //                and records NOTHING (bias: "retry, record nothing").
+  //   permission / deleted — terminal; kept over a later generic no-video.
+  //   generic no-video     — the residual "unknown, still worth re-attempting".
+  // A resolved url still wins over every error (handled by the early returns below).
   let failReason: string | null = null;
   const noteError = (
     error: { code?: number | string | null; message?: string | null } | null | undefined,
   ) => {
     if (!error) return;
+    // Once we've seen a throttle, nothing can downgrade it — the conclusion is unreliable.
+    if (failReason === THROTTLED) return;
     const classified = classifyVideoFailure(error);
-    // Prefer a terminal reason; don't let a later generic no-video overwrite it.
+    if (classified === THROTTLED) {
+      failReason = THROTTLED; // wins over everything already recorded
+      return;
+    }
+    // Otherwise prefer a terminal reason; don't let a later generic no-video overwrite it.
     if (failReason === null || failReason === NO_VIDEO_SENTINEL) {
       failReason = classified;
     }
@@ -1130,6 +1335,11 @@ export async function discoverVideoUrlWithReason(
     }
 
     const spec = creative.object_story_spec;
+    // The owning Page's token (when the Page is assigned to us) resolves page-owned
+    // video that the account/system-user token cannot read. Derived once here and
+    // threaded into every per-video source lookup below.
+    const pageId = derivePageId(creative);
+    const pageToken = pageId ? (pageTokenMap?.get(pageId) ?? null) : null;
     const videoIds: string[] = [];
 
     // Path 1: top-level video_id
@@ -1173,7 +1383,7 @@ export async function discoverVideoUrlWithReason(
         const mapped = accountVideoMap.get(vid);
         if (mapped) {
           console.log(`Got video source from account library map for ${adId} (video ${vid})`);
-          return { url: mapped };
+          return { url: mapped, videoId: vid };
         }
       }
       const vidRes = await fetchWithTimeout(
@@ -1184,7 +1394,21 @@ export async function discoverVideoUrlWithReason(
       if (vidRes.ok) {
         if (vidData?.source) {
           console.log(`Got video source from video_id ${vid} for ${adId}`);
-          return { url: vidData.source };
+          return { url: vidData.source, videoId: vid };
+        }
+      }
+      // Page-owned video: the account/system-user token comes back empty or (#10)
+      // because `source` is Page-gated. Retry with the owning Page's token before
+      // recording a failure for this id.
+      if (pageToken) {
+        const ptRes = await fetchWithTimeout(
+          `https://graph.facebook.com/${META_API_VERSION}/${vid}?fields=source&access_token=${pageToken}`,
+          timeoutMs
+        );
+        const ptData = await ptRes.json().catch(() => null);
+        if (ptRes.ok && ptData?.source) {
+          console.log(`Got video source via page token for ${adId} (video ${vid}, page ${pageId})`);
+          return { url: ptData.source, videoId: vid };
         }
       }
       // A direct /{video_id} fetch is where #10 (page-owned, permission-blocked) and
@@ -1195,9 +1419,11 @@ export async function discoverVideoUrlWithReason(
     // Path 6: effective_object_story_id → post video
     const storyId = creative.effective_object_story_id;
     if (storyId) {
-      // 6a: Try post-level source field first (video posts often expose this directly)
+      // 6a: Try post-level source field first (video posts often expose this directly).
+      // Page-owned posts are readable only with the owning Page's token, so prefer it.
+      const storyToken = pageToken ?? accessToken;
       const postSourceRes = await fetchWithTimeout(
-        `https://graph.facebook.com/${META_API_VERSION}/${storyId}?fields=source,attachments{media,media_type,subattachments{media,media_type}}&access_token=${accessToken}`,
+        `https://graph.facebook.com/${META_API_VERSION}/${storyId}?fields=source,attachments{media,media_type,subattachments{media,media_type}}&access_token=${storyToken}`,
         timeoutMs
       );
       if (postSourceRes.ok) {
@@ -1216,19 +1442,14 @@ export async function discoverVideoUrlWithReason(
             console.log(`Got video from attachment media.source for ${adId}`);
             return { url: att.media.source };
           }
-          // Standard path: media.video.id → fetch source
+          // Standard path: media.video.id → fetch source (map → account → page token)
           const videoId = att?.media?.video?.id;
           if (videoId) {
-            const vidRes = await fetchWithTimeout(
-              `https://graph.facebook.com/${META_API_VERSION}/${videoId}?fields=source&access_token=${accessToken}`,
-              timeoutMs
-            );
-            const vidData = await vidRes.json().catch(() => null);
-            if (vidRes.ok && vidData?.source) {
+            const src = await resolveVideoSourceById(videoId, accessToken, timeoutMs, accountVideoMap, pageToken);
+            if (src) {
               console.log(`Got video via effective_object_story_id for ${adId}`);
-              return { url: vidData.source };
+              return { url: src, videoId };
             }
-            noteError(vidData?.error);
           }
           // Check subattachments (carousel / album posts)
           const subattachments: any[] = att?.subattachments?.data || [];
@@ -1239,16 +1460,11 @@ export async function discoverVideoUrlWithReason(
             }
             const subVideoId = sub?.media?.video?.id;
             if (subVideoId) {
-              const vidRes = await fetchWithTimeout(
-                `https://graph.facebook.com/${META_API_VERSION}/${subVideoId}?fields=source&access_token=${accessToken}`,
-                timeoutMs
-              );
-              const vidData = await vidRes.json().catch(() => null);
-              if (vidRes.ok && vidData?.source) {
+              const src = await resolveVideoSourceById(subVideoId, accessToken, timeoutMs, accountVideoMap, pageToken);
+              if (src) {
                 console.log(`Got video via subattachment video_id for ${adId}`);
-                return { url: vidData.source };
+                return { url: src, videoId: subVideoId };
               }
-              noteError(vidData?.error);
             }
           }
         }
@@ -1274,23 +1490,11 @@ export async function discoverVideoUrlWithReason(
         }
         for (const vid of [...new Set(fallbackIds)]) {
           if (videoIds.includes(vid)) continue;
-          if (accountVideoMap) {
-            const mapped = accountVideoMap.get(vid);
-            if (mapped) {
-              console.log(`Got video via adcreatives fallback (map) for ${adId}`);
-              return { url: mapped };
-            }
-          }
-          const vidRes = await fetchWithTimeout(
-            `https://graph.facebook.com/${META_API_VERSION}/${vid}?fields=source&access_token=${accessToken}`,
-            timeoutMs
-          );
-          const vidData = await vidRes.json().catch(() => null);
-          if (vidRes.ok && vidData?.source) {
+          const src = await resolveVideoSourceById(vid, accessToken, timeoutMs, accountVideoMap, pageToken);
+          if (src) {
             console.log(`Got video via adcreatives fallback for ${adId}`);
-            return { url: vidData.source };
+            return { url: src, videoId: vid };
           }
-          noteError(vidData?.error);
         }
       }
     }
@@ -1344,6 +1548,7 @@ async function resolveVideoSourceById(
   accessToken: string,
   timeoutMs: number,
   accountVideoMap?: Map<string, string>,
+  pageToken?: string | null,
 ): Promise<string | null> {
   if (accountVideoMap) {
     const mapped = accountVideoMap.get(videoId);
@@ -1355,6 +1560,17 @@ async function resolveVideoSourceById(
   );
   const vidData = await vidRes.json().catch(() => null);
   if (vidRes.ok && vidData?.source) return vidData.source as string;
+  // Page-owned video: the account/system-user token returns empty or (#10) because
+  // `source` is gated at the Page level. Retry with the owning Page's own token,
+  // which resolves the source for Pages assigned to us in Business Manager.
+  if (pageToken) {
+    const ptRes = await fetchWithTimeout(
+      `https://graph.facebook.com/${META_API_VERSION}/${videoId}?fields=source&access_token=${pageToken}`,
+      timeoutMs,
+    );
+    const ptData = await ptRes.json().catch(() => null);
+    if (ptRes.ok && ptData?.source) return ptData.source as string;
+  }
   return null;
 }
 
@@ -1384,6 +1600,7 @@ export async function discoverAllVideoUrls(
   accessToken: string,
   timeoutMs = 30_000,
   accountVideoMap?: Map<string, string>,
+  pageTokenMap?: Map<string, string>,
 ): Promise<string[]> {
   const sources: string[] = [];
   const pushSource = (u: string | null | undefined) => {
@@ -1403,6 +1620,9 @@ export async function discoverAllVideoUrls(
     if (!creative) return sources;
 
     const spec = creative.object_story_spec;
+    // Owning Page's token (when assigned to us) resolves page-owned carousel frames.
+    const pageId = derivePageId(creative);
+    const pageToken = pageId ? (pageTokenMap?.get(pageId) ?? null) : null;
     // Ordered video_ids across every spec-embedded video source. Order matters: it
     // is the frame order the sync writes as frame_index. Direct inline source urls
     // (video_data.video_url) are captured in place so they keep their slot.
@@ -1439,7 +1659,7 @@ export async function discoverAllVideoUrls(
     for (const vid of orderedIds) {
       if (seen.has(vid)) continue;
       seen.add(vid);
-      const source = await resolveVideoSourceById(vid, accessToken, timeoutMs, accountVideoMap);
+      const source = await resolveVideoSourceById(vid, accessToken, timeoutMs, accountVideoMap, pageToken);
       if (source) pushSource(source);
     }
   } catch (e) {

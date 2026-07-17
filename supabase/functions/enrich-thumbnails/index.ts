@@ -16,6 +16,7 @@ import {
   discoverImageUrl,
   discoverVideoUrl,
   fetchAccountVideoMap,
+  fetchPageTokenMap,
   fetchWithTimeout,
   isStorageUrl,
   looksLikeHtml,
@@ -565,6 +566,8 @@ export async function runVideoDiscovery(supabase: any, accountFilter: string | n
 
     // Build account video library map — one API pagination per account, reused for all its creatives.
     const accountVideoMap = await fetchAccountVideoMap(accountId, metaAccessToken);
+    // Page-token map: resolve page-owned video via the owning Page's token.
+    const pageTokenMap = await fetchPageTokenMap(metaAccessToken);
 
     for (let i = 0; i < accountCreatives.length; i += BATCH_SIZE) {
       if (Date.now() - startTime > TIME_BUDGET_MS) {
@@ -575,7 +578,7 @@ export async function runVideoDiscovery(supabase: any, accountFilter: string | n
       const batch = accountCreatives.slice(i, i + BATCH_SIZE);
       const results = await Promise.allSettled(
         batch.map(async (c: any) => {
-          const videoUrl = await discoverVideoUrl(c.ad_id, metaAccessToken, VIDEO_DISCOVERY_TIMEOUT_MS, accountVideoMap);
+          const videoUrl = await discoverVideoUrl(c.ad_id, metaAccessToken, VIDEO_DISCOVERY_TIMEOUT_MS, accountVideoMap, pageTokenMap);
           if (videoUrl) {
             await supabase.from("creatives")
               .update({ video_url: videoUrl, video_retry_count: 0, video_retry_after: null })
@@ -705,6 +708,8 @@ export async function runVideoRediscovery(supabase: any, accountFilter: string |
 
     // Build account video library map — one API pagination per account.
     const accountVideoMap = await fetchAccountVideoMap(accountId, metaAccessToken);
+    // Page-token map: resolve page-owned video via the owning Page's token.
+    const pageTokenMap = await fetchPageTokenMap(metaAccessToken);
 
     for (let i = 0; i < accountCreatives.length; i += BATCH_SIZE) {
       if (Date.now() - startTime > TIME_BUDGET_MS) {
@@ -715,7 +720,7 @@ export async function runVideoRediscovery(supabase: any, accountFilter: string |
       const batch = accountCreatives.slice(i, i + BATCH_SIZE);
       const results = await Promise.allSettled(
         batch.map(async (c: any) => {
-          const videoUrl = await discoverVideoUrl(c.ad_id, metaAccessToken, VIDEO_DISCOVERY_TIMEOUT_MS, accountVideoMap);
+          const videoUrl = await discoverVideoUrl(c.ad_id, metaAccessToken, VIDEO_DISCOVERY_TIMEOUT_MS, accountVideoMap, pageTokenMap);
           if (videoUrl) {
             await supabase.from("creatives")
               .update({ video_url: videoUrl, video_retry_count: 0, video_retry_after: null })

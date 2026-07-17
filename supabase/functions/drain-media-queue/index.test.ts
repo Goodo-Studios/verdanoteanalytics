@@ -105,6 +105,9 @@ function makeDb(opts: { queue: QueueRow[]; creatives: Creative[] }) {
       filters[col] = val;
       return b;
     };
+    // Single-flight guard uses .gt("updated_at", …); equality filters already decide
+    // the processing count in these tests (pending-only queue → 0), so gt is a no-op.
+    b.gt = () => b;
     // deno-lint-ignore no-explicit-any
     b.update = (payload: any) => {
       updatePayload = payload;
@@ -795,3 +798,249 @@ Deno.test("US-007 AC (e2e#2): normal-sized videos are cached exactly as before (
   assert(isVideoOk({ video_url: creatives[0].video_url }), "normal video still reports video_ok");
   assertEquals(queue[0].status, "done");
 });
+
+// ── Throttle handling: never record no-video, keep the ad retryable ───────────
+// Meta app-level throttling (#4) was being written to video_url as the no-video
+// sentinel — permanently recording a merely-rate-limited ad as "no video". A throttle
+// must leave the media columns UNCHANGED and re-queue the ad for a short retry WITHOUT
+// burning an attempt or marking it done/no-video.
+Deno.test("drainOnce: a Meta #4 throttle during video discovery leaves video_url unchanged and the ad retryable", async () => {
+  const now = new Date().toISOString();
+  const queue: QueueRow[] = [{
+    ad_id: "ad_throttled",
+    account_id: "act_1",
+    status: "pending",
+    attempts: 0, // becomes 1 after claim; a throttle must NOT keep that bump
+    enqueued_at: now,
+    updated_at: now,
+    last_error: null,
+  }];
+  const creatives: Creative[] = [{
+    ad_id: "ad_throttled",
+    account_id: "act_1",
+    thumbnail_url: "no-thumbnail", // image sentinel → image path is a no-op
+    full_res_url: null,
+    video_url: "no-video", // generic no-video → a re-discovery TARGET this drain
+    thumb_asset_id: null,
+    video_asset_id: null,
+    image_quality: "full_res",
+  }];
+  const { supabase } = makeDb({ queue, creatives });
+
+  await withFetch((url) => {
+    if (url.includes("/advideos")) {
+      // fetchAccountVideoMap — the account library call is itself throttled (400 #4).
+      return new Response(
+        JSON.stringify({ error: { code: 4, message: "(#4) Application request limit reached" } }),
+        { status: 400, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (url.includes("graph.facebook.com") && url.includes("?fields=creative")) {
+      // discoverVideoUrlWithReason's top-level ad lookup is throttled.
+      return new Response(
+        JSON.stringify({ error: { code: 4, message: "(#4) Application request limit reached" } }),
+        { status: 400, headers: { "content-type": "application/json" } },
+      );
+    }
+    throw new Error(`unexpected fetch in throttle test: ${url}`);
+  }, async () => {
+    const summary = await mod.drainOnce(supabase, "fake-token", 5, 120_000);
+    assertEquals(summary.claimed, 1);
+    assertEquals(summary.throttled, 1, "the throttle is counted as throttled, not failed/cached");
+    assertEquals(summary.failed, 0, "a throttle is NOT a hard failure");
+    assertEquals(summary.cached, 0);
+  });
+
+  const creative = creatives[0];
+  // The invariant: media column UNCHANGED — never overwritten with a sentinel.
+  assertEquals(
+    creative.video_url,
+    "no-video",
+    "a throttle leaves video_url exactly as it was — never rewritten to no-video/permission/deleted",
+  );
+  assert(!isVideoOk({ video_url: creative.video_url }), "row is still not video_ok (unchanged), never falsely resolved");
+  // Retryable: back to pending, attempt not burned (still 0), not done/failed.
+  assertEquals(queue[0].status, "pending", "the ad is re-queued for a short transient retry, not marked done/failed");
+  assertEquals(queue[0].attempts, 0, "a throttle does not consume an attempt toward MAX_ATTEMPTS");
+});
+
+Deno.test("drainOnce: a #4 throttle on IMAGE discovery never writes the no-thumbnail sentinel", async () => {
+  const now = new Date().toISOString();
+  const queue: QueueRow[] = [{
+    ad_id: "ad_img_throttled",
+    account_id: "act_1",
+    status: "pending",
+    attempts: 0,
+    enqueued_at: now,
+    updated_at: now,
+    last_error: null,
+  }];
+  const creatives: Creative[] = [{
+    ad_id: "ad_img_throttled",
+    account_id: "act_1",
+    thumbnail_url: null, // no image yet → image discovery runs and gets throttled
+    full_res_url: null,
+    video_url: null, // not a video ad → video path is a no-op
+    thumb_asset_id: null,
+    video_asset_id: null,
+    image_quality: null,
+  }];
+  const { supabase } = makeDb({ queue, creatives });
+
+  await withFetch((url) => {
+    if (url.includes("graph.facebook.com") && url.includes("?fields=creative")) {
+      return new Response(
+        JSON.stringify({ error: { code: 4, message: "Application request limit reached" } }),
+        { status: 400, headers: { "content-type": "application/json" } },
+      );
+    }
+    throw new Error(`unexpected fetch in image throttle test: ${url}`);
+  }, async () => {
+    const summary = await mod.drainOnce(supabase, "fake-token", 5, 120_000);
+    assertEquals(summary.throttled, 1);
+    assertEquals(summary.failed, 0);
+  });
+
+  const creative = creatives[0];
+  assertEquals(
+    creative.thumbnail_url,
+    null,
+    "a throttle must never write the no-thumbnail sentinel — image column stays untouched",
+  );
+  assertEquals(queue[0].status, "pending", "the ad remains retryable after an image throttle");
+  assertEquals(queue[0].attempts, 0, "an image throttle does not consume an attempt");
+});
+
+// ── Video dedupe by video_id (store once per (account, video_id)) ─────────────
+
+Deno.test("cacheVideoToStorage: dedupe HIT reuses the stored video and skips the download entirely", async () => {
+  // media_assets already has this (account, video_id) → return the stored url without
+  // downloading. This is the core dedupe win: the same video across N ads = 1 download.
+  const hitSupa = {
+    from: () => {
+      // deno-lint-ignore no-explicit-any
+      const b: any = {};
+      b.select = () => b;
+      b.eq = () => b;
+      b.maybeSingle = () =>
+        Promise.resolve({ data: { id: "asset-existing", public_url: "https://store/existing.mp4" } });
+      return b;
+    },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  let fetched = false;
+  await withFetch(() => {
+    fetched = true;
+    return videoResponse(10 * 1024 * 1024);
+  }, async () => {
+    const res = await mod.cacheVideoToStorage("https://cdn/v.mp4", "act_1", "ad_a", hitSupa, "vid999");
+    assertEquals(res.url, "https://store/existing.mp4");
+    assertEquals(res.assetId, "asset-existing");
+    assertEquals(res.deduped, true);
+    assert(!fetched, "a dedupe hit must NOT download the video");
+  });
+});
+
+Deno.test("cacheVideoToStorage: dedupe MISS stores under the video-id asset path and registers the ledger row", async () => {
+  // deno-lint-ignore no-explicit-any
+  let upsertPayload: any = null;
+  let upserted = false;
+  const missSupa = {
+    from: () => {
+      // deno-lint-ignore no-explicit-any
+      const b: any = {};
+      b.select = () => b;
+      b.eq = () => b;
+      // deno-lint-ignore no-explicit-any
+      b.upsert = (p: any) => { upsertPayload = p; upserted = true; return b; };
+      b.maybeSingle = () => Promise.resolve({ data: upserted ? { id: "asset-new" } : null });
+      return b;
+    },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  await withFetch((url) => {
+    if (url.includes("/storage/v1/object/")) return new Response("{}", { status: 200 });
+    return videoResponse(12 * 1024 * 1024);
+  }, async () => {
+    const res = await mod.cacheVideoToStorage("https://cdn/v.mp4", "act_1", "ad_b", missSupa, "vidmiss");
+    assert(res.url!.includes("/storage/v1/object/public/ad-videos/act_1/assets/video-vidmiss.mp4"), "stored under the video-id asset path");
+    assertEquals(res.assetId, "asset-new");
+    assertEquals(res.deduped, undefined);
+    assertEquals(upsertPayload.asset_key, "video:vidmiss");
+    assertEquals(upsertPayload.media_type, "video");
+    assertEquals(upsertPayload.storage_path, "act_1/assets/video-vidmiss.mp4");
+  });
+});
+
+Deno.test("cacheVideoToStorage: no videoId → legacy per-ad path, no ledger touch (back-compat)", async () => {
+  await withFetch((url) => {
+    if (url.includes("/storage/v1/object/")) return new Response("{}", { status: 200 });
+    return videoResponse(8 * 1024 * 1024);
+  }, async () => {
+    const res = await mod.cacheVideoToStorage("https://cdn/v.mp4", "act_1", "ad_legacy");
+    assert(res.url!.includes("/storage/v1/object/public/ad-videos/act_1/ad_legacy.mp4"), "legacy per-ad path preserved");
+    assertEquals(res.assetId, undefined);
+  });
+});
+
+Deno.test("permission-blocked video is now RE-DISCOVERED, not a terminal skip", async () => {
+  // Regression for the page-token backlog fix: an ad stamped 'no-video-permission'
+  // used to be skipped forever (terminal). It is now a re-discovery target — the drain
+  // re-runs discovery (page-token path) and caches the resolved video.
+  const now = new Date().toISOString();
+  const queue: QueueRow[] = [{
+    ad_id: "ad_perm", account_id: "act_1", status: "pending",
+    attempts: 0, enqueued_at: now, updated_at: now, last_error: null,
+  }];
+  const creatives: Creative[] = [{
+    ad_id: "ad_perm", account_id: "act_1",
+    thumbnail_url: "no-thumbnail", full_res_url: null,
+    video_url: "no-video-permission", // was TERMINAL, now a re-discovery target
+    thumb_asset_id: null, video_asset_id: null, image_quality: "full_res",
+  }];
+  const { supabase } = makeDb({ queue, creatives });
+
+  let uploadAttempted = false;
+  await withFetch((url) => {
+    if (url.includes("/me/accounts")) {
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("/advideos")) {
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("graph.facebook.com") && url.includes("?fields=creative")) {
+      return new Response(
+        JSON.stringify({ creative: { object_story_spec: { video_data: { video_url: "https://cdn/perm.mp4" } } } }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (url.includes("/storage/v1/object/")) { uploadAttempted = true; return new Response("{}", { status: 200 }); }
+    if (url === "https://cdn/perm.mp4") return videoResponse(15 * 1024 * 1024);
+    throw new Error(`unexpected fetch in permission-rediscovery test: ${url}`);
+  }, async () => {
+    const summary = await mod.drainOnce(supabase, "fake-token", 5, 120_000);
+    assertEquals(summary.claimed, 1);
+    assertEquals(summary.cached, 1, "permission ad is re-discovered + cached, not skipped");
+    assertEquals(summary.skipped, 0, "permission is no longer a terminal skip");
+  });
+  assert(uploadAttempted, "the re-discovered permission video must be streamed to storage");
+  assert(creatives[0].video_url!.includes("/storage/v1/object/public/"), "video_url now points at the cached storage asset");
+  assert(isVideoOk({ video_url: creatives[0].video_url }), "ad reports video_ok after re-discovery");
+})
+
+Deno.test("handler single-flight guard: a chain=0 poke is a no-op while a chain is active", async () => {
+  // A live chain leaves fresh 'processing' rows. A cron poke (chain=0) must skip
+  // rather than start a second overlapping chain (the throttle trigger on re-enable).
+  const now = new Date().toISOString();
+  const queue: QueueRow[] = [
+    { ad_id: "ad_live", account_id: "act_1", status: "processing", attempts: 1, enqueued_at: now, updated_at: now, last_error: null },
+    { ad_id: "ad_wait", account_id: "act_1", status: "pending", attempts: 0, enqueued_at: now, updated_at: now, last_error: null },
+  ];
+  const { supabase } = makeDb({ queue, creatives: [] });
+  const req = new Request("https://example.supabase.co/functions/v1/drain-media-queue?chain=0", { method: "POST", body: "{}" });
+  const resp = await mod.handler(req, supabase);
+  const json = await resp.json();
+  assertEquals(json.status, "skipped");
+  assertEquals(json.reason, "chain-active");
+  assertEquals(queue.find((q) => q.ad_id === "ad_wait")!.status, "pending", "pending row left untouched — no second chain started");
+})

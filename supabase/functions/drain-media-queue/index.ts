@@ -42,9 +42,10 @@ import { corsHeaders } from "../_shared/cors.ts";
 import {
   assetStoragePath,
   computeContentHash,
-  discoverImageUrl,
+  discoverImageUrlWithReason,
   discoverVideoUrlWithReason,
   fetchAccountVideoMap,
+  fetchPageTokenMap,
   isStorageUrl,
   looksLikeHtml,
   NO_THUMB_SENTINEL,
@@ -55,6 +56,7 @@ import {
   NO_VIDEO_SENTINELS,
   peekAndValidateMediaStream,
   resolveMetaToken,
+  THROTTLED,
 } from "../_shared/media-discovery.ts";
 import { isMediaContentType } from "../_shared/vault-save-logic.ts";
 
@@ -106,6 +108,7 @@ export interface DrainSummary {
   cached: number;
   skipped: number; // already cached / nothing to cache (no-op)
   failed: number;
+  throttled: number; // Meta rate-limited — re-queued for a short retry, no attempt burned
   chained: boolean;
   reasons: Record<string, number>;
 }
@@ -140,14 +143,42 @@ export type VideoCacheReason =
 export interface VideoCacheResult {
   url: string | null;
   reason?: VideoCacheReason;
+  // media_assets.id of the stored/shared video asset (US: video dedupe by video_id),
+  // set only when a supabase client + videoId were supplied. Callers stamp it onto
+  // creatives.video_asset_id so sibling ads reference the one shared copy.
+  assetId?: string;
+  // True when the video was already cached for this (account, video_id) and reused
+  // WITHOUT re-downloading — the whole point of the dedupe.
+  deduped?: boolean;
 }
 
 export async function cacheVideoToStorage(
   videoUrl: string,
   accountId: string,
   adId: string,
+  supabase?: Supa,
+  videoId?: string,
 ): Promise<VideoCacheResult> {
+  // Dedupe key: Meta's video_id, scoped to the account (tenant isolation). The same
+  // video backs many ads, so we store ONE copy per (account, video_id) and let every
+  // ad reference it. Only active when a supabase client + videoId are supplied;
+  // otherwise this falls back to the legacy per-ad path unchanged.
+  const dedupeKey = videoId ? `video:${videoId}` : null;
   try {
+    // Dedupe HIT: already cached for this (account, video_id) — skip the download
+    // entirely and reuse the stored copy. This is the bulk of the savings (one video
+    // reused across dozens of ads never re-downloads).
+    if (supabase && dedupeKey) {
+      const { data: existing } = await supabase
+        .from("media_assets")
+        .select("id, public_url")
+        .eq("account_id", accountId)
+        .eq("asset_key", dedupeKey)
+        .maybeSingle();
+      if (existing?.id && existing?.public_url) {
+        return { url: existing.public_url, assetId: existing.id, deduped: true };
+      }
+    }
     // Plain fetch (not fetchWithTimeout): an abort timer would sever the body
     // mid-stream during the upload. The edge fn's own ~150s wall limit bounds it.
     const res = await fetch(videoUrl);
@@ -187,10 +218,13 @@ export async function cacheVideoToStorage(
       return { url: null, reason };
     }
 
-    // Per-ad path here (not asset-keyed): streaming the upload precludes hashing the
-    // bytes without buffering, so the video path uses the ad-keyed path exactly as
-    // enrich-thumbnails does. Image dedupe (buffered) runs on the image path below.
-    const storagePath = `${accountId}/${adId}.mp4`;
+    // Storage path: asset-keyed by video_id when we have it (so sibling ads share the
+    // one object and dedupe by id — we can't content-hash a streamed upload without
+    // buffering, but the Meta video_id is an equally stable key). Falls back to the
+    // legacy per-ad path when no videoId was supplied.
+    const storagePath = dedupeKey
+      ? `${accountId}/assets/video-${videoId}.mp4`
+      : `${accountId}/${adId}.mp4`;
     const uploadResp = await fetch(
       `${SUPABASE_URL}/storage/v1/object/${VIDEO_BUCKET}/${storagePath}`,
       {
@@ -216,7 +250,35 @@ export async function cacheVideoToStorage(
       return { url: null, reason: "upload-error" };
     }
 
-    return { url: `${SUPABASE_URL}/storage/v1/object/public/${VIDEO_BUCKET}/${storagePath}` };
+    const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${VIDEO_BUCKET}/${storagePath}`;
+
+    // Register the stored copy in the dedupe ledger so sibling ads reuse it (mirrors
+    // the image path's media_assets upsert, keyed by video_id instead of a content
+    // hash). onConflict makes a concurrent double-store idempotent.
+    let assetId: string | undefined;
+    if (supabase && dedupeKey) {
+      const { data: upserted } = await supabase
+        .from("media_assets")
+        .upsert(
+          {
+            account_id: accountId,
+            asset_key: dedupeKey,
+            media_type: "video",
+            bucket: VIDEO_BUCKET,
+            storage_path: storagePath,
+            public_url: publicUrl,
+            byte_size: lenHeader ? Number(lenHeader) : null,
+            content_type: contentType,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "account_id,asset_key" },
+        )
+        .select("id")
+        .maybeSingle();
+      assetId = upserted?.id ?? undefined;
+    }
+
+    return { url: publicUrl, assetId };
   } catch (e) {
     console.error(`Cache video to storage error for ${adId}:`, e);
     return { url: null, reason: "exception" };
@@ -311,7 +373,9 @@ export async function processQueuedAd(
   adId: string,
   accountId: string,
   metaToken: string,
-): Promise<{ outcome: "cached" | "skipped" | "failed"; reason?: string }> {
+  pageTokenMap?: Map<string, string>,
+  accountVideoMap?: Map<string, string>,
+): Promise<{ outcome: "cached" | "skipped" | "failed" | "throttled"; reason?: string }> {
   const { data: creative, error: fetchErr } = await supabase
     .from("creatives")
     .select("ad_id, account_id, thumbnail_url, full_res_url, video_url, thumb_asset_id, video_asset_id, image_quality")
@@ -328,6 +392,7 @@ export async function processQueuedAd(
   // deno-lint-ignore no-explicit-any
   const updates: Record<string, any> = {};
   let didCache = false;
+  let throttled = false; // a throttle on video OR image discovery — retry, record nothing
   const reasons: string[] = [];
 
   // US-003 (AC#2/#3): decide the video disposition honestly.
@@ -344,14 +409,19 @@ export async function processQueuedAd(
   //     infinite re-discovery loop.
   //   • a NULLed url (an earlier drain found an expired CDN url and NULLed it) →
   //     re-discovery target (null triggers discovery below).
+  // no-video-permission is NO LONGER terminal: page-owned video is resolvable via the
+  // owning Page's token once that Page is assigned to us, so a permission row is a
+  // re-discovery target (it self-heals when access lands, or re-fails + backs off if
+  // the Page is still unassigned). Only a genuinely-gone object (deleted) stays terminal.
   const videoIsTerminalSentinel =
-    creative.video_url === NO_VIDEO_PERMISSION_SENTINEL ||
     creative.video_url === NO_VIDEO_DELETED_SENTINEL;
   const skipVideo = isStorageUrl(creative.video_url) || videoIsTerminalSentinel;
-  // A stored value that is NOT a usable CDN url (the generic no-video sentinel, or a
-  // NULL) means "no live CDN url to download — go discover one".
+  // A stored value that is NOT a usable CDN url (a no-video / no-video-permission
+  // sentinel, or a NULL) means "no live CDN url to download — go discover one".
   const videoNeedsDiscovery =
-    creative.video_url == null || creative.video_url === NO_VIDEO_SENTINEL;
+    creative.video_url == null ||
+    creative.video_url === NO_VIDEO_SENTINEL ||
+    creative.video_url === NO_VIDEO_PERMISSION_SENTINEL;
 
   // US-002: a creative sitting on a low-res placeholder (image_quality='low_res',
   // e.g. only the ~130px thumbnail_url fallback) is a re-discovery TARGET, not
@@ -382,33 +452,53 @@ export async function processQueuedAd(
     // A usable live CDN url only if the stored value is one (never the generic
     // no-video sentinel — that is a re-discovery target, not a downloadable url).
     let cdnUrl: string | null = videoNeedsDiscovery ? null : creative.video_url;
+    // The Meta video_id behind cdnUrl, when discovery resolved one — the dedupe key
+    // for cacheVideoToStorage (store once per (account, video_id)).
+    let resolvedVideoId: string | undefined;
     if (videoNeedsDiscovery) {
       // No usable CDN url (never attempted, generic no-video, or NULLed-expired) —
       // run FULL discovery through every existing strategy (top-level video_id,
       // object_story_spec, template_data, asset_feed_spec.videos, account video map,
-      // post attachments). Build the account video map once (AC#2).
-      const accountVideoMap = await fetchAccountVideoMap(accountId, metaToken);
-      const { url: discovered, reason } = await discoverVideoUrlWithReason(
+      // post attachments). Prefer the caller's per-account map (built ONCE per drain
+      // invocation in drainOnce — paginating the whole advideos library per ad was an
+      // N+1 that hammered the rate limit); fall back to building it here so direct
+      // callers/tests still work.
+      const videoMap = accountVideoMap ?? await fetchAccountVideoMap(accountId, metaToken);
+      const { url: discovered, reason, videoId } = await discoverVideoUrlWithReason(
         adId,
         metaToken,
         30_000,
-        accountVideoMap,
+        videoMap,
+        pageTokenMap,
       );
       cdnUrl =
         discovered && !NO_VIDEO_SENTINELS.has(discovered) ? discovered : null;
+      resolvedVideoId = videoId;
       if (!cdnUrl) {
-        // Genuinely could not resolve. Record the DISTINCT honest reason (AC#3):
-        //   permission / deleted → TERMINAL sentinel (skipped on future drains);
-        //   unknown → generic no-video (still a re-discovery target next time,
-        //   bounded by the queue's attempts/backoff so it is not an infinite loop).
-        updates.video_url = reason ?? NO_VIDEO_SENTINEL;
-        reasons.push(reason ?? NO_VIDEO_SENTINEL);
+        if (reason === THROTTLED) {
+          // Meta rate-limited us — the "no video found" conclusion is UNRELIABLE. Do
+          // NOT write any sentinel to video_url (leave the existing value untouched),
+          // flag the ad for a short transient retry, and record NOTHING. A throttle
+          // means "we could not check", never "no video exists".
+          throttled = true;
+          reasons.push(THROTTLED);
+        } else {
+          // Genuinely could not resolve. Record the DISTINCT honest reason (AC#3):
+          //   permission / deleted → TERMINAL sentinel (skipped on future drains);
+          //   unknown → generic no-video (still a re-discovery target next time,
+          //   bounded by the queue's attempts/backoff so it is not an infinite loop).
+          updates.video_url = reason ?? NO_VIDEO_SENTINEL;
+          reasons.push(reason ?? NO_VIDEO_SENTINEL);
+        }
       }
     }
     if (cdnUrl) {
-      const result = await cacheVideoToStorage(cdnUrl, accountId, adId);
+      const result = await cacheVideoToStorage(cdnUrl, accountId, adId, supabase, resolvedVideoId);
       if (result.url) {
         updates.video_url = result.url;
+        // Link the shared asset so sibling ads dedupe against it (US: video dedupe).
+        if (result.assetId) updates.video_asset_id = result.assetId;
+        if (result.deduped) console.log(`Video dedupe hit for ${adId} (video ${resolvedVideoId}) — reused stored copy, no download`);
         didCache = true;
       } else if (result.reason === "too-large") {
         // US-007: exceeds the deliberate 2GB capture ceiling. Streaming keeps worker
@@ -459,10 +549,20 @@ export async function processQueuedAd(
       isLowResPlaceholder ? "low_res" : "full_res";
 
     if (!imgUrl) {
-      const discovered = await discoverImageUrl(adId, accountId, metaToken, 8_000);
+      const { result: discovered, reason: imgReason } =
+        await discoverImageUrlWithReason(adId, accountId, metaToken, 8_000);
       imgUrl = discovered?.thumbnailUrl ?? null;
       discoveredQuality = discovered?.imageQuality ?? "low_res";
-      if (!imgUrl && !isLowResPlaceholder) updates.thumbnail_url = NO_THUMB_SENTINEL;
+      if (!imgUrl && imgReason === THROTTLED) {
+        // Meta rate-limited the image lookup — inconclusive. Never write the
+        // NO_THUMB_SENTINEL ("no-thumbnail") for a mere throttle (that would
+        // permanently mark a rate-limited ad as having no image). Leave the image
+        // columns untouched and flag for a short transient retry.
+        throttled = true;
+        reasons.push(THROTTLED);
+      } else if (!imgUrl && !isLowResPlaceholder) {
+        updates.thumbnail_url = NO_THUMB_SENTINEL;
+      }
     }
 
     if (imgUrl && discoveredQuality === "full_res") {
@@ -497,6 +597,15 @@ export async function processQueuedAd(
   if (Object.keys(updates).length > 0) {
     await supabase.from("creatives").update(updates).eq("ad_id", adId).eq("account_id", accountId);
   }
+
+  // Throttle takes priority for the queue disposition: a throttle on EITHER media path
+  // means that path's conclusion is unreliable and must be retried soon. The row's
+  // media columns for the throttled path were deliberately left untouched (no sentinel
+  // written), and any half we DID cache this run is already persisted in `updates`, so
+  // a re-queue safely short-circuits the cached half (isStorageUrl) and only re-attempts
+  // the throttled half. Returning 'throttled' keeps the ad eligible for a normal retry
+  // WITHOUT consuming a hard-failure attempt or a terminal disposition.
+  if (throttled) return { outcome: "throttled", reason: reasons.join(",") || THROTTLED };
 
   if (didCache) return { outcome: "cached", reason: reasons.join(",") || undefined };
   // Already-cached (skipVideo && skipImage) → this ad is done; there is nothing more to
@@ -538,6 +647,7 @@ export async function drainOnce(
     cached: 0,
     skipped: 0,
     failed: 0,
+    throttled: 0,
     chained: false,
     reasons: {},
   };
@@ -556,6 +666,24 @@ export async function drainOnce(
   const rows: any[] = claimed || [];
   summary.claimed = rows.length;
 
+  // Build the page-token map ONCE per invocation (it is account-independent — the set
+  // of Pages assigned to our system user). Threaded into every ad so page-owned video
+  // resolves via the owning Page's token. Empty map ⇒ behaves exactly as before.
+  const pageTokenMap = rows.length ? await fetchPageTokenMap(metaToken) : undefined;
+
+  // Cache the account video-library map per account across this claimed batch. A batch
+  // can span accounts, so key by account_id and build each at most ONCE (previously
+  // fetchAccountVideoMap re-paginated the entire advideos library for EVERY ad — a
+  // per-ad N+1 that was a primary throttle source at scale).
+  const videoMapCache = new Map<string, Map<string, string>>();
+  const getVideoMap = async (acct: string): Promise<Map<string, string>> => {
+    const hit = videoMapCache.get(acct);
+    if (hit) return hit;
+    const built = await fetchAccountVideoMap(acct, metaToken);
+    videoMapCache.set(acct, built);
+    return built;
+  };
+
   for (const row of rows) {
     if (timedOut()) {
       // Release un-processed claims back to pending so the next invocation retries
@@ -568,15 +696,36 @@ export async function drainOnce(
       continue;
     }
 
+    const accountVideoMap = await getVideoMap(row.account_id);
     const { outcome, reason } = await processQueuedAd(
       supabase,
       row.ad_id,
       row.account_id,
       metaToken,
+      pageTokenMap,
+      accountVideoMap,
     );
     if (reason) summary.reasons[reason] = (summary.reasons[reason] ?? 0) + 1;
 
-    if (outcome === "cached" || outcome === "skipped") {
+    if (outcome === "throttled") {
+      // Meta rate-limited this ad's discovery — NOT a data verdict and NOT a hard
+      // failure. Re-queue it to 'pending' for a SHORT transient retry (the next
+      // drain-media-queue-2min poke picks it up soon), leave its media columns
+      // untouched, and DO NOT burn an attempt: the claim RPC already bumped attempts,
+      // so decrement it back so a throttle never advances the ad toward MAX_ATTEMPTS
+      // or the escalating permanent-failure backoff. It is neither done/cached nor a
+      // hard failure — just deferred.
+      summary.throttled++;
+      await supabase
+        .from("media_cache_queue")
+        .update({
+          status: "pending",
+          attempts: Math.max(0, (row.attempts ?? 1) - 1),
+          updated_at: new Date().toISOString(),
+          last_error: reason ?? THROTTLED,
+        })
+        .eq("ad_id", row.ad_id);
+    } else if (outcome === "cached" || outcome === "skipped") {
       if (outcome === "cached") summary.cached++;
       else summary.skipped++;
       await supabase
@@ -618,6 +767,28 @@ export async function handler(req: Request, supabaseOverride?: unknown): Promise
   try {
     const url = new URL(req.url);
     const chainDepth = Number(url.searchParams.get("chain") || "0");
+
+    // Single-flight guard: a cron poke (chain=0) must NOT start a NEW chain while an
+    // earlier one is still draining. Overlapping self-chaining workers were the
+    // throttle trigger on re-enable (one bounded chain is rate-safe; many at once is
+    // not). A live chain leaves fresh 'processing' rows (each batch marks 5;
+    // claim_media_cache_queue only reclaims them after 5 min stale), so if any
+    // processing row was touched in the last 3 min a chain is active and this poke is
+    // a no-op. Self-chain continuations (chain>0) skip the guard — they ARE that chain.
+    if (chainDepth === 0) {
+      const { count: liveProcessing } = await supabase
+        .from("media_cache_queue")
+        .select("ad_id", { count: "exact", head: true })
+        .eq("status", "processing")
+        .gt("updated_at", new Date(Date.now() - 3 * 60_000).toISOString());
+      if ((liveProcessing ?? 0) > 0) {
+        console.log(`drain-media-queue: chain already active (${liveProcessing} processing < 3m) — skipping poke`);
+        return new Response(
+          JSON.stringify({ status: "skipped", reason: "chain-active", processing: liveProcessing }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    }
 
     // Resolve Meta token — env first, then settings table (same as sync).
     let metaToken = resolveMetaToken(Deno.env.get("META_ACCESS_TOKEN"), null);
