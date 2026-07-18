@@ -7,6 +7,7 @@ import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
 import { parsePlayCurve } from "../_shared/play-curve.ts";
 import { RECENT_WINDOW_DAYS, RETENTION_DAYS } from "../_shared/retention-config.ts";
 import { extractDestinationLink, normalizeDestinationUrl } from "../_shared/normalize-destination.ts";
+import { extractMetaIdentifiers } from "../_shared/meta-identifiers.ts";
 import {
   assetStoragePath,
   computeContentHash,
@@ -982,6 +983,21 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           const frames = deriveFrames(ad.creative);
           if (frames.length > 0) framesByAd.set(ad.id, frames);
 
+          // US-014: persist the Meta identifiers already present in the spec we
+          // fetched (no new Meta call) as secondary entity anchors (US-015).
+          // Each field is included ONLY when present, so a spec that lacks it
+          // never overwrites a previously-stored value with null/empty (matches
+          // the landing_page_url / expected_frame_count forward-fill rule).
+          const metaIds = extractMetaIdentifiers(ad.creative);
+          const metaIdFields = {
+            ...(metaIds.videoIds.length ? { meta_video_ids: metaIds.videoIds } : {}),
+            ...(metaIds.imageHashes.length ? { meta_image_hashes: metaIds.imageHashes } : {}),
+            ...(metaIds.effectiveObjectStoryId
+              ? { effective_object_story_id: metaIds.effectiveObjectStoryId }
+              : {}),
+            ...(metaIds.creativeId ? { meta_creative_id: metaIds.creativeId } : {}),
+          };
+
           if (taggedAdIds.has(ad.id)) {
             // Tagged ads only get metadata updated (their tags are preserved), so they
             // route through the bulk_update_creative_metadata RPC instead of the upsert
@@ -1014,6 +1030,8 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
               // count (>1); leaving it out for single-asset ads avoids overwriting a
               // prior value with null and keeps frames_ok trivially TRUE for them.
               ...(frameCount != null ? { expected_frame_count: frameCount } : {}),
+              // US-014: Meta identifiers (secondary entity anchors), present-only.
+              ...metaIdFields,
             });
           }
         }

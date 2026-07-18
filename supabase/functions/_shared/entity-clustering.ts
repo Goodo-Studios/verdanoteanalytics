@@ -93,6 +93,105 @@ export interface EmbeddedCreative {
  *
  * Returns clusters as arrays of ad_ids, ordered largest-first for determinism.
  */
+// ─── Persistent entity identity (US-005 / US-015) ────────────────────────────
+// The resolver below maps freshly-formed groups back to EXISTING entity ids
+// (stable UUIDs) instead of regenerating them each run, so an entity keeps its id
+// (and its history/tags/notes) across clustering passes.
+
+export interface EntityAnchors {
+  assetKeys: string[];       // media_assets.asset_key — PRIMARY within-account exact anchor
+  metaVideoIds: string[];    // secondary exact anchors (US-014)
+  metaImageHashes: string[];
+}
+
+export interface ExistingEntity extends EntityAnchors {
+  id: string;
+  centroid: number[] | null; // stored mean embedding, for centroid fallback matching
+}
+
+export interface CandidateGroup extends EntityAnchors {
+  key: string;               // deterministic group key (e.g. min ad_id) for stable ordering
+  size: number;
+  centroid: number[] | null;
+}
+
+// Mean of equal-length vectors → the entity centroid. null for empty input.
+export function centroid(vectors: number[][]): number[] | null {
+  const vs = vectors.filter((v) => Array.isArray(v) && v.length > 0);
+  if (vs.length === 0) return null;
+  const dim = vs[0].length;
+  const acc = new Array(dim).fill(0);
+  for (const v of vs) {
+    for (let i = 0; i < dim; i++) acc[i] += v[i] ?? 0;
+  }
+  for (let i = 0; i < dim; i++) acc[i] /= vs.length;
+  return acc;
+}
+
+function anchorsOverlap(a: EntityAnchors, b: EntityAnchors): boolean {
+  const sets = [
+    [a.assetKeys, b.assetKeys],
+    [a.metaVideoIds, b.metaVideoIds],
+    [a.metaImageHashes, b.metaImageHashes],
+  ] as const;
+  for (const [x, y] of sets) {
+    if (x.length && y.length) {
+      const s = new Set(x);
+      if (y.some((v) => s.has(v))) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Map each candidate group to an EXISTING entity id, or null when it should mint a
+ * new one. Resolution order per group (US-015): (1) shared exact anchor
+ * (asset_key / meta video id / image hash) with an existing entity; (2) else
+ * nearest existing centroid within simThreshold; (3) else new. Each existing
+ * entity is claimed by at most ONE group (prevents two groups grabbing the same
+ * id). Deterministic: groups are processed largest-first then by key, so a re-run
+ * over unchanged data reproduces the SAME assignments — the core stability
+ * guarantee behind the persistent entity_id.
+ */
+export function matchGroupsToEntities(
+  groups: CandidateGroup[],
+  existing: ExistingEntity[],
+  simThreshold = 0.7,
+): (string | null)[] {
+  const ordered = groups
+    .map((g, i) => ({ g, i }))
+    .sort((a, b) => (b.g.size - a.g.size) || a.g.key.localeCompare(b.g.key));
+
+  const claimed = new Set<string>();
+  const result: (string | null)[] = new Array(groups.length).fill(null);
+
+  for (const { g, i } of ordered) {
+    // (1) exact anchor overlap with an unclaimed entity.
+    let match: string | null = null;
+    for (const e of existing) {
+      if (!claimed.has(e.id) && anchorsOverlap(g, e)) {
+        match = e.id;
+        break;
+      }
+    }
+    // (2) nearest unclaimed centroid within threshold.
+    if (!match && g.centroid) {
+      let best: { id: string; sim: number } | null = null;
+      for (const e of existing) {
+        if (claimed.has(e.id) || !e.centroid) continue;
+        const sim = cosineSimilarity(g.centroid, e.centroid);
+        if (sim >= simThreshold && (!best || sim > best.sim)) best = { id: e.id, sim };
+      }
+      if (best) match = best.id;
+    }
+    if (match) {
+      claimed.add(match);
+      result[i] = match;
+    }
+  }
+  return result;
+}
+
 export function agglomerativeClusters(
   items: EmbeddedCreative[],
   threshold = 0.7,
