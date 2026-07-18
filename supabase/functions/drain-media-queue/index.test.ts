@@ -13,7 +13,7 @@
 //   deno test -A supabase/functions/drain-media-queue/index.test.ts
 
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { isStorageUrl, isVideoOk } from "../_shared/media-discovery.ts";
+import { fetchAppUsage, isOverAppBudget, isStorageUrl, isVideoOk } from "../_shared/media-discovery.ts";
 
 Deno.env.set("DRAIN_MEDIA_QUEUE_NO_SERVE", "1");
 Deno.env.set("DRAIN_NO_CHAIN", "1"); // default: no live self-chain fetch
@@ -1141,4 +1141,76 @@ Deno.test("drainOnce: Meta-lookup maps are cached across invocations (one /me/ac
   assertEquals(advideosCalls, 1, "the account video map must be built ONCE and reused from cache");
   assert(metaCache["pagetokenmap"], "page-token map was written to the cache");
   assert(metaCache["videomap:act_1"], "account video map was written to the cache");
+})
+
+// ── #4 circuit breaker: pause the drain BEFORE tripping Meta's app-usage limit ──
+Deno.test("isOverAppBudget: true at/over threshold on any dimension, fail-open on null", () => {
+  assertEquals(isOverAppBudget(null), false, "no usage data → do not block (fail-open)");
+  assertEquals(isOverAppBudget({ callCount: 79, totalCputime: 0, totalTime: 0 }), false, "under threshold");
+  assertEquals(isOverAppBudget({ callCount: 80, totalCputime: 0, totalTime: 0 }), true, "call_count at threshold");
+  assertEquals(isOverAppBudget({ callCount: 0, totalCputime: 0, totalTime: 95 }), true, "total_time over threshold");
+  assertEquals(isOverAppBudget({ callCount: 1116, totalCputime: 1, totalTime: 620 }), true, "the real over-limit reading");
+  assertEquals(isOverAppBudget({ callCount: 50, totalCputime: 50, totalTime: 50 }, 40), true, "custom threshold honored");
+});
+
+Deno.test("fetchAppUsage: parses the x-app-usage header (present even on a #4 response)", async () => {
+  await withFetch((url) => {
+    if (url.includes("/me")) {
+      return new Response(
+        JSON.stringify({ error: { code: 4, message: "(#4) Application request limit reached" } }),
+        { status: 400, headers: { "content-type": "application/json", "x-app-usage": '{"call_count":1116,"total_cputime":1,"total_time":620}' } },
+      );
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  }, async () => {
+    const usage = await fetchAppUsage("fake-token");
+    assertEquals(usage?.callCount, 1116, "reads call_count from a throttled response's header");
+    assertEquals(usage?.totalTime, 620);
+    assert(isOverAppBudget(usage), "1116% is over budget → drain must pause");
+  });
+});
+
+Deno.test("fetchAppUsage: no header → null (fail-open, drain proceeds)", async () => {
+  await withFetch(() => new Response("{}", { status: 200 }), async () => {
+    assertEquals(await fetchAppUsage("fake-token"), null);
+  });
+});
+
+Deno.test("handler: pauses (no claim, no chain) when Meta app usage is over the threshold", async () => {
+  const now = new Date().toISOString();
+  const queue: QueueRow[] = [{
+    ad_id: "ad_x", account_id: "act_1", status: "pending",
+    attempts: 0, enqueued_at: now, updated_at: now, last_error: null,
+  }];
+  const { supabase } = makeDb({ queue, creatives: [] });
+
+  Deno.env.delete("DRAIN_NO_CHAIN");
+  let chainFired = false;
+  let claimAttempted = false;
+  try {
+    await withFetch((url) => {
+      if (url.includes("/functions/v1/drain-media-queue")) { chainFired = true; return new Response("{}", { status: 200 }); }
+      if (url.includes("/me")) {
+        // Over-budget reading → the breaker must short-circuit the whole invocation.
+        return new Response("{}", { status: 200, headers: { "x-app-usage": '{"call_count":92,"total_cputime":5,"total_time":40}' } });
+      }
+      throw new Error(`unexpected fetch (no work should happen while paused): ${url}`);
+    }, async () => {
+      // Wrap the rpc so we can prove no batch was claimed while paused.
+      const origRpc = supabase.rpc.bind(supabase);
+      // deno-lint-ignore no-explicit-any
+      supabase.rpc = (name: string, args: any) => { if (name === "claim_media_cache_queue") claimAttempted = true; return origRpc(name, args); };
+      const req = new Request("https://example.supabase.co/functions/v1/drain-media-queue?chain=0", { method: "POST", body: "{}" });
+      const resp = await mod.handler(req, supabase);
+      const json = await resp.json();
+      assertEquals(json.status, "paused");
+      assertEquals(json.reason, "meta-app-usage-high");
+      assertEquals(json.usage.callCount, 92);
+    });
+  } finally {
+    Deno.env.set("DRAIN_NO_CHAIN", "1");
+  }
+  assert(!claimAttempted, "an over-budget invocation must NOT claim a batch");
+  assert(!chainFired, "an over-budget invocation must NOT self-chain");
+  assertEquals(queue[0].status, "pending", "the pending row is left untouched while paused");
 })

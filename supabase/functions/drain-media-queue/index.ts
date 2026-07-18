@@ -46,6 +46,8 @@ import {
   discoverVideoUrlWithReason,
   fetchAccountVideoMap,
   fetchPageTokenMap,
+  fetchAppUsage,
+  isOverAppBudget,
   isStorageUrl,
   looksLikeHtml,
   NO_THUMB_SENTINEL,
@@ -830,6 +832,26 @@ export async function handler(req: Request, supabaseOverride?: unknown): Promise
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // App-usage circuit breaker: before doing any work, probe Meta's app-level budget
+    // (one cheap GET /me). If we are at/over the pause threshold, this invocation is a
+    // NO-OP — no claim, no discovery, and crucially NO self-chain — so the drain goes
+    // quiet BEFORE tripping #4 instead of hammering until Meta blocks us. The 2-min
+    // cron keeps probing cheaply; draining auto-resumes the first tick usage falls back
+    // under the threshold. Fail-open: if the probe yields no usage data, proceed as
+    // normal (behavior unchanged). Applies to BOTH cron pokes and self-chain links, so
+    // an in-flight chain also winds down once usage crosses the line.
+    const appUsage = await fetchAppUsage(metaToken);
+    if (isOverAppBudget(appUsage)) {
+      console.log(
+        `drain-media-queue: Meta app usage over threshold (call_count=${appUsage?.callCount}%, ` +
+          `cputime=${appUsage?.totalCputime}%, time=${appUsage?.totalTime}%) — pausing this invocation (no drain, no chain)`,
+      );
+      return new Response(
+        JSON.stringify({ status: "paused", reason: "meta-app-usage-high", chainDepth, usage: appUsage }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     const summary = await drainOnce(supabase, metaToken, BATCH_SIZE, DEADLINE_MS);

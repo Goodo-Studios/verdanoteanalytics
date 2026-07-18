@@ -1215,6 +1215,73 @@ export async function fetchPageTokenMap(
   return map;
 }
 
+// ── Meta app-usage circuit breaker ────────────────────────────────────────────
+// Every Graph response carries an `x-app-usage` header — the app-level rolling-window
+// budget as PERCENTAGES (0-100, but Meta reports the overage past 100 once you keep
+// calling after a throttle, e.g. call_count:1116 = 11x over). Reading it lets the
+// drain STOP BEFORE it trips "(#4) Application request limit reached", instead of
+// charging ahead until Meta slams the door — the sustained-saturation loop that
+// stalls the whole pipeline. Caching the per-batch lookups (media-map-cache.ts) cut
+// the volume; this caps the RATE so a large backlog drains steadily without re-#4ing.
+export interface AppUsage {
+  callCount: number;
+  totalCputime: number;
+  totalTime: number;
+}
+
+// Pause the drain when ANY app-usage dimension is at/above this percentage. 80 leaves
+// headroom for one in-flight batch's calls to land without crossing 100 (a batch that
+// slightly overshoots is caught by the NEXT invocation's pre-flight probe, and a stray
+// throttle is already handled gracefully — re-queued, no attempt burned).
+export const APP_USAGE_PAUSE_THRESHOLD = 80;
+
+/**
+ * Probe the app-level Meta usage via a single cheap GET /me, reading the x-app-usage
+ * header (present on BOTH ok and #4-throttled responses). Returns null on any error or
+ * a missing header — callers treat null as "unknown → do not block" (fail-open, so a
+ * missing header never bricks the drain). Never throws.
+ */
+export async function fetchAppUsage(
+  accessToken: string,
+  timeoutMs = 10_000,
+): Promise<AppUsage | null> {
+  try {
+    const res = await fetchWithTimeout(
+      `https://graph.facebook.com/${META_API_VERSION}/me?fields=id&access_token=${accessToken}`,
+      timeoutMs,
+    );
+    const raw = res.headers.get("x-app-usage");
+    // Drain the body so the socket is freed (we only needed the header).
+    await res.text().catch(() => {});
+    if (!raw) return null;
+    const u = JSON.parse(raw);
+    return {
+      callCount: Number(u.call_count ?? 0),
+      totalCputime: Number(u.total_cputime ?? 0),
+      totalTime: Number(u.total_time ?? 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True when the app is at/over the pause threshold on ANY usage dimension. Fail-open:
+ * a null usage (no data) is NOT over budget, so behavior is unchanged when the header
+ * is unavailable. Pure + unit-testable.
+ */
+export function isOverAppBudget(
+  usage: AppUsage | null,
+  threshold = APP_USAGE_PAUSE_THRESHOLD,
+): boolean {
+  if (!usage) return false;
+  return (
+    usage.callCount >= threshold ||
+    usage.totalCputime >= threshold ||
+    usage.totalTime >= threshold
+  );
+}
+
 /**
  * Derive the owning Facebook Page id for a creative, so we can pick the right Page
  * token to resolve page-owned video. Two sources, in order of reliability:
