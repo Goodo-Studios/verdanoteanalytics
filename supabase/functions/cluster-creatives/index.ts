@@ -21,16 +21,17 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { json } from "../_shared/cors.ts";
 import {
+  blendedTier,
   type CandidateGroup,
   centroid,
   clusterLabel,
   clusterStats,
-  confidenceTier,
   cosineSimilarity,
   type CreativeMetrics,
   effectiveEntities,
   type ExistingEntity,
   matchGroupsToEntities,
+  modalityCoherent,
   representativeAdId,
 } from "../_shared/entity-clustering.ts";
 
@@ -77,6 +78,9 @@ function makeUF(n: number) {
 interface Participant {
   ad_id: string;
   embedding: number[] | null;
+  visualEmb: number[] | null;
+  scriptEmb: number[] | null;
+  destinationKey: string | null;
   assetKeys: string[];
   metaVideoIds: string[];
   metaImageHashes: string[];
@@ -91,16 +95,25 @@ Deno.serve(async (req) => {
   if (!accountId) return json({ error: "account_id required" }, 400);
   const threshold: number = Number.isFinite(body.threshold) ? Number(body.threshold) : 0.7;
 
-  // 1. Embeddings for the account.
+  // 1. Embeddings for the account — note (v1), plus the multi-modal visual + script
+  //    vectors (US-003) that US-006 blends.
   const { data: embRows, error: embErr } = await db
     .from("creative_embeddings")
-    .select("ad_id, embedding")
+    .select("ad_id, embedding, visual_embedding, script_embedding")
     .eq("account_id", accountId);
   if (embErr) return json({ error: embErr.message }, 500);
   const embById = new Map<string, number[]>();
+  const visualById = new Map<string, number[]>();
+  const scriptById = new Map<string, number[]>();
   for (const r of embRows ?? []) {
-    const e = parseEmbedding((r as { embedding: unknown }).embedding);
-    if (e) embById.set((r as { ad_id: string }).ad_id, e);
+    const row = r as Record<string, unknown>;
+    const adId = row.ad_id as string;
+    const e = parseEmbedding(row.embedding);
+    if (e) embById.set(adId, e);
+    const ve = parseEmbedding(row.visual_embedding);
+    if (ve) visualById.set(adId, ve);
+    const se = parseEmbedding(row.script_embedding);
+    if (se) scriptById.set(adId, se);
   }
 
   // 2. Creatives (metrics + anchors) for the whole account, chunked.
@@ -113,7 +126,7 @@ Deno.serve(async (req) => {
     for (;;) {
       const { data: rows, error } = await db
         .from("creatives")
-        .select("ad_id, ad_name, spend, roas, ctr, cpa, tag_source, ad_type, person, style, product, hook, theme, meta_video_ids, meta_image_hashes, thumb_asset_id, video_asset_id")
+        .select("ad_id, ad_name, spend, roas, ctr, cpa, tag_source, ad_type, person, style, product, hook, theme, meta_video_ids, meta_image_hashes, thumb_asset_id, video_asset_id, destination_key")
         .eq("account_id", accountId)
         .range(from, from + PAGE - 1);
       if (error) return json({ error: error.message }, 500);
@@ -130,6 +143,9 @@ Deno.serve(async (req) => {
         participants.push({
           ad_id: adId,
           embedding: embById.get(adId) ?? null,
+          visualEmb: visualById.get(adId) ?? null,
+          scriptEmb: scriptById.get(adId) ?? null,
+          destinationKey: (row.destination_key as string) ?? null,
           assetKeys: [], // filled after media_assets lookup
           metaVideoIds: arr(row.meta_video_ids),
           metaImageHashes: arr(row.meta_image_hashes),
@@ -170,9 +186,11 @@ Deno.serve(async (req) => {
     p.assetKeys = keys;
   }
 
-  // Only creatives that can cluster: embedded OR carrying at least one anchor.
+  // Only creatives that can cluster: any embedding modality OR at least one anchor.
   const items = participants.filter(
-    (p) => p.embedding || p.assetKeys.length || p.metaVideoIds.length || p.metaImageHashes.length,
+    (p) =>
+      p.embedding || p.visualEmb || p.scriptEmb ||
+      p.assetKeys.length || p.metaVideoIds.length || p.metaImageHashes.length,
   );
   if (items.length === 0) {
     return json({ ok: true, clusters: 0, clustered: 0, effective_entities: 0, note: "no embeddings/anchors for account" });
@@ -204,14 +222,21 @@ Deno.serve(async (req) => {
     }
   });
 
-  // 3b. Embedding unions (O(m^2) over embedded items only).
-  const embeddedIdx = items.map((p, i) => (p.embedding ? i : -1)).filter((i) => i >= 0);
-  for (let a = 0; a < embeddedIdx.length; a++) {
-    for (let b = a + 1; b < embeddedIdx.length; b++) {
-      const i = embeddedIdx[a], j = embeddedIdx[b];
-      if (cosineSimilarity(items[i].embedding!, items[j].embedding!) >= threshold) combined.union(i, j);
+  // 3b. Embedding unions (O(m^2) per modality). Two creatives merge when they are
+  //     similar on ANY modality — note (v1), visual, or script (US-006). The
+  //     resulting group's TIER (below) then reflects HOW MANY modalities agreed.
+  const unionByModality = (pick: (p: Participant) => number[] | null) => {
+    const withEmb = items.map((p, i) => (pick(p) ? i : -1)).filter((i) => i >= 0);
+    for (let a = 0; a < withEmb.length; a++) {
+      for (let b = a + 1; b < withEmb.length; b++) {
+        const i = withEmb[a], j = withEmb[b];
+        if (cosineSimilarity(pick(items[i])!, pick(items[j])!) >= threshold) combined.union(i, j);
+      }
     }
-  }
+  };
+  unionByModality((p) => p.embedding);
+  unionByModality((p) => p.visualEmb);
+  unionByModality((p) => p.scriptEmb);
 
   // Collect final groups.
   const groupMap = new Map<number, number[]>();
@@ -246,12 +271,27 @@ Deno.serve(async (req) => {
     const assetKeys = [...new Set(members.flatMap((m) => m.assetKeys))];
     const metaVideoIds = [...new Set(members.flatMap((m) => m.metaVideoIds))];
     const metaImageHashes = [...new Set(members.flatMap((m) => m.metaImageHashes))];
-    const cen = centroid(members.map((m) => m.embedding).filter((e): e is number[] => !!e));
+    // Centroid for identity re-match prefers the note embedding, then visual, then
+    // script — whichever the members carry (so matching is stable across runs).
+    const cen = centroid(members.map((m) => m.embedding).filter((e): e is number[] => !!e)) ??
+      centroid(members.map((m) => m.visualEmb).filter((e): e is number[] => !!e)) ??
+      centroid(members.map((m) => m.scriptEmb).filter((e): e is number[] => !!e));
     // 'exact' iff >=2 members AND all members share one anchor-only component.
     const anchorRoots = new Set(memberIdxs.map((i) => anchorOnly.find(i)));
     const isExact = members.length >= 2 && anchorRoots.size === 1 &&
       (assetKeys.length > 0 || metaVideoIds.length > 0 || metaImageHashes.length > 0);
-    return { members, key, assetKeys, metaVideoIds, metaImageHashes, centroid: cen, isExact };
+    // US-006 signal agreement: does each modality independently cohere?
+    const visualCoherent = modalityCoherent(
+      members.map((m) => m.visualEmb).filter((e): e is number[] => !!e), threshold);
+    const scriptCoherent = modalityCoherent(
+      members.map((m) => m.scriptEmb).filter((e): e is number[] => !!e), threshold);
+    // Weak tiebreak: all members land on ONE non-null destination.
+    const dests = new Set(members.map((m) => m.destinationKey).filter(Boolean));
+    const sharedDestination = members.length >= 2 && dests.size === 1;
+    return {
+      members, key, assetKeys, metaVideoIds, metaImageHashes, centroid: cen,
+      isExact, visualCoherent, scriptCoherent, sharedDestination,
+    };
   });
 
   const candidates: CandidateGroup[] = built.map((g) => ({
@@ -275,7 +315,14 @@ Deno.serve(async (req) => {
     const g = built[gi];
     const members = g.members.map((p) => p.metrics);
     const stats = clusterStats(members);
-    const tier = g.isExact ? "exact" : confidenceTier(stats);
+    const tier = blendedTier({
+      isExact: g.isExact,
+      visualCoherent: g.visualCoherent,
+      scriptCoherent: g.scriptCoherent,
+      hasManual: stats.manual_tag_frac > 0,
+      nMembers: members.length,
+      sharedDestination: g.sharedDestination,
+    });
     const totalSpend = members.reduce((s, m) => s + m.spend, 0);
     const repId = representativeAdId(members);
     const adNameById = new Map(g.members.map((p) => [p.ad_id, p.ad_name]));

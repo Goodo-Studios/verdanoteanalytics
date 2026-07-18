@@ -19,8 +19,10 @@ import {
   effectiveEntities,
   type ExistingEntity,
   type CreativeMetrics,
+  blendedTier,
   manualTagFraction,
   matchGroupsToEntities,
+  modalityCoherent,
   representativeAdId,
   tagHomogeneity,
 } from "./entity-clustering.ts";
@@ -271,6 +273,51 @@ Deno.test("shared meta_video_id matches even when centroids drift", () => {
     { key: "ad1", size: 1, centroid: [0, 1], assetKeys: [], metaVideoIds: ["vid-1"], metaImageHashes: [] },
   ];
   assertEquals(matchGroupsToEntities(groups, existing, 0.9), ["ent-A"]);
+});
+
+// ─── Blended multi-signal tiers (US-006) ─────────────────────────────────────
+
+Deno.test("modalityCoherent: tight set coheres, orthogonal set does not, <2 is false", () => {
+  assertEquals(modalityCoherent([[1, 0], [0.99, 0.01]], 0.9), true);
+  assertEquals(modalityCoherent([[1, 0], [0, 1]], 0.9), false);
+  assertEquals(modalityCoherent([[1, 0]], 0.9), false); // needs >=2
+});
+
+Deno.test("blendedTier: exact wins over everything", () => {
+  assertEquals(
+    blendedTier({ isExact: true, visualCoherent: false, scriptCoherent: false, hasManual: false, nMembers: 3 }),
+    "exact",
+  );
+});
+
+Deno.test("blendedTier: both modalities agree -> corroborated; one -> probable; none -> visual_only", () => {
+  const base = { isExact: false, hasManual: false, nMembers: 4 };
+  assertEquals(blendedTier({ ...base, visualCoherent: true, scriptCoherent: true }), "corroborated");
+  assertEquals(blendedTier({ ...base, visualCoherent: true, scriptCoherent: false }), "probable");
+  assertEquals(blendedTier({ ...base, visualCoherent: false, scriptCoherent: true }), "probable");
+  assertEquals(blendedTier({ ...base, visualCoherent: false, scriptCoherent: false }), "visual_only");
+});
+
+Deno.test("blendedTier: shared destination lifts an uncorroborated group to probable, never higher", () => {
+  const base = { isExact: false, visualCoherent: false, scriptCoherent: false, hasManual: false, nMembers: 3 };
+  assertEquals(blendedTier({ ...base, sharedDestination: true }), "probable");
+  assertEquals(blendedTier({ ...base, sharedDestination: false }), "visual_only");
+  // destination never manufactures 'corroborated' on its own
+  assertEquals(
+    blendedTier({ ...base, visualCoherent: true, sharedDestination: true }),
+    "probable",
+  );
+});
+
+Deno.test("blendedTier: singleton is visual_only unless manually tagged", () => {
+  assertEquals(
+    blendedTier({ isExact: false, visualCoherent: false, scriptCoherent: false, hasManual: false, nMembers: 1 }),
+    "visual_only",
+  );
+  assertEquals(
+    blendedTier({ isExact: false, visualCoherent: false, scriptCoherent: false, hasManual: true, nMembers: 1 }),
+    "probable",
+  );
 });
 
 Deno.test("each existing entity is claimed by at most one group", () => {

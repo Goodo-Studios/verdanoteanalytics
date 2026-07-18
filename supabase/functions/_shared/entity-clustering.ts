@@ -33,7 +33,7 @@ export interface CreativeMetrics {
   tags: CreativeTags;
 }
 
-export type ConfidenceTier = "corroborated" | "probable" | "visual_only";
+export type ConfidenceTier = "exact" | "corroborated" | "probable" | "visual_only";
 
 // ─── Feature text ────────────────────────────────────────────────────────────
 
@@ -102,6 +102,48 @@ export interface EntityAnchors {
   assetKeys: string[];       // media_assets.asset_key — PRIMARY within-account exact anchor
   metaVideoIds: string[];    // secondary exact anchors (US-014)
   metaImageHashes: string[];
+}
+
+// ─── Blended multi-signal confidence (US-006) ────────────────────────────────
+// A modality (visual OR script embeddings) is "coherent" for a group when it has
+// >=2 members carrying that embedding and every one sits within `threshold` of the
+// modality centroid — i.e. the members genuinely agree on that axis.
+export function modalityCoherent(embeddings: number[][], threshold: number): boolean {
+  const vs = embeddings.filter((e) => Array.isArray(e) && e.length > 0);
+  if (vs.length < 2) return false;
+  const c = centroid(vs);
+  if (!c) return false;
+  return vs.every((v) => cosineSimilarity(v, c) >= threshold);
+}
+
+/**
+ * Blend the signals into one honest confidence tier (US-006), most-trusted first:
+ *   • exact        — grouped by a shared underlying asset (US-005); ground truth.
+ *   • corroborated — BOTH visual AND script modalities agree (independent signals
+ *     concur), optionally reinforced by a shared destination.
+ *   • probable     — a single modality agrees (visual OR script), or a lone
+ *     manual-tagged member; a shared destination can reinforce but is NEVER the
+ *     sole basis for a merge.
+ *   • visual_only  — weakest: clustered without two-signal corroboration (also the
+ *     tier for singletons).
+ */
+export function blendedTier(opts: {
+  isExact: boolean;
+  visualCoherent: boolean;
+  scriptCoherent: boolean;
+  hasManual: boolean;
+  nMembers: number;
+  sharedDestination?: boolean; // all members land on one destination — weak tiebreak only
+}): ConfidenceTier {
+  if (opts.isExact) return "exact";
+  if (opts.nMembers < 2) return opts.hasManual ? "probable" : "visual_only";
+  if (opts.visualCoherent && opts.scriptCoherent) return "corroborated";
+  if (opts.visualCoherent || opts.scriptCoherent) return "probable";
+  // Same-destination is a WEAK corroborator: it can lift an otherwise-uncorroborated
+  // multi-member group off the floor, but never to 'corroborated' and never as the
+  // basis for the merge itself.
+  if (opts.sharedDestination) return "probable";
+  return "visual_only";
 }
 
 export interface ExistingEntity extends EntityAnchors {
