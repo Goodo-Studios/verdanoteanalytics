@@ -43,6 +43,7 @@ FUNCTIONS=(
   quick-save
   refresh-thumbnails
   reports
+  resolve-destinations
   sadie-read
   scheduled-reports
   scheduled-sync
