@@ -59,6 +59,13 @@ import {
   THROTTLED,
 } from "../_shared/media-discovery.ts";
 import { isMediaContentType } from "../_shared/vault-save-logic.ts";
+import {
+  getOrBuildCachedMap,
+  PAGE_TOKEN_MAP_KEY,
+  PAGE_TOKEN_MAP_TTL_MS,
+  videoMapKey,
+  VIDEO_MAP_TTL_MS,
+} from "../_shared/media-map-cache.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const THUMB_BUCKET = "ad-thumbnails";
@@ -666,20 +673,41 @@ export async function drainOnce(
   const rows: any[] = claimed || [];
   summary.claimed = rows.length;
 
-  // Build the page-token map ONCE per invocation (it is account-independent — the set
-  // of Pages assigned to our system user). Threaded into every ad so page-owned video
-  // resolves via the owning Page's token. Empty map ⇒ behaves exactly as before.
-  const pageTokenMap = rows.length ? await fetchPageTokenMap(metaToken) : undefined;
+  // The page-token map (account-independent — the set of Pages assigned to our system
+  // user) is threaded into every ad so page-owned video resolves via the owning Page's
+  // token. Previously rebuilt every invocation (a GET /me/accounts each), which — over
+  // a self-chaining backlog drain — was a primary #4 rate-limit source. Now reused
+  // across the whole chain via a short-TTL DB cache; a miss/expiry rebuilds, so
+  // behavior is unchanged, just far fewer Meta calls. Empty map ⇒ behaves as before.
+  const pageTokenMap = rows.length
+    ? await getOrBuildCachedMap(
+        supabase,
+        PAGE_TOKEN_MAP_KEY,
+        PAGE_TOKEN_MAP_TTL_MS,
+        () => fetchPageTokenMap(metaToken),
+      )
+    : undefined;
 
   // Cache the account video-library map per account across this claimed batch. A batch
   // can span accounts, so key by account_id and build each at most ONCE (previously
   // fetchAccountVideoMap re-paginated the entire advideos library for EVERY ad — a
   // per-ad N+1 that was a primary throttle source at scale).
+  // Two layers: an in-process memo (per invocation, avoids re-building within one
+  // batch that spans an account) over a short-TTL DB cache (per chain, so the whole
+  // self-chaining backlog drain reuses ONE advideos pagination per account instead of
+  // re-paginating up to 50 pages every batch — the other primary #4 rate-limit source,
+  // and pure waste for permission-heavy accounts whose page-owned video is not even in
+  // the library). A DB miss/expiry rebuilds, so behavior is unchanged.
   const videoMapCache = new Map<string, Map<string, string>>();
   const getVideoMap = async (acct: string): Promise<Map<string, string>> => {
     const hit = videoMapCache.get(acct);
     if (hit) return hit;
-    const built = await fetchAccountVideoMap(acct, metaToken);
+    const built = await getOrBuildCachedMap(
+      supabase,
+      videoMapKey(acct),
+      VIDEO_MAP_TTL_MS,
+      () => fetchAccountVideoMap(acct, metaToken),
+    );
     videoMapCache.set(acct, built);
     return built;
   };

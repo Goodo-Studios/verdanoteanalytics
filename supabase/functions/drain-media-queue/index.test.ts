@@ -57,6 +57,7 @@ function makeDb(opts: { queue: QueueRow[]; creatives: Creative[] }) {
   const creatives = opts.creatives;
   const assets: Record<string, { id: string; public_url: string }> = {};
   const storageUploads: string[] = [];
+  const metaCache: Record<string, { payload: unknown; expires_at: string }> = {};
   let assetSeq = 0;
 
   function creativesBuilder() {
@@ -166,12 +167,31 @@ function makeDb(opts: { queue: QueueRow[]; creatives: Creative[] }) {
     return b;
   }
 
+  // Short-TTL Meta-lookup cache (media_meta_cache): select().eq("cache_key").
+  // maybeSingle() reads; upsert() writes. Mirrors _shared/media-map-cache.ts.
+  function metaCacheBuilder() {
+    const filters: Record<string, string> = {};
+    // deno-lint-ignore no-explicit-any
+    const b: Record<string, any> = {};
+    b.select = () => b;
+    b.eq = (col: string, val: string) => { filters[col] = val; return b; };
+    b.maybeSingle = () =>
+      Promise.resolve({ data: metaCache[filters.cache_key] ?? null, error: null });
+    // deno-lint-ignore no-explicit-any
+    b.upsert = (payload: any) => {
+      metaCache[payload.cache_key] = { payload: payload.payload, expires_at: payload.expires_at };
+      return Promise.resolve({ data: null, error: null });
+    };
+    return b;
+  }
+
   const supabase = {
     // deno-lint-ignore no-explicit-any
     from: (table: string): any => {
       if (table === "creatives") return creativesBuilder();
       if (table === "media_cache_queue") return queueBuilder();
       if (table === "media_assets") return assetsBuilder();
+      if (table === "media_meta_cache") return metaCacheBuilder();
       if (table === "settings") {
         return {
           select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { value: "fake" }, error: null }) }) }),
@@ -204,7 +224,7 @@ function makeDb(opts: { queue: QueueRow[]; creatives: Creative[] }) {
     },
   };
 
-  return { supabase, queue, creatives, storageUploads, assets };
+  return { supabase, queue, creatives, storageUploads, assets, metaCache };
 }
 
 // ── Global fetch stub ────────────────────────────────────────────────────────
@@ -1043,4 +1063,82 @@ Deno.test("handler single-flight guard: a chain=0 poke is a no-op while a chain 
   assertEquals(json.status, "skipped");
   assertEquals(json.reason, "chain-active");
   assertEquals(queue.find((q) => q.ad_id === "ad_wait")!.status, "pending", "pending row left untouched — no second chain started");
+})
+
+// ── #4 throttle fix: reuse the Meta-lookup maps across self-chained invocations ──
+// The drain used to rebuild the assigned-Page token map (GET /me/accounts) and the
+// per-account video-library map (GET /{account}/advideos) on EVERY invocation, so a
+// self-chaining backlog drain hammered Meta hundreds of times → #4 rate limit. With
+// the short-TTL media_meta_cache, the FIRST invocation builds + caches each map and
+// every later invocation in the chain reuses it — proven here by two separate
+// drainOnce calls (fresh invocations sharing one DB/cache) issuing exactly ONE
+// /me/accounts and ONE /advideos call TOTAL.
+Deno.test("drainOnce: Meta-lookup maps are cached across invocations (one /me/accounts + one /advideos total)", async () => {
+  const now = new Date().toISOString();
+  const queue: QueueRow[] = ["0", "1"].map((id, i) => ({
+    ad_id: `ad_${id}`,
+    account_id: "act_1",
+    status: "pending",
+    attempts: 0,
+    enqueued_at: new Date(Date.now() + i).toISOString(),
+    updated_at: now,
+    last_error: null,
+  }));
+  const creatives: Creative[] = queue.map((q) => ({
+    ad_id: q.ad_id,
+    account_id: "act_1",
+    thumbnail_url: "no-thumbnail", // image sentinel → image path is a no-op
+    full_res_url: null,
+    video_url: "no-video", // re-discovery target → forces map builds + discovery
+    thumb_asset_id: null,
+    video_asset_id: null,
+    image_quality: "full_res",
+  }));
+  const { supabase, metaCache } = makeDb({ queue, creatives });
+
+  let meAccountsCalls = 0;
+  let advideosCalls = 0;
+  const responder = (url: string) => {
+    if (url.includes("/me/accounts")) {
+      meAccountsCalls++;
+      // Non-empty → gets cached (an empty build would not).
+      return new Response(
+        JSON.stringify({ data: [{ id: "page1", name: "P", access_token: "tok1" }] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (url.includes("/advideos")) {
+      advideosCalls++;
+      return new Response(
+        JSON.stringify({ data: [{ id: "vid1", source: "https://cdn/vid1.mp4" }] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (url.includes("graph.facebook.com") && url.includes("?fields=creative")) {
+      // Discovery resolves vid1, which is present in the (cached) account video map.
+      return new Response(
+        JSON.stringify({ creative: { object_story_spec: { video_data: { video_id: "vid1" } } } }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (url.includes("/storage/v1/object/")) return new Response("{}", { status: 200 });
+    if (url === "https://cdn/vid1.mp4") return videoResponse(10 * 1024 * 1024);
+    throw new Error(`unexpected fetch in map-cache test: ${url}`);
+  };
+
+  await withFetch(responder, async () => {
+    // Two SEPARATE invocations (limit 1 each) sharing the same supabase/cache — the
+    // 2nd must serve both maps from media_meta_cache, issuing no new Meta calls.
+    const s1 = await mod.drainOnce(supabase, "fake-token", 1, 120_000);
+    assertEquals(s1.claimed, 1);
+    assertEquals(s1.cached, 1, "first invocation caches the re-discovered video");
+    const s2 = await mod.drainOnce(supabase, "fake-token", 1, 120_000);
+    assertEquals(s2.claimed, 1);
+    assertEquals(s2.cached, 1, "second invocation also caches its video");
+  });
+
+  assertEquals(meAccountsCalls, 1, "the page-token map must be built ONCE and reused from cache");
+  assertEquals(advideosCalls, 1, "the account video map must be built ONCE and reused from cache");
+  assert(metaCache["pagetokenmap"], "page-token map was written to the cache");
+  assert(metaCache["videomap:act_1"], "account video map was written to the cache");
 })
