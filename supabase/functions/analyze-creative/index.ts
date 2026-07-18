@@ -406,13 +406,40 @@ Deno.serve(async (req) => {
 
   const url = new URL(req.url);
   const body = await req.json().catch(() => ({}));
-  const accountId: string | undefined = body.account_id;
-  if (!accountId) return json({ error: "account_id required" }, 400);
   const limit = Math.min(Math.max(Number(body.limit) || BATCH_DEFAULT, 1), BATCH_MAX);
   const force: boolean = body.force === true;
   // no_chain: process a single bounded batch and stop (controlled validation runs).
   const noChain: boolean = body.no_chain === true;
   const chainDepth = Number(body.chain ?? url.searchParams.get("chain") ?? 0);
+
+  // Single-flight (global): a fresh poke (chain=0, e.g. the 5-min cron or a manual
+  // run) must NOT start a new drain while another is already active — overlapping
+  // self-chaining workers are the throttle trigger (mirrors drain-media-queue's
+  // single-flight guard). A live chain leaves creatives in 'analyzing' touched
+  // within the last 3 min. Self-chain continuations (chain>0) ARE that chain, so
+  // they skip the guard.
+  if (chainDepth === 0) {
+    const { count: active } = await db
+      .from("creatives")
+      .select("ad_id", { count: "exact", head: true })
+      .eq("analysis_status", "analyzing")
+      .gt("updated_at", new Date(Date.now() - 3 * 60_000).toISOString());
+    if ((active ?? 0) > 0) {
+      return json({ ok: true, status: "skipped", reason: "chain-active", analyzing: active });
+    }
+  }
+
+  // Resolve the target account: explicit account_id (manual / validation runs and
+  // self-chain continuations) OR flag-driven (cron poke with empty body → the next
+  // creative_analysis_enabled account with pending, under-cap work).
+  let accountId: string | undefined = body.account_id;
+  if (!accountId) {
+    const { data: nextAcct } = await db.rpc("next_creative_analysis_account");
+    accountId = typeof nextAcct === "string" && nextAcct ? nextAcct : undefined;
+    if (!accountId) {
+      return json({ ok: true, no_work: true, reason: "no flagged account with pending work" });
+    }
+  }
 
   // Budget gate: stop before doing any work if the account is already at its cap.
   const { data: ledger } = await db
