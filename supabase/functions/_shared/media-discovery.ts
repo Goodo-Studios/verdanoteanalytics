@@ -3,7 +3,7 @@
  * Unified v22.0 API — used by refresh-thumbnails, enrich-thumbnails, fetch-thumbnail.
  */
 
-const META_API_VERSION = "v22.0";
+export const META_API_VERSION = "v22.0";
 
 export const NO_THUMB_SENTINEL = "no-thumbnail";
 export const NO_VIDEO_SENTINEL = "no-video";

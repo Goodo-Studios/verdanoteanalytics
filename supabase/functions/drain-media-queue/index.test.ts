@@ -44,6 +44,8 @@ interface Creative {
   thumb_asset_id: string | null;
   video_asset_id: string | null;
   image_quality?: string | null;
+  expected_frame_count?: number | null;
+  frames_retry_count?: number | null;
 }
 
 /**
@@ -52,9 +54,17 @@ interface Creative {
  * select/update, media_assets select/upsert, storage.from().upload(), and a
  * head/count select for the pending check.
  */
-function makeDb(opts: { queue: QueueRow[]; creatives: Creative[] }) {
+interface FrameRow {
+  ad_id: string;
+  frame_index: number;
+  media_type: string;
+  asset_id: string | null;
+}
+
+function makeDb(opts: { queue: QueueRow[]; creatives: Creative[]; frames?: FrameRow[] }) {
   const queue = opts.queue;
   const creatives = opts.creatives;
+  const frames = opts.frames ?? [];
   const assets: Record<string, { id: string; public_url: string }> = {};
   const storageUploads: string[] = [];
   const metaCache: Record<string, { payload: unknown; expires_at: string }> = {};
@@ -185,6 +195,32 @@ function makeDb(opts: { queue: QueueRow[]; creatives: Creative[] }) {
     return b;
   }
 
+  // creative_frames: select().eq("ad_id") returns the ad's frame rows; update().eq()
+  // .eq() applies in place. Mirrors backfillFrameAssets' usage.
+  function framesBuilder() {
+    const filters: Record<string, string> = {};
+    // deno-lint-ignore no-explicit-any
+    let updatePayload: any = null;
+    // deno-lint-ignore no-explicit-any
+    const b: Record<string, any> = {};
+    b.select = () => b;
+    b.eq = (col: string, val: string | number) => { filters[col] = String(val); return b; };
+    // deno-lint-ignore no-explicit-any
+    b.update = (payload: any) => { updatePayload = payload; return b; };
+    const matches = (fr: FrameRow) =>
+      Object.entries(filters).every(([k, v]) => String((fr as unknown as Record<string, unknown>)[k]) === v);
+    // deno-lint-ignore no-explicit-any
+    b.then = (resolve: (v: any) => void) => {
+      if (updatePayload) {
+        for (const fr of frames) if (matches(fr)) Object.assign(fr, updatePayload);
+        resolve({ data: null, error: null });
+        return;
+      }
+      resolve({ data: frames.filter(matches), error: null });
+    };
+    return b;
+  }
+
   const supabase = {
     // deno-lint-ignore no-explicit-any
     from: (table: string): any => {
@@ -192,6 +228,7 @@ function makeDb(opts: { queue: QueueRow[]; creatives: Creative[] }) {
       if (table === "media_cache_queue") return queueBuilder();
       if (table === "media_assets") return assetsBuilder();
       if (table === "media_meta_cache") return metaCacheBuilder();
+      if (table === "creative_frames") return framesBuilder();
       if (table === "settings") {
         return {
           select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { value: "fake" }, error: null }) }) }),
@@ -224,7 +261,7 @@ function makeDb(opts: { queue: QueueRow[]; creatives: Creative[] }) {
     },
   };
 
-  return { supabase, queue, creatives, storageUploads, assets, metaCache };
+  return { supabase, queue, creatives, storageUploads, assets, metaCache, frames };
 }
 
 // ── Global fetch stub ────────────────────────────────────────────────────────
@@ -1213,4 +1250,102 @@ Deno.test("handler: pauses (no claim, no chain) when Meta app usage is over the 
   assert(!claimAttempted, "an over-budget invocation must NOT claim a batch");
   assert(!chainFired, "an over-budget invocation must NOT self-chain");
   assertEquals(queue[0].status, "pending", "the pending row is left untouched while paused");
+})
+
+// ── #3 carousel-frame ASSET backfill ──────────────────────────────────────────
+function jsonResponse(obj: unknown, status = 200): Response {
+  return new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json" } });
+}
+function imageResponse(): Response {
+  // A tiny non-HTML image payload (cacheImageToStorage reads arrayBuffer + hashes it).
+  return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]), {
+    status: 200,
+    headers: { "content-type": "image/jpeg" },
+  });
+}
+// A carousel creative spec with two image cards (deriveFrames needs >1 child).
+const CAROUSEL_SPEC = {
+  creative: {
+    object_story_spec: {
+      link_data: { child_attachments: [{ picture: "https://cdn/f0.jpg" }, { picture: "https://cdn/f1.jpg" }] },
+    },
+  },
+};
+
+Deno.test("backfillFrameAssets: skips a non-multi-frame ad WITHOUT any Meta call", async () => {
+  const { supabase } = makeDb({ queue: [], creatives: [], frames: [] });
+  await withFetch(() => { throw new Error("must not call Meta for expected<=1"); }, async () => {
+    assertEquals((await mod.backfillFrameAssets(supabase, "ad", "act_1", "tok", 1)).outcome, "skipped");
+    assertEquals((await mod.backfillFrameAssets(supabase, "ad", "act_1", "tok", null)).outcome, "skipped");
+  });
+});
+
+Deno.test("backfillFrameAssets: skips (no Meta call) when every frame already has an asset", async () => {
+  const frames: FrameRow[] = [
+    { ad_id: "ad_c", frame_index: 0, media_type: "carousel_frame", asset_id: "a0" },
+    { ad_id: "ad_c", frame_index: 1, media_type: "carousel_frame", asset_id: "a1" },
+  ];
+  const { supabase } = makeDb({ queue: [], creatives: [], frames });
+  await withFetch(() => { throw new Error("must not call Meta when nothing is pending"); }, async () => {
+    assertEquals((await mod.backfillFrameAssets(supabase, "ad_c", "act_1", "tok", 2)).outcome, "skipped");
+  });
+});
+
+Deno.test("backfillFrameAssets: caches a pending image frame and links its creative_frames.asset_id", async () => {
+  const frames: FrameRow[] = [
+    { ad_id: "ad_c", frame_index: 0, media_type: "carousel_frame", asset_id: null },   // pending
+    { ad_id: "ad_c", frame_index: 1, media_type: "carousel_frame", asset_id: "a1" },    // already linked
+  ];
+  const { supabase, frames: fr } = makeDb({ queue: [], creatives: [], frames });
+  await withFetch((url) => {
+    if (url.includes("?fields=creative")) return jsonResponse(CAROUSEL_SPEC);
+    if (url.includes("/storage/v1/object/")) return new Response("{}", { status: 200 });
+    if (url === "https://cdn/f0.jpg") return imageResponse();
+    throw new Error(`unexpected fetch: ${url}`);
+  }, async () => {
+    const r = await mod.backfillFrameAssets(supabase, "ad_c", "act_1", "tok", 2);
+    assertEquals(r.outcome, "cached");
+    assertEquals(r.cached, 1, "only the one pending frame is cached");
+  });
+  assert(fr[0].asset_id, "frame 0's asset_id is now linked");
+  assertEquals(fr[1].asset_id, "a1", "the already-linked frame is untouched");
+});
+
+Deno.test("backfillFrameAssets: a #4 throttle on the creative fetch → throttled (no backoff)", async () => {
+  const frames: FrameRow[] = [{ ad_id: "ad_c", frame_index: 0, media_type: "carousel_frame", asset_id: null }];
+  const { supabase } = makeDb({ queue: [], creatives: [], frames });
+  await withFetch((url) => {
+    if (url.includes("?fields=creative")) {
+      return jsonResponse({ error: { code: 4, message: "(#4) Application request limit reached" } }, 400);
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  }, async () => {
+    assertEquals((await mod.backfillFrameAssets(supabase, "ad_c", "act_1", "tok", 2)).outcome, "throttled");
+  });
+});
+
+Deno.test("processQueuedAd: heals a carousel's pending frame images (video+image already cached)", async () => {
+  const creatives: Creative[] = [{
+    ad_id: "ad_car", account_id: "act_1",
+    thumbnail_url: "https://x.supabase.co/storage/v1/object/public/ad-thumbnails/act_1/ad_car.jpg",
+    full_res_url: "https://x.supabase.co/storage/v1/object/public/ad-thumbnails/act_1/ad_car.jpg",
+    video_url: "https://x.supabase.co/storage/v1/object/public/ad-videos/act_1/ad_car.mp4", // storage → skipVideo
+    thumb_asset_id: "t", video_asset_id: "v", image_quality: "full_res",
+    expected_frame_count: 2, frames_retry_count: 0,
+  }];
+  const frames: FrameRow[] = [
+    { ad_id: "ad_car", frame_index: 0, media_type: "carousel_frame", asset_id: null },
+    { ad_id: "ad_car", frame_index: 1, media_type: "carousel_frame", asset_id: null },
+  ];
+  const { supabase, frames: fr } = makeDb({ queue: [], creatives, frames });
+  await withFetch((url) => {
+    if (url.includes("?fields=creative")) return jsonResponse(CAROUSEL_SPEC);
+    if (url.includes("/storage/v1/object/")) return new Response("{}", { status: 200 });
+    if (url === "https://cdn/f0.jpg" || url === "https://cdn/f1.jpg") return imageResponse();
+    throw new Error(`unexpected fetch: ${url}`);
+  }, async () => {
+    const { outcome } = await mod.processQueuedAd(supabase, "ad_car", "act_1", "tok");
+    assertEquals(outcome, "cached", "the carousel's frames are backfilled → cached");
+  });
+  assert(fr[0].asset_id && fr[1].asset_id, "both pending frames are now linked");
 })
