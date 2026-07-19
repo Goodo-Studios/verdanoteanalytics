@@ -41,13 +41,19 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
   assetStoragePath,
+  classifyVideoFailure,
   computeContentHash,
+  deriveFrames,
   discoverImageUrlWithReason,
   discoverVideoUrlWithReason,
   fetchAccountVideoMap,
   fetchPageTokenMap,
+  fetchAppUsage,
+  fetchWithTimeout,
+  isOverAppBudget,
   isStorageUrl,
   looksLikeHtml,
+  META_API_VERSION,
   NO_THUMB_SENTINEL,
   NO_VIDEO_DELETED_SENTINEL,
   NO_VIDEO_OVERSIZED_SENTINEL,
@@ -59,6 +65,13 @@ import {
   THROTTLED,
 } from "../_shared/media-discovery.ts";
 import { isMediaContentType } from "../_shared/vault-save-logic.ts";
+import {
+  getOrBuildCachedMap,
+  PAGE_TOKEN_MAP_KEY,
+  PAGE_TOKEN_MAP_TTL_MS,
+  videoMapKey,
+  VIDEO_MAP_TTL_MS,
+} from "../_shared/media-map-cache.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const THUMB_BUCKET = "ad-thumbnails";
@@ -363,6 +376,108 @@ export async function cacheImageToStorage(
   }
 }
 
+// Exponential backoff for carousel-frame backfill (hours): 1h → 4h → 12h → 1d → 3d →
+// 7d cap. Mirrors enrich-thumbnails' nextRetryAfter so a frame gap we cannot resolve
+// (e.g. a Meta-side missing card image) backs off instead of re-enqueuing every feeder
+// tick — the churn guard that makes it safe to add frames_incomplete to the feeder.
+const FRAMES_RETRY_BACKOFF_HOURS = [1, 4, 12, 24, 72, 168];
+export function framesRetryAfter(retryCount: number): string {
+  const idx = Math.min(Math.max(retryCount - 1, 0), FRAMES_RETRY_BACKOFF_HOURS.length - 1);
+  return new Date(Date.now() + FRAMES_RETRY_BACKOFF_HOURS[idx] * 60 * 60 * 1000).toISOString();
+}
+
+export interface FrameBackfillResult {
+  outcome: "cached" | "skipped" | "throttled" | "failed";
+  cached: number;
+}
+
+/**
+ * Backfill the IMAGE assets of a carousel ad's pending frames (the "Frame pending"
+ * UI state: a creative_frames row exists but asset_id is NULL, so no card image is
+ * cached). Sync writes the frame ledger best-effort within a per-batch budget and
+ * leaves late frames unlinked; nothing re-caches them, so they stayed pending forever
+ * (the coverage view even counted the ROW as complete). This is the missing backfill.
+ *
+ * Contract:
+ *   • DB pre-check FIRST (no Meta call): only multi-frame ads (expected>1) with at
+ *     least one pending IMAGE frame (asset_id NULL, media_type != 'video') do any work
+ *     — so a non-carousel or already-complete ad costs nothing.
+ *   • One Meta call fetches the creative spec; deriveFrames() yields each frame's CDN
+ *     url (the SAME derivation sync uses, so frame_index lines up). A #4 throttle →
+ *     'throttled' (no backoff burned, retried soon). Video frames are left for a later
+ *     pass (their heavy download is out of scope here) — honestly reported by coverage.
+ *   • Each pending image frame is cached via cacheImageToStorage (content-hash dedupe,
+ *     so a shared card is a no-op download) and its creative_frames.asset_id linked.
+ *   • Progress bookkeeping is the CALLER's job (clear/advance frames_retry_after) so it
+ *     composes with the ad's other media outcomes in one creatives update.
+ */
+export async function backfillFrameAssets(
+  supabase: Supa,
+  adId: string,
+  accountId: string,
+  metaToken: string,
+  expectedFrameCount: number | null | undefined,
+  timeoutMs = 15_000,
+): Promise<FrameBackfillResult> {
+  // Not a multi-frame ad → nothing this path is responsible for (no Meta call).
+  if (!expectedFrameCount || expectedFrameCount <= 1) return { outcome: "skipped", cached: 0 };
+
+  const { data: frameRows } = await supabase
+    .from("creative_frames")
+    .select("frame_index, media_type, asset_id")
+    .eq("ad_id", adId);
+  // deno-lint-ignore no-explicit-any
+  const pending = (frameRows ?? []).filter((f: any) => f.asset_id == null && f.media_type !== "video");
+  if (pending.length === 0) return { outcome: "skipped", cached: 0 };
+
+  // Fetch the creative spec (one Meta call) and derive the frame urls.
+  let creative: unknown;
+  try {
+    const res = await fetchWithTimeout(
+      `https://graph.facebook.com/${META_API_VERSION}/${adId}?fields=creative{object_story_spec,asset_feed_spec}&access_token=${metaToken}`,
+      timeoutMs,
+    );
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      // A #4 throttle here is inconclusive — retry soon, DO NOT back off.
+      if (classifyVideoFailure(data?.error) === THROTTLED) return { outcome: "throttled", cached: 0 };
+      return { outcome: "failed", cached: 0 };
+    }
+    // deno-lint-ignore no-explicit-any
+    creative = (data as any)?.creative;
+    if (!creative) {
+      // deno-lint-ignore no-explicit-any
+      if (classifyVideoFailure((data as any)?.error) === THROTTLED) return { outcome: "throttled", cached: 0 };
+      return { outcome: "failed", cached: 0 };
+    }
+  } catch {
+    return { outcome: "failed", cached: 0 };
+  }
+
+  const frames = deriveFrames(creative);
+  let cached = 0;
+  let sawCacheableUrl = false;
+  for (const row of pending) {
+    const f = frames.find((x) => x.frame_index === row.frame_index);
+    if (!f?.url || !f.url.startsWith("http") || isStorageUrl(f.url)) continue;
+    sawCacheableUrl = true;
+    const asset = await cacheImageToStorage(supabase, f.url, accountId, `${adId}#frame${row.frame_index}`);
+    if (asset?.assetId) {
+      await supabase
+        .from("creative_frames")
+        .update({ asset_id: asset.assetId, updated_at: new Date().toISOString() })
+        .eq("ad_id", adId)
+        .eq("frame_index", row.frame_index);
+      cached++;
+    }
+  }
+  if (cached > 0) return { outcome: "cached", cached };
+  // No frame got cached: if there was nothing cacheable (video-only frames, or Meta no
+  // longer exposes the card image), treat as a bounded failure so the caller backs off
+  // (churn guard); a transient per-frame download failure also lands here and backs off.
+  return { outcome: sawCacheableUrl ? "failed" : "skipped", cached: 0 };
+}
+
 /**
  * Process one queued ad: discover + cache its media (video first — the heavy path
  * this worker exists for — then image), preserving all skip-gates. Returns an
@@ -378,7 +493,7 @@ export async function processQueuedAd(
 ): Promise<{ outcome: "cached" | "skipped" | "failed" | "throttled"; reason?: string }> {
   const { data: creative, error: fetchErr } = await supabase
     .from("creatives")
-    .select("ad_id, account_id, thumbnail_url, full_res_url, video_url, thumb_asset_id, video_asset_id, image_quality")
+    .select("ad_id, account_id, thumbnail_url, full_res_url, video_url, thumb_asset_id, video_asset_id, image_quality, expected_frame_count, frames_retry_count")
     .eq("ad_id", adId)
     .maybeSingle();
 
@@ -594,6 +709,31 @@ export async function processQueuedAd(
     }
   }
 
+  // ── Carousel frames ───────────────────────────────────────────────────────
+  // Backfill pending frame IMAGE assets ("Frame pending" in the UI). Gated by a cheap
+  // DB pre-check inside backfillFrameAssets, so only a multi-frame ad with unlinked
+  // image frames spends a Meta call. Composes into `updates` so it lands in the single
+  // creatives write below alongside any video/image result.
+  const frameRes = await backfillFrameAssets(supabase, adId, accountId, metaToken, creative.expected_frame_count);
+  if (frameRes.outcome === "throttled") {
+    throttled = true;
+    reasons.push(THROTTLED);
+  } else if (frameRes.outcome === "cached") {
+    didCache = true;
+    // Frames advanced — clear the frame backoff so a still-incomplete carousel is
+    // re-checked promptly next round (and a now-complete one simply stops qualifying).
+    updates.frames_retry_count = 0;
+    updates.frames_retry_after = null;
+    reasons.push(`frames_cached:${frameRes.cached}`);
+  } else if (frameRes.outcome === "failed") {
+    // Could not resolve the frame image(s) this pass — back off (exponential) so a
+    // genuinely-unresolvable carousel does not re-enqueue every feeder tick.
+    const nextCount = (creative.frames_retry_count ?? 0) + 1;
+    updates.frames_retry_count = nextCount;
+    updates.frames_retry_after = framesRetryAfter(nextCount);
+    reasons.push("frames_backoff");
+  }
+
   if (Object.keys(updates).length > 0) {
     await supabase.from("creatives").update(updates).eq("ad_id", adId).eq("account_id", accountId);
   }
@@ -666,20 +806,41 @@ export async function drainOnce(
   const rows: any[] = claimed || [];
   summary.claimed = rows.length;
 
-  // Build the page-token map ONCE per invocation (it is account-independent — the set
-  // of Pages assigned to our system user). Threaded into every ad so page-owned video
-  // resolves via the owning Page's token. Empty map ⇒ behaves exactly as before.
-  const pageTokenMap = rows.length ? await fetchPageTokenMap(metaToken) : undefined;
+  // The page-token map (account-independent — the set of Pages assigned to our system
+  // user) is threaded into every ad so page-owned video resolves via the owning Page's
+  // token. Previously rebuilt every invocation (a GET /me/accounts each), which — over
+  // a self-chaining backlog drain — was a primary #4 rate-limit source. Now reused
+  // across the whole chain via a short-TTL DB cache; a miss/expiry rebuilds, so
+  // behavior is unchanged, just far fewer Meta calls. Empty map ⇒ behaves as before.
+  const pageTokenMap = rows.length
+    ? await getOrBuildCachedMap(
+        supabase,
+        PAGE_TOKEN_MAP_KEY,
+        PAGE_TOKEN_MAP_TTL_MS,
+        () => fetchPageTokenMap(metaToken),
+      )
+    : undefined;
 
   // Cache the account video-library map per account across this claimed batch. A batch
   // can span accounts, so key by account_id and build each at most ONCE (previously
   // fetchAccountVideoMap re-paginated the entire advideos library for EVERY ad — a
   // per-ad N+1 that was a primary throttle source at scale).
+  // Two layers: an in-process memo (per invocation, avoids re-building within one
+  // batch that spans an account) over a short-TTL DB cache (per chain, so the whole
+  // self-chaining backlog drain reuses ONE advideos pagination per account instead of
+  // re-paginating up to 50 pages every batch — the other primary #4 rate-limit source,
+  // and pure waste for permission-heavy accounts whose page-owned video is not even in
+  // the library). A DB miss/expiry rebuilds, so behavior is unchanged.
   const videoMapCache = new Map<string, Map<string, string>>();
   const getVideoMap = async (acct: string): Promise<Map<string, string>> => {
     const hit = videoMapCache.get(acct);
     if (hit) return hit;
-    const built = await fetchAccountVideoMap(acct, metaToken);
+    const built = await getOrBuildCachedMap(
+      supabase,
+      videoMapKey(acct),
+      VIDEO_MAP_TTL_MS,
+      () => fetchAccountVideoMap(acct, metaToken),
+    );
     videoMapCache.set(acct, built);
     return built;
   };
@@ -802,6 +963,26 @@ export async function handler(req: Request, supabaseOverride?: unknown): Promise
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // App-usage circuit breaker: before doing any work, probe Meta's app-level budget
+    // (one cheap GET /me). If we are at/over the pause threshold, this invocation is a
+    // NO-OP — no claim, no discovery, and crucially NO self-chain — so the drain goes
+    // quiet BEFORE tripping #4 instead of hammering until Meta blocks us. The 2-min
+    // cron keeps probing cheaply; draining auto-resumes the first tick usage falls back
+    // under the threshold. Fail-open: if the probe yields no usage data, proceed as
+    // normal (behavior unchanged). Applies to BOTH cron pokes and self-chain links, so
+    // an in-flight chain also winds down once usage crosses the line.
+    const appUsage = await fetchAppUsage(metaToken);
+    if (isOverAppBudget(appUsage)) {
+      console.log(
+        `drain-media-queue: Meta app usage over threshold (call_count=${appUsage?.callCount}%, ` +
+          `cputime=${appUsage?.totalCputime}%, time=${appUsage?.totalTime}%) — pausing this invocation (no drain, no chain)`,
+      );
+      return new Response(
+        JSON.stringify({ status: "paused", reason: "meta-app-usage-high", chainDepth, usage: appUsage }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     const summary = await drainOnce(supabase, metaToken, BATCH_SIZE, DEADLINE_MS);
