@@ -39,11 +39,29 @@ interface CreativeDetailModalProps {
   gradeMap?: Map<string, GradeInfo>;
 }
 
-function MediaPreview({ creative, caching = false }: { creative: Creative; caching?: boolean }) {
+// Meta ad-preview iframe render sizes, keyed by the format the ad-preview function
+// resolved (it tries MOBILE_FEED_STANDARD first). Default covers the common case.
+const PREVIEW_DIMS: Record<string, { w: number; h: number }> = {
+  MOBILE_FEED_STANDARD: { w: 340, h: 620 },
+  DESKTOP_FEED_STANDARD: { w: 540, h: 700 },
+  INSTAGRAM_STANDARD: { w: 340, h: 620 },
+  FACEBOOK_STORY_MOBILE: { w: 360, h: 640 },
+};
+
+export function MediaPreview({ creative, caching = false }: { creative: Creative; caching?: boolean }) {
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgError, setImgError] = useState(false);
   const [videoError, setVideoError] = useState(false);
   const [videoLoading, setVideoLoading] = useState(true);
+  // Meta preview-embed fallback: for a video we can't play from a raw source
+  // (page-owned / permission-blocked, or a stored url that failed to load), Meta still
+  // hosts the ad — so its preview iframe plays it in-app instead of a dead "Video
+  // unavailable" state. Fetched lazily (only when needed) via the ad-preview function,
+  // which returns a browser-safe, preview-SCOPED iframe url (never our access token).
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewFormat, setPreviewFormat] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewTried, setPreviewTried] = useState(false);
 
   const adPreviewUrl = creative.ad_post_url || `https://www.facebook.com/ads/library/?id=${creative.ad_id}`;
 
@@ -63,11 +81,47 @@ function MediaPreview({ creative, caching = false }: { creative: Creative; cachi
     (creative.thumbnail_url && creative.thumbnail_url !== "no-thumbnail") ||
     (creative.full_res_url && creative.full_res_url !== "no-thumbnail")
   );
-  const hasVideoUrl = !!(creative.video_url && creative.video_url !== "no-video");
+  // A raw, directly-playable video url — a cached storage copy or a live CDN url.
+  const isRealVideoUrl = !!creative.video_url && creative.video_url.startsWith("http");
+  // The ad has VIDEO intent even when the raw source is a blocked sentinel
+  // (no-video-permission / -deleted / -oversized). "no-video" = not a video ad.
+  const isVideoAd = !!creative.video_url && creative.video_url !== "no-video";
+  // Want Meta's hosted preview when it's a video ad we can't play from the raw source:
+  // a blocked sentinel (never a real url), or a real url that errored in <video>.
+  const wantEmbed = isVideoAd && (!isRealVideoUrl || videoError);
+
+  // Lazily fetch the Meta preview iframe once (and only) when we know we need it.
+  useEffect(() => {
+    if (!wantEmbed || previewTried || previewLoading) return;
+    let cancelled = false;
+    setPreviewLoading(true);
+    supabase.functions
+      .invoke("ad-preview", { body: { ad_id: creative.ad_id } })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (!error && data?.url) {
+          setPreviewUrl(data.url as string);
+          setPreviewFormat((data.format as string) ?? null);
+        }
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setPreviewLoading(false);
+        setPreviewTried(true);
+      });
+    return () => { cancelled = true; };
+    // previewLoading is intentionally NOT a dep: it flips inside this effect, and
+    // including it would re-run the effect and cancel its own in-flight fetch. The
+    // guard above already prevents a concurrent second fetch.
+  }, [wantEmbed, previewTried, creative.ad_id]);
+
+  const dims = (previewFormat && PREVIEW_DIMS[previewFormat]) || PREVIEW_DIMS.MOBILE_FEED_STANDARD;
 
   // True while we don't yet have media dimensions to size the container by
-  const isLoading = hasVideoUrl
-    ? videoLoading && !videoError
+  const isLoading = isRealVideoUrl && !videoError
+    ? videoLoading
+    : wantEmbed && !previewTried
+    ? true
     : hasThumbnail
     ? thumbnailLoading || (!imgLoaded && !imgError)
     : false;
@@ -82,8 +136,8 @@ function MediaPreview({ creative, caching = false }: { creative: Creative; cachi
         Skeleton uses absolute inset-0; once media loads it drops out and the
         container collapses to the real image/video size.
       */}
-      <div className={`bg-muted rounded-lg overflow-hidden relative flex items-center justify-center w-full max-w-[480px] mx-auto${isLoading || caching || (!hasVideoUrl && !hasThumbnail) ? " min-h-[300px]" : ""}`}>
-        {hasVideoUrl && !videoError ? (
+      <div className={`bg-muted rounded-lg overflow-hidden relative flex items-center justify-center w-full max-w-[480px] mx-auto${isLoading || caching || (!isVideoAd && !hasThumbnail) ? " min-h-[300px]" : ""}`}>
+        {isRealVideoUrl && !videoError ? (
           <>
             {videoLoading && (
               <div className="absolute inset-0 bg-muted animate-pulse flex items-center justify-center">
@@ -92,7 +146,7 @@ function MediaPreview({ creative, caching = false }: { creative: Creative; cachi
             )}
             <video
               key={creative.video_url}
-              src={creative.video_url}
+              src={creative.video_url!}
               controls
               className={`max-w-full max-h-[600px] w-auto h-auto block transition-opacity duration-300 ${
                 videoLoading ? "opacity-0 absolute" : "opacity-100"
@@ -103,6 +157,24 @@ function MediaPreview({ creative, caching = false }: { creative: Creative; cachi
               onError={() => { setVideoError(true); setVideoLoading(false); }}
             />
           </>
+        ) : wantEmbed && previewUrl ? (
+          // Meta-hosted preview embed — plays page-owned/permission-blocked video that
+          // we could never download the raw source for. Facebook renders + serves it.
+          <iframe
+            key={previewUrl}
+            src={previewUrl}
+            title={`Ad preview — ${creative.ad_name}`}
+            className="block border-0 mx-auto max-w-full"
+            style={{ width: dims.w, height: dims.h }}
+            scrolling="no"
+            allow="encrypted-media"
+            loading="lazy"
+          />
+        ) : wantEmbed && !previewTried ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+            <Loader2 className="h-8 w-8 text-muted-foreground/40 animate-spin" />
+            <span className="font-body text-[12px] text-muted-foreground">Loading ad preview…</span>
+          </div>
         ) : hasThumbnail ? (
           <>
             {(thumbnailLoading || (!imgLoaded && !imgError)) && (
@@ -119,7 +191,9 @@ function MediaPreview({ creative, caching = false }: { creative: Creative; cachi
                 <span className="font-body text-xs text-muted-foreground">Thumbnail unavailable</span>
               </div>
             )}
-            {videoError && !imgError && imgLoaded && (
+            {/* Only after the preview embed was tried and could not be resolved — the
+                honest "we have no playable video AND no embed" fallback badge. */}
+            {wantEmbed && previewTried && !previewUrl && !imgError && imgLoaded && (
               <div className="absolute top-2 left-2 z-10">
                 <span className="bg-black/60 text-white font-label text-[10px] font-semibold px-2 py-0.5 rounded">
                   Video unavailable
@@ -159,7 +233,7 @@ function MediaPreview({ creative, caching = false }: { creative: Creative; cachi
           title="View this ad on Facebook"
         >
           <ExternalLink className="h-3.5 w-3.5" />
-          {hasVideoUrl ? "View on Facebook" : "Preview Ad"}
+          {isVideoAd ? "View on Facebook" : "Preview Ad"}
         </a>
       )}
     </div>
