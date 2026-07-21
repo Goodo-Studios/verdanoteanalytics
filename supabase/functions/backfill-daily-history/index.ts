@@ -347,12 +347,16 @@ export async function handler(
   // deno-lint-ignore no-explicit-any
   supabaseOverride?: any,
   metaFetchOverride?: MetaFetcher,
+  // Injectable "now" so tests can anchor the target/window math to a fixed date
+  // instead of the drifting system clock (the reconciliation suite anchors its
+  // Meta-truth fixture to a fixed day). Production always uses the real clock.
+  nowOverride?: Date,
 ): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const startedMs = Date.now();
   const timedOut = () => Date.now() - startedMs > DEADLINE_MS;
-  const now = new Date();
+  const now = nowOverride ?? new Date();
 
   const supabase = (supabaseOverride && typeof supabaseOverride.from === "function")
     ? supabaseOverride

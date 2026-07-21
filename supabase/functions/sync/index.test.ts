@@ -514,12 +514,15 @@ async function runBackfillToCompletion(
   account: Record<string, unknown>,
   existingAdIds: string[],
   fetcher: MetaFetcher,
+  now: Date,
 ) {
   let watermark: string | null = (account.daily_backfilled_since as string | null) ?? null;
   for (let guard = 0; guard < 200; guard++) {
     const acct: Record<string, unknown> = { ...account, daily_backfilled_since: watermark };
     const { supabase, watermarks } = makeSupabase(store, [acct], existingAdIds);
-    const res = await backfill.handler(bfReq({ account_id: acct.id }), supabase, fetcher);
+    // Anchor the handler's target/window math to the fixture's "today" so the
+    // stored-day count doesn't drift below tolerance as real time advances.
+    const res = await backfill.handler(bfReq({ account_id: acct.id }), supabase, fetcher, now);
     const body = await res.json();
     assertEquals(body.success, true);
     if (watermarks.length > 0) watermark = watermarks.at(-1)!;
@@ -559,7 +562,7 @@ Deno.test(
     // Freeze "now" inside the handler's target math by shrinking the truth to end
     // today; the handler uses new Date() but our truth is anchored at `today`, and
     // the test runs the same UTC day. Guard: assert we landed the promised year.
-    await runBackfillToCompletion(store, account, [AD], bf.fetcher);
+    await runBackfillToCompletion(store, account, [AD], bf.fetcher, today);
 
     // A. ~365 days of rows exist (the promised year on day one). We allow a small
     //    epsilon for the inclusive-endpoint / creation-clamp / run-day boundary.
