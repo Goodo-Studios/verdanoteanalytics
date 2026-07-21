@@ -5,13 +5,18 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
 // ─── Response shapes (mirror rpc_entity_report / rpc_entity_cluster_members) ──
 
-export type ConfidenceTier = "corroborated" | "probable" | "visual_only";
+export type ConfidenceTier = "exact" | "corroborated" | "probable" | "visual_only";
+
+/** Signals that grouped an entity (from the blended clusterer). */
+export type EntitySignal = "exact" | "visual" | "script" | "destination";
 
 export interface EntityHeadline {
   total_creatives: number;
   embedded_creatives: number;
+  analyzed_creatives: number;
   clustered_creatives: number;
   coverage_pct: number;
+  analysis_coverage_pct: number;
   distinct_entities: number;
   effective_entities: number;
   cluster_spend: number;
@@ -31,6 +36,15 @@ export interface EntityCluster {
   representative_ad_id: string | null;
   representative_thumbnail: string | null;
   representative_ad_name: string | null;
+  // Per-cluster analysis coverage (US-007): how many members are analyzed /
+  // carry a visual or script embedding, and analyzed % of the cluster.
+  analyzed_members: number;
+  visual_members: number;
+  script_members: number;
+  coverage_pct: number;
+  // Signals that grouped this entity, in priority order (exact > visual/script
+  // > destination). May be empty for an unanalyzed singleton.
+  signals: EntitySignal[];
   spend_share_pct: number;
 }
 
@@ -56,6 +70,8 @@ export interface EntityClusterMember {
   theme: string | null;
   tag_source: string | null;
   ai_visual_notes: string | null;
+  analysis_status: string | null;
+  destination_key: string | null;
 }
 
 // ─── Session-authed GET against the entity-report edge fn ────────────────────

@@ -15,6 +15,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import {
   type ConfidenceTier,
   type EntityCluster,
+  type EntitySignal,
   useEntityClusterMembers,
   useEntityReport,
 } from "@/hooks/useEntityReport";
@@ -26,15 +27,30 @@ import {
 type TierFilter = "all" | ConfidenceTier;
 
 const TIER_LABEL: Record<ConfidenceTier, string> = {
+  exact: "Exact match",
   corroborated: "Corroborated",
   probable: "Probable",
   visual_only: "Visual only",
 };
 
 const TIER_VARIANT: Record<ConfidenceTier, "default" | "secondary" | "outline"> = {
+  exact: "default",
   corroborated: "default",
   probable: "secondary",
   visual_only: "outline",
+};
+
+// Exact is the strongest, zero-model-cost tier (shared asset) — accent it apart
+// from the model-similarity tiers so it reads as ground truth at a glance.
+const TIER_CLASS: Partial<Record<ConfidenceTier, string>> = {
+  exact: "bg-emerald-600 hover:bg-emerald-600 text-white border-transparent",
+};
+
+const SIGNAL_LABEL: Record<EntitySignal, string> = {
+  exact: "Exact asset",
+  visual: "Visual",
+  script: "Script",
+  destination: "Same destination",
 };
 
 function fmtMoney(n: number): string {
@@ -77,7 +93,10 @@ function ClusterCard({ cluster, onOpen }: { cluster: EntityCluster; onOpen: () =
           <CardTitle className="text-base leading-tight line-clamp-2">
             {cluster.label || "Untitled entity"}
           </CardTitle>
-          <Badge variant={TIER_VARIANT[cluster.confidence_tier]}>
+          <Badge
+            variant={TIER_VARIANT[cluster.confidence_tier]}
+            className={TIER_CLASS[cluster.confidence_tier]}
+          >
             {TIER_LABEL[cluster.confidence_tier]}
           </Badge>
         </div>
@@ -95,6 +114,21 @@ function ClusterCard({ cluster, onOpen }: { cluster: EntityCluster; onOpen: () =
           <span>Spend share</span>
           <span className="text-foreground font-medium">{cluster.spend_share_pct}%</span>
         </div>
+        <div className="flex justify-between">
+          <span>Analyzed</span>
+          <span className="text-foreground font-medium">
+            {cluster.analyzed_members ?? 0}/{cluster.n_creatives}
+          </span>
+        </div>
+        {(cluster.signals ?? []).length > 0 && (
+          <div className="flex flex-wrap gap-1 pt-1.5">
+            {(cluster.signals ?? []).map((s) => (
+              <Badge key={s} variant="outline" className="text-[10px] px-1.5 py-0 font-normal">
+                {SIGNAL_LABEL[s]}
+              </Badge>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -114,10 +148,18 @@ function ClusterMembersDialog({
           <DialogTitle className="flex items-center gap-2">
             {cluster?.label || "Entity"}
             {cluster && (
-              <Badge variant={TIER_VARIANT[cluster.confidence_tier]}>
+              <Badge
+                variant={TIER_VARIANT[cluster.confidence_tier]}
+                className={TIER_CLASS[cluster.confidence_tier]}
+              >
                 {TIER_LABEL[cluster.confidence_tier]}
               </Badge>
             )}
+            {(cluster?.signals ?? []).map((s) => (
+              <Badge key={s} variant="outline" className="text-[10px] px-1.5 py-0 font-normal">
+                {SIGNAL_LABEL[s]}
+              </Badge>
+            ))}
           </DialogTitle>
         </DialogHeader>
 
@@ -143,6 +185,14 @@ function ClusterMembersDialog({
                     </div>
                     <div className="text-muted-foreground/70 truncate mt-0.5">
                       {[m.theme, m.hook, m.product].filter(Boolean).join(" · ") || "—"}
+                    </div>
+                    <div className="mt-1">
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] px-1.5 py-0 font-normal"
+                      >
+                        {m.analysis_status === "done" ? "Analyzed" : "Not analyzed"}
+                      </Badge>
                     </div>
                   </div>
                 </div>
@@ -225,7 +275,7 @@ export default function EntityReportPage() {
       {!isLoading && !error && headline && (
         <>
           {/* Headline strip */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
             <HeadlineStat
               label="Effective entities"
               value={headline.effective_entities.toFixed(1)}
@@ -234,18 +284,26 @@ export default function EntityReportPage() {
             <HeadlineStat label="Distinct entities" value={String(headline.distinct_entities)} />
             <HeadlineStat label="Clustered creatives" value={String(headline.clustered_creatives)} />
             <HeadlineStat
+              label="Analysis coverage"
+              value={`${headline.analysis_coverage_pct ?? 0}%`}
+              hint={`${headline.analyzed_creatives ?? 0}/${headline.total_creatives} analyzed`}
+            />
+            <HeadlineStat
               label="Embedding coverage"
               value={`${headline.coverage_pct}%`}
-              hint={`${headline.embedded_creatives}/${headline.total_creatives} creatives`}
+              hint={`${headline.embedded_creatives}/${headline.total_creatives} embedded`}
             />
           </div>
 
-          {/* Coverage caveat when text feature coverage is thin */}
-          {headline.coverage_pct < 100 && (
+          {/* Coverage caveat — keyed on ANALYSIS coverage (US-007), not just the
+              older ai_visual_notes embedding coverage. */}
+          {(headline.analysis_coverage_pct ?? 0) < 100 && (
             <div className="text-xs text-muted-foreground border-l-2 border-muted pl-3">
-              {100 - headline.coverage_pct}% of creatives had no visual notes or tags to
-              embed and were skipped (not silently dropped). Clusters reflect the
-              embedded subset only.
+              Only {headline.analysis_coverage_pct ?? 0}% of creatives
+              ({headline.analyzed_creatives ?? 0}/{headline.total_creatives}) have been
+              analyzed (script + visual) so far. Entities still form from the exact-asset
+              anchor and any available embeddings — confidence tiers and per-entity
+              coverage strengthen as the analysis pipeline drains the account.
             </div>
           )}
 
@@ -256,6 +314,7 @@ export default function EntityReportPage() {
               <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All tiers</SelectItem>
+                <SelectItem value="exact">Exact match</SelectItem>
                 <SelectItem value="corroborated">Corroborated</SelectItem>
                 <SelectItem value="probable">Probable</SelectItem>
                 <SelectItem value="visual_only">Visual only</SelectItem>

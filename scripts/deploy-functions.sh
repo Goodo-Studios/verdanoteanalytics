@@ -10,6 +10,7 @@ cd "$(dirname "$0")/.."
 FUNCTIONS=(
   accounts
   ai-chat
+  analyze-creative
   api
   backfill-daily-history
   backfill-destination-key
@@ -42,6 +43,7 @@ FUNCTIONS=(
   quick-save
   refresh-thumbnails
   reports
+  resolve-destinations
   sadie-read
   scheduled-reports
   scheduled-sync

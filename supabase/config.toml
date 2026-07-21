@@ -29,6 +29,20 @@ verify_jwt = false
 [functions.creative-embed]
 verify_jwt = false
 
+# Creative Intelligence (WS1). Internal/service-role only. Flag-driven: the 5-min
+# cron pokes it with an empty body and it drains the next creative_analysis_enabled
+# account (single-flight, self-chaining, $-capped); also accepts explicit
+# { account_id } for manual/validation runs. No client entry point, so JWT
+# verification is off (mirrors creative-embed / drain-media-queue).
+[functions.analyze-creative]
+verify_jwt = false
+
+# Creative Intelligence (WS2). Internal/service-role batch: classifies an account's
+# landing destinations -> product/type and upserts landing_destinations. Path-only
+# by default (no network); optional cached og:title fetch. No client entry point.
+[functions.resolve-destinations]
+verify_jwt = false
+
 [functions.cluster-creatives]
 verify_jwt = false
 

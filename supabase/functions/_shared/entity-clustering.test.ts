@@ -9,14 +9,20 @@ import { assertAlmostEquals, assertEquals } from "https://deno.land/std@0.224.0/
 import {
   agglomerativeClusters,
   buildFeatureText,
+  type CandidateGroup,
+  centroid,
   clusterLabel,
   clusterStats,
   coefficientOfVariation,
   confidenceTier,
   cosineSimilarity,
   effectiveEntities,
+  type ExistingEntity,
   type CreativeMetrics,
+  blendedTier,
   manualTagFraction,
+  matchGroupsToEntities,
+  modalityCoherent,
   representativeAdId,
   tagHomogeneity,
 } from "./entity-clustering.ts";
@@ -213,4 +219,114 @@ Deno.test("effectiveEntities: matches competitor framing (11 -> ~4.2)", () => {
 
 Deno.test("effectiveEntities: no spend -> cluster count fallback", () => {
   assertEquals(effectiveEntities([0, 0, 0]), 3);
+});
+
+// ─── Persistent identity: centroid + matchGroupsToEntities (US-005/US-015) ────
+
+Deno.test("centroid averages vectors; null on empty", () => {
+  assertEquals(centroid([[0, 2], [2, 0]]), [1, 1]);
+  assertEquals(centroid([]), null);
+});
+
+const noAnchors = { assetKeys: [], metaVideoIds: [], metaImageHashes: [] };
+
+Deno.test("US-015 e2e: re-run over unchanged groups reproduces the SAME entity ids", () => {
+  const existing: ExistingEntity[] = [
+    { id: "ent-A", centroid: [1, 0], assetKeys: ["sha-a"], metaVideoIds: [], metaImageHashes: [] },
+    { id: "ent-B", centroid: [0, 1], assetKeys: ["sha-b"], metaVideoIds: [], metaImageHashes: [] },
+  ];
+  const groups: CandidateGroup[] = [
+    { key: "ad1", size: 3, centroid: [1, 0], assetKeys: ["sha-a"], metaVideoIds: [], metaImageHashes: [] },
+    { key: "ad2", size: 2, centroid: [0, 1], assetKeys: ["sha-b"], metaVideoIds: [], metaImageHashes: [] },
+  ];
+  assertEquals(matchGroupsToEntities(groups, existing, 0.7), ["ent-A", "ent-B"]);
+  // idempotent: same inputs → same output
+  assertEquals(matchGroupsToEntities(groups, existing, 0.7), ["ent-A", "ent-B"]);
+});
+
+Deno.test("US-015 e2e: a new creative reusing an existing asset_key joins that entity", () => {
+  const existing: ExistingEntity[] = [
+    { id: "ent-A", centroid: [1, 0], assetKeys: ["sha-a"], metaVideoIds: [], metaImageHashes: [] },
+  ];
+  // group carries the same asset_key (plus a brand-new ad) → must map to ent-A.
+  const groups: CandidateGroup[] = [
+    { key: "adNew", size: 2, centroid: [0.9, 0.1], assetKeys: ["sha-a"], metaVideoIds: [], metaImageHashes: [] },
+  ];
+  assertEquals(matchGroupsToEntities(groups, existing, 0.7), ["ent-A"]);
+});
+
+Deno.test("US-015 e2e: a genuinely new group mints a new id (null), not an existing one", () => {
+  const existing: ExistingEntity[] = [
+    { id: "ent-A", centroid: [1, 0], assetKeys: ["sha-a"], metaVideoIds: [], metaImageHashes: [] },
+  ];
+  const groups: CandidateGroup[] = [
+    { key: "adZ", size: 1, centroid: [0, 1], ...noAnchors }, // orthogonal centroid, no shared anchor
+  ];
+  assertEquals(matchGroupsToEntities(groups, existing, 0.7), [null]);
+});
+
+Deno.test("shared meta_video_id matches even when centroids drift", () => {
+  const existing: ExistingEntity[] = [
+    { id: "ent-A", centroid: [1, 0], assetKeys: [], metaVideoIds: ["vid-1"], metaImageHashes: [] },
+  ];
+  const groups: CandidateGroup[] = [
+    { key: "ad1", size: 1, centroid: [0, 1], assetKeys: [], metaVideoIds: ["vid-1"], metaImageHashes: [] },
+  ];
+  assertEquals(matchGroupsToEntities(groups, existing, 0.9), ["ent-A"]);
+});
+
+// ─── Blended multi-signal tiers (US-006) ─────────────────────────────────────
+
+Deno.test("modalityCoherent: tight set coheres, orthogonal set does not, <2 is false", () => {
+  assertEquals(modalityCoherent([[1, 0], [0.99, 0.01]], 0.9), true);
+  assertEquals(modalityCoherent([[1, 0], [0, 1]], 0.9), false);
+  assertEquals(modalityCoherent([[1, 0]], 0.9), false); // needs >=2
+});
+
+Deno.test("blendedTier: exact wins over everything", () => {
+  assertEquals(
+    blendedTier({ isExact: true, visualCoherent: false, scriptCoherent: false, hasManual: false, nMembers: 3 }),
+    "exact",
+  );
+});
+
+Deno.test("blendedTier: both modalities agree -> corroborated; one -> probable; none -> visual_only", () => {
+  const base = { isExact: false, hasManual: false, nMembers: 4 };
+  assertEquals(blendedTier({ ...base, visualCoherent: true, scriptCoherent: true }), "corroborated");
+  assertEquals(blendedTier({ ...base, visualCoherent: true, scriptCoherent: false }), "probable");
+  assertEquals(blendedTier({ ...base, visualCoherent: false, scriptCoherent: true }), "probable");
+  assertEquals(blendedTier({ ...base, visualCoherent: false, scriptCoherent: false }), "visual_only");
+});
+
+Deno.test("blendedTier: shared destination lifts an uncorroborated group to probable, never higher", () => {
+  const base = { isExact: false, visualCoherent: false, scriptCoherent: false, hasManual: false, nMembers: 3 };
+  assertEquals(blendedTier({ ...base, sharedDestination: true }), "probable");
+  assertEquals(blendedTier({ ...base, sharedDestination: false }), "visual_only");
+  // destination never manufactures 'corroborated' on its own
+  assertEquals(
+    blendedTier({ ...base, visualCoherent: true, sharedDestination: true }),
+    "probable",
+  );
+});
+
+Deno.test("blendedTier: singleton is visual_only unless manually tagged", () => {
+  assertEquals(
+    blendedTier({ isExact: false, visualCoherent: false, scriptCoherent: false, hasManual: false, nMembers: 1 }),
+    "visual_only",
+  );
+  assertEquals(
+    blendedTier({ isExact: false, visualCoherent: false, scriptCoherent: false, hasManual: true, nMembers: 1 }),
+    "probable",
+  );
+});
+
+Deno.test("each existing entity is claimed by at most one group", () => {
+  const existing: ExistingEntity[] = [
+    { id: "ent-A", centroid: [1, 0], assetKeys: ["sha-a"], metaVideoIds: [], metaImageHashes: [] },
+  ];
+  const groups: CandidateGroup[] = [
+    { key: "ad1", size: 5, centroid: [1, 0], assetKeys: ["sha-a"], metaVideoIds: [], metaImageHashes: [] },
+    { key: "ad2", size: 1, centroid: [0.99, 0.01], ...noAnchors }, // close centroid but ent-A already taken
+  ];
+  assertEquals(matchGroupsToEntities(groups, existing, 0.7), ["ent-A", null]);
 });
