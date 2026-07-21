@@ -49,6 +49,9 @@ const cluster = (over: Record<string, unknown> = {}) => ({
   confidence_tier: "corroborated", cv_roas: 0.2, cv_ctr: 0.2, cv_cpa: 0.2,
   tag_homogeneity: 1, manual_tag_frac: 0, representative_ad_id: "a1",
   representative_thumbnail: null, representative_ad_name: "Ad 1", spend_share_pct: 62.5,
+  // Blended-model fields (US-007).
+  analyzed_members: 3, visual_members: 3, script_members: 3, coverage_pct: 60,
+  signals: ["visual", "script"],
   ...over,
 });
 
@@ -83,9 +86,9 @@ describe("EntityReportPage headline + clusters", () => {
       error: null,
       data: {
         headline: {
-          total_creatives: 100, embedded_creatives: 80, clustered_creatives: 80,
-          coverage_pct: 80, distinct_entities: 11, effective_entities: 4.2,
-          cluster_spend: 8000,
+          total_creatives: 100, embedded_creatives: 80, analyzed_creatives: 40,
+          clustered_creatives: 80, coverage_pct: 80, analysis_coverage_pct: 40,
+          distinct_entities: 11, effective_entities: 4.2, cluster_spend: 8000,
         },
         clusters: [
           cluster(),
@@ -102,9 +105,43 @@ describe("EntityReportPage headline + clusters", () => {
     expect(screen.getByText(/Effective entities/i)).toBeInTheDocument();
   });
 
-  it("surfaces the coverage caveat when < 100%", () => {
+  it("shows the analysis-coverage headline stat", () => {
     renderPage();
-    expect(screen.getByText(/20% of creatives had no visual notes or tags/i)).toBeInTheDocument();
+    expect(screen.getByText(/Analysis coverage/i)).toBeInTheDocument();
+    expect(screen.getByText("40%")).toBeInTheDocument();
+    expect(screen.getByText(/40\/100 analyzed/i)).toBeInTheDocument();
+  });
+
+  it("surfaces the analysis-coverage caveat when < 100%", () => {
+    renderPage();
+    // US-007: caveat is keyed on ANALYSIS coverage, not the older embedding coverage.
+    expect(
+      screen.getByText(/only 40% of creatives .* have been analyzed \(script \+ visual\)/i),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the exact tier badge + grouping signals on a card", () => {
+    mockReport.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        headline: {
+          total_creatives: 100, embedded_creatives: 80, analyzed_creatives: 40,
+          clustered_creatives: 80, coverage_pct: 80, analysis_coverage_pct: 40,
+          distinct_entities: 11, effective_entities: 4.2, cluster_spend: 8000,
+        },
+        clusters: [
+          cluster({
+            id: "cx", label: "shared asset pair", confidence_tier: "exact",
+            signals: ["exact", "destination"],
+          }),
+        ],
+      },
+    });
+    renderPage();
+    expect(screen.getByText("Exact match")).toBeInTheDocument();
+    expect(screen.getByText("Exact asset")).toBeInTheDocument();
+    expect(screen.getByText("Same destination")).toBeInTheDocument();
   });
 
   it("renders a card per cluster", () => {
