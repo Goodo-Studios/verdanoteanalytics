@@ -41,7 +41,10 @@ export function useUserSettingsPageState() {
   const { data: settings } = useSettings();
   const testMeta = useTestMeta();
   const saveSettings = useSaveSettings();
-  const { data: rawAccounts } = useAccounts();
+  // Pass the user id so the query is ENABLED (useAccounts is gated on
+  // `enabled: userId != null`). Without it the Settings "Ad Accounts" panel
+  // silently stayed empty even though the account exists + is connected.
+  const { data: rawAccounts } = useAccounts(user?.id);
   const accounts = [...(rawAccounts || [])].sort((a: any, b: any) => a.name.localeCompare(b.name));
   const addAccount = useAddAccount();
   const deleteAccount = useDeleteAccount();
