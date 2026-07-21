@@ -332,6 +332,50 @@ serve(async (req) => {
     fail: findings.filter((f) => f.severity === "fail").length,
   };
 
+  // ─── Slack alert on status TRANSITION (watchdog) ───────────────────────────
+  // This function detects stale accounts + broken sync, but historically nothing
+  // ran it and nothing was alerted — so the 2026-06 and 2026-07 sync outages went
+  // unseen behind the (still-running) Coda crons. Now that it is cron-scheduled,
+  // page Slack when overall status CHANGES (fail on entry, recovery on exit) so a
+  // persistent issue doesn't spam every 30-min run. Best-effort; never fails the
+  // check. Reads the prior status BEFORE the new row is inserted below.
+  const slackUrl = Deno.env.get("SLACK_WEBHOOK_URL");
+  if (slackUrl) {
+    try {
+      const { data: prev } = await supabase
+        .from("health_checks")
+        .select("status")
+        .order("checked_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const prevStatus = (prev as { status?: string } | null)?.status ?? "pass";
+
+      if (overallStatus === "fail" && prevStatus !== "fail") {
+        const lines = findings
+          .filter((f) => f.severity !== "pass")
+          .map((f) => `• [${f.severity}] ${f.message}`)
+          .join("\n");
+        await fetch(slackUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: `:rotating_light: *Verdanote health check: FAIL* (${summary.fail} fail / ${summary.warn} warn)\n${lines}`,
+          }),
+        }).catch(() => {});
+      } else if (overallStatus === "pass" && prevStatus === "fail") {
+        await fetch(slackUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: `:white_check_mark: *Verdanote health recovered* — all ${summary.total_checks} checks passing.`,
+          }),
+        }).catch(() => {});
+      }
+    } catch (_e) {
+      // Alerting is best-effort — a Slack failure must never break the health check.
+    }
+  }
+
   // Persist result
   await supabase.from("health_checks").insert({
     status: overallStatus,
