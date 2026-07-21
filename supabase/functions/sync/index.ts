@@ -37,6 +37,18 @@ import { isMediaContentType } from "../_shared/vault-save-logic.ts";
 // dominates for a healthy daily cadence; the max() only widens the window if a
 // sync was skipped for longer than the recent window (e.g. an outage), keeping
 // the "always full range to prevent gaps" guarantee without the full-range cost.
+// Fix #3 (2026-07-21): a transient Meta error mid-Phase-4 pauses + resumes the
+// same page rather than dropping the chunk's recent days. Bounded so a chunk
+// that keeps failing eventually advances instead of wedging the sync queue.
+export const MAX_DAILY_ERROR_RETRIES = 4;
+
+/** True while the daily-metrics fetch should PAUSE and resume on the next
+ * /continue after a transient Meta error; false once the retry budget for this
+ * chunk is spent (then the caller advances past it). Pure — unit-tested. */
+export function shouldPauseForDailyRetry(priorRetries: number, cap: number): boolean {
+  return priorRetries + 1 <= cap;
+}
+
 export function computeDailyWindowDays(opts: {
   /** true only for a scheduled/incremental sync on an already-backfilled account */
   rollingEligible: boolean;
@@ -1497,10 +1509,22 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           const result = await metaFetch(nextUrl, ctx);
           if (result.error) {
             // metaFetch already pushed the full Meta error detail to ctx.apiErrors.
-            // result.error is a boolean, so `.message` is undefined — record a phase marker instead.
-            ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Phase 4 chunk ${currentChunk + 1}/${totalChunks} halted on API error (see preceding Meta API error)` });
+            // A transient Meta error here (e.g. code 1 / subcode 99 "unknown error")
+            // must NOT silently drop this chunk's remaining — and typically most
+            // RECENT — days: the old code advanced currentChunk and let the sync
+            // "complete_with_errors", so the newest dates never landed and never
+            // resumed (only the rate-limit path below paused). Now we PAUSE and
+            // resume THIS exact page via /continue, like a rate-limit, bounded by a
+            // retry cap so a persistently-failing chunk can't wedge the queue.
+            const dailyErrorRetries = (state.daily_error_retries || 0) + 1;
+            if (shouldPauseForDailyRetry(state.daily_error_retries || 0, MAX_DAILY_ERROR_RETRIES)) {
+              ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Phase 4 chunk ${currentChunk + 1}/${totalChunks} errored — pausing to resume (attempt ${dailyErrorRetries}/${MAX_DAILY_ERROR_RETRIES})` });
+              await saveState(4, { daily_chunk_offset: currentChunk, daily_cursor: nextUrl, daily_days: dailyDays, daily_since_date: dailySinceDate, daily_error_retries: dailyErrorRetries });
+              return;
+            }
+            ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Phase 4 chunk ${currentChunk + 1}/${totalChunks} halted after ${MAX_DAILY_ERROR_RETRIES} retries — advancing (recent days for this chunk may be incomplete)` });
             nextUrl = null;
-            await saveState(4, { daily_chunk_offset: currentChunk, daily_cursor: null, daily_days: dailyDays, daily_since_date: dailySinceDate });
+            await saveState(4, { daily_chunk_offset: currentChunk, daily_cursor: null, daily_days: dailyDays, daily_since_date: dailySinceDate, daily_error_retries: 0 });
             break;
           }
           if (result.rateLimited && result.retriableUrl) {
@@ -1604,10 +1628,12 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
 
       if (currentChunk >= totalChunks) {
         console.log("Phase 4 complete — moving to finalize");
-        await saveState(5, { daily_chunk_offset: null, daily_cursor: null, daily_days: null, daily_since_date: null });
+        // daily_error_retries cleared: a fully-drained Phase 4 had no unrecovered error.
+        await saveState(5, { daily_chunk_offset: null, daily_cursor: null, daily_days: null, daily_since_date: null, daily_error_retries: 0 });
       } else {
         console.log(`Phase 4 paused after chunk ${currentChunk}`);
-        await saveState(4, { daily_chunk_offset: currentChunk, daily_cursor: null, daily_days: dailyDays, daily_since_date: dailySinceDate });
+        // Chunk completed cleanly → reset the consecutive-error budget for the next chunk.
+        await saveState(4, { daily_chunk_offset: currentChunk, daily_cursor: null, daily_days: dailyDays, daily_since_date: dailySinceDate, daily_error_retries: 0 });
       }
       return;
     }
@@ -1657,11 +1683,17 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       //    next run (moved here from the old Phase 2; the snapshot it gated is
       //    now produced by the rollup above). ──
       try {
+        const nowIso = new Date().toISOString();
+        const tsPatch: Record<string, unknown> = { last_data_sync: nowIso };
+        // Fix #1 (2026-07-21): stamp the full-refresh marker ONLY on a full-scope
+        // run, so scheduled-sync runs the light daily scope [4,5] routinely and
+        // escalates to full ~once/day when this marker goes stale.
+        if (syncScope === "full") tsPatch.last_full_sync_at = nowIso;
         await supabase
           .from("ad_accounts")
-          .update({ last_data_sync: new Date().toISOString() })
+          .update(tsPatch)
           .eq("id", accountId);
-        console.log(`  Updated last_data_sync for ${account.name}`);
+        console.log(`  Updated last_data_sync${syncScope === "full" ? " + last_full_sync_at" : ""} for ${account.name}`);
       } catch (syncTimestampErr) {
         console.error("Failed to update last_data_sync (non-fatal):", syncTimestampErr);
       }

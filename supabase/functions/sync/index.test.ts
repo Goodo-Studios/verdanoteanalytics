@@ -25,7 +25,7 @@ Deno.env.set("BACKFILL_DAILY_HISTORY_NO_SERVE", "1");
 Deno.env.set("BACKFILL_BACKOFF_BASE_SEC", "0");
 Deno.env.set("META_ACCESS_TOKEN", "fake-meta-token");
 
-const { metaFetch, isInformationalSyncNote, countRealErrors, computeDailyWindowDays, rollupDailyRows, newlyInsertedAdIds } = await import("./index.ts");
+const { metaFetch, isInformationalSyncNote, countRealErrors, computeDailyWindowDays, rollupDailyRows, newlyInsertedAdIds, shouldPauseForDailyRetry, MAX_DAILY_ERROR_RETRIES } = await import("./index.ts");
 const { RECENT_WINDOW_DAYS, RETENTION_DAYS } = await import("../_shared/retention-config.ts");
 
 function ctx(timedOut = false) {
@@ -122,6 +122,23 @@ Deno.test("countRealErrors filters backoff notes but keeps genuine errors", () =
   assertEquals(countRealErrors(onlyBackoffs), 0);
   const mixed = [...onlyBackoffs, { message: "Phase 2 pagination halted on API error" }, {}];
   assertEquals(countRealErrors(mixed), 2);
+});
+
+// ── Fix #3 (2026-07-21): Phase-4 transient-error resume budget ────────────
+// A transient Meta error mid-Phase-4 must PAUSE + resume the same page (like a
+// rate-limit) instead of advancing past the chunk and dropping its recent days.
+// shouldPauseForDailyRetry is the pure decision behind that: pause while the
+// retry budget for the chunk remains, then let the caller advance so a
+// permanently-failing chunk can't wedge the sync queue forever.
+Deno.test("Fix #3: Phase-4 pauses to resume until the retry budget is spent, then advances", () => {
+  // First error (0 prior) through the last allowed attempt → pause + resume.
+  assertEquals(shouldPauseForDailyRetry(0, MAX_DAILY_ERROR_RETRIES), true);
+  assertEquals(shouldPauseForDailyRetry(MAX_DAILY_ERROR_RETRIES - 1, MAX_DAILY_ERROR_RETRIES), true);
+  // Budget spent → stop pausing so the sync advances instead of wedging.
+  assertEquals(shouldPauseForDailyRetry(MAX_DAILY_ERROR_RETRIES, MAX_DAILY_ERROR_RETRIES), false);
+  assertEquals(shouldPauseForDailyRetry(MAX_DAILY_ERROR_RETRIES + 5, MAX_DAILY_ERROR_RETRIES), false);
+  // Sanity: the cap is a small positive bound.
+  assert(MAX_DAILY_ERROR_RETRIES >= 1 && MAX_DAILY_ERROR_RETRIES <= 10);
 });
 
 // ── US-002: rolling-window incremental daily sync ─────────────────────────

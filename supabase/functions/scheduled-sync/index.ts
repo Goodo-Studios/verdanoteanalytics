@@ -95,6 +95,28 @@ serve(async (req) => {
 
     const triggered: string[] = [];
 
+    // Fix #1 (2026-07-21): choose sync_scope per account. Routine scheduled runs
+    // use the LIGHT daily scope [4,5] (rolling recent daily metrics + rollup, with
+    // Phase-4 auto-create catching any new spending ads) instead of a full
+    // campaign/creative re-pull every cycle — the "one long pass, then small daily
+    // updates" model. Escalate to full [1-5] only when the account isn't backfilled
+    // yet, or its last full refresh is stale (so metadata still refreshes ~daily).
+    const FULL_REFRESH_HOURS = 20;
+    const claimedIds = (claimedAccounts as Array<{ id: string }>).map((a) => a.id);
+    const scopeById = new Map<string, string>();
+    const { data: scopeRows } = await supabase
+      .from("ad_accounts")
+      .select("id, daily_backfilled_since, last_full_sync_at")
+      .in("id", claimedIds);
+    const nowMs = Date.now();
+    for (const r of (scopeRows || [])) {
+      const backfilled = !!r.daily_backfilled_since;
+      const fullAgeHours = r.last_full_sync_at
+        ? (nowMs - new Date(r.last_full_sync_at).getTime()) / 3_600_000
+        : Infinity;
+      scopeById.set(r.id, (!backfilled || fullAgeHours > FULL_REFRESH_HOURS) ? "full" : "daily");
+    }
+
     for (const account of claimedAccounts) {
       try {
         // Trigger sync via the existing sync edge function using the service role key
@@ -108,6 +130,7 @@ serve(async (req) => {
           body: JSON.stringify({
             account_id: account.id,
             sync_type: "scheduled",
+            sync_scope: scopeById.get(account.id) || "full",
           }),
         });
 
