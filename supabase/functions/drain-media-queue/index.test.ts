@@ -13,7 +13,7 @@
 //   deno test -A supabase/functions/drain-media-queue/index.test.ts
 
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { isStorageUrl, isVideoOk } from "../_shared/media-discovery.ts";
+import { fetchAppUsage, isOverAppBudget, isStorageUrl, isVideoOk } from "../_shared/media-discovery.ts";
 
 Deno.env.set("DRAIN_MEDIA_QUEUE_NO_SERVE", "1");
 Deno.env.set("DRAIN_NO_CHAIN", "1"); // default: no live self-chain fetch
@@ -44,6 +44,8 @@ interface Creative {
   thumb_asset_id: string | null;
   video_asset_id: string | null;
   image_quality?: string | null;
+  expected_frame_count?: number | null;
+  frames_retry_count?: number | null;
 }
 
 /**
@@ -52,11 +54,20 @@ interface Creative {
  * select/update, media_assets select/upsert, storage.from().upload(), and a
  * head/count select for the pending check.
  */
-function makeDb(opts: { queue: QueueRow[]; creatives: Creative[] }) {
+interface FrameRow {
+  ad_id: string;
+  frame_index: number;
+  media_type: string;
+  asset_id: string | null;
+}
+
+function makeDb(opts: { queue: QueueRow[]; creatives: Creative[]; frames?: FrameRow[] }) {
   const queue = opts.queue;
   const creatives = opts.creatives;
+  const frames = opts.frames ?? [];
   const assets: Record<string, { id: string; public_url: string }> = {};
   const storageUploads: string[] = [];
+  const metaCache: Record<string, { payload: unknown; expires_at: string }> = {};
   let assetSeq = 0;
 
   function creativesBuilder() {
@@ -166,12 +177,58 @@ function makeDb(opts: { queue: QueueRow[]; creatives: Creative[] }) {
     return b;
   }
 
+  // Short-TTL Meta-lookup cache (media_meta_cache): select().eq("cache_key").
+  // maybeSingle() reads; upsert() writes. Mirrors _shared/media-map-cache.ts.
+  function metaCacheBuilder() {
+    const filters: Record<string, string> = {};
+    // deno-lint-ignore no-explicit-any
+    const b: Record<string, any> = {};
+    b.select = () => b;
+    b.eq = (col: string, val: string) => { filters[col] = val; return b; };
+    b.maybeSingle = () =>
+      Promise.resolve({ data: metaCache[filters.cache_key] ?? null, error: null });
+    // deno-lint-ignore no-explicit-any
+    b.upsert = (payload: any) => {
+      metaCache[payload.cache_key] = { payload: payload.payload, expires_at: payload.expires_at };
+      return Promise.resolve({ data: null, error: null });
+    };
+    return b;
+  }
+
+  // creative_frames: select().eq("ad_id") returns the ad's frame rows; update().eq()
+  // .eq() applies in place. Mirrors backfillFrameAssets' usage.
+  function framesBuilder() {
+    const filters: Record<string, string> = {};
+    // deno-lint-ignore no-explicit-any
+    let updatePayload: any = null;
+    // deno-lint-ignore no-explicit-any
+    const b: Record<string, any> = {};
+    b.select = () => b;
+    b.eq = (col: string, val: string | number) => { filters[col] = String(val); return b; };
+    // deno-lint-ignore no-explicit-any
+    b.update = (payload: any) => { updatePayload = payload; return b; };
+    const matches = (fr: FrameRow) =>
+      Object.entries(filters).every(([k, v]) => String((fr as unknown as Record<string, unknown>)[k]) === v);
+    // deno-lint-ignore no-explicit-any
+    b.then = (resolve: (v: any) => void) => {
+      if (updatePayload) {
+        for (const fr of frames) if (matches(fr)) Object.assign(fr, updatePayload);
+        resolve({ data: null, error: null });
+        return;
+      }
+      resolve({ data: frames.filter(matches), error: null });
+    };
+    return b;
+  }
+
   const supabase = {
     // deno-lint-ignore no-explicit-any
     from: (table: string): any => {
       if (table === "creatives") return creativesBuilder();
       if (table === "media_cache_queue") return queueBuilder();
       if (table === "media_assets") return assetsBuilder();
+      if (table === "media_meta_cache") return metaCacheBuilder();
+      if (table === "creative_frames") return framesBuilder();
       if (table === "settings") {
         return {
           select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { value: "fake" }, error: null }) }) }),
@@ -204,7 +261,7 @@ function makeDb(opts: { queue: QueueRow[]; creatives: Creative[] }) {
     },
   };
 
-  return { supabase, queue, creatives, storageUploads, assets };
+  return { supabase, queue, creatives, storageUploads, assets, metaCache, frames };
 }
 
 // ── Global fetch stub ────────────────────────────────────────────────────────
@@ -1043,4 +1100,252 @@ Deno.test("handler single-flight guard: a chain=0 poke is a no-op while a chain 
   assertEquals(json.status, "skipped");
   assertEquals(json.reason, "chain-active");
   assertEquals(queue.find((q) => q.ad_id === "ad_wait")!.status, "pending", "pending row left untouched — no second chain started");
+})
+
+// ── #4 throttle fix: reuse the Meta-lookup maps across self-chained invocations ──
+// The drain used to rebuild the assigned-Page token map (GET /me/accounts) and the
+// per-account video-library map (GET /{account}/advideos) on EVERY invocation, so a
+// self-chaining backlog drain hammered Meta hundreds of times → #4 rate limit. With
+// the short-TTL media_meta_cache, the FIRST invocation builds + caches each map and
+// every later invocation in the chain reuses it — proven here by two separate
+// drainOnce calls (fresh invocations sharing one DB/cache) issuing exactly ONE
+// /me/accounts and ONE /advideos call TOTAL.
+Deno.test("drainOnce: Meta-lookup maps are cached across invocations (one /me/accounts + one /advideos total)", async () => {
+  const now = new Date().toISOString();
+  const queue: QueueRow[] = ["0", "1"].map((id, i) => ({
+    ad_id: `ad_${id}`,
+    account_id: "act_1",
+    status: "pending",
+    attempts: 0,
+    enqueued_at: new Date(Date.now() + i).toISOString(),
+    updated_at: now,
+    last_error: null,
+  }));
+  const creatives: Creative[] = queue.map((q) => ({
+    ad_id: q.ad_id,
+    account_id: "act_1",
+    thumbnail_url: "no-thumbnail", // image sentinel → image path is a no-op
+    full_res_url: null,
+    video_url: "no-video", // re-discovery target → forces map builds + discovery
+    thumb_asset_id: null,
+    video_asset_id: null,
+    image_quality: "full_res",
+  }));
+  const { supabase, metaCache } = makeDb({ queue, creatives });
+
+  let meAccountsCalls = 0;
+  let advideosCalls = 0;
+  const responder = (url: string) => {
+    if (url.includes("/me/accounts")) {
+      meAccountsCalls++;
+      // Non-empty → gets cached (an empty build would not).
+      return new Response(
+        JSON.stringify({ data: [{ id: "page1", name: "P", access_token: "tok1" }] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (url.includes("/advideos")) {
+      advideosCalls++;
+      return new Response(
+        JSON.stringify({ data: [{ id: "vid1", source: "https://cdn/vid1.mp4" }] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (url.includes("graph.facebook.com") && url.includes("?fields=creative")) {
+      // Discovery resolves vid1, which is present in the (cached) account video map.
+      return new Response(
+        JSON.stringify({ creative: { object_story_spec: { video_data: { video_id: "vid1" } } } }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (url.includes("/storage/v1/object/")) return new Response("{}", { status: 200 });
+    if (url === "https://cdn/vid1.mp4") return videoResponse(10 * 1024 * 1024);
+    throw new Error(`unexpected fetch in map-cache test: ${url}`);
+  };
+
+  await withFetch(responder, async () => {
+    // Two SEPARATE invocations (limit 1 each) sharing the same supabase/cache — the
+    // 2nd must serve both maps from media_meta_cache, issuing no new Meta calls.
+    const s1 = await mod.drainOnce(supabase, "fake-token", 1, 120_000);
+    assertEquals(s1.claimed, 1);
+    assertEquals(s1.cached, 1, "first invocation caches the re-discovered video");
+    const s2 = await mod.drainOnce(supabase, "fake-token", 1, 120_000);
+    assertEquals(s2.claimed, 1);
+    assertEquals(s2.cached, 1, "second invocation also caches its video");
+  });
+
+  assertEquals(meAccountsCalls, 1, "the page-token map must be built ONCE and reused from cache");
+  assertEquals(advideosCalls, 1, "the account video map must be built ONCE and reused from cache");
+  assert(metaCache["pagetokenmap"], "page-token map was written to the cache");
+  assert(metaCache["videomap:act_1"], "account video map was written to the cache");
+})
+
+// ── #4 circuit breaker: pause the drain BEFORE tripping Meta's app-usage limit ──
+Deno.test("isOverAppBudget: true at/over threshold on any dimension, fail-open on null", () => {
+  assertEquals(isOverAppBudget(null), false, "no usage data → do not block (fail-open)");
+  assertEquals(isOverAppBudget({ callCount: 79, totalCputime: 0, totalTime: 0 }), false, "under threshold");
+  assertEquals(isOverAppBudget({ callCount: 80, totalCputime: 0, totalTime: 0 }), true, "call_count at threshold");
+  assertEquals(isOverAppBudget({ callCount: 0, totalCputime: 0, totalTime: 95 }), true, "total_time over threshold");
+  assertEquals(isOverAppBudget({ callCount: 1116, totalCputime: 1, totalTime: 620 }), true, "the real over-limit reading");
+  assertEquals(isOverAppBudget({ callCount: 50, totalCputime: 50, totalTime: 50 }, 40), true, "custom threshold honored");
+});
+
+Deno.test("fetchAppUsage: parses the x-app-usage header (present even on a #4 response)", async () => {
+  await withFetch((url) => {
+    if (url.includes("/me")) {
+      return new Response(
+        JSON.stringify({ error: { code: 4, message: "(#4) Application request limit reached" } }),
+        { status: 400, headers: { "content-type": "application/json", "x-app-usage": '{"call_count":1116,"total_cputime":1,"total_time":620}' } },
+      );
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  }, async () => {
+    const usage = await fetchAppUsage("fake-token");
+    assertEquals(usage?.callCount, 1116, "reads call_count from a throttled response's header");
+    assertEquals(usage?.totalTime, 620);
+    assert(isOverAppBudget(usage), "1116% is over budget → drain must pause");
+  });
+});
+
+Deno.test("fetchAppUsage: no header → null (fail-open, drain proceeds)", async () => {
+  await withFetch(() => new Response("{}", { status: 200 }), async () => {
+    assertEquals(await fetchAppUsage("fake-token"), null);
+  });
+});
+
+Deno.test("handler: pauses (no claim, no chain) when Meta app usage is over the threshold", async () => {
+  const now = new Date().toISOString();
+  const queue: QueueRow[] = [{
+    ad_id: "ad_x", account_id: "act_1", status: "pending",
+    attempts: 0, enqueued_at: now, updated_at: now, last_error: null,
+  }];
+  const { supabase } = makeDb({ queue, creatives: [] });
+
+  Deno.env.delete("DRAIN_NO_CHAIN");
+  let chainFired = false;
+  let claimAttempted = false;
+  try {
+    await withFetch((url) => {
+      if (url.includes("/functions/v1/drain-media-queue")) { chainFired = true; return new Response("{}", { status: 200 }); }
+      if (url.includes("/me")) {
+        // Over-budget reading → the breaker must short-circuit the whole invocation.
+        return new Response("{}", { status: 200, headers: { "x-app-usage": '{"call_count":92,"total_cputime":5,"total_time":40}' } });
+      }
+      throw new Error(`unexpected fetch (no work should happen while paused): ${url}`);
+    }, async () => {
+      // Wrap the rpc so we can prove no batch was claimed while paused.
+      const origRpc = supabase.rpc.bind(supabase);
+      // deno-lint-ignore no-explicit-any
+      supabase.rpc = (name: string, args: any) => { if (name === "claim_media_cache_queue") claimAttempted = true; return origRpc(name, args); };
+      const req = new Request("https://example.supabase.co/functions/v1/drain-media-queue?chain=0", { method: "POST", body: "{}" });
+      const resp = await mod.handler(req, supabase);
+      const json = await resp.json();
+      assertEquals(json.status, "paused");
+      assertEquals(json.reason, "meta-app-usage-high");
+      assertEquals(json.usage.callCount, 92);
+    });
+  } finally {
+    Deno.env.set("DRAIN_NO_CHAIN", "1");
+  }
+  assert(!claimAttempted, "an over-budget invocation must NOT claim a batch");
+  assert(!chainFired, "an over-budget invocation must NOT self-chain");
+  assertEquals(queue[0].status, "pending", "the pending row is left untouched while paused");
+})
+
+// ── #3 carousel-frame ASSET backfill ──────────────────────────────────────────
+function jsonResponse(obj: unknown, status = 200): Response {
+  return new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json" } });
+}
+function imageResponse(): Response {
+  // A tiny non-HTML image payload (cacheImageToStorage reads arrayBuffer + hashes it).
+  return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]), {
+    status: 200,
+    headers: { "content-type": "image/jpeg" },
+  });
+}
+// A carousel creative spec with two image cards (deriveFrames needs >1 child).
+const CAROUSEL_SPEC = {
+  creative: {
+    object_story_spec: {
+      link_data: { child_attachments: [{ picture: "https://cdn/f0.jpg" }, { picture: "https://cdn/f1.jpg" }] },
+    },
+  },
+};
+
+Deno.test("backfillFrameAssets: skips a non-multi-frame ad WITHOUT any Meta call", async () => {
+  const { supabase } = makeDb({ queue: [], creatives: [], frames: [] });
+  await withFetch(() => { throw new Error("must not call Meta for expected<=1"); }, async () => {
+    assertEquals((await mod.backfillFrameAssets(supabase, "ad", "act_1", "tok", 1)).outcome, "skipped");
+    assertEquals((await mod.backfillFrameAssets(supabase, "ad", "act_1", "tok", null)).outcome, "skipped");
+  });
+});
+
+Deno.test("backfillFrameAssets: skips (no Meta call) when every frame already has an asset", async () => {
+  const frames: FrameRow[] = [
+    { ad_id: "ad_c", frame_index: 0, media_type: "carousel_frame", asset_id: "a0" },
+    { ad_id: "ad_c", frame_index: 1, media_type: "carousel_frame", asset_id: "a1" },
+  ];
+  const { supabase } = makeDb({ queue: [], creatives: [], frames });
+  await withFetch(() => { throw new Error("must not call Meta when nothing is pending"); }, async () => {
+    assertEquals((await mod.backfillFrameAssets(supabase, "ad_c", "act_1", "tok", 2)).outcome, "skipped");
+  });
+});
+
+Deno.test("backfillFrameAssets: caches a pending image frame and links its creative_frames.asset_id", async () => {
+  const frames: FrameRow[] = [
+    { ad_id: "ad_c", frame_index: 0, media_type: "carousel_frame", asset_id: null },   // pending
+    { ad_id: "ad_c", frame_index: 1, media_type: "carousel_frame", asset_id: "a1" },    // already linked
+  ];
+  const { supabase, frames: fr } = makeDb({ queue: [], creatives: [], frames });
+  await withFetch((url) => {
+    if (url.includes("?fields=creative")) return jsonResponse(CAROUSEL_SPEC);
+    if (url.includes("/storage/v1/object/")) return new Response("{}", { status: 200 });
+    if (url === "https://cdn/f0.jpg") return imageResponse();
+    throw new Error(`unexpected fetch: ${url}`);
+  }, async () => {
+    const r = await mod.backfillFrameAssets(supabase, "ad_c", "act_1", "tok", 2);
+    assertEquals(r.outcome, "cached");
+    assertEquals(r.cached, 1, "only the one pending frame is cached");
+  });
+  assert(fr[0].asset_id, "frame 0's asset_id is now linked");
+  assertEquals(fr[1].asset_id, "a1", "the already-linked frame is untouched");
+});
+
+Deno.test("backfillFrameAssets: a #4 throttle on the creative fetch → throttled (no backoff)", async () => {
+  const frames: FrameRow[] = [{ ad_id: "ad_c", frame_index: 0, media_type: "carousel_frame", asset_id: null }];
+  const { supabase } = makeDb({ queue: [], creatives: [], frames });
+  await withFetch((url) => {
+    if (url.includes("?fields=creative")) {
+      return jsonResponse({ error: { code: 4, message: "(#4) Application request limit reached" } }, 400);
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  }, async () => {
+    assertEquals((await mod.backfillFrameAssets(supabase, "ad_c", "act_1", "tok", 2)).outcome, "throttled");
+  });
+});
+
+Deno.test("processQueuedAd: heals a carousel's pending frame images (video+image already cached)", async () => {
+  const creatives: Creative[] = [{
+    ad_id: "ad_car", account_id: "act_1",
+    thumbnail_url: "https://x.supabase.co/storage/v1/object/public/ad-thumbnails/act_1/ad_car.jpg",
+    full_res_url: "https://x.supabase.co/storage/v1/object/public/ad-thumbnails/act_1/ad_car.jpg",
+    video_url: "https://x.supabase.co/storage/v1/object/public/ad-videos/act_1/ad_car.mp4", // storage → skipVideo
+    thumb_asset_id: "t", video_asset_id: "v", image_quality: "full_res",
+    expected_frame_count: 2, frames_retry_count: 0,
+  }];
+  const frames: FrameRow[] = [
+    { ad_id: "ad_car", frame_index: 0, media_type: "carousel_frame", asset_id: null },
+    { ad_id: "ad_car", frame_index: 1, media_type: "carousel_frame", asset_id: null },
+  ];
+  const { supabase, frames: fr } = makeDb({ queue: [], creatives, frames });
+  await withFetch((url) => {
+    if (url.includes("?fields=creative")) return jsonResponse(CAROUSEL_SPEC);
+    if (url.includes("/storage/v1/object/")) return new Response("{}", { status: 200 });
+    if (url === "https://cdn/f0.jpg" || url === "https://cdn/f1.jpg") return imageResponse();
+    throw new Error(`unexpected fetch: ${url}`);
+  }, async () => {
+    const { outcome } = await mod.processQueuedAd(supabase, "ad_car", "act_1", "tok");
+    assertEquals(outcome, "cached", "the carousel's frames are backfilled → cached");
+  });
+  assert(fr[0].asset_id && fr[1].asset_id, "both pending frames are now linked");
 })
