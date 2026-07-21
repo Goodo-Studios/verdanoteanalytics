@@ -75,7 +75,10 @@ describe("sync Phase 2 snapshot is a local rollup, not a Meta fetch (US-003)", (
     // data it gates (the spiritual successor to the #1 data-gap invariant).
     // Match the RPC CALL SITE (not the doc comment) via its p_account_id arg.
     const rollupIdx = syncSrc.search(/"rollup_creatives_from_daily"[\s\S]*?p_account_id:\s*accountId/);
-    const lastDataSyncIdx = syncSrc.indexOf("last_data_sync: new Date()");
+    // Fix #1 (2026-07-21): the Phase-5 timestamp write now builds a patch object
+    // (last_data_sync + optional last_full_sync_at) — assert against the field in
+    // that patch. The AFTER-rollup ordering invariant is unchanged.
+    const lastDataSyncIdx = syncSrc.indexOf("last_data_sync: nowIso");
     expect(rollupIdx).toBeGreaterThan(-1);
     expect(lastDataSyncIdx).toBeGreaterThan(rollupIdx);
   });
@@ -88,12 +91,20 @@ describe("metaFetch error is a boolean, not an object (#2 logging fix)", () => {
     expect(syncSrc).not.toContain("result.error.message");
   });
 
-  it("Phase 4 chunk error stays in-phase (nextUrl=null + break, idempotent re-fetch)", () => {
-    // Phase 4 daily upserts are idempotent, so its error path intentionally
-    // null-cursors and breaks to retry the chunk — it must NOT adopt Phase 2's
-    // return semantics. Guard that behavior didn't drift.
-    const block = syncSrc.match(/Phase 4 chunk[\s\S]*?\n\s*\}/);
+  it("Phase 4 chunk error pauses + resumes the page (bounded), then advances after the retry cap", () => {
+    // Fix #3 (2026-07-21): a transient Meta error mid-Phase-4 must NOT drop the
+    // chunk's (typically recent) days by advancing past it. It now PAUSES like the
+    // rate-limit path — saves the page cursor and returns so the next /continue
+    // resumes the SAME page — bounded by MAX_DAILY_ERROR_RETRIES; only once the
+    // budget is spent does it fall back to nextUrl=null + break (advance) so a
+    // permanently-failing chunk can't wedge the queue. Guard both halves.
+    const block = syncSrc.match(/Phase 4 chunk[\s\S]*?errored[\s\S]*?break;/);
     expect(block, "Phase 4 error branch not found").not.toBeNull();
+    // Pause + resume half: save the page cursor and return so /continue resumes it.
+    expect(block![0]).toContain("pausing to resume");
+    expect(block![0]).toContain("daily_cursor: nextUrl");
+    expect(block![0]).toContain("return;");
+    // Bounded fallback half still advances after the retry budget is spent.
     expect(block![0]).toContain("nextUrl = null");
     expect(block![0]).toContain("break;");
   });
