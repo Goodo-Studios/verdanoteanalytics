@@ -238,6 +238,14 @@ verify_jwt = true
 [functions.apify-debug]
 verify_jwt = true
 
+# US-000 spike proxy for starting/reading PAID Apify actor runs. verify_jwt=false
+# because it is invoked with the service-role bearer from a shell; the function
+# gates itself by exact string compare of the bearer against
+# SUPABASE_SERVICE_ROLE_KEY (no anon/user JWT admitted). TEMPORARY — remove after
+# the spike (US-000) is complete.
+[functions.apify-spike]
+verify_jwt = false
+
 # One-time backfill of ad_post_url for historical creatives. Invoked manually
 # (or by an internal caller) with the service-role bearer — no end-user JWT
 # (same pattern as backfill-retag / backfill-play-curves). NOTE: the function

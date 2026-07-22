@@ -12,6 +12,7 @@ FUNCTIONS=(
   ai-chat
   analyze-creative
   api
+  apify-spike
   backfill-daily-history
   backfill-destination-key
   backfill-launch-dates
