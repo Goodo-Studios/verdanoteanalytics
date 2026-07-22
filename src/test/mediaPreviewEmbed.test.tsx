@@ -76,6 +76,35 @@ describe("MediaPreview — preview-embed fallback", () => {
     expect(screen.queryByTitle(/Ad preview/i)).toBeNull();
   });
 
+  it("does not fetch a preview for an image ad carrying the 'no-video' sentinel", async () => {
+    // Image ads are written video_url='no-video' by discovery — still not a video ad.
+    render(<MediaPreview creative={creative({ video_url: "no-video", meta_video_ids: [] })} />);
+    expect(supabase.functions.invoke).not.toHaveBeenCalled();
+    expect(screen.queryByTitle(/Ad preview/i)).toBeNull();
+  });
+
+  it("embeds the preview for a VIDEO ad stuck on the ambiguous 'no-video' sentinel (meta_video_ids present)", async () => {
+    // Regression (2026-07-21 screenshot): a [Video] ad whose source was never
+    // resolved carries video_url='no-video'; the modal treated that as "not a
+    // video ad" and rendered a static thumbnail with no player. meta_video_ids
+    // (US-014) disambiguates: real video intent → Meta preview embed.
+    vi.mocked(supabase.functions.invoke).mockResolvedValue({
+      data: { url: PREVIEW_URL, format: "MOBILE_FEED_STANDARD" },
+      error: null,
+    } as never);
+
+    render(
+      <MediaPreview
+        creative={creative({ video_url: "no-video", meta_video_ids: ["9876543210"] })}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(supabase.functions.invoke).toHaveBeenCalledWith("ad-preview", expect.anything()),
+    );
+    await waitFor(() => expect(screen.getByTitle(/Ad preview/i)).toBeInTheDocument());
+  });
+
   it("falls back to the thumbnail + 'Video unavailable' when no preview is available", async () => {
     vi.mocked(supabase.functions.invoke).mockResolvedValue({ data: {}, error: null } as never);
 

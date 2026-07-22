@@ -25,7 +25,11 @@ import { useAccountContext } from "@/contexts/AccountContext";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 
-type Creative = Database["public"]["Tables"]["creatives"]["Row"];
+// Extend the generated Row with meta_video_ids (US-014 column; the generated
+// types predate it). The creatives edge fn includes it in CREATIVE_COLS.
+type Creative = Database["public"]["Tables"]["creatives"]["Row"] & {
+  meta_video_ids?: string[] | null;
+};
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { saveCreativeToVault } from "@/lib/vaultSave";
@@ -84,8 +88,14 @@ export function MediaPreview({ creative, caching = false }: { creative: Creative
   // A raw, directly-playable video url — a cached storage copy or a live CDN url.
   const isRealVideoUrl = !!creative.video_url && creative.video_url.startsWith("http");
   // The ad has VIDEO intent even when the raw source is a blocked sentinel
-  // (no-video-permission / -deleted / -oversized). "no-video" = not a video ad.
-  const isVideoAd = !!creative.video_url && creative.video_url !== "no-video";
+  // (no-video-permission / -deleted / -oversized). "no-video" is AMBIGUOUS: image
+  // ads carry it (correctly not a video ad), but so do video ads whose source was
+  // never resolved — those must still get the Meta preview embed instead of
+  // rendering as a static thumbnail with no player. Disambiguate with the ad's
+  // persisted Meta video ids (US-014): any id = real video intent.
+  const hasMetaVideoIds = (creative.meta_video_ids?.length ?? 0) > 0;
+  const isVideoAd =
+    (!!creative.video_url && creative.video_url !== "no-video") || hasMetaVideoIds;
   // Want Meta's hosted preview when it's a video ad we can't play from the raw source:
   // a blocked sentinel (never a real url), or a real url that errored in <video>.
   const wantEmbed = isVideoAd && (!isRealVideoUrl || videoError);
