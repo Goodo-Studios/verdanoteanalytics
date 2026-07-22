@@ -10,9 +10,13 @@
 //
 // The queue is creatives.analysis_status itself (no separate table): 'pending'
 // rows are claimed spend-first in batches (FOR UPDATE SKIP LOCKED via
-// claim_creatives_for_analysis), analyzed, then marked 'done'. The function
-// self-chains a fresh invocation while 'pending' rows remain and the per-account
-// $ cap (creative_analysis_spend) is not hit — mirrors drain-media-queue.
+// claim_creatives_for_analysis), analyzed CONCURRENTLY (bounded by CONCURRENCY,
+// with 429/backoff on the OpenRouter+Groq calls), then marked 'done'. Each
+// invocation runs under a wall-clock TIME_BUDGET and releases any un-started
+// claims back to 'pending'. The function self-chains a fresh invocation while
+// work remains and the per-account $ cap (creative_analysis_spend) is not hit,
+// hopping to the NEXT enabled account when the current one is drained/capped so
+// one continuous drain empties the whole backlog — mirrors drain-media-queue.
 //
 // Auth model: internal / service-role only (verify_jwt = false). Poked manually
 // with { account_id } for the builder-account-first rollout, or by pg_cron once
@@ -21,13 +25,14 @@
 // Body (all optional except account_id):
 //   { account_id: string, limit?: number, force?: boolean, chain?: number }
 //     • account_id — REQUIRED. Restrict to one account (builder-first + spend safety).
-//     • limit      — creatives claimed per invocation (default 25, max 100).
+//     • limit      — creatives claimed per invocation (default 30, max 100).
 //     • force      — re-analyze creatives already 'done' (bounded by limit).
 //     • chain      — internal self-chain depth (do not set by hand).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { json } from "../_shared/cors.ts";
 import { parseLooseJson } from "../_shared/vault-analyze-logic.ts";
 import { buildFrameworkColumns } from "../_shared/analyze-creative-logic.ts";
+import { backoffDelayMs, runPool } from "../_shared/analyze-creative-concurrency.ts";
 import { NO_VIDEO_SENTINEL } from "../_shared/media-discovery.ts";
 import {
   BRAND_METADATA_PROMPT,
@@ -59,12 +64,53 @@ const PRICES: Record<string, { in: number; out: number; img: number }> = {
 };
 const WHISPER_FLAT_USD = 0.0004; // ~30s @ $0.04/hr; flat estimate per transcription
 
-const BATCH_DEFAULT = 25;
+const BATCH_DEFAULT = 30;
 const BATCH_MAX = 100;
-const MAX_CHAIN = 200; // safety bound on self-chain depth
+const MAX_CHAIN = 400; // safety bound on self-chain depth (raised for cross-account drain)
 const FRAME_LIMIT = 8;
 
+// Speedup knobs (2026-07-22). The drain used to process a claimed batch strictly
+// one-creative-at-a-time; these bound a CONCURRENT pass instead.
+//   • CONCURRENCY — creatives analyzed at once within one invocation. Conservative
+//     so the fan-out of OpenRouter/Groq calls per item can't rate-limit-storm; the
+//     429 backoff below is the second line of defense.
+//   • TIME_BUDGET_MS — wall-clock ceiling for the concurrent pass, well under the
+//     edge-function limit (~150s) with headroom for the closing count queries and
+//     the self-chain fire. Un-started claimed rows are released to 'pending'.
+const CONCURRENCY = Number(Deno.env.get("ANALYZE_CONCURRENCY") ?? 5);
+const TIME_BUDGET_MS = Number(Deno.env.get("ANALYZE_TIME_BUDGET_MS") ?? 100_000);
+const MAX_HTTP_RETRIES = 4; // OpenRouter/Groq 429 + 5xx retries before giving up
+
 const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// ── Retry a provider fetch on 429 / 5xx with jittered exponential backoff. Honors
+//    an explicit Retry-After header when present. Returns the final Response (the
+//    caller decides how to handle a non-ok terminal status). This is what makes the
+//    raised concurrency safe: a transient rate-limit backs off instead of failing
+//    the creative outright and hammering the provider. ──
+async function fetchWithRetry(
+  doFetch: () => Promise<Response>,
+  label: string,
+): Promise<Response> {
+  let attempt = 0;
+  while (true) {
+    const res = await doFetch();
+    if (res.ok) return res;
+    const retriable = res.status === 429 || (res.status >= 500 && res.status < 600);
+    if (!retriable || attempt >= MAX_HTTP_RETRIES) return res;
+    attempt++;
+    const retryAfter = Number(res.headers.get("retry-after"));
+    const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+      ? retryAfter * 1000
+      : backoffDelayMs(attempt);
+    // Free the connection before sleeping so the retry reuses the pool cleanly.
+    await res.body?.cancel().catch(() => {});
+    console.warn(`${label} ${res.status} — retry ${attempt}/${MAX_HTTP_RETRIES} in ${waitMs}ms`);
+    await sleep(waitMs);
+  }
+}
 
 // ── OpenRouter chat/vision call. Returns text + the USD cost from real usage. ──
 async function orChat(
@@ -74,22 +120,26 @@ async function orChat(
   maxTokens: number,
   imageCount = 0,
 ): Promise<{ text: string; costUsd: number }> {
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${OPENROUTER_KEY}`,
-      "Content-Type": "application/json",
-      "X-Title": "Verdanote",
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: userContent },
-      ],
-    }),
-  });
+  const res = await fetchWithRetry(
+    () =>
+      fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${OPENROUTER_KEY}`,
+          "Content-Type": "application/json",
+          "X-Title": "Verdanote",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: maxTokens,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: userContent },
+          ],
+        }),
+      }),
+    `OpenRouter ${model}`,
+  );
   if (!res.ok) {
     throw new Error(`OpenRouter ${model} error ${res.status}: ${await res.text()}`);
   }
@@ -105,15 +155,19 @@ async function orChat(
 
 // ── OpenRouter embedding (mirrors creative-embed / vault-embed). ──
 async function embed(text: string): Promise<{ vec: number[]; costUsd: number }> {
-  const res = await fetch("https://openrouter.ai/api/v1/embeddings", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${OPENROUTER_KEY}`,
-      "Content-Type": "application/json",
-      "X-Title": "Verdanote",
-    },
-    body: JSON.stringify({ model: EMBED_MODEL, input: text.slice(0, 8000), dimensions: 512 }),
-  });
+  const res = await fetchWithRetry(
+    () =>
+      fetch("https://openrouter.ai/api/v1/embeddings", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${OPENROUTER_KEY}`,
+          "Content-Type": "application/json",
+          "X-Title": "Verdanote",
+        },
+        body: JSON.stringify({ model: EMBED_MODEL, input: text.slice(0, 8000), dimensions: 512 }),
+      }),
+    "OpenRouter embedding",
+  );
   if (!res.ok) throw new Error(`Embedding error ${res.status}: ${await res.text()}`);
   const data = await res.json();
   const usage = data?.usage ?? {};
@@ -156,11 +210,17 @@ async function transcribe(videoUrl: string): Promise<{ text: string | null; cost
     const form = new FormData();
     form.append("file", new Blob([bytes], { type: `video/${ext}` }), `video.${ext}`);
     form.append("model", "whisper-large-v3-turbo");
-    const gres = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${GROQ_KEY}` },
-      body: form,
-    });
+    // Retry a Groq 429 / 5xx (rate limit or transient) with backoff so higher
+    // concurrency can't turn a burst into a lost transcript; 413/400 still skip.
+    const gres = await fetchWithRetry(
+      () =>
+        fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${GROQ_KEY}` },
+          body: form,
+        }),
+      "Groq whisper",
+    );
     if (!gres.ok) {
       // 413 (too large) / 400 (no audio track / could not process) → skip, not fail.
       return { text: null, costUsd: 0 };
@@ -482,18 +542,23 @@ Deno.serve(async (req) => {
 
   let analyzed = 0;
   let failed = 0;
-  let cappedMid = false;
   const errors: string[] = [];
-  const unprocessed: string[] = [];
 
-  for (let i = 0; i < batch.length; i++) {
-    const c = batch[i];
-    if (spent >= cap) {
-      // Budget hit mid-batch: release the rest back to 'pending' and stop.
-      cappedMid = true;
-      unprocessed.push(...batch.slice(i).map((r) => r.ad_id));
-      break;
-    }
+  // Process the claimed batch CONCURRENTLY (bounded by CONCURRENCY) instead of
+  // one-creative-at-a-time — the single biggest throughput win for the backlog.
+  // Each creative is a distinct claimed ('analyzing') row, so concurrent workers
+  // never double-process one; the claim RPC's FOR UPDATE SKIP LOCKED already made
+  // that safe across overlapping invocations too. A worker OWNS its errors
+  // (marks the row 'failed', never re-throws) so the pool can't reject mid-flight.
+  //
+  // Two stop conditions halt NEW dispatch (in-flight workers still finish): the
+  // wall-clock TIME_BUDGET (keeps the run comfortably under the ~150s edge limit
+  // even when the batch is video-heavy) and the per-account $ cap. Rows never
+  // started are released from 'analyzing' back to 'pending' for the next run.
+  const startedMs = Date.now();
+  const timedOut = () => Date.now() - startedMs > TIME_BUDGET_MS;
+
+  const analyzeWorker = async (c: CreativeRow): Promise<void> => {
     try {
       const { update, costUsd } = await analyzeOne(c);
       const scriptText = update._script_text as string | null;
@@ -515,11 +580,25 @@ Deno.serve(async (req) => {
     } catch (e) {
       failed++;
       errors.push(`${c.ad_id}: ${e instanceof Error ? e.message : String(e)}`);
+      // Terminal 'failed' (NOT stuck 'analyzing') so it never blocks the queue; a
+      // genuine crash mid-item is instead recovered by the 15-min stale-'analyzing'
+      // reclaim in claim_creatives_for_analysis, so failures don't retry-storm.
       await db.from("creatives").update({ analysis_status: "failed" }).eq("ad_id", c.ad_id);
     }
-  }
+  };
 
-  if (unprocessed.length) {
+  const { skipped } = await runPool(
+    batch,
+    CONCURRENCY,
+    analyzeWorker,
+    () => timedOut() || spent >= cap,
+  );
+
+  const cappedMid = spent >= cap;
+  if (skipped.length) {
+    // Release un-started claims (budget/time-budget cutoff) from 'analyzing' back
+    // to 'pending' so the next invocation retries them (never left stuck).
+    const unprocessed = skipped.map((i) => batch[i].ad_id);
     await db.from("creatives").update({ analysis_status: "pending" }).in("ad_id", unprocessed);
   }
 
@@ -548,12 +627,26 @@ Deno.serve(async (req) => {
   const pct = (n: number | null) =>
     totalCreatives && totalCreatives > 0 ? Math.round((1000 * (n ?? 0)) / totalCreatives) / 10 : 0;
 
+  // Resolve the NEXT chain target so one continuous self-chaining drain empties
+  // the whole backlog across ALL enabled accounts, instead of one account per run
+  // with up-to-a-full-cron-interval idle gaps between accounts:
+  //   • current account still has pending work and is under cap → stay on it;
+  //   • otherwise (drained or capped) → hop to the next flagged, under-cap account
+  //     with pending work (next_creative_analysis_account skips this one).
+  // Single-flight still holds: this is a chain>0 continuation of the one active
+  // drain, and while its claimed rows sit 'analyzing' a chain=0 cron poke no-ops.
+  let nextAccount: string | undefined;
+  if (!cappedMid && (pending ?? 0) > 0) {
+    nextAccount = accountId;
+  } else {
+    const { data: hop } = await db.rpc("next_creative_analysis_account");
+    nextAccount = typeof hop === "string" && hop ? hop : undefined;
+  }
+
   let chained = false;
   if (
     !noChain &&
-    !cappedMid &&
-    spent < cap &&
-    (pending ?? 0) > 0 &&
+    nextAccount &&
     chainDepth < MAX_CHAIN &&
     !Deno.env.get("ANALYZE_NO_CHAIN")
   ) {
@@ -567,7 +660,7 @@ Deno.serve(async (req) => {
         "Content-Type": "application/json",
         Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
       },
-      body: JSON.stringify({ account_id: accountId, limit }),
+      body: JSON.stringify({ account_id: nextAccount, limit }),
     }).catch((e: Error) => console.error("analyze-creative self-chain error:", e.message));
   }
 
@@ -580,12 +673,14 @@ Deno.serve(async (req) => {
     spent_usd: Math.round(spent * 10000) / 10000,
     cap_usd: cap,
     pending_remaining: pending ?? 0,
+    concurrency: CONCURRENCY,
     embedding_coverage: {
       total_creatives: totalCreatives ?? 0,
       visual_pct: pct(visualEmbedded),
       script_pct: pct(scriptEmbedded),
     },
     chained,
+    chained_to: chained ? nextAccount : null,
     chain_depth: chainDepth,
     errors: errors.slice(0, 20),
     error_count: errors.length,
