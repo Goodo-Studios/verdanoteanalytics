@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { previewCaptureHealthFindings } from "../_shared/preview-drain-logic.ts";
 
 
 serve(async (req) => {
@@ -236,6 +237,64 @@ serve(async (req) => {
         message: "All accounts: videos cached or sentineled (none pending)",
         details: { all: videoCoverage },
       });
+    }
+
+    // ─── 5c. Preview Capture Pipeline ───────────────────────────
+    // Surface free preview-extraction capture trouble: a failure-rate spike (>50% of
+    // attempts failing over 6h), a queue backlog (>200 pending creatives), AND a
+    // Tier-B iframe HTTP-400 drift alarm (Facebook changed the required iframe
+    // headers once already — a rising 400 rate is the mechanism-drift tripwire).
+    // Capture is FREE, so there is NO budget ledger. Cheap head-counts + one
+    // capture_events read; thresholds/severities live in the pure, unit-tested
+    // previewCaptureHealthFindings.
+    const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000).toISOString();
+    const { count: captureAttempts6h } = await supabase
+      .from("creatives")
+      .select("ad_id", { count: "exact", head: true })
+      .gte("capture_last_attempt_at", sixHoursAgo);
+    const { count: captureFailures6h } = await supabase
+      .from("creatives")
+      .select("ad_id", { count: "exact", head: true })
+      .eq("capture_status", "failed")
+      .gte("capture_last_attempt_at", sixHoursAgo);
+    const { count: captureQueueDepth } = await supabase
+      .from("creatives")
+      .select("ad_id", { count: "exact", head: true })
+      .eq("capture_status", "pending");
+
+    // Tier-B iframe HTTP outcomes over the last 6h (drift tripwire). Recorded by
+    // preview-capture into capture_events (tier='B'); best-effort — a missing table
+    // simply yields 0/0 and the drift finding stays quiet.
+    let iframeAttempts6h = 0;
+    let iframe400s6h = 0;
+    try {
+      const { count: ifAtt } = await supabase
+        .from("capture_events")
+        .select("id", { count: "exact", head: true })
+        .eq("tier", "B")
+        .gte("created_at", sixHoursAgo);
+      const { count: if400 } = await supabase
+        .from("capture_events")
+        .select("id", { count: "exact", head: true })
+        .eq("tier", "B")
+        .eq("http_status", 400)
+        .gte("created_at", sixHoursAgo);
+      iframeAttempts6h = ifAtt ?? 0;
+      iframe400s6h = if400 ?? 0;
+    } catch {
+      // capture_events not present yet — drift alarm stays inert.
+    }
+
+    for (
+      const f of previewCaptureHealthFindings({
+        attempts6h: captureAttempts6h ?? 0,
+        failures6h: captureFailures6h ?? 0,
+        queueDepth: captureQueueDepth ?? 0,
+        iframeAttempts6h,
+        iframe400s6h,
+      })
+    ) {
+      findings.push(f);
     }
 
     // ─── 6. Orphaned Creatives (no matching account) ────────────

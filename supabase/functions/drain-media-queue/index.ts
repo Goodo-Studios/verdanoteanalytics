@@ -72,6 +72,7 @@ import {
   videoMapKey,
   VIDEO_MAP_TTL_MS,
 } from "../_shared/media-map-cache.ts";
+import { rescueEnqueueDecision } from "../_shared/preview-drain-logic.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const THUMB_BUCKET = "ad-thumbnails";
@@ -483,6 +484,21 @@ export async function backfillFrameAssets(
  * this worker exists for — then image), preserving all skip-gates. Returns an
  * outcome the drain loop uses to mark the queue row.
  */
+/**
+ * Rescue context returned alongside the media outcome so the drain loop can decide
+ * (via rescueEnqueueDecision) whether to hand a media-failed creative to the free
+ * preview-capture queue. All read from the same creative row already fetched here —
+ * no extra DB round-trip.
+ */
+export interface RescueContext {
+  // Preview pivot: capture no longer gates on a Meta Ad-Library archive id (that
+  // column is dropped). Rescue is gated on MEDIA-INTENT — the ad actually has
+  // video ids or image hashes — so a pure text/no-media ad is never enqueued.
+  hasMediaIntent: boolean;
+  alreadyCovered: boolean;
+  captureStatus: string | null;
+}
+
 export async function processQueuedAd(
   supabase: Supa,
   adId: string,
@@ -490,10 +506,10 @@ export async function processQueuedAd(
   metaToken: string,
   pageTokenMap?: Map<string, string>,
   accountVideoMap?: Map<string, string>,
-): Promise<{ outcome: "cached" | "skipped" | "failed" | "throttled"; reason?: string }> {
+): Promise<{ outcome: "cached" | "skipped" | "failed" | "throttled"; reason?: string; rescue?: RescueContext }> {
   const { data: creative, error: fetchErr } = await supabase
     .from("creatives")
-    .select("ad_id, account_id, thumbnail_url, full_res_url, video_url, thumb_asset_id, video_asset_id, image_quality, expected_frame_count, frames_retry_count")
+    .select("ad_id, account_id, thumbnail_url, full_res_url, video_url, thumb_asset_id, video_asset_id, image_quality, expected_frame_count, frames_retry_count, meta_video_ids, meta_image_hashes, capture_status")
     .eq("ad_id", adId)
     .maybeSingle();
 
@@ -738,6 +754,26 @@ export async function processQueuedAd(
     await supabase.from("creatives").update(updates).eq("ad_id", adId).eq("account_id", accountId);
   }
 
+  // Preview-capture rescue context: evaluated on the EFFECTIVE final media state
+  // (this run's `updates` applied over the fetched row), so alreadyCovered reflects
+  // any asset we just landed. Attached to every terminal return so drainOnce can
+  // decide (rescueEnqueueDecision) whether to hand a media-failed creative to the FREE
+  // preview-capture queue — gated on MEDIA-INTENT (the ad has video ids or image
+  // hashes), NOT on any archive id (that column is dropped in the preview pivot).
+  const effVideoUrl = "video_url" in updates ? updates.video_url : creative.video_url;
+  const effFullResUrl = "full_res_url" in updates ? updates.full_res_url : creative.full_res_url;
+  // Media-intent: the ad genuinely has a video (meta_video_ids) OR is an image ad
+  // (meta_image_hashes present) — the ONLY ads the free preview surface can capture.
+  // A pure text/no-media ad has no capture path, so it is never rescued.
+  const hasMediaIntent =
+    (Array.isArray(creative.meta_video_ids) && creative.meta_video_ids.length > 0) ||
+    (Array.isArray(creative.meta_image_hashes) && creative.meta_image_hashes.length > 0);
+  const rescue: RescueContext = {
+    hasMediaIntent,
+    alreadyCovered: isStorageUrl(effVideoUrl) || isStorageUrl(effFullResUrl),
+    captureStatus: creative.capture_status ?? null,
+  };
+
   // Throttle takes priority for the queue disposition: a throttle on EITHER media path
   // means that path's conclusion is unreliable and must be retried soon. The row's
   // media columns for the throttled path were deliberately left untouched (no sentinel
@@ -745,16 +781,16 @@ export async function processQueuedAd(
   // a re-queue safely short-circuits the cached half (isStorageUrl) and only re-attempts
   // the throttled half. Returning 'throttled' keeps the ad eligible for a normal retry
   // WITHOUT consuming a hard-failure attempt or a terminal disposition.
-  if (throttled) return { outcome: "throttled", reason: reasons.join(",") || THROTTLED };
+  if (throttled) return { outcome: "throttled", reason: reasons.join(",") || THROTTLED, rescue };
 
-  if (didCache) return { outcome: "cached", reason: reasons.join(",") || undefined };
+  if (didCache) return { outcome: "cached", reason: reasons.join(",") || undefined, rescue };
   // Already-cached (skipVideo && skipImage) → this ad is done; there is nothing more to
   // store. Only a hard failure re-queues. (US-007: an oversized video is no longer a
   // 'too-large' skip that keeps the CDN url — it is written the NO_VIDEO_OVERSIZED_
   // SENTINEL and falls through to the terminal-sentinel skip below, so it is done and
   // will not re-clog the queue.)
   if (skipVideo && skipImage) {
-    return { outcome: "skipped", reason: reasons.join(",") || "already-cached" };
+    return { outcome: "skipped", reason: reasons.join(",") || "already-cached", rescue };
   }
   // US-003: a genuinely-unresolvable video is a TERMINAL, honest outcome — NOT a
   // transient failure to re-queue. When discovery classified the reason as one of the
@@ -767,11 +803,11 @@ export async function processQueuedAd(
   const onlyTerminalVideoReasons =
     reasons.length > 0 && reasons.every((r) => NO_VIDEO_SENTINELS.has(r));
   if (onlyTerminalVideoReasons) {
-    return { outcome: "skipped", reason: reasons.join(",") };
+    return { outcome: "skipped", reason: reasons.join(","), rescue };
   }
-  if (reasons.length > 0) return { outcome: "failed", reason: reasons.join(",") };
+  if (reasons.length > 0) return { outcome: "failed", reason: reasons.join(","), rescue };
   // Nothing to cache (sentineled both / no media): terminal skip, not a retry.
-  return { outcome: "skipped", reason: "no-media" };
+  return { outcome: "skipped", reason: "no-media", rescue };
 }
 
 export async function drainOnce(
@@ -858,7 +894,7 @@ export async function drainOnce(
     }
 
     const accountVideoMap = await getVideoMap(row.account_id);
-    const { outcome, reason } = await processQueuedAd(
+    const { outcome, reason, rescue } = await processQueuedAd(
       supabase,
       row.ad_id,
       row.account_id,
@@ -867,6 +903,35 @@ export async function drainOnce(
       accountVideoMap,
     );
     if (reason) summary.reasons[reason] = (summary.reasons[reason] ?? 0) + 1;
+
+    // Preview-capture RESCUE hook: when the Meta media pipeline gives up on a
+    // creative (terminal video sentinel, or a media gap on its first attempt /
+    // after exhausting retries), hand it to the FREE preview-capture queue by
+    // marking capture_status='pending' — gated on MEDIA-INTENT (the ad has video
+    // ids or image hashes; there is no archive-id gate anymore). The decision is
+    // pure + unit-tested; the `.is(...,null)` guard makes the write idempotent
+    // (never overwrites an existing capture lifecycle) and race-safe.
+    if (rescue) {
+      const decision = rescueEnqueueDecision({
+        outcome,
+        reasons: reason ? reason.split(",") : [],
+        attempts: row.attempts ?? 0,
+        maxAttempts: MAX_ATTEMPTS,
+        hasMediaIntent: rescue.hasMediaIntent,
+        alreadyCovered: rescue.alreadyCovered,
+        captureStatus: rescue.captureStatus,
+      });
+      if (decision.enqueue) {
+        summary.reasons[`preview_rescue:${decision.trigger}`] =
+          (summary.reasons[`preview_rescue:${decision.trigger}`] ?? 0) + 1;
+        await supabase
+          .from("creatives")
+          .update({ capture_status: "pending" })
+          .eq("ad_id", row.ad_id)
+          .eq("account_id", row.account_id)
+          .is("capture_status", null);
+      }
+    }
 
     if (outcome === "throttled") {
       // Meta rate-limited this ad's discovery — NOT a data verdict and NOT a hard

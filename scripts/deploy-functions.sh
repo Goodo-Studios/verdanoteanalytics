@@ -12,6 +12,8 @@ FUNCTIONS=(
   ai-chat
   analyze-creative
   api
+  preview-capture
+  preview-capture-drain
   backfill-daily-history
   backfill-destination-key
   backfill-launch-dates

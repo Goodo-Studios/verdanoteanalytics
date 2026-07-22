@@ -238,6 +238,20 @@ verify_jwt = true
 [functions.apify-debug]
 verify_jwt = true
 
+# FREE per-ad preview-extraction creative capture (Apify → preview pivot). Poked by
+# the internal preview-capture-drain with the service-role bearer (no user JWT); does
+# NO self-auth and is never linked from a client — mirrors drain-media-queue. It reads
+# the server-side Meta token and writes storage + creatives, so it must stay internal.
+[functions.preview-capture]
+verify_jwt = false
+
+# Newest-first drain of the FREE preview-capture queue. Poked by the
+# preview-capture-drain-10min pg_cron (vault service_role_key bearer) and self-chains
+# fresh invocations, so JWT verification is off and it does NO self-auth — mirrors
+# drain-media-queue / preview-capture (internal only, never linked from a client).
+[functions.preview-capture-drain]
+verify_jwt = false
+
 # One-time backfill of ad_post_url for historical creatives. Invoked manually
 # (or by an internal caller) with the service-role bearer — no end-user JWT
 # (same pattern as backfill-retag / backfill-play-curves). NOTE: the function
