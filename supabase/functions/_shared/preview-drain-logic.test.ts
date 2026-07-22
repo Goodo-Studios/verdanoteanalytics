@@ -1,10 +1,10 @@
 // Deno edge tests are manual (not in CI vitest) per
 // verdanote-deno-edge-tests-are-manual-not-in-ci-vitest. Run with:
-//   deno test -A supabase/functions/_shared/apify-drain-logic.test.ts
+//   deno test -A supabase/functions/_shared/preview-drain-logic.test.ts
 //
-// Covers the US-003 pure decision logic: rescue enqueue gating (AC#1/#2), drain
-// batch selection/ordering (AC#3), and the apify health findings (AC#5). Style
-// mirrors the US-002 apify-capture-logic.test.ts.
+// Covers the preview-capture pure decision logic: rescue enqueue gating (media-intent,
+// no archive-id gate), drain batch selection/ordering (capture_status='pending'), and
+// the preview-capture health findings. Style mirrors preview-capture-logic.test.ts.
 
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
@@ -13,7 +13,7 @@ import {
   previewCaptureHealthFindings,
   rescueEnqueueDecision,
   selectDrainBatch,
-} from "./apify-drain-logic.ts";
+} from "./preview-drain-logic.ts";
 
 const STORAGE = "https://x.supabase.co/storage/v1/object/public/ad-videos/a/assets/h.mp4";
 const CDN = "https://video.fbcdn.net/v/x.mp4"; // expiring CDN, NOT owned
@@ -189,8 +189,7 @@ function cand(over: Partial<DrainCandidate>): DrainCandidate {
     ad_id: "1",
     account_id: "act_1",
     created_time: "2026-07-01T00:00:00Z",
-    ad_archive_id_status: "resolved",
-    apify_capture_status: "pending",
+    capture_status: "pending",
     video_url: null,
     full_res_url: null,
     ...over,
@@ -216,11 +215,10 @@ Deno.test("selectDrainBatch: null created_time sorts last (treated as oldest)", 
   assertEquals(out.map((r) => r.ad_id), ["dated", "nulldate"]);
 });
 
-Deno.test("selectDrainBatch: filters non-pending, non-resolved, and already-covered", () => {
+Deno.test("selectDrainBatch: filters non-pending and already-covered (no archive-id gate)", () => {
   const rows = [
     cand({ ad_id: "ok" }),
-    cand({ ad_id: "not-pending", apify_capture_status: "captured" }),
-    cand({ ad_id: "not-resolved", ad_archive_id_status: null }),
+    cand({ ad_id: "not-pending", capture_status: "captured" }),
     cand({ ad_id: "covered-video", video_url: STORAGE }),
     cand({ ad_id: "covered-static", full_res_url: STORAGE }),
     cand({ ad_id: "cdn-only-ok", video_url: CDN }), // CDN url is NOT owned → still drainable
