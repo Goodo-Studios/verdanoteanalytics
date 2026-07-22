@@ -246,6 +246,16 @@ verify_jwt = true
 [functions.apify-spike]
 verify_jwt = false
 
+# US-001B: resolve + store creatives.ad_archive_id. verify_jwt=false because it is
+# invoked with the service-role bearer (by the resolve-ad-archive-ids-30min pg_cron,
+# its own self-chain, and manual overnight runs) — never an end-user JWT. It gates
+# itself on the bearer JWT's `role` claim being `service_role` (same deviation
+# apify-spike documented: the runtime service key is an sb_secret_ value that can't
+# be a bearer, and the edge gateway only routes genuine project JWTs). Starts PAID
+# Apify fallback runs only when explicitly asked (allow_fallback=true); cron never spends.
+[functions.resolve-ad-archive-ids]
+verify_jwt = false
+
 # One-time backfill of ad_post_url for historical creatives. Invoked manually
 # (or by an internal caller) with the service-role bearer — no end-user JWT
 # (same pattern as backfill-retag / backfill-play-curves). NOTE: the function
