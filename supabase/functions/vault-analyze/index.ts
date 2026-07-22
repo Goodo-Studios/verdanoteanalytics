@@ -12,6 +12,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { isImageOnlyAnalysis, parseLooseJson } from "../_shared/vault-analyze-logic.ts";
 
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
+
+// Bounded ack window for the vault-transcribe self-heal kick-off (same pattern
+// as vault-save / vault-transcribe).
+const KICKOFF_ACK_TIMEOUT_MS = 10_000;
+
 const SONNET_MODEL = "claude-sonnet-4-6";   // framework extraction (vision + complex JSON)
 const HAIKU_MODEL  = "claude-haiku-4-5-20251001"; // all other calls (cheaper)
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
@@ -358,7 +364,60 @@ Deno.serve(async (req) => {
     }
 
     if (!transcriptRow?.raw_transcript) {
-      throw new Error("No transcript found for item");
+      // Video item with no (or a legacy blank) transcript — self-heal instead of
+      // throwing a misleading error that clobbers the item's real state. Re-enter
+      // the pipeline at vault-transcribe, which transcribes the media, replaces
+      // any stale transcript row, and chains back here. If the media genuinely
+      // can't be transcribed (too large / no audio), vault-transcribe sets the
+      // honest terminal state and does NOT chain back, so this cannot loop. This
+      // makes "Run analysis" work on items saved before they had a transcript.
+      await db.from("inspiration_items").update({ status: "transcribing" }).eq("id", itemId);
+
+      // Per policy (verdanote-edge-fn-no-waituntil-for-required-calls): bounded-ack
+      // dispatch, not fire-and-forget — a silently dropped dispatch would leave the
+      // item stuck at status='transcribing' forever.
+      const markKickoffFailed = async (reason: string) => {
+        console.error(`vault-analyze: vault-transcribe kick-off failed for item ${itemId}:`, reason);
+        const { error: markError } = await db
+          .from("inspiration_items")
+          .update({ status: "error", error_message: `Transcribe kick-off failed: ${reason}` })
+          .eq("id", itemId);
+        if (markError) console.error("vault-analyze: failed to mark item errored:", markError);
+      };
+
+      const kickoff = (async () => {
+        try {
+          const res = await fetch(`${supabaseUrl}/functions/v1/vault-transcribe`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${serviceRoleKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ item_id: itemId }),
+          });
+          if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            await markKickoffFailed(`vault-transcribe responded ${res.status}${text ? `: ${text.slice(0, 300)}` : ""}`);
+          }
+        } catch (e) {
+          await markKickoffFailed(e instanceof Error ? e.message : String(e));
+        }
+      })();
+
+      const TIMED_OUT = Symbol("kickoff-ack-timeout");
+      let ackTimer: ReturnType<typeof setTimeout> | undefined;
+      const settled = await Promise.race([
+        kickoff,
+        new Promise((resolve) => {
+          ackTimer = setTimeout(() => resolve(TIMED_OUT), KICKOFF_ACK_TIMEOUT_MS);
+        }),
+      ]);
+      if (ackTimer !== undefined) clearTimeout(ackTimer);
+      if (settled === TIMED_OUT) {
+        EdgeRuntime.waitUntil(kickoff);
+      }
+
+      return json({ ok: true, item_id: itemId, transcribing: true });
     }
 
     const existingBrandName = effectiveItem?.brand_name ?? null;
