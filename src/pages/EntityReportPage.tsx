@@ -213,13 +213,13 @@ function ClusterMembersDialog({
 
 export default function EntityReportPage() {
   const { selectedAccountId } = useAccountContext();
-  const { isBuilder } = useAuth();
+  const { isBuilder, isEmployee } = useAuth();
   const [tierFilter, setTierFilter] = useState<TierFilter>("all");
   const [openCluster, setOpenCluster] = useState<EntityCluster | null>(null);
 
-  // Builder-view rollout: available for the builder role on ANY account (the
-  // account no longer gates). Non-builder roles see the gate below.
-  const gated = !isBuilder;
+  // Staff rollout (2026-07-21): available to builder AND employee roles on ANY
+  // account. Clients see the gate below.
+  const gated = !(isBuilder || isEmployee);
 
   const { data, isLoading, error } = useEntityReport(gated ? undefined : selectedAccountId ?? undefined);
 

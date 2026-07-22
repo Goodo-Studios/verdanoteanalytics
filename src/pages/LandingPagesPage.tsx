@@ -61,7 +61,7 @@ function Delta({ value, avg, lowerIsBetter = false }: { value: number; avg: numb
 
 export default function LandingPagesPage() {
   const { selectedAccountId } = useAccountContext();
-  const { isBuilder } = useAuth();
+  const { isBuilder, isEmployee } = useAuth();
 
   const [windowDays, setWindowDays] = useState<number>(30);
   const [minSpend, setMinSpend] = useState<number>(0);
@@ -73,9 +73,9 @@ export default function LandingPagesPage() {
   const from = useMemo(() => isoDaysAgo(windowDays), [windowDays]);
   const to = useMemo(() => isoDaysAgo(0), []);
 
-  // Builder-view rollout: available for the builder role on ANY account (route
-  // already gates non-builders away). Account data is backfilled per-account.
-  const gated = !isBuilder;
+  // Staff rollout (2026-07-21): available to builder AND employee roles on ANY
+  // account (route gates clients away). Account data is backfilled per-account.
+  const gated = !(isBuilder || isEmployee);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["landing-pages", selectedAccountId, from, to, minSpend],

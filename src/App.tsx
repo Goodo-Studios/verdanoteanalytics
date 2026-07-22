@@ -111,12 +111,16 @@ export function RoleGuardedRoutes() {
   const { role: urlRole } = useParams<{ role: string }>();
   const prefix = useRolePrefix();
   const location = useLocation();
-  const { user, isLoading, isClient, isBuilder } = useAuth();
+  const { user, isLoading, isClient, isBuilder, isEmployee } = useAuth();
   const { isClientPreview } = useClientPreview();
   const effectiveClient = isClient || isClientPreview;
+  // Employee feature parity (owner decision 2026-07-21): employees get every
+  // PRODUCT surface builders have. Admin (user mgmt, Meta/settings, API keys,
+  // cache tools) stays builder-only.
+  const isStaff = isBuilder || isEmployee;
 
   const [agencyHomeFlag] = useState(() => localStorage.getItem("verdanote_agency_default_home") === "true");
-  const agencyHome = isBuilder && agencyHomeFlag;
+  const agencyHome = isStaff && agencyHomeFlag;
 
   if (isLoading) {
     return (
@@ -141,21 +145,21 @@ export function RoleGuardedRoutes() {
         <Suspense fallback={<PageSkeleton />}>
         <Routes>
           <Route path="/" element={agencyHome ? <AgencyDashboardPage /> : <OverviewPage />} />
-          <Route path="/agency" element={isBuilder ? <AgencyDashboardPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/agency" element={isStaff ? <AgencyDashboardPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/creatives" element={<CreativesPage />} />
           <Route path="/creatives/compare" element={<ComparePage />} />
           {/* Creative Library (Feature 4 + F3 + F6). Builder/employee only; the
               page itself gates to the builder account for the dogfood rollout. */}
-          <Route path="/creative-library" element={isBuilder ? <CreativeLibraryPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/creative-library" element={isStaff ? <CreativeLibraryPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/tagging" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <TaggingPage />} />
           
-          <Route path="/landing-pages" element={isBuilder ? <LandingPagesPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/landing-pages" element={isStaff ? <LandingPagesPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : <ReportsPage />} />
-          <Route path="/entities" element={isBuilder ? <EntityReportPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/entities" element={isStaff ? <EntityReportPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/reports/:id" element={<ReportDetailPage />} />
           <Route path="/reports/:id/build" element={<ReportBuilderPage />} />
-          <Route path="/creative-rotation" element={isBuilder ? <CreativeRotationPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/creative-rotation" element={isStaff ? <CreativeRotationPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/user-settings" element={<Navigate to={`${prefix}/settings`} replace />} />
           
