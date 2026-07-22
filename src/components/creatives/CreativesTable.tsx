@@ -35,6 +35,9 @@ interface CreativesTableProps {
   onSort: (key: string) => void;
   onReorder: (newOrder: string[]) => void;
   onSelect: (creative: any) => void;
+  /** Fired on row hover — used to prefetch the ad-preview so the detail modal
+   * opens with its player already resolved. */
+  onHoverRow?: (creative: any) => void;
   wowTrends?: Map<string, WoWTrend>;
   gradeMap?: Map<string, GradeInfo>;
   bulkSelectedIds?: Set<string>;
@@ -117,7 +120,7 @@ function renderCell(c: any, key: string, wowTrends?: Map<string, WoWTrend>, grad
 }
 
 export function CreativesTable({
-  creatives, visibleCols, columnOrder, sort, onSort, onReorder, onSelect,
+  creatives, visibleCols, columnOrder, sort, onSort, onReorder, onSelect, onHoverRow,
   wowTrends, gradeMap,
   bulkSelectedIds, onBulkToggle, onBulkToggleAll,
   optimizationGoal,
@@ -226,6 +229,8 @@ export function CreativesTable({
                   isBulkSelected && "bg-accent/30"
                 )}
                 onClick={() => onSelect(c)}
+                // Warms the ad-preview cache so the modal opens with the player ready.
+                onMouseEnter={() => onHoverRow?.(c)}
               >
                 {bulkMode && (
                   <TableCell className="w-10 pr-0" onClick={(e) => e.stopPropagation()}>

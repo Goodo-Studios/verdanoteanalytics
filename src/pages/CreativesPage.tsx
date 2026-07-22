@@ -1,6 +1,6 @@
 import { PageHeader } from "@/components/PageHeader";
 import { MetricCard } from "@/components/MetricCard";
-import { CreativeDetailModal } from "@/components/CreativeDetailModal";
+import { CreativeDetailModal, useAdPreviewPrefetch } from "@/components/CreativeDetailModal";
 
 import { CreativesTable } from "@/components/creatives/CreativesTable";
 import { CreativesCardGrid } from "@/components/creatives/CreativesCardGrid";
@@ -103,6 +103,9 @@ const CreativesPage = () => {
   const fatigueMap = useMemo(() => computeFatigueMap(creatives, wowTrends), [creatives, wowTrends]);
 
   const { hoveredCards, setHoveredCard } = useCardPresence(selectedAccountId);
+  // Warm the ad-preview cache on hover so the detail modal opens with its
+  // player already resolved (no-op for image ads / cached videos).
+  const prefetchAdPreview = useAdPreviewPrefetch();
 
   // Fetch daily metrics for fatigue forecast filter (only when filter active)
   const { data: dailyMetricsMap } = useQuery({
@@ -374,6 +377,7 @@ const CreativesPage = () => {
           creatives={sortedCreatives} visibleCols={visibleCols} columnOrder={columnOrder}
           sort={sort} onSort={handleSort} onReorder={handleReorder}
           onSelect={(c: any) => setSelectedCreativeId(c.ad_id)}
+          onHoverRow={prefetchAdPreview}
           wowTrends={wowTrends}
           gradeMap={gradeMap}
           bulkSelectedIds={canBulkAction ? bulkSelectedIds : undefined}
@@ -391,7 +395,10 @@ const CreativesPage = () => {
           bulkSelectedIds={canBulkAction ? bulkSelectedIds : undefined}
           onBulkToggle={canBulkAction ? toggleBulkId : undefined}
           hoveredCards={hoveredCards}
-          onCardHover={setHoveredCard}
+          onCardHover={(adId) => {
+            setHoveredCard(adId);
+            if (adId) prefetchAdPreview(sortedCreatives.find((c: any) => c.ad_id === adId));
+          }}
           optimizationGoal={optimizationGoal}
         />
       )}

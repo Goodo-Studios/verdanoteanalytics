@@ -5,7 +5,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Button } from "@/components/ui/button";
 import { Image as ImageIcon, ExternalLink, FileEdit, MessageSquare, GitBranch, Loader2, BookmarkPlus, Bookmark } from "lucide-react";
-import { useState, forwardRef, useEffect } from "react";
+import { useState, forwardRef, useEffect, useCallback } from "react";
 import { useCachedMedia } from "@/hooks/useCachedMedia";
 
 import { CreativeMetrics } from "@/components/creative-detail/CreativeMetrics";
@@ -31,7 +31,7 @@ type Creative = Database["public"]["Tables"]["creatives"]["Row"] & {
   meta_video_ids?: string[] | null;
 };
 import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { saveCreativeToVault } from "@/lib/vaultSave";
 
 
@@ -52,20 +52,55 @@ const PREVIEW_DIMS: Record<string, { w: number; h: number }> = {
   FACEBOOK_STORY_MOBILE: { w: 360, h: 640 },
 };
 
+// ── Ad-preview query (shared by the modal AND hover prefetch) ────────────────
+// The Meta preview URL fetch is the slow serial step when opening the modal (the
+// edge fn walks up to 4 preview formats against Meta). Caching it in react-query
+// means a row hovered → prefetched → the modal opens with the player ready, and
+// re-opens are instant. Meta's preview iframe urls are short-lived scoped tokens;
+// 15 min staleTime stays comfortably inside their validity.
+export const adPreviewQueryOptions = (adId: string) => ({
+  queryKey: ["ad-preview", adId] as const,
+  queryFn: async (): Promise<{ url: string | null; format: string | null }> => {
+    const { data, error } = await supabase.functions.invoke("ad-preview", { body: { ad_id: adId } });
+    if (error || !data?.url) return { url: null, format: null };
+    return { url: data.url as string, format: (data.format as string) ?? null };
+  },
+  staleTime: 15 * 60 * 1000,
+  gcTime: 30 * 60 * 1000,
+  retry: false,
+});
+
+/** True when opening this creative's modal would need the Meta preview embed —
+ * i.e. it has video intent but no directly-playable raw url. Used to decide
+ * which rows are worth a hover prefetch (image ads and cached videos are not). */
+export function wantsAdPreview(c: {
+  video_url?: string | null;
+  meta_video_ids?: string[] | null;
+}): boolean {
+  const isReal = !!c.video_url && c.video_url.startsWith("http");
+  const isVideo = (!!c.video_url && c.video_url !== "no-video") || ((c.meta_video_ids?.length ?? 0) > 0);
+  return isVideo && !isReal;
+}
+
+/** Hover-prefetch: warm the ad-preview cache for a creative BEFORE its modal
+ * opens, so the embed player renders immediately. No-ops for creatives that
+ * would not use the embed (image ads, cached videos) — no wasted Meta calls. */
+export function useAdPreviewPrefetch() {
+  const queryClient = useQueryClient();
+  return useCallback(
+    (c: { ad_id: string; video_url?: string | null; meta_video_ids?: string[] | null } | null | undefined) => {
+      if (!c || !wantsAdPreview(c)) return;
+      queryClient.prefetchQuery(adPreviewQueryOptions(c.ad_id));
+    },
+    [queryClient],
+  );
+}
+
 export function MediaPreview({ creative, caching = false }: { creative: Creative; caching?: boolean }) {
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgError, setImgError] = useState(false);
   const [videoError, setVideoError] = useState(false);
   const [videoLoading, setVideoLoading] = useState(true);
-  // Meta preview-embed fallback: for a video we can't play from a raw source
-  // (page-owned / permission-blocked, or a stored url that failed to load), Meta still
-  // hosts the ad — so its preview iframe plays it in-app instead of a dead "Video
-  // unavailable" state. Fetched lazily (only when needed) via the ad-preview function,
-  // which returns a browser-safe, preview-SCOPED iframe url (never our access token).
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewFormat, setPreviewFormat] = useState<string | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewTried, setPreviewTried] = useState(false);
 
   const adPreviewUrl = creative.ad_post_url || `https://www.facebook.com/ads/library/?id=${creative.ad_id}`;
 
@@ -100,30 +135,20 @@ export function MediaPreview({ creative, caching = false }: { creative: Creative
   // a blocked sentinel (never a real url), or a real url that errored in <video>.
   const wantEmbed = isVideoAd && (!isRealVideoUrl || videoError);
 
-  // Lazily fetch the Meta preview iframe once (and only) when we know we need it.
-  useEffect(() => {
-    if (!wantEmbed || previewTried || previewLoading) return;
-    let cancelled = false;
-    setPreviewLoading(true);
-    supabase.functions
-      .invoke("ad-preview", { body: { ad_id: creative.ad_id } })
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (!error && data?.url) {
-          setPreviewUrl(data.url as string);
-          setPreviewFormat((data.format as string) ?? null);
-        }
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setPreviewLoading(false);
-        setPreviewTried(true);
-      });
-    return () => { cancelled = true; };
-    // previewLoading is intentionally NOT a dep: it flips inside this effect, and
-    // including it would re-run the effect and cancel its own in-flight fetch. The
-    // guard above already prevents a concurrent second fetch.
-  }, [wantEmbed, previewTried, creative.ad_id]);
+  // Meta preview-embed fallback: for a video we can't play from a raw source
+  // (page-owned / permission-blocked, or a stored url that failed to load), Meta
+  // still hosts the ad — its preview iframe plays it in-app. Fetched through the
+  // shared react-query options so a hover PREFETCH (see wantsAdPreview call sites)
+  // has usually resolved the url before the modal even opens, and re-opens hit
+  // the cache instantly. The edge fn returns a browser-safe, preview-SCOPED
+  // iframe url (never our access token).
+  const previewQuery = useQuery({
+    ...adPreviewQueryOptions(creative.ad_id),
+    enabled: wantEmbed,
+  });
+  const previewUrl = previewQuery.data?.url ?? null;
+  const previewFormat = previewQuery.data?.format ?? null;
+  const previewTried = previewQuery.isFetched;
 
   const dims = (previewFormat && PREVIEW_DIMS[previewFormat]) || PREVIEW_DIMS.MOBILE_FEED_STANDARD;
 

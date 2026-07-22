@@ -7,8 +7,20 @@
  * PLAYS in-app instead of showing a dead "Video unavailable" state. It must NOT
  * fetch a preview for a directly-playable video or a plain image ad.
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { render as rtlRender, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
+
+// MediaPreview now resolves the ad-preview through react-query (so hover
+// prefetch + modal share one cache) — wrap renders in a fresh provider per test
+// so no preview result leaks between tests.
+const render = (ui: ReactElement) =>
+  rtlRender(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      {ui}
+    </QueryClientProvider>,
+  );
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: { functions: { invoke: vi.fn() } },
@@ -19,7 +31,7 @@ vi.mock("@/hooks/useCachedMedia", () => ({
 }));
 
 import { supabase } from "@/integrations/supabase/client";
-import { MediaPreview } from "@/components/CreativeDetailModal";
+import { MediaPreview, wantsAdPreview } from "@/components/CreativeDetailModal";
 
 // deno-lint-ignore no-explicit-any
 const creative = (over: Record<string, unknown>): any => ({
@@ -116,5 +128,19 @@ describe("MediaPreview — preview-embed fallback", () => {
     const img = await screen.findByAltText("Test Ad");
     img.dispatchEvent(new Event("load"));
     await waitFor(() => expect(screen.getByText(/Video unavailable/i)).toBeInTheDocument());
+  });
+});
+
+describe("wantsAdPreview — hover-prefetch gate", () => {
+  it("prefetches only creatives that would use the embed", () => {
+    // Unresolved / blocked video sources → prefetch.
+    expect(wantsAdPreview({ video_url: "no-video-permission" })).toBe(true);
+    expect(wantsAdPreview({ video_url: "no-video", meta_video_ids: ["123"] })).toBe(true);
+    // Image ads and directly-playable videos → no wasted Meta calls.
+    expect(wantsAdPreview({ video_url: null })).toBe(false);
+    expect(wantsAdPreview({ video_url: "no-video", meta_video_ids: [] })).toBe(false);
+    expect(
+      wantsAdPreview({ video_url: "https://x.supabase.co/storage/v1/object/public/ad-videos/a/v.mp4" }),
+    ).toBe(false);
   });
 });
