@@ -1,0 +1,103 @@
+// analyze-creative — PURE, dependency-free concurrency + backoff helpers.
+//
+// The analyze-creative drain used to process a claimed batch strictly
+// one-creative-at-a-time (a sequential `for await` loop) and only self-chained a
+// fresh invocation AFTER the whole batch finished — so the effective throughput
+// of the entire pipeline was ONE creative at a time. These helpers let the drain
+// process a bounded number of creatives CONCURRENTLY within a single invocation
+// (the biggest win for the static-heavy backlog) while staying safe:
+//
+//   • runPool — a bounded worker-pool scheduler. Runs at most `concurrency`
+//     workers at once over `items`, stops dispatching NEW work the moment
+//     `shouldStop()` returns true (wall-clock budget or spend cap hit), and
+//     reports exactly which item indexes were processed vs never-started so the
+//     caller can release the un-started (still-'analyzing') rows back to
+//     'pending'. In-flight workers always finish their current item.
+//
+//   • backoffDelayMs — exponential backoff with full jitter for retrying an
+//     OpenRouter / Groq 429 (or 5xx) so the higher concurrency can never turn a
+//     transient rate-limit into a failure storm.
+//
+// Both are pure (no Deno / fetch / Supabase / timers) so they unit-test under
+// `deno test` exactly like analyze-creative-logic.ts. The scheduler is generic
+// over an async worker, so the tests drive it with deterministic fake workers.
+
+export interface PoolResult {
+  /** Item indexes whose worker ran to completion (analyzed OR handled-as-failed). */
+  processed: number[];
+  /** Item indexes never started because `shouldStop()` fired first. */
+  skipped: number[];
+  /** Peak number of workers observed in flight (for tests / diagnostics). */
+  maxInFlight: number;
+}
+
+/**
+ * Bounded worker-pool over `items`.
+ *
+ * Spawns `min(concurrency, items.length)` workers that pull from a shared cursor
+ * (safe: cursor increments run synchronously between awaits on the single JS
+ * event loop, so two workers never claim the same index). Before pulling the next
+ * item a worker checks `shouldStop()`; once it returns true no further items are
+ * dispatched, though workers already mid-item run to completion. The `worker`
+ * callback is expected to handle its OWN errors (the drain marks a failed
+ * creative 'failed' in-band); a throw from `worker` rejects the pool.
+ *
+ * Deterministic and I/O-free — all timing/effects live in the injected `worker`.
+ */
+export async function runPool<T>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<void>,
+  shouldStop: () => boolean = () => false,
+): Promise<PoolResult> {
+  const processed: number[] = [];
+  const n = items.length;
+  let cursor = 0;
+  let inFlight = 0;
+  let maxInFlight = 0;
+
+  const runner = async (): Promise<void> => {
+    while (true) {
+      if (shouldStop()) return;
+      const i = cursor++;
+      if (i >= n) return;
+      inFlight++;
+      if (inFlight > maxInFlight) maxInFlight = inFlight;
+      try {
+        await worker(items[i], i);
+        processed.push(i);
+      } finally {
+        inFlight--;
+      }
+    }
+  };
+
+  const workerCount = Math.max(1, Math.min(Math.floor(concurrency) || 1, n));
+  await Promise.all(Array.from({ length: workerCount }, () => runner()));
+
+  processed.sort((a, b) => a - b);
+  const done = new Set(processed);
+  const skipped: number[] = [];
+  for (let i = 0; i < n; i++) if (!done.has(i)) skipped.push(i);
+  return { processed, skipped, maxInFlight };
+}
+
+/**
+ * Exponential backoff (full jitter) for a rate-limited (429) or transient (5xx)
+ * OpenRouter / Groq response.
+ *
+ * `attempt` is 1-based (the delay BEFORE the Nth retry). Delay grows
+ * `base * 2^(attempt-1)`, capped at `capMs`, then jittered to a random point in
+ * `[50%, 100%]` of that ceiling to de-correlate concurrent retriers (thundering
+ * herd). `rng` is injectable so the value is deterministic under test.
+ */
+export function backoffDelayMs(
+  attempt: number,
+  opts: { baseMs?: number; capMs?: number; rng?: () => number } = {},
+): number {
+  const base = opts.baseMs ?? 500;
+  const cap = opts.capMs ?? 8000;
+  const rng = opts.rng ?? Math.random;
+  const exp = Math.min(cap, base * 2 ** Math.max(0, attempt - 1));
+  return Math.round(exp * (0.5 + rng() * 0.5));
+}
