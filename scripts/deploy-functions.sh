@@ -13,6 +13,7 @@ FUNCTIONS=(
   analyze-creative
   api
   apify-spike
+  apify-capture
   backfill-daily-history
   backfill-destination-key
   backfill-launch-dates

@@ -246,6 +246,13 @@ verify_jwt = true
 [functions.apify-spike]
 verify_jwt = false
 
+# US-002 per-ad Apify creative capture. Poked by an internal cron drain with the
+# service-role bearer (no user JWT); does no self-auth and is never linked from a
+# client — mirrors drain-media-queue / refresh-media-queue. It runs a PAID actor
+# and writes storage + creatives, so it must stay internal.
+[functions.apify-capture]
+verify_jwt = false
+
 # One-time backfill of ad_post_url for historical creatives. Invoked manually
 # (or by an internal caller) with the service-role bearer — no end-user JWT
 # (same pattern as backfill-retag / backfill-play-curves). NOTE: the function
