@@ -28,7 +28,10 @@ const CREATIVE_COLS = [
   "video_views", "thumb_stop_rate", "hold_rate", "frequency", "video_avg_play_time",
   "play_curve", "retention_p25", "retention_p50", "retention_p75", "retention_p100",
   "campaign_name", "adset_name", "ad_post_url", "thumbnail_url", "full_res_url",
-  "video_url",
+  // meta_video_ids (US-014): the modal uses it to detect real video intent when
+  // video_url is the ambiguous 'no-video' sentinel, so the Meta preview embed
+  // still renders a player instead of a static thumbnail.
+  "video_url", "meta_video_ids",
 ].join(", ");
 
 // US-003: the strict 7-segment parseAdName + VALID_* allow-lists were removed.
