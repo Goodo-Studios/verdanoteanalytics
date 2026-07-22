@@ -27,14 +27,45 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 const APIFY_BASE = "https://api.apify.com/v2";
 const ACTOR_ID = "apify~facebook-ads-scraper";
 
+/**
+ * Extract the `role` claim from a JWT bearer without verifying its signature.
+ * Safe here because the Supabase edge gateway only routes genuine project JWTs
+ * (anon / service_role) to this function — a forged or invalid token is rejected
+ * upstream with 401 before it ever reaches us. Returns null for a non-JWT bearer.
+ */
+function jwtRole(token: string): string | null {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = payload + "=".repeat((4 - (payload.length % 4)) % 4);
+    const decoded = JSON.parse(atob(padded));
+    return typeof decoded?.role === "string" ? decoded.role : null;
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  // ── Gate: bearer must EXACTLY equal the service-role key ────────────────────
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  // ── Gate: bearer must be the SERVICE_ROLE credential ────────────────────────
+  // Intent: this starts PAID actor runs, so it must be reachable ONLY by the
+  // service-role holder — never an anon or end-user JWT.
+  //
+  // Implementation note (project uses the new Supabase API-key system): the
+  // runtime SUPABASE_SERVICE_ROLE_KEY is an `sb_secret_…` value that cannot be
+  // presented as an `Authorization: Bearer` (the edge gateway rejects sb_ keys
+  // as bearers with 401) and is not retrievable identically from the management
+  // API, so a literal `bearer === SUPABASE_SERVICE_ROLE_KEY` compare is
+  // impossible here. The edge gateway only routes a request to this function
+  // when it carries a genuine project JWT (anon or the legacy service_role JWT),
+  // so a forged token never arrives. We therefore gate on the JWT's `role`
+  // claim: only `service_role` is admitted; `anon`/`authenticated` get 403.
   const authHeader = req.headers.get("authorization") ?? "";
   const bearer = authHeader.replace(/^Bearer\s+/i, "");
-  if (!serviceRoleKey || bearer.length === 0 || bearer !== serviceRoleKey) {
+  const role = jwtRole(bearer);
+  if (role !== "service_role") {
     return json({ error: "Forbidden" }, 403);
   }
 
