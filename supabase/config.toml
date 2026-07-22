@@ -238,35 +238,18 @@ verify_jwt = true
 [functions.apify-debug]
 verify_jwt = true
 
-# US-000 spike proxy for starting/reading PAID Apify actor runs. verify_jwt=false
-# because it is invoked with the service-role bearer from a shell; the function
-# gates itself by exact string compare of the bearer against
-# SUPABASE_SERVICE_ROLE_KEY (no anon/user JWT admitted). TEMPORARY — remove after
-# the spike (US-000) is complete.
-[functions.apify-spike]
+# FREE per-ad preview-extraction creative capture (Apify → preview pivot). Poked by
+# the internal preview-capture-drain with the service-role bearer (no user JWT); does
+# NO self-auth and is never linked from a client — mirrors drain-media-queue. It reads
+# the server-side Meta token and writes storage + creatives, so it must stay internal.
+[functions.preview-capture]
 verify_jwt = false
 
-# US-001B: resolve + store creatives.ad_archive_id. verify_jwt=false because it is
-# invoked with the service-role bearer (by the resolve-ad-archive-ids-30min pg_cron,
-# its own self-chain, and manual overnight runs) — never an end-user JWT. It gates
-# itself on the bearer JWT's `role` claim being `service_role` (same deviation
-# apify-spike documented: the runtime service key is an sb_secret_ value that can't
-# be a bearer, and the edge gateway only routes genuine project JWTs). Starts PAID
-# Apify fallback runs only when explicitly asked (allow_fallback=true); cron never spends.
-[functions.resolve-ad-archive-ids]
-# US-002 per-ad Apify creative capture. Poked by an internal cron drain with the
-# service-role bearer (no user JWT); does no self-auth and is never linked from a
-# client — mirrors drain-media-queue / refresh-media-queue. It runs a PAID actor
-# and writes storage + creatives, so it must stay internal.
-[functions.apify-capture]
-verify_jwt = false
-
-# US-003 newest-first drain of the Apify capture queue. Poked by the
-# apify-capture-drain-10min pg_cron with the service-role bearer and self-chains
+# Newest-first drain of the FREE preview-capture queue. Poked by the
+# preview-capture-drain-10min pg_cron (vault service_role_key bearer) and self-chains
 # fresh invocations, so JWT verification is off and it does NO self-auth — mirrors
-# drain-media-queue / apify-capture (internal only, never linked from a client). It
-# triggers PAID captures via apify-capture, so it must stay internal.
-[functions.apify-capture-drain]
+# drain-media-queue / preview-capture (internal only, never linked from a client).
+[functions.preview-capture-drain]
 verify_jwt = false
 
 # One-time backfill of ad_post_url for historical creatives. Invoked manually

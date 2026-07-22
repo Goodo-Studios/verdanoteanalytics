@@ -1,26 +1,29 @@
 // =============================================================================
-// apify-drain-logic — PURE, I/O-free decision helpers for US-003 pipeline wiring.
+// preview-drain-logic — PURE, I/O-free decision helpers for the preview-capture
+// pipeline wiring (Apify → preview pivot).
 // =============================================================================
-// US-003 wires the US-002 per-ad Apify capture into the live media pipeline:
+// Wires the FREE per-ad preview capture into the live media pipeline:
 //   1. RESCUE gating  — when Meta-API media discovery gives up on a creative, hand
-//      it to Apify instead of abandoning it (rescueEnqueueDecision).
-//   2. DRAIN selection — pick the next batch of resolved+pending creatives to
-//      capture, NEWEST-FIRST (selectDrainBatch).
-//   3. HEALTH findings — surface Apify pipeline trouble to system-health-check
-//      (apifyHealthFindings).
+//      it to the free preview-capture queue instead of abandoning it
+//      (rescueEnqueueDecision), gated on MEDIA-INTENT (NOT a Meta Ad-Library
+//      archive id — the preview surface is ad-scoped by construction).
+//   2. DRAIN selection — pick the next batch of pending creatives to capture,
+//      NEWEST-FIRST (selectDrainBatch).
+//   3. HEALTH findings — surface preview-capture trouble to system-health-check
+//      (previewCaptureHealthFindings).
 //
 // Every branch that does NOT touch the network, Deno, or Supabase lives here so it
-// can be unit-tested with fixtures (deno test), following the US-002
-// apify-capture-logic.ts style. The edge functions (drain-media-queue rescue hook,
-// apify-capture-drain, system-health-check) are thin shells that call these.
+// can be unit-tested with fixtures (deno test), following the preview-capture-logic.ts
+// style. The edge functions (drain-media-queue rescue hook, preview-capture-drain,
+// system-health-check) are thin shells that call these.
 //
 // Sentinel string literals are mirrored here as LOCAL constants (not imported from
 // media-discovery.ts) so this module stays free of the Deno fetch runtime and
-// unit-testable in isolation — exactly as apify-capture-logic.ts mirrors
+// unit-testable in isolation — exactly as preview-capture-logic.ts mirrors
 // STORAGE_URL_MARKER. The values are intentionally identical to media-discovery's.
 // =============================================================================
 
-import { isStorageOwnedUrl } from "./apify-capture-logic.ts";
+import { isStorageOwnedUrl } from "./preview-capture-logic.ts";
 
 // -- Sentinels mirrored from _shared/media-discovery.ts (kept in lockstep) -----
 export const NO_VIDEO_PERMISSION = "no-video-permission";
@@ -152,15 +155,14 @@ export function rescueEnqueueDecision(input: RescueDecisionInput): RescueDecisio
 }
 
 // =============================================================================
-// 2. Drain batch selection / ordering (AC#3)
+// 2. Drain batch selection / ordering
 // =============================================================================
 
 export interface DrainCandidate {
   ad_id: string;
   account_id: string;
   created_time: string | null;
-  ad_archive_id_status: string | null;
-  apify_capture_status: string | null;
+  capture_status: string | null;
   video_url: string | null;
   full_res_url: string | null;
 }
@@ -173,22 +175,20 @@ export function isCaptureCovered(
 }
 
 /**
- * Select the next batch of creatives to capture, NEWEST-FIRST (AC#3). Filters to
- * exactly the drainable set — apify_capture_status='pending', ad_archive_id_status
- * ='resolved', and NOT already covered (AC#4) — then orders by created_time DESC
- * (NULLs last, since a null launch date is treated as oldest) with a stable ad_id
- * DESC tiebreak, and slices to batchSize. The edge fn orders+limits in SQL for
- * index efficiency; this pure pass is the tested contract + a covered-row safety net.
+ * Select the next batch of creatives to capture, NEWEST-FIRST. Filters to exactly
+ * the drainable set — capture_status='pending' and NOT already covered (there is NO
+ * archive-id gate in the preview pivot; the preview surface is ad-scoped by
+ * construction) — then orders by created_time DESC (NULLs last, a null launch date
+ * treated as oldest) with a stable ad_id DESC tiebreak, and slices to batchSize. The
+ * edge fn orders+limits in SQL for index efficiency (idx_creatives_capture_queue);
+ * this pure pass is the tested contract + a covered-row safety net.
  */
 export function selectDrainBatch(
   candidates: DrainCandidate[],
   batchSize: number,
 ): DrainCandidate[] {
   const eligible = candidates.filter(
-    (c) =>
-      c.apify_capture_status === "pending" &&
-      c.ad_archive_id_status === "resolved" &&
-      !isCaptureCovered(c),
+    (c) => c.capture_status === "pending" && !isCaptureCovered(c),
   );
   eligible.sort((a, b) => {
     const ta = a.created_time ? Date.parse(a.created_time) : Number.NEGATIVE_INFINITY;

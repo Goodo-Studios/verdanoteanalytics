@@ -72,7 +72,7 @@ import {
   videoMapKey,
   VIDEO_MAP_TTL_MS,
 } from "../_shared/media-map-cache.ts";
-import { rescueEnqueueDecision } from "../_shared/apify-drain-logic.ts";
+import { rescueEnqueueDecision } from "../_shared/preview-drain-logic.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const THUMB_BUCKET = "ad-thumbnails";
@@ -754,11 +754,12 @@ export async function processQueuedAd(
     await supabase.from("creatives").update(updates).eq("ad_id", adId).eq("account_id", accountId);
   }
 
-  // US-003 (apify-creative-capture) rescue context: evaluated on the EFFECTIVE final
-  // media state (this run's `updates` applied over the fetched row), so alreadyCovered
-  // reflects any asset we just landed. Attached to every terminal return so drainOnce
-  // can decide (rescueEnqueueDecision) whether to hand a media-failed creative to the
-  // Apify capture queue — always gated on ad_archive_id_status.
+  // Preview-capture rescue context: evaluated on the EFFECTIVE final media state
+  // (this run's `updates` applied over the fetched row), so alreadyCovered reflects
+  // any asset we just landed. Attached to every terminal return so drainOnce can
+  // decide (rescueEnqueueDecision) whether to hand a media-failed creative to the FREE
+  // preview-capture queue — gated on MEDIA-INTENT (the ad has video ids or image
+  // hashes), NOT on any archive id (that column is dropped in the preview pivot).
   const effVideoUrl = "video_url" in updates ? updates.video_url : creative.video_url;
   const effFullResUrl = "full_res_url" in updates ? updates.full_res_url : creative.full_res_url;
   // Media-intent: the ad genuinely has a video (meta_video_ids) OR is an image ad

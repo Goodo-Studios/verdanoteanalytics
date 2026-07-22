@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
-import { previewCaptureHealthFindings } from "../_shared/apify-drain-logic.ts";
+import { previewCaptureHealthFindings } from "../_shared/preview-drain-logic.ts";
 
 
 serve(async (req) => {

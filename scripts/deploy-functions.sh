@@ -12,10 +12,8 @@ FUNCTIONS=(
   ai-chat
   analyze-creative
   api
-  apify-spike
-  resolve-ad-archive-ids
-  apify-capture
-  apify-capture-drain
+  preview-capture
+  preview-capture-drain
   backfill-daily-history
   backfill-destination-key
   backfill-launch-dates
