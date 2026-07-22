@@ -423,7 +423,11 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
           the right — so the ad preview stays in view while reading stats, with far
           less vertical scrolling and NO horizontal scrolling (overflow-x-hidden +
           min-w-0 columns guarantee it). Stacks to one column below lg. */}
-      <DialogContent className="max-w-[1280px] w-[96vw] max-h-[92vh] overflow-y-auto overflow-x-hidden bg-card rounded-[8px] shadow-modal">
+      {/* sm:max-w-… (not base max-w-…) is REQUIRED: the DialogContent default is
+          sm:max-w-lg, and tailwind-merge only replaces classes within the same
+          variant group — a base max-w-[1280px] leaves the 512px sm: cap in place
+          (why every previous widening attempt silently never applied). */}
+      <DialogContent className="sm:max-w-[1280px] w-[96vw] max-h-[92vh] overflow-y-auto overflow-x-hidden bg-card rounded-[8px] shadow-modal">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <span className="font-label text-[12px] font-semibold text-charcoal tracking-wide">{creative.unique_code}</span>
