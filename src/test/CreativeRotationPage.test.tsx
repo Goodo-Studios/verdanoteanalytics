@@ -20,7 +20,7 @@ vi.mock("@/lib/api", () => ({
   getCreativeRotation: (...args: unknown[]) => getCreativeRotation(...args),
 }));
 
-let mockAuth = { isBuilder: true };
+let mockAuth: { isBuilder: boolean; isEmployee?: boolean } = { isBuilder: true };
 let mockAccount = { selectedAccountId: BUILDER_ACCOUNT_ID, selectedAccount: { id: BUILDER_ACCOUNT_ID, name: "Goodo" }, isLoading: false };
 vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => mockAuth }));
 vi.mock("@/contexts/AccountContext", () => ({ useAccountContext: () => mockAccount }));
@@ -71,7 +71,17 @@ describe("CreativeRotationPage gating", () => {
     expect(await screen.findByText("60.0%")).toBeInTheDocument();
   });
 
-  it("shows the gated notice for a non-builder role, and never queries", async () => {
+  it("an employee renders the report (staff parity, 2026-07-21)", async () => {
+    mockAuth = { isBuilder: false, isEmployee: true };
+    renderPage();
+    await waitFor(() => expect(getCreativeRotation).toHaveBeenCalled());
+    expect(await screen.findByText("60.0%")).toBeInTheDocument();
+  });
+
+  it("shows the gated notice for a non-staff role, and never queries", async () => {
+    // isEmployee intentionally absent (undefined): guards the boolean coercion —
+    // react-query treats enabled: undefined as ENABLED, so a bare disjunction
+    // would let non-staff roles fire the query.
     mockAuth = { isBuilder: false };
     renderPage();
     expect(screen.getByText(/available to the builder role/i)).toBeInTheDocument();

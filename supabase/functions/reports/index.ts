@@ -515,9 +515,9 @@ serve(async (req) => {
 
     // POST /reports/rollup — generate reports for multiple accounts
     if (req.method === "POST" && path === "rollup") {
-      // Builder-only check
-      if (!roles.includes("builder")) {
-        return new Response(JSON.stringify({ error: "Builder role required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      // Staff-only check (employee parity, 2026-07-21)
+      if (!roles.includes("builder") && !roles.includes("employee")) {
+        return new Response(JSON.stringify({ error: "Staff role required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       const body = await req.json();

@@ -50,7 +50,7 @@ const CADENCES = [
 ] as const;
 
 const ReportsPage = () => {
-  const { isClient, isBuilder } = useAuth();
+  const { isClient, isBuilder, isEmployee } = useAuth();
   const { selectedAccountId } = useAccountContext();
   const [showGenerate, setShowGenerate] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
@@ -184,7 +184,7 @@ const ReportsPage = () => {
               <CalendarClock className="h-3.5 w-3.5 mr-1.5" />
               Schedules
             </Button>
-            {isBuilder && (
+            {(isBuilder || isEmployee) && (
               <Button size="sm" variant="secondary" onClick={() => setShowRollup(true)}>
                 <Files className="h-3.5 w-3.5 mr-1.5" />
                 Monthly Rollup

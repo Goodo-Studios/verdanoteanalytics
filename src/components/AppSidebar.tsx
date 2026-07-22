@@ -318,7 +318,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
                     <SelectValue placeholder="Select account" />
                   </SelectTrigger>
                   <SelectContent className="bg-white border border-border-light rounded-[8px] shadow-modal">
-                    {isBuilder && !effectiveClient && <SelectItem value="all" className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">Agency View</SelectItem>}
+                    {(isBuilder || isEmployee) && !effectiveClient && <SelectItem value="all" className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">Agency View</SelectItem>}
                     {[...accounts].sort((a, b) => a.name.localeCompare(b.name)).map((acc) => (
                       <SelectItem key={acc.id} value={acc.id} className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">
                         {acc.name}
@@ -368,7 +368,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
                         <SelectValue placeholder="Select account" />
                       </SelectTrigger>
                       <SelectContent className="bg-white border border-border-light rounded-[8px] shadow-modal">
-                        {isBuilder && !effectiveClient && <SelectItem value="all" className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">Agency View</SelectItem>}
+                        {(isBuilder || isEmployee) && !effectiveClient && <SelectItem value="all" className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">Agency View</SelectItem>}
                         {[...accounts].sort((a, b) => a.name.localeCompare(b.name)).map((acc) => (
                           <SelectItem key={acc.id} value={acc.id} className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">
                             {acc.name}

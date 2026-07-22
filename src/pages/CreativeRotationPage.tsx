@@ -62,7 +62,7 @@ function KpiTile({
 }
 
 const CreativeRotationPage = () => {
-  const { isBuilder } = useAuth();
+  const { isBuilder, isEmployee } = useAuth();
   const { selectedAccountId, selectedAccount, isLoading: accountLoading } = useAccountContext();
 
   const [freshDays, setFreshDays] = useState<FreshDays>(14);
@@ -74,9 +74,12 @@ const CreativeRotationPage = () => {
     () => format(subDays(new Date(), 1), "yyyy-MM-dd"),
   );
 
-  // Builder-view rollout: available (here `gated` means allowed) for the builder
-  // role on ANY account; the route already gates non-builders away.
-  const gated = isBuilder;
+  // Staff rollout (2026-07-21): available (here `gated` means allowed) to builder
+  // AND employee roles on ANY account; the route gates clients away.
+  // NOTE the boolean coercion: `a || b` can be undefined, and react-query treats
+  // `enabled: undefined` as ENABLED — a bare disjunction would let non-staff
+  // roles fire the query.
+  const gated = !!(isBuilder || isEmployee);
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["creative-rotation", selectedAccountId, dateFrom, dateTo, freshDays],
