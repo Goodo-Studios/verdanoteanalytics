@@ -88,6 +88,33 @@ const CREATIVE_SELECT =
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// PostgREST caps a single response at db.max_rows (1000 on this project), which a
+// client-side `.limit()` can shrink but NEVER raise. The queue holds tens of
+// thousands of rows, so every full-queue read MUST page through with .range().
+const PG_PAGE = 1000;
+
+/** Page through the unresolved-creatives queue for an account (defeats max_rows). */
+async function loadAllUnresolved(
+  db: SupabaseClient,
+  accountId: string,
+): Promise<CreativeForMatch[]> {
+  const out: CreativeForMatch[] = [];
+  for (let from = 0; ; from += PG_PAGE) {
+    const { data, error } = await db
+      .from("creatives")
+      .select(CREATIVE_SELECT)
+      .eq("account_id", accountId)
+      .is("ad_archive_id_status", null)
+      .order("ad_id", { ascending: true })
+      .range(from, from + PG_PAGE - 1);
+    if (error) break;
+    const batch = (data ?? []) as CreativeForMatch[];
+    out.push(...batch);
+    if (batch.length < PG_PAGE) break;
+  }
+  return out;
+}
+
 /** Extract the `role` claim from a JWT bearer without verifying the signature. */
 function jwtRole(token: string): string | null {
   const parts = token.split(".");
@@ -380,14 +407,8 @@ async function resolveAccount(
   };
   let budgetSpent = 0;
 
-  // Load the queue (status IS NULL) for this account.
-  const { data: rows } = await db
-    .from("creatives")
-    .select(CREATIVE_SELECT)
-    .eq("account_id", accountId)
-    .is("ad_archive_id_status", null)
-    .limit(50_000);
-  const creatives = (rows ?? []) as CreativeForMatch[];
+  // Load the queue (status IS NULL) for this account — paged (defeats max_rows).
+  const creatives = await loadAllUnresolved(db, accountId);
   outcome.unresolvedBefore = creatives.length;
   if (!creatives.length) {
     outcome.notes.push("no unresolved creatives");
@@ -502,16 +523,25 @@ async function resolveAccount(
   return { outcome, budgetSpent };
 }
 
-/** Accounts (ids) that still have unresolved creatives, ordered stably. */
+/**
+ * Accounts (ids) that still have unresolved creatives, ordered stably. Enumerates
+ * accounts from ad_accounts, then keeps those with ≥1 NULL-status creative — a
+ * bounded set of cheap head-counts, immune to the PostgREST max_rows cap that a
+ * `select account_id` over the tens-of-thousands-row queue would hit.
+ */
 async function accountsWithQueue(db: SupabaseClient): Promise<string[]> {
-  const { data } = await db
-    .from("creatives")
-    .select("account_id")
-    .is("ad_archive_id_status", null)
-    .limit(100_000);
-  const set = new Set<string>();
-  for (const r of (data ?? []) as { account_id: string }[]) if (r.account_id) set.add(r.account_id);
-  return [...set].sort();
+  const { data: accts } = await db.from("ad_accounts").select("id").order("id", { ascending: true });
+  const out: string[] = [];
+  for (const a of (accts ?? []) as { id: string }[]) {
+    if (!a.id) continue;
+    const { count } = await db
+      .from("creatives")
+      .select("ad_id", { count: "exact", head: true })
+      .eq("account_id", a.id)
+      .is("ad_archive_id_status", null);
+    if ((count ?? 0) > 0) out.push(a.id);
+  }
+  return out;
 }
 
 // ── HTTP entry ───────────────────────────────────────────────────────────────
@@ -557,9 +587,7 @@ Deno.serve(async (req) => {
       const target = body.account_id && body.account_id !== "all" ? [String(body.account_id)] : await accountsWithQueue(db);
       const report: unknown[] = [];
       for (const accountId of target) {
-        const { data: rows } = await db.from("creatives").select(CREATIVE_SELECT)
-          .eq("account_id", accountId).is("ad_archive_id_status", null).limit(50_000);
-        const creatives = (rows ?? []) as CreativeForMatch[];
+        const creatives = await loadAllUnresolved(db, accountId);
         const pages = new Set<string>();
         for (const c of creatives) {
           const pid = derivePageId({ effective_object_story_id: c.effective_object_story_id ?? null, object_story_spec: null });
