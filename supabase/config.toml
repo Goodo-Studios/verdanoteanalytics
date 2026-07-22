@@ -261,6 +261,14 @@ verify_jwt = false
 [functions.apify-capture]
 verify_jwt = false
 
+# US-003 newest-first drain of the Apify capture queue. Poked by the
+# apify-capture-drain-10min pg_cron with the service-role bearer and self-chains
+# fresh invocations, so JWT verification is off and it does NO self-auth — mirrors
+# drain-media-queue / apify-capture (internal only, never linked from a client). It
+# triggers PAID captures via apify-capture, so it must stay internal.
+[functions.apify-capture-drain]
+verify_jwt = false
+
 # One-time backfill of ad_post_url for historical creatives. Invoked manually
 # (or by an internal caller) with the service-role bearer — no end-user JWT
 # (same pattern as backfill-retag / backfill-play-curves). NOTE: the function

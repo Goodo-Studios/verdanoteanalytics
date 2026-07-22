@@ -15,6 +15,7 @@ FUNCTIONS=(
   apify-spike
   resolve-ad-archive-ids
   apify-capture
+  apify-capture-drain
   backfill-daily-history
   backfill-destination-key
   backfill-launch-dates

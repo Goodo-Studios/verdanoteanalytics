@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { apifyHealthFindings } from "../_shared/apify-drain-logic.ts";
 
 
 serve(async (req) => {
@@ -236,6 +237,50 @@ serve(async (req) => {
         message: "All accounts: videos cached or sentineled (none pending)",
         details: { all: videoCoverage },
       });
+    }
+
+    // ─── 5c. Apify Capture Pipeline (US-003) ────────────────────
+    // Surface Apify per-ad capture trouble: a failure-rate spike (>50% of attempts
+    // failing over 6h), the day's budget cap hit, and a queue backlog (>200 resolved
+    // -but-uncaptured creatives). Cheap head-counts + one apify_spend read; the
+    // thresholds/severities live in the pure, unit-tested apifyHealthFindings. INERT
+    // today (blocked upstream: the resolved+pending queue is empty), so this reports a
+    // single 'apify' pass until the pipeline is unblocked.
+    const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000).toISOString();
+    const { count: apifyAttempts6h } = await supabase
+      .from("creatives")
+      .select("ad_id", { count: "exact", head: true })
+      .gte("apify_last_attempt_at", sixHoursAgo);
+    const { count: apifyFailures6h } = await supabase
+      .from("creatives")
+      .select("ad_id", { count: "exact", head: true })
+      .eq("apify_capture_status", "failed")
+      .gte("apify_last_attempt_at", sixHoursAgo);
+    const { count: apifyQueueDepth } = await supabase
+      .from("creatives")
+      .select("ad_id", { count: "exact", head: true })
+      .eq("apify_capture_status", "pending")
+      .eq("ad_archive_id_status", "resolved");
+
+    const today = now.toISOString().slice(0, 10);
+    const { data: apifySpendRow } = await supabase
+      .from("apify_spend")
+      .select("spent_usd, cap_usd")
+      .eq("day", today)
+      .maybeSingle();
+    const cap = (apifySpendRow as { cap_usd?: number | null } | null)?.cap_usd ?? null;
+    const spent = Number((apifySpendRow as { spent_usd?: number } | null)?.spent_usd ?? 0);
+    const budgetCapHit = cap != null && spent >= Number(cap);
+
+    for (
+      const f of apifyHealthFindings({
+        attempts6h: apifyAttempts6h ?? 0,
+        failures6h: apifyFailures6h ?? 0,
+        budgetCapHit,
+        queueDepth: apifyQueueDepth ?? 0,
+      })
+    ) {
+      findings.push(f);
     }
 
     // ─── 6. Orphaned Creatives (no matching account) ────────────
