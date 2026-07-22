@@ -23,7 +23,7 @@
 // STORAGE_URL_MARKER. The values are intentionally identical to media-discovery's.
 // =============================================================================
 
-import { isStorageOwnedUrl } from "./preview-capture-logic.ts";
+import { isStorageOwnedUrl, retryDecision } from "./preview-capture-logic.ts";
 
 // -- Sentinels mirrored from _shared/media-discovery.ts (kept in lockstep) -----
 export const NO_VIDEO_PERMISSION = "no-video-permission";
@@ -165,6 +165,10 @@ export interface DrainCandidate {
   capture_status: string | null;
   video_url: string | null;
   full_res_url: string | null;
+  /** Attempts already made (drives retry-eligibility). Absent/null → never tried. */
+  capture_attempts?: number | null;
+  /** Timestamp of the most recent attempt (drives the backoff window). */
+  capture_last_attempt_at?: string | null;
 }
 
 /** A capture is "covered" when a storage-owned video OR full-res static is present. */
@@ -176,19 +180,39 @@ export function isCaptureCovered(
 
 /**
  * Select the next batch of creatives to capture, NEWEST-FIRST. Filters to exactly
- * the drainable set — capture_status='pending' and NOT already covered (there is NO
- * archive-id gate in the preview pivot; the preview surface is ad-scoped by
- * construction) — then orders by created_time DESC (NULLs last, a null launch date
- * treated as oldest) with a stable ad_id DESC tiebreak, and slices to batchSize. The
- * edge fn orders+limits in SQL for index efficiency (idx_creatives_capture_queue);
- * this pure pass is the tested contract + a covered-row safety net.
+ * the drainable set:
+ *   • capture_status='pending' and NOT already covered (no archive-id gate in the
+ *     preview pivot; the preview surface is ad-scoped by construction), AND
+ *   • RETRY-ELIGIBLE right now — never-attempted rows plus attempted rows whose
+ *     exponential backoff window has elapsed (retryDecision === 'run'). Rows still
+ *     inside their backoff window, and terminal rows past the attempt cap, are
+ *     EXCLUDED so they never consume a batch slot.
+ * then orders by created_time DESC (NULLs last, a null launch date treated as oldest)
+ * with a stable ad_id DESC tiebreak, and slices to batchSize.
+ *
+ * Excluding backoff/terminal rows is load-bearing: without it, a few already-attempted
+ * rows sitting at the ordering head (e.g. the highest ad_ids when the whole backlog
+ * shares one bulk-import created_time, so "newest-first" degenerates to the ad_id
+ * tiebreak) are re-selected every tick and every self-chain, each returning
+ * skipped/backoff — starving the never-attempted rows behind them and stalling the
+ * drain at zero captures. The edge fn orders+limits in SQL for index efficiency and
+ * surfaces least-recently-attempted rows first so the fetch window is rich in eligible
+ * rows; this pure pass is the tested contract + eligibility/covered safety net.
  */
 export function selectDrainBatch(
   candidates: DrainCandidate[],
   batchSize: number,
+  now: number = Date.now(),
 ): DrainCandidate[] {
   const eligible = candidates.filter(
-    (c) => c.capture_status === "pending" && !isCaptureCovered(c),
+    (c) =>
+      c.capture_status === "pending" &&
+      !isCaptureCovered(c) &&
+      retryDecision({
+        attempts: c.capture_attempts ?? 0,
+        lastAttemptAt: c.capture_last_attempt_at ?? null,
+        now,
+      }).action === "run",
   );
   eligible.sort((a, b) => {
     const ta = a.created_time ? Date.parse(a.created_time) : Number.NEGATIVE_INFINITY;

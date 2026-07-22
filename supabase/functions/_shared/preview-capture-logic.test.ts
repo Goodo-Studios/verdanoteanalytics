@@ -34,6 +34,7 @@ import {
   rankImageCandidates,
   rankVideoCandidates,
   retryDecision,
+  shouldAttemptTierB,
 } from "./preview-capture-logic.ts";
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -189,6 +190,21 @@ Deno.test("quotaDecision: >90 stop, >75 pause, else ok", () => {
   assertEquals(quotaDecision(76), "pause");
   assertEquals(quotaDecision(90), "pause");
   assertEquals(quotaDecision(91), "stop");
+});
+
+// ── Tier-B gating: a quota pause degrades to FREE Tier A only ─────────────────
+Deno.test("shouldAttemptTierB: runs Tier B when video/statics needed and quota is fine", () => {
+  assertEquals(shouldAttemptTierB({ needVideoB: true, needStaticsB: false, tierAOnly: false }), true);
+  assertEquals(shouldAttemptTierB({ needVideoB: false, needStaticsB: true, tierAOnly: false }), true);
+  assertEquals(shouldAttemptTierB({ needVideoB: false, needStaticsB: false, tierAOnly: false }), false);
+});
+
+Deno.test("shouldAttemptTierB: quota pause (tier_a_only) skips metered Tier B — Tier A still runs", () => {
+  // The FREE Tier A (public video plugin, zero Meta quota) runs unconditionally in
+  // the caller; only the metered Tier B is gated off here so a quota pause degrades
+  // to "Tier A only", never "capture nothing".
+  assertEquals(shouldAttemptTierB({ needVideoB: true, needStaticsB: true, tierAOnly: true }), false);
+  assertEquals(shouldAttemptTierB({ needVideoB: true, needStaticsB: false, tierAOnly: true }), false);
 });
 
 // ── Retry / backoff ───────────────────────────────────────────────────────────

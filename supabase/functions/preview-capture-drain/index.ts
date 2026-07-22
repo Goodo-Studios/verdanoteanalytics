@@ -10,10 +10,13 @@
 //     the apify_drain_state primitives (claim/release_apify_drain_singleflight).
 //   • BOUNDED batch per invocation + a wall-time budget, with a self-chain that fires
 //     a fresh invocation while pending rows remain (bursts drain fully).
-//   • HALT ON QUOTA: capture is FREE (no budget ledger), but Tier B spends shared
-//     app-wide Meta quota. The loop STOPS the moment preview-capture reports the
-//     quota circuit breaker tripped ('quota_paused'), and does NOT self-chain — the
-//     10-min cron resumes once usage falls back under the pause threshold.
+//   • QUOTA DEGRADE (not halt): capture is FREE (no budget ledger), but Tier B spends
+//     shared app-wide Meta quota. The moment preview-capture reports the quota circuit
+//     breaker tripped ('quota_paused'), the drain finishes the current batch in
+//     TIER-A-ONLY mode (free public video plugin, zero Meta quota — remaining video
+//     ads can still be captured) and does NOT self-chain, so no new metered burst
+//     starts. The 10-min cron resumes full Tier B once usage falls back under the
+//     pause threshold. A quota pause degrades to "Tier A only", never "capture nothing".
 //   • INERT by construction: no pending rows → no_work (no captures, no Meta calls).
 //
 // SECURITY: verify_jwt=false and NO self-auth — internal only, never linked from a
@@ -46,8 +49,10 @@ export const MAX_CHAIN = 50;
 // still yields a full batch without a second query.
 const CANDIDATE_FETCH = BATCH_SIZE * 4;
 
-// Columns selectDrainBatch needs (newest-first ordering + covered filtering).
-const CANDIDATE_SELECT = "ad_id, account_id, created_time, capture_status, video_url, full_res_url";
+// Columns selectDrainBatch needs (newest-first ordering + covered/backoff filtering).
+const CANDIDATE_SELECT =
+  "ad_id, account_id, created_time, capture_status, video_url, full_res_url, " +
+  "capture_attempts, capture_last_attempt_at";
 
 /** Count creatives pending awaiting capture (queue depth). */
 async function pendingCount(db: SupabaseClient): Promise<number> {
@@ -86,16 +91,21 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // ── Select the newest-first batch. SQL orders + limits (idx_creatives_capture_queue)
-    //    for index efficiency; selectDrainBatch re-filters covered rows and re-orders
-    //    as the tested contract. ──
+    // ── Select the batch. SQL surfaces LEAST-RECENTLY-ATTEMPTED rows first
+    //    (capture_last_attempt_at ASC NULLS FIRST → never-attempted rows lead),
+    //    newest-first within that, and limits for index efficiency; selectDrainBatch
+    //    then filters covered + backoff/terminal rows and re-orders newest-first as
+    //    the tested contract. Ordering never-attempted rows to the head keeps the
+    //    fetch window rich in eligible rows so a cluster of backoff rows can never
+    //    starve the untried backlog (the stall this fixes). ──
     const { data: rows } = await db
       .from("creatives")
       .select(CANDIDATE_SELECT)
       .eq("capture_status", "pending")
+      .order("capture_last_attempt_at", { ascending: true, nullsFirst: true })
       .order("created_time", { ascending: false, nullsFirst: false })
       .limit(CANDIDATE_FETCH);
-    const batch = selectDrainBatch((rows ?? []) as DrainCandidate[], batchSize);
+    const batch = selectDrainBatch((rows ?? []) as unknown as DrainCandidate[], batchSize, Date.now());
 
     if (batch.length === 0) {
       // INERT: nothing pending to capture.
@@ -106,6 +116,11 @@ Deno.serve(async (req) => {
     const startedMs = Date.now();
     const results: Array<{ ad_id: string; status?: string; reason?: string }> = [];
     let quotaHalt = false;
+    // Once the per-ad worker reports the Meta-quota breaker tripped, the REST of this
+    // batch runs Tier-A-only (free public video plugin, zero Meta quota) — a quota
+    // pause degrades to "Tier A only", never to "capture nothing". quotaHalt still
+    // suppresses the self-chain so no NEW quota-spending burst starts this window.
+    let tierAOnly = false;
     let captured = 0;
     let processed = 0;
 
@@ -120,7 +135,7 @@ Deno.serve(async (req) => {
         const resp = await fetch(`${SUPABASE_URL}/functions/v1/preview-capture`, {
           method: "POST",
           headers: { Authorization: internalAuth, "Content-Type": "application/json" },
-          body: JSON.stringify({ ad_id: cand.ad_id }),
+          body: JSON.stringify({ ad_id: cand.ad_id, tier_a_only: tierAOnly }),
         });
         const payload = await resp.json().catch(() => ({}));
         const status = String(payload?.status ?? `http_${resp.status}`);
@@ -128,11 +143,13 @@ Deno.serve(async (req) => {
         results.push({ ad_id: cand.ad_id, status, reason });
         processed++;
         if (status === "captured") captured++;
-        // HALT the moment the per-ad worker reports the Meta-quota circuit breaker
-        // tripped — do not spend more shared quota this run.
+        // The Meta-quota circuit breaker tripped for this ad's Tier B. Do NOT hard-stop
+        // the batch: keep going Tier-A-only (free) so remaining video ads can still be
+        // captured, and suppress the self-chain so no new metered burst starts.
         if (status === "quota_paused" || reason === "quota_paused") {
           quotaHalt = true;
-          break;
+          tierAOnly = true;
+          continue;
         }
       } catch (e) {
         results.push({ ad_id: cand.ad_id, status: "error", reason: String((e as Error).message ?? e) });

@@ -227,6 +227,63 @@ Deno.test("selectDrainBatch: filters non-pending and already-covered (no archive
   assertEquals(out.map((r) => r.ad_id).sort(), ["cdn-only-ok", "ok"]);
 });
 
+// ── selectDrainBatch: retry-eligibility (the prod stall regression) ────────────
+// Fixed clock: rows attempted <30 min ago are in backoff (30min * 2^(attempts-1)).
+const NOW = Date.parse("2026-07-22T22:00:00Z");
+const MIN = 60_000;
+
+Deno.test("selectDrainBatch: excludes rows still inside their retry-backoff window", () => {
+  const rows = [
+    // attempted 5 min ago (attempts=1 → 30-min window) → NOT eligible yet.
+    cand({
+      ad_id: "backoff",
+      capture_attempts: 1,
+      capture_last_attempt_at: new Date(NOW - 5 * MIN).toISOString(),
+    }),
+    // never attempted → always eligible.
+    cand({ ad_id: "untried", capture_attempts: 0, capture_last_attempt_at: null }),
+    // attempted 45 min ago (attempts=1 → 30-min window elapsed) → eligible again.
+    cand({
+      ad_id: "past-backoff",
+      capture_attempts: 1,
+      capture_last_attempt_at: new Date(NOW - 45 * MIN).toISOString(),
+    }),
+  ];
+  const out = selectDrainBatch(rows, 10, NOW);
+  assertEquals(out.map((r) => r.ad_id).sort(), ["past-backoff", "untried"]);
+});
+
+Deno.test("selectDrainBatch: excludes terminal rows past the attempt cap", () => {
+  const rows = [
+    cand({ ad_id: "terminal", capture_attempts: 3, capture_last_attempt_at: new Date(NOW - 999 * MIN).toISOString() }),
+    cand({ ad_id: "untried" }),
+  ];
+  const out = selectDrainBatch(rows, 10, NOW);
+  assertEquals(out.map((r) => r.ad_id), ["untried"]);
+});
+
+Deno.test("selectDrainBatch: backoff rows at the ad_id-DESC head do NOT starve untried rows (prod stall)", () => {
+  // Reproduces the prod stall: the whole backlog shares ONE bulk-import created_time,
+  // so "newest-first" degenerates to the ad_id DESC tiebreak. The highest-ad_id rows
+  // happen to be already-attempted + in backoff. Before the fix they were re-selected
+  // every tick (skipped/backoff) and starved the never-attempted rows behind them.
+  const ONE_TIME = "2026-05-29T10:11:44Z";
+  const recent = new Date(NOW - 2 * MIN).toISOString(); // inside the 30-min window
+  const rows = [
+    // Highest ad_ids, attempted 2 min ago → in backoff (the poison rows).
+    cand({ ad_id: "z-9999-b", created_time: ONE_TIME, capture_attempts: 2, capture_last_attempt_at: recent }),
+    cand({ ad_id: "z-9998-b", created_time: ONE_TIME, capture_attempts: 2, capture_last_attempt_at: recent }),
+    cand({ ad_id: "z-9997-b", created_time: ONE_TIME, capture_attempts: 2, capture_last_attempt_at: recent }),
+    // Never-attempted rows behind them (lower ad_ids).
+    cand({ ad_id: "a-0003", created_time: ONE_TIME }),
+    cand({ ad_id: "a-0002", created_time: ONE_TIME }),
+    cand({ ad_id: "a-0001", created_time: ONE_TIME }),
+  ];
+  const out = selectDrainBatch(rows, 3, NOW);
+  // The batch must be the drainable untried rows, NOT the backoff poison rows.
+  assertEquals(out.map((r) => r.ad_id), ["a-0003", "a-0002", "a-0001"]);
+});
+
 Deno.test("isCaptureCovered: owned storage url only, not an expiring CDN url", () => {
   assertEquals(isCaptureCovered({ video_url: STORAGE, full_res_url: null }), true);
   assertEquals(isCaptureCovered({ video_url: null, full_res_url: STORAGE }), true);
