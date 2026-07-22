@@ -254,6 +254,11 @@ verify_jwt = false
 # be a bearer, and the edge gateway only routes genuine project JWTs). Starts PAID
 # Apify fallback runs only when explicitly asked (allow_fallback=true); cron never spends.
 [functions.resolve-ad-archive-ids]
+# US-002 per-ad Apify creative capture. Poked by an internal cron drain with the
+# service-role bearer (no user JWT); does no self-auth and is never linked from a
+# client — mirrors drain-media-queue / refresh-media-queue. It runs a PAID actor
+# and writes storage + creatives, so it must stay internal.
+[functions.apify-capture]
 verify_jwt = false
 
 # One-time backfill of ad_post_url for historical creatives. Invoked manually

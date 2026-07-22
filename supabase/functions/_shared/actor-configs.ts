@@ -253,7 +253,7 @@ export const ACTOR_CONFIGS: Record<string, ActorConfig> = {
       for (const m of (Array.isArray(mediaArr) ? mediaArr : [])) {
         const variants =
           (m?.videoInfo?.variants as Array<{ contentType?: string; content_type?: string; url: string; bitrate?: number }> | undefined) ??
-          (m?.video_info?.variants as Array<{ content_type?: string; url: string; bitrate?: number }> | undefined);
+          (m?.video_info?.variants as Array<{ contentType?: string; content_type?: string; url: string; bitrate?: number }> | undefined);
         if (!variants?.length) continue;
         const mp4s = variants.filter(
           (v) => (v.contentType ?? v.content_type) === "video/mp4"
@@ -291,19 +291,25 @@ export const ACTOR_CONFIGS: Record<string, ActorConfig> = {
       ...(env.LINKEDIN_LI_AT ? { li_at: env.LINKEDIN_LI_AT } : {}),
       ...(env.LINKEDIN_JSESSIONID ? { jsessionid: env.LINKEDIN_JSESSIONID } : {}),
     }),
-    extractVideoUrl: (item) =>
+    extractVideoUrl: (item) => {
       // [linkedin-debug] logs in vault-extract-webhook show actual keys on first run.
-      item?.video?.url ??
-      item?.videoUrl ??
-      item?.video?.downloadUrl ??
-      item?.video?.streamUrl ??
-      (Array.isArray(item?.attachments) && item.attachments.length > 0
-        ? (item.attachments[0]?.url ?? item.attachments[0]?.videoUrl ?? null)
-        : null) ??
-      (Array.isArray(item?.media) && item.media.length > 0
-        ? (item.media[0]?.url ?? (typeof item.media[0] === "string" ? item.media[0] : null))
-        : null) ??
-      null,
+      // Array candidates are hoisted into typed locals so the Array.isArray narrowing
+      // does not corrupt the ?? chain's control flow (TS2871). Behavior unchanged.
+      const attachments: unknown[] = Array.isArray(item?.attachments) ? item.attachments : [];
+      const media: unknown[] = Array.isArray(item?.media) ? item.media : [];
+      const firstAttachment = attachments[0] as { url?: string; videoUrl?: string } | undefined;
+      const firstMedia = media[0] as { url?: string } | string | undefined;
+      return (
+        item?.video?.url ??
+        item?.videoUrl ??
+        item?.video?.downloadUrl ??
+        item?.video?.streamUrl ??
+        firstAttachment?.url ??
+        firstAttachment?.videoUrl ??
+        (typeof firstMedia === "string" ? firstMedia : firstMedia?.url) ??
+        null
+      );
+    },
     extractThumbnailUrl: (item) =>
       item?.image ??
       (Array.isArray(item?.images) && item.images.length > 0 ? item.images[0] : null) ??
