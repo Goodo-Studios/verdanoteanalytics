@@ -61,6 +61,7 @@ import {
   quotaDecision,
   type QuotaAction,
   retryDecision,
+  shouldAttemptTierB,
 } from "../_shared/preview-capture-logic.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
@@ -292,10 +293,16 @@ export async function handler(req: Request, supabaseOverride?: unknown): Promise
   // -- Parse body -----------------------------------------------------------
   let adId: string;
   let force = false;
+  // tier_a_only: the drain sets this for the remainder of a batch after the Meta-quota
+  // breaker tripped — run only the FREE Tier A (public video plugin, zero Meta quota)
+  // and skip the metered Tier B. Nothing landed via Tier A → treated as a quota
+  // deferral (attempt reverted, row left pending), never a burned attempt.
+  let tierAOnly = false;
   try {
     const body = await req.json();
     adId = String(body?.ad_id ?? "");
     force = body?.force === true;
+    tierAOnly = body?.tier_a_only === true;
     if (!adId) throw new Error("ad_id required");
   } catch (e) {
     return jsonResponse({ error: (e as Error).message || "bad request" }, 400);
@@ -398,9 +405,15 @@ export async function handler(req: Request, supabaseOverride?: unknown): Promise
   }
 
   // -- TIER B: previews edge → iframe (video misses + ALL statics, metered) -
+  // Skipped entirely under tier_a_only (quota degrade) — see shouldAttemptTierB. When
+  // skipped-but-needed, mark a quota deferral so the attempt is reverted below (the
+  // free Tier A already ran; Tier B waits for quota to recover).
   const needVideoB = wantsVideo && !videoAsset;
   const needStaticsB = wantsStatics && !isStorageOwnedUrl(creative.full_res_url);
-  if (needVideoB || needStaticsB) {
+  if (tierAOnly && (needVideoB || needStaticsB)) {
+    quotaHalt = true;
+  }
+  if (shouldAttemptTierB({ needVideoB, needStaticsB, tierAOnly })) {
     let token = resolveMetaToken(Deno.env.get("META_ACCESS_TOKEN"), null);
     if (!token) {
       const { data } = await supabase.from("settings").select("value").eq("key", "meta_access_token").maybeSingle();

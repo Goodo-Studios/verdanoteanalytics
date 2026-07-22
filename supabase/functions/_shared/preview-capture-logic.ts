@@ -366,6 +366,23 @@ export function parseGraphUsage(headers: {
   );
 }
 
+/**
+ * Whether the metered Tier B (Graph /previews → iframe) should run for this ad.
+ * Tier B is needed when a video still needs fetching OR statics are uncovered — BUT
+ * when the drain is in `tierAOnly` mode (a prior ad this run tripped the Meta-quota
+ * breaker), Tier B is skipped so the run spends ZERO further shared Meta quota. The
+ * FREE Tier A (public video plugin, zero quota) always runs regardless — a quota
+ * pause degrades to "Tier A only", never to "capture nothing".
+ */
+export function shouldAttemptTierB(input: {
+  needVideoB: boolean;
+  needStaticsB: boolean;
+  tierAOnly: boolean;
+}): boolean {
+  if (input.tierAOnly) return false;
+  return input.needVideoB || input.needStaticsB;
+}
+
 /** Circuit-breaker decision from a peak usage percentage. >90 → stop; >75 → pause. */
 export function quotaDecision(
   peakUsagePct: number,
