@@ -485,15 +485,18 @@ export async function backfillFrameAssets(
  * outcome the drain loop uses to mark the queue row.
  */
 /**
- * US-003 rescue context returned alongside the media outcome so the drain loop can
- * decide (via rescueEnqueueDecision) whether to hand a media-failed creative to the
- * Apify capture queue. All read from the same creative row already fetched here — no
- * extra DB round-trip.
+ * Rescue context returned alongside the media outcome so the drain loop can decide
+ * (via rescueEnqueueDecision) whether to hand a media-failed creative to the free
+ * preview-capture queue. All read from the same creative row already fetched here —
+ * no extra DB round-trip.
  */
 export interface RescueContext {
-  adArchiveIdStatus: string | null;
+  // Preview pivot: capture no longer gates on a Meta Ad-Library archive id (that
+  // column is dropped). Rescue is gated on MEDIA-INTENT — the ad actually has
+  // video ids or image hashes — so a pure text/no-media ad is never enqueued.
+  hasMediaIntent: boolean;
   alreadyCovered: boolean;
-  apifyCaptureStatus: string | null;
+  captureStatus: string | null;
 }
 
 export async function processQueuedAd(
@@ -506,7 +509,7 @@ export async function processQueuedAd(
 ): Promise<{ outcome: "cached" | "skipped" | "failed" | "throttled"; reason?: string; rescue?: RescueContext }> {
   const { data: creative, error: fetchErr } = await supabase
     .from("creatives")
-    .select("ad_id, account_id, thumbnail_url, full_res_url, video_url, thumb_asset_id, video_asset_id, image_quality, expected_frame_count, frames_retry_count, ad_archive_id_status, apify_capture_status")
+    .select("ad_id, account_id, thumbnail_url, full_res_url, video_url, thumb_asset_id, video_asset_id, image_quality, expected_frame_count, frames_retry_count, meta_video_ids, meta_image_hashes, capture_status")
     .eq("ad_id", adId)
     .maybeSingle();
 
@@ -758,10 +761,16 @@ export async function processQueuedAd(
   // Apify capture queue — always gated on ad_archive_id_status.
   const effVideoUrl = "video_url" in updates ? updates.video_url : creative.video_url;
   const effFullResUrl = "full_res_url" in updates ? updates.full_res_url : creative.full_res_url;
+  // Media-intent: the ad genuinely has a video (meta_video_ids) OR is an image ad
+  // (meta_image_hashes present) — the ONLY ads the free preview surface can capture.
+  // A pure text/no-media ad has no capture path, so it is never rescued.
+  const hasMediaIntent =
+    (Array.isArray(creative.meta_video_ids) && creative.meta_video_ids.length > 0) ||
+    (Array.isArray(creative.meta_image_hashes) && creative.meta_image_hashes.length > 0);
   const rescue: RescueContext = {
-    adArchiveIdStatus: creative.ad_archive_id_status ?? null,
+    hasMediaIntent,
     alreadyCovered: isStorageUrl(effVideoUrl) || isStorageUrl(effFullResUrl),
-    apifyCaptureStatus: creative.apify_capture_status ?? null,
+    captureStatus: creative.capture_status ?? null,
   };
 
   // Throttle takes priority for the queue disposition: a throttle on EITHER media path
@@ -894,32 +903,32 @@ export async function drainOnce(
     );
     if (reason) summary.reasons[reason] = (summary.reasons[reason] ?? 0) + 1;
 
-    // US-003 (apify-creative-capture) RESCUE hook: when the Meta media pipeline
-    // gives up on a creative (terminal video sentinel, or a media gap on its first
-    // attempt / after exhausting retries), hand it to the Apify capture queue by
-    // marking apify_capture_status='pending' — but ONLY when its ad_archive_id is
-    // 'resolved' (NULL is left for the resolver; 'unresolvable' is never enqueued).
-    // The decision is pure + unit-tested; the `.is(...,null)` guard makes the write
-    // idempotent (never overwrites an existing Apify lifecycle) and race-safe.
+    // Preview-capture RESCUE hook: when the Meta media pipeline gives up on a
+    // creative (terminal video sentinel, or a media gap on its first attempt /
+    // after exhausting retries), hand it to the FREE preview-capture queue by
+    // marking capture_status='pending' — gated on MEDIA-INTENT (the ad has video
+    // ids or image hashes; there is no archive-id gate anymore). The decision is
+    // pure + unit-tested; the `.is(...,null)` guard makes the write idempotent
+    // (never overwrites an existing capture lifecycle) and race-safe.
     if (rescue) {
       const decision = rescueEnqueueDecision({
         outcome,
         reasons: reason ? reason.split(",") : [],
         attempts: row.attempts ?? 0,
         maxAttempts: MAX_ATTEMPTS,
-        adArchiveIdStatus: rescue.adArchiveIdStatus,
+        hasMediaIntent: rescue.hasMediaIntent,
         alreadyCovered: rescue.alreadyCovered,
-        apifyCaptureStatus: rescue.apifyCaptureStatus,
+        captureStatus: rescue.captureStatus,
       });
       if (decision.enqueue) {
-        summary.reasons[`apify_rescue:${decision.trigger}`] =
-          (summary.reasons[`apify_rescue:${decision.trigger}`] ?? 0) + 1;
+        summary.reasons[`preview_rescue:${decision.trigger}`] =
+          (summary.reasons[`preview_rescue:${decision.trigger}`] ?? 0) + 1;
         await supabase
           .from("creatives")
-          .update({ apify_capture_status: "pending" })
+          .update({ capture_status: "pending" })
           .eq("ad_id", row.ad_id)
           .eq("account_id", row.account_id)
-          .is("apify_capture_status", null);
+          .is("capture_status", null);
       }
     }
 

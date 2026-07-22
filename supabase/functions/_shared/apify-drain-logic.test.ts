@@ -8,9 +8,9 @@
 
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
-  apifyHealthFindings,
   type DrainCandidate,
   isCaptureCovered,
+  previewCaptureHealthFindings,
   rescueEnqueueDecision,
   selectDrainBatch,
 } from "./apify-drain-logic.ts";
@@ -26,40 +26,40 @@ Deno.test("rescue: resolved + first-attempt hard failure → enqueue (new-ad fas
     reasons: ["expired"],
     attempts: 1,
     maxAttempts: 5,
-    adArchiveIdStatus: "resolved",
+    hasMediaIntent: true,
     alreadyCovered: false,
-    apifyCaptureStatus: null,
+    captureStatus: null,
   });
   assertEquals(d.enqueue, true);
   assertEquals(d.trigger, "new_ad_first_attempt");
 });
 
-Deno.test("rescue: ad_archive_id_status NULL → leave for the resolver (never enqueue)", () => {
+Deno.test("rescue: no media intent (no video ids, not an image ad) → never enqueue", () => {
   const d = rescueEnqueueDecision({
     outcome: "failed",
     reasons: ["no-video"],
     attempts: 1,
     maxAttempts: 5,
-    adArchiveIdStatus: null,
+    hasMediaIntent: false,
     alreadyCovered: false,
-    apifyCaptureStatus: null,
+    captureStatus: null,
   });
   assertEquals(d.enqueue, false);
-  assertEquals(d.skip, "awaiting_resolver");
+  assertEquals(d.skip, "no_media_intent");
 });
 
-Deno.test("rescue: ad_archive_id_status 'unresolvable' → never enqueue", () => {
+Deno.test("rescue: no media intent even for a terminal video sentinel → never enqueue", () => {
   const d = rescueEnqueueDecision({
     outcome: "skipped",
     reasons: ["no-video-permission"],
     attempts: 1,
     maxAttempts: 5,
-    adArchiveIdStatus: "unresolvable",
+    hasMediaIntent: false,
     alreadyCovered: false,
-    apifyCaptureStatus: null,
+    captureStatus: null,
   });
   assertEquals(d.enqueue, false);
-  assertEquals(d.skip, "unresolvable");
+  assertEquals(d.skip, "no_media_intent");
 });
 
 // ── rescueEnqueueDecision: trigger cases (AC#1) ───────────────────────────────
@@ -71,9 +71,9 @@ Deno.test("rescue: terminal video sentinel (permission) → enqueue on first sig
       reasons: [reason],
       attempts: 1, // even the first attempt
       maxAttempts: 5,
-      adArchiveIdStatus: "resolved",
+      hasMediaIntent: true,
       alreadyCovered: false,
-      apifyCaptureStatus: null,
+      captureStatus: null,
     });
     assertEquals(d.enqueue, true, reason);
     assertEquals(d.trigger, "terminal_video_sentinel", reason);
@@ -86,9 +86,9 @@ Deno.test("rescue: exhausted retries on video_unresolved/image_missing → enque
     reasons: ["no-video"],
     attempts: 5,
     maxAttempts: 5,
-    adArchiveIdStatus: "resolved",
+    hasMediaIntent: true,
     alreadyCovered: false,
-    apifyCaptureStatus: null,
+    captureStatus: null,
   });
   assertEquals(d.enqueue, true);
   assertEquals(d.trigger, "retries_exhausted");
@@ -100,9 +100,9 @@ Deno.test("rescue: mid-retry media gap (not first, not exhausted) → keep retry
     reasons: ["expired"],
     attempts: 3,
     maxAttempts: 5,
-    adArchiveIdStatus: "resolved",
+    hasMediaIntent: true,
     alreadyCovered: false,
-    apifyCaptureStatus: null,
+    captureStatus: null,
   });
   assertEquals(d.enqueue, false);
   assertEquals(d.skip, "retrying");
@@ -116,9 +116,9 @@ Deno.test("rescue: already-covered → never (AC#4)", () => {
     reasons: ["no-video"],
     attempts: 1,
     maxAttempts: 5,
-    adArchiveIdStatus: "resolved",
+    hasMediaIntent: true,
     alreadyCovered: true,
-    apifyCaptureStatus: null,
+    captureStatus: null,
   });
   assertEquals(d.enqueue, false);
   assertEquals(d.skip, "already_covered");
@@ -131,9 +131,9 @@ Deno.test("rescue: existing apify lifecycle → never overwrite", () => {
       reasons: ["no-video"],
       attempts: 1,
       maxAttempts: 5,
-      adArchiveIdStatus: "resolved",
+      hasMediaIntent: true,
       alreadyCovered: false,
-      apifyCaptureStatus: st,
+      captureStatus: st,
     });
     assertEquals(d.enqueue, false, st);
     assertEquals(d.skip, "already_queued", st);
@@ -146,9 +146,9 @@ Deno.test("rescue: a Meta throttle is inconclusive → never rescue on it", () =
     reasons: ["rate-limited"],
     attempts: 1,
     maxAttempts: 5,
-    adArchiveIdStatus: "resolved",
+    hasMediaIntent: true,
     alreadyCovered: false,
-    apifyCaptureStatus: null,
+    captureStatus: null,
   });
   assertEquals(d.enqueue, false);
   assertEquals(d.skip, "throttled");
@@ -160,9 +160,9 @@ Deno.test("rescue: cached (media landed) → nothing to rescue", () => {
     reasons: [],
     attempts: 1,
     maxAttempts: 5,
-    adArchiveIdStatus: "resolved",
+    hasMediaIntent: true,
     alreadyCovered: false,
-    apifyCaptureStatus: null,
+    captureStatus: null,
   });
   assertEquals(d.enqueue, false);
   assertEquals(d.skip, "media_ok");
@@ -174,9 +174,9 @@ Deno.test("rescue: oversized video is EXCLUDED from gap reasons (Apify would ref
     reasons: ["no-video-oversized"],
     attempts: 1,
     maxAttempts: 5,
-    adArchiveIdStatus: "resolved",
+    hasMediaIntent: true,
     alreadyCovered: false,
-    apifyCaptureStatus: null,
+    captureStatus: null,
   });
   assertEquals(d.enqueue, false);
   assertEquals(d.skip, "media_ok");
@@ -236,39 +236,53 @@ Deno.test("isCaptureCovered: owned storage url only, not an expiring CDN url", (
   assertEquals(isCaptureCovered({ video_url: null, full_res_url: null }), false);
 });
 
-// ── apifyHealthFindings (AC#5) ────────────────────────────────────────────────
+// ── previewCaptureHealthFindings ──────────────────────────────────────────────
 
 Deno.test("health: >50% failure over 6h (above min sample) → fail finding", () => {
-  const f = apifyHealthFindings({ attempts6h: 20, failures6h: 12, budgetCapHit: false, queueDepth: 0 });
+  const f = previewCaptureHealthFindings({ attempts6h: 20, failures6h: 12, queueDepth: 0 });
   assertEquals(f.length, 1);
   assertEquals(f[0].severity, "fail");
-  assertEquals(f[0].category, "apify");
+  assertEquals(f[0].category, "preview_capture");
 });
 
 Deno.test("health: failure rate above threshold but below min sample → no spike finding", () => {
-  const f = apifyHealthFindings({ attempts6h: 4, failures6h: 3, budgetCapHit: false, queueDepth: 0 });
+  const f = previewCaptureHealthFindings({ attempts6h: 4, failures6h: 3, queueDepth: 0 });
   assertEquals(f.length, 1);
   assertEquals(f[0].severity, "pass"); // too few attempts to trust the rate
 });
 
-Deno.test("health: budget cap hit → warn finding", () => {
-  const f = apifyHealthFindings({ attempts6h: 0, failures6h: 0, budgetCapHit: true, queueDepth: 0 });
-  assertEquals(f.some((x) => x.severity === "warn" && /budget/i.test(x.message)), true);
-});
-
 Deno.test("health: queue depth > 200 → warn finding", () => {
-  const f = apifyHealthFindings({ attempts6h: 0, failures6h: 0, budgetCapHit: false, queueDepth: 201 });
+  const f = previewCaptureHealthFindings({ attempts6h: 0, failures6h: 0, queueDepth: 201 });
   assertEquals(f.some((x) => x.severity === "warn" && /queue depth/i.test(x.message)), true);
 });
 
+Deno.test("health: Tier-B iframe 400 drift (above min sample) → fail finding", () => {
+  const f = previewCaptureHealthFindings({
+    attempts6h: 0, failures6h: 0, queueDepth: 0, iframeAttempts6h: 20, iframe400s6h: 8,
+  });
+  assertEquals(f.some((x) => x.severity === "fail" && /iframe HTTP-400/i.test(x.message)), true);
+});
+
+Deno.test("health: iframe 400 rate high but below min sample → no drift finding", () => {
+  const f = previewCaptureHealthFindings({
+    attempts6h: 0, failures6h: 0, queueDepth: 0, iframeAttempts6h: 4, iframe400s6h: 3,
+  });
+  assertEquals(f.length, 1);
+  assertEquals(f[0].severity, "pass");
+});
+
 Deno.test("health: all clean → single pass finding", () => {
-  const f = apifyHealthFindings({ attempts6h: 30, failures6h: 1, budgetCapHit: false, queueDepth: 5 });
+  const f = previewCaptureHealthFindings({
+    attempts6h: 30, failures6h: 1, queueDepth: 5, iframeAttempts6h: 20, iframe400s6h: 0,
+  });
   assertEquals(f.length, 1);
   assertEquals(f[0].severity, "pass");
 });
 
 Deno.test("health: multiple problems → multiple findings, no pass", () => {
-  const f = apifyHealthFindings({ attempts6h: 40, failures6h: 30, budgetCapHit: true, queueDepth: 500 });
+  const f = previewCaptureHealthFindings({
+    attempts6h: 40, failures6h: 30, queueDepth: 500, iframeAttempts6h: 20, iframe400s6h: 12,
+  });
   assertEquals(f.length, 3);
   assertEquals(f.some((x) => x.severity === "pass"), false);
 });

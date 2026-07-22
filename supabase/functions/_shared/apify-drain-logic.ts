@@ -67,19 +67,23 @@ export interface RescueDecisionInput {
   attempts: number;
   /** drain-media-queue MAX_ATTEMPTS. */
   maxAttempts: number;
-  /** creatives.ad_archive_id_status: null (unresolved) | 'resolved' | 'unresolvable'. */
-  adArchiveIdStatus: string | null | undefined;
+  /**
+   * True when the ad genuinely has capturable media — meta_video_ids present OR it
+   * is an image ad (meta_image_hashes present). Preview capture has no path for a
+   * pure text/no-media ad, so those are never rescued. Replaces the retired
+   * ad_archive_id_status gate (that column is dropped in the preview pivot).
+   */
+  hasMediaIntent: boolean;
   /** True when a storage-owned video OR full-res static is already present. */
   alreadyCovered: boolean;
-  /** creatives.apify_capture_status — non-null means an Apify lifecycle already exists. */
-  apifyCaptureStatus: string | null | undefined;
+  /** creatives.capture_status — non-null means a capture lifecycle already exists. */
+  captureStatus: string | null | undefined;
 }
 
 export type RescueSkip =
   | "already_covered"
   | "already_queued"
-  | "unresolvable"
-  | "awaiting_resolver"
+  | "no_media_intent"
   | "throttled"
   | "media_ok"
   | "retrying";
@@ -95,17 +99,17 @@ export interface RescueDecision {
 }
 
 /**
- * Decide whether to rescue a creative into the Apify capture queue after the Meta
- * media pipeline's verdict for this tick. Ordering of the guards is deliberate:
- *   • already-covered / already-in-an-Apify-lifecycle  → never (AC#4, idempotent).
- *   • ad_archive_id_status === 'unresolvable'          → never enqueue.
- *   • ad_archive_id_status IS NULL (unresolved)        → leave for the resolver.
- *   • ad_archive_id_status === 'resolved' → eligible; then:
+ * Decide whether to rescue a creative into the FREE preview-capture queue after
+ * the Meta media pipeline's verdict for this tick. Ordering of the guards is
+ * deliberate:
+ *   • already-covered / already-in-a-capture-lifecycle → never (idempotent).
+ *   • no media intent (no video ids, not an image ad)  → never enqueue.
+ *   • has media intent → eligible; then:
  *       - a Meta throttle is inconclusive               → never rescue on it.
- *       - a terminal video sentinel (permission/deleted) → rescue IMMEDIATELY (AC#1).
+ *       - a terminal video sentinel (permission/deleted) → rescue IMMEDIATELY.
  *       - a genuine media gap (failed / no-media skip) AND
- *           first attempt                                → rescue (AC#2 fast path);
- *           attempts exhausted                           → rescue (AC#1);
+ *           first attempt                                → rescue (new-ad fast path);
+ *           attempts exhausted                           → rescue;
  *           otherwise                                    → keep retrying via Meta.
  */
 export function rescueEnqueueDecision(input: RescueDecisionInput): RescueDecision {
@@ -114,19 +118,19 @@ export function rescueEnqueueDecision(input: RescueDecisionInput): RescueDecisio
     reasons,
     attempts,
     maxAttempts,
-    adArchiveIdStatus,
+    hasMediaIntent,
     alreadyCovered,
-    apifyCaptureStatus,
+    captureStatus,
   } = input;
 
-  // AC#4: never for an ad whose media is already covered/captured.
+  // Never for an ad whose media is already covered/captured.
   if (alreadyCovered) return { enqueue: false, skip: "already_covered" };
-  // Never overwrite an existing Apify lifecycle (pending/captured/failed/skipped).
-  if (apifyCaptureStatus != null) return { enqueue: false, skip: "already_queued" };
+  // Never overwrite an existing capture lifecycle (pending/captured/failed/skipped).
+  if (captureStatus != null) return { enqueue: false, skip: "already_queued" };
 
-  // Resolution-status gate (AC#1/#2).
-  if (adArchiveIdStatus === "unresolvable") return { enqueue: false, skip: "unresolvable" };
-  if (adArchiveIdStatus !== "resolved") return { enqueue: false, skip: "awaiting_resolver" };
+  // Media-intent gate: the free preview surface can only capture a video ad or an
+  // image ad; a pure text/no-media ad has no capture path.
+  if (!hasMediaIntent) return { enqueue: false, skip: "no_media_intent" };
 
   // A Meta rate-limit throttle means "we could not check", never a media verdict.
   if (outcome === "throttled") return { enqueue: false, skip: "throttled" };
@@ -199,84 +203,105 @@ export function selectDrainBatch(
 // 3. Apify health findings (AC#5)
 // =============================================================================
 
-export interface ApifyHealthInput {
-  /** Distinct creatives whose apify_last_attempt_at is within the last 6h. */
+export interface PreviewCaptureHealthInput {
+  /** Distinct creatives whose capture_last_attempt_at is within the last 6h. */
   attempts6h: number;
-  /** Of those, how many are currently apify_capture_status='failed'. */
+  /** Of those, how many are currently capture_status='failed'. */
   failures6h: number;
-  /** Today's per-day cap is set (non-null) AND the day's spend has reached it. */
-  budgetCapHit: boolean;
-  /** Creatives resolved + pending awaiting capture. */
+  /** Creatives pending awaiting preview capture (queue depth). */
   queueDepth: number;
+  /** Tier-B iframe fetches recorded over the last 6h (drift-alarm denominator). */
+  iframeAttempts6h?: number;
+  /** Of those, how many returned HTTP 400 (mechanism-drift signal). */
+  iframe400s6h?: number;
   /** Fraction of attempts failing that trips the spike finding (default 0.5 = 50%). */
   failureRateThreshold?: number;
   /** Minimum attempts before the failure-rate finding fires (default 10, anti-noise). */
   minAttemptsForRate?: number;
   /** Queue depth that trips the backlog finding (default 200). */
   queueDepthThreshold?: number;
+  /** Tier-B 400-rate that trips the drift finding (default 0.2 = 20%). */
+  iframe400RateThreshold?: number;
+  /** Minimum Tier-B iframe fetches before the drift finding fires (default 10). */
+  minIframeForRate?: number;
 }
 
 export interface HealthFinding {
   severity: "pass" | "warn" | "fail";
-  category: "apify";
+  category: "preview_capture";
   message: string;
   details?: Record<string, unknown>;
 }
 
 /**
- * Build the 'apify' health findings (AC#5): a failure-rate spike (>50% of attempts
- * failing over 6h, above a minimum sample), a budget-cap hit, and a queue backlog
- * (>200). Returns each tripped finding; when none trip, a single 'pass' finding —
- * mirroring how each system-health-check category emits a pass when clean.
+ * Build the 'preview_capture' health findings: a failure-rate spike (>50% of
+ * attempts failing over 6h, above a minimum sample), a queue backlog (>200), and a
+ * Tier-B iframe HTTP-400 DRIFT alarm (Facebook changed the required iframe headers
+ * once already; a rising 400 rate is the mechanism-drift tripwire). Capture is FREE
+ * so there is NO budget finding. Returns each tripped finding; when none trip, a
+ * single 'pass' — mirroring how each system-health-check category emits a pass.
  */
-export function apifyHealthFindings(input: ApifyHealthInput): HealthFinding[] {
+export function previewCaptureHealthFindings(input: PreviewCaptureHealthInput): HealthFinding[] {
   const {
     attempts6h,
     failures6h,
-    budgetCapHit,
     queueDepth,
+    iframeAttempts6h = 0,
+    iframe400s6h = 0,
     failureRateThreshold = 0.5,
     minAttemptsForRate = 10,
     queueDepthThreshold = 200,
+    iframe400RateThreshold = 0.2,
+    minIframeForRate = 10,
   } = input;
 
   const findings: HealthFinding[] = [];
   const failureRate = attempts6h > 0 ? failures6h / attempts6h : 0;
+  const iframe400Rate = iframeAttempts6h > 0 ? iframe400s6h / iframeAttempts6h : 0;
 
   if (attempts6h >= minAttemptsForRate && failureRate > failureRateThreshold) {
     findings.push({
       severity: "fail",
-      category: "apify",
+      category: "preview_capture",
       message:
-        `Apify capture failure rate ${Math.round(failureRate * 100)}% over the last 6h ` +
+        `Preview capture failure rate ${Math.round(failureRate * 100)}% over the last 6h ` +
         `(${failures6h}/${attempts6h} attempts failing)`,
       details: { attempts_6h: attempts6h, failures_6h: failures6h, failure_rate: failureRate },
-    });
-  }
-
-  if (budgetCapHit) {
-    findings.push({
-      severity: "warn",
-      category: "apify",
-      message: "Apify daily capture budget cap reached — captures paused until tomorrow (or cap raised)",
     });
   }
 
   if (queueDepth > queueDepthThreshold) {
     findings.push({
       severity: "warn",
-      category: "apify",
-      message: `Apify capture queue depth ${queueDepth} exceeds ${queueDepthThreshold} — drain may be falling behind`,
+      category: "preview_capture",
+      message: `Preview capture queue depth ${queueDepth} exceeds ${queueDepthThreshold} — drain may be falling behind`,
       details: { queue_depth: queueDepth },
+    });
+  }
+
+  // Mechanism-drift tripwire: Facebook already changed the iframe from Referer-only
+  // to also requiring Sec-Fetch-*; the next change would show up as a spike in
+  // Tier-B iframe HTTP-400s. Alarm on a sustained 400 rate above a minimum sample.
+  if (iframeAttempts6h >= minIframeForRate && iframe400Rate > iframe400RateThreshold) {
+    findings.push({
+      severity: "fail",
+      category: "preview_capture",
+      message:
+        `Tier-B preview iframe HTTP-400 rate ${Math.round(iframe400Rate * 100)}% over the last 6h ` +
+        `(${iframe400s6h}/${iframeAttempts6h}) — Facebook may have changed the required iframe headers`,
+      details: { iframe_attempts_6h: iframeAttempts6h, iframe_400s_6h: iframe400s6h, iframe_400_rate: iframe400Rate },
     });
   }
 
   if (findings.length === 0) {
     findings.push({
       severity: "pass",
-      category: "apify",
-      message: "Apify capture pipeline healthy (no failure spike, budget, or backlog)",
-      details: { attempts_6h: attempts6h, failures_6h: failures6h, queue_depth: queueDepth },
+      category: "preview_capture",
+      message: "Preview capture pipeline healthy (no failure spike, backlog, or iframe drift)",
+      details: {
+        attempts_6h: attempts6h, failures_6h: failures6h, queue_depth: queueDepth,
+        iframe_attempts_6h: iframeAttempts6h, iframe_400s_6h: iframe400s6h,
+      },
     });
   }
 
