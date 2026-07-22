@@ -175,7 +175,9 @@ export function MediaPreview({ creative, caching = false }: { creative: Creative
             src={previewUrl}
             title={`Ad preview — ${creative.ad_name}`}
             className="block border-0 mx-auto max-w-full"
-            style={{ width: dims.w, height: dims.h }}
+            // Never wider than the media column: an inline fixed width could force
+            // the modal into horizontal scroll on narrow layouts.
+            style={{ width: `min(100%, ${dims.w}px)`, height: dims.h }}
             scrolling="no"
             allow="encrypted-media"
             loading="lazy"
@@ -417,7 +419,11 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto bg-card rounded-[8px] shadow-modal">
+      {/* Wide, horizontal layout: media pinned on the left, stats/details scrolling on
+          the right — so the ad preview stays in view while reading stats, with far
+          less vertical scrolling and NO horizontal scrolling (overflow-x-hidden +
+          min-w-0 columns guarantee it). Stacks to one column below lg. */}
+      <DialogContent className="max-w-[1280px] w-[96vw] max-h-[92vh] overflow-y-auto overflow-x-hidden bg-card rounded-[8px] shadow-modal">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <span className="font-label text-[12px] font-semibold text-charcoal tracking-wide">{creative.unique_code}</span>
@@ -430,23 +436,13 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
           </DialogTitle>
         </DialogHeader>
 
-        {/* Media preview — key resets loading state when switching creatives */}
-        <MediaPreview key={creative.ad_id} creative={displayCreative} caching={caching} />
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(360px,480px)_minmax(0,1fr)] gap-6 items-start">
+          {/* ── Media column — sticky so the creative stays visible while the stats
+                 column scrolls. Frames live with the media they belong to. ── */}
+          <div className="min-w-0 space-y-4 lg:sticky lg:top-0 self-start">
+            {/* Media preview — key resets loading state when switching creatives */}
+            <MediaPreview key={creative.ad_id} creative={displayCreative} caching={caching} />
 
-        <Tabs defaultValue="details" className="w-full">
-          <TabsList className="w-full">
-            <TabsTrigger value="details" className="flex-1">Details</TabsTrigger>
-            <TabsTrigger value="comments" className="flex-1 gap-1.5">
-              <MessageSquare className="h-3.5 w-3.5" />
-              Comments
-            </TabsTrigger>
-            <TabsTrigger value="versions" className="flex-1 gap-1.5">
-              <GitBranch className="h-3.5 w-3.5" />
-              Versions
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="details" className="space-y-4 mt-4">
             {/* Carousel frames rendered in order (US-004). Only shows when the ad has
                 multiple creative_frames; falls back to the ad thumbnail / a pending
                 placeholder for frames whose media isn't cached yet. */}
@@ -464,7 +460,24 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
                 (creative as unknown as { expected_frame_count?: number | null }).expected_frame_count
               }
             />
+          </div>
 
+          {/* ── Details column ── */}
+          <div className="min-w-0">
+        <Tabs defaultValue="details" className="w-full">
+          <TabsList className="w-full">
+            <TabsTrigger value="details" className="flex-1">Details</TabsTrigger>
+            <TabsTrigger value="comments" className="flex-1 gap-1.5">
+              <MessageSquare className="h-3.5 w-3.5" />
+              Comments
+            </TabsTrigger>
+            <TabsTrigger value="versions" className="flex-1 gap-1.5">
+              <GitBranch className="h-3.5 w-3.5" />
+              Versions
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="details" className="space-y-4 mt-4">
             <CreativeMetrics creative={creative} />
 
             {/* Frame-by-frame retention drop-off (US-004) — reads creative.play_curve */}
@@ -532,6 +545,8 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
             <CreativeVersions creative={creative} onCreativeClick={(c) => { onClose(); }} />
           </TabsContent>
         </Tabs>
+          </div>
+        </div>
       </DialogContent>
 
       {/* Coda Brief Modal */}
