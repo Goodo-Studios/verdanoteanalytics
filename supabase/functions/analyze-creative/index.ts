@@ -27,6 +27,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { json } from "../_shared/cors.ts";
 import { parseLooseJson } from "../_shared/vault-analyze-logic.ts";
+import { buildFrameworkColumns } from "../_shared/analyze-creative-logic.ts";
 import { NO_VIDEO_SENTINEL } from "../_shared/media-discovery.ts";
 import {
   BRAND_METADATA_PROMPT,
@@ -244,6 +245,8 @@ async function analyzeOne(c: CreativeRow): Promise<{ update: Record<string, unkn
     const hookAnalysis = [fw.hook_text, fw.hook_type, fw.hook_formula].filter(Boolean).join(" | ");
     return {
       update: {
+        // Vault-parity structured framework (discrete fields + framework_json).
+        ...buildFrameworkColumns(fw, { isImage: true }),
         ai_analysis: (fw.copy_analysis as string) ?? null,
         ai_hook_analysis: hookAnalysis || null,
         ai_cta_notes: [fw.cta_type, fw.cta_formula].filter(Boolean).join(" | ") || null,
@@ -356,6 +359,8 @@ async function analyzeOne(c: CreativeRow): Promise<{ update: Record<string, unkn
 
   return {
     update: {
+      // Vault-parity structured framework (discrete fields + framework_json).
+      ...buildFrameworkColumns(fw, { isImage: false }),
       transcript: cleaned || raw || null,
       transcript_status: cleaned || raw ? "ready" : "none",
       ai_analysis: scriptR.text.trim() || null,
