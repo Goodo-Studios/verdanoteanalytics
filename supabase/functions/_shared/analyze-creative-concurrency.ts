@@ -22,6 +22,50 @@
 // `deno test` exactly like analyze-creative-logic.ts. The scheduler is generic
 // over an async worker, so the tests drive it with deterministic fake workers.
 
+/**
+ * Error thrown by {@link withTimeout} when the wrapped promise does not settle
+ * within its deadline. Distinct type so callers can tell a per-ITEM deadline
+ * (recycle the row to 'pending' and retry it) apart from a genuine failure
+ * (mark the row 'failed').
+ */
+export class TimeoutError extends Error {
+  constructor(label: string, ms: number) {
+    super(`timeout after ${ms}ms: ${label}`);
+    this.name = "TimeoutError";
+  }
+}
+
+/**
+ * Race a promise against a hard wall-clock deadline.
+ *
+ * Resolves/rejects with the underlying promise if it settles first; otherwise
+ * rejects with a {@link TimeoutError} at `ms`. The timer is always cleared so a
+ * settled promise never leaves a dangling handle. This is the per-ITEM backstop
+ * in the analyze-creative drain: a single creative whose provider chain runs
+ * long can no longer pin a worker (and push the whole invocation past the edge
+ * runtime's wall limit, which would orphan every in-flight 'analyzing' row) —
+ * it is abandoned at the deadline and its row recycled to 'pending'. Note this
+ * does NOT abort the underlying work; it only stops the caller WAITING on it
+ * (per-call AbortController timeouts bound the underlying fetches separately).
+ *
+ * Pure (only setTimeout/clearTimeout) so it unit-tests deterministically.
+ */
+export function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new TimeoutError(label, ms)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
 export interface PoolResult {
   /** Item indexes whose worker ran to completion (analyzed OR handled-as-failed). */
   processed: number[];

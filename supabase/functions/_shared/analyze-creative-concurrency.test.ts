@@ -13,9 +13,12 @@ import {
   isRetriableResponse,
   retryWaitMs,
   runPool,
+  TimeoutError,
+  withTimeout,
 } from "./analyze-creative-concurrency.ts";
 
 const tick = () => new Promise((r) => setTimeout(r, 1));
+const after = <T>(ms: number, v: T) => new Promise<T>((r) => setTimeout(() => r(v), ms));
 
 Deno.test("runPool: processes every item exactly once, in-order accounting", async () => {
   const seen: number[] = [];
@@ -115,6 +118,34 @@ Deno.test("runPool: concurrency larger than batch clamps to batch size", async (
   });
   assertEquals(processed.length, 3);
   assert(peak <= 3, `peak ${peak} should clamp to batch size 3`);
+});
+
+Deno.test("withTimeout: resolves with the value when it settles in time", async () => {
+  const v = await withTimeout(after(1, "ok"), 50, "fast");
+  assertEquals(v, "ok");
+});
+
+Deno.test("withTimeout: rejects with TimeoutError when the deadline passes first", async () => {
+  let err: unknown;
+  try {
+    await withTimeout(after(50, "late"), 5, "slow-item");
+  } catch (e) {
+    err = e;
+  }
+  assert(err instanceof TimeoutError, "expected a TimeoutError");
+  assert((err as Error).message.includes("slow-item"), "message carries the label");
+});
+
+Deno.test("withTimeout: propagates the underlying rejection (not a timeout)", async () => {
+  let err: unknown;
+  try {
+    await withTimeout(Promise.reject(new Error("boom")), 50, "x");
+  } catch (e) {
+    err = e;
+  }
+  assert(err instanceof Error);
+  assert(!(err instanceof TimeoutError), "a real error must not be masked as a timeout");
+  assertEquals((err as Error).message, "boom");
 });
 
 Deno.test("backoffDelayMs: grows exponentially and caps", () => {
