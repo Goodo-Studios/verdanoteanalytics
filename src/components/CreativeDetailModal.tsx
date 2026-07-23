@@ -4,7 +4,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, ExternalLink, FileEdit, MessageSquare, GitBranch, Loader2, BookmarkPlus, Bookmark, FileText, Layers, Sparkles } from "lucide-react";
+import { Image as ImageIcon, ExternalLink, FileEdit, Loader2, BookmarkPlus, Bookmark, FileText, Layers, Sparkles } from "lucide-react";
 import { useState, forwardRef, useEffect, useCallback } from "react";
 import { useCachedMedia } from "@/hooks/useCachedMedia";
 
@@ -12,9 +12,6 @@ import { CreativeMetrics } from "@/components/creative-detail/CreativeMetrics";
 import { RetentionCurveChart } from "@/components/creative-detail/RetentionCurveChart";
 import { CreativeTagEditor } from "@/components/creative-detail/CreativeTagEditor";
 
-
-import { CreativeComments } from "@/components/creative-detail/CreativeComments";
-import { CreativeVersions } from "@/components/creative-detail/CreativeVersions";
 import { CreativeFrames } from "@/components/creative-detail/CreativeFrames";
 import { GradeBadge } from "@/components/creatives/GradeBadge";
 import { Textarea } from "@/components/ui/textarea";
@@ -545,14 +542,6 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
               <Sparkles className="h-3.5 w-3.5" />
               Analysis
             </TabsTrigger>
-            <TabsTrigger value="comments" className="flex-1 gap-1.5">
-              <MessageSquare className="h-3.5 w-3.5" />
-              Comments
-            </TabsTrigger>
-            <TabsTrigger value="versions" className="flex-1 gap-1.5">
-              <GitBranch className="h-3.5 w-3.5" />
-              Versions
-            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="details" className="space-y-4 mt-4">
@@ -644,13 +633,6 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
             />
           </TabsContent>
 
-          <TabsContent value="comments" className="mt-4">
-            <CreativeComments adId={creative.ad_id} accountId={creative.account_id} />
-          </TabsContent>
-
-          <TabsContent value="versions" className="mt-4">
-            <CreativeVersions creative={creative} onCreativeClick={(c) => { onClose(); }} />
-          </TabsContent>
         </Tabs>
           </div>
         </div>
