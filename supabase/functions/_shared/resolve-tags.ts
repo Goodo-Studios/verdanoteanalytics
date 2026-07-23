@@ -4,7 +4,7 @@
 // divergent across four taggers (creatives PUT-reset, creatives auto-tag POST,
 // sync Phase 5 regex, src/lib/autoTagger.ts) into ONE deterministic resolver.
 //
-// PRECEDENCE (LOCKED by Matthew):  manual > Coda(name_mappings) > parser > untagged
+// PRECEDENCE (LOCKED by Matthew):  manual > Coda(name_mappings) > parser > ai > untagged
 //
 //   - manual      : the human-curated override layer. In the current schema this
 //                   is row-level — a creatives row whose tag_source = 'manual'
@@ -16,6 +16,12 @@
 //   - csv_match   : the Coda-curated name_mappings row for (account_id,
 //                   unique_code) — the trusted override layer below manual.
 //   - parsed      : the canonical parseAdName() output (ParsedAdName.tags).
+//   - ai          : US-009. The deterministic AI-derived layer (see
+//                   derive-creative-tags.ts) — hook/ad_type/product/theme mapped
+//                   from the analyze-creative framework fields + media kind. It
+//                   sits BELOW parsed (as the module header always intended), so
+//                   AI only fills dimensions no manual/csv/parser value supplied.
+//                   NEVER overwrites a human/Coda/ad-name tag.
 //   - untagged    : nothing contributed any tag.
 //
 // Resolution is PER DIMENSION: each of the six dimensions independently takes the
@@ -26,14 +32,22 @@
 //   manual  if any dimension's resolved value came from `manual`,
 //   else csv_match  if any came from name_mappings,
 //   else parsed     if any came from the parser,
+//   else ai         if any came from the AI layer,
 //   else untagged.
+// (So a row where the ad-name parser filled style + AI filled hook is 'parsed' —
+// the per-dimension provenance is exposed separately via `sources`.)
 //
 // Legacy values 'csv' and 'inferred' are NEVER emitted by this resolver — only
-// 'manual' | 'csv_match' | 'parsed' | 'untagged'. Pre-existing legacy rows are
-// untouched (this module only governs values written by new code paths).
+// 'manual' | 'csv_match' | 'parsed' | 'ai' | 'untagged'. Pre-existing legacy rows
+// are untouched (this module only governs values written by new code paths).
+//
+// REVIEW FLAG: the caller may mark some AI-derived dimensions "fuzzy" (low
+// confidence / judgment-call). `needs_review` is true iff the winning value for
+// ANY dimension came from the AI layer AND that dimension was flagged fuzzy. Tags
+// are still auto-applied; the flag only lets the owner filter to them later.
 //
 // PURE — no IO. Callers fetch the name_mappings row + the creative's manual
-// values and the parsed tags, then pass them all in.
+// values, the parsed tags, and the AI-derived tags, then pass them all in.
 
 import type { AdNameTags } from "./parse-ad-name.ts";
 
@@ -47,8 +61,8 @@ const TAG_DIMENSIONS: ReadonlyArray<keyof AdNameTags> = [
   "theme",
 ];
 
-/** The four — and only four — tag_source values new code may write. */
-export type TagSource = "manual" | "csv_match" | "parsed" | "untagged";
+/** The five — and only five — tag_source values new code may write. */
+export type TagSource = "manual" | "csv_match" | "parsed" | "ai" | "untagged";
 
 /**
  * A partial set of tag dimensions. Used for the manual-override and
@@ -60,6 +74,18 @@ export type PartialTags = Partial<Record<keyof AdNameTags, string | null>>;
 export interface ResolvedTags {
   tags: AdNameTags;
   tag_source: TagSource;
+  /**
+   * Per-dimension provenance: which layer supplied each dimension's final value,
+   * or null when nothing did. Lets callers see (e.g.) that style came from the
+   * ad name ('parsed') while hook came from the AI layer ('ai'), even though the
+   * single tag_source column can only report the highest contributor.
+   */
+  sources: Record<keyof AdNameTags, TagSource | null>;
+  /**
+   * true iff any dimension whose final value came from the AI layer was flagged
+   * fuzzy by the caller. Drives creatives.needs_tag_review. Never blocks writes.
+   */
+  needs_review: boolean;
 }
 
 function emptyTags(): AdNameTags {
@@ -95,22 +121,42 @@ function value(source: PartialTags | null | undefined, dim: keyof AdNameTags): s
  * @param manual          The manual-override values (row-level when the creative's
  *                        tag_source is 'manual'; per-dimension otherwise), or null
  *                        when there is no manual override.
+ * @param ai              US-009. The deterministic AI-derived tags (see
+ *                        derive-creative-tags.ts), or null. Lowest real layer —
+ *                        only fills dimensions manual/csv/parser left null.
+ * @param aiFuzzyDims     The subset of AI dimensions the caller flagged as
+ *                        fuzzy/low-confidence. If any of these ends up as the
+ *                        winning (AI-sourced) value, needs_review is raised.
  */
 export function resolveTags(
   parsed: AdNameTags | null | undefined,
   nameMappingRow: PartialTags | null | undefined,
   manual: PartialTags | null | undefined,
+  ai?: PartialTags | null | undefined,
+  aiFuzzyDims?: ReadonlyArray<keyof AdNameTags> | null | undefined,
 ): ResolvedTags {
   const tags = emptyTags();
+  const sources: Record<keyof AdNameTags, TagSource | null> = {
+    ad_type: null,
+    person: null,
+    style: null,
+    product: null,
+    hook: null,
+    theme: null,
+  };
+  const fuzzy = new Set<keyof AdNameTags>(aiFuzzyDims ?? []);
 
   let usedManual = false;
   let usedCsv = false;
   let usedParsed = false;
+  let usedAi = false;
+  let needs_review = false;
 
   for (const dim of TAG_DIMENSIONS) {
     const manualVal = value(manual, dim);
     if (manualVal !== null) {
       tags[dim] = manualVal;
+      sources[dim] = "manual";
       usedManual = true;
       continue;
     }
@@ -118,6 +164,7 @@ export function resolveTags(
     const csvVal = value(nameMappingRow, dim);
     if (csvVal !== null) {
       tags[dim] = csvVal;
+      sources[dim] = "csv_match";
       usedCsv = true;
       continue;
     }
@@ -125,7 +172,17 @@ export function resolveTags(
     const parsedVal = value(parsed, dim);
     if (parsedVal !== null) {
       tags[dim] = parsedVal;
+      sources[dim] = "parsed";
       usedParsed = true;
+      continue;
+    }
+
+    const aiVal = value(ai, dim);
+    if (aiVal !== null) {
+      tags[dim] = aiVal;
+      sources[dim] = "ai";
+      usedAi = true;
+      if (fuzzy.has(dim)) needs_review = true;
       continue;
     }
 
@@ -139,7 +196,9 @@ export function resolveTags(
       ? "csv_match"
       : usedParsed
         ? "parsed"
-        : "untagged";
+        : usedAi
+          ? "ai"
+          : "untagged";
 
-  return { tags, tag_source };
+  return { tags, tag_source, sources, needs_review };
 }
