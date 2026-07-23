@@ -34,7 +34,13 @@ import { json } from "../_shared/cors.ts";
 import { parseLooseJson } from "../_shared/vault-analyze-logic.ts";
 import { extractDeepgramTranscript } from "../_shared/vault-transcribe-logic.ts";
 import { buildFrameworkColumns } from "../_shared/analyze-creative-logic.ts";
-import { isRetriableResponse, retryWaitMs, runPool } from "../_shared/analyze-creative-concurrency.ts";
+import {
+  isRetriableResponse,
+  retryWaitMs,
+  runPool,
+  TimeoutError,
+  withTimeout,
+} from "../_shared/analyze-creative-concurrency.ts";
 import { NO_VIDEO_SENTINEL } from "../_shared/media-discovery.ts";
 import {
   BRAND_METADATA_PROMPT,
@@ -94,14 +100,24 @@ const FRAME_LIMIT = 8;
 //     edge-function limit (~150s) with headroom for the closing count queries and
 //     the self-chain fire. Un-started claimed rows are released to 'pending'.
 const CONCURRENCY = Number(Deno.env.get("ANALYZE_CONCURRENCY") ?? 12);
-// Wall-clock ceiling for the concurrent pass. Lowered to 60s (from 100s) so that
-// even a late-dispatched item — now itself hard-bounded by per-call timeouts —
-// finishes and the invocation RETURNS well under the ~150s edge idle limit,
+// Wall-clock ceiling for DISPATCHING new items in the concurrent pass. Lowered to
+// 45s so that even a late-dispatched item — bounded by the per-ITEM deadline below
+// — finishes and the invocation RETURNS well under the ~150s edge idle limit
+// (worst case ≈ TIME_BUDGET_MS + ITEM_TIMEOUT_MS + closing queries ≈ 45+45+few),
 // guaranteeing the closing count queries run and the self-chain actually fires.
 // A run that overran 150s used to be killed mid-flight, which silently broke the
-// chain and stalled the drain.
-const TIME_BUDGET_MS = Number(Deno.env.get("ANALYZE_TIME_BUDGET_MS") ?? 60_000);
-const MAX_HTTP_RETRIES = 4; // OpenRouter/Groq/Deepgram 429 + 5xx retries before giving up
+// chain AND orphaned every in-flight 'analyzing' row (the observed hang).
+const TIME_BUDGET_MS = Number(Deno.env.get("ANALYZE_TIME_BUDGET_MS") ?? 45_000);
+// Per-ITEM hard deadline. A healthy video item is ~24s (Deepgram ~1.5s + a short
+// sequential chain of gemini-flash-lite/gpt-oss calls, each <3s); a static is a
+// single vision call. This deadline is the load-bearing anti-hang backstop: an
+// item whose provider chain runs long is ABANDONED here and its row RECYCLED to
+// 'pending' (not left 'analyzing', not burned as 'failed'), so it retries cleanly
+// next run instead of occupying a slot until the stale-reclaim window. Bounding
+// every item this way is what stops a slow tail item from dragging the whole
+// invocation past the edge wall (which orphaned in-flight rows).
+const ITEM_TIMEOUT_MS = Number(Deno.env.get("ANALYZE_ITEM_TIMEOUT_MS") ?? 45_000);
+const MAX_HTTP_RETRIES = 3; // OpenRouter/Groq/Deepgram 429 + 5xx retries before giving up (bounds worst-case per-call wall)
 // Per-attempt hard timeout on every provider HTTP call. Without this a hung or
 // pathologically slow provider call could pin a worker for the whole invocation.
 const HTTP_TIMEOUT_MS = Number(Deno.env.get("ANALYZE_HTTP_TIMEOUT_MS") ?? 20_000);
@@ -457,60 +473,68 @@ async function analyzeOne(c: CreativeRow): Promise<{ update: Record<string, unkn
     Object.assign(fw, parseLooseJson(text));
   }
 
-  // Brand metadata + script analysis + visual (script-inferred) analysis.
-  const [brandR, scriptR, visualR] = await Promise.all([
-    orChat(TEXT_MODEL, BRAND_METADATA_PROMPT, cleaned, 1024),
-    orChat(TEXT_MODEL, SCRIPT_ANALYSIS_PROMPT, cleaned, 1024),
-    orChat(TEXT_MODEL, VISUAL_ANALYSIS_PROMPT, cleaned, 512),
-  ]);
-  cost += brandR.costUsd + scriptR.costUsd + visualR.costUsd;
-  const brand = parseLooseJson(brandR.text);
-
-  // Frame vision → ai_visual_notes (preferred over the script-only inference).
-  // Resolve cached frame image URLs in two steps (creative_frames.asset_id →
-  // media_assets.public_url) to avoid a PostgREST embed on an unknown FK name.
-  let visualNotes = visualR.text.trim();
-  const { data: frameAssetRows } = await db
-    .from("creative_frames")
-    .select("asset_id")
-    .eq("ad_id", c.ad_id)
-    .order("frame_index", { ascending: true })
-    .limit(FRAME_LIMIT);
-  const assetIds = (frameAssetRows ?? [])
-    .map((r: { asset_id: string | null }) => r.asset_id)
-    .filter((id: unknown): id is string => typeof id === "string");
-  let frameUrls: string[] = [];
-  if (assetIds.length) {
+  // Frame-vision pipeline. It depends ONLY on the cached frames (DB + image
+  // fetches), NOT on any of the text-analysis LLM outputs, so it runs CONCURRENTLY
+  // with the brand/script/visual group below instead of sequentially after it —
+  // a per-item latency win on the video path. Returns the frame-derived visual
+  // notes (empty when there are no cached frames → caller falls back to the
+  // script-inferred visual analysis). Resolves cached frame image URLs in two
+  // steps (creative_frames.asset_id → media_assets.public_url) to avoid a
+  // PostgREST embed on an unknown FK name.
+  const frameAnalysis = async (): Promise<{ notes: string; costUsd: number; hadFrames: boolean }> => {
+    const { data: frameAssetRows } = await db
+      .from("creative_frames")
+      .select("asset_id")
+      .eq("ad_id", c.ad_id)
+      .order("frame_index", { ascending: true })
+      .limit(FRAME_LIMIT);
+    const assetIds = (frameAssetRows ?? [])
+      .map((r: { asset_id: string | null }) => r.asset_id)
+      .filter((id: unknown): id is string => typeof id === "string");
+    if (!assetIds.length) return { notes: "", costUsd: 0, hadFrames: false };
     const { data: assets } = await db
       .from("media_assets")
       .select("id, public_url")
       .in("id", assetIds);
     const byId = new Map((assets ?? []).map((a: { id: string; public_url: string }) => [a.id, a.public_url]));
-    frameUrls = assetIds
+    const frameUrls = assetIds
       .map((id) => byId.get(id))
       .filter((u): u is string => typeof u === "string");
-  }
-  if (frameUrls.length) {
+    if (!frameUrls.length) return { notes: "", costUsd: 0, hadFrames: false };
     const dataUrls = (await Promise.all(frameUrls.map(fetchImageAsDataUrl))).filter(
       (d): d is string => !!d,
     );
-    if (dataUrls.length) {
-      const ts = dataUrls.map((_, i) => `${i}s`).join(", ");
-      const content: unknown[] = [
-        { type: "text", text: frameAnalysisUserText(dataUrls.length, ts) },
-        ...dataUrls.map((url) => ({ type: "image_url", image_url: { url, detail: "low" } })),
-      ];
-      const { text, costUsd } = await orChat(VISION_MODEL, FRAME_ANALYSIS_SYSTEM, content, 1024, dataUrls.length);
-      cost += costUsd;
-      const parsedFrames = parseLooseJson(text) as unknown;
-      const arr = Array.isArray(parsedFrames)
-        ? parsedFrames
-        : (parsedFrames as { frames?: unknown[] })?.frames;
-      if (Array.isArray(arr)) {
-        visualNotes = arr.map((f: { description?: string }) => f.description).filter(Boolean).join(" ");
-      }
-    }
-  }
+    if (!dataUrls.length) return { notes: "", costUsd: 0, hadFrames: true };
+    const ts = dataUrls.map((_, i) => `${i}s`).join(", ");
+    const content: unknown[] = [
+      { type: "text", text: frameAnalysisUserText(dataUrls.length, ts) },
+      ...dataUrls.map((url) => ({ type: "image_url", image_url: { url, detail: "low" } })),
+    ];
+    const { text, costUsd } = await orChat(VISION_MODEL, FRAME_ANALYSIS_SYSTEM, content, 1024, dataUrls.length);
+    const parsedFrames = parseLooseJson(text) as unknown;
+    const arr = Array.isArray(parsedFrames)
+      ? parsedFrames
+      : (parsedFrames as { frames?: unknown[] })?.frames;
+    const notes = Array.isArray(arr)
+      ? arr.map((f: { description?: string }) => f.description).filter(Boolean).join(" ")
+      : "";
+    return { notes, costUsd, hadFrames: true };
+  };
+
+  // Brand metadata + script analysis + visual (script-inferred) analysis, run
+  // concurrently with the independent frame-vision pipeline above.
+  const [brandR, scriptR, visualR, frameRes] = await Promise.all([
+    orChat(TEXT_MODEL, BRAND_METADATA_PROMPT, cleaned, 1024),
+    orChat(TEXT_MODEL, SCRIPT_ANALYSIS_PROMPT, cleaned, 1024),
+    orChat(TEXT_MODEL, VISUAL_ANALYSIS_PROMPT, cleaned, 512),
+    frameAnalysis(),
+  ]);
+  cost += brandR.costUsd + scriptR.costUsd + visualR.costUsd + frameRes.costUsd;
+  const brand = parseLooseJson(brandR.text);
+
+  // Frame vision → ai_visual_notes (preferred over the script-only inference when
+  // cached frames yielded a description).
+  const visualNotes = frameRes.notes.trim() || visualR.text.trim();
 
   const hookAnalysis = [fw.hook_verbal, fw.hook_text, fw.hook_type, fw.hook_formula]
     .filter(Boolean)
@@ -526,7 +550,7 @@ async function analyzeOne(c: CreativeRow): Promise<{ update: Record<string, unkn
       ai_hook_analysis: hookAnalysis || null,
       ai_cta_notes: [fw.cta_type, fw.cta_formula].filter(Boolean).join(" | ") || null,
       ai_visual_notes: visualNotes || null,
-      tag_suggestions: buildTagSuggestions(fw, brand, frameUrls.length > 0),
+      tag_suggestions: buildTagSuggestions(fw, brand, frameRes.hadFrames),
       analysis_status: "done",
       analyzed_at: new Date().toISOString(),
       _script_text: cleaned || raw,
@@ -641,6 +665,7 @@ Deno.serve(async (req) => {
 
   let analyzed = 0;
   let failed = 0;
+  let recycled = 0; // items abandoned at the per-item deadline and released to 'pending'
   const errors: string[] = [];
 
   // Process the claimed batch CONCURRENTLY (bounded by CONCURRENCY) instead of
@@ -659,7 +684,12 @@ Deno.serve(async (req) => {
 
   const analyzeWorker = async (c: CreativeRow): Promise<void> => {
     try {
-      const { update, costUsd } = await analyzeOne(c);
+      // Per-ITEM deadline: a creative whose provider chain runs long is abandoned
+      // here so it can never pin this worker (and drag the whole invocation past
+      // the edge wall, orphaning every in-flight 'analyzing' row). analyzeOne only
+      // writes to the DB via the worker below AFTER it returns, so abandoning it
+      // leaves no partial write — the row is simply recycled to 'pending'.
+      const { update, costUsd } = await withTimeout(analyzeOne(c), ITEM_TIMEOUT_MS, c.ad_id);
       const scriptText = update._script_text as string | null;
       const visualText = update._visual_text as string | null;
       delete update._script_text;
@@ -677,10 +707,17 @@ Deno.serve(async (req) => {
       spent = Number(newTotal ?? spent + total);
       analyzed++;
     } catch (e) {
+      if (e instanceof TimeoutError) {
+        // Slow item — NOT a failure. Recycle to 'pending' so it retries cleanly
+        // next run instead of sitting 'analyzing' until the stale-reclaim window.
+        recycled++;
+        await db.from("creatives").update({ analysis_status: "pending" }).eq("ad_id", c.ad_id);
+        return;
+      }
       failed++;
       errors.push(`${c.ad_id}: ${e instanceof Error ? e.message : String(e)}`);
       // Terminal 'failed' (NOT stuck 'analyzing') so it never blocks the queue; a
-      // genuine crash mid-item is instead recovered by the 15-min stale-'analyzing'
+      // genuine crash mid-item is instead recovered by the stale-'analyzing'
       // reclaim in claim_creatives_for_analysis, so failures don't retry-storm.
       await db.from("creatives").update({ analysis_status: "failed" }).eq("ad_id", c.ad_id);
     }
@@ -768,6 +805,7 @@ Deno.serve(async (req) => {
     account_id: accountId,
     analyzed,
     failed,
+    recycled,
     capped: cappedMid || spent >= cap,
     spent_usd: Math.round(spent * 10000) / 10000,
     cap_usd: cap,
