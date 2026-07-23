@@ -10,11 +10,15 @@
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   backoffDelayMs,
+  CLOSING_OVERHEAD_MS,
+  EDGE_WALL_MS,
   isRetriableResponse,
+  isWallConfigSafe,
   retryWaitMs,
   runPool,
   TimeoutError,
   withTimeout,
+  worstCaseInvocationMs,
 } from "./analyze-creative-concurrency.ts";
 
 const tick = () => new Promise((r) => setTimeout(r, 1));
@@ -146,6 +150,41 @@ Deno.test("withTimeout: propagates the underlying rejection (not a timeout)", as
   assert(err instanceof Error);
   assert(!(err instanceof TimeoutError), "a real error must not be masked as a timeout");
   assertEquals((err as Error).message, "boom");
+});
+
+Deno.test("worstCaseInvocationMs: sums dispatch budget + item deadline + closing tail", () => {
+  // The last item can be dispatched right at the budget, run up to the per-item
+  // deadline, then the fixed closing tail runs.
+  assertEquals(worstCaseInvocationMs(35_000, 60_000, 20_000), 115_000);
+  // Defaults the closing tail to CLOSING_OVERHEAD_MS.
+  assertEquals(worstCaseInvocationMs(35_000, 60_000), 35_000 + 60_000 + CLOSING_OVERHEAD_MS);
+});
+
+Deno.test("isWallConfigSafe: SHIPPED post-#88 config stays under the edge wall", () => {
+  // The values shipped in analyze-creative/index.ts after the post-#88 stall fix.
+  const TIME_BUDGET_MS = 35_000;
+  const ITEM_TIMEOUT_MS = 60_000;
+  assert(
+    isWallConfigSafe(TIME_BUDGET_MS, ITEM_TIMEOUT_MS),
+    `shipped budget must be wall-safe: worst case ${
+      worstCaseInvocationMs(TIME_BUDGET_MS, ITEM_TIMEOUT_MS)
+    }ms of ${EDGE_WALL_MS}ms`,
+  );
+});
+
+Deno.test("isWallConfigSafe: flags a budget that risks a mid-batch 546 kill", () => {
+  // 90s dispatch budget + 60s item deadline + 20s tail = 170s > 150s wall — the
+  // exact class of over-budget config that killed invocations and orphaned rows.
+  assert(!isWallConfigSafe(90_000, 60_000));
+  // Right at the 90% safety line (135_000) is treated as safe; just past it is not.
+  assert(isWallConfigSafe(55_000, 60_000, { closingMs: 20_000 })); // 135_000 == 150_000*0.9
+  assert(!isWallConfigSafe(55_001, 60_000, { closingMs: 20_000 }));
+});
+
+Deno.test("isWallConfigSafe: honors overridden wall / safety fraction", () => {
+  // A tighter (hypothetical) wall or stricter fraction shrinks the safe envelope.
+  assert(!isWallConfigSafe(35_000, 60_000, { wallMs: 100_000 }));
+  assert(isWallConfigSafe(35_000, 60_000, { wallMs: 200_000, safetyFraction: 0.7 }));
 });
 
 Deno.test("backoffDelayMs: grows exponentially and caps", () => {

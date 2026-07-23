@@ -40,10 +40,12 @@ import {
 } from "../_shared/analyze-creative-logic.ts";
 import {
   isRetriableResponse,
+  isWallConfigSafe,
   retryWaitMs,
   runPool,
   TimeoutError,
   withTimeout,
+  worstCaseInvocationMs,
 } from "../_shared/analyze-creative-concurrency.ts";
 import { NO_VIDEO_SENTINEL } from "../_shared/media-discovery.ts";
 import {
@@ -90,7 +92,17 @@ const DEEPGRAM_FLAT_USD = 0.002; // nova-2 ~$0.0043/min; flat estimate per ~30s 
 // leaving headroom for the closing count queries and the self-chain fire so the
 // drain never gets killed mid-flight. Statics (one vision call) are far faster and
 // interleave through the same pool, pulling the effective rate up.
-const BATCH_DEFAULT = 24;
+// 24 → 12 (2026-07-23, post-#88 stall fix): #88's richer analysis (paragraph
+// value_structure + hook_visual/style/person) made every item heavier (more output
+// tokens + a larger JSON parse), so a full 24-claim × 20-concurrency pass of the
+// video-heavy backlog remainder tipped the edge isolate over its resource/wall
+// limit — the runtime killed the invocation mid-batch (HTTP 546), orphaning every
+// in-flight 'analyzing' row into the 4-min reclaim → an endless claim→kill→reclaim
+// loop with ZERO throughput (done frozen, 'failed' flat, ~48 rows wedged
+// 'analyzing'). A limit=3 probe completed cleanly (analyzed=3), confirming items
+// finish fine — the kill was aggregate load, not a per-item hang. Smaller batch
+// also bounds how many rows a stray kill can orphan.
+const BATCH_DEFAULT = 12;
 const BATCH_MAX = 100;
 const MAX_CHAIN = 400; // safety bound on self-chain depth (raised for cross-account drain)
 const FRAME_LIMIT = 8;
@@ -110,7 +122,16 @@ const FRAME_LIMIT = 8;
 // per-call 429/5xx backoff + per-attempt timeouts remain the hard safety net, so a
 // wider fan-out lifts throughput without a rate-limit storm. Still env-overridable
 // for ops to dial back if a provider ever pushes back.
-const CONCURRENCY = Number(Deno.env.get("ANALYZE_CONCURRENCY") ?? 20);
+// 20 → 8 (2026-07-23, post-#88 stall fix): that 20-wide fan-out was measured
+// BEFORE #88 made each item heavier. Post-#88, 20 concurrent heavy video items
+// (each firing Deepgram + ~5–8 OpenRouter calls + up to 9 in-isolate base64 image
+// encodes, then 2 embeds) pushed the isolate's peak CPU/memory over the edge
+// runtime limit → the invocation was killed (HTTP 546) mid-batch, orphaning its
+// in-flight 'analyzing' rows. This is the load lever that broke: a limit=3 probe
+// (≈3-wide) completed cleanly, so a much narrower fan-out both stays under the
+// resource limit and de-loads the providers, restoring steady throughput. Still
+// env-overridable so ops can re-widen once per-item cost is re-measured.
+const CONCURRENCY = Number(Deno.env.get("ANALYZE_CONCURRENCY") ?? 8);
 // Wall-clock ceiling for DISPATCHING new items in the concurrent pass. Lowered to
 // 45s so that even a late-dispatched item — bounded by the per-ITEM deadline below
 // — finishes and the invocation RETURNS well under the ~150s edge idle limit
@@ -118,7 +139,11 @@ const CONCURRENCY = Number(Deno.env.get("ANALYZE_CONCURRENCY") ?? 20);
 // guaranteeing the closing count queries run and the self-chain actually fires.
 // A run that overran 150s used to be killed mid-flight, which silently broke the
 // chain AND orphaned every in-flight 'analyzing' row (the observed hang).
-const TIME_BUDGET_MS = Number(Deno.env.get("ANALYZE_TIME_BUDGET_MS") ?? 45_000);
+// 45s → 35s (2026-07-23, post-#88 stall fix): stop dispatching earlier so the
+// last-dispatched heavier item finishes with more margin. Worst-case invocation
+// wall is TIME_BUDGET_MS + ITEM_TIMEOUT_MS + CLOSING_OVERHEAD_MS = 35+60+20 = 115s,
+// comfortably under the ~150s edge wall (guarded by isWallConfigSafe below).
+const TIME_BUDGET_MS = Number(Deno.env.get("ANALYZE_TIME_BUDGET_MS") ?? 35_000);
 // Per-ITEM hard deadline. A healthy video item is ~24s (Deepgram ~1.5s + a short
 // sequential chain of gemini-flash-lite/gpt-oss calls, each <3s); a static is a
 // single vision call. This deadline is the load-bearing anti-hang backstop: an
@@ -141,6 +166,18 @@ const HTTP_TIMEOUT_MS = Number(Deno.env.get("ANALYZE_HTTP_TIMEOUT_MS") ?? 20_000
 // Transcription can legitimately take a few seconds (Deepgram server-side audio
 // extraction) so it gets a longer per-attempt timeout than a chat/vision call.
 const TRANSCRIBE_TIMEOUT_MS = Number(Deno.env.get("ANALYZE_TRANSCRIBE_TIMEOUT_MS") ?? 35_000);
+
+// Guard the wall-clock budget at boot: if TIME_BUDGET_MS + ITEM_TIMEOUT_MS + the
+// closing tail could exceed a safe fraction of the ~150s edge wall, a run risks
+// being killed mid-batch (HTTP 546) and orphaning its in-flight 'analyzing' rows —
+// the post-#88 stall. This warns loudly if an env override re-opens that window.
+if (!isWallConfigSafe(TIME_BUDGET_MS, ITEM_TIMEOUT_MS)) {
+  console.error(
+    `analyze-creative: UNSAFE wall budget — worst-case invocation ` +
+      `${worstCaseInvocationMs(TIME_BUDGET_MS, ITEM_TIMEOUT_MS)}ms risks a 546 kill; ` +
+      `lower ANALYZE_TIME_BUDGET_MS / ANALYZE_ITEM_TIMEOUT_MS.`,
+  );
+}
 
 const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
