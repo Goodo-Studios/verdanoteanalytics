@@ -15,9 +15,17 @@ function roasColor(roas: number | null | undefined): string {
   return "text-charcoal";
 }
 
-/** A playable video (when present) or the still image, with a click-to-play poster. */
+/**
+ * The still image by default; on hover it autoplays a muted, looping preview of
+ * the captured video (Creative Vault parity), and a click plays it full with
+ * controls + sound. Only creatives with a real captured file (video_url starting
+ * with http — the preview-capture output) can hover-preview; Meta-only videos
+ * keep the click-to-play poster. The preview <video> mounts only while hovered.
+ */
 function CardMedia({ creative }: { creative: LibraryCreative }) {
   const [playing, setPlaying] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [imgError, setImgError] = useState(false);
   const posterSrc =
     creative.thumbnail_url && creative.thumbnail_url !== "no-thumbnail"
       ? creative.thumbnail_url
@@ -26,8 +34,9 @@ function CardMedia({ creative }: { creative: LibraryCreative }) {
         : "";
   const { url: posterUrl, isLoading } = useCachedMedia(posterSrc);
   const hasVideo = !!creative.video_url && creative.video_url !== "no-video";
-  const [imgError, setImgError] = useState(false);
+  const realVideo = hasVideo && creative.video_url!.startsWith("http");
 
+  // Full click-to-play (controls + sound) takes over the whole tile.
   if (playing && hasVideo) {
     return (
       <video
@@ -42,7 +51,11 @@ function CardMedia({ creative }: { creative: LibraryCreative }) {
   }
 
   return (
-    <>
+    <div
+      className="absolute inset-0 flex items-center justify-center"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       {isLoading && <div className="absolute inset-0 bg-cream-dark animate-pulse" />}
       {posterSrc && !imgError ? (
         <img
@@ -55,6 +68,18 @@ function CardMedia({ creative }: { creative: LibraryCreative }) {
       ) : (
         <LayoutGrid className="h-6 w-6 text-muted-foreground" />
       )}
+      {/* Hover preview: muted autoplay loop (Vault parity). Mounted only on hover. */}
+      {hovered && realVideo && (
+        <video
+          key={creative.video_url}
+          src={creative.video_url!}
+          autoPlay
+          muted
+          playsInline
+          loop
+          className="absolute inset-0 h-full w-full object-contain bg-muted pointer-events-none"
+        />
+      )}
       {hasVideo && (
         <button
           type="button"
@@ -65,12 +90,15 @@ function CardMedia({ creative }: { creative: LibraryCreative }) {
           }}
           aria-label="Play video"
         >
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/90 shadow-md group-hover:scale-105 transition-transform">
-            <Play className="h-4 w-4 text-charcoal fill-charcoal ml-0.5" />
-          </span>
+          {/* Hide the play badge while the hover preview is running. */}
+          {!(hovered && realVideo) && (
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/90 shadow-md group-hover:scale-105 transition-transform">
+              <Play className="h-4 w-4 text-charcoal fill-charcoal ml-0.5" />
+            </span>
+          )}
         </button>
       )}
-    </>
+    </div>
   );
 }
 
