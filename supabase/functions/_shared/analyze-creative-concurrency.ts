@@ -66,6 +66,57 @@ export function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promis
   });
 }
 
+// ── Invocation wall-clock safety ─────────────────────────────────────────────
+// The Supabase edge runtime kills an invocation that exceeds its resource/wall
+// limit (HTTP 546). A killed invocation orphans EVERY in-flight 'analyzing' row
+// (they never reach 'done'/'failed'), which the 4-min reclaim then re-claims —
+// so a run that overruns turns into an endless claim→kill→reclaim loop with zero
+// throughput (exactly the post-#88 stall: the richer prompt made each item
+// heavier, so a full CONCURRENCY×BATCH pass of the video-heavy backlog tipped the
+// isolate over its limit). The drain must therefore GUARANTEE a run returns with
+// margin: it stops DISPATCHING new items at `timeBudgetMs`, but an item pulled
+// just before that can still run up to the per-ITEM `itemTimeoutMs`, after which a
+// fixed closing tail runs (per-item embeds + the closing count queries + the
+// durable self-chain enqueue). The worst-case wall is their sum; keep it a safe
+// fraction under the edge wall. Pure so it unit-tests + can gate the config.
+export const EDGE_WALL_MS = 150_000;
+/** Empirical upper bound on the per-invocation closing tail that runs AFTER the
+ * concurrent pass: the last item's 2 embeds + spend RPC, the ~7 closing count
+ * queries, and the pg_net self-chain enqueue. */
+export const CLOSING_OVERHEAD_MS = 20_000;
+
+/**
+ * Worst-case wall-clock (ms) for one drain invocation: an item dispatched right
+ * at the dispatch budget can still run up to the per-item deadline, then the fixed
+ * closing tail runs. Pure.
+ */
+export function worstCaseInvocationMs(
+  timeBudgetMs: number,
+  itemTimeoutMs: number,
+  closingMs: number = CLOSING_OVERHEAD_MS,
+): number {
+  return timeBudgetMs + itemTimeoutMs + closingMs;
+}
+
+/**
+ * Is the drain's wall-clock config safe against the edge runtime limit?
+ *
+ * True when the worst-case invocation wall stays under `safetyFraction` of the
+ * edge wall (default 90%), leaving headroom for scheduling jitter. This is the
+ * regression guard for the post-#88 stall: bumping the dispatch budget or the
+ * per-item deadline back up without accounting for the closing tail would reopen
+ * the 546-kill orphan loop. Pure.
+ */
+export function isWallConfigSafe(
+  timeBudgetMs: number,
+  itemTimeoutMs: number,
+  opts: { wallMs?: number; closingMs?: number; safetyFraction?: number } = {},
+): boolean {
+  const wall = opts.wallMs ?? EDGE_WALL_MS;
+  const frac = opts.safetyFraction ?? 0.9;
+  return worstCaseInvocationMs(timeBudgetMs, itemTimeoutMs, opts.closingMs) <= wall * frac;
+}
+
 export interface PoolResult {
   /** Item indexes whose worker ran to completion (analyzed OR handled-as-failed). */
   processed: number[];

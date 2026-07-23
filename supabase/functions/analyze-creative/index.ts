@@ -40,10 +40,12 @@ import {
 } from "../_shared/analyze-creative-logic.ts";
 import {
   isRetriableResponse,
+  isWallConfigSafe,
   retryWaitMs,
   runPool,
   TimeoutError,
   withTimeout,
+  worstCaseInvocationMs,
 } from "../_shared/analyze-creative-concurrency.ts";
 import { NO_VIDEO_SENTINEL } from "../_shared/media-discovery.ts";
 import {
@@ -90,7 +92,17 @@ const DEEPGRAM_FLAT_USD = 0.002; // nova-2 ~$0.0043/min; flat estimate per ~30s 
 // leaving headroom for the closing count queries and the self-chain fire so the
 // drain never gets killed mid-flight. Statics (one vision call) are far faster and
 // interleave through the same pool, pulling the effective rate up.
-const BATCH_DEFAULT = 24;
+// 24 → 12 (2026-07-23, post-#88 stall fix): #88's richer analysis (paragraph
+// value_structure + hook_visual/style/person) made every item heavier (more output
+// tokens + a larger JSON parse), so a full 24-claim × 20-concurrency pass of the
+// video-heavy backlog remainder tipped the edge isolate over its resource/wall
+// limit — the runtime killed the invocation mid-batch (HTTP 546), orphaning every
+// in-flight 'analyzing' row into the 4-min reclaim → an endless claim→kill→reclaim
+// loop with ZERO throughput (done frozen, 'failed' flat, ~48 rows wedged
+// 'analyzing'). A limit=3 probe completed cleanly (analyzed=3), confirming items
+// finish fine — the kill was aggregate load, not a per-item hang. Smaller batch
+// also bounds how many rows a stray kill can orphan.
+const BATCH_DEFAULT = 12;
 const BATCH_MAX = 100;
 const MAX_CHAIN = 400; // safety bound on self-chain depth (raised for cross-account drain)
 const FRAME_LIMIT = 8;
@@ -110,7 +122,18 @@ const FRAME_LIMIT = 8;
 // per-call 429/5xx backoff + per-attempt timeouts remain the hard safety net, so a
 // wider fan-out lifts throughput without a rate-limit storm. Still env-overridable
 // for ops to dial back if a provider ever pushes back.
-const CONCURRENCY = Number(Deno.env.get("ANALYZE_CONCURRENCY") ?? 20);
+// 20 → 6 (2026-07-23, post-#88 stall fix). The true limit hit is MEMORY, not
+// CPU/wall: prod returned WORKER_RESOURCE_LIMIT ("not enough compute resources",
+// HTTP 546) even at concurrency 8 / batch 12. Each video item base64-encodes up to
+// 1 thumbnail + FRAME_LIMIT frames, and the frame pipeline used to load ALL frames
+// at once (Promise.all); multiplied across CONCURRENCY workers that peak image
+// memory OOM'd the isolate → the invocation was killed mid-batch, orphaning its
+// in-flight 'analyzing' rows into the 4-min reclaim loop (0 throughput). The
+// companion fixes here (sequential frame encode + chunked base64) collapse the
+// per-item encode peak from FRAME_LIMIT images to ~1, so a modest fan-out now fits
+// with margin. Env-overridable so ops can re-widen once headroom is re-measured
+// against the isolate memory ceiling.
+const CONCURRENCY = Number(Deno.env.get("ANALYZE_CONCURRENCY") ?? 6);
 // Wall-clock ceiling for DISPATCHING new items in the concurrent pass. Lowered to
 // 45s so that even a late-dispatched item — bounded by the per-ITEM deadline below
 // — finishes and the invocation RETURNS well under the ~150s edge idle limit
@@ -118,7 +141,11 @@ const CONCURRENCY = Number(Deno.env.get("ANALYZE_CONCURRENCY") ?? 20);
 // guaranteeing the closing count queries run and the self-chain actually fires.
 // A run that overran 150s used to be killed mid-flight, which silently broke the
 // chain AND orphaned every in-flight 'analyzing' row (the observed hang).
-const TIME_BUDGET_MS = Number(Deno.env.get("ANALYZE_TIME_BUDGET_MS") ?? 45_000);
+// 45s → 35s (2026-07-23, post-#88 stall fix): stop dispatching earlier so the
+// last-dispatched heavier item finishes with more margin. Worst-case invocation
+// wall is TIME_BUDGET_MS + ITEM_TIMEOUT_MS + CLOSING_OVERHEAD_MS = 35+60+20 = 115s,
+// comfortably under the ~150s edge wall (guarded by isWallConfigSafe below).
+const TIME_BUDGET_MS = Number(Deno.env.get("ANALYZE_TIME_BUDGET_MS") ?? 35_000);
 // Per-ITEM hard deadline. A healthy video item is ~24s (Deepgram ~1.5s + a short
 // sequential chain of gemini-flash-lite/gpt-oss calls, each <3s); a static is a
 // single vision call. This deadline is the load-bearing anti-hang backstop: an
@@ -141,6 +168,18 @@ const HTTP_TIMEOUT_MS = Number(Deno.env.get("ANALYZE_HTTP_TIMEOUT_MS") ?? 20_000
 // Transcription can legitimately take a few seconds (Deepgram server-side audio
 // extraction) so it gets a longer per-attempt timeout than a chat/vision call.
 const TRANSCRIBE_TIMEOUT_MS = Number(Deno.env.get("ANALYZE_TRANSCRIBE_TIMEOUT_MS") ?? 35_000);
+
+// Guard the wall-clock budget at boot: if TIME_BUDGET_MS + ITEM_TIMEOUT_MS + the
+// closing tail could exceed a safe fraction of the ~150s edge wall, a run risks
+// being killed mid-batch (HTTP 546) and orphaning its in-flight 'analyzing' rows —
+// the post-#88 stall. This warns loudly if an env override re-opens that window.
+if (!isWallConfigSafe(TIME_BUDGET_MS, ITEM_TIMEOUT_MS)) {
+  console.error(
+    `analyze-creative: UNSAFE wall budget — worst-case invocation ` +
+      `${worstCaseInvocationMs(TIME_BUDGET_MS, ITEM_TIMEOUT_MS)}ms risks a 546 kill; ` +
+      `lower ANALYZE_TIME_BUDGET_MS / ANALYZE_ITEM_TIMEOUT_MS.`,
+  );
+}
 
 const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
@@ -276,10 +315,17 @@ async function fetchImageAsDataUrl(url: string): Promise<string | null> {
     if (!res.ok) return null;
     const contentType = res.headers.get("content-type") ?? "image/jpeg";
     if (!contentType.startsWith("image/")) return null;
-    const buffer = await res.arrayBuffer();
-    const bytes = new Uint8Array(buffer);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    // Chunked base64: encode fixed-size windows instead of appending one char at a
+    // time. The old byte-at-a-time `+=` built an O(n) rope of tiny string nodes —
+    // heavy transient GC churn per image; on the video path (thumbnail + up to
+    // FRAME_LIMIT frames per item) that churn, multiplied across concurrent
+    // workers, was a contributor to the isolate's WORKER_RESOURCE_LIMIT (546).
     let binary = "";
-    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+    }
     return `data:${contentType};base64,${btoa(binary)}`;
   } catch {
     return null;
@@ -495,9 +541,20 @@ async function analyzeOne(c: CreativeRow): Promise<{ update: Record<string, unkn
       .map((id) => byId.get(id))
       .filter((u): u is string => typeof u === "string");
     if (!frameUrls.length) return { notes: "", costUsd: 0, hadFrames: false };
-    const dataUrls = (await Promise.all(frameUrls.map(fetchImageAsDataUrl))).filter(
-      (d): d is string => !!d,
-    );
+    // Fetch + base64-encode frames SEQUENTIALLY, not via Promise.all. Promise.all
+    // held every frame's ArrayBuffer + binary string + base64 string in memory AT
+    // ONCE (up to FRAME_LIMIT images per item), and multiplied across CONCURRENCY
+    // workers that peak memory blew the edge isolate's limit → WORKER_RESOURCE_LIMIT
+    // (HTTP 546), which killed the invocation mid-batch and orphaned its in-flight
+    // 'analyzing' rows (the post-#88 stall). Encoding one frame at a time lets each
+    // image's transient buffers be GC'd before the next, collapsing the per-item
+    // encode peak from FRAME_LIMIT images to ~1 — only the final compact base64
+    // strings accumulate (they must, to be sent together in the one vision call).
+    const dataUrls: string[] = [];
+    for (const u of frameUrls) {
+      const d = await fetchImageAsDataUrl(u);
+      if (d) dataUrls.push(d);
+    }
     if (!dataUrls.length) return { notes: "", costUsd: 0, hadFrames: true };
     const ts = dataUrls.map((_, i) => `${i}s`).join(", ");
     const content: unknown[] = [
