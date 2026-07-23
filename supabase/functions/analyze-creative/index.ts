@@ -786,18 +786,28 @@ Deno.serve(async (req) => {
     chainDepth < MAX_CHAIN &&
     !Deno.env.get("ANALYZE_NO_CHAIN")
   ) {
-    chained = true;
-    const nextUrl = `${SUPABASE_URL}/functions/v1/analyze-creative?chain=${chainDepth + 1}`;
-    // Fire-and-forget a FRESH top-level invocation (new worker, fresh memory) —
+    // DURABLE self-chain via pg_net (the same DB-backed mechanism the cron uses),
+    // NOT a fire-and-forget fetch(). A fetch() fired here is sent AFTER this
+    // handler returns its Response, at which point the Supabase edge isolate is
+    // frozen — so the outbound request is best-effort and was usually cancelled
+    // before being sent, breaking the chain after a single hop (the drain then
+    // only advanced one bounded batch per 2-min cron tick ≈ the observed ~200/hr,
+    // with single-flight stalling the intervening ticks). poke_analyze_creative
+    // persists the next invocation in pg_net's queue, which a Postgres background
+    // worker sends independently of this isolate's lifecycle, so the chain
+    // reliably continues back-to-back. We AWAIT the enqueue (a fast DB insert, not
+    // the child's processing) so it is durably committed before we return. Still
     // NOT EdgeRuntime.waitUntil (per verdanote-edge-fn-no-waituntil-for-http-calls).
-    fetch(nextUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-      },
-      body: JSON.stringify({ account_id: nextAccount, limit }),
-    }).catch((e: Error) => console.error("analyze-creative self-chain error:", e.message));
+    // chain=depth+1 keeps skipping the single-flight guard; MAX_CHAIN + the
+    // $/account cap still bound the chain.
+    const { error: pokeErr } = await db.rpc("poke_analyze_creative", {
+      p_body: { account_id: nextAccount, limit, chain: chainDepth + 1 },
+    });
+    if (pokeErr) {
+      console.error("analyze-creative self-chain enqueue error:", pokeErr.message);
+    } else {
+      chained = true;
+    }
   }
 
   return json({
