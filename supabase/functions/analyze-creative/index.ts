@@ -5,8 +5,9 @@
 // visual analysis) — so moving a live creative into the Vault is a data copy, not
 // a re-analysis (US-013). The ONLY difference from the vault is model routing:
 // the LLM/vision calls go through cheap OpenRouter models (US-000 lock) instead of
-// Claude direct. Transcription stays on Groq Whisper. Embeddings stay on
-// openai/text-embedding-3-small @ 512d.
+// Claude direct. Transcription is Deepgram-by-URL first (no per-day audio cap,
+// server-side extraction) with Groq Whisper as fallback — same provider order as
+// vault-transcribe. Embeddings stay on openai/text-embedding-3-small @ 512d.
 //
 // The queue is creatives.analysis_status itself (no separate table): 'pending'
 // rows are claimed spend-first in batches (FOR UPDATE SKIP LOCKED via
@@ -31,8 +32,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { json } from "../_shared/cors.ts";
 import { parseLooseJson } from "../_shared/vault-analyze-logic.ts";
+import { extractDeepgramTranscript } from "../_shared/vault-transcribe-logic.ts";
 import { buildFrameworkColumns } from "../_shared/analyze-creative-logic.ts";
-import { backoffDelayMs, runPool } from "../_shared/analyze-creative-concurrency.ts";
+import { isRetriableResponse, retryWaitMs, runPool } from "../_shared/analyze-creative-concurrency.ts";
 import { NO_VIDEO_SENTINEL } from "../_shared/media-discovery.ts";
 import {
   BRAND_METADATA_PROMPT,
@@ -49,6 +51,13 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY")!;
 const GROQ_KEY = Deno.env.get("GROQ_API_KEY")!;
+// Transcription: Deepgram-by-URL is PRIMARY (same order as vault-transcribe),
+// Groq Whisper is the FALLBACK. Deepgram has no per-day audio cap and extracts
+// audio server-side (no download+upload), which lifts the Groq ASPD (audio-
+// seconds-per-day, 28_800s) ceiling that was throttling the entire video queue.
+const DEEPGRAM_KEY = Deno.env.get("DEEPGRAM_API_KEY");
+const DEEPGRAM_URL = "https://api.deepgram.com/v1/listen";
+const DEEPGRAM_MODEL = Deno.env.get("DEEPGRAM_MODEL") ?? "nova-2";
 
 // US-000 locked model mix (2026-07-16). Refresh prices if models change.
 const VISION_MODEL = "google/gemini-2.5-flash-lite";
@@ -63,8 +72,15 @@ const PRICES: Record<string, { in: number; out: number; img: number }> = {
   "openai/text-embedding-3-small": { in: 0.02e-6, out: 0, img: 0 },
 };
 const WHISPER_FLAT_USD = 0.0004; // ~30s @ $0.04/hr; flat estimate per transcription
+const DEEPGRAM_FLAT_USD = 0.002; // nova-2 ~$0.0043/min; flat estimate per ~30s ad. Tiny vs the $10/account cap.
 
-const BATCH_DEFAULT = 30;
+// Sized so one invocation drains ~2 concurrency-waves and RETURNS well under the
+// ~150s edge limit (a video item's tail is ~40-50s wall — Deepgram + the ~8
+// sequential OpenRouter calls + frame fetches + 2 embeds). Two waves ≈ ~100s,
+// leaving headroom for the closing count queries and the self-chain fire so the
+// drain never gets killed mid-flight. Statics (one vision call) are far faster and
+// interleave through the same pool, pulling the effective rate up.
+const BATCH_DEFAULT = 24;
 const BATCH_MAX = 100;
 const MAX_CHAIN = 400; // safety bound on self-chain depth (raised for cross-account drain)
 const FRAME_LIMIT = 8;
@@ -77,34 +93,67 @@ const FRAME_LIMIT = 8;
 //   • TIME_BUDGET_MS — wall-clock ceiling for the concurrent pass, well under the
 //     edge-function limit (~150s) with headroom for the closing count queries and
 //     the self-chain fire. Un-started claimed rows are released to 'pending'.
-const CONCURRENCY = Number(Deno.env.get("ANALYZE_CONCURRENCY") ?? 5);
-const TIME_BUDGET_MS = Number(Deno.env.get("ANALYZE_TIME_BUDGET_MS") ?? 100_000);
-const MAX_HTTP_RETRIES = 4; // OpenRouter/Groq 429 + 5xx retries before giving up
+const CONCURRENCY = Number(Deno.env.get("ANALYZE_CONCURRENCY") ?? 12);
+// Wall-clock ceiling for the concurrent pass. Lowered to 60s (from 100s) so that
+// even a late-dispatched item — now itself hard-bounded by per-call timeouts —
+// finishes and the invocation RETURNS well under the ~150s edge idle limit,
+// guaranteeing the closing count queries run and the self-chain actually fires.
+// A run that overran 150s used to be killed mid-flight, which silently broke the
+// chain and stalled the drain.
+const TIME_BUDGET_MS = Number(Deno.env.get("ANALYZE_TIME_BUDGET_MS") ?? 60_000);
+const MAX_HTTP_RETRIES = 4; // OpenRouter/Groq/Deepgram 429 + 5xx retries before giving up
+// Per-attempt hard timeout on every provider HTTP call. Without this a hung or
+// pathologically slow provider call could pin a worker for the whole invocation.
+const HTTP_TIMEOUT_MS = Number(Deno.env.get("ANALYZE_HTTP_TIMEOUT_MS") ?? 20_000);
+// Transcription can legitimately take a few seconds (Deepgram server-side audio
+// extraction) so it gets a longer per-attempt timeout than a chat/vision call.
+const TRANSCRIBE_TIMEOUT_MS = Number(Deno.env.get("ANALYZE_TRANSCRIBE_TIMEOUT_MS") ?? 35_000);
 
 const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// ── Retry a provider fetch on 429 / 5xx with jittered exponential backoff. Honors
-//    an explicit Retry-After header when present. Returns the final Response (the
-//    caller decides how to handle a non-ok terminal status). This is what makes the
-//    raised concurrency safe: a transient rate-limit backs off instead of failing
-//    the creative outright and hammering the provider. ──
+// ── Retry a provider fetch on 429 / 5xx with jittered exponential backoff, under
+//    a per-attempt hard timeout. Returns the final Response (the caller decides how
+//    to handle a non-ok terminal status). This is what makes the raised concurrency
+//    safe AND keeps the invocation inside the edge wall limit:
+//      • each attempt is aborted after `timeoutMs` so a slow/hung provider call can
+//        never pin a worker for the whole invocation;
+//      • an explicit `x-should-retry: false` (Groq's hard daily-quota 429) is NOT
+//        retried — it fails fast so the caller can fall back to another provider;
+//      • the honored Retry-After is HARD-CAPPED (retryWaitMs) so a multi-minute
+//        header can never sleep the invocation past the ~150s edge idle limit.
+//    On a network error / timeout the attempt is treated as a transient failure and
+//    retried up to MAX_HTTP_RETRIES; the final failure re-throws. ──
 async function fetchWithRetry(
-  doFetch: () => Promise<Response>,
+  doFetch: (signal: AbortSignal) => Promise<Response>,
   label: string,
+  timeoutMs: number = HTTP_TIMEOUT_MS,
 ): Promise<Response> {
   let attempt = 0;
   while (true) {
-    const res = await doFetch();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    let res: Response;
+    try {
+      res = await doFetch(ctrl.signal);
+    } catch (e) {
+      clearTimeout(timer);
+      if (attempt >= MAX_HTTP_RETRIES) throw e;
+      attempt++;
+      const waitMs = retryWaitMs(null, attempt);
+      console.warn(`${label} network/timeout — retry ${attempt}/${MAX_HTTP_RETRIES} in ${waitMs}ms`);
+      await sleep(waitMs);
+      continue;
+    } finally {
+      clearTimeout(timer);
+    }
     if (res.ok) return res;
-    const retriable = res.status === 429 || (res.status >= 500 && res.status < 600);
+    const retriable = isRetriableResponse(res.status, res.headers.get("x-should-retry"));
     if (!retriable || attempt >= MAX_HTTP_RETRIES) return res;
     attempt++;
     const retryAfter = Number(res.headers.get("retry-after"));
-    const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
-      ? retryAfter * 1000
-      : backoffDelayMs(attempt);
+    const waitMs = retryWaitMs(Number.isFinite(retryAfter) ? retryAfter : null, attempt);
     // Free the connection before sleeping so the retry reuses the pool cleanly.
     await res.body?.cancel().catch(() => {});
     console.warn(`${label} ${res.status} — retry ${attempt}/${MAX_HTTP_RETRIES} in ${waitMs}ms`);
@@ -121,7 +170,7 @@ async function orChat(
   imageCount = 0,
 ): Promise<{ text: string; costUsd: number }> {
   const res = await fetchWithRetry(
-    () =>
+    (signal) =>
       fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -137,6 +186,7 @@ async function orChat(
             { role: "user", content: userContent },
           ],
         }),
+        signal,
       }),
     `OpenRouter ${model}`,
   );
@@ -156,7 +206,7 @@ async function orChat(
 // ── OpenRouter embedding (mirrors creative-embed / vault-embed). ──
 async function embed(text: string): Promise<{ vec: number[]; costUsd: number }> {
   const res = await fetchWithRetry(
-    () =>
+    (signal) =>
       fetch("https://openrouter.ai/api/v1/embeddings", {
         method: "POST",
         headers: {
@@ -165,6 +215,7 @@ async function embed(text: string): Promise<{ vec: number[]; costUsd: number }> 
           "X-Title": "Verdanote",
         },
         body: JSON.stringify({ model: EMBED_MODEL, input: text.slice(0, 8000), dimensions: 512 }),
+        signal,
       }),
     "OpenRouter embedding",
   );
@@ -179,12 +230,15 @@ async function embed(text: string): Promise<{ vec: number[]; costUsd: number }> 
 // ── Fetch an image URL as a base64 data-URL for a vision call (verbatim from
 //    vault-analyze). Returns null on any failure so callers degrade gracefully. ──
 async function fetchImageAsDataUrl(url: string): Promise<string | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), HTTP_TIMEOUT_MS);
   try {
     const res = await fetch(url, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
       },
+      signal: ctrl.signal,
     });
     if (!res.ok) return null;
     const contentType = res.headers.get("content-type") ?? "image/jpeg";
@@ -196,33 +250,78 @@ async function fetchImageAsDataUrl(url: string): Promise<string | null> {
     return `data:${contentType};base64,${btoa(binary)}`;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-// ── Groq Whisper transcription of a cached video URL. Skips gracefully (returns
-//    null) on oversized / no-audio, mirroring vault-transcribe's short-circuits. ──
+// ── Transcribe a cached video URL. Deepgram-by-URL is PRIMARY (same provider
+//    order as vault-transcribe); Groq Whisper is the FALLBACK. Skips gracefully
+//    (returns null) on no-audio / oversized / provider failure.
+//
+//    WHY Deepgram first: Groq Whisper enforces a per-day audio cap (ASPD 28_800s)
+//    that the ~17k-video backlog exhausts almost immediately, after which every
+//    call 429s with a multi-minute Retry-After. That single provider limit — not
+//    concurrency or batch size — was the steady-state throttle. Deepgram extracts
+//    audio server-side from the URL (no download+upload, no daily-audio cap), so
+//    the video path drains at the drain's own pace instead of Groq's daily budget. ──
 async function transcribe(videoUrl: string): Promise<{ text: string | null; costUsd: number }> {
+  // PRIMARY: Deepgram prerecorded-by-URL.
+  if (DEEPGRAM_KEY) {
+    try {
+      const dg = await fetchWithRetry(
+        (signal) =>
+          fetch(`${DEEPGRAM_URL}?model=${DEEPGRAM_MODEL}&smart_format=true&punctuate=true`, {
+            method: "POST",
+            headers: { Authorization: `Token ${DEEPGRAM_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ url: videoUrl }),
+            signal,
+          }),
+        "Deepgram listen",
+        TRANSCRIBE_TIMEOUT_MS,
+      );
+      if (dg.ok) {
+        // A 200 is authoritative — an empty transcript means genuinely no speech,
+        // so DON'T fall through to Groq (which would re-burn its scarce quota).
+        const t = extractDeepgramTranscript(await dg.json());
+        return { text: t.trim() || null, costUsd: DEEPGRAM_FLAT_USD };
+      }
+      // Non-OK Deepgram (e.g. transient 5xx that exhausted retries) → try Groq.
+      await dg.body?.cancel().catch(() => {});
+      console.warn(`Deepgram ${dg.status} — falling back to Groq whisper`);
+    } catch (e) {
+      console.warn(`Deepgram request failed (${e instanceof Error ? e.message : e}) — falling back to Groq`);
+    }
+  }
+
+  // FALLBACK: Groq Whisper (download bytes → multipart upload). Bounded now — a
+  // hard daily-quota 429 carries x-should-retry:false and fails fast (no 144s
+  // sleep), so this degrades to a null transcript instead of stalling the drain.
   try {
-    const vres = await fetch(videoUrl);
-    if (!vres.ok) return { text: null, costUsd: 0 };
+    const vres = await fetchWithRetry((signal) => fetch(videoUrl, { signal }), "video download", TRANSCRIBE_TIMEOUT_MS);
+    if (!vres.ok) {
+      await vres.body?.cancel().catch(() => {});
+      return { text: null, costUsd: 0 };
+    }
     const bytes = new Uint8Array(await vres.arrayBuffer());
     const ext = videoUrl.toLowerCase().includes(".webm") ? "webm" : "mp4";
     const form = new FormData();
     form.append("file", new Blob([bytes], { type: `video/${ext}` }), `video.${ext}`);
     form.append("model", "whisper-large-v3-turbo");
-    // Retry a Groq 429 / 5xx (rate limit or transient) with backoff so higher
-    // concurrency can't turn a burst into a lost transcript; 413/400 still skip.
     const gres = await fetchWithRetry(
-      () =>
+      (signal) =>
         fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
           method: "POST",
           headers: { Authorization: `Bearer ${GROQ_KEY}` },
           body: form,
+          signal,
         }),
       "Groq whisper",
+      TRANSCRIBE_TIMEOUT_MS,
     );
     if (!gres.ok) {
-      // 413 (too large) / 400 (no audio track / could not process) → skip, not fail.
+      // 413 (too large) / 400 (no audio) / 429 (daily cap) → skip, not fail.
+      await gres.body?.cancel().catch(() => {});
       return { text: null, costUsd: 0 };
     }
     const gdata = await gres.json();

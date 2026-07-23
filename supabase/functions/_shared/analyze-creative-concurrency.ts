@@ -101,3 +101,47 @@ export function backoffDelayMs(
   const exp = Math.min(cap, base * 2 ** Math.max(0, attempt - 1));
   return Math.round(exp * (0.5 + rng() * 0.5));
 }
+
+/**
+ * Is a non-OK provider response worth retrying?
+ *
+ * Retriable = a 429 (rate limit) or a 5xx (transient), UNLESS the provider
+ * explicitly says not to via `x-should-retry: false`. Groq returns exactly that
+ * header on a hard DAILY-quota 429 (audio-seconds-per-day exhausted, resets in
+ * hours) — retrying is pointless and, worse, the old code slept the multi-minute
+ * `retry-after` it carried, which blew the ~150s edge-function wall limit and
+ * killed the whole invocation (and its self-chain). Honoring the header lets such
+ * a response fail FAST so the caller can fall back to another provider.
+ */
+export function isRetriableResponse(
+  status: number,
+  shouldRetryHeader: string | null,
+): boolean {
+  if (shouldRetryHeader !== null && shouldRetryHeader.trim().toLowerCase() === "false") {
+    return false;
+  }
+  return status === 429 || (status >= 500 && status < 600);
+}
+
+/**
+ * Resolve the wait (ms) before the next retry.
+ *
+ * Honors a provider `Retry-After` (SECONDS) when present and positive, but
+ * HARD-CAPS it at `capMs` (default 10s). This cap is the load-bearing safety
+ * fix: Groq's daily-quota 429 carries `retry-after: 144`, and sleeping the raw
+ * 144_000ms exceeded the edge runtime's ~150s idle limit — the invocation was
+ * killed before it could return or fire its self-chain, so the drain stalled.
+ * When there is no usable header, falls back to jittered exponential backoff
+ * (also capped). `attempt` is 1-based.
+ */
+export function retryWaitMs(
+  retryAfterSec: number | null,
+  attempt: number,
+  opts: { capMs?: number; baseMs?: number; rng?: () => number } = {},
+): number {
+  const cap = opts.capMs ?? 10_000;
+  if (retryAfterSec !== null && Number.isFinite(retryAfterSec) && retryAfterSec > 0) {
+    return Math.min(Math.round(retryAfterSec * 1000), cap);
+  }
+  return Math.min(backoffDelayMs(attempt, { baseMs: opts.baseMs, capMs: cap, rng: opts.rng }), cap);
+}

@@ -8,7 +8,12 @@
 // stop-signal release accounting, in-flight completion) and the jittered backoff.
 
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { backoffDelayMs, runPool } from "./analyze-creative-concurrency.ts";
+import {
+  backoffDelayMs,
+  isRetriableResponse,
+  retryWaitMs,
+  runPool,
+} from "./analyze-creative-concurrency.ts";
 
 const tick = () => new Promise((r) => setTimeout(r, 1));
 
@@ -134,4 +139,42 @@ Deno.test("backoffDelayMs: jitter floor is 50% of the ceiling", () => {
 Deno.test("backoffDelayMs: attempt<=1 never negative-shifts the exponent", () => {
   const v = backoffDelayMs(0, { baseMs: 500, capMs: 8000, rng: () => 1 });
   assertEquals(v, 500); // 2^max(0,-1)=2^0
+});
+
+Deno.test("isRetriableResponse: 429 and 5xx are retriable, others are not", () => {
+  assert(isRetriableResponse(429, null));
+  assert(isRetriableResponse(500, null));
+  assert(isRetriableResponse(503, null));
+  assert(!isRetriableResponse(400, null));
+  assert(!isRetriableResponse(413, null)); // too-large → not retriable
+  assert(!isRetriableResponse(404, null));
+});
+
+Deno.test("isRetriableResponse: x-should-retry:false wins even on a 429", () => {
+  // Groq's hard daily-quota 429 carries this header — must NOT retry.
+  assert(!isRetriableResponse(429, "false"));
+  assert(!isRetriableResponse(429, "False"));
+  assert(!isRetriableResponse(429, " FALSE "));
+  assert(!isRetriableResponse(503, "false"));
+  // Any other value (or absent) leaves the status-based decision intact.
+  assert(isRetriableResponse(429, "true"));
+  assert(isRetriableResponse(429, ""));
+});
+
+Deno.test("retryWaitMs: honors Retry-After (seconds) but HARD-CAPS it", () => {
+  // 2s header, well under the cap → honored verbatim.
+  assertEquals(retryWaitMs(2, 1, { capMs: 10_000 }), 2000);
+  // Groq's 144s daily-quota Retry-After → capped, NOT slept literally.
+  assertEquals(retryWaitMs(144, 1, { capMs: 10_000 }), 10_000);
+  // Exactly at the cap.
+  assertEquals(retryWaitMs(10, 1, { capMs: 10_000 }), 10_000);
+});
+
+Deno.test("retryWaitMs: no/invalid header falls back to capped exponential backoff", () => {
+  const rng = () => 1; // top of jitter band
+  assertEquals(retryWaitMs(null, 1, { baseMs: 500, capMs: 10_000, rng }), 500);
+  assertEquals(retryWaitMs(0, 2, { baseMs: 500, capMs: 10_000, rng }), 1000);
+  assertEquals(retryWaitMs(NaN, 3, { baseMs: 500, capMs: 10_000, rng }), 2000);
+  // Backoff ceiling also respects the cap.
+  assertEquals(retryWaitMs(null, 10, { baseMs: 500, capMs: 4000, rng }), 4000);
 });
