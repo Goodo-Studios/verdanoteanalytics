@@ -122,16 +122,18 @@ const FRAME_LIMIT = 8;
 // per-call 429/5xx backoff + per-attempt timeouts remain the hard safety net, so a
 // wider fan-out lifts throughput without a rate-limit storm. Still env-overridable
 // for ops to dial back if a provider ever pushes back.
-// 20 → 8 (2026-07-23, post-#88 stall fix): that 20-wide fan-out was measured
-// BEFORE #88 made each item heavier. Post-#88, 20 concurrent heavy video items
-// (each firing Deepgram + ~5–8 OpenRouter calls + up to 9 in-isolate base64 image
-// encodes, then 2 embeds) pushed the isolate's peak CPU/memory over the edge
-// runtime limit → the invocation was killed (HTTP 546) mid-batch, orphaning its
-// in-flight 'analyzing' rows. This is the load lever that broke: a limit=3 probe
-// (≈3-wide) completed cleanly, so a much narrower fan-out both stays under the
-// resource limit and de-loads the providers, restoring steady throughput. Still
-// env-overridable so ops can re-widen once per-item cost is re-measured.
-const CONCURRENCY = Number(Deno.env.get("ANALYZE_CONCURRENCY") ?? 8);
+// 20 → 6 (2026-07-23, post-#88 stall fix). The true limit hit is MEMORY, not
+// CPU/wall: prod returned WORKER_RESOURCE_LIMIT ("not enough compute resources",
+// HTTP 546) even at concurrency 8 / batch 12. Each video item base64-encodes up to
+// 1 thumbnail + FRAME_LIMIT frames, and the frame pipeline used to load ALL frames
+// at once (Promise.all); multiplied across CONCURRENCY workers that peak image
+// memory OOM'd the isolate → the invocation was killed mid-batch, orphaning its
+// in-flight 'analyzing' rows into the 4-min reclaim loop (0 throughput). The
+// companion fixes here (sequential frame encode + chunked base64) collapse the
+// per-item encode peak from FRAME_LIMIT images to ~1, so a modest fan-out now fits
+// with margin. Env-overridable so ops can re-widen once headroom is re-measured
+// against the isolate memory ceiling.
+const CONCURRENCY = Number(Deno.env.get("ANALYZE_CONCURRENCY") ?? 6);
 // Wall-clock ceiling for DISPATCHING new items in the concurrent pass. Lowered to
 // 45s so that even a late-dispatched item — bounded by the per-ITEM deadline below
 // — finishes and the invocation RETURNS well under the ~150s edge idle limit
@@ -313,10 +315,17 @@ async function fetchImageAsDataUrl(url: string): Promise<string | null> {
     if (!res.ok) return null;
     const contentType = res.headers.get("content-type") ?? "image/jpeg";
     if (!contentType.startsWith("image/")) return null;
-    const buffer = await res.arrayBuffer();
-    const bytes = new Uint8Array(buffer);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    // Chunked base64: encode fixed-size windows instead of appending one char at a
+    // time. The old byte-at-a-time `+=` built an O(n) rope of tiny string nodes —
+    // heavy transient GC churn per image; on the video path (thumbnail + up to
+    // FRAME_LIMIT frames per item) that churn, multiplied across concurrent
+    // workers, was a contributor to the isolate's WORKER_RESOURCE_LIMIT (546).
     let binary = "";
-    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+    }
     return `data:${contentType};base64,${btoa(binary)}`;
   } catch {
     return null;
@@ -532,9 +541,20 @@ async function analyzeOne(c: CreativeRow): Promise<{ update: Record<string, unkn
       .map((id) => byId.get(id))
       .filter((u): u is string => typeof u === "string");
     if (!frameUrls.length) return { notes: "", costUsd: 0, hadFrames: false };
-    const dataUrls = (await Promise.all(frameUrls.map(fetchImageAsDataUrl))).filter(
-      (d): d is string => !!d,
-    );
+    // Fetch + base64-encode frames SEQUENTIALLY, not via Promise.all. Promise.all
+    // held every frame's ArrayBuffer + binary string + base64 string in memory AT
+    // ONCE (up to FRAME_LIMIT images per item), and multiplied across CONCURRENCY
+    // workers that peak memory blew the edge isolate's limit → WORKER_RESOURCE_LIMIT
+    // (HTTP 546), which killed the invocation mid-batch and orphaned its in-flight
+    // 'analyzing' rows (the post-#88 stall). Encoding one frame at a time lets each
+    // image's transient buffers be GC'd before the next, collapsing the per-item
+    // encode peak from FRAME_LIMIT images to ~1 — only the final compact base64
+    // strings accumulate (they must, to be sent together in the one vision call).
+    const dataUrls: string[] = [];
+    for (const u of frameUrls) {
+      const d = await fetchImageAsDataUrl(u);
+      if (d) dataUrls.push(d);
+    }
     if (!dataUrls.length) return { notes: "", costUsd: 0, hadFrames: true };
     const ts = dataUrls.map((_, i) => `${i}s`).join(", ");
     const content: unknown[] = [
