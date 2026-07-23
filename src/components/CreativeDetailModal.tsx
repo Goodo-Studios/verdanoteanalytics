@@ -4,7 +4,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, ExternalLink, FileEdit, MessageSquare, GitBranch, Loader2, BookmarkPlus, Bookmark } from "lucide-react";
+import { Image as ImageIcon, ExternalLink, FileEdit, MessageSquare, GitBranch, Loader2, BookmarkPlus, Bookmark, FileText, Layers, Sparkles } from "lucide-react";
 import { useState, forwardRef, useEffect, useCallback } from "react";
 import { useCachedMedia } from "@/hooks/useCachedMedia";
 
@@ -33,6 +33,13 @@ type Creative = Database["public"]["Tables"]["creatives"]["Row"] & {
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { saveCreativeToVault } from "@/lib/vaultSave";
+import { useCreativeAiDetail } from "@/hooks/useCreativeAiDetail";
+import {
+  CreativeAiHeader,
+  CreativeScriptTab,
+  CreativeFrameworkTab,
+  CreativeAnalysisTab,
+} from "@/components/creative-detail/CreativeAiTabs";
 
 
 
@@ -296,6 +303,10 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
   // already-saved creative briefly renders an enabled "Save to Vault" that then
   // flips to a disabled "Already in Vault" (a click-then-disable race).
   const [vaultStatusChecked, setVaultStatusChecked] = useState(false);
+  // The vault item this creative maps to (via source_ad_id), captured so the
+  // AI-header's Add-to-board / Share can operate on the real inspiration_items id.
+  const [vaultItemId, setVaultItemId] = useState<string | null>(null);
+  const [vaultShareToken, setVaultShareToken] = useState<string | null>(null);
   const [cachedMedia, setCachedMedia] = useState<{
     thumbnail_url?: string | null;
     full_res_url?: string | null;
@@ -348,9 +359,11 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
     setSavedToVault(false);
     setAlreadyInVault(false);
     setVaultStatusChecked(false);
+    setVaultItemId(null);
+    setVaultShareToken(null);
     supabase
       .from("inspiration_items")
-      .select("id")
+      .select("id, share_token")
       .eq("source_ad_id", creative.ad_id)
       .limit(1)
       .maybeSingle()
@@ -359,6 +372,11 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
         if (data) {
           setSavedToVault(true);
           setAlreadyInVault(true);
+          // share_token isn't in the generated types (vault tables are hand-typed
+          // in types/vault.ts), so read it off the row through a cast.
+          const row = data as { id: string; share_token: string | null };
+          setVaultItemId(row.id);
+          setVaultShareToken(row.share_token ?? null);
         }
         // Status known either way — release the Save affordance from its
         // disabled "Checking…" state.
@@ -368,6 +386,12 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
       cancelled = true;
     };
   }, [open, creative?.ad_id]);
+
+  // Lazy per-creative fetch of the AI-analysis + Vault-parity columns (framework,
+  // hooks, transcript, brand/industry/ad_format/target_audience). Enabled while
+  // the modal is open so the Vault-parity header + Script/Framework/Analysis tabs
+  // populate — these heavy columns are deliberately kept OUT of the grid query.
+  const aiDetail = useCreativeAiDetail(creative?.ad_id, open);
 
   if (!creative) return null;
 
@@ -493,9 +517,34 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
 
           {/* ── Details column ── */}
           <div className="min-w-0">
+        {/* Vault-parity header: platform · date · brand · industry/ad_format chips ·
+            target-audience · Re-analyze / Add-to-board / Share. Mirrors the live
+            Creative Vault detail view; reads the lazy AI detail + vault-item state. */}
+        <CreativeAiHeader
+          adId={creative.ad_id}
+          accountId={creative.account_id}
+          platform={creative.platform}
+          dateIso={creative.created_time ?? creative.created_at ?? null}
+          detail={aiDetail.data}
+          canEdit={canEdit}
+          vaultItemId={vaultItemId}
+          vaultShareToken={vaultShareToken}
+        />
         <Tabs defaultValue="details" className="w-full">
-          <TabsList className="w-full">
+          <TabsList className="w-full flex-wrap h-auto">
             <TabsTrigger value="details" className="flex-1">Details</TabsTrigger>
+            <TabsTrigger value="script" className="flex-1 gap-1.5">
+              <FileText className="h-3.5 w-3.5" />
+              Script
+            </TabsTrigger>
+            <TabsTrigger value="framework" className="flex-1 gap-1.5">
+              <Layers className="h-3.5 w-3.5" />
+              Framework
+            </TabsTrigger>
+            <TabsTrigger value="analysis" className="flex-1 gap-1.5">
+              <Sparkles className="h-3.5 w-3.5" />
+              Analysis
+            </TabsTrigger>
             <TabsTrigger value="comments" className="flex-1 gap-1.5">
               <MessageSquare className="h-3.5 w-3.5" />
               Comments
@@ -565,6 +614,35 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
             <CreativeTagEditor creative={creative} />
           </TabsContent>
 
+          {/* AI-analysis tabs — full parity with the Creative Vault detail view.
+              Editable for staff (saves back to the creatives columns); read-only
+              for clients. Data comes from the lazy useCreativeAiDetail fetch. */}
+          <TabsContent value="script" className="mt-4">
+            <CreativeScriptTab
+              adId={creative.ad_id}
+              detail={aiDetail.data}
+              isLoading={aiDetail.isLoading}
+              canEdit={canEdit}
+            />
+          </TabsContent>
+
+          <TabsContent value="framework" className="mt-4">
+            <CreativeFrameworkTab
+              adId={creative.ad_id}
+              detail={aiDetail.data}
+              isLoading={aiDetail.isLoading}
+              canEdit={canEdit}
+            />
+          </TabsContent>
+
+          <TabsContent value="analysis" className="mt-4">
+            <CreativeAnalysisTab
+              adId={creative.ad_id}
+              detail={aiDetail.data}
+              isLoading={aiDetail.isLoading}
+              canEdit={canEdit}
+            />
+          </TabsContent>
 
           <TabsContent value="comments" className="mt-4">
             <CreativeComments adId={creative.ad_id} accountId={creative.account_id} />
