@@ -55,6 +55,39 @@ Deno.test("buildFeatureText works from tags alone (no notes)", () => {
   assertEquals(t?.includes("theme: holiday"), true);
 });
 
+Deno.test("buildFeatureText folds in rich analysis fields (v2)", () => {
+  const t = buildFeatureText({
+    ad_id: "r1",
+    ai_visual_notes: "close-up of a dog's coat",
+    brand_name: "Natural Dog Salmon Oil",
+    target_audience: "dog owners wanting a shinier coat",
+    value_structure: "Problem → Solution → Proof",
+    hook_visual: "Close-up of a shiny coat",
+    hook_type: "bold_claim",
+    ad_format: "Testimonial",
+    industry: "Health",
+    ad_type: "Video",
+  });
+  assertEquals(t?.includes("brand_name: Natural Dog Salmon Oil"), true);
+  assertEquals(t?.includes("target_audience: dog owners wanting a shinier coat"), true);
+  assertEquals(t?.includes("value_structure: Problem → Solution → Proof"), true);
+  assertEquals(t?.includes("hook_visual: Close-up of a shiny coat"), true);
+  assertEquals(t?.includes("ad_format: Testimonial"), true);
+  // both the flat notes and the tag block still present
+  assertEquals(t?.includes("close-up of a dog's coat"), true);
+  assertEquals(t?.includes("ad_type: Video"), true);
+});
+
+Deno.test("buildFeatureText clusters from rich fields even with no notes/tags", () => {
+  // A creative with only rich analysis (no ai_visual_notes, no tags) is now
+  // embeddable — previously it would have been a coverage skip.
+  const t = buildFeatureText({ ad_id: "r2", brand_name: "Acme", value_structure: "Demo" });
+  assertEquals(t !== null, true);
+  assertEquals(t?.includes("brand_name: Acme"), true);
+  // truly empty is still a skip
+  assertEquals(buildFeatureText({ ad_id: "r3", brand_name: "  " }), null);
+});
+
 // ─── cosineSimilarity ────────────────────────────────────────────────────────
 
 Deno.test("cosineSimilarity: identical=1, orthogonal=0, opposite=-1", () => {

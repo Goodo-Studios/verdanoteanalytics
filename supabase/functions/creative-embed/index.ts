@@ -1,8 +1,10 @@
 // creative-embed — Entity Report (Feature 2), v1 TEXT clustering, step 1.
 //
-// Builds a per-creative text feature (ai_visual_notes + parsed tags) and embeds
-// it via the SAME OpenRouter path vault-embed uses (openai/text-embedding-3-small,
-// 512 dims), then upserts into creative_embeddings.
+// Builds a per-creative text feature (ai_visual_notes + rich analysis fields +
+// parsed tags — see buildFeatureText) and embeds it via the SAME OpenRouter path
+// vault-embed uses (openai/text-embedding-3-small, 512 dims), then upserts into
+// creative_embeddings. Re-run with { force: true } to rebuild embeddings after a
+// feature-text change (v2 rich fields) or a tag backfill.
 //
 // Auth model: internal / service-role only — same as vault-embed. Invoked by the
 // orchestrator (or a future pg_cron poke) with the service-role bearer; NOT
@@ -52,10 +54,10 @@ Deno.serve(async (req) => {
   const limit: number = Math.min(Math.max(Number(body.limit) || 500, 1), 2000);
   const force: boolean = body.force === true;
 
-  // Pull candidate creatives (tag + notes columns only — small).
+  // Pull candidate creatives (notes + tags + rich analysis fields — small).
   let q = db
     .from("creatives")
-    .select("ad_id, account_id, ai_visual_notes, ad_type, person, style, product, hook, theme, tag_source")
+    .select("ad_id, account_id, ai_visual_notes, ad_type, person, style, product, hook, theme, tag_source, brand_name, target_audience, value_structure, hook_visual, hook_type, ad_format, industry")
     .limit(limit);
   if (accountId) q = q.eq("account_id", accountId);
 
