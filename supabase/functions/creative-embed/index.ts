@@ -11,10 +11,14 @@
 // linked from any client. Registered verify_jwt = false. No user JWT check.
 //
 // Body (all optional):
-//   { account_id?: string, limit?: number, force?: boolean }
+//   { account_id?: string, limit?: number, force?: boolean, after?: string }
 //   • account_id — restrict to one account (builder-account-first rollout).
 //   • limit      — cap creatives processed this invocation (default 500).
 //   • force      — re-embed even creatives that already have an embedding.
+//   • after      — keyset cursor (ad_id); process only rows with ad_id > after.
+//                  The response returns `next_cursor` + `done` so a caller can
+//                  page through the entire corpus (needed for a force re-embed of
+//                  accounts larger than `limit`).
 //
 // v1 SKIPS creatives with no feature text (no ai_visual_notes AND no tags) rather
 // than embedding noise; the skipped count is returned so coverage is visible.
@@ -53,13 +57,22 @@ Deno.serve(async (req) => {
   const accountId: string | undefined = body.account_id;
   const limit: number = Math.min(Math.max(Number(body.limit) || 500, 1), 2000);
   const force: boolean = body.force === true;
+  // Deterministic keyset cursor: process rows with ad_id > `after`, ordered by
+  // ad_id. The response returns `next_cursor` (the last ad_id in the page) so a
+  // caller can page through the WHOLE corpus — required for a force re-embed of
+  // accounts larger than `limit` (a bare .limit() with no order re-returns the
+  // same first N rows and never advances). Absent → start at the beginning.
+  const after: string | undefined = typeof body.after === "string" && body.after ? body.after : undefined;
 
-  // Pull candidate creatives (notes + tags + rich analysis fields — small).
+  // Pull candidate creatives (notes + tags + rich analysis fields — small),
+  // ordered by ad_id for stable keyset pagination.
   let q = db
     .from("creatives")
     .select("ad_id, account_id, ai_visual_notes, ad_type, person, style, product, hook, theme, tag_source, brand_name, target_audience, value_structure, hook_visual, hook_type, ad_format, industry")
+    .order("ad_id", { ascending: true })
     .limit(limit);
   if (accountId) q = q.eq("account_id", accountId);
+  if (after) q = q.gt("ad_id", after);
 
   const { data: creatives, error } = await q;
   if (error) return json({ error: error.message }, 500);
@@ -116,6 +129,12 @@ Deno.serve(async (req) => {
     ? Math.round((1000 * (total - skippedNoFeature)) / total) / 10
     : 0;
 
+  // Keyset cursor: last ad_id in this (ad_id-ordered) page. Caller passes it back
+  // as `after` to fetch the next page; `done` is true when the page was not full
+  // (no more rows beyond it).
+  const nextCursor = total > 0 ? creatives[creatives.length - 1].ad_id : null;
+  const done = total < limit;
+
   return json({
     ok: true,
     total,
@@ -123,6 +142,8 @@ Deno.serve(async (req) => {
     skipped_existing: skippedExisting,
     skipped_no_feature: skippedNoFeature,
     coverage_pct: coveragePct, // % of processed creatives that HAD a feature to embed
+    next_cursor: nextCursor,
+    done,
     errors: errors.slice(0, 20),
     error_count: errors.length,
   });
