@@ -103,7 +103,7 @@ export async function handleApi(
       if (resourceId) {
         const { data, error } = await supabase
           .from("creatives")
-          .select("ad_id, ad_name, account_id, spend, roas, ctr, cpa, cpm, cpc, impressions, clicks, purchases, purchase_value, adds_to_cart, unique_code, hook, theme, product, style, person, ad_type, tag_source, ad_status, thumbnail_url, play_curve, retention_p25, retention_p50, retention_p75, retention_p100, created_at, updated_at")
+          .select("ad_id, ad_name, account_id, spend, roas, ctr, cpa, cpm, cpc, impressions, clicks, purchases, purchase_value, adds_to_cart, unique_code, hook, theme, product, style, person, ad_type, tag_source, ad_status, thumbnail_url, video_url, meta_video_ids, play_curve, retention_p25, retention_p50, retention_p75, retention_p100, created_at, updated_at")
           .eq("ad_id", resourceId)
           .single();
 
@@ -131,7 +131,7 @@ export async function handleApi(
 
       let query = supabase
         .from("creatives")
-        .select("ad_id, ad_name, account_id, spend, roas, ctr, cpa, cpm, cpc, impressions, clicks, purchases, purchase_value, adds_to_cart, unique_code, hook, theme, product, style, person, ad_type, tag_source, ad_status, thumbnail_url, play_curve, retention_p25, retention_p50, retention_p75, retention_p100, created_at, updated_at", { count: "exact" })
+        .select("ad_id, ad_name, account_id, spend, roas, ctr, cpa, cpm, cpc, impressions, clicks, purchases, purchase_value, adds_to_cart, unique_code, hook, theme, product, style, person, ad_type, tag_source, ad_status, thumbnail_url, video_url, meta_video_ids, play_curve, retention_p25, retention_p50, retention_p75, retention_p100, created_at, updated_at", { count: "exact" })
         .order("created_at", { ascending: false })
         .range(offset, offset + limit - 1);
 

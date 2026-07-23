@@ -51,6 +51,47 @@ function CardThumbnail({ src, alt }: { src: string; alt: string }) {
   );
 }
 
+/**
+ * Card media: thumbnail by default, and on hover an autoplaying muted loop of the
+ * captured video (Creative Vault parity). Only creatives with a real captured
+ * video file (video_url starting with http — the preview-capture output) can
+ * hover-play; Meta-only videos with no owned file keep the static thumbnail. The
+ * <video> is mounted only while hovered, so the grid stays light until intent.
+ */
+function CardMedia({ c }: { c: any }) {
+  const [hovered, setHovered] = useState(false);
+  const [videoError, setVideoError] = useState(false);
+  const hasThumb = c.thumbnail_url && c.thumbnail_url !== "no-thumbnail";
+  const realVideo = typeof c.video_url === "string" && c.video_url.startsWith("http");
+  const showVideo = hovered && realVideo && !videoError;
+
+  return (
+    <div
+      className="absolute inset-0 flex items-center justify-center"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {hasThumb ? (
+        <CardThumbnail src={c.thumbnail_url} alt={c.ad_name || ""} />
+      ) : (
+        <LayoutGrid className="h-6 w-6 text-muted-foreground" />
+      )}
+      {showVideo && (
+        <video
+          key={c.video_url}
+          src={c.video_url}
+          autoPlay
+          muted
+          playsInline
+          loop
+          onError={() => setVideoError(true)}
+          className="absolute inset-0 h-full w-full object-contain bg-muted"
+        />
+      )}
+    </div>
+  );
+}
+
 function roasColor(roas: number | null | undefined): string {
   if (roas == null) return "text-charcoal";
   if (roas >= 2) return "text-verdant";
@@ -107,14 +148,10 @@ export function CreativesCardGrid({ creatives, onSelect, wowTrends, gradeMap, fa
               </div>
             )}
 
-            {/* Thumbnail */}
+            {/* Thumbnail — hover to autoplay the captured video (Vault parity) */}
             <div className="bg-muted rounded-t-card aspect-[4/3] flex items-center justify-center overflow-hidden relative">
-              {c.thumbnail_url && c.thumbnail_url !== "no-thumbnail" ? (
-                <CardThumbnail src={c.thumbnail_url} alt={c.ad_name || ""} />
-              ) : (
-                <LayoutGrid className="h-6 w-6 text-muted-foreground" />
-              )}
-              <div className="absolute top-1.5 left-1.5 flex items-center gap-1">
+              <CardMedia c={c} />
+              <div className="absolute top-1.5 left-1.5 z-10 flex items-center gap-1">
                 {(c.video_views > 0) && (
                   <div className="bg-charcoal/80 rounded-[3px] px-1.5 py-0.5 flex items-center gap-0.5">
                     <Video className="h-3 w-3 text-white" />
@@ -129,7 +166,7 @@ export function CreativesCardGrid({ creatives, onSelect, wowTrends, gradeMap, fa
                 )}
               </div>
               {gradeMap?.get(c.ad_id) && (
-                <div className="absolute top-1.5 right-1.5">
+                <div className="absolute top-1.5 right-1.5 z-10">
                   <GradeBadge grade={gradeMap.get(c.ad_id)!.grade} />
                 </div>
               )}

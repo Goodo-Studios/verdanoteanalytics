@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, subDays } from "date-fns";
-import { Download } from "lucide-react";
+import { Download, HelpCircle, ChevronDown } from "lucide-react";
 
 import { PageHeader } from "@/components/PageHeader";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
@@ -57,6 +57,72 @@ function KpiTile({
           </p>
         )}
       </CardContent>
+    </Card>
+  );
+}
+
+const HELP_KEY = "verdanote:rotation-help-collapsed";
+
+/** Plain-language "how to read this page" panel. Defaults open so first-time
+ *  viewers discover what the page is for; collapses to a one-line header and
+ *  remembers the choice (localStorage) so repeat users aren't nagged. */
+function RotationHelp({ freshDays }: { freshDays: FreshDays }) {
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem(HELP_KEY) === "1"; } catch { return false; }
+  });
+  const toggle = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try { localStorage.setItem(HELP_KEY, next ? "1" : "0"); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
+  return (
+    <Card className="border-verdant/30 bg-sage-light/10">
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={!collapsed}
+        className="w-full flex items-center gap-2 px-4 py-3 text-left"
+      >
+        <HelpCircle className="h-4 w-4 text-verdant shrink-0" />
+        <span className="font-body text-[14px] font-semibold text-charcoal flex-1">
+          How to read this page
+        </span>
+        <span className="font-body text-[12px] text-slate">{collapsed ? "Show" : "Hide"}</span>
+        <ChevronDown className={`h-4 w-4 text-slate transition-transform ${collapsed ? "" : "rotate-180"}`} />
+      </button>
+
+      {!collapsed && (
+        <CardContent className="px-4 pb-4 pt-0 space-y-3">
+          <p className="font-body text-[13px] leading-relaxed text-charcoal">
+            Meta ads get more expensive as they age — audiences see them too many times and stop
+            responding (&ldquo;creative fatigue&rdquo;). The cure is a steady flow of new creative. This page
+            shows <span className="font-semibold">how much of your spend is going to fresh vs. older
+            creative</span>, and whether the fresh stuff is actually converting more cheaply — so you can
+            tell if you&rsquo;re launching enough, and whether it&rsquo;s paying off.
+          </p>
+          <p className="font-body text-[13px] leading-relaxed text-charcoal">
+            The <span className="font-semibold">&ldquo;New = ≤{freshDays} days&rdquo;</span> toggle (top right) sets what
+            counts as &ldquo;fresh.&rdquo; Everything below re-calculates against it.
+          </p>
+          <ul className="font-body text-[13px] leading-relaxed text-charcoal space-y-1.5 pl-1">
+            <li><span className="font-semibold">Freshness</span> — the share of spend going to fresh creative. Higher means more of your budget is behind new ads.</li>
+            <li><span className="font-semibold">Spend-weighted creative age</span> — the average age of a dollar you spent. A rising number means your budget is leaning on older ads.</li>
+            <li><span className="font-semibold">Fresh vs. Stale CPA</span> — what a purchase costs from new vs. old creative. If stale CPA is higher, aging ads are dragging your efficiency down.</li>
+            <li><span className="font-semibold">Weekly spend by creative age</span> — how each week&rsquo;s budget split across fresh / mid / stale.</li>
+            <li><span className="font-semibold">Freshness vs. CPA</span> — whether weeks with more fresh spend actually had a lower cost per purchase.</li>
+            <li><span className="font-semibold">Launch cohorts</span> — ads grouped by when they launched, so you can see how each &ldquo;generation&rdquo; performs and how long it keeps spending.</li>
+            <li><span className="font-semibold">New ads over time</span> — your launch cadence: how many new ads you&rsquo;re shipping.</li>
+          </ul>
+          <p className="font-body text-[13px] leading-relaxed text-charcoal">
+            <span className="font-semibold">How to use it:</span> if freshness is trending down while stale CPA
+            climbs, that&rsquo;s your cue to ship more new creative. The launch cohorts tell you which recent
+            batches are still carrying spend — and which have already faded.
+          </p>
+        </CardContent>
+      )}
     </Card>
   );
 }
@@ -246,6 +312,10 @@ const CreativeRotationPage = () => {
           </div>
         }
       />
+
+      <div className="mb-6">
+        <RotationHelp freshDays={freshDays} />
+      </div>
 
       {isLoading ? (
         <div className="space-y-6">
