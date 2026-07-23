@@ -1347,6 +1347,26 @@ export type Database = {
           video_retry_count: number
           video_url: string | null
           video_views: number | null
+          ad_format: string | null
+          brand_name: string | null
+          copywriting_framework: string | null
+          cta_formula: string | null
+          cta_type: string | null
+          fill_in_blank_script: string | null
+          framework_json: Json | null
+          hook_formula: string | null
+          hook_text: string | null
+          hook_text_saved: boolean
+          hook_type: string | null
+          hook_verbal: string | null
+          hook_verbal_saved: boolean
+          hook_visual: string | null
+          hook_visual_saved: boolean
+          industry: string | null
+          target_audience: string | null
+          transcript: string | null
+          transcript_status: string
+          value_structure: string | null
         }
         Insert: {
           account_id: string
@@ -1414,6 +1434,26 @@ export type Database = {
           video_retry_count?: number
           video_url?: string | null
           video_views?: number | null
+          ad_format?: string | null
+          brand_name?: string | null
+          copywriting_framework?: string | null
+          cta_formula?: string | null
+          cta_type?: string | null
+          fill_in_blank_script?: string | null
+          framework_json?: Json | null
+          hook_formula?: string | null
+          hook_text?: string | null
+          hook_text_saved?: boolean
+          hook_type?: string | null
+          hook_verbal?: string | null
+          hook_verbal_saved?: boolean
+          hook_visual?: string | null
+          hook_visual_saved?: boolean
+          industry?: string | null
+          target_audience?: string | null
+          transcript?: string | null
+          transcript_status?: string
+          value_structure?: string | null
         }
         Update: {
           account_id?: string
@@ -1481,6 +1521,26 @@ export type Database = {
           video_retry_count?: number
           video_url?: string | null
           video_views?: number | null
+          ad_format?: string | null
+          brand_name?: string | null
+          copywriting_framework?: string | null
+          cta_formula?: string | null
+          cta_type?: string | null
+          fill_in_blank_script?: string | null
+          framework_json?: Json | null
+          hook_formula?: string | null
+          hook_text?: string | null
+          hook_text_saved?: boolean
+          hook_type?: string | null
+          hook_verbal?: string | null
+          hook_verbal_saved?: boolean
+          hook_visual?: string | null
+          hook_visual_saved?: boolean
+          industry?: string | null
+          target_audience?: string | null
+          transcript?: string | null
+          transcript_status?: string
+          value_structure?: string | null
         }
         Relationships: [
           {
