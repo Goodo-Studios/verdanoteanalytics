@@ -39,3 +39,6 @@ e2e/.auth/
 
 # HQ orchestration scratch
 .file-locks.json
+
+# Local agent worktrees (never commit)
+.claude/worktrees/
