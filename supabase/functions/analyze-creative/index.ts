@@ -33,7 +33,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { json } from "../_shared/cors.ts";
 import { parseLooseJson } from "../_shared/vault-analyze-logic.ts";
 import { extractDeepgramTranscript } from "../_shared/vault-transcribe-logic.ts";
-import { buildFrameworkColumns } from "../_shared/analyze-creative-logic.ts";
+import {
+  buildFrameworkColumns,
+  buildTagSuggestions,
+  metadataColumns,
+} from "../_shared/analyze-creative-logic.ts";
 import {
   isRetriableResponse,
   retryWaitMs,
@@ -369,33 +373,6 @@ interface CreativeRow {
   video_url: string | null;
 }
 
-interface TagSuggestion {
-  value: string;
-  confidence: number;
-  signal: "script" | "visual" | "destination";
-}
-
-// Build the review-gated tag_suggestions blob from the analysis outputs.
-function buildTagSuggestions(
-  fw: Record<string, unknown>,
-  brand: Record<string, unknown>,
-  fromVision: boolean,
-): Record<string, TagSuggestion> {
-  const out: Record<string, TagSuggestion> = {};
-  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
-  const put = (dim: string, value: string | null, confidence: number, signal: TagSuggestion["signal"]) => {
-    if (value) out[dim] = { value, confidence, signal };
-  };
-  const adFormat = str(brand.ad_format);
-  put("ad_type", adFormat, 0.6, fromVision ? "visual" : "script");
-  put("style", adFormat, 0.5, fromVision ? "visual" : "script");
-  put("product", str(brand.brand_name), 0.5, "script");
-  put("hook", str(fw.hook_type), 0.7, "script");
-  put("theme", str(brand.industry), 0.5, "script");
-  put("angle", str(fw.value_structure), 0.5, "script");
-  return out;
-}
-
 // Analyze one claimed creative. Returns the columns to write + the USD spent.
 async function analyzeOne(c: CreativeRow): Promise<{ update: Record<string, unknown>; costUsd: number }> {
   let cost = 0;
@@ -435,6 +412,10 @@ async function analyzeOne(c: CreativeRow): Promise<{ update: Record<string, unkn
       update: {
         // Vault-parity structured framework (discrete fields + framework_json).
         ...buildFrameworkColumns(fw, { isImage: true }),
+        // Vault-parity metadata promoted to first-class columns (IMAGE prompt emits
+        // brand_name/industry/ad_format/target_audience inline). style + person ride
+        // in framework_json + tag_suggestions (auto-tag layer promotes to columns).
+        ...metadataColumns(brand),
         ai_analysis: (fw.copy_analysis as string) ?? null,
         ai_hook_analysis: hookAnalysis || null,
         ai_cta_notes: [fw.cta_type, fw.cta_formula].filter(Boolean).join(" | ") || null,
@@ -557,6 +538,10 @@ async function analyzeOne(c: CreativeRow): Promise<{ update: Record<string, unkn
     update: {
       // Vault-parity structured framework (discrete fields + framework_json).
       ...buildFrameworkColumns(fw, { isImage: false }),
+      // Vault-parity metadata promoted to first-class columns (from BRAND_METADATA_PROMPT).
+      // style + person ride in framework_json + tag_suggestions (auto-tag layer
+      // promotes them to the style/person tag columns).
+      ...metadataColumns(brand),
       transcript: cleaned || raw || null,
       transcript_status: cleaned || raw ? "ready" : "none",
       ai_analysis: scriptR.text.trim() || null,
