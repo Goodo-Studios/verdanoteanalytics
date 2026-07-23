@@ -21,6 +21,17 @@ export interface CreativeFeatureInput extends CreativeTags {
   ad_id: string;
   ai_visual_notes?: string | null;
   tag_source?: string | null;
+  // Rich analysis fields (analyze-creative → creatives, vault-parity columns).
+  // Folded into the feature text so clustering can see the identity-bearing
+  // signals the flat v1 blob ignored (brand, audience, narrative structure,
+  // visual hook, format). All optional; absent ones are simply omitted.
+  brand_name?: string | null;
+  target_audience?: string | null;
+  value_structure?: string | null;
+  hook_visual?: string | null;
+  hook_type?: string | null;
+  industry?: string | null;
+  ad_format?: string | null;
 }
 
 export interface CreativeMetrics {
@@ -41,16 +52,39 @@ const TAG_KEYS: (keyof CreativeTags)[] = [
   "ad_type", "person", "style", "product", "hook", "theme",
 ];
 
+// Rich analysis fields, in the order they enter the feature text. These are the
+// identity-bearing signals from the upgraded analyze-creative output — a shared
+// brand / audience / narrative structure / visual hook is exactly what makes two
+// edits of the same ad concept cluster together. Ordered brand→format from most
+// to least discriminative.
+const RICH_KEYS: (keyof CreativeFeatureInput)[] = [
+  "brand_name", "target_audience", "value_structure", "hook_visual",
+  "hook_type", "ad_format", "industry",
+];
+
 /**
- * Build the text blob embedded for a creative. Combines ai_visual_notes with the
- * six parsed tag dimensions (labeled, so the embedder sees structure). Returns
+ * Build the text blob embedded for a creative. Combines ai_visual_notes, the rich
+ * analysis fields (brand / audience / structure / visual hook / format), and the
+ * six parsed tag dimensions — all labeled so the embedder sees structure. Returns
  * `null` when there is nothing meaningful to embed — callers SKIP these creatives
- * (v1 does not cluster untagged/unnoted ads) and surface them as coverage loss.
+ * and surface them as coverage loss.
+ *
+ * v2 adds the RICH_KEYS block: the flat v1 blob was ai_visual_notes + tags only,
+ * which starved clustering of the identity signals now available from the upgraded
+ * analyze-creative output. Re-embedding with this richer text is what lets same-
+ * concept variations resolve to one entity instead of scattering into singletons.
  */
 export function buildFeatureText(c: CreativeFeatureInput): string | null {
   const parts: string[] = [];
   const notes = (c.ai_visual_notes ?? "").trim();
   if (notes) parts.push(notes);
+
+  const richParts: string[] = [];
+  for (const k of RICH_KEYS) {
+    const v = (c[k] ?? "").toString().trim();
+    if (v) richParts.push(`${k}: ${v}`);
+  }
+  if (richParts.length) parts.push(richParts.join("\n"));
 
   const tagParts: string[] = [];
   for (const k of TAG_KEYS) {
