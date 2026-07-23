@@ -99,7 +99,14 @@ const FRAME_LIMIT = 8;
 //   • TIME_BUDGET_MS — wall-clock ceiling for the concurrent pass, well under the
 //     edge-function limit (~150s) with headroom for the closing count queries and
 //     the self-chain fire. Un-started claimed rows are released to 'pending'.
-const CONCURRENCY = Number(Deno.env.get("ANALYZE_CONCURRENCY") ?? 12);
+// Raised 12 → 20: measurement showed each ~45s hop completed only ~8 of a claimed
+// 24 because video items run ~30–45s and only CONCURRENCY of them run at once, so
+// one dispatch window drained barely half a wave (~600/hr). Direct provider probes
+// showed OpenRouter/Deepgram fast and NOT rate-limiting at this volume, and the
+// per-call 429/5xx backoff + per-attempt timeouts remain the hard safety net, so a
+// wider fan-out lifts throughput without a rate-limit storm. Still env-overridable
+// for ops to dial back if a provider ever pushes back.
+const CONCURRENCY = Number(Deno.env.get("ANALYZE_CONCURRENCY") ?? 20);
 // Wall-clock ceiling for DISPATCHING new items in the concurrent pass. Lowered to
 // 45s so that even a late-dispatched item — bounded by the per-ITEM deadline below
 // — finishes and the invocation RETURNS well under the ~150s edge idle limit
@@ -116,7 +123,13 @@ const TIME_BUDGET_MS = Number(Deno.env.get("ANALYZE_TIME_BUDGET_MS") ?? 45_000);
 // next run instead of occupying a slot until the stale-reclaim window. Bounding
 // every item this way is what stops a slow tail item from dragging the whole
 // invocation past the edge wall (which orphaned in-flight rows).
-const ITEM_TIMEOUT_MS = Number(Deno.env.get("ANALYZE_ITEM_TIMEOUT_MS") ?? 45_000);
+// 60s (raised from 45s): a legit video item is ~24–45s, and at 45s some genuine
+// items were being recycled just before finishing (measured recycled≈2/hop), which
+// wastes their partial work and risks a slow item recycling forever. 60s lets real
+// items complete while still hard-bounding a truly hung one. Worst case an item
+// dispatched right at TIME_BUDGET (45s) ends by 45+60=105s — comfortably under the
+// ~150s edge wall (plus the closing count queries + the durable self-chain enqueue).
+const ITEM_TIMEOUT_MS = Number(Deno.env.get("ANALYZE_ITEM_TIMEOUT_MS") ?? 60_000);
 const MAX_HTTP_RETRIES = 3; // OpenRouter/Groq/Deepgram 429 + 5xx retries before giving up (bounds worst-case per-call wall)
 // Per-attempt hard timeout on every provider HTTP call. Without this a hung or
 // pathologically slow provider call could pin a worker for the whole invocation.
