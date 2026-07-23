@@ -284,6 +284,31 @@ Deno.test("selectDrainBatch: backoff rows at the ad_id-DESC head do NOT starve u
   assertEquals(out.map((r) => r.ad_id), ["a-0003", "a-0002", "a-0001"]);
 });
 
+Deno.test("selectDrainBatch: returns untried STATIC rows when they are the only pending work", () => {
+  // A static ad carries no video (meta_video_ids empty) — selectDrainBatch keys only on
+  // capture_status / covered / retry-eligibility, so an untried static with no owned media
+  // MUST be selected. (selectDrainBatch is media-intent-agnostic by design.)
+  const rows = [
+    cand({ ad_id: "static-1", video_url: null, full_res_url: null }),
+    cand({ ad_id: "static-2", video_url: null, full_res_url: CDN }), // CDN = not owned → drainable
+    cand({ ad_id: "static-3", video_url: null, full_res_url: null }),
+  ];
+  const out = selectDrainBatch(rows, 10, NOW);
+  assertEquals(out.map((r) => r.ad_id).sort(), ["static-1", "static-2", "static-3"]);
+});
+
+Deno.test("selectDrainBatch: an all-covered candidate window yields an EMPTY batch (why the fetch must pre-exclude covered rows)", () => {
+  // The prod stall recurrence: covered-but-still-'pending' rows fill the limited fetch
+  // window; selectDrainBatch drops every one → empty batch → drain returns no_work. The
+  // fix excludes covered rows in the SQL fetch so this window can never be all-covered.
+  const rows = [
+    cand({ ad_id: "cov-1", video_url: STORAGE }),
+    cand({ ad_id: "cov-2", video_url: STORAGE }),
+    cand({ ad_id: "cov-3", full_res_url: STORAGE }),
+  ];
+  assertEquals(selectDrainBatch(rows, 3, NOW).length, 0);
+});
+
 Deno.test("isCaptureCovered: owned storage url only, not an expiring CDN url", () => {
   assertEquals(isCaptureCovered({ video_url: STORAGE, full_res_url: null }), true);
   assertEquals(isCaptureCovered({ video_url: null, full_res_url: STORAGE }), true);

@@ -32,6 +32,7 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { type DrainCandidate, selectDrainBatch } from "../_shared/preview-drain-logic.ts";
+import { STORAGE_URL_MARKER } from "../_shared/preview-capture-logic.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
@@ -45,14 +46,22 @@ export const BATCH_SIZE = 3;
 export const DEADLINE_MS = 110_000;
 // Self-chain depth bound (BATCH_SIZE × MAX_CHAIN captures per drain — ample).
 export const MAX_CHAIN = 50;
-// Over-fetch a few extra candidates so covered-row filtering in selectDrainBatch
-// still yields a full batch without a second query.
-const CANDIDATE_FETCH = BATCH_SIZE * 4;
+// Over-fetch generously so post-fetch filtering in selectDrainBatch (backoff/terminal
+// rows) still yields a full batch without a second query, even when a cluster of
+// ineligible rows sits at the ordering head.
+const CANDIDATE_FETCH = BATCH_SIZE * 8;
 
 // Columns selectDrainBatch needs (newest-first ordering + covered/backoff filtering).
 const CANDIDATE_SELECT =
   "ad_id, account_id, created_time, capture_status, video_url, full_res_url, " +
   "capture_attempts, capture_last_attempt_at";
+
+// PostgREST `like` wildcard form of the storage-owned marker (`%…%` → `*…*`), used to
+// EXCLUDE already-covered rows in the SQL fetch itself. NULL-safe via the paired
+// `col.is.null` disjunct — a NULL url is NOT covered, so it must survive the filter.
+const OWNED_LIKE = `*${STORAGE_URL_MARKER}*`;
+const NOT_OWNED_VIDEO = `video_url.is.null,video_url.not.like.${OWNED_LIKE}`;
+const NOT_OWNED_STATIC = `full_res_url.is.null,full_res_url.not.like.${OWNED_LIKE}`;
 
 /** Count creatives pending awaiting capture (queue depth). */
 async function pendingCount(db: SupabaseClient): Promise<number> {
@@ -63,7 +72,7 @@ async function pendingCount(db: SupabaseClient): Promise<number> {
   return count ?? 0;
 }
 
-Deno.serve(async (req) => {
+export async function handler(req: Request, supabaseOverride?: SupabaseClient): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
 
@@ -71,7 +80,8 @@ Deno.serve(async (req) => {
   // preview-capture / the self-chain carry the runtime service-role key.
   const internalAuth = `Bearer ${SERVICE_ROLE_KEY}`;
 
-  const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+  const db = supabaseOverride ??
+    createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
   const url = new URL(req.url);
   const body = await req.json().catch(() => ({} as Record<string, unknown>));
@@ -91,17 +101,25 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // ── Select the batch. SQL surfaces LEAST-RECENTLY-ATTEMPTED rows first
+    // ── Select the batch. The SQL fetch EXCLUDES already-covered rows (a storage-owned
+    //    video OR full-res static already present) — they are not drainable, and a
+    //    cluster of covered-but-still-'pending' rows sitting at the ordering head would
+    //    otherwise fill the whole limited window and starve the untried backlog behind
+    //    them (selectDrainBatch drops covered rows post-fetch, so an all-covered window
+    //    yields an EMPTY batch → the drain returns no_work every tick and stalls at zero
+    //    captures — the exact recurrence this fixes). This is the same head-starvation
+    //    class PR#83 closed for backoff rows; covered rows need excluding in SQL too.
+    //    Within the drainable set the fetch surfaces LEAST-RECENTLY-ATTEMPTED rows first
     //    (capture_last_attempt_at ASC NULLS FIRST → never-attempted rows lead),
     //    newest-first within that, and limits for index efficiency; selectDrainBatch
-    //    then filters covered + backoff/terminal rows and re-orders newest-first as
-    //    the tested contract. Ordering never-attempted rows to the head keeps the
-    //    fetch window rich in eligible rows so a cluster of backoff rows can never
-    //    starve the untried backlog (the stall this fixes). ──
+    //    then filters backoff/terminal rows (and re-applies the covered guard) and
+    //    re-orders newest-first as the tested contract. ──
     const { data: rows } = await db
       .from("creatives")
       .select(CANDIDATE_SELECT)
       .eq("capture_status", "pending")
+      .or(NOT_OWNED_VIDEO)
+      .or(NOT_OWNED_STATIC)
       .order("capture_last_attempt_at", { ascending: true, nullsFirst: true })
       .order("created_time", { ascending: false, nullsFirst: false })
       .limit(CANDIDATE_FETCH);
@@ -189,4 +207,9 @@ Deno.serve(async (req) => {
       try { await db.rpc("release_apify_drain_singleflight"); } catch { /* best effort */ }
     }
   }
-});
+}
+
+// Guard the network bind so tests can import the handler without serving.
+if (!Deno.env.get("PREVIEW_CAPTURE_DRAIN_NO_SERVE")) {
+  Deno.serve((req) => handler(req));
+}
