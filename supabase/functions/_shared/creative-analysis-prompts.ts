@@ -1,13 +1,23 @@
-// creative-analysis-prompts — VERBATIM copies of the Creative Vault analysis
-// prompts (vault-analyze/index.ts, vault-frame-analyze/index.ts). The account-
-// creative pipeline (analyze-creative) reuses the SAME prompts + output shape so
-// a live creative gets the exact hooks + clean script + framework + analysis a
-// vault card shows — Save-to-Vault then becomes a data copy, not a re-analysis.
+// creative-analysis-prompts — the Creative Vault analysis prompts as used by the
+// account-side analyze-creative pipeline. Historically byte-for-byte copies of
+// vault-analyze/index.ts + vault-frame-analyze/index.ts so a live creative gets the
+// exact hooks + clean script + framework + analysis a vault card shows, making
+// Save-to-Vault a data copy rather than a re-analysis.
 //
-// Only the MODEL + provider routing differ (analyze-creative routes these through
-// cheap OpenRouter models per US-000; the vault uses Claude direct). Prompt text
-// must stay byte-for-byte identical to the vault to preserve parity — if the vault
-// prompts change, update here too (or, later, have vault-analyze import this).
+// DRIFT NOTE (2026-07-23, analysis-vault-parity): the LIVE Creative Vault now
+// produces a RICHER analysis than the terse prompts checked into
+// vault-analyze/index.ts — most visibly a rich, time-segmented "value delivery"
+// (value_structure), plus a hook_visual field and style/person extraction. To match
+// the LIVE Vault output the account prompts below were upgraded here (rich
+// value_structure, hook_visual, style, person) WITHOUT re-touching vault-analyze —
+// changing vault-analyze's inline prompts would require a supervised vault-analyze
+// redeploy + live-diffing, out of scope for this account-only change. So these
+// prompts are intentionally AHEAD OF the repo's stale vault-analyze copies.
+// FOLLOW-UP: reconcile vault-analyze/index.ts's inline prompts to the live Vault
+// (and ideally have it import this module) so the two converge again.
+//
+// Only the MODEL + provider routing differ from the Vault: analyze-creative routes
+// these through cheap OpenRouter models per US-000; the vault uses Claude direct.
 
 export const CLEAN_TRANSCRIPT_PROMPT =
   `You are editing a raw speech-to-text transcript from a short-form social video.
@@ -95,11 +105,14 @@ Extract the following and respond with ONLY valid JSON (no markdown fences, no e
   "hook_type": "bold_claim" | "pattern_interrupt" | "honest_admission" | "question" | "other",
   "hook_verbal": "The exact words spoken out loud as the hook — copy them verbatim from the script (first 1–3 sentences). This is what the creator says.",
   "hook_text": "The text overlay or on-screen caption visible in the video thumbnail — e.g. a bold claim in all-caps, a question flashed on screen, or a punchy phrase shown as an overlay. Transcribe it exactly from the image. Use null only if no on-screen text is visible.",
+  "hook_visual": "What the VIEWER SEES in the first 0–3 seconds — the opening visual, action, or setting that stops the scroll, described distinctly from any on-screen text (hook_text) and the spoken words (hook_verbal). E.g. 'creator holds the product to camera in a cluttered kitchen', 'fast push-in on a shocked face', 'hands unboxing on a white desk'. Infer from the thumbnail + script. Use null if it genuinely cannot be inferred.",
   "hook_formula": "Fill-in-the-blank version of the hook using [CLAIM], [TOPIC], [TIMEFRAME], [RESULT] as placeholders.",
-  "value_structure": "One sentence describing how the body is organized: list / story / before-after / demonstration / contrast / single insight with example",
+  "value_structure": "A RICH, chronological account of HOW the body delivers value across the 3–50s window — NOT a one-word label. Trace the actual narrative beats in order as an arrow chain, naming the concrete specifics the creator gives at each beat. E.g. 'before (investment banker) → catalyst (legalization) → struggle (early losses) → patience (held 5yr) → inflection (5x revenue) → current state (runs the fund)'. Aim for roughly 150–260 characters. Capture the real progression and its specifics, never a generic category like 'single insight with example'.",
   "cta_type": "comment" | "follow" | "visit" | "dm" | "save" | "other",
   "cta_formula": "Fill-in-the-blank CTA using [KEYWORD], [PLATFORM], [RESOURCE], [ACTION] as placeholders.",
-  "fill_in_blank_script": "The full script rewritten as a fill-in-the-blank template. Replace brand-specific details with [BRAND], [CLAIM], [SPECIFIC_EXAMPLE], [RESULT], [CTA_ACTION]. Keep structure, pacing, and sentence rhythm exactly as the original."
+  "fill_in_blank_script": "The full script rewritten as a fill-in-the-blank template. Replace brand-specific details with [BRAND], [CLAIM], [SPECIFIC_EXAMPLE], [RESULT], [CTA_ACTION]. Keep structure, pacing, and sentence rhythm exactly as the original.",
+  "style": "The creative/production style, as a short tag — e.g. 'Raw UGC', 'Polished Branded', 'Cinematic', 'Voiceover B-roll', 'Talking Head', 'Meme / Text-on-screen', 'Street Interview'. Use null if unclear.",
+  "person": "Who is on camera / the creator persona — e.g. 'Female founder, 30s', 'Male doctor', 'Street interviewer + passersby', 'No person (product only)'. Use null if unclear."
 }`;
 
 // Static image ad (no transcript): a SINGLE vision call that returns framework +
@@ -118,8 +131,9 @@ Respond with ONLY valid JSON (no markdown fences, no explanation):
   "copywriting_framework": "AIDA" | "PAS" | "BAB" | "FAB" | "HSO" | "PASTOR" | "4Ps" | "SLAP" | "Star-Story-Solution" | "Problem-Promise-Proof-Proposal" | "Storybrand" | "Rule of One" | "Other",
   "hook_type": "bold_claim" | "pattern_interrupt" | "honest_admission" | "question" | "other",
   "hook_text": "The primary headline / hero text overlay visible on the image — transcribe it exactly. Use null if there is no visible text.",
+  "hook_visual": "The dominant opening visual element that grabs attention — e.g. 'oversized product hero on a bold gradient', 'before/after split', 'lifestyle shot of the product in use'. Describe the visual hook distinctly from the headline text. Use null if unclear.",
   "hook_formula": "Fill-in-the-blank version of the headline using [CLAIM], [TOPIC], [RESULT], [BENEFIT] placeholders.",
-  "value_structure": "One sentence describing how the ad's message and layout are organized: single claim / benefit list / before-after / product hero / comparison / testimonial / infographic",
+  "value_structure": "A RICH account of HOW the ad's message and layout deliver value — NOT a one-word label. Trace the beats in order as an arrow chain naming the concrete specifics visible, e.g. 'pain callout (bloating) → product hero (greens powder) → proof (3 clinical claims) → offer (20% off first order)'. Aim for roughly 150–260 characters. Never a generic category like 'product hero' alone.",
   "cta_type": "comment" | "follow" | "visit" | "dm" | "save" | "shop" | "other",
   "cta_formula": "Fill-in-the-blank CTA using [ACTION], [BRAND], [OFFER] placeholders. Use null if no CTA is visible.",
   "fill_in_blank_script": "All visible ad copy rewritten as a reusable fill-in-the-blank template. Replace brand-specific details with [BRAND], [CLAIM], [BENEFIT], [OFFER], [CTA_ACTION]. Keep the structure and tone.",
@@ -127,6 +141,8 @@ Respond with ONLY valid JSON (no markdown fences, no explanation):
   "industry": "The industry/vertical (e.g. Insurance, Packaged Food, Home Goods, Beauty, Fitness, Technology, Finance, Apparel, SaaS, Health, Education). Use null if unclear.",
   "ad_format": "The static creative format (e.g. Product Hero, Lifestyle, Testimonial Quote, Before/After, Feature Callout, Sale/Promo, Infographic). Use null if unclear.",
   "target_audience": "One sentence describing who this ad targets. Use null if unclear.",
+  "style": "The creative/production style, as a short tag — e.g. 'Product Hero', 'Lifestyle', 'Minimal Studio', 'UGC Screenshot', 'Infographic', 'Meme / Text-on-image'. Use null if unclear.",
+  "person": "Who appears in the image — e.g. 'Female model, 20s', 'Hands only', 'No person (product only)'. Use null if unclear.",
   "visual_analysis": "2-3 sentences describing the actual visual: layout, imagery, color, product presentation, and how the design supports the message.",
   "copy_analysis": "3-4 sentences analyzing the written copy: headline/hook effectiveness, clarity of the value proposition, and CTA strength. Tactical and specific, no headers or bullet lists."
 }`;
