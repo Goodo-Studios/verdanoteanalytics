@@ -101,3 +101,64 @@ Deno.test("resolver never emits legacy csv/inferred", () => {
     assertEquals(allowed.has(c.tag_source), true);
   }
 });
+
+// ── US-009: the 'ai' layer (below parsed) + sources + needs_review ────────────
+
+Deno.test("ai layer sits BELOW parsed: parser wins the shared dimension", () => {
+  const parsed: AdNameTags = { ...allNull, hook: "Problem Callout" };
+  const ai = { hook: "Statement Bold", ad_type: "Video" };
+  const { tags, tag_source, sources } = resolveTags(parsed, null, null, ai);
+  assertEquals(tags.hook, "Problem Callout"); // parser beats ai
+  assertEquals(sources.hook, "parsed");
+  assertEquals(tags.ad_type, "Video"); // ai fills where parser was silent
+  assertEquals(sources.ad_type, "ai");
+  assertEquals(tag_source, "parsed"); // highest contributor
+});
+
+Deno.test("ai-only row -> tag_source 'ai' + per-dim provenance", () => {
+  const ai = { hook: "Question", product: "Velora" };
+  const { tags, tag_source, sources } = resolveTags(allNull, null, null, ai);
+  assertEquals(tag_source, "ai");
+  assertEquals(tags.hook, "Question");
+  assertEquals(sources.hook, "ai");
+  assertEquals(sources.product, "ai");
+  assertEquals(sources.style, null); // nothing supplied style
+});
+
+Deno.test("manual/csv still beat the ai layer", () => {
+  const ai = { ad_type: "Video", person: "Creator" };
+  const { tags, tag_source, sources } = resolveTags(
+    null,
+    { person: "Customer" }, // csv
+    { ad_type: "Carousel" }, // manual
+    ai,
+  );
+  assertEquals(tags.ad_type, "Carousel");
+  assertEquals(sources.ad_type, "manual");
+  assertEquals(tags.person, "Customer");
+  assertEquals(sources.person, "csv_match");
+  assertEquals(tag_source, "manual");
+});
+
+Deno.test("needs_review raised only when a FUZZY ai dim actually wins", () => {
+  // theme is fuzzy and ai supplies it (nothing higher does) -> review.
+  const r1 = resolveTags(allNull, null, null, { theme: "Before-After", hook: "Question" }, ["theme"]);
+  assertEquals(r1.needs_review, true);
+  assertEquals(r1.sources.theme, "ai");
+
+  // Same fuzzy dim, but parser already supplies theme -> ai suppressed -> no flag.
+  const r2 = resolveTags({ ...allNull, theme: "Lifestyle" }, null, null, { theme: "Before-After" }, ["theme"]);
+  assertEquals(r2.needs_review, false);
+  assertEquals(r2.sources.theme, "parsed");
+
+  // No fuzzy dims declared -> never flags.
+  const r3 = resolveTags(allNull, null, null, { hook: "Question" });
+  assertEquals(r3.needs_review, false);
+});
+
+Deno.test("3-arg calls still work unchanged (ai omitted)", () => {
+  const { tags, tag_source, needs_review } = resolveTags({ ...allNull, ad_type: "Video" }, null, null);
+  assertEquals(tags.ad_type, "Video");
+  assertEquals(tag_source, "parsed");
+  assertEquals(needs_review, false);
+});

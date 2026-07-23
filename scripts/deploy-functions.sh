@@ -20,6 +20,7 @@ FUNCTIONS=(
   backfill-play-curves
   backfill-post-urls
   backfill-retag
+  backfill-ai-tags
   creative-rotation
   cache-creative-image
   creative-library
