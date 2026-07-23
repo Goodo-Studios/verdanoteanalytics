@@ -295,10 +295,26 @@ test.describe("Vault — save analytics creative to global library (US-006)", ()
     await expect(page).toHaveURL(/\/creatives/);
     await expectNoErrorPage(page);
 
-    // Allow the creatives table/grid to fetch real rows (not just skeletons).
-    await page.waitForTimeout(3_000);
+    // Wait for the creatives list to FINISH its fetch and settle, rather than
+    // sleeping a fixed interval. The list fetch is a backend query whose latency
+    // rises under provider/DB load (e.g. during a large analysis backfill); a
+    // fixed 3s sleep then counting rows intermittently observed zero rows while a
+    // slow-but-correct fetch was still in flight, red-X'ing the later
+    // `reopenCount > savedIndex` assertion. Settled === either real rows rendered
+    // OR the page shows a terminal empty-state heading ("No creatives yet" / "No
+    // data for this date range"). This polls the settled signal directly (web-first),
+    // so a slow backend still passes and a genuinely stuck fetch still fails loud
+    // at the bound. It does not wait on any async analysis — only the list read.
+    const rows = creativeRows(page);
+    const emptyState = page.getByRole("heading", {
+      name: /no creatives yet|no data for this date range/i,
+    });
+    await expect(async () => {
+      const [rowCount, emptyCount] = await Promise.all([rows.count(), emptyState.count()]);
+      expect(rowCount > 0 || emptyCount > 0).toBeTruthy();
+    }).toPass({ timeout: 30_000 });
 
-    return await creativeRows(page).count();
+    return await rows.count();
   }
 
   /** Open the creative-detail modal for the row at `index`; resolves when visible. */
@@ -472,11 +488,29 @@ test.describe("Vault — save analytics creative to global library (US-006)", ()
     await openCreativeAt(page, savedIndex);
 
     const modal2 = page.locator("[role='dialog']");
+
+    // Wait for the Save affordance to SETTLE out of its disabled "Checking…"
+    // state before branching. The modal opens the button disabled as "Checking…"
+    // until the already-in-vault lookup (a `inspiration_items` read keyed on
+    // source_ad_id) resolves, then settles into a disabled "Already in Vault"
+    // (this ad was just saved above). Reading the button state before it settles
+    // was the flake: under provider/DB load the lookup lags, `savedState2.count()`
+    // was observed as 0 mid-"Checking…", the else-branch clicked a "Save to Vault"
+    // label that never reappears (the button settles disabled, not back to
+    // "Save to Vault"), and that click blocked until the whole per-test timeout.
+    // This wait mirrors the scan loop above and targets the SAVE write's dedupe
+    // signal (the fast vault-row lookup), NOT any async transcription/analysis —
+    // so a slow-but-correct backend still passes and the step is bounded.
+    const settledAction2 = modal2.getByRole("button", {
+      name: /^(save to vault|saved|already in vault)$/i,
+    });
+    await expect(settledAction2.first()).toBeVisible({ timeout: 15_000 });
+
     // The save affordance must now reflect the already-in-vault state:
     // either the button reads "Already in Vault"/"Saved" and is disabled, or a
     // fresh click yields the "Already in Vault" dedupe toast (never a duplicate).
     const savedState2 = modal2.getByRole("button", { name: /^(saved|already in vault)$/i });
-    const freshButton2 = modal2.getByRole("button", { name: /save to vault/i });
+    const freshButton2 = modal2.getByRole("button", { name: /^save to vault$/i });
 
     if ((await savedState2.count()) > 0) {
       await expect(savedState2.first()).toBeVisible({ timeout: 15_000 });
