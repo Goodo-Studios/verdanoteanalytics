@@ -170,7 +170,7 @@ const TaxonomyConfigSection = ({ accounts }: TaxonomyConfigSectionProps) => {
             when tagging.
           </p>
         </div>
-        <Select value={accountId ?? undefined} onValueChange={(v) => setAccountId(v)}>
+        <Select value={accountId ?? ""} onValueChange={(v) => setAccountId(v)}>
           <SelectTrigger className="w-72">
             <SelectValue placeholder="Select an account" />
           </SelectTrigger>
