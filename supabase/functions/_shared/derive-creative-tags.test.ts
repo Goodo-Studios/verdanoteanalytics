@@ -16,6 +16,10 @@ import {
   fuzzyDimsOf,
   computeAutoTags,
   HOOK_TYPE_TO_APP,
+  deriveMatrixTags,
+  suggestBody,
+  decideMatrixWrite,
+  CREATIVE_LANES,
 } from "./derive-creative-tags.ts";
 import type { AdNameTags } from "./parse-ad-name.ts";
 
@@ -182,4 +186,130 @@ Deno.test("computeAutoTags: needs_review only when the fuzzy AI dim actually WIN
   assertEquals(r.tags.theme, "Lifestyle");
   assertEquals(r.sources.theme, "parsed");
   assertEquals(r.needs_review, false);
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// US-005: deterministic matrix placement (lane/type), review-only body, no-demote.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── deriveMatrixTags: lane precedence ─────────────────────────────────────────
+
+Deno.test("matrix: still-image media → Static lane (even when UGC-styled)", () => {
+  assertEquals(deriveMatrixTags({ ad_type: "Static" }).creative_lane, "Static");
+  assertEquals(deriveMatrixTags({ ad_type: "Carousel" }).creative_lane, "Static");
+  // A static shot with a UGC style is STILL the Static production lane, not Creator.
+  assertEquals(deriveMatrixTags({ ad_type: "Static", style: "UGC Native" }).creative_lane, "Static");
+});
+
+Deno.test("matrix: motion/animation signal (or GIF) → Motion lane", () => {
+  assertEquals(deriveMatrixTags({ ad_type: "GIF" }).creative_lane, "Motion");
+  assertEquals(deriveMatrixTags({ ad_type: "Video", ad_format: "Animated explainer" }).creative_lane, "Motion");
+  assertEquals(deriveMatrixTags({ ad_type: "Video", ad_format: "Kinetic typography promo" }).creative_lane, "Motion");
+});
+
+Deno.test("matrix: video-edit/remix signal → Video edits lane", () => {
+  assertEquals(deriveMatrixTags({ ad_type: "Video", ad_format: "Reaction edit of a review" }).creative_lane, "Video edits");
+  assertEquals(deriveMatrixTags({ ad_type: "Video", ad_format: "Supercut compilation" }).creative_lane, "Video edits");
+});
+
+Deno.test("matrix: creator/UGC signal on video → Creator lane", () => {
+  assertEquals(deriveMatrixTags({ ad_type: "Video", style: "UGC Native" }).creative_lane, "Creator");
+  assertEquals(deriveMatrixTags({ ad_type: "Video", ad_format: "Unboxing" }).creative_lane, "Creator");
+});
+
+Deno.test("matrix: plain video with no finer signal → Studio video lane", () => {
+  assertEquals(deriveMatrixTags({ ad_type: "Video" }).creative_lane, "Studio video");
+  assertEquals(deriveMatrixTags({ ad_type: "Video", style: "Studio Clean" }).creative_lane, "Studio video");
+});
+
+Deno.test("matrix: nothing recognizable → null lane + null type (never guess)", () => {
+  assertEquals(deriveMatrixTags({}), { creative_lane: null, creative_type: null });
+  assertEquals(deriveMatrixTags({ ad_type: "Weird" }), { creative_lane: null, creative_type: null });
+});
+
+// ── deriveMatrixTags: specific type within the lane ───────────────────────────
+
+Deno.test("matrix: creative_type resolves from a clear keyword within the lane", () => {
+  assertEquals(deriveMatrixTags({ ad_type: "Video", ad_format: "Talking head spokesperson" }).creative_type, "Talking Head");
+  assertEquals(deriveMatrixTags({ ad_type: "Video", ad_format: "Founder story origin" }).creative_type, "Founder Story");
+  assertEquals(deriveMatrixTags({ ad_type: "Static", ad_format: "Product shot on white" }).creative_type, "Product Shot");
+  assertEquals(deriveMatrixTags({ ad_type: "Static", style: "Text Forward" }).creative_type, "Text Forward");
+  assertEquals(deriveMatrixTags({ ad_type: "Video", ad_format: "UGC unboxing" }).creative_type, "Unboxing");
+});
+
+Deno.test("matrix: lane resolves but no type keyword → lane-only placement", () => {
+  const r = deriveMatrixTags({ ad_type: "Video" }); // Studio video, no type keyword
+  assertEquals(r.creative_lane, "Studio video");
+  assertEquals(r.creative_type, null);
+});
+
+Deno.test("matrix: every emitted type belongs to one of the five house lanes", () => {
+  // Sanity: lanes constant matches the five house lanes.
+  assertEquals([...CREATIVE_LANES], ["Studio video", "Creator", "Static", "Motion", "Video edits"]);
+});
+
+// ── suggestBody: review-only body suggestion ──────────────────────────────────
+
+Deno.test("body: a named copywriting_framework is suggested verbatim (high conf)", () => {
+  assertEquals(suggestBody({ copywriting_framework: "PAS" }), { value: "PAS", confidence: 0.6, signal: "script" });
+  assertEquals(suggestBody({ copywriting_framework: "AIDA" })?.value, "AIDA");
+});
+
+Deno.test("body: 'Other'/junk framework falls back to value_structure token (lower conf)", () => {
+  assertEquals(
+    suggestBody({ copywriting_framework: "Other", value_structure: "A before-after transformation reveal" }),
+    { value: "Before-After", confidence: 0.4, signal: "script" },
+  );
+  // No framework at all, but a matchable structure sentence.
+  assertEquals(suggestBody({ value_structure: "Customer testimonial montage" })?.value, "Testimonial");
+});
+
+Deno.test("body: nothing recognizable → null (never dump the raw sentence)", () => {
+  assertEquals(suggestBody({}), null);
+  assertEquals(suggestBody({ copywriting_framework: "Other", value_structure: "freeform with no known structure" }), null);
+});
+
+// ── decideMatrixWrite: fill-only-empty + NO-DEMOTE guard ──────────────────────
+
+Deno.test("no-demote: fills a null column with the deterministic value (upgrade)", () => {
+  const d = decideMatrixWrite(
+    { creative_lane: null, creative_type: null },
+    { creative_lane: "Studio video", creative_type: "Talking Head" },
+  );
+  assertEquals(d.creative_lane, "Studio video");
+  assertEquals(d.creative_type, "Talking Head");
+  assertEquals(d.changed, true);
+  assertEquals(d.protectedFromDemote, false);
+});
+
+Deno.test("no-demote: an existing (manual/csv) lane is NEVER overwritten or cleared", () => {
+  // Deterministic layer produced nothing → the existing lane must be kept.
+  const d = decideMatrixWrite(
+    { creative_lane: "Creator", creative_type: "UGC Testimonial" },
+    { creative_lane: null, creative_type: null },
+  );
+  assertEquals(d.creative_lane, "Creator"); // kept, not demoted to null
+  assertEquals(d.creative_type, "UGC Testimonial");
+  assertEquals(d.changed, false);           // no write
+  assertEquals(d.protectedFromDemote, true); // the guard fired
+});
+
+Deno.test("no-demote: an existing lane wins even over a DIFFERENT deterministic value", () => {
+  const d = decideMatrixWrite(
+    { creative_lane: "Creator", creative_type: null },
+    { creative_lane: "Studio video", creative_type: "Talking Head" },
+  );
+  // Existing lane kept; only the null type is filled.
+  assertEquals(d.creative_lane, "Creator");
+  assertEquals(d.creative_type, "Talking Head");
+  assertEquals(d.changed, true);
+});
+
+Deno.test("no-demote: fully-tagged row with no deterministic signal is a no-op", () => {
+  const d = decideMatrixWrite(
+    { creative_lane: "Static", creative_type: "Product Shot" },
+    { creative_lane: null, creative_type: null },
+  );
+  assertEquals(d.changed, false);
+  assertEquals(d.protectedFromDemote, true);
 });
