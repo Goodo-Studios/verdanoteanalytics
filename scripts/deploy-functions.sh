@@ -43,6 +43,7 @@ FUNCTIONS=(
   ingest-reviews
   landing-pages
   leaderboard
+  matrix
   portfolio
   quick-save
   refresh-thumbnails
