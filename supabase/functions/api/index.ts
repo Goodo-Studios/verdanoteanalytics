@@ -550,7 +550,34 @@ export async function handleApi(
       });
     }
 
-    return new Response(JSON.stringify({ error: "Not found", available_endpoints: ["/accounts", "/creatives", "/creatives/:id", "/metrics", "/summary", "/hooks", "/angles", "/coverage", "/convention", "/library", "/sync"] }), {
+    // GET /api/account-taxonomy — read-only mirror of the in-app account-taxonomy
+    // function. Calls the SAME single read RPC (rpc_account_taxonomy) so the
+    // external api surface + verdanote-read-mcp read byte-identical values to
+    // React. Read-only: all taxonomy WRITES go through the session-authed
+    // account-taxonomy edge function only.
+    if (resource === "account-taxonomy" && req.method === "GET") {
+      const accountId = url.searchParams.get("account_id");
+      if (!accountId) {
+        return new Response(JSON.stringify({ error: "account_id is required" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const allowed = await verifyAccountOwnership(supabase, userId, accountId);
+      if (!allowed) {
+        return new Response(JSON.stringify({ error: "Access denied" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data, error } = await supabase.rpc("rpc_account_taxonomy", { p_account_id: accountId });
+      if (error) throw error;
+      return new Response(JSON.stringify({ taxonomy: data }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ error: "Not found", available_endpoints: ["/accounts", "/creatives", "/creatives/:id", "/metrics", "/summary", "/hooks", "/angles", "/coverage", "/convention", "/library", "/account-taxonomy", "/sync"] }), {
       status: 404,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

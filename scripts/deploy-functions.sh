@@ -9,6 +9,7 @@ cd "$(dirname "$0")/.."
 
 FUNCTIONS=(
   accounts
+  account-taxonomy
   ai-chat
   analyze-creative
   api
