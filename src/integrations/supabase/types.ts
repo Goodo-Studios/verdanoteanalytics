@@ -64,6 +64,48 @@ export type Database = {
           },
         ]
       }
+      account_creative_types: {
+        Row: {
+          account_id: string
+          active: boolean
+          created_at: string
+          creative_type_id: string
+          id: string
+          sort_order: number
+        }
+        Insert: {
+          account_id: string
+          active?: boolean
+          created_at?: string
+          creative_type_id: string
+          id?: string
+          sort_order?: number
+        }
+        Update: {
+          account_id?: string
+          active?: boolean
+          created_at?: string
+          creative_type_id?: string
+          id?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_creative_types_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "ad_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "account_creative_types_creative_type_id_fkey"
+            columns: ["creative_type_id"]
+            isOneToOne: false
+            referencedRelation: "creative_type_menu"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ad_accounts: {
         Row: {
           attribution_model: string | null
@@ -1280,6 +1322,30 @@ export type Database = {
           },
         ]
       }
+      creative_type_menu: {
+        Row: {
+          created_at: string
+          id: string
+          lane: string
+          sort_order: number
+          type_name: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          lane: string
+          sort_order?: number
+          type_name: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          lane?: string
+          sort_order?: number
+          type_name?: string
+        }
+        Relationships: []
+      }
       creatives: {
         Row: {
           account_id: string
@@ -1367,6 +1433,10 @@ export type Database = {
           transcript: string | null
           transcript_status: string
           value_structure: string | null
+          angle_id: string | null
+          body: string | null
+          creative_lane: string | null
+          creative_type: string | null
         }
         Insert: {
           account_id: string
@@ -1454,6 +1524,10 @@ export type Database = {
           transcript?: string | null
           transcript_status?: string
           value_structure?: string | null
+          angle_id?: string | null
+          body?: string | null
+          creative_lane?: string | null
+          creative_type?: string | null
         }
         Update: {
           account_id?: string
@@ -1541,6 +1615,10 @@ export type Database = {
           transcript?: string | null
           transcript_status?: string
           value_structure?: string | null
+          angle_id?: string | null
+          body?: string | null
+          creative_lane?: string | null
+          creative_type?: string | null
         }
         Relationships: [
           {
@@ -1548,6 +1626,13 @@ export type Database = {
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "ad_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creatives_angle_id_fkey"
+            columns: ["angle_id"]
+            isOneToOne: false
+            referencedRelation: "angle_clusters"
             referencedColumns: ["id"]
           },
           {
