@@ -7,7 +7,14 @@
 // Legacy 'csv'/'inferred' must never be emitted.
 
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { resolveTags } from "./resolve-tags.ts";
+import {
+  buildAngleIndex,
+  normalizeThemeKey,
+  resolveAngleReference,
+  resolveAngleReferenceWithIndex,
+  resolveTags,
+  type AngleRef,
+} from "./resolve-tags.ts";
 import type { AdNameTags } from "./parse-ad-name.ts";
 
 const allNull: AdNameTags = {
@@ -161,4 +168,71 @@ Deno.test("3-arg calls still work unchanged (ai omitted)", () => {
   assertEquals(tags.ad_type, "Video");
   assertEquals(tag_source, "parsed");
   assertEquals(needs_review, false);
+});
+
+// ── US-004: free-text theme → governed angle_id reference conversion ───────────
+
+const ANGLES: AngleRef[] = [
+  { id: "a-spring", label: "Spring Refresh" },
+  { id: "a-value", label: "Value Seeker" },
+  { id: "a-dup", label: "spring refresh" }, // dup normalized key — earlier wins
+];
+
+Deno.test("normalizeThemeKey: lowercases, collapses whitespace, trims", () => {
+  assertEquals(normalizeThemeKey("  Spring   Refresh  "), "spring refresh");
+  assertEquals(normalizeThemeKey("VALUE\tSeeker"), "value seeker");
+  assertEquals(normalizeThemeKey(null), "");
+  assertEquals(normalizeThemeKey(123), "");
+});
+
+Deno.test("buildAngleIndex: normalized keys, earlier entry wins on dup", () => {
+  const idx = buildAngleIndex(ANGLES);
+  assertEquals(idx.get("spring refresh"), "a-spring"); // NOT a-dup
+  assertEquals(idx.get("value seeker"), "a-value");
+  assertEquals(idx.size, 2);
+});
+
+Deno.test("resolveAngleReference: exact-ish match maps to angle_id, preserves theme", () => {
+  const r = resolveAngleReference("spring REFRESH", ANGLES);
+  assertEquals(r.angle_id, "a-spring");
+  assertEquals(r.theme, "spring REFRESH"); // original preserved verbatim
+  assertEquals(r.matched, true);
+  assertEquals(r.needs_review, false);
+});
+
+Deno.test("resolveAngleReference: unmatched free-text is FLAGGED, never dropped", () => {
+  const r = resolveAngleReference("Winter Sale", ANGLES);
+  assertEquals(r.angle_id, null);
+  assertEquals(r.theme, "Winter Sale"); // preserved for review — not dropped
+  assertEquals(r.matched, false);
+  assertEquals(r.needs_review, true);
+});
+
+Deno.test("resolveAngleReference: blank/absent theme is untagged, not a review case", () => {
+  for (const v of [null, undefined, "", "   "]) {
+    const r = resolveAngleReference(v, ANGLES);
+    assertEquals(r.angle_id, null);
+    assertEquals(r.theme, null);
+    assertEquals(r.matched, false);
+    assertEquals(r.needs_review, false);
+  }
+});
+
+Deno.test("resolveAngleReference: empty angle list flags any present theme", () => {
+  const r = resolveAngleReference("Spring Refresh", []);
+  assertEquals(r.angle_id, null);
+  assertEquals(r.theme, "Spring Refresh");
+  assertEquals(r.needs_review, true);
+});
+
+Deno.test("resolveAngleReferenceWithIndex: batch reuse of a prebuilt index", () => {
+  const idx = buildAngleIndex(ANGLES);
+  assertEquals(resolveAngleReferenceWithIndex("Value Seeker", idx).angle_id, "a-value");
+  assertEquals(resolveAngleReferenceWithIndex("Unknown", idx).needs_review, true);
+});
+
+Deno.test("angle conversion does not touch the six-dimension tag precedence", () => {
+  // A row's tag_source resolution is unaffected by angle_id (separate matrix axis).
+  const { tag_source } = resolveTags({ ...allNull, theme: "Winter Sale" }, null, null);
+  assertEquals(tag_source, "parsed"); // theme still resolves via the six-dim path
 });

@@ -14,10 +14,12 @@ import {
 } from "@/components/ui/select";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { CreativeDetailModal } from "@/components/CreativeDetailModal";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { saveCreativeToVault } from "@/lib/vaultSave";
 import { useCreativeLibrary, type CreativeClass } from "./hooks/useCreativeLibrary";
 import { archiveCreatives, exportCreativesZip, type LibraryCreative } from "./api";
 import { LibraryCard } from "./components/LibraryCard";
+import { GovernedTagEditor } from "./components/GovernedTagEditor";
 import { CLASS_META } from "./components/classMeta";
 
 // BUILDER dogfood gate (roadmap §4 rollout): the Creative Library ships behind
@@ -65,6 +67,7 @@ export default function CreativeLibraryPage() {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<LibraryCreative | null>(null);
+  const [tagging, setTagging] = useState<LibraryCreative | null>(null);
 
   const from = useMemo(() => isoDaysAgo(windowDays), [windowDays]);
   const to = useMemo(() => today(), []);
@@ -276,6 +279,7 @@ export default function CreativeLibraryPage() {
                   creative={c}
                   classification={data?.classification.get(c.ad_id)}
                   onOpen={setDetail}
+                  onTag={setTagging}
                   selected={selected.has(c.ad_id)}
                   onToggleSelect={toggleSelect}
                 />
@@ -321,6 +325,24 @@ export default function CreativeLibraryPage() {
           onClose={() => setDetail(null)}
         />
       )}
+
+      {/* Governed matrix-axis tagging (US-004): select Theme/Persona, creative
+          type, and body from the account's managed lists. */}
+      <Dialog open={!!tagging} onOpenChange={(open) => !open && setTagging(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="truncate">Tag: {tagging?.ad_name}</DialogTitle>
+          </DialogHeader>
+          {tagging && selectedAccountId && (
+            <GovernedTagEditor
+              adId={tagging.ad_id}
+              accountId={selectedAccountId}
+              hook={tagging.hook}
+              onSaved={() => setTagging(null)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
