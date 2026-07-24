@@ -27,6 +27,7 @@ export const routeImports = {
   boardDetail: () => import("@/features/vault/BoardDetailPage"),
   hooks: () => import("@/features/vault/HooksPage"),
   taxonomyConfig: () => import("@/features/matrix/config/TaxonomyConfigSection"),
+  matrix: () => import("@/features/matrix/board/MatrixBoardPage"),
 } as const;
 
 type Loader = () => Promise<unknown>;
@@ -47,6 +48,7 @@ const PATH_PREFETCH: Record<string, Loader[]> = {
   "/entities": [routeImports.entityReport],
   "/agency": [routeImports.agencyDashboard],
   "/settings": [routeImports.settings, routeImports.taxonomyConfig],
+  "/matrix": [routeImports.matrix],
   "/ad-library": [routeImports.adLibrary, routeImports.vaultItemDetail],
   "/ad-library/boards": [routeImports.boards, routeImports.boardDetail],
   "/ad-library/hooks": [routeImports.hooks],

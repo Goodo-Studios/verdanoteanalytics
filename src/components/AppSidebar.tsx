@@ -20,6 +20,7 @@ import {
   Layers,
   Film,
   Globe,
+  Grid3x3,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
@@ -40,6 +41,9 @@ export type NavItem = {
   title: string;
   url: string;
   icon: typeof LayoutGrid;
+  /** Builder-only nav item — hidden from employees and role-preview sessions
+   *  (matches its route guard). Used by the US-007 Creative Matrix. */
+  builderOnly?: boolean;
 };
 
 export type NavSection = {
@@ -58,6 +62,7 @@ export const builderSections: NavSection[] = [
       { title: "Creatives", url: "/creatives", icon: Zap },
       { title: "Creative Library", url: "/creative-library", icon: Film },
       { title: "Analytics", url: "/analytics", icon: BarChart3 },
+      { title: "Matrix", url: "/matrix", icon: Grid3x3, builderOnly: true },
       { title: "Tagging", url: "/tagging", icon: Tags },
       { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
       { title: "Briefs", url: "/briefs", icon: ClipboardList },
@@ -139,6 +144,8 @@ interface SectionGroupProps {
   collapsed: boolean;
   onToggle: () => void;
   onNavigate?: () => void;
+  /** When false, builder-only items (item.builderOnly) are hidden. */
+  showBuilderOnly: boolean;
   /** Optional content rendered between the section header and the nav items. */
   children?: ReactNode;
 }
@@ -149,8 +156,12 @@ function SectionGroup({
   collapsed,
   onToggle,
   onNavigate,
+  showBuilderOnly,
   children,
 }: SectionGroupProps) {
+  const items = showBuilderOnly
+    ? section.items
+    : section.items.filter((item) => !item.builderOnly);
   return (
     <div className="space-y-1">
       <button
@@ -170,7 +181,7 @@ function SectionGroup({
       {!collapsed && (
         <div id={`sidebar-section-${section.id}`} className="space-y-1">
           {children}
-          {section.items.map((item) => (
+          {items.map((item) => (
             <NavLink
               key={item.url}
               to={`${prefix}${item.url}`}
@@ -202,6 +213,9 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const isAgencyView = selectedAccountId === "all";
   const effectiveClient = isClient || isClientPreview;
   const effectiveEmployee = isEmployeePreview;
+  // Builder-only nav items (US-007 Matrix) show only for a real builder not
+  // previewing another role — mirrors the /matrix route guard in App.tsx.
+  const effectiveBuilder = isBuilder && !isClientPreview && !isEmployeePreview;
 
   const showSwitcher = !effectiveClient || accounts.length > 1;
 
@@ -358,6 +372,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
               collapsed={!!collapsed[section.id]}
               onToggle={() => toggleSection(section.id)}
               onNavigate={onNavigate}
+              showBuilderOnly={effectiveBuilder}
             >
               {/* Account switcher lives inside the Creative Analytics fold */}
               {section.id === "creative-analytics" && (
