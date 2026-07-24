@@ -9,6 +9,7 @@ cd "$(dirname "$0")/.."
 
 FUNCTIONS=(
   accounts
+  account-taxonomy
   ai-chat
   analyze-creative
   api
@@ -42,6 +43,7 @@ FUNCTIONS=(
   ingest-reviews
   landing-pages
   leaderboard
+  matrix
   portfolio
   quick-save
   refresh-thumbnails

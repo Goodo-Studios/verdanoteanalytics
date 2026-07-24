@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LayoutGrid, Play, Vault as VaultIcon, Archive, Check } from "lucide-react";
+import { LayoutGrid, Play, Vault as VaultIcon, Archive, Check, Tag } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { fmt } from "@/components/creatives/constants";
@@ -106,11 +106,13 @@ interface LibraryCardProps {
   creative: LibraryCreative;
   classification?: ClassificationResult;
   onOpen: (c: LibraryCreative) => void;
+  /** US-004: open the governed matrix-axis tag editor for this creative. */
+  onTag?: (c: LibraryCreative) => void;
   selected: boolean;
   onToggleSelect: (adId: string) => void;
 }
 
-export function LibraryCard({ creative: c, classification, onOpen, selected, onToggleSelect }: LibraryCardProps) {
+export function LibraryCard({ creative: c, classification, onOpen, onTag, selected, onToggleSelect }: LibraryCardProps) {
   return (
     <div
       className={cn(
@@ -118,8 +120,19 @@ export function LibraryCard({ creative: c, classification, onOpen, selected, onT
         selected ? "border-verdant border-2" : "border-border-light",
       )}
     >
-      {/* Select checkbox for bulk export */}
-      <div className="absolute top-2 right-2 z-10" onClick={(e) => e.stopPropagation()}>
+      {/* Select checkbox for bulk export + governed tag affordance */}
+      <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+        {onTag && (
+          <button
+            type="button"
+            onClick={() => onTag(c)}
+            aria-label="Tag matrix axes"
+            title="Tag Theme/Persona, creative type, body"
+            className="flex h-5 w-5 items-center justify-center rounded-[3px] bg-white/90 text-charcoal shadow-sm hover:bg-white"
+          >
+            <Tag className="h-3 w-3" />
+          </button>
+        )}
         <Checkbox
           checked={selected}
           onCheckedChange={() => onToggleSelect(c.ad_id)}

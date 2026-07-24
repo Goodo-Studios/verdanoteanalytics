@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { withApiAuth, corsHeaders } from "../_shared/api-auth.ts";
 import { resolveConvention } from "../_shared/naming-convention.ts";
 import { errorMessage } from "../_shared/error-message.ts";
+import { parseMatrixParams } from "../_shared/matrix-logic.ts";
 
 // Rate limiting is enforced durably inside withApiAuth (see _shared/api-auth.ts),
 // backed by the api_rate_limit_counters table — survives cold starts and holds
@@ -550,7 +551,69 @@ export async function handleApi(
       });
     }
 
-    return new Response(JSON.stringify({ error: "Not found", available_endpoints: ["/accounts", "/creatives", "/creatives/:id", "/metrics", "/summary", "/hooks", "/angles", "/coverage", "/convention", "/library", "/sync"] }), {
+    // GET /api/account-taxonomy — read-only mirror of the in-app account-taxonomy
+    // function. Calls the SAME single read RPC (rpc_account_taxonomy) so the
+    // external api surface + verdanote-read-mcp read byte-identical values to
+    // React. Read-only: all taxonomy WRITES go through the session-authed
+    // account-taxonomy edge function only.
+    if (resource === "account-taxonomy" && req.method === "GET") {
+      const accountId = url.searchParams.get("account_id");
+      if (!accountId) {
+        return new Response(JSON.stringify({ error: "account_id is required" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const allowed = await verifyAccountOwnership(supabase, userId, accountId);
+      if (!allowed) {
+        return new Response(JSON.stringify({ error: "Access denied" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data, error } = await supabase.rpc("rpc_account_taxonomy", { p_account_id: accountId });
+      if (error) throw error;
+      return new Response(JSON.stringify({ taxonomy: data }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // GET /api/matrix — read-only mirror of the in-app session-authed `matrix`
+    // function (US-006). Calls the SAME single read RPC (rpc_creative_matrix)
+    // and returns its jsonb payload verbatim so the external api surface +
+    // verdanote-read-mcp read byte-identical values to React. Param validation
+    // is shared with the matrix edge fn via parseMatrixParams.
+    if (resource === "matrix" && req.method === "GET") {
+      const params = parseMatrixParams(
+        url.searchParams.get("account_id"),
+        url.searchParams.get("date_from"),
+        url.searchParams.get("date_to")
+      );
+      if (!params.ok) {
+        return new Response(JSON.stringify({ error: params.error }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const allowed = await verifyAccountOwnership(supabase, userId, params.accountId);
+      if (!allowed) {
+        return new Response(JSON.stringify({ error: "Access denied" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data, error } = await supabase.rpc("rpc_creative_matrix", {
+        p_account_id: params.accountId,
+        p_date_from: params.dateFrom,
+        p_date_to: params.dateTo,
+      });
+      if (error) throw error;
+      return new Response(JSON.stringify({ matrix: data }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ error: "Not found", available_endpoints: ["/accounts", "/creatives", "/creatives/:id", "/metrics", "/summary", "/hooks", "/angles", "/coverage", "/convention", "/library", "/account-taxonomy", "/matrix", "/sync"] }), {
       status: 404,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

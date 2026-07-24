@@ -173,20 +173,29 @@ function deriveProduct(fj: Record<string, unknown> | null | undefined): DerivedF
 }
 
 /**
+ * value_structure → a clean canonical structure token (Before-After, Story, …) via
+ * the THEME_ANGLE_RULES keyword table. First rule whose trigger appears wins;
+ * nothing matched → null. Shared by deriveTheme (the 'ai' theme dimension) and the
+ * body-suggestion fallback (US-005) so both read the same deterministic table.
+ */
+function matchStructureToken(text: string | null | undefined): string | null {
+  const s = cleanText(text);
+  if (!s) return null;
+  const hay = s.toLowerCase();
+  for (const rule of THEME_ANGLE_RULES) {
+    if (rule.triggers.some((t) => hay.includes(t))) return rule.canonical;
+  }
+  return null;
+}
+
+/**
  * value_structure → a clean canonical THEME token. Keyword-normalized; unmatched
  * structures leave theme null. Always fuzzy:true when it DOES resolve, because the
  * value_structure → theme/angle mapping is a semantic judgment worth reviewing.
  */
 function deriveTheme(valueStructure: string | null | undefined): DerivedField {
-  const s = cleanText(valueStructure);
-  if (!s) return NONE;
-  const hay = s.toLowerCase();
-  for (const rule of THEME_ANGLE_RULES) {
-    if (rule.triggers.some((t) => hay.includes(t))) {
-      return { value: rule.canonical, fuzzy: true };
-    }
-  }
-  return NONE;
+  const m = matchStructureToken(valueStructure);
+  return m ? { value: m, fuzzy: true } : NONE;
 }
 
 /**
@@ -247,4 +256,288 @@ export function computeAutoTags(params: {
     aiTagsToPartial(derived),
     fuzzyDimsOf(derived),
   );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// US-005: Creative-Matrix dimension backfill — deterministic creative_lane /
+// creative_type placement + REVIEW-ONLY body suggestion.
+//
+// The Creative Matrix (US-001) adds three dimensions to public.creatives:
+//   • creative_lane  — the house production lane (creative_type_menu.lane).
+//   • creative_type  — the specific type within a lane (creative_type_menu.type_name).
+//   • body           — the "body" axis hook nests under.
+//
+// US-005 semantics (owner-locked, mirrors the classification-accuracy learning in
+// account-strategy-layer where LLM angle classification hit only 54–67%):
+//   1. creative_lane + creative_type are DETERMINISTIC — mapped from the already-
+//      resolved ad_type + style tag columns plus the AI ad_format free-text field.
+//      No LLM call, no guessing. The deterministic mapping RUNS FIRST and is the
+//      primary source for these columns.
+//   2. body is AI REVIEW-ONLY — suggested from value_structure + copywriting_framework
+//      and written to creatives.tag_suggestions (the review-gated blob), NEVER auto-
+//      promoted to the creatives.body column. A human promotes it later.
+//
+// PURE + deterministic — no Deno / esm.sh / Supabase client. Unit-tested under
+// `deno test` exactly like the AI-layer functions above. The backfill-retag Edge
+// Function does the IO (reads the columns, applies the no-demote write decision,
+// merges the body suggestion into tag_suggestions) and calls these helpers.
+// ═════════════════════════════════════════════════════════════════════════════
+
+/** The five house production lanes (mirrors creative_type_menu.lane seed, US-001). */
+export const CREATIVE_LANES = [
+  "Studio video",
+  "Creator",
+  "Static",
+  "Motion",
+  "Video edits",
+] as const;
+export type CreativeLane = (typeof CREATIVE_LANES)[number];
+
+/**
+ * The starter creative_type_menu entries per lane (US-001 seed). Only used to keep
+ * the deterministic type mapping honest — the DB menu is extensible, so callers
+ * never CHECK against this; it documents the vocabulary the mapping targets.
+ */
+const LANE_TYPES: Readonly<Record<CreativeLane, readonly string[]>> = {
+  "Studio video": ["Talking Head", "Product Demo", "Founder Story", "B-Roll Montage"],
+  "Creator": ["UGC Testimonial", "Unboxing", "Get Ready With Me", "Day In The Life"],
+  "Static": ["Product Shot", "Lifestyle", "Text Forward", "Comparison Graphic", "Testimonial Card"],
+  "Motion": ["Animated Explainer", "Kinetic Typography", "Logo Animation", "Product 3D"],
+  "Video edits": ["Supercut", "Reaction Edit", "Split Screen", "Captioned Clip"],
+};
+
+/** ad_type values that are a still-image media class (→ Static lane). */
+const STATIC_AD_TYPES = new Set(["static", "carousel", "image", "photo"]);
+
+/** Keyword signals (checked against a lowercased style+ad_format haystack). */
+const MOTION_SIGNALS = ["animat", "motion graphic", "kinetic", "typography", "logo animation", "explainer", "3d "];
+const VIDEO_EDIT_SIGNALS = ["supercut", "reaction", "split screen", "split-screen", "captioned", "compilation", "remix", "mashup", "montage edit"];
+const CREATOR_SIGNALS = ["ugc", "creator", "testimonial", "unboxing", "grwm", "get ready", "day in the life", "vlog", "selfie", "influencer", "street interview"];
+
+/** Ordered lane → type keyword rules. First trigger that appears in the haystack wins. */
+const TYPE_RULES: Readonly<Record<CreativeLane, ReadonlyArray<{ type: string; triggers: string[] }>>> = {
+  "Studio video": [
+    { type: "Talking Head", triggers: ["talking head", "talking-head", "spokesperson", "presenter"] },
+    { type: "Founder Story", triggers: ["founder", "ceo", "owner story"] },
+    { type: "Product Demo", triggers: ["product demo", "demonstration", "demo", "how-to", "how to", "tutorial", "walkthrough"] },
+    { type: "B-Roll Montage", triggers: ["b-roll", "broll", "montage"] },
+  ],
+  "Creator": [
+    // Specific creator formats first, so "UGC unboxing" is an Unboxing (not caught
+    // by the broad "ugc" fallback on UGC Testimonial below).
+    { type: "Unboxing", triggers: ["unboxing", "unbox"] },
+    { type: "Get Ready With Me", triggers: ["grwm", "get ready"] },
+    { type: "Day In The Life", triggers: ["day in the life", "vlog", "ditl"] },
+    { type: "UGC Testimonial", triggers: ["testimonial", "review", "ugc"] },
+  ],
+  "Static": [
+    { type: "Comparison Graphic", triggers: ["comparison", " vs ", " vs.", "versus", "compare", "before-after", "before/after", "before after"] },
+    { type: "Testimonial Card", triggers: ["testimonial", "review", "quote card"] },
+    { type: "Text Forward", triggers: ["text forward", "text-forward", "text on screen", "text-on-screen", "meme", "quote"] },
+    { type: "Lifestyle", triggers: ["lifestyle", "in use", "in-use", "in situ"] },
+    { type: "Product Shot", triggers: ["product shot", "packshot", "pack shot", "product photo", "hero shot", "studio clean"] },
+  ],
+  "Motion": [
+    { type: "Kinetic Typography", triggers: ["kinetic", "typography", "text animation"] },
+    { type: "Logo Animation", triggers: ["logo animation", "logo reveal", "logo sting"] },
+    { type: "Product 3D", triggers: ["3d ", "product 3d", "cgi"] },
+    { type: "Animated Explainer", triggers: ["explainer", "animated", "animation"] },
+  ],
+  "Video edits": [
+    { type: "Supercut", triggers: ["supercut", "compilation"] },
+    { type: "Reaction Edit", triggers: ["reaction"] },
+    { type: "Split Screen", triggers: ["split screen", "split-screen"] },
+    { type: "Captioned Clip", triggers: ["captioned", "caption"] },
+  ],
+};
+
+/** The AI/tag-column inputs the deterministic matrix mapping reads. All optional. */
+export interface MatrixTagInput {
+  /** creatives.ad_type (resolved tag column: Video / Static / GIF / Carousel / …). */
+  ad_type?: string | null;
+  /** creatives.style (resolved tag column: UGC Native / Studio Clean / …). */
+  style?: string | null;
+  /** creatives.ad_format (AI free-text format from analyze-creative). */
+  ad_format?: string | null;
+}
+
+/** Deterministic matrix placement. Either may be null when no signal resolves it. */
+export interface DerivedMatrixTags {
+  creative_lane: CreativeLane | null;
+  /** A creative_type_menu.type_name within creative_lane, or null (lane-only placement). */
+  creative_type: string | null;
+}
+
+function anySignal(hay: string, signals: readonly string[]): boolean {
+  return signals.some((s) => hay.includes(s));
+}
+
+/** Resolve the specific creative_type WITHIN a lane from the haystack, or null. */
+function deriveCreativeType(lane: CreativeLane, hay: string): string | null {
+  for (const rule of TYPE_RULES[lane]) {
+    if (rule.triggers.some((t) => hay.includes(t))) {
+      // Defensive: only emit a type that belongs to the lane's known vocabulary.
+      return LANE_TYPES[lane].includes(rule.type) ? rule.type : null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Deterministically map a creative into a house lane (+ specific type when a clear
+ * keyword matches) from its ad_type + style + AI ad_format. NO LLM, NO guessing —
+ * an unrecognized creative resolves to { null, null } rather than a wrong lane.
+ *
+ * Lane precedence (ordered — the first that matches wins):
+ *   1. Still-image media (ad_type Static/Carousel/Image) → "Static".
+ *   2. GIF media OR a motion/animation signal            → "Motion".
+ *   3. A video-edit/remix signal                         → "Video edits".
+ *   4. A creator/UGC signal (on video)                   → "Creator".
+ *   5. Video media with no finer signal                  → "Studio video".
+ *   6. Nothing recognizable                              → null.
+ *
+ * A still image always stays in "Static" even when shot UGC-style: the lane is the
+ * PRODUCTION lane (media class), not the persona — matching the US-001 menu where
+ * "Static" is its own lane and UGC types live under video "Creator".
+ */
+export function deriveMatrixTags(input: MatrixTagInput): DerivedMatrixTags {
+  const adType = (input.ad_type ?? "").trim().toLowerCase();
+  const hay = `${input.style ?? ""} ${input.ad_format ?? ""}`.toLowerCase();
+
+  let lane: CreativeLane | null = null;
+  if (STATIC_AD_TYPES.has(adType)) {
+    lane = "Static";
+  } else if (adType === "gif" || anySignal(hay, MOTION_SIGNALS)) {
+    lane = "Motion";
+  } else if (anySignal(hay, VIDEO_EDIT_SIGNALS)) {
+    lane = "Video edits";
+  } else if (anySignal(hay, CREATOR_SIGNALS)) {
+    lane = "Creator";
+  } else if (adType === "video") {
+    lane = "Studio video";
+  } else {
+    lane = null;
+  }
+
+  const creative_type = lane ? deriveCreativeType(lane, hay) : null;
+  return { creative_lane: lane, creative_type };
+}
+
+// ── body suggestion (REVIEW-ONLY) ─────────────────────────────────────────────
+
+/** The named copywriting frameworks (analyze-creative enum minus "Other"). */
+const KNOWN_FRAMEWORKS = new Set(
+  [
+    "AIDA", "PAS", "BAB", "FAB", "HSO", "PASTOR", "4Ps", "SLAP",
+    "Star-Story-Solution", "Problem-Promise-Proof-Proposal", "Storybrand",
+    "Rule of One", "The Rule of One",
+  ].map((f) => f.toLowerCase()),
+);
+
+/** Inputs for the review-only body suggestion. */
+export interface BodySuggestionInput {
+  /** creatives.value_structure (the rich body arrow-chain sentence). */
+  value_structure?: string | null;
+  /** creatives.copywriting_framework (named framework or "Other"). */
+  copywriting_framework?: string | null;
+}
+
+/**
+ * A body suggestion destined for creatives.tag_suggestions — the SAME shape the
+ * analyze-creative auto-tag blob uses ({ value, confidence, signal }). It is
+ * REVIEW-ONLY: the backfill writes it under tag_suggestions.body and NEVER promotes
+ * it to the creatives.body column.
+ */
+export interface BodySuggestion {
+  value: string;
+  confidence: number;
+  signal: "script";
+}
+
+/**
+ * Suggest a body value from the two AI fields. Deterministic, conservative:
+ *   • A NAMED copywriting_framework (not "Other"/junk) is the strongest body signal
+ *     → suggest it verbatim (confidence 0.6).
+ *   • Otherwise fall back to a canonical structure token keyword-matched from
+ *     value_structure (confidence 0.4) — the same table deriveTheme uses.
+ *   • Nothing recognizable → null (never dump the raw arrow-chain sentence).
+ *
+ * The result is a SUGGESTION only — the caller must write it to tag_suggestions,
+ * never to the body column.
+ */
+export function suggestBody(input: BodySuggestionInput): BodySuggestion | null {
+  const fw = cleanText(input.copywriting_framework);
+  if (fw && KNOWN_FRAMEWORKS.has(fw.toLowerCase())) {
+    return { value: fw, confidence: 0.6, signal: "script" };
+  }
+  const structure = matchStructureToken(input.value_structure);
+  if (structure) {
+    return { value: structure, confidence: 0.4, signal: "script" };
+  }
+  return null;
+}
+
+// ── no-demote write decision ──────────────────────────────────────────────────
+
+/** The creatives matrix columns as currently stored (before the backfill writes). */
+export interface CurrentMatrixColumns {
+  creative_lane: string | null;
+  creative_type: string | null;
+}
+
+/** The write decision for one creative's matrix columns. */
+export interface MatrixWriteDecision {
+  /** The value creative_lane should hold after the write. */
+  creative_lane: string | null;
+  /** The value creative_type should hold after the write. */
+  creative_type: string | null;
+  /** True iff the resolved values differ from what is stored (an UPDATE is needed). */
+  changed: boolean;
+  /**
+   * True iff a demote was PREVENTED: the row already holds a lane/type but the
+   * deterministic mapping produced nothing for it, so the existing (manual/csv/
+   * prior) value is kept rather than cleared. This is the no-demote guard — it is
+   * what makes "coverage can only hold or rise" structural for the matrix columns.
+   */
+  protectedFromDemote: boolean;
+}
+
+/**
+ * Decide the matrix-column write for ONE creative under FILL-ONLY-EMPTY + NO-DEMOTE
+ * semantics (US-005):
+ *
+ *   • A currently-null column is FILLED with the deterministic value (an upgrade).
+ *   • A currently-NON-null column is NEVER overwritten and NEVER cleared — the
+ *     stored value wins. So a manual or csv-sourced lane/type can never be demoted
+ *     to untagged, and the deterministic layer never fights a human/Coda tag.
+ *
+ * The deterministic layer thus runs FIRST (it is the primary source for empty
+ * columns) yet can only ever ADD coverage. `changed` is true only when a null
+ * column gets filled.
+ */
+export function decideMatrixWrite(
+  current: CurrentMatrixColumns,
+  derived: DerivedMatrixTags,
+): MatrixWriteDecision {
+  const curLane = current.creative_lane && current.creative_lane.trim() !== "" ? current.creative_lane : null;
+  const curType = current.creative_type && current.creative_type.trim() !== "" ? current.creative_type : null;
+
+  // Fill-only-empty: keep any existing value, otherwise take the deterministic one.
+  const resolvedLane = curLane ?? derived.creative_lane;
+  const resolvedType = curType ?? derived.creative_type;
+
+  const changed = resolvedLane !== curLane || resolvedType !== curType;
+
+  // A demote was prevented iff we kept an existing value the deterministic layer
+  // would not have supplied (lane present + deterministic lane null).
+  const protectedFromDemote =
+    (curLane !== null && derived.creative_lane === null) ||
+    (curType !== null && derived.creative_type === null);
+
+  return {
+    creative_lane: resolvedLane,
+    creative_type: resolvedType,
+    changed,
+    protectedFromDemote,
+  };
 }

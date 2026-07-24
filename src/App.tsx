@@ -53,6 +53,9 @@ const VaultItemDetailPage = lazy(routeImports.vaultItemDetail);
 const BoardsPage = lazy(routeImports.boards);
 const BoardDetailPage = lazy(routeImports.boardDetail);
 const HooksPage = lazy(routeImports.hooks);
+// Creative Matrix board (US-007) — builder-only, gated below like the US-003
+// taxonomy config surface.
+const MatrixBoardPage = lazy(routeImports.matrix);
 
 const SharedAdBoardPage = lazy(() => import("./pages/SharedAdBoardPage"));
 const PublicVaultItemPage = lazy(() => import("./pages/PublicVaultItemPage"));
@@ -112,12 +115,15 @@ export function RoleGuardedRoutes() {
   const prefix = useRolePrefix();
   const location = useLocation();
   const { user, isLoading, isClient, isBuilder, isEmployee } = useAuth();
-  const { isClientPreview } = useClientPreview();
+  const { isClientPreview, isEmployeePreview } = useClientPreview();
   const effectiveClient = isClient || isClientPreview;
   // Employee feature parity (owner decision 2026-07-21): employees get every
   // PRODUCT surface builders have. Admin (user mgmt, Meta/settings, API keys,
   // cache tools) stays builder-only.
   const isStaff = isBuilder || isEmployee;
+  // Builder-only surfaces (US-007 Creative Matrix, matching the US-003 taxonomy
+  // config gate): a real builder, not previewing another role.
+  const effectiveBuilder = isBuilder && !isClientPreview && !isEmployeePreview;
 
   const [agencyHomeFlag] = useState(() => localStorage.getItem("verdanote_agency_default_home") === "true");
   const agencyHome = isStaff && agencyHomeFlag;
@@ -160,6 +166,9 @@ export function RoleGuardedRoutes() {
           <Route path="/reports/:id" element={<ReportDetailPage />} />
           <Route path="/reports/:id/build" element={<ReportBuilderPage />} />
           <Route path="/creative-rotation" element={isStaff ? <CreativeRotationPage /> : <Navigate to={`${prefix}/`} replace />} />
+          {/* Creative Matrix board (US-007) — builder-only; employees, clients,
+              and role-preview sessions are redirected to their index. */}
+          <Route path="/matrix" element={effectiveBuilder ? <MatrixBoardPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/user-settings" element={<Navigate to={`${prefix}/settings`} replace />} />
           

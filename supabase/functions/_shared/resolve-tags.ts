@@ -202,3 +202,125 @@ export function resolveTags(
 
   return { tags, tag_source, sources, needs_review };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// US-004: Theme/Persona free-text → governed angle_id reference conversion.
+//
+// The Creative Matrix's column axis is a single combined Theme/Persona dimension
+// that resolves to a REFERENCE into public.angle_clusters (creatives.angle_id),
+// not the legacy free-text `theme` column. angle_clusters is the account's
+// governed Theme/Persona list (US-001/US-002).
+//
+// This is the "migration path" the story requires: existing rows carry a
+// free-text `theme` string; converting an account means mapping each theme to an
+// angle_id when a governed entry matches, and FLAGGING (never dropping) it for
+// human review when none does. The original free-text value is always preserved
+// on the resolution so the caller can keep it in-place — the conversion is
+// additive (fills angle_id), never destructive.
+//
+// PURE — no IO. The caller fetches the account's angle_clusters rows and passes
+// them in; nothing here touches the DB or the six-dimension tag precedence above
+// (angle_id is a separate matrix axis, so the locked
+// manual > csv_match > parsed > ai > untagged order is unaffected).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** One governed Theme/Persona entry from the account's angle_clusters list. */
+export interface AngleRef {
+  id: string;
+  /** Display label of the Theme/Persona (angle_clusters.label). */
+  label: string;
+}
+
+/**
+ * Normalize a Theme/Persona string for match: lower-cased, whitespace collapsed
+ * to single spaces, trimmed. Returns "" for missing/blank input. Used to compare
+ * a free-text `theme` against governed labels case- and spacing-insensitively.
+ */
+export function normalizeThemeKey(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  return raw.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/**
+ * Build a normalized-label → angle_id index from an account's angle list.
+ * Earlier entries win on a duplicate normalized label (stable, deterministic),
+ * so a curated list that happens to contain two casings maps to the first.
+ */
+export function buildAngleIndex(
+  angles: ReadonlyArray<AngleRef> | null | undefined,
+): Map<string, string> {
+  const index = new Map<string, string>();
+  for (const a of angles ?? []) {
+    if (!a || typeof a.id !== "string" || a.id.length === 0) continue;
+    const key = normalizeThemeKey(a.label);
+    if (key.length === 0) continue;
+    if (!index.has(key)) index.set(key, a.id);
+  }
+  return index;
+}
+
+export interface AngleResolution {
+  /** The governed reference, or null when nothing matched (or there was no theme). */
+  angle_id: string | null;
+  /**
+   * The original free-text theme, PRESERVED verbatim (never dropped). null only
+   * when the input theme was itself missing/blank.
+   */
+  theme: string | null;
+  /** true iff a governed entry matched the free-text theme. */
+  matched: boolean;
+  /**
+   * true iff there WAS a non-blank free-text theme but no governed entry matched
+   * it — the row needs human review to either add the Theme/Persona to the list
+   * or pick an existing one. Never true for a blank/absent theme (that is simply
+   * untagged, not a review case).
+   */
+  needs_review: boolean;
+}
+
+/**
+ * Resolve one free-text theme value to a governed angle_id against an account's
+ * angle list. Never drops the free-text value.
+ *
+ * @param themeValue  The creative's existing free-text `theme` (or null).
+ * @param angles      The account's governed Theme/Persona list (angle_clusters).
+ *                    Callers should pass the LIVE (non-archived) entries.
+ *
+ * Outcomes:
+ *   - no/blank theme                 → { angle_id:null, theme:null,  matched:false, needs_review:false }
+ *   - theme matches a governed label → { angle_id:<id>, theme:<orig>, matched:true,  needs_review:false }
+ *   - theme present, no match        → { angle_id:null, theme:<orig>, matched:false, needs_review:true }
+ */
+export function resolveAngleReference(
+  themeValue: string | null | undefined,
+  angles: ReadonlyArray<AngleRef> | null | undefined,
+): AngleResolution {
+  return resolveAngleReferenceWithIndex(themeValue, buildAngleIndex(angles));
+}
+
+/**
+ * Index-taking variant of {@link resolveAngleReference} for batch conversions:
+ * build the index once with {@link buildAngleIndex}, then resolve many rows
+ * against it without rebuilding the map each time.
+ */
+export function resolveAngleReferenceWithIndex(
+  themeValue: string | null | undefined,
+  angleIndex: Map<string, string>,
+): AngleResolution {
+  const original = typeof themeValue === "string" && themeValue.trim() !== ""
+    ? themeValue
+    : null;
+
+  if (original === null) {
+    // Nothing to convert — untagged Theme/Persona, not a review case.
+    return { angle_id: null, theme: null, matched: false, needs_review: false };
+  }
+
+  const id = angleIndex.get(normalizeThemeKey(original)) ?? null;
+  if (id !== null) {
+    return { angle_id: id, theme: original, matched: true, needs_review: false };
+  }
+
+  // Present but unmatched — preserve the free text and flag for review.
+  return { angle_id: null, theme: original, matched: false, needs_review: true };
+}
