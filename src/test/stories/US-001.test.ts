@@ -145,7 +145,7 @@ describe("US-001: Migrate matrix taxonomy (creative_matrix_taxonomy migration)",
     expect(sqlNoComments).toMatch(/ON CONFLICT[^;]*DO NOTHING/i);
   });
 
-  it("is numbered as the strict frontier of the migration ledger (20260724000001 > every other file)", () => {
+  it("was numbered off the ledger frontier at authoring time (> every prior migration, directly following 20260723000005)", () => {
     const numbers = readdirSync(MIGRATIONS_DIR)
       .filter((f) => f.endsWith(".sql"))
       .map((f) => f.split("_")[0])
@@ -154,11 +154,24 @@ describe("US-001: Migrate matrix taxonomy (creative_matrix_taxonomy migration)",
 
     expect(numbers).toContain(MIGRATION_NUMBER);
 
-    const others = numbers.filter((n) => n !== MIGRATION_NUMBER);
-    for (const other of others) {
+    // US-001 was the frontier WHEN AUTHORED: it must outrank every migration
+    // numbered before it. Legitimate later stories (e.g. US-002's
+    // 20260724000002 read RPC) are numbered ABOVE it off the same frontier rule
+    // and are intentionally excluded here — this asserts "frontier at authoring",
+    // not "max forever" (an assertion any subsequent migration would break).
+    const priorMigrations = numbers.filter((n) => n < MIGRATION_NUMBER);
+    for (const other of priorMigrations) {
       expect(
         MIGRATION_NUMBER > other,
-        `expected ${MIGRATION_NUMBER} to be strictly greater than ${other}`,
+        `expected ${MIGRATION_NUMBER} to be strictly greater than prior migration ${other}`,
+      ).toBe(true);
+    }
+    // Nothing may sit BETWEEN the pre-US-001 frontier and US-001 — it directly
+    // follows 20260723000005 (catches a mis-numbered migration slotted in-between).
+    for (const n of numbers) {
+      expect(
+        n <= "20260723000005" || n >= MIGRATION_NUMBER,
+        `unexpected migration ${n} numbered between the prior frontier and US-001`,
       ).toBe(true);
     }
     // Explicit check against the immediately-preceding ledger entry.

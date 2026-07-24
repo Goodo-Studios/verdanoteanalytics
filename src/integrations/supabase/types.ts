@@ -596,6 +596,7 @@ export type Database = {
       angle_clusters: {
         Row: {
           account_id: string
+          archived_at: string | null
           created_at: string
           customer_language: string[]
           desires: string[]
@@ -607,10 +608,12 @@ export type Database = {
           source: string
           summary: string | null
           supporting_review_ids: string[]
+          test_status: string | null
           theme: string | null
         }
         Insert: {
           account_id: string
+          archived_at?: string | null
           created_at?: string
           customer_language?: string[]
           desires?: string[]
@@ -622,10 +625,12 @@ export type Database = {
           source?: string
           summary?: string | null
           supporting_review_ids?: string[]
+          test_status?: string | null
           theme?: string | null
         }
         Update: {
           account_id?: string
+          archived_at?: string | null
           created_at?: string
           customer_language?: string[]
           desires?: string[]
@@ -637,6 +642,7 @@ export type Database = {
           source?: string
           summary?: string | null
           supporting_review_ids?: string[]
+          test_status?: string | null
           theme?: string | null
         }
         Relationships: [
@@ -3458,6 +3464,10 @@ export type Database = {
       }
       owns_ad_library_ad: { Args: { _ad_id: string }; Returns: boolean }
       owns_ad_library_board: { Args: { _board_id: string }; Returns: boolean }
+      rpc_account_taxonomy: {
+        Args: { p_account_id: string }
+        Returns: Json
+      }
       rpc_hook_angle_coverage: {
         Args: { p_account_id: string; p_dimension?: string }
         Returns: {
