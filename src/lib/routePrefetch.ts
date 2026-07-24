@@ -26,6 +26,7 @@ export const routeImports = {
   boards: () => import("@/features/vault/BoardsPage"),
   boardDetail: () => import("@/features/vault/BoardDetailPage"),
   hooks: () => import("@/features/vault/HooksPage"),
+  taxonomyConfig: () => import("@/features/matrix/config/TaxonomyConfigSection"),
 } as const;
 
 type Loader = () => Promise<unknown>;
@@ -45,7 +46,7 @@ const PATH_PREFETCH: Record<string, Loader[]> = {
   "/creative-rotation": [routeImports.creativeRotation],
   "/entities": [routeImports.entityReport],
   "/agency": [routeImports.agencyDashboard],
-  "/settings": [routeImports.settings],
+  "/settings": [routeImports.settings, routeImports.taxonomyConfig],
   "/ad-library": [routeImports.adLibrary, routeImports.vaultItemDetail],
   "/ad-library/boards": [routeImports.boards, routeImports.boardDetail],
   "/ad-library/hooks": [routeImports.hooks],

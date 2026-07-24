@@ -1,8 +1,13 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { SyncStatusBanner } from "@/components/SyncStatusBanner";
 import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
-import { Loader2, User, Settings as SettingsIcon, Shield, FileOutput, Tags, Building2, Activity } from "lucide-react";
+import { Loader2, User, Settings as SettingsIcon, Shield, FileOutput, Tags, Building2, Activity, LayoutGrid } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { routeImports } from "@/lib/routePrefetch";
+
+// US-003: builder-only taxonomy config surface, lazy-loaded so the chunk only
+// loads when a builder opens the tab (or hover-prefetches /settings).
+const TaxonomyConfigSection = lazy(routeImports.taxonomyConfig);
 
 // Profile / User sections
 import { ProfileInfoSection } from "@/components/user-settings/ProfileInfoSection";
@@ -36,7 +41,7 @@ import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
 
-type Tab = "profile" | "account" | "naming" | "export" | "admin" | "health";
+type Tab = "profile" | "account" | "naming" | "taxonomy" | "export" | "admin" | "health";
 
 const SettingsPage = () => {
   const userState = useUserSettingsPageState();
@@ -62,6 +67,7 @@ const SettingsPage = () => {
   }
   if (effectiveIsBuilder) {
     tabs.push({ key: "naming", label: "Naming", icon: <Tags className="h-3.5 w-3.5" /> });
+    tabs.push({ key: "taxonomy", label: "Taxonomy", icon: <LayoutGrid className="h-3.5 w-3.5" /> });
   }
   if (effectiveIsBuilder || effectiveIsEmployee) {
     tabs.push({ key: "export", label: "Export", icon: <FileOutput className="h-3.5 w-3.5" /> });
@@ -251,6 +257,19 @@ const SettingsPage = () => {
       {/* Naming Tab */}
       {safeActiveTab === "naming" && effectiveIsBuilder && (
         <NamingConventionSection />
+      )}
+
+      {/* Taxonomy Tab (US-003, builder-only) */}
+      {safeActiveTab === "taxonomy" && effectiveIsBuilder && (
+        <Suspense
+          fallback={
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          }
+        >
+          <TaxonomyConfigSection accounts={accountState.accounts} />
+        </Suspense>
       )}
 
       {/* Export Tab */}
