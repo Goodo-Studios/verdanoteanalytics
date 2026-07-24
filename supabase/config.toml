@@ -23,6 +23,14 @@ verify_jwt = false
 [functions.account-taxonomy]
 verify_jwt = false
 
+# US-006 creative-matrix read (Theme/Persona x creative-type cross-tab).
+# Session-authed like leaderboard/account-taxonomy: does its OWN session-JWT
+# verification (auth.getUser) + verifyAccountOwnership inside the handler, then
+# reads via the SECURITY DEFINER rpc_creative_matrix with the service role.
+# verify_jwt=false so the gateway does not reject before our handler runs.
+[functions.matrix]
+verify_jwt = false
+
 # Session-authed read for the Landing Pages report. Validates the user JWT
 # internally (auth.getUser) + enforces account ownership, then calls the
 # SECURITY DEFINER RPC with the service role. Do not link from anon.
