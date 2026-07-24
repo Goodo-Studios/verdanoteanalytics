@@ -16,6 +16,12 @@
 //      place (centroid + anchors + last_seen refreshed); entities no longer seen
 //      are retired. A re-run with no new creatives reproduces identical entity ids.
 //
+// SCOPE: ACTIVE ads only. The Entity Report is a LIVE diversity signal — "is the
+// content currently running in this account too similar or too diverse?" — so
+// clustering only considers ad_status = 'ACTIVE'. Paused/old creatives are reset
+// to cluster_id = null and excluded from the entity model. This also keeps each
+// run small enough to finish comfortably (active set << full library).
+//
 // Auth: internal/service-role only (verify_jwt=false). Body:
 //   { account_id: string (required), threshold?: number (default 0.7) }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -128,6 +134,9 @@ Deno.serve(async (req) => {
         .from("creatives")
         .select("ad_id, ad_name, spend, roas, ctr, cpa, tag_source, ad_type, person, style, product, hook, theme, meta_video_ids, meta_image_hashes, thumb_asset_id, video_asset_id, destination_key")
         .eq("account_id", accountId)
+        // LIVE diversity signal: cluster only currently-active creative. Paused/old
+        // ads are reset to cluster_id = null (below) and stay out of the entity model.
+        .eq("ad_status", "ACTIVE")
         .range(from, from + PAGE - 1);
       if (error) return json({ error: error.message }, 500);
       const batch = rows ?? [];
