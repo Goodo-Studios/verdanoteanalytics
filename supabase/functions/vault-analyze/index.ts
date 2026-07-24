@@ -11,6 +11,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { isImageOnlyAnalysis, parseLooseJson } from "../_shared/vault-analyze-logic.ts";
+import { resolveImageMediaType, sniffImageMediaType } from "../_shared/image-media-type.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
@@ -192,15 +193,21 @@ async function fetchImageAsDataUrl(url: string): Promise<string | null> {
       },
     });
     if (!res.ok) return null;
-    const contentType = res.headers.get("content-type") ?? "image/jpeg";
-    if (!contentType.startsWith("image/")) return null;
+    const headerContentType = res.headers.get("content-type") ?? "image/jpeg";
     const buffer = await res.arrayBuffer();
     const bytes = new Uint8Array(buffer);
+    // Trust the bytes, not the label. Storage/CDN routinely mislabels a PNG as
+    // image/jpeg (e.g. a PNG saved with a .jpeg name), which makes Claude's vision
+    // API reject the request. Sniff the real type from magic bytes; only bail when
+    // neither the bytes nor the header indicate an image at all.
+    const isImageHeader = headerContentType.startsWith("image/");
+    const mediaType = resolveImageMediaType(bytes, headerContentType);
+    if (!isImageHeader && sniffImageMediaType(bytes) === null) return null;
     let binary = "";
     for (let i = 0; i < bytes.byteLength; i++) {
       binary += String.fromCharCode(bytes[i]);
     }
-    return `data:${contentType};base64,${btoa(binary)}`;
+    return `data:${mediaType};base64,${btoa(binary)}`;
   } catch {
     return null;
   }
