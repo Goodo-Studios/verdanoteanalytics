@@ -84,3 +84,77 @@ export function parseMatrixParams(
 
   return { ok: true, accountId: accountId.trim(), dateFrom: from.value, dateTo: to.value };
 }
+
+// ── US-008: cell drill-down params ───────────────────────────────────────────
+// The `matrix` edge fn's cell view (?view=cell) and GET /api/matrix drill-down
+// share this parser so validation is byte-identical, exactly like the outer
+// board shares parseMatrixParams.
+
+export interface MatrixCellParamsOk {
+  ok: true;
+  accountId: string;
+  // The outer cell selector. null ⇒ the untagged bucket on that axis (the
+  // board always emits explicit untagged buckets, and the drill-down always
+  // targets exactly one cell — so null is unambiguous, never "no filter").
+  angleId: string | null;
+  creativeType: string | null;
+  dateFrom: string | null;
+  dateTo: string | null;
+}
+
+export type MatrixCellParamsResult = MatrixCellParamsOk | MatrixParamsError;
+
+// Strict RFC-4122-shaped UUID (any version). The angle axis keys on
+// angle_clusters.id (a uuid), so a malformed angle_id is a 400, not a DB error.
+const UUID_SHAPE =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+export function isValidUuid(value: string): boolean {
+  return UUID_SHAPE.test(value);
+}
+
+/**
+ * Validate the cell drill-down params shared by the `matrix` edge fn's cell
+ * view and the GET /api/matrix drill-down.
+ *
+ * - account_id is required (non-empty), same as parseMatrixParams.
+ * - angle_id is optional; absent/empty ⇒ null (the untagged Theme/Persona
+ *   bucket). When present it must be a well-formed UUID.
+ * - creative_type is optional; absent/empty ⇒ null (the untagged creative-type
+ *   bucket). Any non-empty free-text value is accepted (the type space is
+ *   extensible, no CHECK constraint — see 20260724000001).
+ * - date_from / date_to follow the same rules as parseMatrixParams.
+ */
+export function parseMatrixCellParams(
+  accountId: string | null,
+  angleId: string | null,
+  creativeType: string | null,
+  dateFrom: string | null,
+  dateTo: string | null,
+): MatrixCellParamsResult {
+  const base = parseMatrixParams(accountId, dateFrom, dateTo);
+  if (!base.ok) return base;
+
+  let normalizedAngle: string | null;
+  if (angleId === null || angleId === undefined || angleId === "") {
+    normalizedAngle = null;
+  } else if (typeof angleId !== "string" || !isValidUuid(angleId)) {
+    return { ok: false, error: "angle_id must be a valid UUID or absent" };
+  } else {
+    normalizedAngle = angleId;
+  }
+
+  const normalizedType =
+    creativeType === null || creativeType === undefined || creativeType.trim() === ""
+      ? null
+      : creativeType;
+
+  return {
+    ok: true,
+    accountId: base.accountId,
+    angleId: normalizedAngle,
+    creativeType: normalizedType,
+    dateFrom: base.dateFrom,
+    dateTo: base.dateTo,
+  };
+}

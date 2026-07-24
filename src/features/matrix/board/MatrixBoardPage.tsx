@@ -26,7 +26,8 @@ import {
 import { useAccountContext } from "@/contexts/AccountContext";
 import { useAccountTaxonomy } from "@/features/matrix/config/useAccountTaxonomy";
 import { MatrixBoard } from "./MatrixBoard";
-import { useCreativeMatrix } from "./useCreativeMatrix";
+import { CellDrilldown } from "./CellDrilldown";
+import { useCreativeMatrix, useCreativeMatrixCell } from "./useCreativeMatrix";
 import { cellKey, fmtMoney, VIEW_MODES, type ViewMode } from "./matrixView";
 import type { MatrixCell } from "./api";
 
@@ -55,6 +56,24 @@ const MatrixBoardPage = () => {
 
   const matrixQuery = useCreativeMatrix(accountId, dateFrom, dateTo);
   const taxonomyQuery = useAccountTaxonomy(accountId).query;
+
+  // US-008: the selected outer cell's inner hook × body grid + atomic ads.
+  // Fires only once a cell is open (hasCell), and re-keys on the cell selector.
+  const cellQuery = useCreativeMatrixCell(
+    accountId,
+    !!selectedCell,
+    selectedCell?.angle_id ?? null,
+    selectedCell?.creative_type ?? null,
+    dateFrom,
+    dateTo,
+  );
+
+  // The board account's optimization goal drives which objective metric each
+  // atomic ad surfaces (getObjectiveConfig).
+  const optimizationGoal = useMemo(
+    () => accounts.find((a) => a.id === accountId)?.optimization_goal ?? null,
+    [accounts, accountId],
+  );
 
   // type_name → lane, sourced from the account taxonomy. Matrix rows whose
   // creative_type has no lane mapping fall into "Other" (see groupTypesByLane).
@@ -146,29 +165,41 @@ const MatrixBoardPage = () => {
         ))}
       </div>
 
-      {/* Selected-cell strip — the seam US-008 hangs the hook × body drill-down
-          off of. We surface the cell summary here; the inner grid is US-008. */}
+      {/* Selected-cell strip + US-008 drill-down: the inner hook × body grid and
+          the atomic ads behind the opened combination. */}
       {selectedCell && (
-        <div className="glass-panel px-4 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1">
-          <span className="font-body text-[13px] text-forest font-medium">
-            {selectedCell.angle_label ?? "Untagged"} × {selectedCell.creative_type ?? "Untagged"}
-          </span>
-          <span className="font-body text-[12px] text-muted-foreground">
-            {fmtMoney(selectedCell.total_spend)} spend · {selectedCell.n_ads} ads · spend rank #
-            {selectedCell.spend_rank}
-          </span>
-          <span className="font-body text-[11px] text-muted-foreground italic">
-            Hook × body drill-down coming soon
-          </span>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="ml-auto h-7 text-[12px]"
-            onClick={() => handleSelectCell(null)}
-          >
-            Clear
-          </Button>
-        </div>
+        <>
+          <div className="glass-panel px-4 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span className="font-body text-[13px] text-forest font-medium">
+              {selectedCell.angle_label ?? "Untagged"} × {selectedCell.creative_type ?? "Untagged"}
+            </span>
+            <span className="font-body text-[12px] text-muted-foreground">
+              {fmtMoney(selectedCell.total_spend)} spend · {selectedCell.n_ads} ads · spend rank #
+              {selectedCell.spend_rank}
+            </span>
+            <span className="font-body text-[11px] text-slate">
+              Hook × body drill-down
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="ml-auto h-7 text-[12px]"
+              onClick={() => handleSelectCell(null)}
+            >
+              Clear
+            </Button>
+          </div>
+          <CellDrilldown
+            cell={cellQuery.data}
+            isLoading={cellQuery.isLoading}
+            isError={cellQuery.isError}
+            errorMessage={
+              cellQuery.error instanceof Error ? cellQuery.error.message : undefined
+            }
+            onRetry={() => cellQuery.refetch()}
+            optimizationGoal={optimizationGoal}
+          />
+        </>
       )}
 
       {accountId === null && accounts.length === 0 ? (

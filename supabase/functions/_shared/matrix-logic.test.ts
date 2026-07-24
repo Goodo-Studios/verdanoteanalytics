@@ -7,7 +7,12 @@
 // absent params. No network / DB — pure functions only.
 
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { isValidCalendarDate, parseMatrixParams } from "./matrix-logic.ts";
+import {
+  isValidCalendarDate,
+  isValidUuid,
+  parseMatrixCellParams,
+  parseMatrixParams,
+} from "./matrix-logic.ts";
 
 // ── isValidCalendarDate ──────────────────────────────────────────────────────
 Deno.test("isValidCalendarDate accepts real dates including leap day", () => {
@@ -111,4 +116,59 @@ Deno.test("parseMatrixParams rejects date_from after date_to", () => {
 
 Deno.test("parseMatrixParams allows date_from equal to date_to (single day)", () => {
   assertEquals(parseMatrixParams("acct", "2026-07-01", "2026-07-01").ok, true);
+});
+
+// ── US-008: isValidUuid ──────────────────────────────────────────────────────
+Deno.test("isValidUuid accepts well-formed UUIDs, rejects junk", () => {
+  assertEquals(isValidUuid("3f2504e0-4f89-41d3-9a0c-0305e82c3301"), true);
+  assertEquals(isValidUuid("3F2504E0-4F89-41D3-9A0C-0305E82C3301"), true); // case-insensitive
+  assertEquals(isValidUuid("not-a-uuid"), false);
+  assertEquals(isValidUuid("3f2504e0-4f89-41d3-9a0c"), false);
+  assertEquals(isValidUuid(""), false);
+});
+
+// ── US-008: parseMatrixCellParams ────────────────────────────────────────────
+Deno.test("parseMatrixCellParams inherits account_id + date validation", () => {
+  assertEquals(parseMatrixCellParams(null, null, null, null, null).ok, false);
+  const badDate = parseMatrixCellParams("acct", null, null, "06/01/2026", null);
+  assertEquals(badDate.ok, false);
+  if (!badDate.ok) assertEquals(badDate.error, "date_from must be a valid YYYY-MM-DD date");
+});
+
+Deno.test("parseMatrixCellParams treats absent/empty angle_id + creative_type as the untagged buckets", () => {
+  const res = parseMatrixCellParams("acct", null, null, null, null);
+  assertEquals(res.ok, true);
+  if (res.ok) {
+    assertEquals(res.angleId, null);
+    assertEquals(res.creativeType, null);
+  }
+  const empties = parseMatrixCellParams("acct", "", "   ", null, null);
+  assertEquals(empties.ok, true);
+  if (empties.ok) {
+    assertEquals(empties.angleId, null);
+    assertEquals(empties.creativeType, null);
+  }
+});
+
+Deno.test("parseMatrixCellParams passes a valid angle_id UUID + creative_type through", () => {
+  const res = parseMatrixCellParams(
+    "acct",
+    "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+    "UGC",
+    "2026-06-01",
+    "2026-06-30",
+  );
+  assertEquals(res.ok, true);
+  if (res.ok) {
+    assertEquals(res.angleId, "3f2504e0-4f89-41d3-9a0c-0305e82c3301");
+    assertEquals(res.creativeType, "UGC");
+    assertEquals(res.dateFrom, "2026-06-01");
+    assertEquals(res.dateTo, "2026-06-30");
+  }
+});
+
+Deno.test("parseMatrixCellParams rejects a malformed angle_id", () => {
+  const res = parseMatrixCellParams("acct", "not-a-uuid", "UGC", null, null);
+  assertEquals(res.ok, false);
+  if (!res.ok) assertEquals(res.error, "angle_id must be a valid UUID or absent");
 });
