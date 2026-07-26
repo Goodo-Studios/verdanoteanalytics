@@ -16,14 +16,8 @@ import { Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useAccountContext } from "@/contexts/AccountContext";
+import { useDateRangeContext } from "@/contexts/DateRangeContext";
 import { useAccountTaxonomy } from "@/features/matrix/config/useAccountTaxonomy";
 import { MatrixBoard } from "./MatrixBoard";
 import { CellDrilldown } from "./CellDrilldown";
@@ -34,22 +28,23 @@ import type { MatrixCell } from "./api";
 const MatrixBoardPage = () => {
   const { selectedAccountId, accounts } = useAccountContext();
 
-  // Resolve the board account: the app-selected account when it's a real
-  // account (agency "all" and null are not), else the first available account.
-  const [accountId, setAccountId] = useState<string | null>(null);
-  useEffect(() => {
-    if (accountId && accounts.some((a) => a.id === accountId)) return;
-    const appMatch =
+  // The board follows the app-wide selected account (the left sidebar controls
+  // it) — no private account dropdown. When the app selection is the agency
+  // "all" bucket or null, fall back to the first available account so the
+  // builder-only board always has a concrete account to render.
+  const accountId = useMemo(() => {
+    if (
       selectedAccountId &&
       selectedAccountId !== "all" &&
       accounts.some((a) => a.id === selectedAccountId)
-        ? selectedAccountId
-        : null;
-    setAccountId(appMatch ?? accounts[0]?.id ?? null);
-  }, [accounts, selectedAccountId, accountId]);
+    ) {
+      return selectedAccountId;
+    }
+    return accounts[0]?.id ?? null;
+  }, [accounts, selectedAccountId]);
 
-  const [dateFrom, setDateFrom] = useState<string | undefined>(undefined);
-  const [dateTo, setDateTo] = useState<string | undefined>(undefined);
+  // App-wide, per-account, persisted date range (shared with every other page).
+  const { dateFrom, dateTo, setDateRange } = useDateRangeContext();
   const [mode, setMode] = useState<ViewMode>("performance");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [selectedCell, setSelectedCell] = useState<MatrixCell | null>(null);
@@ -118,30 +113,7 @@ const MatrixBoardPage = () => {
         description="Theme/Persona × creative-type coverage, ranked and colored by spend."
         actions={
           <div className="flex items-center gap-2">
-            {accounts.length > 1 && (
-              <Select value={accountId ?? ""} onValueChange={(v) => setAccountId(v)}>
-                <SelectTrigger className="w-52 h-9">
-                  <SelectValue placeholder="Select account" />
-                </SelectTrigger>
-                <SelectContent>
-                  {[...accounts]
-                    .sort((a, b) => a.name.localeCompare(b.name))
-                    .map((acc) => (
-                      <SelectItem key={acc.id} value={acc.id}>
-                        {acc.name}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            )}
-            <DateRangeFilter
-              dateFrom={dateFrom}
-              dateTo={dateTo}
-              onChange={(from, to) => {
-                setDateFrom(from);
-                setDateTo(to);
-              }}
-            />
+            <DateRangeFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDateRange} />
           </div>
         }
       />

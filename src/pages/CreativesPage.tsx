@@ -58,7 +58,7 @@ const CreativesPage = () => {
   const state = useCreativesPageState();
   const {
     viewMode, setViewMode, visibleCols, toggleCol, columnOrder, handleReorder,
-    filters, updateFilter, dateFrom, dateTo, setDateFrom, setDateTo,
+    filters, updateFilter, dateFrom, dateTo, setDateRange,
     selectedCreativeId, setSelectedCreativeId, groupBy, setGroupBy,
     sort, handleSort, page, setPage, searchInput, setSearchInput, search,
     selectedAccountId, allFilters,
@@ -345,7 +345,7 @@ const CreativesPage = () => {
       </div>
 
       <CreativesFilters
-        dateFrom={dateFrom} dateTo={dateTo} onDateChange={(from, to) => { setDateFrom(from); setDateTo(to); }}
+        dateFrom={dateFrom} dateTo={dateTo} onDateChange={setDateRange}
         filters={filters} updateFilter={updateFilter} filterOptions={filterOptions}
         groupBy={groupBy} setGroupBy={setGroupBy} viewMode={viewMode}
       />

@@ -1,14 +1,18 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { format, subDays } from "date-fns";
 import { useSearchParams } from "react-router-dom";
 import { TABLE_COLUMNS, SORT_FIELD_MAP } from "@/components/creatives/constants";
 import { type SortConfig } from "@/components/SortableTableHead";
 import { useAccountContext } from "@/contexts/AccountContext";
+import { useDateRangeContext } from "@/contexts/DateRangeContext";
 import { type AdvancedConditions, deserializeConditions, serializeConditions } from "@/components/creatives/AdvancedFiltersPanel";
 
 export function useCreativesPageState() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { selectedAccountId } = useAccountContext();
+  // App-wide, per-account, persisted date range (shared with every other page).
+  // The date range no longer lives in the URL — it is the shared cross-page
+  // selection, so it is not re-derived from ?from/?to here.
+  const { dateFrom, dateTo, setDateRange } = useDateRangeContext();
 
   const [viewMode, setViewMode] = useState<"table" | "card" | "timeline">("table");
 
@@ -44,8 +48,6 @@ export function useCreativesPageState() {
     return {};
   });
 
-  const [dateFrom, setDateFrom] = useState<string | undefined>(() => searchParams.get("from") || format(subDays(new Date(), 14), "yyyy-MM-dd"));
-  const [dateTo, setDateTo] = useState<string | undefined>(() => searchParams.get("to") || format(subDays(new Date(), 1), "yyyy-MM-dd"));
   const [selectedCreativeId, setSelectedCreativeId] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState(() => searchParams.get("group") || "__none__");
   const [sort, setSort] = useState<SortConfig>({ key: "", direction: null });
@@ -70,14 +72,12 @@ export function useCreativesPageState() {
   useEffect(() => {
     const params = new URLSearchParams();
     if (search) params.set("q", search);
-    if (dateFrom) params.set("from", dateFrom);
-    if (dateTo) params.set("to", dateTo);
     if (groupBy !== "__none__") params.set("group", groupBy);
     if (Object.keys(filters).length > 0) params.set("filters", JSON.stringify(filters));
     const advSerialized = serializeConditions(advancedConditions);
     if (advSerialized) params.set("adv", advSerialized);
     setSearchParams(params, { replace: true });
-  }, [search, dateFrom, dateTo, groupBy, filters, advancedConditions, setSearchParams]);
+  }, [search, groupBy, filters, advancedConditions, setSearchParams]);
 
   const updateFilter = useCallback((key: string, val: string) => {
     setPage(0);
@@ -109,7 +109,7 @@ export function useCreativesPageState() {
     visibleCols, toggleCol,
     columnOrder, handleReorder,
     filters, updateFilter,
-    dateFrom, dateTo, setDateFrom, setDateTo,
+    dateFrom, dateTo, setDateRange,
     selectedCreativeId, setSelectedCreativeId,
     groupBy, setGroupBy,
     sort, handleSort,

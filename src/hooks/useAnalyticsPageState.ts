@@ -1,17 +1,17 @@
 import { useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAccountContext } from "@/contexts/AccountContext";
+import { useDateRangeContext } from "@/contexts/DateRangeContext";
 import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { useDailyTrends } from "@/hooks/useDailyTrends";
-import { subDays, format } from "date-fns";
 
 export function useAnalyticsPageState() {
   const { selectedAccountId, selectedAccount } = useAccountContext();
+  // App-wide, per-account, persisted date range (shared with every other page).
+  const { dateFrom, dateTo, setDateRange } = useDateRangeContext();
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "leaderboard");
   const [selectedCreative, setSelectedCreative] = useState<any>(null);
-  const [dateFrom, setDateFrom] = useState<string | undefined>(() => format(subDays(new Date(), 14), "yyyy-MM-dd"));
-  const [dateTo, setDateTo] = useState<string | undefined>(() => format(subDays(new Date(), 1), "yyyy-MM-dd"));
 
   const dateFilters = useMemo(() => ({
     ...(selectedAccountId && selectedAccountId !== "all" ? { account_id: selectedAccountId } : {}),
@@ -45,7 +45,7 @@ export function useAnalyticsPageState() {
   return {
     activeTab, setActiveTab,
     selectedCreative, setSelectedCreative,
-    dateFrom, dateTo, setDateFrom, setDateTo,
+    dateFrom, dateTo, setDateRange,
     selectedAccountId, selectedAccount,
     creatives, isLoading,
     filteredTrendData, trendsLoading,

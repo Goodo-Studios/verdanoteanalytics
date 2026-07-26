@@ -46,7 +46,7 @@ const OverviewPage = () => {
   const {
     accountName,
     lastSyncedAgo,
-    dateFrom, dateTo, setDateFrom, setDateTo,
+    dateFrom, dateTo, setDateRange,
     metrics, prevMetrics, hasPrevPeriod,
     isLoading,
     creatives,
@@ -68,7 +68,7 @@ const OverviewPage = () => {
           <p className="font-body text-[12px] sm:text-[13px] text-slate font-light mt-1">{subtitle}</p>
         </div>
         <div className="flex items-center gap-2">
-          <DateRangeFilter dateFrom={dateFrom} dateTo={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
+          <DateRangeFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDateRange} />
           {!effectiveClient && (
             <Button
               size="sm"
