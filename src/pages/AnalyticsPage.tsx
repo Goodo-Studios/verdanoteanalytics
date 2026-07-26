@@ -24,7 +24,7 @@ const AnalyticsPage = () => {
   const canBenchmark = isBuilder || isEmployee;
   const {
     activeTab, setActiveTab, selectedCreative, setSelectedCreative,
-    dateFrom, dateTo, setDateFrom, setDateTo,
+    dateFrom, dateTo, setDateRange,
     selectedAccountId, selectedAccount,
     creatives, isLoading, filteredTrendData, trendsLoading,
     roasThreshold, spendThreshold, killScaleConfig,
@@ -48,7 +48,7 @@ const AnalyticsPage = () => {
         title="Analytics"
         description="Win rate analysis, scale & kill recommendations, and iteration priorities."
         actions={
-          <DateRangeFilter dateFrom={dateFrom} dateTo={dateTo} onChange={(from, to) => { setDateFrom(from); setDateTo(to); }} />
+          <DateRangeFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDateRange} />
         }
       />
 

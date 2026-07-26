@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useRoleNavigate } from "@/hooks/useRolePath";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { fmt$, fmtSignedPct } from "@/lib/formatters";
 import { useAgencyDashboardData } from "@/hooks/useAgencyDashboardData";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
-import { subDays, format, startOfMonth } from "date-fns";
+import { useDateRangeContext } from "@/contexts/DateRangeContext";
 
 export default function AgencyDashboardPage() {
   const navigate = useRoleNavigate();
@@ -24,8 +24,8 @@ export default function AgencyDashboardPage() {
   const { data: wowTrends } = useWoWTrends();
   const sync = useSync();
 
-  const [dateFrom, setDateFrom] = useState<string | undefined>(() => format(startOfMonth(new Date()), "yyyy-MM-dd"));
-  const [dateTo, setDateTo] = useState<string | undefined>(() => format(subDays(new Date(), 1), "yyyy-MM-dd"));
+  // App-wide, per-account, persisted date range (shared with every other page).
+  const { dateFrom, dateTo, setDateRange } = useDateRangeContext();
 
   const { data: agencyData } = useAgencyDashboardData(accounts, dateFrom, dateTo);
 
@@ -88,7 +88,7 @@ export default function AgencyDashboardPage() {
           <DateRangeFilter
             dateFrom={dateFrom}
             dateTo={dateTo}
-            onChange={(from, to) => { setDateFrom(from); setDateTo(to); }}
+            onChange={setDateRange}
           />
         </div>
 

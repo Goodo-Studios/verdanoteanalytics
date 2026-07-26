@@ -1,16 +1,17 @@
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import { useAccountContext } from "@/contexts/AccountContext";
+import { useDateRangeContext } from "@/contexts/DateRangeContext";
 import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { usePeriodMetrics } from "@/hooks/usePeriodMetrics";
 import { useKillScaleLogic, KillScaleConfig } from "@/lib/killScaleLogic";
 import { calculateBenchmarks, diagnoseCreatives } from "@/lib/iterationDiagnostics";
 import { selectWinners, type WinnerThresholdConfig } from "@/lib/winnerSelection";
-import { format, formatDistanceToNow, subDays } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 
 export function useOverviewPageState() {
   const { selectedAccountId, selectedAccount, accounts } = useAccountContext();
-  const [dateFrom, setDateFrom] = useState<string | undefined>(() => format(subDays(new Date(), 14), "yyyy-MM-dd"));
-  const [dateTo, setDateTo] = useState<string | undefined>(() => format(subDays(new Date(), 1), "yyyy-MM-dd"));
+  // App-wide, per-account, persisted date range (shared with every other page).
+  const { dateFrom, dateTo, setDateRange } = useDateRangeContext();
 
   const dateFilters = useMemo(() => ({
     ...(selectedAccountId && selectedAccountId !== "all" ? { account_id: selectedAccountId } : {}),
@@ -176,7 +177,7 @@ export function useOverviewPageState() {
 
   return {
     accountName, lastSyncedAgo,
-    dateFrom, dateTo, setDateFrom, setDateTo,
+    dateFrom, dateTo, setDateRange,
     selectedAccountId, selectedAccount,
     creatives, isLoading: isLoading || dailyMetricsLoading,
     metrics, prevMetrics, hasPrevPeriod,

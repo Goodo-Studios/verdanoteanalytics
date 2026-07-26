@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { format, subDays } from "date-fns";
+import { format } from "date-fns";
 import { Download, HelpCircle, ChevronDown } from "lucide-react";
 
 import { PageHeader } from "@/components/PageHeader";
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
 import { ChartSkeleton } from "@/components/skeletons/ChartSkeleton";
 import { useAccountContext } from "@/contexts/AccountContext";
+import { useDateRangeContext } from "@/contexts/DateRangeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { getCreativeRotation, type FreshDays } from "@/lib/api";
 import { downloadCSV } from "@/lib/csv";
@@ -130,15 +131,11 @@ function RotationHelp({ freshDays }: { freshDays: FreshDays }) {
 const CreativeRotationPage = () => {
   const { isBuilder, isEmployee } = useAuth();
   const { selectedAccountId, selectedAccount, isLoading: accountLoading } = useAccountContext();
+  // App-wide, per-account, persisted date range (shared with every other page).
+  const { dateFrom, dateTo, setDateRange } = useDateRangeContext();
 
   const [freshDays, setFreshDays] = useState<FreshDays>(14);
   const [cohortView, setCohortView] = useState<CohortView>("weekly");
-  const [dateFrom, setDateFrom] = useState<string | undefined>(
-    () => format(subDays(new Date(), 90), "yyyy-MM-dd"),
-  );
-  const [dateTo, setDateTo] = useState<string | undefined>(
-    () => format(subDays(new Date(), 1), "yyyy-MM-dd"),
-  );
 
   // Staff rollout (2026-07-21): available (here `gated` means allowed) to builder
   // AND employee roles on ANY account; the route gates clients away.
@@ -308,7 +305,7 @@ const CreativeRotationPage = () => {
                 </button>
               ))}
             </div>
-            <DateRangeFilter dateFrom={dateFrom} dateTo={dateTo} onChange={(from, to) => { setDateFrom(from); setDateTo(to); }} />
+            <DateRangeFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDateRange} />
           </div>
         }
       />

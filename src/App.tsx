@@ -5,6 +5,7 @@ import { BrowserRouter, Routes, Route, Navigate, useParams, useLocation } from "
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { AccountProvider } from "@/contexts/AccountContext";
+import { DateRangeProvider } from "@/contexts/DateRangeContext";
 import { ClientPreviewContext, useClientPreviewMode } from "@/hooks/useClientPreviewMode";
 import { ClientPreviewBanner } from "@/components/ClientPreviewBanner";
 import { useRolePrefix } from "@/hooks/useRolePath";
@@ -146,6 +147,7 @@ export function RoleGuardedRoutes() {
 
   return (
     <AccountProvider>
+      <DateRangeProvider>
       <ClientPreviewBanner />
       <AppLayout>
         <Suspense fallback={<PageSkeleton />}>
@@ -189,6 +191,7 @@ export function RoleGuardedRoutes() {
         </Routes>
         </Suspense>
       </AppLayout>
+      </DateRangeProvider>
     </AccountProvider>
   );
 }
