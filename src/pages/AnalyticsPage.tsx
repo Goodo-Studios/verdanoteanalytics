@@ -83,7 +83,7 @@ const AnalyticsPage = () => {
             spendThreshold={spendThreshold}
             winnerKpi={selectedAccount?.winner_kpi}
             winnerKpiDirection={selectedAccount?.winner_kpi_direction}
-            winnerKpiThreshold={parseFloat(selectedAccount?.winner_kpi_threshold || "0") || roasThreshold}
+            winnerKpiThreshold={selectedAccount?.winner_kpi_threshold || roasThreshold}
           />
         </TabsContent>
         <TabsContent value="dna" className="space-y-4">

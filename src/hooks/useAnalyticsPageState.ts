@@ -22,14 +22,15 @@ export function useAnalyticsPageState() {
   const { data: creatives = [], isLoading } = useAllCreatives(dateFilters);
   const { data: trendData, isLoading: trendsLoading } = useDailyTrends(selectedAccountId || undefined);
 
-  const roasThreshold = parseFloat(selectedAccount?.winner_roas_threshold || "2.0");
-  const spendThreshold = parseFloat(selectedAccount?.iteration_spend_threshold || "50");
+  // Thresholds are numeric columns; `||` (not `??`) so 0/unset falls back to the default.
+  const roasThreshold = selectedAccount?.winner_roas_threshold || 2.0;
+  const spendThreshold = selectedAccount?.iteration_spend_threshold || 50;
 
   const killScaleConfig = useMemo(() => ({
     winnerKpi: (selectedAccount as any)?.kill_scale_kpi || selectedAccount?.winner_kpi || "roas",
     winnerKpiDirection: (selectedAccount as any)?.kill_scale_kpi_direction || selectedAccount?.winner_kpi_direction || "gte",
-    scaleAt: parseFloat(selectedAccount?.scale_threshold || "0") || (parseFloat(selectedAccount?.winner_kpi_threshold || "0") || roasThreshold),
-    killAt: parseFloat(selectedAccount?.kill_threshold || "0") || (parseFloat(selectedAccount?.winner_kpi_threshold || "0") || roasThreshold) * 0.5,
+    scaleAt: selectedAccount?.scale_threshold || selectedAccount?.winner_kpi_threshold || roasThreshold,
+    killAt: selectedAccount?.kill_threshold || (selectedAccount?.winner_kpi_threshold || roasThreshold) * 0.5,
     spendThreshold,
   }), [selectedAccount, roasThreshold, spendThreshold]);
 

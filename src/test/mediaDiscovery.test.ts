@@ -22,7 +22,7 @@ const PAGE2 = "https://web.facebook.com/business/ads";
 describe("extractPreviewImageSrc", () => {
   it("returns null for empty / missing body", () => {
     expect(extractPreviewImageSrc("")).toBeNull();
-    // @ts-expect-error guarding the runtime null path
+    // guarding the runtime null path (not a type error — strictNullChecks is off)
     expect(extractPreviewImageSrc(undefined)).toBeNull();
   });
 
