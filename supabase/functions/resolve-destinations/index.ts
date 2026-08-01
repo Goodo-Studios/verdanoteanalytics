@@ -12,10 +12,13 @@
 // (fetch_titles=true) only REFINES the product name for product/collection pages;
 // it is off by default so a normal run makes zero external requests.
 //
-// Auth: internal/service-role only (verify_jwt=false). Body:
+// Auth: internal/service-role only. NOTE verify_jwt=false means the Supabase
+// gateway does NOT enforce that — requireServiceRole() in the handler does.
+// Body:
 //   { account_id: string (required), limit?: number, fetch_titles?: bool, force?: bool }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { json } from "../_shared/cors.ts";
+import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { classifyDestination, productNameFromTitle } from "../_shared/classify-destination.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -52,6 +55,12 @@ async function fetchPageTitle(url: string): Promise<string | null> {
 }
 
 Deno.serve(async (req) => {
+
+  // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
+  // so this check is the only gate. Live pg_cron jobs and function-to-function
+  // calls forward the real service-role key. See _shared/internal-auth.ts.
+  const authFailure = requireServiceRole(req);
+  if (authFailure) return authFailure;
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
 
   const body = await req.json().catch(() => ({}));

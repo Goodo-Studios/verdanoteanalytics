@@ -22,10 +22,13 @@
 // to cluster_id = null and excluded from the entity model. This also keeps each
 // run small enough to finish comfortably (active set << full library).
 //
-// Auth: internal/service-role only (verify_jwt=false). Body:
+// Auth: internal/service-role only. NOTE verify_jwt=false means the Supabase
+// gateway does NOT enforce that — requireServiceRole() in the handler does.
+// Body:
 //   { account_id: string (required), threshold?: number (default 0.7) }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { json } from "../_shared/cors.ts";
+import { requireServiceRole } from "../_shared/internal-auth.ts";
 import {
   blendedTier,
   type CandidateGroup,
@@ -95,6 +98,12 @@ interface Participant {
 }
 
 Deno.serve(async (req) => {
+
+  // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
+  // so this check is the only gate. Live pg_cron jobs and function-to-function
+  // calls forward the real service-role key. See _shared/internal-auth.ts.
+  const authFailure = requireServiceRole(req);
+  if (authFailure) return authFailure;
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
   const body = await req.json().catch(() => ({}));
   const accountId: string | undefined = body.account_id;

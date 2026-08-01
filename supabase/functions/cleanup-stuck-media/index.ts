@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireServiceRole } from "../_shared/internal-auth.ts";
 
 // US-010: SIMPLIFIED — the recurring cleanup cron for this function has been RETIRED.
 //
@@ -24,7 +25,13 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // 'running' > 3 min (edge fns hard-cap at 150s) as 'failed'. Idempotent; returns the
 // count cleaned.
 
-serve(async (_req) => {
+serve(async (req) => {
+  // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
+  // so this check is the only gate. The pg_cron jobs forward the real service-role
+  // key. See _shared/internal-auth.ts.
+  const authFailure = requireServiceRole(req);
+  if (authFailure) return authFailure;
+
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,

@@ -35,6 +35,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { parsePlayCurve } from "../_shared/play-curve.ts";
 
 const META_API_VERSION = "v22.0";
@@ -199,6 +200,16 @@ export async function handler(
   metaFetchOverride?: MetaFetcher,
 ): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
+  // so this check is the only gate. The pg_cron job forwards the real service-role
+  // key. Skipped when a test injects a client (same override convention as the
+  // supabase client resolution below). See _shared/internal-auth.ts.
+  const isInjectedClient = !!supabaseOverride && typeof supabaseOverride.from === "function";
+  if (!isInjectedClient) {
+    const authFailure = requireServiceRole(req);
+    if (authFailure) return authFailure;
+  }
 
   const startedMs = Date.now();
   const timedOut = () => Date.now() - startedMs > DEADLINE_MS;

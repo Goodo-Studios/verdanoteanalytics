@@ -1,9 +1,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireServiceRole } from "../_shared/internal-auth.ts";
 
-serve(async (_req) => {
-  // Auth: Supabase gateway validates the JWT/apikey before reaching this function.
-  // Cron calls use the project anon key which passes gateway validation.
+serve(async (req) => {
+  // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint
+  // (the previous comment here claimed it did), so this check is the only gate.
+  // The pg_cron job forwards the real service-role key. Without it, anyone could
+  // force-fail in-flight syncs. See _shared/internal-auth.ts.
+  const authFailure = requireServiceRole(req);
+  if (authFailure) return authFailure;
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,

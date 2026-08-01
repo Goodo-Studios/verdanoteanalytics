@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { resolveCaller } from "../_shared/internal-auth.ts";
 
 // Returns a Meta ad-preview iframe URL for embedding in-app.
 //
@@ -27,6 +28,17 @@ const json = (obj: unknown, status = 200) =>
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
+  // so this check is the only gate. It spends the org's Meta API quota and acts as
+  // an oracle for arbitrary ad ids, so it must not be world-callable. Clients DO
+  // legitimately reach it (CreativeDetailModal is rendered on /creatives and
+  // /analytics, which are not staff-gated) — so authenticate everyone, then verify
+  // per-ad ownership for non-staff below. See _shared/internal-auth.ts.
+  const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const caller = await resolveCaller(req, supabase);
+  if (caller instanceof Response) return caller;
+
   const url = new URL(req.url);
   let adId = url.searchParams.get("ad_id");
   if (!adId && req.method === "POST") {
@@ -34,7 +46,18 @@ serve(async (req) => {
   }
   if (!adId || !/^\d+$/.test(adId)) return json({ error: "invalid ad_id" }, 400);
 
-  const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  // A client may only preview ads on an account they are linked to — otherwise this
+  // would render any tenant's creative to any signed-in user.
+  if (!caller.isStaff) {
+    const { data: creative } = await supabase
+      .from("creatives").select("account_id").eq("ad_id", adId).maybeSingle();
+    if (!creative?.account_id) return json({ error: "not_found" }, 404);
+    const { data: link } = await supabase
+      .from("user_accounts").select("account_id")
+      .eq("user_id", caller.userId).eq("account_id", creative.account_id).maybeSingle();
+    if (!link) return json({ error: "Access denied" }, 403);
+  }
+
   let token = Deno.env.get("META_ACCESS_TOKEN") || null;
   if (!token) {
     const { data } = await supabase.from("settings").select("value").eq("key", "meta_access_token").single();
