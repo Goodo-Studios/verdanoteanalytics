@@ -5,13 +5,13 @@
  * fits a linear trend, and projects forward.
  */
 
-export interface DailyFatiguePoint {
+interface DailyFatiguePoint {
   day: number; // 0-based index
   date: string;
   score: number;
 }
 
-export interface FatigueForecast {
+interface FatigueForecast {
   historical: DailyFatiguePoint[];
   projected: DailyFatiguePoint[];
   slope: number; // per-day change
@@ -79,7 +79,7 @@ function linearRegression(points: { x: number; y: number }[]): { slope: number; 
 /**
  * Build a fatigue forecast from the last 14 days of daily metrics for one creative.
  */
-export function computeFatigueForecast(dailyRows: any[]): FatigueForecast | null {
+function computeFatigueForecast(dailyRows: any[]): FatigueForecast | null {
   if (!dailyRows || dailyRows.length < 3) return null;
 
   // Sort by date ascending

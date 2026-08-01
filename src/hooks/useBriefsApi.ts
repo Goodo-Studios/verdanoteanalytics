@@ -116,18 +116,3 @@ export function useDeleteBrief() {
   });
 }
 
-export function useCreateBriefTemplate() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (template: Partial<BriefTemplate>) => {
-      const { data, error } = await supabase.from("brief_templates" as any).insert(template as any).select().single();
-      if (error) throw error;
-      return data as unknown as BriefTemplate;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["brief_templates"] });
-      toast.success("Template saved");
-    },
-    onError: (e: any) => toast.error("Failed to save template", { description: e.message }),
-  });
-}

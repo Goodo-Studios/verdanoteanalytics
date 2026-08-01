@@ -1,6 +1,6 @@
 import { SkeletonPulse } from "./SkeletonPulse";
 
-export function MetricCardSkeleton() {
+function MetricCardSkeleton() {
   return (
     <div className="glass-panel p-4 space-y-3">
       <SkeletonPulse className="h-3 w-24" />

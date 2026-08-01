@@ -15,7 +15,7 @@ export interface ScoringConfig {
   hook_rate_benchmark: number;
 }
 
-export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
+const DEFAULT_SCORING_CONFIG: ScoringConfig = {
   roas_weight: 35,
   ctr_weight: 20,
   hook_rate_weight: 15,
@@ -29,7 +29,7 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
   hook_rate_benchmark: 25.0,
 };
 
-export interface ScoreBreakdown {
+interface ScoreBreakdown {
   roas: number;
   ctr: number;
   hookRate: number;
@@ -49,7 +49,7 @@ export interface CreativeScore {
  * Compute a unified Creative Score (0-100) combining all performance signals.
  * Uses configurable weights from ScoringConfig.
  */
-export function computeCreativeScore(
+function computeCreativeScore(
   creative: any,
   opts: {
     scaleThreshold?: number;

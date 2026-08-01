@@ -27,7 +27,7 @@ export interface VaultSaveResult {
 }
 
 /** Build the performance snapshot a save sends, stamped with capture time. */
-export function buildSaveSnapshot(
+function buildSaveSnapshot(
   creative: CreativeSnapshotSource | null | undefined,
 ): Record<string, unknown> {
   return {

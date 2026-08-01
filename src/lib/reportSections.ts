@@ -17,21 +17,6 @@ export const SECTION_TYPE_META: Record<SectionType, { label: string; icon: strin
   custom_callout: { label: "Custom Callout", icon: "⭐", description: "Highlighted stat with icon" },
 };
 
-export function createSection(type: SectionType): ReportSection {
-  const id = crypto.randomUUID();
-  const defaults: Record<SectionType, Record<string, any>> = {
-    notes: { content: "" },
-    metric_summary: {},
-    top_creatives: { count: 5, sortBy: "spend" },
-    iterations: { count: 5 },
-    chart: { metric: "spend" },
-    tag_breakdown: { tagField: "hook" },
-    text: { content: "" },
-    custom_callout: { icon: "🏆", stat: "", label: "" },
-  };
-  return { id, type, config: defaults[type] };
-}
-
 /** The standard report layout — same for everyone */
 export function standardReportSections(): ReportSection[] {
   return [

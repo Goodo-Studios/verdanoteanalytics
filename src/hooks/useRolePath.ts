@@ -19,7 +19,7 @@ export function useRolePrefix(): string {
  * Prefixes an absolute path with the role prefix.
  * If the path is relative or already prefixed, returns as-is.
  */
-export function prefixPath(prefix: string, path: string): string {
+function prefixPath(prefix: string, path: string): string {
   if (path.startsWith("/builder/") || path.startsWith("/client/") || path.startsWith("/employee/")) return path;
   if (path.startsWith("/builder") || path.startsWith("/client") || path.startsWith("/employee")) return path;
   if (path.startsWith("/")) return `${prefix}${path}`;

@@ -2,23 +2,6 @@
 // These DB tables aren't in the generated Verdanote `types.ts` yet,
 // so we type the rows here and cast supabase calls with `as any`.
 
-export type VaultPlatform =
-  | "tiktok"
-  | "instagram"
-  | "youtube"
-  | "twitter"
-  | "facebook_ad"
-  | "upload"
-  | "unknown";
-
-export type VaultStatus =
-  | "pending"
-  | "extracting"
-  | "transcribing"
-  | "analyzing"
-  | "ready"
-  | "error";
-
 export interface InspirationItem {
   id: string;
   user_id: string;
@@ -54,12 +37,6 @@ export interface InspirationItem {
 // `public.creative_frames` + joined `media_assets` — neither is in the generated
 // Verdanote `types.ts`, so we hand-type the row here and cast supabase calls with
 // `as any` (same approach as InspirationItem above).
-export type CreativeFrameMediaType =
-  | "image"
-  | "video"
-  | "carousel_frame"
-  | "video_thumbnail";
-
 export interface CreativeFrame {
   id: string;
   ad_id: string;
@@ -76,22 +53,6 @@ export interface CreativeFrame {
     content_type: string | null;
     byte_size: number | null;
   } | null;
-}
-
-export interface InspirationTranscript {
-  id: string;
-  item_id: string;
-  cleaned_script: string | null;
-}
-
-export interface InspirationFramework {
-  id: string;
-  item_id: string;
-  hook_verbal: string | null;
-  hook_text: string | null;
-  hook_visual: string | null;
-  hook_formula: string | null;
-  copywriting_framework: string | null;
 }
 
 export type LibraryItem = InspirationItem & {

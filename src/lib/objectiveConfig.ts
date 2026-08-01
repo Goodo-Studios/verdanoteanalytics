@@ -1,4 +1,4 @@
-export type OptimizationGoal = 'PURCHASE' | 'SESSION_CONVERSION';
+type OptimizationGoal = 'PURCHASE' | 'SESSION_CONVERSION';
 
 export interface MetricConfig {
   key: string;          // field name on the creatives row
@@ -7,7 +7,7 @@ export interface MetricConfig {
   description?: string;
 }
 
-export const OBJECTIVE_CONFIG: Record<OptimizationGoal, {
+const OBJECTIVE_CONFIG: Record<OptimizationGoal, {
   primaryMetrics: MetricConfig[];
   outcomeLabel: string;   // e.g. "Purchases" or "Sessions Converted"
   costLabel: string;      // e.g. "CPA" or "Cost / Session"
