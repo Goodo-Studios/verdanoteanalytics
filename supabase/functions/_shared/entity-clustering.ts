@@ -305,6 +305,179 @@ export function agglomerativeClusters(
   return [...groups.values()].sort((a, b) => b.length - a.length);
 }
 
+// ─── Complete-linkage agglomeration ──────────────────────────────────────────
+//
+// WHY THIS EXISTS
+//
+// `agglomerativeClusters` above (and the equivalent union-find in
+// cluster-creatives) is SINGLE linkage: A and B land in the same entity if there
+// is ANY chain of pairwise-similar creatives between them. On a rich text
+// embedding that chains across an entire account. Measured on Bearaby
+// (act_2223094124606317, 2,391 ACTIVE ads) at the production threshold of 0.70:
+//
+//   single linkage   ->    9 clusters, largest 2,126 (97% of covered ads, 89% of spend)
+//   complete linkage ->  131 clusters, largest   231, 15.3% singletons
+//   average linkage  ->   49 clusters, largest 1,414  (does NOT fix it)
+//
+// The embedding is not the problem — identical images score a median cosine of
+// 0.942, so it does separate. But 38.2% of ALL pairs clear 0.70 and the median
+// node degree in that graph is 987 of 2,189, so single linkage walks across the
+// account. No threshold rescues it: even at 0.85 the blob still holds 1,783 ads.
+//
+// Complete linkage requires EVERY pair inside a cluster to be within threshold,
+// which makes transitive chaining structurally impossible.
+//
+// ANCHORS ARE DELIBERATELY EXEMPT. A shared asset_key / meta_video_id /
+// meta_image_hash is an exact identity signal, and identity IS transitive — if a
+// and b are the same asset and b and c are the same asset, then a and c are too.
+// Anchor components are therefore merged first and passed in as atomic seed
+// blocks; complete linkage then runs over those blocks. Only the fuzzy embedding
+// similarity is constrained.
+
+/** Distance between two items, in [0, 2]. Return Infinity for "never linkable". */
+export type PairDistance = (i: number, j: number) => number;
+
+/**
+ * Complete-linkage agglomeration via nearest-neighbour chain, cut at `maxDistance`.
+ *
+ * `seedBlocks` are index groups already known to belong together (anchor
+ * components); each is treated as one atomic unit that is never split. Items not
+ * named in any seed block start as their own singleton block.
+ *
+ * Returns index groups. Deterministic: ties break on lowest index, and the input
+ * order fully determines the output.
+ */
+export function completeLinkageBlocks(
+  n: number,
+  distance: PairDistance,
+  maxDistance: number,
+  seedBlocks: number[][] = [],
+  opts: { maxItems?: number } = {},
+): number[][] {
+  // Guard against OOM in the edge runtime. The matrix is n^2 Float32 (4 bytes),
+  // so 6,000 blocks is ~144 MB — already past what we want to risk. Active-only
+  // scoping keeps real accounts in the low thousands (see
+  // verdanote-cluster-creatives-onsquared-active-scoping-ann); this is a loud
+  // failure rather than a silent truncation if that ever stops being true.
+  const MAX = opts.maxItems ?? 6000;
+
+  const blockOf = new Int32Array(n).fill(-1);
+  const blocks: number[][] = [];
+  for (const b of seedBlocks) {
+    if (b.length === 0) continue;
+    const id = blocks.length;
+    blocks.push([...b]);
+    for (const i of b) blockOf[i] = id;
+  }
+  for (let i = 0; i < n; i++) {
+    if (blockOf[i] === -1) { blockOf[i] = blocks.length; blocks.push([i]); }
+  }
+
+  const m = blocks.length;
+  if (m <= 1) return blocks.map((b) => [...b]);
+  if (m > MAX) {
+    throw new Error(
+      `completeLinkageBlocks: ${m} blocks exceeds maxItems=${MAX}; refusing to allocate an ${m}x${m} matrix`,
+    );
+  }
+
+  // Block-to-block distance = MAX over member pairs (that is complete linkage).
+  const D = new Float32Array(m * m);
+  for (let a = 0; a < m; a++) {
+    D[a * m + a] = Infinity;
+    for (let b = a + 1; b < m; b++) {
+      let worst = 0;
+      for (const i of blocks[a]) {
+        for (const j of blocks[b]) {
+          const d = distance(i, j);
+          if (d > worst) worst = d;
+          if (worst === Infinity) break;
+        }
+        if (worst === Infinity) break;
+      }
+      D[a * m + b] = worst;
+      D[b * m + a] = worst;
+    }
+  }
+
+  // Build the FULL dendrogram, then cut. Do not try to stop early: an early exit
+  // keyed on "closest remaining pair is past the cut" can spin forever, because
+  // the chain always restarts at the lowest-index active block, and if THAT
+  // block has no neighbour within the cut while some other pair does, the same
+  // block is picked again on every iteration. Merging to completion and cutting
+  // afterwards is both simpler and provably terminating (exactly m-1 merges).
+  const active = new Uint8Array(m).fill(1);
+  const merges: Array<[number, number, number]> = [];
+  const chain: number[] = [];
+  let nActive = m;
+
+  while (nActive > 1) {
+    if (chain.length === 0) {
+      for (let i = 0; i < m; i++) if (active[i]) { chain.push(i); break; }
+    }
+    const a = chain[chain.length - 1];
+    // NB: `b === -1 ||` matters. When every neighbour is Infinity (nothing shares
+    // a modality with `a`), a plain `d < best` never fires and the loop would
+    // bail out with b = -1, dropping every remaining merge on the floor. We still
+    // want to walk the chain — the Infinity merges simply fall outside the cut
+    // below. Ties resolve to the lowest index because we only update on strictly
+    // smaller, which keeps the output deterministic.
+    let b = -1, best = Infinity;
+    for (let j = 0; j < m; j++) {
+      if (!active[j] || j === a) continue;
+      const d = D[a * m + j];
+      if (b === -1 || d < best) { best = d; b = j; }
+    }
+    if (b === -1) break; // no active partner left at all
+    if (chain.length > 1 && b === chain[chain.length - 2]) {
+      chain.pop(); chain.pop();
+      merges.push([a, b, best]);
+      for (let j = 0; j < m; j++) {
+        if (!active[j] || j === a || j === b) continue;
+        const v = Math.max(D[a * m + j], D[b * m + j]);
+        D[a * m + j] = v; D[j * m + a] = v;
+      }
+      active[b] = 0; nActive--;
+      D[a * m + a] = Infinity;
+      for (let j = 0; j < m; j++) { D[b * m + j] = Infinity; D[j * m + b] = Infinity; }
+    } else {
+      chain.push(b);
+    }
+  }
+
+  // Cut: replay merges whose linkage distance is within the threshold.
+  const parent = Array.from({ length: m }, (_, i) => i);
+  const find = (x: number): number => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+  for (const [a, b, d] of merges) {
+    if (d <= maxDistance + 1e-12) { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; }
+  }
+  const outMap = new Map<number, number[]>();
+  for (let i = 0; i < m; i++) {
+    const r = find(i);
+    if (!outMap.has(r)) outMap.set(r, []);
+    outMap.get(r)!.push(...blocks[i]);
+  }
+  const out = [...outMap.values()].map((g) => g.sort((x, y) => x - y));
+  return out.sort((a, b) => b.length - a.length || a[0] - b[0]);
+}
+
+/**
+ * Drop-in complete-linkage counterpart to `agglomerativeClusters`, over the single
+ * note embedding. Kept for parity and for tests; cluster-creatives uses
+ * `completeLinkageBlocks` directly so it can span anchors and all three modalities.
+ */
+export function completeLinkageClusters(
+  items: EmbeddedCreative[],
+  threshold = 0.7,
+): string[][] {
+  const groups = completeLinkageBlocks(
+    items.length,
+    (i, j) => 1 - cosineSimilarity(items[i].embedding, items[j].embedding),
+    1 - threshold,
+  );
+  return groups.map((g) => g.map((i) => items[i].ad_id));
+}
+
 // ─── Statistics ──────────────────────────────────────────────────────────────
 
 export function mean(xs: number[]): number {

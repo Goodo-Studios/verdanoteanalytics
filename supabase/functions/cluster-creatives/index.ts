@@ -35,6 +35,7 @@ import {
   centroid,
   clusterLabel,
   clusterStats,
+  completeLinkageBlocks,
   cosineSimilarity,
   type CreativeMetrics,
   effectiveEntities,
@@ -240,30 +241,45 @@ Deno.serve(async (req) => {
     }
   });
 
-  // 3b. Embedding unions (O(m^2) per modality). Two creatives merge when they are
-  //     similar on ANY modality — note (v1), visual, or script (US-006). The
-  //     resulting group's TIER (below) then reflects HOW MANY modalities agreed.
-  const unionByModality = (pick: (p: Participant) => number[] | null) => {
-    const withEmb = items.map((p, i) => (pick(p) ? i : -1)).filter((i) => i >= 0);
-    for (let a = 0; a < withEmb.length; a++) {
-      for (let b = a + 1; b < withEmb.length; b++) {
-        const i = withEmb[a], j = withEmb[b];
-        if (cosineSimilarity(pick(items[i])!, pick(items[j])!) >= threshold) combined.union(i, j);
-      }
-    }
+  // 3b. Embedding agglomeration — COMPLETE linkage (was single linkage).
+  //
+  //     Two creatives are "linkable" when they are similar on ANY modality — note
+  //     (v1), visual, or script (US-006) — exactly as before. What changed is how
+  //     linkable pairs become groups. This used to be a union-find, i.e. SINGLE
+  //     linkage: A and B ended up in one entity if ANY chain of similar creatives
+  //     connected them. On the v2 rich feature text that chains across a whole
+  //     account. Measured on Bearaby (2,391 ACTIVE ads) at this same 0.7:
+  //
+  //       single   ->    9 entities, largest 2,126 (97% of covered ads, 89% of spend)
+  //       complete ->  131 entities, largest   231, 15.3% singletons
+  //       average  ->   49 entities, largest 1,414  (does NOT fix it)
+  //
+  //     Complete linkage requires EVERY pair inside an entity to be within
+  //     threshold, so transitive chaining cannot happen. Anchors stay on the
+  //     union-find above and are handed in as atomic seed blocks: a shared
+  //     asset_key / video id / image hash is exact identity, and identity IS
+  //     transitive, so anchor components are correctly exempt.
+  //
+  //     See companies/verdanote/projects/creative-diversity/US-001-fingerprint-validation-spike.md
+  const pairDistance = (i: number, j: number): number => {
+    const a = items[i], b = items[j];
+    let best = Infinity;
+    if (a.embedding && b.embedding) best = Math.min(best, 1 - cosineSimilarity(a.embedding, b.embedding));
+    if (a.visualEmb && b.visualEmb) best = Math.min(best, 1 - cosineSimilarity(a.visualEmb, b.visualEmb));
+    if (a.scriptEmb && b.scriptEmb) best = Math.min(best, 1 - cosineSimilarity(a.scriptEmb, b.scriptEmb));
+    return best;
   };
-  unionByModality((p) => p.embedding);
-  unionByModality((p) => p.visualEmb);
-  unionByModality((p) => p.scriptEmb);
 
-  // Collect final groups.
-  const groupMap = new Map<number, number[]>();
+  // Anchor components become atomic seed blocks for the agglomeration.
+  const anchorBlockMap = new Map<number, number[]>();
   for (let i = 0; i < n; i++) {
     const r = combined.find(i);
-    if (!groupMap.has(r)) groupMap.set(r, []);
-    groupMap.get(r)!.push(i);
+    if (!anchorBlockMap.has(r)) anchorBlockMap.set(r, []);
+    anchorBlockMap.get(r)!.push(i);
   }
-  const groups = [...groupMap.values()];
+  const seedBlocks = [...anchorBlockMap.values()].filter((b) => b.length > 1);
+
+  const groups = completeLinkageBlocks(n, pairDistance, 1 - threshold, seedBlocks);
 
   // 4. Existing entities for the account (for match-not-regenerate).
   const { data: existRows, error: existErr } = await db
