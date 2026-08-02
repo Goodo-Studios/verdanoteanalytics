@@ -147,6 +147,43 @@ Deno.test("a URL in a different bucket is flagged as a mismatch, never trusted",
   assertEquals(updates.length, 0);
 });
 
+Deno.test("a poster-frame URL (posters/<ad_id>.jpg, account-agnostic) IS fixed, not flagged", async () => {
+  // scripts/regenerate-video-posters.mjs stores upgraded video poster frames at
+  // ad-thumbnails/posters/<ad_id>.jpg — a shared folder, no account_id segment —
+  // and (before PR #97's fix) never wrote thumbnail_storage_path at all. This is
+  // a second LEGITIMATE path shape, not a mismatch, and should be fixed like any
+  // other row once the ad_id matches.
+  const { supabase, updates } = makeRecorder([
+    {
+      ad_id: "120230152349440248", account_id: "act_x", thumbnail_storage_path: "act_x/120230152349440248",
+      thumbnail_url: "https://example.supabase.co/storage/v1/object/public/ad-thumbnails/posters/120230152349440248.jpg",
+    },
+  ]);
+  const res = await mod.handler(req(), supabase);
+  const body = await res.json();
+  assertEquals(body.counters.fixed, 1);
+  assertEquals(body.counters.fixed_poster_frame, 1);
+  assertEquals(body.counters.skipped_mismatch, 0);
+  assertEquals(updates.length, 1);
+  assertEquals(updates[0].payload.thumbnail_storage_path, "posters/120230152349440248.jpg");
+});
+
+Deno.test("a poster-frame URL for a DIFFERENT ad_id is still flagged as a mismatch — the ad_id is always checked", async () => {
+  // The poster-frame shape is accepted, but never as a blanket "anything under
+  // posters/ is fine" — it must still resolve to THIS row's own ad_id.
+  const { supabase, updates } = makeRecorder([
+    {
+      ad_id: "a1", account_id: "act_x", thumbnail_storage_path: "act_x/a1",
+      thumbnail_url: "https://example.supabase.co/storage/v1/object/public/ad-thumbnails/posters/SOME_OTHER_AD.jpg",
+    },
+  ]);
+  const res = await mod.handler(req(), supabase);
+  const body = await res.json();
+  assertEquals(body.counters.skipped_mismatch, 1);
+  assertEquals(body.counters.fixed, 0);
+  assertEquals(updates.length, 0);
+});
+
 Deno.test("mixed batch: fixed, already_ok, and skipped counted independently and correctly", async () => {
   const { supabase, updates } = makeRecorder([
     { ad_id: "a1", account_id: "act_x", thumbnail_storage_path: "act_x/a1", thumbnail_url: GOOD_URL("act_x", "a1") },
