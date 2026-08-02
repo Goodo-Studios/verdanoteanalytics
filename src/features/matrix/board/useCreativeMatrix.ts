@@ -10,7 +10,7 @@ import {
   fetchCreativeMatrixCell,
 } from "./api";
 
-export const creativeMatrixQueryKey = (
+const creativeMatrixQueryKey = (
   accountId: string | null | undefined,
   dateFrom?: string | null,
   dateTo?: string | null,
@@ -31,7 +31,7 @@ export function useCreativeMatrix(
 
 // ── US-008: cell drill-down query ────────────────────────────────────────────
 
-export const creativeMatrixCellQueryKey = (
+const creativeMatrixCellQueryKey = (
   accountId: string | null | undefined,
   angleId: string | null,
   creativeType: string | null,

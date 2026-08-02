@@ -1,5 +1,3 @@
-import type { Account } from "@/types/account";
-
 /**
  * Single source of truth for "who is a winner" — the exact scale-threshold
  * logic that `useOverviewPageState` uses to compute `winRate` (the same source
@@ -20,25 +18,8 @@ export interface WinnerThresholdConfig {
   threshold: number;
 }
 
-/** Resolve the winner threshold config from an account, identically to useOverviewPageState. */
-export function resolveWinnerConfig(account: Account | null | undefined): WinnerThresholdConfig {
-  const roasThreshold = parseFloat((account as any)?.winner_roas_threshold || "2.0");
-  const winnerKpi =
-    (account as any)?.kill_scale_kpi || (account as any)?.winner_kpi || "roas";
-  const winnerKpiDirection =
-    (account as any)?.kill_scale_kpi_direction ||
-    (account as any)?.winner_kpi_direction ||
-    "gte";
-  const threshold = parseFloat((account as any)?.scale_threshold || "0") || roasThreshold;
-  return {
-    winnerKpi,
-    isGte: winnerKpiDirection !== "lte",
-    threshold,
-  };
-}
-
 /** True if a single creative qualifies as a winner under the given config. */
-export function isWinner(creative: Record<string, any>, config: WinnerThresholdConfig): boolean {
+function isWinner(creative: Record<string, any>, config: WinnerThresholdConfig): boolean {
   if ((Number(creative.spend) || 0) <= 0) return false;
   const val = Number(creative[config.winnerKpi]) || 0;
   return config.isGte ? val >= config.threshold : val > 0 && val <= config.threshold;

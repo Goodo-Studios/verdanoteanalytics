@@ -62,7 +62,7 @@ const PREVIEW_DIMS: Record<string, { w: number; h: number }> = {
 // means a row hovered → prefetched → the modal opens with the player ready, and
 // re-opens are instant. Meta's preview iframe urls are short-lived scoped tokens;
 // 15 min staleTime stays comfortably inside their validity.
-export const adPreviewQueryOptions = (adId: string) => ({
+const adPreviewQueryOptions = (adId: string) => ({
   queryKey: ["ad-preview", adId] as const,
   queryFn: async (): Promise<{ url: string | null; format: string | null }> => {
     const { data, error } = await supabase.functions.invoke("ad-preview", { body: { ad_id: adId } });

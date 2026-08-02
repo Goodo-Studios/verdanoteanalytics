@@ -54,5 +54,3 @@ export function ClientEmptyState({
     </div>
   );
 }
-
-export default ClientEmptyState;

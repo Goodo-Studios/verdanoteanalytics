@@ -17,7 +17,7 @@ import {
   setThemeArchived,
 } from "./api";
 
-export const taxonomyQueryKey = (accountId: string | null | undefined) =>
+const taxonomyQueryKey = (accountId: string | null | undefined) =>
   ["account-taxonomy", accountId] as const;
 
 export function useAccountTaxonomy(accountId: string | null) {
