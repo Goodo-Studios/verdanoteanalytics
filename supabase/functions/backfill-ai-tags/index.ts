@@ -47,6 +47,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { resolveConvention, type NamingConvention } from "../_shared/naming-convention.ts";
 import { parseAdName, type ParsedAdName, type AdNameTags } from "../_shared/parse-ad-name.ts";
 import { type PartialTags, type TagSource } from "../_shared/resolve-tags.ts";
@@ -154,6 +155,12 @@ function newBucket(): CoverageBucket { return { ad_type: 0, person: 0, style: 0,
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
+  // so this check is the only gate. Without it anyone could trigger this backfill's
+  // Meta API + LLM spend. See _shared/internal-auth.ts.
+  const authFailure = requireServiceRole(req);
+  if (authFailure) return authFailure;
 
   const startedMs = Date.now();
   const timedOut = () => Date.now() - startedMs > DEADLINE_MS;

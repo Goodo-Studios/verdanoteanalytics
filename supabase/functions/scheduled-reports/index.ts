@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { requireServiceRole } from "../_shared/internal-auth.ts";
 
 
 function spendWeightedPercentile(items: { value: number; spend: number }[], pct: number): number {
@@ -260,8 +261,12 @@ function finalizeDailyList(byAd: Record<string, any>, metaCache: Map<string, any
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  // Auth: Supabase gateway validates the JWT/apikey before reaching this function.
-  // Cron calls use the project anon key which passes gateway validation.
+  // Auth: verify_jwt = false, so the Supabase gateway does NOT validate anything
+  // before this runs (an earlier comment here claimed it did). The pg_cron job
+  // forwards the real service-role key; ?force=true additionally requires the
+  // shared cron secret below. See _shared/internal-auth.ts.
+  const authFailure = requireServiceRole(req);
+  if (authFailure) return authFailure;
 
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 

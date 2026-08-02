@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { requireStaffOrServiceRole } from "../_shared/internal-auth.ts";
 import { resolveConvention } from "../_shared/naming-convention.ts";
 import { parseAdName, type ParsedAdName, type AdNameTags } from "../_shared/parse-ad-name.ts";
 import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
@@ -2160,47 +2161,22 @@ const handler = async (req: Request) => {
   const url = new URL(req.url);
   const path = url.pathname.replace(/^\/sync\/?/, "").replace(/\/$/, "");
 
-  // Auth: validate user token or cron anon key
-  // The Supabase gateway validates the JWT/apikey before the function runs.
-  // For user-initiated actions (sync start, cancel, history), we additionally verify role.
-  // Only /continue (self-invoked with service role key) bypasses additional auth checks.
-  const isCronSafePath = path === "continue";
-  if (!isCronSafePath) {
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    const authToken = authHeader.replace("Bearer ", "");
-
-    // Check if this is a cron/anon-key call: the Supabase gateway already validates the JWT,
-    // so if the token decodes to role=anon, it's a valid cron call.
-    // service_role is also a trusted automated caller — scheduled-sync triggers
-    // POST /sync with the service-role key, and /continue already runs under it.
-    // Without this, the automated sync path 401s (getUser() rejects a non-user JWT).
-    // Also accept new-format publishable keys (sb_publishable_*) — same trust level as anon JWT.
-    let isAnonKey = false;
-    try {
-      const payload = JSON.parse(atob(authToken.split(".")[1]));
-      isAnonKey = payload.role === "anon" || payload.role === "service_role";
-    } catch (_) { /* not a JWT */ }
-
-    const isPublishableKey = authToken.startsWith("sb_publishable_");
-    // New-format secret API key (sb_secret_*) — the service-role-equivalent.
-    // This is what scheduled-sync / the pg_cron job actually forward, and it is
-    // NOT a JWT (no .role claim), so the payload check above never matches it.
-    // Trust it like service_role; without this the automated sync path 401s.
-    const isSecretKey = authToken.startsWith("sb_secret_");
-
-    if (!isAnonKey && !isPublishableKey && !isSecretKey) {
-      const { data: { user }, error: authError } = await supabase.auth.getUser(authToken);
-      if (authError || !user) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      // Fetch ALL role rows (a user may hold multiple) — `.single()` throws on >1
-      // rows, turning a legitimate multi-role staff user into a spurious 500.
-      const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-      const roles = (roleRows || []).map((r: { role: string }) => r.role);
-      if (!roles.includes("builder") && !roles.includes("employee")) {
-        return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-    }
-  }
+  // Auth: the real service-role key (automated callers) OR a signed-in builder/employee.
+  //
+  // This function is `verify_jwt = false`, so the Supabase gateway does NOT validate
+  // anything before we run — this check is the only gate. It previously trusted an
+  // UNVERIFIED `atob()` decode of the JWT payload (`role === "anon" | "service_role"`)
+  // and bare `sb_publishable_` / `sb_secret_` string PREFIXES, none of which prove
+  // possession of a key: `Authorization: Bearer sb_secret_x`, or any unsigned JWT whose
+  // payload decodes to {"role":"service_role"}, bypassed the role check entirely.
+  // requireStaffOrServiceRole does an exact, constant-time compare against the
+  // configured service-role key instead. See _shared/internal-auth.ts.
+  //
+  // /continue is self-invoked by this function and by scheduled-sync, both of which
+  // forward SUPABASE_SERVICE_ROLE_KEY — so it goes through the same gate rather than
+  // being exempt (it was previously reachable completely unauthenticated).
+  const authFailure = await requireStaffOrServiceRole(req, supabase);
+  if (authFailure) return authFailure;
 
   try {
     // ─── GET /sync/history ─────────────────────────────────────────────

@@ -1,6 +1,6 @@
 /**
  * Shared media discovery module for Meta Graph API.
- * Unified v22.0 API — used by refresh-thumbnails, enrich-thumbnails, fetch-thumbnail.
+ * Unified v22.0 API — used by refresh-thumbnails and enrich-thumbnails.
  */
 
 export const META_API_VERSION = "v22.0";

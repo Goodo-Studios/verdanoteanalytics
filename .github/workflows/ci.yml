@@ -34,6 +34,25 @@ jobs:
       - name: Test
         run: npm run test
 
+  # The supabase/functions/**/*.test.ts suites are Deno, and vitest only collects
+  # src/** (see vitest.config.ts `include`) — so until this job existed, 37 test
+  # files never ran anywhere, including the edge-function auth/tenant regression
+  # tests. Runs with --no-check: these modules use Deno URL imports that tsc
+  # cannot resolve, and type checking is already covered by the `check` job.
+  deno-test:
+    name: Edge function tests (Deno)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v1
+        with:
+          deno-version: v2.x
+
+      - name: Test edge functions
+        run: deno test --allow-all --no-check supabase/functions/
+
   e2e:
     name: E2E tests (Playwright)
     runs-on: ubuntu-latest

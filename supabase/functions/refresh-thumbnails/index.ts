@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { requireStaffOrServiceRole } from "../_shared/internal-auth.ts";
 import {
   discoverImageUrl,
   discoverPreviewUrl,
@@ -223,6 +224,16 @@ async function pickAccount(
 
 export async function handler(req: Request, supabaseOverride?: any): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
+  // so this check is the only gate. Reached both by pg_cron (service-role key) and
+  // from the app UI (DataHealthSection / useSyncApi, which send the signed-in user's
+  // JWT via apiFetch). Skipped when a test injects a client. See _shared/internal-auth.ts.
+  if (!supabaseOverride) {
+    const authClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const authFailure = await requireStaffOrServiceRole(req, authClient);
+    if (authFailure) return authFailure;
+  }
 
   // Only treat the override as a client if it actually looks like one. serve()
   // calls handler(req, connInfo), so a stray second arg must never shadow the

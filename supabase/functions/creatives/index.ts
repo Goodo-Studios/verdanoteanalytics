@@ -116,6 +116,32 @@ serve(async (req) => {
     });
   }
 
+  // Tenant scope. This function runs on a SERVICE-ROLE client, which bypasses RLS,
+  // so row visibility has to be enforced here. Holding *a* role is not authorization
+  // to read *any* account: without this, a client of account A could pass
+  // ?account_id=<account B> and read another agency client's spend/ROAS/revenue.
+  // null = unrestricted (builder/employee); an array = the caller's linked accounts.
+  // Mirrors verifyAccountOwnership in the api function.
+  let allowedIds: string[] | null = null;
+  if (!isStaff) {
+    const { data: links, error: linksError } = await supabase
+      .from("user_accounts").select("account_id").eq("user_id", user.id);
+    if (linksError) {
+      return new Response(JSON.stringify({ error: "Failed to resolve account access" }), {
+        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    allowedIds = (links || []).map((l: { account_id: string }) => l.account_id);
+  }
+
+  /** 403 unless the caller may read this account; null when allowed. */
+  const denyAccount = (id: string | null): Response | null => {
+    if (!id || !allowedIds || allowedIds.includes(id)) return null;
+    return new Response(JSON.stringify({ error: "Access denied" }), {
+      status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  };
+
   const url = new URL(req.url);
   const path = url.pathname.replace(/^\/creatives\/?/, "").replace(/\/$/, "");
 
@@ -127,9 +153,22 @@ serve(async (req) => {
       const controlledStyles = ["UGC Native", "Studio Clean", "Text Forward", "Lifestyle"];
       const controlledHooks = ["Problem Callout", "Confession", "Question", "Statement Bold", "Authority Intro", "Before & After", "Pattern Interrupt"];
 
-      const { data: products } = await supabase.from("creatives").select("product").not("product", "is", null);
-      const { data: themes } = await supabase.from("creatives").select("theme").not("theme", "is", null);
-      const { data: accounts } = await supabase.from("ad_accounts").select("id, name");
+      // Scope every lookup to the caller's accounts. This endpoint used to hand any
+      // authenticated user the id + name of EVERY account, plus the distinct product
+      // and theme values across all of them — which also supplied the account ids
+      // needed to read other tenants' creatives below.
+      let productsQuery = supabase.from("creatives").select("product").not("product", "is", null);
+      let themesQuery = supabase.from("creatives").select("theme").not("theme", "is", null);
+      let accountsQuery = supabase.from("ad_accounts").select("id, name");
+      if (allowedIds) {
+        productsQuery = productsQuery.in("account_id", allowedIds);
+        themesQuery = themesQuery.in("account_id", allowedIds);
+        accountsQuery = accountsQuery.in("id", allowedIds);
+      }
+
+      const { data: products } = await productsQuery;
+      const { data: themes } = await themesQuery;
+      const { data: accounts } = await accountsQuery;
 
       const uniqueProducts = [...new Set((products || []).map((r: any) => r.product).filter(Boolean))];
       const uniqueThemes = [...new Set((themes || []).map((r: any) => r.theme).filter(Boolean))];
@@ -169,11 +208,18 @@ serve(async (req) => {
       // requests, each of which re-ran the full aggregation below.
       const all = url.searchParams.get("all") === "1";
 
+      // Reject an explicit request for an account the caller isn't linked to.
+      const accountDenied = denyAccount(accountId);
+      if (accountDenied) return accountDenied;
+
       // Shared filter application for the full-table creatives query paths
       // (count, lifetime fallback, no-date branch). The aggregated daily-metrics
       // branch scopes by ad_id batches instead and is intentionally excluded.
       const applyCreativeFilters = (q: any): any => {
         let qq = q;
+        // Tenant scope first: with no account_id a client must still see only their
+        // own accounts, never the whole table.
+        if (allowedIds) qq = qq.in("account_id", allowedIds);
         if (accountId) qq = qq.eq("account_id", accountId);
         if (adType) qq = qq.eq("ad_type", adType);
         if (person) qq = qq.eq("person", person);
@@ -218,6 +264,9 @@ serve(async (req) => {
           let dmQuery = supabase.from("creative_daily_metrics").select("ad_id, spend, impressions, clicks, purchases, purchase_value, adds_to_cart, video_views, frequency, thumb_stop_rate, hold_rate, video_avg_play_time")
             .order("ad_id", { ascending: true })
             .order("date", { ascending: true });
+          // Same tenant scope as applyCreativeFilters — this branch queries
+          // creative_daily_metrics directly and would otherwise span all accounts.
+          if (allowedIds) dmQuery = dmQuery.in("account_id", allowedIds);
           if (accountId) dmQuery = dmQuery.eq("account_id", accountId);
           if (dateFrom) dmQuery = dmQuery.gte("date", dateFrom);
           if (dateTo) dmQuery = dmQuery.lte("date", dateTo);

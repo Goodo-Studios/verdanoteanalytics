@@ -32,6 +32,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { requireServiceRole } from "../_shared/internal-auth.ts";
 import {
   assetStoragePath,
   computeContentHash,
@@ -286,6 +287,16 @@ export async function handler(req: Request, supabaseOverride?: unknown): Promise
 
   const isClient = (o: unknown): boolean =>
     !!o && typeof (o as { from?: unknown }).from === "function";
+
+  // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
+  // so this check is the only gate. preview-capture-drain and the pg_cron job both
+  // forward the real service-role key. Skipped when a test injects a client.
+  // See _shared/internal-auth.ts.
+  if (!isClient(supabaseOverride)) {
+    const authFailure = requireServiceRole(req);
+    if (authFailure) return authFailure;
+  }
+
   const supabase: Supa = isClient(supabaseOverride)
     ? supabaseOverride
     : createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);

@@ -314,13 +314,18 @@ export async function handleApi(
         });
       }
 
-      // Trigger sync via the existing sync edge function
+      // Trigger sync via the existing sync edge function. Forward the service-role
+      // key, matching scheduled-sync: withApiAuth has already authenticated the API
+      // key, checked its 'sync' scope, and verified account ownership above, so this
+      // internal hop is a trusted caller. (The anon key used to be sent here; /sync
+      // no longer treats it as an automated caller because it ships in the browser
+      // bundle — see _shared/internal-auth.ts.)
       const syncUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync`;
       const resp = await fetch(syncUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${Deno.env.get("SUPABASE_ANON_KEY")}`,
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
         },
         body: JSON.stringify({ account_id: accountId, sync_type: "api" }),
       });
