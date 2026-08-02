@@ -21,6 +21,7 @@ import {
   XAxis,
   YAxis,
   ZAxis,
+  type ScatterPointItem,
 } from "recharts";
 import {
   axisProps,
@@ -60,6 +61,10 @@ interface ScatterPoint {
   z: number;
   creative: VideoCreative;
 }
+
+/** Narrow a Recharts point item back to the datum we fed it. */
+const pointDatum = (point: ScatterPointItem): ScatterPoint | undefined =>
+  point?.payload as ScatterPoint | undefined;
 
 function pct(n: number) { return `${(n * 100).toFixed(1)}%`; }
 
@@ -290,9 +295,9 @@ export function VideoTab({ creatives, onCreativeClick }: VideoTabProps) {
 
                 <Tooltip
                   cursor={false}
-                  content={({ active, payload }: { active?: boolean; payload?: Array<{ payload: ScatterPoint }> }) => {
-                    if (!active || !payload?.length) return null;
-                    const c = payload[0].payload.creative;
+                  content={({ active, payload }: { active?: boolean; payload?: ReadonlyArray<{ payload?: ScatterPoint }> }) => {
+                    const c = active ? payload?.[0]?.payload?.creative : undefined;
+                    if (!c) return null;
                     return (
                       <div className="pointer-events-none space-y-0.5 rounded-md border border-border bg-popover p-2 font-body text-[11px] shadow-lg">
                         <p className="max-w-[220px] truncate font-semibold text-foreground">{c.ad_name}</p>
@@ -307,8 +312,10 @@ export function VideoTab({ creatives, onCreativeClick }: VideoTabProps) {
                 <Scatter
                   data={scatterData}
                   isAnimationActive={false}
-                  onClick={(point: ScatterPoint) => onCreativeClick?.(point?.creative)}
-                  onMouseEnter={(point: ScatterPoint) => setHoveredBubble(point?.creative?.ad_id ?? null)}
+                  // Recharts hands back its own point item, which carries the
+                  // source datum on `payload` (typed `any`), not spread at the top.
+                  onClick={(point: ScatterPointItem) => onCreativeClick?.(pointDatum(point)?.creative)}
+                  onMouseEnter={(point: ScatterPointItem) => setHoveredBubble(pointDatum(point)?.creative?.ad_id ?? null)}
                   onMouseLeave={() => setHoveredBubble(null)}
                   className="cursor-pointer"
                 >
