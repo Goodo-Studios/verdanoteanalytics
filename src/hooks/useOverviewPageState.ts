@@ -55,15 +55,16 @@ export function useOverviewPageState() {
 
   const hasPrevPeriod = !!prevPeriodDates && !!prevDailyMetrics;
 
-  // Account settings
-  const roasThreshold = parseFloat(selectedAccount?.winner_roas_threshold || "2.0");
-  const spendThreshold = parseFloat(selectedAccount?.iteration_spend_threshold || "50");
+  // Account settings — thresholds are numeric columns; `||` (not `??`) so 0/unset
+  // falls back to the default.
+  const roasThreshold = selectedAccount?.winner_roas_threshold || 2.0;
+  const spendThreshold = selectedAccount?.iteration_spend_threshold || 50;
 
   const killScaleConfig: KillScaleConfig = useMemo(() => ({
     winnerKpi: (selectedAccount as any)?.kill_scale_kpi || selectedAccount?.winner_kpi || "roas",
     winnerKpiDirection: (selectedAccount as any)?.kill_scale_kpi_direction || selectedAccount?.winner_kpi_direction || "gte",
-    scaleAt: parseFloat(selectedAccount?.scale_threshold || "0") || roasThreshold,
-    killAt: parseFloat(selectedAccount?.kill_threshold || "0") || roasThreshold * 0.5,
+    scaleAt: selectedAccount?.scale_threshold || roasThreshold,
+    killAt: selectedAccount?.kill_threshold || roasThreshold * 0.5,
     spendThreshold,
   }), [selectedAccount, roasThreshold, spendThreshold]);
 

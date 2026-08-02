@@ -1,6 +1,9 @@
 import "@testing-library/jest-dom";
 import { configureAxe } from "vitest-axe";
-import { toHaveNoViolations } from "vitest-axe/matchers";
+// Import from dist directly: the package's "vitest-axe/matchers" typings are
+// `export type *` (types-only), so the value import fails typecheck there even
+// though it works at runtime. The dist typings export the real value.
+import { toHaveNoViolations } from "vitest-axe/dist/matchers";
 import { expect } from "vitest";
 
 expect.extend({ toHaveNoViolations });

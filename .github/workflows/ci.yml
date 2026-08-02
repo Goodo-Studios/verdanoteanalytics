@@ -25,8 +25,11 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # Root tsconfig.json is a solution file ("files": [] + project references),
+      # so a bare `tsc --noEmit` checks nothing and always exits 0. Point tsc at
+      # each real project so the gate actually inspects the code.
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: npx tsc --noEmit -p tsconfig.app.json && npx tsc --noEmit -p tsconfig.node.json
 
       - name: Test
         run: npm run test
