@@ -24,6 +24,16 @@
 // there is no reliable source to backfill from without re-caching, which is
 // refresh-thumbnails' job, not this one's.
 //
+// SECOND VALID SHAPE — poster frames (2026-08-02): scripts/regenerate-video-posters.mjs
+// stores upgraded video poster frames at ad-thumbnails/posters/<ad_id>.<ext> — a
+// shared, account-agnostic folder, deliberately different from every other
+// writer's <account_id>/<ad_id>.<ext>. That script had its own bug (never wrote
+// thumbnail_storage_path at all — fixed separately in PR #97) which left rows
+// in exactly this state: thumbnail_url correctly resolves under posters/, but
+// thumbnail_storage_path is stale. Accepted here as a second legitimate prefix,
+// still exact-matched against THIS row's ad_id — never a blanket "anything
+// under posters/ is fine" rule.
+//
 // IDEMPOTENT + SELF-CHAINING (matches backfill-retag's pattern): a row is
 // touched only when its stored path is missing a known extension. Re-running
 // after a partial drain is always safe — already-fixed rows are skipped. The
@@ -49,6 +59,8 @@ const DEADLINE_MS = 45_000; // per-invocation wall budget (edge fn ~60s)
 export interface BackfillCounters {
   scanned: number;
   fixed: number;
+  /** of `fixed`, how many matched the poster-frame shape rather than the per-account shape. */
+  fixed_poster_frame: number;
   already_ok: number;
   /** thumbnail_url isn't a resolvable storage URL for this row — left untouched. */
   skipped_no_storage_url: number;
@@ -56,7 +68,17 @@ export interface BackfillCounters {
   skipped_mismatch: number;
 }
 function newCounters(): BackfillCounters {
-  return { scanned: 0, fixed: 0, already_ok: 0, skipped_no_storage_url: 0, skipped_mismatch: 0 };
+  return { scanned: 0, fixed: 0, fixed_poster_frame: 0, already_ok: 0, skipped_no_storage_url: 0, skipped_mismatch: 0 };
+}
+
+/**
+ * Every path shape this backfill will accept as a legitimate source to derive
+ * thumbnail_storage_path from, checked in order. Each entry's prefix must be an
+ * EXACT match against THIS row's own account_id/ad_id — never a blanket
+ * "anything under this folder" acceptance.
+ */
+function acceptedPrefixesFor(accountId: string, adId: string): string[] {
+  return [`${accountId}/${adId}.`, `posters/${adId}.`];
 }
 
 interface BackfillBody {
@@ -141,15 +163,20 @@ export async function handler(req: Request, supabaseOverride?: unknown): Promise
         const parsed = url ? parseStoragePublicUrl(url) : null;
         if (!parsed) { counters.skipped_no_storage_url++; continue; }
 
-        const expectedPrefix = `${row.account_id}/${row.ad_id}.`;
-        if (parsed.bucket !== THUMB_BUCKET || !parsed.path.startsWith(expectedPrefix)) {
+        const accountId = String(row.account_id);
+        const adId = String(row.ad_id);
+        const [accountPrefix, posterPrefix] = acceptedPrefixesFor(accountId, adId);
+        const isPosterShape = parsed.path.startsWith(posterPrefix);
+        const isAccountShape = parsed.path.startsWith(accountPrefix);
+        if (parsed.bucket !== THUMB_BUCKET || !(isAccountShape || isPosterShape)) {
           counters.skipped_mismatch++;
-          mismatches.push(`${row.account_id}/${row.ad_id}: url resolved to ${parsed.bucket}/${parsed.path}`);
+          mismatches.push(`${accountId}/${adId}: url resolved to ${parsed.bucket}/${parsed.path}`);
           continue;
         }
         if (!hasKnownMediaExtension(parsed.path)) { counters.skipped_no_storage_url++; continue; }
 
         counters.fixed++;
+        if (isPosterShape) counters.fixed_poster_frame++;
         if (!dryRun) {
           const { error: updErr } = await supabase
             .from("creatives")
