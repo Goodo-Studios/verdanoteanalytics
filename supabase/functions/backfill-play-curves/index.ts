@@ -207,7 +207,7 @@ export async function handler(
   // supabase client resolution below). See _shared/internal-auth.ts.
   const isInjectedClient = !!supabaseOverride && typeof supabaseOverride.from === "function";
   if (!isInjectedClient) {
-    const authFailure = requireServiceRole(req);
+    const authFailure = await requireServiceRole(req);
     if (authFailure) return authFailure;
   }
 

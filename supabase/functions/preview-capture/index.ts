@@ -293,7 +293,7 @@ export async function handler(req: Request, supabaseOverride?: unknown): Promise
   // forward the real service-role key. Skipped when a test injects a client.
   // See _shared/internal-auth.ts.
   if (!isClient(supabaseOverride)) {
-    const authFailure = requireServiceRole(req);
+    const authFailure = await requireServiceRole(req);
     if (authFailure) return authFailure;
   }
 

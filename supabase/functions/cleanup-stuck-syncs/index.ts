@@ -7,7 +7,7 @@ serve(async (req) => {
   // (the previous comment here claimed it did), so this check is the only gate.
   // The pg_cron job forwards the real service-role key. Without it, anyone could
   // force-fail in-flight syncs. See _shared/internal-auth.ts.
-  const authFailure = requireServiceRole(req);
+  const authFailure = await requireServiceRole(req);
   if (authFailure) return authFailure;
 
   const supabase = createClient(

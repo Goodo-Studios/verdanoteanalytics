@@ -9,8 +9,10 @@
 
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import {
+  _resetProbeCache,
   bearerToken,
   isServiceRoleRequest,
+  isTrustedInternalRequest,
   requireServiceRole,
   requireStaffOrServiceRole,
 } from "./internal-auth.ts";
@@ -77,13 +79,142 @@ Deno.test("isServiceRoleRequest fails closed when the key env var is unset", () 
 });
 
 Deno.test("requireServiceRole returns null when trusted, 401 otherwise", async () => {
-  const res = withKey(() => ({
-    ok: requireServiceRole(reqWith(`Bearer ${REAL_KEY}`)),
-    bad: requireServiceRole(reqWith("Bearer sb_secret_x")),
-  }));
-  assertEquals(res.ok, null);
-  assertEquals(res.bad?.status, 401);
-  assertEquals((await res.bad?.json())?.error, "Unauthorized");
+  Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", REAL_KEY);
+  Deno.env.delete("SUPABASE_URL"); // no probe possible → exact match only
+  _resetProbeCache();
+  try {
+    assertEquals(await requireServiceRole(reqWith(`Bearer ${REAL_KEY}`)), null);
+    const bad = await requireServiceRole(reqWith("Bearer sb_secret_x"));
+    assertEquals(bad?.status, 401);
+    assertEquals((await bad?.json())?.error, "Unauthorized");
+  } finally {
+    Deno.env.delete("SUPABASE_SERVICE_ROLE_KEY");
+  }
+});
+
+// --- capability probe -----------------------------------------------------------
+// pg_cron presents the key from vault.decrypted_secrets, a DIFFERENT store to the
+// SUPABASE_SERVICE_ROLE_KEY function env var. If an operator rotates one without
+// the other, exact-match alone silently 401s every cron job. The probe verifies the
+// presented token by USING it against the service-role-only GoTrue admin API.
+
+const VAULT_KEY = "sb_secret_a_different_but_real_service_key";
+
+/** Stub fetch so the probe resolves without a network. Returns the call log. */
+function stubFetch(handler: (url: string, init?: RequestInit) => Response) {
+  const calls: string[] = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    calls.push(url);
+    return Promise.resolve(handler(url, init));
+  }) as typeof fetch;
+  return { calls, restore: () => { globalThis.fetch = original; } };
+}
+
+function withProbeEnv<T>(fn: () => Promise<T>): Promise<T> {
+  Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", REAL_KEY);
+  Deno.env.set("SUPABASE_URL", "https://proj.supabase.co");
+  _resetProbeCache();
+  return fn().finally(() => {
+    Deno.env.delete("SUPABASE_SERVICE_ROLE_KEY");
+    Deno.env.delete("SUPABASE_URL");
+  });
+}
+
+Deno.test("probe accepts a genuine service key that is NOT the env key (vault drift)", async () => {
+  await withProbeEnv(async () => {
+    const f = stubFetch((_u, init) => {
+      const auth = new Headers(init?.headers).get("Authorization");
+      // Only the real vault key is honored by the admin API.
+      return new Response("{}", { status: auth === `Bearer ${VAULT_KEY}` ? 200 : 401 });
+    });
+    try {
+      assertEquals(await isTrustedInternalRequest(reqWith(`Bearer ${VAULT_KEY}`)), true);
+      assertEquals(f.calls.length, 1);
+      assertEquals(f.calls[0].startsWith("https://proj.supabase.co/auth/v1/admin/users"), true);
+    } finally {
+      f.restore();
+    }
+  });
+});
+
+Deno.test("probe REJECTS an anon/publishable key (admin API 401s it)", async () => {
+  await withProbeEnv(async () => {
+    const f = stubFetch(() => new Response("{}", { status: 401 }));
+    try {
+      assertEquals(await isTrustedInternalRequest(reqWith("Bearer sb_publishable_abc")), false);
+      // A JWT-shaped anon token is probed and rejected too.
+      assertEquals(await isTrustedInternalRequest(reqWith(`Bearer ${forgedJwt({ role: "anon" })}`)), false);
+    } finally {
+      f.restore();
+    }
+  });
+});
+
+Deno.test("the exact env key short-circuits — no network probe is issued", async () => {
+  await withProbeEnv(async () => {
+    const f = stubFetch(() => new Response("{}", { status: 200 }));
+    try {
+      assertEquals(await isTrustedInternalRequest(reqWith(`Bearer ${REAL_KEY}`)), true);
+      assertEquals(f.calls.length, 0);
+    } finally {
+      f.restore();
+    }
+  });
+});
+
+Deno.test("junk tokens are not probed at all (no outbound amplification)", async () => {
+  await withProbeEnv(async () => {
+    const f = stubFetch(() => new Response("{}", { status: 200 }));
+    try {
+      assertEquals(await isTrustedInternalRequest(reqWith("Bearer not-a-credential")), false);
+      assertEquals(await isTrustedInternalRequest(reqWith("Bearer x")), false);
+      assertEquals(f.calls.length, 0);
+    } finally {
+      f.restore();
+    }
+  });
+});
+
+Deno.test("probe results are memoized (one call per distinct token)", async () => {
+  await withProbeEnv(async () => {
+    const f = stubFetch(() => new Response("{}", { status: 200 }));
+    try {
+      await isTrustedInternalRequest(reqWith(`Bearer ${VAULT_KEY}`));
+      await isTrustedInternalRequest(reqWith(`Bearer ${VAULT_KEY}`));
+      await isTrustedInternalRequest(reqWith(`Bearer ${VAULT_KEY}`));
+      assertEquals(f.calls.length, 1);
+    } finally {
+      f.restore();
+    }
+  });
+});
+
+Deno.test("probe fails CLOSED on network error or timeout", async () => {
+  await withProbeEnv(async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (() => Promise.reject(new Error("network down"))) as typeof fetch;
+    try {
+      assertEquals(await isTrustedInternalRequest(reqWith(`Bearer ${VAULT_KEY}`)), false);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});
+
+Deno.test("probe is skipped when SUPABASE_URL is unset (fails closed)", async () => {
+  Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", REAL_KEY);
+  Deno.env.delete("SUPABASE_URL");
+  _resetProbeCache();
+  const f = stubFetch(() => new Response("{}", { status: 200 }));
+  try {
+    assertEquals(await isTrustedInternalRequest(reqWith(`Bearer ${VAULT_KEY}`)), false);
+    assertEquals(f.calls.length, 0);
+  } finally {
+    f.restore();
+    Deno.env.delete("SUPABASE_SERVICE_ROLE_KEY");
+  }
 });
 
 // --- requireStaffOrServiceRole -------------------------------------------------

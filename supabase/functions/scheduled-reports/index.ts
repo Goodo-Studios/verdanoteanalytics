@@ -265,7 +265,7 @@ serve(async (req) => {
   // before this runs (an earlier comment here claimed it did). The pg_cron job
   // forwards the real service-role key; ?force=true additionally requires the
   // shared cron secret below. See _shared/internal-auth.ts.
-  const authFailure = requireServiceRole(req);
+  const authFailure = await requireServiceRole(req);
   if (authFailure) return authFailure;
 
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);

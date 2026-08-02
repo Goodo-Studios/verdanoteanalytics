@@ -159,7 +159,7 @@ Deno.serve(async (req) => {
   // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
   // so this check is the only gate. Without it anyone could trigger this backfill's
   // Meta API + LLM spend. See _shared/internal-auth.ts.
-  const authFailure = requireServiceRole(req);
+  const authFailure = await requireServiceRole(req);
   if (authFailure) return authFailure;
 
   const startedMs = Date.now();
