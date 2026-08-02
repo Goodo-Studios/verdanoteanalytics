@@ -10,6 +10,7 @@ cd "$(dirname "$0")/.."
 FUNCTIONS=(
   accounts
   account-taxonomy
+  ad-preview
   ai-chat
   analyze-creative
   api
@@ -39,7 +40,6 @@ FUNCTIONS=(
   create-coda-brief
   creatives
   enrich-thumbnails
-  fetch-thumbnail
   ingest-reviews
   landing-pages
   leaderboard
