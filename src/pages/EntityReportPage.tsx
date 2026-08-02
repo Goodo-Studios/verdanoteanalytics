@@ -234,13 +234,13 @@ export default function EntityReportPage() {
     return (
       <div className="space-y-6">
         <PageHeader
-          title="Entity Report"
+          title="Creative Diversity"
           description="Semantic-similarity creative clustering"
           badge={<Badge variant="outline">Builder preview</Badge>}
         />
         <Card>
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
-            The Entity Report is available to the builder role. Switch to a builder
+            Creative Diversity is available to the builder role. Switch to a builder
             account to view it.
           </CardContent>
         </Card>
@@ -253,7 +253,7 @@ export default function EntityReportPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Entity Report"
+        title="Creative Diversity"
         description="How many distinct creative entities Meta likely sees in this account"
         badge={<Badge variant="outline">Builder preview</Badge>}
       />
