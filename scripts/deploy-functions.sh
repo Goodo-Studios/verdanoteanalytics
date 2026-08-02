@@ -23,6 +23,7 @@ FUNCTIONS=(
   backfill-post-urls
   backfill-retag
   backfill-ai-tags
+  backfill-thumbnail-storage-path
   creative-rotation
   cache-creative-image
   creative-library

@@ -82,6 +82,17 @@ async function readBodyCapped(resp: Response, maxBytes: number): Promise<Uint8Ar
   return out;
 }
 
+export interface CacheResult {
+  /** Full public URL — what thumbnail_url / video_url / full_res_url get set to. */
+  url: string;
+  /**
+   * Bucket-relative storage path, INCLUDING the file extension the upload actually
+   * used (e.g. "act_123/456.jpg", never "act_123/456"). This is the only correct
+   * source for `thumbnail_storage_path` — see the module-level comment above.
+   */
+  path: string;
+}
+
 async function downloadAndCache(
   supabase: any,
   bucket: string,
@@ -89,7 +100,7 @@ async function downloadAndCache(
   adId: string,
   url: string,
   type: "image" | "video"
-): Promise<string | null> {
+): Promise<CacheResult | null> {
   try {
     const resp = await fetchWithTimeout(url, 60_000);
     if (!resp.ok) {
@@ -126,7 +137,15 @@ async function downloadAndCache(
       console.log(`Upload error ${adId}:`, error.message);
       return null;
     }
-    return `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`;
+    // BUG FIX (thumbnail_storage_path silent-loss): callers used to ignore this
+    // computed `path` and re-derive `${accountId}/${adId}` themselves for the
+    // thumbnail_storage_path column — dropping the extension `upload()` actually
+    // used. The public Storage URL built from that bare path 400s, silently losing
+    // ~17% of an account's thumbnails to any consumer that trusts the column
+    // (creative-diversity US-001 spike, 2026-08-02). Returning the real path here
+    // and requiring callers to use it, rather than reconstruct it, makes that class
+    // of drift impossible.
+    return { url: `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`, path };
   } catch (err) {
     console.log(`Cache error ${adId}:`, err);
     return null;
@@ -450,12 +469,12 @@ export async function handler(req: Request, supabaseOverride?: any): Promise<Res
       const results = await Promise.allSettled(
         batch.map(async (c: any) => {
           if (isOverBudget(invocationStart)) return false;
-          const storageUrl = await downloadAndCache(supabase, THUMB_BUCKET, c.account_id, c.ad_id, c.thumbnail_url, "image");
-          if (storageUrl) {
+          const cached = await downloadAndCache(supabase, THUMB_BUCKET, c.account_id, c.ad_id, c.thumbnail_url, "image");
+          if (cached) {
             await supabase.from("creatives").update({
-              thumbnail_url: storageUrl,
-              full_res_url: storageUrl,
-              thumbnail_storage_path: `${c.account_id}/${c.ad_id}`,
+              thumbnail_url: cached.url,
+              full_res_url: cached.url,
+              thumbnail_storage_path: cached.path,
               thumb_retry_count: 0,
               thumb_retry_after: null,
             }).eq("ad_id", c.ad_id);
@@ -503,12 +522,12 @@ export async function handler(req: Request, supabaseOverride?: any): Promise<Res
           }
           // Cache the discovered URL to storage (same as fast path)
           const bestUrl = freshResult.fullResUrl || freshResult.thumbnailUrl;
-          const storageUrl = await downloadAndCache(supabase, THUMB_BUCKET, c.account_id, c.ad_id, bestUrl, "image");
-          if (storageUrl) {
+          const cached = await downloadAndCache(supabase, THUMB_BUCKET, c.account_id, c.ad_id, bestUrl, "image");
+          if (cached) {
             await supabase.from("creatives").update({
-              thumbnail_url: storageUrl,
-              full_res_url: storageUrl,
-              thumbnail_storage_path: `${c.account_id}/${c.ad_id}`,
+              thumbnail_url: cached.url,
+              full_res_url: cached.url,
+              thumbnail_storage_path: cached.path,
               thumb_retry_count: 0,
               thumb_retry_after: null,
             }).eq("ad_id", c.ad_id);
@@ -544,12 +563,12 @@ export async function handler(req: Request, supabaseOverride?: any): Promise<Res
           const freshResult = await discoverImageUrl(c.ad_id, c.account_id, META_ACCESS_TOKEN, FETCH_TIMEOUT_MS);
           if (!freshResult || !freshResult.fullResUrl) continue;
           const newUrl = freshResult.fullResUrl;
-          const storageUrl = await downloadAndCache(supabase, THUMB_BUCKET, c.account_id, c.ad_id, newUrl, "image");
-          if (storageUrl) {
+          const cached = await downloadAndCache(supabase, THUMB_BUCKET, c.account_id, c.ad_id, newUrl, "image");
+          if (cached) {
             await supabase.from("creatives").update({
-              thumbnail_url: storageUrl,
-              full_res_url: storageUrl,
-              thumbnail_storage_path: `${c.account_id}/${c.ad_id}`,
+              thumbnail_url: cached.url,
+              full_res_url: cached.url,
+              thumbnail_storage_path: cached.path,
             }).eq("ad_id", c.ad_id);
             thumbUpgraded++;
           }
@@ -602,11 +621,11 @@ export async function handler(req: Request, supabaseOverride?: any): Promise<Res
             }).eq("ad_id", c.ad_id);
             videosMarkedNA++;
           } else {
-            const storageUrl = await downloadAndCache(supabase, VIDEO_BUCKET, c.account_id, c.ad_id, freshUrl, "video");
-            if (storageUrl) {
+            const cached = await downloadAndCache(supabase, VIDEO_BUCKET, c.account_id, c.ad_id, freshUrl, "video");
+            if (cached) {
               // Cached to storage permanently — clear retry bookkeeping.
               await supabase.from("creatives").update({
-                video_url: storageUrl,
+                video_url: cached.url,
                 video_retry_count: 0,
                 video_retry_after: null,
               }).eq("ad_id", c.ad_id);
@@ -646,10 +665,10 @@ export async function handler(req: Request, supabaseOverride?: any): Promise<Res
           batch.map(async (c: any) => {
             if (isOverBudget(invocationStart)) return false;
             // Use existing video_url directly — no need to re-discover
-            const storageUrl = await downloadAndCache(supabase, VIDEO_BUCKET, c.account_id, c.ad_id, c.video_url, "video");
-            if (storageUrl) {
+            const cached = await downloadAndCache(supabase, VIDEO_BUCKET, c.account_id, c.ad_id, c.video_url, "video");
+            if (cached) {
               await supabase.from("creatives").update({
-                video_url: storageUrl,
+                video_url: cached.url,
                 video_retry_count: 0,
                 video_retry_after: null,
               }).eq("ad_id", c.ad_id);

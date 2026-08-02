@@ -24,6 +24,7 @@ import {
   NO_VIDEO_SENTINEL,
 } from "../_shared/media-discovery.ts";
 import { isMediaContentType } from "../_shared/vault-save-logic.ts";
+import { parseStoragePublicUrl } from "../_shared/storage-url.ts";
 
 
 const SUPABASE_URL_ENV = Deno.env.get("SUPABASE_URL") || "";
@@ -941,22 +942,12 @@ export async function runVideoCaching(
 // US-011: isStorageUrl is the shared short-circuit guard (imported above). This
 // function is no longer on any sync/cron path — kept only for manual repair/force
 // flows — but its skip-gate routes through the same predicate as the queue drain.
-
-/**
- * Split a Supabase public storage URL into its bucket + object key so the object
- * can be deleted. Strips any query string. Returns null for non-storage URLs.
- */
-export function parseStoragePublicUrl(
-  url: string,
-): { bucket: string; path: string } | null {
-  const marker = "/storage/v1/object/public/";
-  const i = url.indexOf(marker);
-  if (i < 0) return null;
-  const rest = url.slice(i + marker.length).split("?")[0];
-  const slash = rest.indexOf("/");
-  if (slash < 0) return null;
-  return { bucket: rest.slice(0, slash), path: rest.slice(slash + 1) };
-}
+//
+// parseStoragePublicUrl moved to ../_shared/storage-url.ts (imported above) so
+// backfill-thumbnail-storage-path can share the same bucket/path parsing instead
+// of re-deriving it. Re-exported here so `mod.parseStoragePublicUrl` (this
+// function's own test) keeps working unchanged.
+export { parseStoragePublicUrl };
 
 /**
  * Validate that a stored media object is actually media — not an HTML error/login
