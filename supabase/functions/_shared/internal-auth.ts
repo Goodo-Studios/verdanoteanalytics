@@ -41,11 +41,19 @@ export function bearerToken(req: Request): string | null {
 }
 
 /**
- * True when the caller presented the real service-role key.
+ * True when the caller presented the exact service-role key this function is
+ * configured with.
  *
  * Deliberately an exact, constant-time comparison against the configured secret —
  * NOT a key-prefix test and NOT a decoded-but-unverified JWT claim. Both of those
  * are trivially forgeable by anyone who can reach the endpoint.
+ *
+ * This is the FAST PATH only. It covers function-to-function calls, which forward
+ * SUPABASE_SERVICE_ROLE_KEY verbatim and therefore always match. pg_cron presents
+ * the key stored in `vault.decrypted_secrets` instead, which is a SEPARATE store —
+ * if an operator ever rotates one without the other (e.g. moves to an sb_secret_*
+ * key in one place only), an exact match alone would silently 401 every cron job.
+ * isTrustedInternalRequest() covers that case; prefer it.
  */
 export function isServiceRoleRequest(req: Request): boolean {
   const expected = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -54,12 +62,87 @@ export function isServiceRoleRequest(req: Request): boolean {
   return safeEqual(token, expected);
 }
 
+// ── Service-credential capability probe ────────────────────────────────────────
+// Verifies a presented token by USING it: only a service-role credential can call
+// the GoTrue admin API. anon / publishable keys get 401 there, so this proves the
+// caller holds service-role privileges without needing to know the key's value —
+// which is what makes the gate immune to vault-vs-env key drift.
+
+const PROBE_TTL_OK_MS = 5 * 60 * 1000;
+const PROBE_TTL_DENY_MS = 30 * 1000;
+const PROBE_TIMEOUT_MS = 5_000;
+const probeCache = new Map<string, { ok: boolean; expires: number }>();
+
+/** Test seam: drop memoized probe results. */
+export function _resetProbeCache(): void {
+  probeCache.clear();
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Cheap shape filter deciding whether a token is even WORTH a network probe.
+ * This is NOT authorization — the probe is the authority. It exists so arbitrary
+ * junk in the Authorization header cannot make us issue an outbound request per
+ * inbound request (amplification).
+ */
+function looksLikeServiceCredential(token: string): boolean {
+  if (token.startsWith("sb_secret_")) return true;
+  return token.split(".").length === 3; // legacy service-role key is a JWT
+}
+
+/** True when the token can actually exercise service-role privileges. */
+async function hasServiceRoleCapability(token: string): Promise<boolean> {
+  const baseUrl = Deno.env.get("SUPABASE_URL");
+  if (!baseUrl || !looksLikeServiceCredential(token)) return false;
+
+  const cacheKey = await sha256Hex(token);
+  const cached = probeCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) return cached.ok;
+
+  let ok = false;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+    try {
+      const resp = await fetch(`${baseUrl}/auth/v1/admin/users?page=1&per_page=1`, {
+        headers: { apikey: token, Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      });
+      ok = resp.ok;
+      await resp.body?.cancel();
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    ok = false; // network error / timeout → fail closed
+  }
+
+  probeCache.set(cacheKey, { ok, expires: Date.now() + (ok ? PROBE_TTL_OK_MS : PROBE_TTL_DENY_MS) });
+  return ok;
+}
+
+/**
+ * True when the caller is a trusted internal caller: it presented either the exact
+ * configured service-role key (fast path, no network) or a different but genuine
+ * service-role credential for this project (verified by capability probe).
+ */
+export async function isTrustedInternalRequest(req: Request): Promise<boolean> {
+  if (isServiceRoleRequest(req)) return true;
+  const token = bearerToken(req);
+  if (!token) return false;
+  return await hasServiceRoleCapability(token);
+}
+
 /**
  * Gate for internal-only endpoints (cron maintenance, backfills, ops tooling).
  * Returns a 401 Response to return immediately, or null when the caller is trusted.
  */
-export function requireServiceRole(req: Request): Response | null {
-  if (isServiceRoleRequest(req)) return null;
+export async function requireServiceRole(req: Request): Promise<Response | null> {
+  if (await isTrustedInternalRequest(req)) return null;
   return new Response(JSON.stringify({ error: "Unauthorized" }), {
     status: 401,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -105,7 +188,7 @@ export async function resolveCaller(
   // deno-lint-ignore no-explicit-any
   supabase: any,
 ): Promise<Caller | Response> {
-  if (isServiceRoleRequest(req)) return { kind: "service", isStaff: true, userId: null };
+  if (await isTrustedInternalRequest(req)) return { kind: "service", isStaff: true, userId: null };
 
   const unauthorized = new Response(JSON.stringify({ error: "Unauthorized" }), {
     status: 401,

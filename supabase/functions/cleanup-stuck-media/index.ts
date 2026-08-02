@@ -29,7 +29,7 @@ serve(async (req) => {
   // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
   // so this check is the only gate. The pg_cron jobs forward the real service-role
   // key. See _shared/internal-auth.ts.
-  const authFailure = requireServiceRole(req);
+  const authFailure = await requireServiceRole(req);
   if (authFailure) return authFailure;
 
   const supabase = createClient(
