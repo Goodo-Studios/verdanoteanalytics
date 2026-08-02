@@ -8,6 +8,9 @@
 import { assertAlmostEquals, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   agglomerativeClusters,
+  completeLinkageBlocks,
+  completeLinkageClusters,
+  type PairDistance,
   buildFeatureText,
   type CandidateGroup,
   centroid,
@@ -136,6 +139,114 @@ Deno.test("agglomerative: all-dissimilar -> all singletons", () => {
   ];
   const clusters = agglomerativeClusters(items, 0.7);
   assertEquals(clusters.length, 3);
+});
+
+// ─── completeLinkage (regression guards for the chaining blob) ───────────────
+//
+// Context: on Bearaby (2,391 ACTIVE ads) single linkage at the production 0.70
+// threshold put 2,126 of 2,189 covered ads (97%) and 89% of spend into ONE
+// cluster. Complete linkage on the same data gives 131 clusters, largest 231.
+// These tests pin the property that makes the difference.
+
+Deno.test("complete linkage: does NOT chain (mirror of the single-linkage test above)", () => {
+  // Exactly the fixture from 'single-linkage is transitive': a~b and b~c, but
+  // a NOT~ c. Single linkage merges all three; complete linkage must not,
+  // because complete linkage requires EVERY intra-cluster pair to be within cut.
+  const items = [
+    { ad_id: "a", embedding: [1, 0] },
+    { ad_id: "b", embedding: [0.8, 0.6] },
+    { ad_id: "c", embedding: [0.4, 0.92] },
+  ];
+  const single = agglomerativeClusters(items, 0.7);
+  const complete = completeLinkageClusters(items, 0.7);
+  assertEquals(single.length, 1, "precondition: single linkage chains");
+  assertEquals(complete.length, 2, "complete linkage must not chain");
+  // a·c = 0.4 < 0.7, so a and c must never share a cluster.
+  for (const c of complete) {
+    assertEquals(c.includes("a") && c.includes("c"), false);
+  }
+});
+
+Deno.test("complete linkage: two tight groups still separate", () => {
+  const items = [
+    { ad_id: "a", embedding: [1, 0] },
+    { ad_id: "b", embedding: [0.99, 0.01] },
+    { ad_id: "c", embedding: [0, 1] },
+    { ad_id: "d", embedding: [0.02, 0.99] },
+  ];
+  const clusters = completeLinkageClusters(items, 0.7);
+  assertEquals(clusters.length, 2);
+  assertEquals(clusters.every((c) => c.length === 2), true);
+});
+
+Deno.test("complete linkage: all-dissimilar -> all singletons", () => {
+  const items = [
+    { ad_id: "a", embedding: [1, 0, 0] },
+    { ad_id: "b", embedding: [0, 1, 0] },
+    { ad_id: "c", embedding: [0, 0, 1] },
+  ];
+  assertEquals(completeLinkageClusters(items, 0.7).length, 3);
+});
+
+Deno.test("complete linkage: every intra-cluster pair is within the cut", () => {
+  // Property test over a small grid of angles — the defining invariant.
+  const items = Array.from({ length: 12 }, (_, i) => {
+    const t = (i * Math.PI) / 14;
+    return { ad_id: `x${i}`, embedding: [Math.cos(t), Math.sin(t)] };
+  });
+  const clusters = completeLinkageClusters(items, 0.7);
+  const byId = new Map(items.map((it) => [it.ad_id, it.embedding]));
+  for (const c of clusters) {
+    for (let i = 0; i < c.length; i++) {
+      for (let j = i + 1; j < c.length; j++) {
+        const sim = cosineSimilarity(byId.get(c[i])!, byId.get(c[j])!);
+        assertEquals(sim >= 0.7 - 1e-9, true, `${c[i]}~${c[j]} = ${sim} is below the cut`);
+      }
+    }
+  }
+});
+
+Deno.test("complete linkage: anchor seed blocks are atomic and may chain", () => {
+  // Anchors are exact identity (same asset_key), and identity IS transitive, so
+  // anchor components are exempt from the all-pairs constraint by design.
+  // a and c are far apart, but a shared anchor puts them in one block.
+  const dist: PairDistance = (i, j) => {
+    const far = (i === 0 && j === 2) || (i === 2 && j === 0);
+    return far ? 1.0 : 0.1;
+  };
+  const groups = completeLinkageBlocks(3, dist, 0.3, [[0, 2]]);
+  assertEquals(groups.length, 1, "seed block must survive and absorb the third item");
+  assertEquals(groups[0].length, 3);
+});
+
+Deno.test("complete linkage: Infinity distance never links", () => {
+  const dist: PairDistance = (i, j) => (i === 0 || j === 0 ? Infinity : 0);
+  const groups = completeLinkageBlocks(3, dist, 0.5);
+  assertEquals(groups.length, 2);
+  assertEquals(groups.some((g) => g.length === 1 && g[0] === 0), true);
+  assertEquals(groups.some((g) => g.length === 2), true);
+});
+
+Deno.test("complete linkage: refuses to allocate an oversized matrix", () => {
+  let threw = false;
+  try {
+    completeLinkageBlocks(10, () => 0, 1, [], { maxItems: 4 });
+  } catch (e) {
+    threw = true;
+    assertEquals(String(e).includes("exceeds maxItems"), true);
+  }
+  assertEquals(threw, true, "must fail loudly rather than OOM the edge runtime");
+});
+
+Deno.test("complete linkage: output is deterministic and partitions every input", () => {
+  const items = Array.from({ length: 9 }, (_, i) => ({
+    ad_id: `id${i}`,
+    embedding: [Math.cos(i), Math.sin(i)],
+  }));
+  const a = completeLinkageClusters(items, 0.7);
+  const b = completeLinkageClusters(items, 0.7);
+  assertEquals(JSON.stringify(a), JSON.stringify(b));
+  assertEquals(a.flat().sort().join(","), items.map((i) => i.ad_id).sort().join(","));
 });
 
 // ─── coefficientOfVariation ──────────────────────────────────────────────────
