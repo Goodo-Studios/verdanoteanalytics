@@ -2,6 +2,7 @@ import { useState, useMemo, forwardRef } from "react";
 import { Loader2, LineChart, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { startOfWeek, startOfMonth, format } from "date-fns";
 import { MultiLineTrendChart, type TrendLine } from "@/components/MultiLineTrendChart";
+import { CHART_SERIES } from "@/lib/chartTheme";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { DailyTrendPoint } from "@/hooks/useDailyTrends";
@@ -14,11 +15,11 @@ interface TrendsTabProps {
 }
 
 const METRIC_OPTIONS: { key: string; label: string; color: string; prefix?: string; suffix?: string; decimals?: number; invertColor?: boolean; compute?: (d: any) => number }[] = [
-  { key: "spend", label: "Spend", color: "hsl(var(--primary))", prefix: "$", decimals: 0 },
-  { key: "cpm", label: "CPM", color: "hsl(262, 83%, 58%)", prefix: "$", decimals: 2, invertColor: true },
-  { key: "cpa", label: "CPA", color: "hsl(0, 84%, 60%)", prefix: "$", decimals: 2, invertColor: true },
-  { key: "cpmr", label: "CPMR", color: "hsl(25, 95%, 53%)", prefix: "$", decimals: 2, invertColor: true, compute: (d: any) => (Number(d.cpm) || 0) * (Number(d.frequency) || 0) },
-  { key: "frequency", label: "Frequency", color: "hsl(199, 89%, 48%)", decimals: 2 },
+  { key: "spend", label: "Spend", color: CHART_SERIES[0], prefix: "$", decimals: 0 },
+  { key: "cpm", label: "CPM", color: CHART_SERIES[1], prefix: "$", decimals: 2, invertColor: true },
+  { key: "cpa", label: "CPA", color: CHART_SERIES[3], prefix: "$", decimals: 2, invertColor: true },
+  { key: "cpmr", label: "CPMR", color: CHART_SERIES[2], prefix: "$", decimals: 2, invertColor: true, compute: (d: any) => (Number(d.cpm) || 0) * (Number(d.frequency) || 0) },
+  { key: "frequency", label: "Frequency", color: CHART_SERIES[4], decimals: 2 },
 ];
 
 function bucketKey(date: string, granularity: Granularity): string {

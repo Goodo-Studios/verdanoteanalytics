@@ -1,5 +1,25 @@
-import { useMemo, useRef, useState, useCallback } from "react";
+import { useMemo } from "react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ReferenceDot,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import type { Database } from "@/integrations/supabase/types";
+import { ChartTooltip } from "@/components/charts/ChartTooltip";
+import {
+  axisProps,
+  CHART_ANIMATE_IN,
+  CHART_CURSOR,
+  CHART_CURVE,
+  CHART_SERIES,
+  gridProps,
+} from "@/lib/chartTheme";
 
 type Creative = Database["public"]["Tables"]["creatives"]["Row"];
 
@@ -10,8 +30,7 @@ type Creative = Database["public"]["Tables"]["creatives"]["Row"];
  * one per playback interval — already normalized upstream by the US-002 parser)
  * straight off the creatives row. No fetch hook: the modal already has the row.
  *
- * Renders a hand-rolled inline SVG (modeled on MultiLineTrendChart.tsx ChartSVG)
- * with a single drop-off line:
+ * Rendered with Recharts on the shared chart theme:
  *   x = playback progress 0 → 100% of the video
  *   y = retention % (share of viewers still watching at that point)
  *
@@ -42,6 +61,8 @@ const THRESHOLD_MARKS = [
   { label: "100%", frac: 1, key: "retention_p100" as const },
 ];
 
+const RETENTION_COLOR = CHART_SERIES[0];
+
 /** Coerce the JSONB play_curve into a clean number[] in [0,100], or null. */
 function normalizeCurve(raw: unknown): number[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
@@ -69,7 +90,7 @@ export function RetentionCurveChart({ creative, height = 240 }: RetentionCurveCh
 
   return (
     <div className="glass-panel p-4">
-      <div className="flex items-center justify-between mb-3">
+      <div className="mb-3 flex items-center justify-between">
         <p className="font-label text-[10px] font-semibold uppercase tracking-[0.08em] text-slate">
           Retention curve
         </p>
@@ -77,7 +98,7 @@ export function RetentionCurveChart({ creative, height = 240 }: RetentionCurveCh
           % of viewers still watching vs. playback progress
         </span>
       </div>
-      <CurveSVG
+      <CurveChart
         curve={curve}
         height={height}
         thresholds={{
@@ -91,7 +112,7 @@ export function RetentionCurveChart({ creative, height = 240 }: RetentionCurveCh
   );
 }
 
-function CurveSVG({
+function CurveChart({
   curve,
   height,
   thresholds,
@@ -100,150 +121,126 @@ function CurveSVG({
   height: number;
   thresholds: Pick<Creative, "retention_p25" | "retention_p50" | "retention_p75" | "retention_p100">;
 }) {
-  const svgRef = useRef<SVGSVGElement>(null);
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
+  const lastIdx = curve.length - 1;
 
-  const chart = useMemo(() => {
-    const padding = 50;
-    const rightPadding = 30;
-    const width = 600;
-    const top = 20;
-    const chartH = height - 50;
-    const lastIdx = curve.length - 1;
-    const xStep = lastIdx > 0 ? (width - padding - rightPadding) / lastIdx : 0;
-
-    // Retention is a true percentage: fix the y-domain to [0,100] so the
-    // drop-off reads honestly (no auto-zoom that exaggerates a shallow curve).
-    const yFor = (v: number) => top + chartH - (Math.max(0, Math.min(100, v)) / 100) * chartH;
-    const xFor = (i: number) => padding + i * xStep;
-
-    const points = curve.map((v, i) => ({ x: xFor(i), y: yFor(v), value: v, index: i }));
-    const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
-    // Filled area under the curve down to the baseline.
-    const areaPath =
-      `M ${points[0].x} ${top + chartH} ` +
-      points.map((p) => `L ${p.x} ${p.y}`).join(" ") +
-      ` L ${points[lastIdx].x} ${top + chartH} Z`;
-
-    const yTicks = Array.from({ length: 5 }, (_, i) => {
-      const val = (100 * i) / 4;
-      return { val, y: yFor(val) };
-    });
-
-    // p25/p50/p75/p100 playback-progress guides. Value comes from the matching
-    // scalar when present; otherwise read off the curve at the mark position.
-    const marks = THRESHOLD_MARKS.map((m) => {
-      const pos = m.frac * lastIdx;
-      const lo = Math.floor(pos);
-      const hi = Math.ceil(pos);
-      const interp =
-        lo === hi ? curve[lo] : curve[lo] + (curve[hi] - curve[lo]) * (pos - lo);
-      const scalar = thresholds[m.key];
-      const value = scalar ?? interp;
-      return { ...m, x: padding + pos * xStep, y: yFor(value), value };
-    });
-
-    const xLabels = [0, 0.25, 0.5, 0.75, 1].map((f) => ({
-      label: `${Math.round(f * 100)}%`,
-      x: padding + f * lastIdx * xStep,
-    }));
-
-    return { points, linePath, areaPath, yTicks, marks, xLabels, width, padding, rightPadding, xStep, top, chartH };
-  }, [curve, height, thresholds]);
-
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent<SVGSVGElement>) => {
-      const svg = svgRef.current;
-      if (!svg) return;
-      const rect = svg.getBoundingClientRect();
-      const svgX = ((e.clientX - rect.left) / rect.width) * chart.width;
-      const index = Math.round((svgX - chart.padding) / (chart.xStep || 1));
-      if (index >= 0 && index < curve.length) {
-        setHoveredIndex(index);
-        setTooltipPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-      } else {
-        setHoveredIndex(null);
-      }
-    },
-    [chart.width, chart.padding, chart.xStep, curve.length],
+  const data = useMemo(
+    () =>
+      curve.map((v, i) => ({
+        progress: (i / lastIdx) * 100,
+        retention: Math.max(0, Math.min(100, v)),
+      })),
+    [curve, lastIdx],
   );
 
-  const handleMouseLeave = useCallback(() => {
-    setHoveredIndex(null);
-    setTooltipPos(null);
-  }, []);
-
-  const lastIdx = curve.length - 1;
-  const fmtPct = (v: number) => `${v.toLocaleString("en-US", { maximumFractionDigits: 1 })}%`;
-  const fmtProgress = (i: number) =>
-    `${((lastIdx > 0 ? i / lastIdx : 0) * 100).toLocaleString("en-US", { maximumFractionDigits: 0 })}%`;
+  /** Value at each completion mark: the reported scalar when present, else the
+   *  curve interpolated at that position. */
+  const marks = useMemo(
+    () =>
+      THRESHOLD_MARKS.map((m) => {
+        const pos = m.frac * lastIdx;
+        const lo = Math.floor(pos);
+        const hi = Math.ceil(pos);
+        const interp = lo === hi ? curve[lo] : curve[lo] + (curve[hi] - curve[lo]) * (pos - lo);
+        const scalar = thresholds[m.key];
+        return { ...m, x: m.frac * 100, value: scalar ?? interp };
+      }),
+    [curve, lastIdx, thresholds],
+  );
 
   return (
-    <div className="relative">
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${chart.width} ${height}`}
-        className="w-full"
-        preserveAspectRatio="xMidYMid meet"
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
-      >
-        {/* Y gridlines + retention-% labels */}
-        {chart.yTicks.map((tick, i) => (
-          <g key={`y-${i}`}>
-            <line x1={chart.padding} y1={tick.y} x2={chart.width - chart.rightPadding} y2={tick.y} stroke="hsl(var(--border))" strokeWidth={0.5} />
-            <text x={chart.padding - 6} y={tick.y + 3} textAnchor="end" fill="hsl(var(--muted-foreground))" fontSize={11} fontFamily="'Crimson Pro', serif">
-              {tick.val}%
-            </text>
-          </g>
-        ))}
+    <div className={CHART_ANIMATE_IN} role="img" aria-label="Retention curve: share of viewers still watching against playback progress">
+      <ResponsiveContainer width="100%" height={height}>
+        <AreaChart data={data} margin={{ top: 8, right: 12, bottom: 16, left: 0 }}>
+          <defs>
+            <linearGradient id="fill-retention" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={RETENTION_COLOR} stopOpacity={0.24} />
+              <stop offset="100%" stopColor={RETENTION_COLOR} stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
 
-        {/* p25/p50/p75/p100 playback-progress guides */}
-        {chart.marks.map((m) => (
-          <g key={`mark-${m.label}`}>
-            <line x1={m.x} y1={chart.top} x2={m.x} y2={chart.top + chart.chartH} stroke="hsl(var(--muted-foreground))" strokeWidth={0.5} strokeDasharray="2 3" opacity={0.4} />
-            <circle cx={m.x} cy={m.y} r={3} fill="hsl(var(--primary))" opacity={0.9} />
-            <text x={m.x} y={chart.top + chart.chartH + 26} textAnchor="middle" fill="hsl(var(--muted-foreground))" fontSize={9} fontFamily="'Space Grotesk', sans-serif">
-              p{m.label.replace("%", "")}
-            </text>
-          </g>
-        ))}
+          <CartesianGrid {...gridProps} />
 
-        {/* Filled area + drop-off line */}
-        <path d={chart.areaPath} fill="hsl(var(--primary))" opacity={0.08} />
-        <path d={chart.linePath} fill="none" stroke="hsl(var(--primary))" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" opacity={0.9} />
+          <XAxis
+            dataKey="progress"
+            type="number"
+            domain={[0, 100]}
+            ticks={[0, 25, 50, 75, 100]}
+            {...axisProps}
+            tickMargin={8}
+            tickFormatter={(v: number) => `${v}%`}
+          />
 
-        {/* Hover marker */}
-        {hoveredIndex !== null && chart.points[hoveredIndex] && (
-          <>
-            <line x1={chart.points[hoveredIndex].x} y1={chart.top} x2={chart.points[hoveredIndex].x} y2={chart.top + chart.chartH} stroke="hsl(var(--muted-foreground))" strokeWidth={0.5} strokeDasharray="3 3" opacity={0.5} />
-            <circle cx={chart.points[hoveredIndex].x} cy={chart.points[hoveredIndex].y} r={4} fill="hsl(var(--primary))" />
-          </>
-        )}
+          <YAxis
+            // Retention is a true percentage: fix the domain to [0,100] so the
+            // drop-off reads honestly (no auto-zoom that exaggerates a shallow curve).
+            domain={[0, 100]}
+            ticks={[0, 25, 50, 75, 100]}
+            {...axisProps}
+            width={44}
+            tickFormatter={(v: number) => `${v}%`}
+          />
 
-        {/* X-axis playback-progress labels */}
-        {chart.xLabels.map((p, i) => (
-          <text key={`x-${i}`} x={p.x} y={height - 4} textAnchor="middle" fill="hsl(var(--muted-foreground))" fontSize={10} fontFamily="'Space Grotesk', sans-serif">
-            {p.label}
-          </text>
-        ))}
-      </svg>
+          {marks.map((m) => (
+            <ReferenceLine
+              key={`guide-${m.label}`}
+              x={m.x}
+              stroke={CHART_CURSOR}
+              strokeDasharray="2 3"
+              strokeWidth={1}
+              opacity={0.4}
+              label={{
+                value: `p${m.label.replace("%", "")}`,
+                position: "insideTop",
+                offset: -2,
+                fill: axisProps.tick.fill,
+                fontSize: 9,
+                fontFamily: "'Space Grotesk', sans-serif",
+              }}
+            />
+          ))}
 
-      {hoveredIndex !== null && tooltipPos && chart.points[hoveredIndex] && (
-        <div
-          className="absolute z-50 pointer-events-none bg-popover border border-border rounded-lg shadow-lg px-3 py-2 text-xs"
-          style={{ left: tooltipPos.x, top: tooltipPos.y - 8, transform: "translate(-50%, -100%)" }}
-        >
-          <p className="font-medium text-foreground mb-1">{fmtProgress(hoveredIndex)} played</p>
-          <div className="flex items-center gap-2 justify-between">
-            <span className="text-muted-foreground">Retention</span>
-            <span className="font-data text-[13px] font-semibold text-foreground ml-3">
-              {fmtPct(chart.points[hoveredIndex].value)}
-            </span>
-          </div>
-        </div>
-      )}
+          <Tooltip
+            cursor={{ stroke: CHART_CURSOR, strokeWidth: 1, strokeDasharray: "3 3", opacity: 0.5 }}
+            content={
+              <ChartTooltip
+                series={{
+                  retention: {
+                    label: "Retention",
+                    color: RETENTION_COLOR,
+                    suffix: "%",
+                    decimals: 1,
+                  },
+                }}
+                formatHeader={(label) => `${Math.round(Number(label))}% played`}
+              />
+            }
+          />
+
+          <Area
+            dataKey="retention"
+            name="Retention"
+            type={CHART_CURVE}
+            stroke={RETENTION_COLOR}
+            strokeWidth={2}
+            fill="url(#fill-retention)"
+            dot={false}
+            activeDot={{ r: 4.5, fill: RETENTION_COLOR, stroke: "hsl(var(--background))", strokeWidth: 2 }}
+            isAnimationActive={false}
+          />
+
+          {marks.map((m) => (
+            <ReferenceDot
+              key={`dot-${m.label}`}
+              x={m.x}
+              y={m.value}
+              r={3}
+              fill={RETENTION_COLOR}
+              stroke="none"
+opacity={0.9}
+            />
+          ))}
+        </AreaChart>
+      </ResponsiveContainer>
     </div>
   );
 }

@@ -3,7 +3,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { format } from "date-fns";
+import { MultiLineTrendChart, type TrendLine } from "@/components/MultiLineTrendChart";
+import { CHART_SERIES } from "@/lib/chartTheme";
 
 interface ChartSectionProps {
   config: Record<string, any>;
@@ -13,10 +14,10 @@ interface ChartSectionProps {
 }
 
 const METRIC_OPTIONS = [
-  { value: "spend", label: "Spend", prefix: "$", suffix: "" },
-  { value: "roas", label: "ROAS", prefix: "", suffix: "x" },
-  { value: "cpa", label: "CPA", prefix: "$", suffix: "" },
-  { value: "ctr", label: "CTR", prefix: "", suffix: "%" },
+  { value: "spend", label: "Spend", prefix: "$", suffix: "", decimals: 0 },
+  { value: "roas", label: "ROAS", prefix: "", suffix: "x", decimals: 2 },
+  { value: "cpa", label: "CPA", prefix: "$", suffix: "", decimals: 2 },
+  { value: "ctr", label: "CTR", prefix: "", suffix: "%", decimals: 2 },
 ];
 
 export function ChartSection({ config, report, isEditing, onConfigChange }: ChartSectionProps) {
@@ -57,7 +58,20 @@ export function ChartSection({ config, report, isEditing, onConfigChange }: Char
     return { dates, values };
   }, [dailyData, metric]);
 
-  const fmtVal = (v: number) => `${metaInfo.prefix}${v.toLocaleString("en-US", { maximumFractionDigits: 2 })}${metaInfo.suffix}`;
+  const trendLines: TrendLine[] = useMemo(
+    () => [
+      {
+        key: metric,
+        label: metaInfo.label,
+        color: CHART_SERIES[0],
+        prefix: metaInfo.prefix,
+        suffix: metaInfo.suffix,
+        decimals: metaInfo.decimals,
+        values: chartData.values,
+      },
+    ],
+    [metric, metaInfo, chartData.values],
+  );
 
   return (
     <div className="space-y-3">
@@ -75,57 +89,12 @@ export function ChartSection({ config, report, isEditing, onConfigChange }: Char
         </div>
       )}
       {chartData.dates.length > 0 ? (
-        <MiniLineChart dates={chartData.dates} values={chartData.values} fmtVal={fmtVal} color="hsl(var(--primary))" />
+        <MultiLineTrendChart dates={chartData.dates} lines={trendLines} height={200} />
       ) : (
         <div className="glass-panel flex items-center justify-center py-10">
           <p className="text-sm text-muted-foreground">No daily data for this date range.</p>
         </div>
       )}
-    </div>
-  );
-}
-
-function MiniLineChart({ dates, values, fmtVal, color }: { dates: string[]; values: number[]; fmtVal: (v: number) => string; color: string }) {
-  const width = 600;
-  const height = 180;
-  const padding = 50;
-  const chartH = height - 40;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-  const xStep = dates.length > 1 ? (width - padding * 2) / (dates.length - 1) : 0;
-  const points = values.map((v, i) => ({
-    x: padding + i * xStep,
-    y: 20 + chartH - ((v - min) / range) * chartH,
-  }));
-  const path = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
-  const yTicks = Array.from({ length: 4 }, (_, i) => {
-    const val = min + (range * i) / 3;
-    const y = 20 + chartH - (i / 3) * chartH;
-    return { val, y };
-  });
-  const xLabelInterval = Math.max(1, Math.floor(dates.length / 6));
-
-  return (
-    <div className="glass-panel p-4">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full" preserveAspectRatio="xMidYMid meet">
-        {yTicks.map((t, i) => (
-          <g key={i}>
-            <line x1={padding} y1={t.y} x2={width - padding} y2={t.y} stroke="hsl(var(--border))" strokeWidth={0.5} />
-            <text x={padding - 4} y={t.y + 3} textAnchor="end" fill="hsl(var(--muted-foreground))" fontSize={10}>
-              {fmtVal(t.val)}
-            </text>
-          </g>
-        ))}
-        <path d={path} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" />
-        {dates.map((d, i) =>
-          (i % xLabelInterval === 0 || i === dates.length - 1) ? (
-            <text key={i} x={points[i].x} y={height - 4} textAnchor="middle" fill="hsl(var(--muted-foreground))" fontSize={10}>
-              {format(new Date(d + "T12:00:00"), "MMM d")}
-            </text>
-          ) : null
-        )}
-      </svg>
     </div>
   );
 }

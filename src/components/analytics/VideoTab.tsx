@@ -10,20 +10,56 @@ import {
 import { Film, Eye, MousePointerClick, Clock, Play, DollarSign } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { fmt$ } from "@/lib/formatters";
+import {
+  Cell,
+  ReferenceArea,
+  ReferenceLine,
+  ResponsiveContainer,
+  Scatter,
+  ScatterChart,
+  Tooltip,
+  XAxis,
+  YAxis,
+  ZAxis,
+} from "recharts";
+import {
+  axisProps,
+  CHART_ANIMATE_IN,
+  CHART_CURSOR,
+  CHART_GRADE_COLORS,
+  CHART_SEMANTIC,
+  gridProps,
+} from "@/lib/chartTheme";
+import { CartesianGrid } from "recharts";
 
 interface VideoTabProps {
   creatives: any[];
   onCreativeClick?: (c: any) => void;
 }
 
-// Grade to color for scatter bubbles
-const GRADE_COLORS: Record<Grade, string> = {
-  A: "hsl(152, 60%, 36%)",
-  B: "hsl(152, 50%, 50%)",
-  C: "hsl(45, 90%, 55%)",
-  D: "hsl(25, 90%, 55%)",
-  F: "hsl(0, 70%, 50%)",
-};
+// Grade to color for scatter bubbles — token-backed so it follows dark mode.
+const GRADE_COLORS: Record<Grade, string> = CHART_GRADE_COLORS;
+
+/** The derived shape the `videoCreatives` memo produces, narrowed to the fields
+ *  the scatter and its tooltip actually read. */
+interface VideoCreative {
+  ad_id: string;
+  ad_name: string;
+  hook_rate: number;
+  hold_rate_val: number;
+  spend_val: number;
+  roas_val: number;
+  grade: Grade;
+  [key: string]: unknown;
+}
+
+/** One bubble: hold rate (x), hook rate (y), spend (z) + the source creative. */
+interface ScatterPoint {
+  x: number;
+  y: number;
+  z: number;
+  creative: VideoCreative;
+}
 
 function pct(n: number) { return `${(n * 100).toFixed(1)}%`; }
 
@@ -120,29 +156,30 @@ export function VideoTab({ creatives, onCreativeClick }: VideoTabProps) {
     );
   }
 
-  // Scatter plot dimensions
-  const SCATTER_W = 900;
-  const SCATTER_H = 600;
-  const PAD = { top: 30, right: 30, bottom: 60, left: 70 };
-  const plotW = SCATTER_W - PAD.left - PAD.right;
-  const plotH = SCATTER_H - PAD.top - PAD.bottom;
-
   const maxSpend = Math.max(...videoCreatives.map(c => c.spend_val), 1);
-  const bubbleScale = (spend: number) => Math.max(4, Math.sqrt(spend / maxSpend) * 28);
 
   // Use account averages as quadrant dividers
   const HOOK_BENCHMARK = agg.avgHook;
   const HOLD_BENCHMARK = agg.avgHold;
 
-  // Quadrant labels — X = Hold Rate, Y = Hook Rate
-  const holdX = PAD.left + HOLD_BENCHMARK * plotW;
-  const hookY = PAD.top + plotH - HOOK_BENCHMARK * plotH;
+  // Quadrants in data space — X = Hold Rate, Y = Hook Rate, both in [0,1].
   const quadrants = [
-    { label: "Hooks & Holds", x: holdX + (PAD.left + plotW - holdX) / 2, y: hookY - (hookY - PAD.top) / 2, className: "text-primary" },
-    { label: "Hooks, doesn't hold", x: PAD.left + (holdX - PAD.left) / 2, y: hookY - (hookY - PAD.top) / 2, className: "text-warning" },
-    { label: "Holds, doesn't hook", x: holdX + (PAD.left + plotW - holdX) / 2, y: hookY + (PAD.top + plotH - hookY) / 2, className: "text-warning" },
-    { label: "Losing them", x: PAD.left + (holdX - PAD.left) / 2, y: hookY + (PAD.top + plotH - hookY) / 2, className: "text-destructive" },
+    { label: "Hooks & Holds", x1: HOLD_BENCHMARK, x2: 1, y1: HOOK_BENCHMARK, y2: 1, tint: CHART_SEMANTIC.positive },
+    { label: "Hooks, doesn't hold", x1: 0, x2: HOLD_BENCHMARK, y1: HOOK_BENCHMARK, y2: 1, tint: CHART_SEMANTIC.caution },
+    { label: "Holds, doesn't hook", x1: HOLD_BENCHMARK, x2: 1, y1: 0, y2: HOOK_BENCHMARK, tint: CHART_SEMANTIC.caution },
+    { label: "Losing them", x1: 0, x2: HOLD_BENCHMARK, y1: 0, y2: HOOK_BENCHMARK, tint: CHART_SEMANTIC.negative },
   ];
+
+  const scatterData = videoCreatives.map(c => ({
+    x: Math.min(c.hold_rate_val, 1),
+    y: Math.min(c.hook_rate, 1),
+    z: c.spend_val,
+    creative: c,
+  }));
+
+  // Evenly-spaced ticks. The old hand-rolled axis mixed 0.1 steps with 0.25
+  // steps but positioned them linearly, so the gaps lied about the values.
+  const RATE_TICKS = [0, 0.2, 0.4, 0.6, 0.8, 1];
 
   const maxBarHook = top10Hook.length > 0 ? top10Hook[0].hook_rate : 1;
 
@@ -193,80 +230,103 @@ export function VideoTab({ creatives, onCreativeClick }: VideoTabProps) {
           <h3 className="font-label text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">
             Hook Rate vs Hold Rate
           </h3>
-          <div className="overflow-x-auto">
-            <svg viewBox={`0 0 ${SCATTER_W} ${SCATTER_H}`} className="w-full max-w-[600px]" style={{ minWidth: 400 }}>
-              {/* Axes */}
-              <line x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={PAD.top + plotH} stroke="hsl(var(--border))" strokeWidth="1" />
-              <line x1={PAD.left} y1={PAD.top + plotH} x2={PAD.left + plotW} y2={PAD.top + plotH} stroke="hsl(var(--border))" strokeWidth="1" />
+          <div
+            className={CHART_ANIMATE_IN}
+            role="img"
+            aria-label={`Bubble chart of ${videoCreatives.length} video creatives plotting hook rate against hold rate, sized by spend`}
+          >
+            <ResponsiveContainer width="100%" height={380}>
+              <ScatterChart margin={{ top: 12, right: 16, bottom: 24, left: 4 }}>
+                <CartesianGrid {...gridProps} vertical />
 
-              {/* Grid lines at benchmarks */}
-              <line x1={holdX} y1={PAD.top} x2={holdX} y2={PAD.top + plotH} stroke="hsl(var(--border))" strokeWidth="1" strokeDasharray="4,4" opacity="0.5" />
-              <line x1={PAD.left} y1={hookY} x2={PAD.left + plotW} y2={hookY} stroke="hsl(var(--border))" strokeWidth="1" strokeDasharray="4,4" opacity="0.5" />
+                {/* Quadrant tints — faint enough to orient without competing with the marks. */}
+                {quadrants.map(q => (
+                  <ReferenceArea
+                    key={`area-${q.label}`}
+                    x1={q.x1} x2={q.x2} y1={q.y1} y2={q.y2}
+                    fill={q.tint}
+                    fillOpacity={0.05}
+                    stroke="none"
+                    label={{
+                      value: q.label,
+                      position: "center",
+                      fill: q.tint,
+                      fontSize: 11,
+                      fontFamily: "'Space Grotesk', sans-serif",
+                      fontWeight: 600,
+                      opacity: 0.85,
+                    }}
+                  />
+                ))}
 
-              {/* Quadrant labels */}
-              {quadrants.map(q => (
-                 <text key={q.label} x={q.x} y={q.y} textAnchor="middle" className={cn("text-[15px] font-label font-semibold fill-current", q.className)} opacity="0.6">
-                   {q.label}
-                 </text>
-              ))}
+                {/* Account-average dividers */}
+                <ReferenceLine x={HOLD_BENCHMARK} stroke={CHART_CURSOR} strokeDasharray="4 4" strokeWidth={1} opacity={0.5} />
+                <ReferenceLine y={HOOK_BENCHMARK} stroke={CHART_CURSOR} strokeDasharray="4 4" strokeWidth={1} opacity={0.5} />
 
-              {/* Axis labels */}
-              <text x={PAD.left + plotW / 2} y={SCATTER_H - 6} textAnchor="middle" className="text-[13px] font-label fill-muted-foreground font-medium">
-                Hold Rate →
-              </text>
-              <text x={14} y={PAD.top + plotH / 2} textAnchor="middle" className="text-[13px] font-label fill-muted-foreground font-medium" transform={`rotate(-90, 14, ${PAD.top + plotH / 2})`}>
-                Hook Rate →
-              </text>
+                <XAxis
+                  type="number" dataKey="x" name="Hold rate"
+                  domain={[0, 1]} ticks={RATE_TICKS}
+                  {...axisProps}
+                  tickMargin={8}
+                  tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`}
+                  label={{
+                    value: "Hold Rate →", position: "insideBottom", offset: -16,
+                    fill: axisProps.tick.fill, fontSize: 11, fontFamily: "'Space Grotesk', sans-serif",
+                  }}
+                />
+                <YAxis
+                  type="number" dataKey="y" name="Hook rate"
+                  domain={[0, 1]} ticks={RATE_TICKS}
+                  {...axisProps}
+                  width={48}
+                  tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`}
+                  label={{
+                    value: "Hook Rate →", angle: -90, position: "insideLeft",
+                    style: { textAnchor: "middle" },
+                    fill: axisProps.tick.fill, fontSize: 11, fontFamily: "'Space Grotesk', sans-serif",
+                  }}
+                />
+                <ZAxis type="number" dataKey="z" range={[60, 2200]} domain={[0, maxSpend]} name="Spend" />
 
-              {/* Tick marks */}
-              {[0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1].map(v => (
-                <g key={`xtick-${v}`}>
-                  <text x={PAD.left + v * plotW} y={PAD.top + plotH + 20} textAnchor="middle" className="text-[15px] font-data fill-muted-foreground tabular-nums">
-                    {(v * 100).toFixed(0)}%
-                  </text>
-                </g>
-              ))}
-              {[0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1].map(v => (
-                <g key={`ytick-${v}`}>
-                  <text x={PAD.left - 8} y={PAD.top + plotH - v * plotH + 5} textAnchor="end" className="text-[15px] font-data fill-muted-foreground tabular-nums">
-                    {(v * 100).toFixed(0)}%
-                  </text>
-                </g>
-              ))}
+                <Tooltip
+                  cursor={false}
+                  content={({ active, payload }: { active?: boolean; payload?: Array<{ payload: ScatterPoint }> }) => {
+                    if (!active || !payload?.length) return null;
+                    const c = payload[0].payload.creative;
+                    return (
+                      <div className="pointer-events-none space-y-0.5 rounded-md border border-border bg-popover p-2 font-body text-[11px] shadow-lg">
+                        <p className="max-w-[220px] truncate font-semibold text-foreground">{c.ad_name}</p>
+                        <p className="text-muted-foreground">Hook: <span className="font-data font-semibold text-foreground">{pct(c.hook_rate)}</span> · Hold: <span className="font-data font-semibold text-foreground">{pct(c.hold_rate_val)}</span></p>
+                        <p className="text-muted-foreground">ROAS: <span className="font-data font-semibold text-foreground">{c.roas_val.toFixed(2)}x</span></p>
+                        <p className="text-muted-foreground">Spend: <span className="font-data font-semibold text-foreground">${c.spend_val.toFixed(0)}</span></p>
+                      </div>
+                    );
+                  }}
+                />
 
-              {/* Bubbles */}
-              {videoCreatives.map(c => {
-                const cx = PAD.left + Math.min(c.hold_rate_val, 1) * plotW;
-                const cy = PAD.top + plotH - Math.min(c.hook_rate, 1) * plotH;
-                const r = bubbleScale(c.spend_val);
-                const isHovered = hoveredBubble === c.ad_id;
-                return (
-                  <g key={c.ad_id}
-                    onMouseEnter={() => setHoveredBubble(c.ad_id)}
-                    onMouseLeave={() => setHoveredBubble(null)}
-                    onClick={() => onCreativeClick?.(c)}
-                    className="cursor-pointer"
-                  >
-                    <circle
-                      cx={cx} cy={cy} r={isHovered ? r + 2 : r}
-                      fill={GRADE_COLORS[c.grade as Grade]}
-                      opacity={isHovered ? 0.9 : 0.55}
-                      stroke={isHovered ? "hsl(var(--foreground))" : "none"}
-                      strokeWidth={isHovered ? 1.5 : 0}
-                    />
-                    {isHovered && (
-                      <foreignObject x={cx + r + 4} y={cy - 36} width="180" height="72" className="pointer-events-none overflow-visible">
-                        <div className="bg-popover border border-border rounded-md shadow-lg p-2 text-[11px] font-body space-y-0.5">
-                          <p className="font-semibold text-foreground truncate">{c.ad_name}</p>
-                          <p className="text-muted-foreground">ROAS: <span className="font-data font-semibold text-foreground">{c.roas_val.toFixed(2)}x</span></p>
-                          <p className="text-muted-foreground">Spend: <span className="font-data font-semibold text-foreground">${c.spend_val.toFixed(0)}</span></p>
-                        </div>
-                      </foreignObject>
-                    )}
-                  </g>
-                );
-              })}
-            </svg>
+                <Scatter
+                  data={scatterData}
+                  isAnimationActive={false}
+                  onClick={(point: ScatterPoint) => onCreativeClick?.(point?.creative)}
+                  onMouseEnter={(point: ScatterPoint) => setHoveredBubble(point?.creative?.ad_id ?? null)}
+                  onMouseLeave={() => setHoveredBubble(null)}
+                  className="cursor-pointer"
+                >
+                  {scatterData.map(point => {
+                    const isHovered = hoveredBubble === point.creative.ad_id;
+                    return (
+                      <Cell
+                        key={point.creative.ad_id}
+                        fill={GRADE_COLORS[point.creative.grade as Grade]}
+                        fillOpacity={isHovered ? 0.9 : 0.55}
+                        stroke={isHovered ? "hsl(var(--foreground))" : "none"}
+                        strokeWidth={isHovered ? 1.5 : 0}
+                      />
+                    );
+                  })}
+                </Scatter>
+              </ScatterChart>
+            </ResponsiveContainer>
           </div>
         </div>
 

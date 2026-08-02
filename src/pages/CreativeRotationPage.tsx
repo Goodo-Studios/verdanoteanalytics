@@ -6,6 +6,7 @@ import { Download, HelpCircle, ChevronDown } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { MultiLineTrendChart, type TrendLine } from "@/components/MultiLineTrendChart";
+import { CHART_SEMANTIC, CHART_SERIES } from "@/lib/chartTheme";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
@@ -150,26 +151,30 @@ const CreativeRotationPage = () => {
     queryFn: () => getCreativeRotation(selectedAccountId!, dateFrom!, dateTo!, freshDays),
   });
 
-  const weekly = data?.weekly_age ?? [];
+  // Memoized so the `?? []` fallback doesn't mint a new array each render and
+  // invalidate every downstream chart memo.
+  const weekly = useMemo(() => data?.weekly_age ?? [], [data]);
   const weekDates = useMemo(() => weekly.map((w) => w.week_start), [weekly]);
 
+  // Freshness is a good → bad scale, so it reads off the semantic tokens rather
+  // than the categorical palette.
   const spendByAgeLines = useMemo<TrendLine[]>(() => [
-    { key: "fresh", label: `Fresh (≤${freshDays}d)`, color: "#22c55e", prefix: "$", decimals: 0, values: weekly.map((w) => w.fresh_spend) },
-    { key: "mid", label: `Mid (≤${freshDays * 2}d)`, color: "#eab308", prefix: "$", decimals: 0, values: weekly.map((w) => w.mid_spend) },
-    { key: "stale", label: "Stale", color: "#ef4444", prefix: "$", decimals: 0, values: weekly.map((w) => w.stale_spend) },
+    { key: "fresh", label: `Fresh (≤${freshDays}d)`, color: CHART_SEMANTIC.positive, prefix: "$", decimals: 0, values: weekly.map((w) => w.fresh_spend) },
+    { key: "mid", label: `Mid (≤${freshDays * 2}d)`, color: CHART_SEMANTIC.caution, prefix: "$", decimals: 0, values: weekly.map((w) => w.mid_spend) },
+    { key: "stale", label: "Stale", color: CHART_SEMANTIC.negative, prefix: "$", decimals: 0, values: weekly.map((w) => w.stale_spend) },
   ], [weekly, freshDays]);
 
   const freshnessVsCpaLines = useMemo<TrendLine[]>(() => [
-    { key: "fresh_pct", label: "% Spend Fresh", color: "#22c55e", suffix: "%", decimals: 1, values: weekly.map((w) => w.fresh_spend_pct) },
-    { key: "fresh_cpa", label: "Fresh CPA", color: "#3b82f6", prefix: "$", decimals: 2, values: weekly.map((w) => w.fresh_cpa) },
-    { key: "stale_cpa", label: "Stale CPA", color: "#ef4444", prefix: "$", decimals: 2, values: weekly.map((w) => w.stale_cpa) },
+    { key: "fresh_pct", label: "% Spend Fresh", color: CHART_SEMANTIC.positive, suffix: "%", decimals: 1, values: weekly.map((w) => w.fresh_spend_pct) },
+    { key: "fresh_cpa", label: "Fresh CPA", color: CHART_SERIES[1], prefix: "$", decimals: 2, values: weekly.map((w) => w.fresh_cpa) },
+    { key: "stale_cpa", label: "Stale CPA", color: CHART_SEMANTIC.negative, prefix: "$", decimals: 2, values: weekly.map((w) => w.stale_cpa) },
   ], [weekly]);
 
   const newAdsLines = useMemo<TrendLine[]>(() => {
     const t = data?.new_ads_timeline ?? [];
     return [
-      { key: "new_ads", label: "New ads", color: "#8b5cf6", decimals: 0, values: t.map((r) => r.new_ads) },
-      { key: "cumulative", label: "Cumulative", color: "#64748b", decimals: 0, values: t.map((r) => r.cumulative) },
+      { key: "new_ads", label: "New ads", color: CHART_SERIES[5], decimals: 0, values: t.map((r) => r.new_ads) },
+      { key: "cumulative", label: "Cumulative", color: CHART_SERIES[4], decimals: 0, values: t.map((r) => r.cumulative) },
     ];
   }, [data]);
   const newAdsDates = useMemo(() => (data?.new_ads_timeline ?? []).map((r) => r.week_start), [data]);

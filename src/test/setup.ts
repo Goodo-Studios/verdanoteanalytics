@@ -27,6 +27,57 @@ if (typeof globalThis.localStorage === "undefined") {
   Object.defineProperty(globalThis, "localStorage", { value: shim, configurable: true });
 }
 
+// Recharts sizes itself from its container via ResizeObserver + element box
+// metrics. jsdom implements neither (every box is 0×0 and ResizeObserver is
+// absent), so charts would mount with zero width and render nothing. Give the
+// test environment a fixed, non-zero viewport so chart assertions exercise real
+// SVG output rather than an empty container.
+const TEST_CHART_WIDTH = 800;
+const TEST_CHART_HEIGHT = 400;
+
+if (typeof globalThis.ResizeObserver === "undefined") {
+  class ResizeObserverShim implements ResizeObserver {
+    private readonly callback: ResizeObserverCallback;
+    constructor(callback: ResizeObserverCallback) {
+      this.callback = callback;
+    }
+    observe(target: Element) {
+      const contentRect = {
+        width: TEST_CHART_WIDTH,
+        height: TEST_CHART_HEIGHT,
+        top: 0,
+        left: 0,
+        bottom: TEST_CHART_HEIGHT,
+        right: TEST_CHART_WIDTH,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRectReadOnly;
+      this.callback([{ target, contentRect } as ResizeObserverEntry], this);
+    }
+    unobserve() {}
+    disconnect() {}
+  }
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    value: ResizeObserverShim,
+    configurable: true,
+  });
+}
+
+for (const [prop, value] of [
+  ["offsetWidth", TEST_CHART_WIDTH],
+  ["offsetHeight", TEST_CHART_HEIGHT],
+  ["clientWidth", TEST_CHART_WIDTH],
+  ["clientHeight", TEST_CHART_HEIGHT],
+] as const) {
+  Object.defineProperty(HTMLElement.prototype, prop, {
+    configurable: true,
+    get() {
+      return value;
+    },
+  });
+}
+
 export const axe = configureAxe({
   rules: {
     // region rule fires in jsdom but is a false positive outside a full browser page

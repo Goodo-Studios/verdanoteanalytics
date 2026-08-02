@@ -1,7 +1,30 @@
-import { useMemo, useState, useRef, useCallback } from "react";
+import { useMemo, useState } from "react";
 import { format } from "date-fns";
+import {
+  Area,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Expand } from "lucide-react";
+import { ChartTooltip, type TooltipSeriesMeta } from "@/components/charts/ChartTooltip";
+import {
+  assignAxes,
+  axisFormatFor,
+  axisProps,
+  CHART_ANIMATE_IN,
+  CHART_CURVE,
+  CHART_CURSOR,
+  formatAxisTick,
+  gridProps,
+  paddedDomain,
+  type AxisId,
+} from "@/lib/chartTheme";
 
 export interface TrendLine {
   key: string;
@@ -19,8 +42,19 @@ interface MultiLineTrendChartProps {
   height?: number;
 }
 
+/** Dates arrive as bare `yyyy-MM-dd`; anchor at noon so the local TZ can't shift the day. */
+function parseDay(date: string): Date {
+  return new Date(`${date}T12:00:00`);
+}
+
 export function MultiLineTrendChart({ dates, lines, height = 260 }: MultiLineTrendChartProps) {
   const [expanded, setExpanded] = useState(false);
+
+  const axisMap = useMemo(() => assignAxes(lines), [lines]);
+  const hasRightAxis = useMemo(
+    () => lines.some((l) => axisMap.get(l.key) === "right"),
+    [lines, axisMap],
+  );
 
   if (dates.length === 0 || lines.length === 0) {
     return (
@@ -30,190 +64,187 @@ export function MultiLineTrendChart({ dates, lines, height = 260 }: MultiLineTre
     );
   }
 
+  const legend = (compact: boolean) => (
+    <div className={compact ? "flex flex-wrap gap-3" : "mb-4 flex flex-wrap gap-4"}>
+      {lines.map((line) => (
+        <div key={line.key} className="flex items-center gap-1.5">
+          <span className="h-[3px] w-3 rounded-full" style={{ backgroundColor: line.color }} />
+          <span className={compact ? "font-body text-[12px] text-slate" : "text-sm font-medium"}>
+            {line.label}
+          </span>
+          {hasRightAxis && (
+            <span className="font-label text-[10px] uppercase tracking-wide text-muted-foreground">
+              {axisMap.get(line.key) === "right" ? "R" : "L"}
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <>
       <div
-        className="glass-panel p-4 cursor-pointer group relative"
+        className="glass-panel group relative cursor-pointer p-4"
         onClick={() => setExpanded(true)}
       >
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex flex-wrap gap-3">
-            {lines.map((line) => (
-              <div key={line.key} className="flex items-center gap-1.5">
-                <span className="w-3 h-[3px] rounded-full" style={{ backgroundColor: line.color }} />
-                <span className="font-body text-[12px] text-slate">{line.label}</span>
-              </div>
-            ))}
-          </div>
-          <Expand className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100" />
+        <div className="mb-3 flex items-center justify-between">
+          {legend(true)}
+          <Expand className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
         </div>
-        <ChartSVG dates={dates} lines={lines} height={height} />
+        <TrendChart dates={dates} lines={lines} height={height} axisMap={axisMap} />
       </div>
 
       <Dialog open={expanded} onOpenChange={setExpanded}>
-        <DialogContent className="max-w-4xl w-[90vw] p-6">
-          <div className="flex flex-wrap gap-4 mb-4">
-            {lines.map((line) => (
-              <div key={line.key} className="flex items-center gap-1.5">
-                <span className="w-3 h-[3px] rounded-full" style={{ backgroundColor: line.color }} />
-                <span className="text-sm font-medium">{line.label}</span>
-              </div>
-            ))}
-          </div>
-          <ChartSVG dates={dates} lines={lines} height={400} />
+        <DialogContent className="w-[90vw] max-w-4xl p-6">
+          {legend(false)}
+          <TrendChart dates={dates} lines={lines} height={400} axisMap={axisMap} />
         </DialogContent>
       </Dialog>
     </>
   );
 }
 
-function ChartSVG({ dates, lines, height }: { dates: string[]; lines: TrendLine[]; height: number }) {
-  const svgRef = useRef<SVGSVGElement>(null);
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
+function TrendChart({
+  dates,
+  lines,
+  height,
+  axisMap,
+}: {
+  dates: string[];
+  lines: TrendLine[];
+  height: number;
+  axisMap: Map<string, AxisId>;
+}) {
+  const data = useMemo(
+    () =>
+      dates.map((date, i) => {
+        const row: Record<string, string | number | null> = { date };
+        for (const line of lines) {
+          const v = line.values[i];
+          row[line.key] = Number.isFinite(v) ? v : null;
+        }
+        return row;
+      }),
+    [dates, lines],
+  );
 
-  const chart = useMemo(() => {
-    const padding = 50;
-    const rightPadding = 50;
-    const width = 600;
-    const chartH = height - 40;
-    const xStep = dates.length > 1 ? (width - padding - rightPadding) / (dates.length - 1) : 0;
+  const leftLines = lines.filter((l) => axisMap.get(l.key) !== "right");
+  const rightLines = lines.filter((l) => axisMap.get(l.key) === "right");
+  const leftFormat = axisFormatFor(leftLines);
+  const rightFormat = axisFormatFor(rightLines);
 
-    const lineData = lines.map((line) => {
-      const vals = line.values;
-      const minVal = Math.min(...vals);
-      const maxVal = Math.max(...vals);
-      const range = maxVal - minVal || 1;
-
-      const points = vals.map((v, i) => ({
-        x: padding + i * xStep,
-        y: 20 + chartH - ((v - minVal) / range) * chartH,
-        value: v,
-      }));
-
-      const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
-
-      return { ...line, points, linePath, minVal, maxVal, range };
-    });
-
-    const xLabelInterval = Math.max(1, Math.floor(dates.length / 8));
-    const xLabels = dates
-      .map((d, i) => ({ date: d, x: padding + i * xStep }))
-      .filter((_, i) => i % xLabelInterval === 0 || i === dates.length - 1);
-
-    const primaryLine = lineData[0];
-    const yTicks = Array.from({ length: 5 }, (_, i) => {
-      const val = primaryLine.minVal + (primaryLine.range * i) / 4;
-      const y = 20 + chartH - (i / 4) * chartH;
-      return { val, y };
-    });
-
-    const fmtPrimary = (v: number) => {
-      const p = primaryLine;
-      return `${p.prefix || ""}${v.toLocaleString("en-US", { minimumFractionDigits: p.decimals ?? 2, maximumFractionDigits: p.decimals ?? 2 })}${p.suffix || ""}`;
-    };
-
-    return { lineData, xLabels, yTicks, width, chartH, fmtPrimary, padding, rightPadding, xStep };
-  }, [dates, lines, height]);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
-    const svg = svgRef.current;
-    if (!svg || dates.length === 0) return;
-    const rect = svg.getBoundingClientRect();
-    const svgX = ((e.clientX - rect.left) / rect.width) * chart.width;
-    const index = Math.round((svgX - chart.padding) / (chart.xStep || 1));
-    if (index >= 0 && index < dates.length) {
-      setHoveredIndex(index);
-      setTooltipPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-    } else {
-      setHoveredIndex(null);
+  const seriesMeta = useMemo(() => {
+    const map: Record<string, TooltipSeriesMeta> = {};
+    for (const line of lines) {
+      map[line.key] = {
+        label: line.label,
+        color: line.color,
+        prefix: line.prefix,
+        suffix: line.suffix,
+        decimals: line.decimals,
+      };
     }
-  }, [dates.length, chart.width, chart.padding, chart.xStep]);
+    return map;
+  }, [lines]);
 
-  const handleMouseLeave = useCallback(() => {
-    setHoveredIndex(null);
-    setTooltipPos(null);
-  }, []);
+  // Point markers stay legible up to ~40 points; past that the line alone reads
+  // better and the active dot still marks the hovered value.
+  const showDots = dates.length <= 40;
+  const isSingleSeries = lines.length === 1;
 
-  const fmtValue = (line: TrendLine, v: number) =>
-    `${line.prefix || ""}${v.toLocaleString("en-US", { minimumFractionDigits: line.decimals ?? 2, maximumFractionDigits: line.decimals ?? 2 })}${line.suffix || ""}`;
+  /** An axis owned by exactly one series is tinted to match it, so the reader
+   *  never has to guess which line the numbers belong to. */
+  const tickFill = (axisLines: TrendLine[]) =>
+    axisLines.length === 1 ? axisLines[0].color : axisProps.tick.fill;
+
+  const chartLabel = `Trend chart: ${lines.map((l) => l.label).join(", ")} over ${dates.length} points`;
 
   return (
-    <div className="relative">
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${chart.width} ${height}`}
-        className="w-full"
-        preserveAspectRatio="xMidYMid meet"
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
-      >
-        {/* Grid lines */}
-        {chart.yTicks.map((tick, i) => (
-          <g key={i}>
-            <line x1={50} y1={tick.y} x2={chart.width - 50} y2={tick.y} stroke="hsl(var(--border))" strokeWidth={0.5} />
-            <text x={46} y={tick.y + 3} textAnchor="end" fill="hsl(var(--muted-foreground))" fontSize={11} fontFamily="'Crimson Pro', serif">
-              {chart.fmtPrimary(tick.val)}
-            </text>
-          </g>
-        ))}
-
-        {/* Hover vertical line */}
-        {hoveredIndex !== null && chart.lineData[0] && (
-          <line
-            x1={chart.lineData[0].points[hoveredIndex]?.x}
-            y1={20}
-            x2={chart.lineData[0].points[hoveredIndex]?.x}
-            y2={20 + chart.chartH}
-            stroke="hsl(var(--muted-foreground))"
-            strokeWidth={0.5}
-            strokeDasharray="3 3"
-            opacity={0.5}
-          />
-        )}
-
-        {/* Lines */}
-        {chart.lineData.map((ld) => (
-          <g key={ld.key}>
-            <path d={ld.linePath} fill="none" stroke={ld.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" opacity={0.85} />
-            {ld.points.length <= 60 && ld.points.map((p, i) => (
-              <circle key={i} cx={p.x} cy={p.y} r={hoveredIndex === i ? 4 : 2} fill={ld.color} opacity={hoveredIndex === i ? 1 : 0.6} />
+    <div role="img" aria-label={chartLabel} className={CHART_ANIMATE_IN}>
+      <ResponsiveContainer width="100%" height={height}>
+        <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+          <defs>
+            {lines.map((line) => (
+              <linearGradient key={line.key} id={`fill-${line.key}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={line.color} stopOpacity={0.22} />
+                <stop offset="100%" stopColor={line.color} stopOpacity={0.02} />
+              </linearGradient>
             ))}
-          </g>
-        ))}
+          </defs>
 
-        {/* X-axis labels */}
-        {chart.xLabels.map((p, i) => (
-          <text key={i} x={p.x} y={height - 4} textAnchor="middle" fill="hsl(var(--muted-foreground))" fontSize={10} fontFamily="'Space Grotesk', sans-serif">
-            {format(new Date(p.date + "T12:00:00"), "MMM d")}
-          </text>
-        ))}
-      </svg>
+          <CartesianGrid {...gridProps} />
 
-      {/* HTML Tooltip */}
-      {hoveredIndex !== null && tooltipPos && (
-        <div
-          className="absolute z-50 pointer-events-none bg-popover border border-border rounded-lg shadow-lg px-3 py-2 text-xs"
-          style={{
-            left: tooltipPos.x,
-            top: tooltipPos.y - 8,
-            transform: "translate(-50%, -100%)",
-          }}
-        >
-          <p className="font-medium text-foreground mb-1.5">
-            {format(new Date(dates[hoveredIndex] + "T12:00:00"), "MMM d, yyyy")}
-          </p>
-          {chart.lineData.map((ld) => (
-            <div key={ld.key} className="flex items-center gap-2 justify-between py-0.5">
-              <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: ld.color }} />
-                <span className="text-muted-foreground">{ld.label}</span>
-              </span>
-              <span className="font-data text-[13px] font-semibold text-foreground ml-3">{fmtValue(ld, ld.points[hoveredIndex]?.value ?? 0)}</span>
-            </div>
-          ))}
-        </div>
-      )}
+          <XAxis
+            dataKey="date"
+            {...axisProps}
+            tickMargin={8}
+            minTickGap={28}
+            interval="preserveStartEnd"
+            tickFormatter={(value: string) => format(parseDay(value), "MMM d")}
+          />
+
+          <YAxis
+            yAxisId="left"
+            {...axisProps}
+            tick={{ ...axisProps.tick, fill: tickFill(leftLines) }}
+            width={56}
+            domain={paddedDomain}
+            tickFormatter={(v: number) => formatAxisTick(leftFormat, v)}
+          />
+
+          {rightLines.length > 0 && (
+            <YAxis
+              yAxisId="right"
+              orientation="right"
+              {...axisProps}
+              tick={{ ...axisProps.tick, fill: tickFill(rightLines) }}
+              width={56}
+              domain={paddedDomain}
+              tickFormatter={(v: number) => formatAxisTick(rightFormat, v)}
+            />
+          )}
+
+          <Tooltip
+            cursor={{ stroke: CHART_CURSOR, strokeWidth: 1, strokeDasharray: "3 3", opacity: 0.5 }}
+            content={
+              <ChartTooltip
+                series={seriesMeta}
+                formatHeader={(label) => format(parseDay(String(label)), "MMM d, yyyy")}
+              />
+            }
+          />
+
+          {lines.map((line) => {
+            const yAxisId = axisMap.get(line.key) === "right" ? "right" : "left";
+            const shared = {
+              yAxisId,
+              dataKey: line.key,
+              name: line.label,
+              stroke: line.color,
+              strokeWidth: 2,
+              type: CHART_CURVE,
+              connectNulls: false,
+              isAnimationActive: false,
+              dot: showDots ? { r: 2.5, fill: line.color, strokeWidth: 0 } : false,
+              activeDot: {
+                r: 4.5,
+                fill: line.color,
+                stroke: "hsl(var(--background))",
+                strokeWidth: 2,
+              },
+            } as const;
+
+            // A lone series gets a soft gradient fill for weight; stacking fills
+            // under multiple series just muddies the overlap.
+            return isSingleSeries ? (
+              <Area key={line.key} {...shared} fill={`url(#fill-${line.key})`} />
+            ) : (
+              <Line key={line.key} {...shared} />
+            );
+          })}
+        </ComposedChart>
+      </ResponsiveContainer>
     </div>
   );
 }

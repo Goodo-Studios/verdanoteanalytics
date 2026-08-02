@@ -69,12 +69,32 @@
     --sidebar-border: 150 20% 90%;
     --sidebar-ring: 152 63% 29%;
 
-    /* Chart palette */
-    --chart-1: 152 63% 29%;
-    --chart-2: 152 55% 36%;
-    --chart-3: 40 60% 55%;
-    --chart-4: 340 35% 48%;
-    --chart-5: 200 60% 45%;
+    /* ── Chart palette ──
+       Categorical series colors, brand-anchored on verdant and ordered so the
+       first two (the common case) sit far apart on the wheel. Consumed via
+       src/lib/chartTheme.ts — do not hardcode series colors at call sites. */
+    --chart-1: 152 63% 29%;   /* verdant */
+    --chart-2: 205 72% 42%;   /* azure   */
+    --chart-3: 38 78% 45%;    /* amber   */
+    --chart-4: 336 55% 47%;   /* plum    */
+    --chart-5: 187 58% 34%;   /* teal    */
+    --chart-6: 258 48% 54%;   /* iris    */
+
+    /* Semantic series colors — freshness, good/bad, pass/fail. */
+    --chart-positive: 152 55% 34%;
+    --chart-caution: 38 78% 45%;
+    --chart-negative: 0 72% 48%;
+
+    /* A→F grade ramp, for scatter/bubble fills keyed to creative grade. */
+    --grade-a: 152 60% 32%;
+    --grade-b: 168 45% 40%;
+    --grade-c: 40 78% 47%;
+    --grade-d: 25 82% 52%;
+    --grade-f: 0 72% 50%;
+
+    /* Chart chrome — gridlines sit lighter than --border so they recede. */
+    --chart-grid: 152 22% 88%;
+    --chart-axis: 220 9% 46%;
 
     /* ── Shadow tokens ── */
     --shadow-card: 0 1px 3px rgba(13,59,37,0.06), 0 1px 2px rgba(13,59,37,0.04);
@@ -146,12 +166,26 @@
     --sidebar-border: 228 14% 20%;
     --sidebar-ring: 152 63% 29%;
 
-    /* Charts */
-    --chart-1: 152 50% 40%;
-    --chart-2: 152 45% 50%;
-    --chart-3: 40 55% 55%;
-    --chart-4: 340 30% 55%;
-    --chart-5: 200 50% 55%;
+    /* Charts — lifted in L, dropped in S to hold contrast on the dark canvas. */
+    --chart-1: 152 48% 48%;
+    --chart-2: 205 68% 60%;
+    --chart-3: 40 72% 58%;
+    --chart-4: 336 52% 63%;
+    --chart-5: 187 50% 50%;
+    --chart-6: 258 52% 68%;
+
+    --chart-positive: 152 48% 50%;
+    --chart-caution: 40 72% 58%;
+    --chart-negative: 0 65% 60%;
+
+    --grade-a: 152 48% 50%;
+    --grade-b: 168 42% 52%;
+    --grade-c: 42 72% 58%;
+    --grade-d: 25 76% 60%;
+    --grade-f: 0 65% 62%;
+
+    --chart-grid: 228 12% 22%;
+    --chart-axis: 150 8% 60%;
 
     /* Shadows */
     --shadow-card: 0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
@@ -312,6 +346,24 @@
     font-size: 0.6875rem;
     font-weight: 600;
     letter-spacing: 0.03em;
+  }
+
+  /* ── Charts ──
+     Charts fade in as a whole instead of using Recharts' per-series reveal.
+     That reveal animates a clip rect / stroke-dasharray from zero and restarts
+     on every re-render, so a chart that re-renders mid-flight can be left
+     showing no data at all. A container fade can't fail that way. */
+  @keyframes chart-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  .chart-animate-in {
+    animation: chart-in 320ms ease-out both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chart-animate-in { animation: none; }
   }
 
   /* ── Cards ── */
