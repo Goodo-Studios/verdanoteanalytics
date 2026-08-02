@@ -25,6 +25,7 @@ import { promisify } from "node:util";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const execFileP = promisify(execFile);
 
@@ -108,11 +109,21 @@ async function uploadPoster(path, filePath) {
   return `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${path}`;
 }
 
-async function updateRow(adId, url) {
+/**
+ * PATCH body for a regenerated poster. Pure and exported so the bug this guards
+ * against — thumbnail_storage_path silently never being written when a poster
+ * moves to storage/v1/object/public/ad-thumbnails/posters/<ad_id>.jpg — has a
+ * regression test that doesn't need to mock fetch/ffmpeg.
+ */
+export function buildPosterUpdate(url, storagePath) {
+  return { thumbnail_url: url, full_res_url: url, thumbnail_storage_path: storagePath };
+}
+
+async function updateRow(adId, url, storagePath) {
   const res = await fetch(`${REST}/creatives?ad_id=eq.${encodeURIComponent(adId)}`, {
     method: "PATCH",
     headers: { ...H, "Content-Type": "application/json", Prefer: "return=minimal" },
-    body: JSON.stringify({ thumbnail_url: url, full_res_url: url }),
+    body: JSON.stringify(buildPosterUpdate(url, storagePath)),
   });
   if (!res.ok) throw new Error(`patch ${res.status}: ${await res.text()}`);
 }
@@ -131,43 +142,62 @@ async function fetchPage(after) {
   return res.json();
 }
 
-const stats = { scanned: 0, upgraded: 0, skippedBigger: 0, skippedNoFrame: 0, errors: 0 };
-let after = opt("after") || "";
-const dir = mkdtempSync(join(tmpdir(), "posters-"));
+/**
+ * Driver loop, wrapped in a function (rather than left at module top level) so
+ * this file is import-safe: a test can `import { buildPosterUpdate } from
+ * "./regenerate-video-posters.mjs"` without triggering a real network scan.
+ * Behavior when run directly (`node scripts/regenerate-video-posters.mjs`) is
+ * unchanged — see the entry-point guard below.
+ */
+async function main() {
+  const stats = { scanned: 0, upgraded: 0, skippedBigger: 0, skippedNoFrame: 0, errors: 0 };
+  let after = opt("after") || "";
+  const dir = mkdtempSync(join(tmpdir(), "posters-"));
 
-console.log(`regenerate-video-posters ${DRY_RUN ? "(DRY RUN) " : ""}account=${ACCOUNT ?? "ALL"} limit=${LIMIT}`);
-try {
-  while (stats.scanned < LIMIT) {
-    const rows = await fetchPage(after);
-    if (!rows.length) break;
-    for (const c of rows) {
-      if (stats.scanned >= LIMIT) break;
-      stats.scanned++;
-      after = c.ad_id;
-      try {
-        const hasThumb = typeof c.thumbnail_url === "string" && c.thumbnail_url.startsWith("http");
-        const curShort = hasThumb ? await measureRemote(c.thumbnail_url, dir) : 0;
-        if (curShort >= 720) { stats.skippedBigger++; continue; } // video (<=720p) can't beat it
-        const frame = await extractFrame(c.video_url, dir);
-        if (!frame) { stats.skippedNoFrame++; continue; }
-        const newShort = await shortSide(frame);
-        if (newShort <= curShort) { stats.skippedBigger++; continue; } // never downgrade
-        if (DRY_RUN) {
+  console.log(`regenerate-video-posters ${DRY_RUN ? "(DRY RUN) " : ""}account=${ACCOUNT ?? "ALL"} limit=${LIMIT}`);
+  try {
+    while (stats.scanned < LIMIT) {
+      const rows = await fetchPage(after);
+      if (!rows.length) break;
+      for (const c of rows) {
+        if (stats.scanned >= LIMIT) break;
+        stats.scanned++;
+        after = c.ad_id;
+        try {
+          const hasThumb = typeof c.thumbnail_url === "string" && c.thumbnail_url.startsWith("http");
+          const curShort = hasThumb ? await measureRemote(c.thumbnail_url, dir) : 0;
+          if (curShort >= 720) { stats.skippedBigger++; continue; } // video (<=720p) can't beat it
+          const frame = await extractFrame(c.video_url, dir);
+          if (!frame) { stats.skippedNoFrame++; continue; }
+          const newShort = await shortSide(frame);
+          if (newShort <= curShort) { stats.skippedBigger++; continue; } // never downgrade
+          if (DRY_RUN) {
+            stats.upgraded++;
+            if (stats.upgraded <= 10) console.log(`  would upgrade ${c.ad_id}: ${curShort} -> ${newShort}px`);
+            continue;
+          }
+          const posterPath = `posters/${c.ad_id}.jpg`;
+          const url = await uploadPoster(posterPath, frame);
+          await updateRow(c.ad_id, url, posterPath);
           stats.upgraded++;
-          if (stats.upgraded <= 10) console.log(`  would upgrade ${c.ad_id}: ${curShort} -> ${newShort}px`);
-          continue;
+        } catch (e) {
+          stats.errors++;
+          if (stats.errors <= 10) console.log(`  err ${c.ad_id}: ${e.message}`);
         }
-        const url = await uploadPoster(`posters/${c.ad_id}.jpg`, frame);
-        await updateRow(c.ad_id, url);
-        stats.upgraded++;
-      } catch (e) {
-        stats.errors++;
-        if (stats.errors <= 10) console.log(`  err ${c.ad_id}: ${e.message}`);
       }
+      console.log(`… scanned=${stats.scanned} upgraded=${stats.upgraded} skipped=${stats.skippedBigger + stats.skippedNoFrame} errors=${stats.errors} cursor=${after}`);
     }
-    console.log(`… scanned=${stats.scanned} upgraded=${stats.upgraded} skipped=${stats.skippedBigger + stats.skippedNoFrame} errors=${stats.errors} cursor=${after}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
-} finally {
-  rmSync(dir, { recursive: true, force: true });
+  console.log(`DONE: ${JSON.stringify(stats)}`);
 }
-console.log(`DONE: ${JSON.stringify(stats)}`);
+
+// process.argv[1] is whatever the invoker typed (often relative, e.g.
+// "scripts/regenerate-video-posters.mjs"), not necessarily absolute — a plain
+// `file://${process.argv[1]}` comparison against import.meta.url silently never
+// matches for a relative invocation, which would make main() never run at all.
+// pathToFileURL resolves it the same way Node resolves module URLs.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main();
+}
