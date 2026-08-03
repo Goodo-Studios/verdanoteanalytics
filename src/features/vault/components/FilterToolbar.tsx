@@ -8,6 +8,7 @@ import {
 
 export type VaultStatusFilter = "all" | "pending" | "ready" | "error";
 export type VaultSort = "newest" | "oldest";
+export type VaultMediaTypeFilter = "all" | "video" | "static";
 
 const STATUSES: VaultStatusFilter[] = ["all", "pending", "ready", "error"];
 const STATUS_LABEL: Record<VaultStatusFilter, string> = {
@@ -15,6 +16,13 @@ const STATUS_LABEL: Record<VaultStatusFilter, string> = {
   pending: "Processing",
   ready: "Ready",
   error: "Errored",
+};
+
+const MEDIA_TYPES: VaultMediaTypeFilter[] = ["all", "video", "static"];
+const MEDIA_TYPE_LABEL: Record<VaultMediaTypeFilter, string> = {
+  all: "All media",
+  video: "Video",
+  static: "Static",
 };
 
 export interface FilterToolbarProps {
@@ -25,6 +33,8 @@ export interface FilterToolbarProps {
   searchQuery: string;
   platform: VaultPlatformFilter;
   onPlatformChange: (p: VaultPlatformFilter) => void;
+  mediaType: VaultMediaTypeFilter;
+  onMediaTypeChange: (m: VaultMediaTypeFilter) => void;
   status: VaultStatusFilter;
   onStatusChange: (s: VaultStatusFilter) => void;
   sort: VaultSort;
@@ -43,6 +53,8 @@ export function FilterToolbar({
   searchQuery,
   platform,
   onPlatformChange,
+  mediaType,
+  onMediaTypeChange,
   status,
   onStatusChange,
   sort,
@@ -88,6 +100,23 @@ export function FilterToolbar({
                 )}
               >
                 {p === "all" ? "All" : PLATFORM_LABELS[p]}
+              </button>
+            ))}
+
+            <div className="w-px h-4 bg-border" />
+
+            {MEDIA_TYPES.map((m) => (
+              <button
+                key={m}
+                onClick={() => onMediaTypeChange(m)}
+                className={cn(
+                  "px-3 py-1 rounded-full text-xs font-medium transition-colors",
+                  mediaType === m
+                    ? "bg-secondary text-secondary-foreground"
+                    : "border border-border text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {MEDIA_TYPE_LABEL[m]}
               </button>
             ))}
 

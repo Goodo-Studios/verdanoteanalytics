@@ -103,6 +103,16 @@ export const VAULT_PROCESSING_STATUSES = new Set([
 
 export const VAULT_TERMINAL_STATUSES = new Set(["ready", "error"]);
 
+// Single source of truth for "is this item's primary media a still image
+// (static ad) rather than a video" — matched on file_path's extension, the
+// same signal InspirationCard already used inline to decide whether to
+// render an <img> or a <video>. Used by the Vault's video/static filter too,
+// so both stay in agreement about what counts as "static".
+const IMAGE_FILE_EXT = /\.(jpe?g|png|gif|webp|avif)$/i;
+export function isImageFilePath(filePath: string | null | undefined): boolean {
+  return IMAGE_FILE_EXT.test(filePath ?? "");
+}
+
 export const VAULT_PLATFORMS = [
   "all",
   "tiktok",

@@ -33,7 +33,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       </div>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto min-w-0 md:ml-56">
+      <main id="app-scroll-container" className="flex-1 overflow-auto min-w-0 md:ml-56">
         {/* Header bar */}
         <div className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 border-b border-border/60 bg-background">
           <div className="flex items-center gap-3 md:hidden">
