@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Star, Trash2, Vault, Search, X } from "lucide-react";
 import { toast } from "sonner";
@@ -6,15 +7,26 @@ import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useScrollRestoration } from "@/hooks/useScrollRestoration";
 import { InspirationCard } from "./components/InspirationCard";
 import { CaptureModal } from "./components/CaptureModal";
 import {
   FilterToolbar,
+  type VaultMediaTypeFilter,
   type VaultSort,
   type VaultStatusFilter,
 } from "./components/FilterToolbar";
 import { useItemStatus } from "./hooks/useItemStatus";
-import type { LibraryItem, VaultPlatformFilter } from "./types/vault";
+import {
+  VAULT_PLATFORMS,
+  isImageFilePath,
+  type LibraryItem,
+  type VaultPlatformFilter,
+} from "./types/vault";
+
+const VAULT_STATUSES: VaultStatusFilter[] = ["all", "pending", "ready", "error"];
+const VAULT_SORTS: VaultSort[] = ["newest", "oldest"];
+const VAULT_MEDIA_TYPES: VaultMediaTypeFilter[] = ["all", "video", "static"];
 
 /** Mounts a `useItemStatus` poller for one in-flight item; renders nothing.
  *
@@ -38,18 +50,60 @@ function ActiveItemPoller({ itemId, onDone }: { itemId: string; onDone: (id: str
 export default function LibraryPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [platform, setPlatform] = useState<VaultPlatformFilter>("all");
-  const [status, setStatus] = useState<VaultStatusFilter>("all");
-  const [sort, setSort] = useState<VaultSort>("newest");
-  const [activeTag, setActiveTag] = useState<string | null>(null);
   const [pollingIds, setPollingIds] = useState<string[]>([]);
-  const [searchInput, setSearchInput] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
+
+  // Filters/search/sort live in the URL (not plain useState) so they survive
+  // this page unmounting when a card is opened (route change to
+  // /ad-library/:id) and remounting on the way back — otherwise every trip
+  // into a card silently reset every filter, which read as "the page
+  // refreshed". Mirrors the pattern in useCreativesPageState.ts.
+  const [platform, setPlatformState] = useState<VaultPlatformFilter>(() => {
+    const p = searchParams.get("platform");
+    return (VAULT_PLATFORMS as readonly string[]).includes(p ?? "") ? (p as VaultPlatformFilter) : "all";
+  });
+  const [status, setStatusState] = useState<VaultStatusFilter>(() => {
+    const s = searchParams.get("status");
+    return VAULT_STATUSES.includes(s as VaultStatusFilter) ? (s as VaultStatusFilter) : "all";
+  });
+  const [sort, setSortState] = useState<VaultSort>(() => {
+    const s = searchParams.get("sort");
+    return VAULT_SORTS.includes(s as VaultSort) ? (s as VaultSort) : "newest";
+  });
+  const [mediaType, setMediaTypeState] = useState<VaultMediaTypeFilter>(() => {
+    const m = searchParams.get("media");
+    return VAULT_MEDIA_TYPES.includes(m as VaultMediaTypeFilter) ? (m as VaultMediaTypeFilter) : "all";
+  });
+  const [activeTag, setActiveTagState] = useState<string | null>(() => searchParams.get("tag"));
+  const [searchInput, setSearchInputState] = useState(() => searchParams.get("q") ?? "");
+  const [searchQuery, setSearchQueryState] = useState(() => searchParams.get("q") ?? "");
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (platform !== "all") params.set("platform", platform);
+    if (status !== "all") params.set("status", status);
+    if (sort !== "newest") params.set("sort", sort);
+    if (mediaType !== "all") params.set("media", mediaType);
+    if (activeTag) params.set("tag", activeTag);
+    if (searchQuery) params.set("q", searchQuery);
+    setSearchParams(params, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [platform, status, sort, mediaType, activeTag, searchQuery]);
+
+  // Keep old setter names below so the rest of the component (and
+  // FilterToolbar's prop wiring) doesn't need to change.
+  const setPlatform = setPlatformState;
+  const setStatus = setStatusState;
+  const setSort = setSortState;
+  const setMediaType = setMediaTypeState;
+  const setActiveTag = setActiveTagState;
+  const setSearchInput = setSearchInputState;
+  const setSearchQuery = setSearchQueryState;
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -205,9 +259,21 @@ export default function LibraryPage() {
   });
 
   const isSemanticMode = searchQuery.length >= 3;
-  const displayItems = isSemanticMode ? searchResults ?? [] : items;
+  // Video/static isn't a DB column — it's derived from file_path's extension
+  // (same signal InspirationCard already uses to decide <img> vs <video>), so
+  // it's applied client-side rather than as a query filter.
+  const matchesMediaType = (item: LibraryItem) => {
+    if (mediaType === "all") return true;
+    const isStatic = isImageFilePath(item.file_path);
+    return mediaType === "static" ? isStatic : !isStatic;
+  };
+  const displayItems = (isSemanticMode ? searchResults ?? [] : items).filter(matchesMediaType);
   const displayLoading = isSemanticMode ? isSearching : isLoading;
-  const featuredItems = isSemanticMode ? [] : items.filter((i) => i.is_featured);
+  const featuredItems = isSemanticMode ? [] : items.filter((i) => i.is_featured && matchesMediaType(i));
+
+  // Restore scroll position once real content has rendered — restoring
+  // against the loading placeholder would scroll to the wrong offset.
+  useScrollRestoration("vault-library", !displayLoading);
 
   const handleItemCreated = (itemId: string) => {
     setPollingIds((prev) => [...prev, itemId]);
@@ -261,6 +327,8 @@ export default function LibraryPage() {
           searchQuery={searchQuery}
           platform={platform}
           onPlatformChange={setPlatform}
+          mediaType={mediaType}
+          onMediaTypeChange={setMediaType}
           status={status}
           onStatusChange={setStatus}
           sort={sort}

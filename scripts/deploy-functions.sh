@@ -14,6 +14,7 @@ FUNCTIONS=(
   ai-chat
   analyze-creative
   api
+  apify-debug
   preview-capture
   preview-capture-drain
   backfill-daily-history

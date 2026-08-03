@@ -10,6 +10,7 @@ import {
   PLATFORM_LABELS,
   STATUS_LABELS,
   VAULT_PROCESSING_STATUSES,
+  isImageFilePath,
   type InspirationItem,
 } from "../types/vault";
 import { AddToBoardModal } from "./AddToBoardModal";
@@ -46,7 +47,7 @@ export function InspirationCard({
   const [thumbnailError, setThumbnailError] = useState(false);
   const [addToBoardOpen, setAddToBoardOpen] = useState(false);
 
-  const isImageFile = /\.(jpg|jpeg|png|gif|webp|avif)$/i.test(item.file_path ?? "");
+  const isImageFile = isImageFilePath(item.file_path);
 
   // Stored thumbnail (preferred — bypasses CDN hotlink restrictions).
   useEffect(() => {
