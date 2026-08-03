@@ -1,10 +1,5 @@
 import { Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  PLATFORM_LABELS,
-  VAULT_PLATFORMS,
-  type VaultPlatformFilter,
-} from "../types/vault";
 
 export type VaultStatusFilter = "all" | "pending" | "ready" | "error";
 export type VaultSort = "newest" | "oldest";
@@ -31,8 +26,6 @@ export interface FilterToolbarProps {
   onSearchClear: () => void;
   isSemanticMode: boolean;
   searchQuery: string;
-  platform: VaultPlatformFilter;
-  onPlatformChange: (p: VaultPlatformFilter) => void;
   mediaType: VaultMediaTypeFilter;
   onMediaTypeChange: (m: VaultMediaTypeFilter) => void;
   status: VaultStatusFilter;
@@ -51,8 +44,6 @@ export function FilterToolbar({
   onSearchClear,
   isSemanticMode,
   searchQuery,
-  platform,
-  onPlatformChange,
   mediaType,
   onMediaTypeChange,
   status,
@@ -88,23 +79,6 @@ export function FilterToolbar({
       {!isSemanticMode && (
         <>
           <div className="flex gap-2 flex-wrap items-center">
-            {VAULT_PLATFORMS.map((p) => (
-              <button
-                key={p}
-                onClick={() => onPlatformChange(p)}
-                className={cn(
-                  "px-3 py-1 rounded-full text-sm font-medium transition-colors",
-                  platform === p
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {p === "all" ? "All" : PLATFORM_LABELS[p]}
-              </button>
-            ))}
-
-            <div className="w-px h-4 bg-border" />
-
             {MEDIA_TYPES.map((m) => (
               <button
                 key={m}

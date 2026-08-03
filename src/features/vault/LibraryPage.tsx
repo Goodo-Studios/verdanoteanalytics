@@ -17,12 +17,7 @@ import {
   type VaultStatusFilter,
 } from "./components/FilterToolbar";
 import { useItemStatus } from "./hooks/useItemStatus";
-import {
-  VAULT_PLATFORMS,
-  isImageFilePath,
-  type LibraryItem,
-  type VaultPlatformFilter,
-} from "./types/vault";
+import { isImageFilePath, type LibraryItem } from "./types/vault";
 
 const VAULT_STATUSES: VaultStatusFilter[] = ["all", "pending", "ready", "error"];
 const VAULT_SORTS: VaultSort[] = ["newest", "oldest"];
@@ -62,10 +57,6 @@ export default function LibraryPage() {
   // /ad-library/:id) and remounting on the way back — otherwise every trip
   // into a card silently reset every filter, which read as "the page
   // refreshed". Mirrors the pattern in useCreativesPageState.ts.
-  const [platform, setPlatformState] = useState<VaultPlatformFilter>(() => {
-    const p = searchParams.get("platform");
-    return (VAULT_PLATFORMS as readonly string[]).includes(p ?? "") ? (p as VaultPlatformFilter) : "all";
-  });
   const [status, setStatusState] = useState<VaultStatusFilter>(() => {
     const s = searchParams.get("status");
     return VAULT_STATUSES.includes(s as VaultStatusFilter) ? (s as VaultStatusFilter) : "all";
@@ -85,7 +76,6 @@ export default function LibraryPage() {
 
   useEffect(() => {
     const params = new URLSearchParams();
-    if (platform !== "all") params.set("platform", platform);
     if (status !== "all") params.set("status", status);
     if (sort !== "newest") params.set("sort", sort);
     if (mediaType !== "all") params.set("media", mediaType);
@@ -93,11 +83,10 @@ export default function LibraryPage() {
     if (searchQuery) params.set("q", searchQuery);
     setSearchParams(params, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [platform, status, sort, mediaType, activeTag, searchQuery]);
+  }, [status, sort, mediaType, activeTag, searchQuery]);
 
   // Keep old setter names below so the rest of the component (and
   // FilterToolbar's prop wiring) doesn't need to change.
-  const setPlatform = setPlatformState;
   const setStatus = setStatusState;
   const setSort = setSortState;
   const setMediaType = setMediaTypeState;
@@ -196,7 +185,7 @@ export default function LibraryPage() {
   });
 
   const { data: items = [], isLoading } = useQuery<LibraryItem[]>({
-    queryKey: ["vault-items", user?.id, platform, status, sort, activeTag],
+    queryKey: ["vault-items", user?.id, status, sort, activeTag],
     enabled: !!user,
     queryFn: async () => {
       let tagItemIds: string[] | null = null;
@@ -222,7 +211,6 @@ export default function LibraryPage() {
         .eq("user_id", user!.id)
         .order("created_at", { ascending: sort === "oldest" });
 
-      if (platform !== "all") q = q.eq("platform", platform);
       if (status === "pending") q = q.in("status", ["pending", "extracting", "transcribing", "analyzing"]);
       else if (status === "ready") q = q.eq("status", "ready");
       else if (status === "error") q = q.eq("status", "error");
@@ -325,8 +313,6 @@ export default function LibraryPage() {
           onSearchClear={clearSearch}
           isSemanticMode={isSemanticMode}
           searchQuery={searchQuery}
-          platform={platform}
-          onPlatformChange={setPlatform}
           mediaType={mediaType}
           onMediaTypeChange={setMediaType}
           status={status}
