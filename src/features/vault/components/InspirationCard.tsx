@@ -25,6 +25,16 @@ interface Props {
   onSelect?: (id: string) => void;
   onToggleFeatured?: (id: string, featured: boolean) => void;
   onDelete?: (id: string) => void;
+  /** When true, this card renders `signedThumbnailUrl` / `signedFileUrl`
+   * below as-is and never signs its own URLs — even while those props are
+   * still resolving. Set by callers that batch-sign every visible card's
+   * paths in one request up front (see LibraryPage's `vault-signed-urls`
+   * query). Callers that render a handful of cards at a time (e.g.
+   * BoardDetailPage) can omit this and the card signs its own URLs as
+   * before. */
+  useProvidedSignedUrls?: boolean;
+  signedThumbnailUrl?: string | null;
+  signedFileUrl?: string | null;
 }
 
 export function InspirationCard({
@@ -36,40 +46,52 @@ export function InspirationCard({
   onSelect,
   onToggleFeatured,
   onDelete,
+  useProvidedSignedUrls = false,
+  signedThumbnailUrl: signedThumbnailUrlProp,
+  signedFileUrl: signedFileUrlProp,
 }: Props) {
   const prefix = useRolePrefix();
   const isProcessing = VAULT_PROCESSING_STATUSES.has(item.status);
   const isError = item.status === "error";
   const [isHovered, setIsHovered] = useState(false);
-  const [signedFileUrl, setSignedFileUrl] = useState<string | null>(null);
-  const [signedThumbnailUrl, setSignedThumbnailUrl] = useState<string | null>(null);
+  const [signedFileUrlSelf, setSignedFileUrlSelf] = useState<string | null>(null);
+  const [signedThumbnailUrlSelf, setSignedThumbnailUrlSelf] = useState<string | null>(null);
   const [firstFrameUrl, setFirstFrameUrl] = useState<string | null>(null);
   const [thumbnailError, setThumbnailError] = useState(false);
   const [addToBoardOpen, setAddToBoardOpen] = useState(false);
 
   const isImageFile = isImageFilePath(item.file_path);
 
-  // Stored thumbnail (preferred — bypasses CDN hotlink restrictions).
+  // Either the batch-signed URL the parent already fetched, or (when the
+  // parent hasn't opted in) the URL this card signs for itself below.
+  const signedThumbnailUrl = useProvidedSignedUrls ? (signedThumbnailUrlProp ?? null) : signedThumbnailUrlSelf;
+  const signedFileUrl = useProvidedSignedUrls ? (signedFileUrlProp ?? null) : signedFileUrlSelf;
+
+  // Stored thumbnail (preferred — bypasses CDN hotlink restrictions). Skipped
+  // when the parent already batch-signed this URL.
   useEffect(() => {
+    if (useProvidedSignedUrls) return;
     if (!item.thumbnail_path) return;
     supabase.storage
       .from("inspiration-media")
       .createSignedUrl(item.thumbnail_path, 3600)
       .then(({ data }) => {
-        if (data?.signedUrl) setSignedThumbnailUrl(data.signedUrl);
+        if (data?.signedUrl) setSignedThumbnailUrlSelf(data.signedUrl);
       });
-  }, [item.thumbnail_path]);
+  }, [item.thumbnail_path, useProvidedSignedUrls]);
 
-  // Signed URL for the original file (used for hover playback + first-frame extraction).
+  // Signed URL for the original file (used for hover playback + first-frame
+  // extraction). Skipped when the parent already batch-signed this URL.
   useEffect(() => {
+    if (useProvidedSignedUrls) return;
     if (!item.file_path) return;
     supabase.storage
       .from("inspiration-media")
       .createSignedUrl(item.file_path, 3600)
       .then(({ data }) => {
-        if (data?.signedUrl) setSignedFileUrl(data.signedUrl);
+        if (data?.signedUrl) setSignedFileUrlSelf(data.signedUrl);
       });
-  }, [item.file_path]);
+  }, [item.file_path, useProvidedSignedUrls]);
 
   // First-frame fallback when no usable thumbnail.
   useEffect(() => {

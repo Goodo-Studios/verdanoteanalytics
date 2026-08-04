@@ -7,7 +7,19 @@ import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
 import { sanitizeSearchTerm } from "../_shared/postgrest-search.ts";
 import { errorMessage } from "../_shared/error-message.ts";
 import { aggregateDailyByAd, computeWeightedAggregates } from "../_shared/creatives-aggregate.ts";
+import { TtlCache, makeCreativesCacheKey } from "../_shared/creatives-page-cache.ts";
 
+// Caches the full computed (pre-pagination) result of the date-filtered
+// branch below — see creatives-page-cache.ts for why. 30s balances "page 2
+// shouldn't redo page 1's full-account aggregation" against picking up a
+// fresh Meta sync quickly. Cleared on every tag-changing mutation (PUT /
+// bulk-untag / auto-tag) below so a retag is never served back stale.
+const creativesPageCache = new TtlCache<{
+  result: any[];
+  total: number;
+  aggregates: { total_spend: number; avg_cpa: number; avg_roas: number };
+  noDailyData?: boolean;
+}>({ ttlMs: 30_000, maxEntries: 200 });
 
 const DISPLAY_NAMES: Record<string, string> = {
   UGCNative: "UGC Native", StudioClean: "Studio Clean", TextForward: "Text Forward",
@@ -256,6 +268,27 @@ serve(async (req) => {
       const hasDateFilter = dateFrom || dateTo;
 
       if (hasDateFilter) {
+        // Page turns (and repeat renders a few seconds apart) re-request this
+        // same filter+range combination — check the cache before re-scanning
+        // creative_daily_metrics and re-running the aggregation below.
+        const cacheKey = makeCreativesCacheKey({
+          accountId, adType, person, style, hook, product, theme, tagSource, adStatus, delivery,
+          dateFrom, dateTo, search, allowedIds,
+        });
+        const cachedPage = creativesPageCache.get(cacheKey);
+        if (cachedPage) {
+          if (cachedPage.noDailyData) {
+            return new Response(JSON.stringify({
+              data: [], total: 0, aggregates: cachedPage.aggregates, no_daily_data: true,
+            }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
+          return new Response(JSON.stringify({
+            data: all ? cachedPage.result : cachedPage.result.slice(offset, offset + limit),
+            total: cachedPage.total,
+            aggregates: cachedPage.aggregates,
+          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
         // Query daily metrics with pagination to handle >1000 rows
         const dailyData: any[] = [];
         let dmOffset = 0;
@@ -288,10 +321,12 @@ serve(async (req) => {
         // for the same empty range. `no_daily_data` lets the UI optionally show
         // a "no data for this range" notice instead of an unexplained empty set.
         if (!dailyData || dailyData.length === 0) {
+          const emptyAggregates = { total_spend: 0, avg_cpa: 0, avg_roas: 0 };
+          creativesPageCache.set(cacheKey, { result: [], total: 0, aggregates: emptyAggregates, noDailyData: true });
           return new Response(JSON.stringify({
             data: [],
             total: 0,
-            aggregates: { total_spend: 0, avg_cpa: 0, avg_roas: 0 },
+            aggregates: emptyAggregates,
             no_daily_data: true,
           }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
         } else {
@@ -358,7 +393,9 @@ serve(async (req) => {
           // slice). Spend-weighted to match get_period_metrics — see
           // computeWeightedAggregates.
           const { total_spend: aggTotalSpend, avg_cpa: aggAvgCpa, avg_roas: aggAvgRoas } = computeWeightedAggregates(result);
-          return new Response(JSON.stringify({ data: all ? result : result.slice(offset, offset + limit), total, aggregates: { total_spend: aggTotalSpend, avg_cpa: aggAvgCpa, avg_roas: aggAvgRoas } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          const aggregates = { total_spend: aggTotalSpend, avg_cpa: aggAvgCpa, avg_roas: aggAvgRoas };
+          creativesPageCache.set(cacheKey, { result, total, aggregates });
+          return new Response(JSON.stringify({ data: all ? result : result.slice(offset, offset + limit), total, aggregates }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       }
 
@@ -464,6 +501,9 @@ serve(async (req) => {
 
       const { data, error } = await supabase.from("creatives").update(update).eq("ad_id", path).select().single();
       if (error) throw error;
+      // A retag changes what the date-filtered list/cache above would return —
+      // clear it so the next request can't serve back the pre-edit tags.
+      creativesPageCache.clear();
 
       // Update account untagged count
       if (data) {
@@ -486,6 +526,7 @@ serve(async (req) => {
       }).in("ad_id", ad_ids);
 
       if (error) throw error;
+      creativesPageCache.clear();
       return new Response(JSON.stringify({ success: true, count: ad_ids.length }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -568,6 +609,7 @@ serve(async (req) => {
           .select("ad_id");
         if (!upErr) applied += (upData?.length ?? ad_ids.length);
       }
+      if (applied > 0) creativesPageCache.clear();
 
       // Update untagged count
       const { count } = await supabase.from("creatives").select("*", { count: "exact", head: true }).eq("account_id", account_id).eq("tag_source", "untagged");
