@@ -103,6 +103,17 @@ export const VAULT_PROCESSING_STATUSES = new Set([
 
 export const VAULT_TERMINAL_STATUSES = new Set(["ready", "error"]);
 
+// The Vault list used to poll every 5s unconditionally, for as long as the
+// page stayed open — re-downloading the whole filtered inspiration_items set
+// (plus its two joins) on a timer even when nothing was processing. Pure and
+// exported so LibraryPage's `refetchInterval` decision is unit-testable
+// without mounting the page: poll only while something in the currently
+// loaded list hasn't reached a terminal status yet.
+export function vaultListPollInterval(items: { status: string }[] | undefined): number | false {
+  if (!items || items.length === 0) return false;
+  return items.some((i) => VAULT_PROCESSING_STATUSES.has(i.status)) ? 5000 : false;
+}
+
 // Single source of truth for "is this item's primary media a still image
 // (static ad) rather than a video" — matched on file_path's extension, the
 // same signal InspirationCard already used inline to decide whether to

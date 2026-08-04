@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Star, Trash2, Vault, Search, X } from "lucide-react";
@@ -17,7 +17,8 @@ import {
   type VaultStatusFilter,
 } from "./components/FilterToolbar";
 import { useItemStatus } from "./hooks/useItemStatus";
-import { isImageFilePath, type LibraryItem } from "./types/vault";
+import { isImageFilePath, vaultListPollInterval, type LibraryItem } from "./types/vault";
+import { buildSignedUrlMap, collectVaultStoragePaths } from "./utils/signedUrls";
 
 const VAULT_STATUSES: VaultStatusFilter[] = ["all", "pending", "ready", "error"];
 const VAULT_SORTS: VaultSort[] = ["newest", "oldest"];
@@ -220,7 +221,31 @@ export default function LibraryPage() {
       if (error) throw error;
       return (data ?? []) as LibraryItem[];
     },
-    refetchInterval: 5000,
+    // Was an unconditional 5s poll for as long as the page stayed open —
+    // re-downloading the whole filtered list (plus its two joins) even when
+    // nothing was processing. Now only polls while something in the current
+    // list hasn't reached ready/error yet.
+    refetchInterval: (query) => vaultListPollInterval(query.state.data as LibraryItem[] | undefined),
+  });
+
+  // Batch-sign every visible item's thumbnail/file storage paths in ONE
+  // request instead of letting each InspirationCard mint its own signed URL
+  // on mount (previously up to 2 requests per card, fired immediately on
+  // page load). staleTime is set just under the 1h signed-URL expiry so the
+  // map is refreshed before its links go stale, without re-signing on every
+  // render in between.
+  const storagePaths = useMemo(() => collectVaultStoragePaths(items), [items]);
+  const { data: signedUrlMap = {} } = useQuery({
+    queryKey: ["vault-signed-urls", storagePaths],
+    enabled: storagePaths.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.storage
+        .from("inspiration-media")
+        .createSignedUrls(storagePaths, 3600);
+      if (error) throw error;
+      return buildSignedUrlMap(data);
+    },
+    staleTime: 55 * 60 * 1000,
   });
 
   // Semantic search results from vault-search edge function.
@@ -289,6 +314,9 @@ export default function LibraryPage() {
         onSelect={toggleSelect}
         onToggleFeatured={(id, val) => toggleFeatured({ id, featured: val })}
         onDelete={(id) => deleteOne(id)}
+        useProvidedSignedUrls
+        signedThumbnailUrl={item.thumbnail_path ? signedUrlMap[item.thumbnail_path] ?? null : null}
+        signedFileUrl={item.file_path ? signedUrlMap[item.file_path] ?? null : null}
       />
     );
   };
