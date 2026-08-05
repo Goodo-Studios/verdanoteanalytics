@@ -10,6 +10,14 @@
  * The second test pins that callers which DON'T opt in (e.g. BoardDetailPage,
  * which renders a handful of cards at a time) keep the original self-signing
  * behavior unchanged.
+ *
+ * Incident (2026-08-04): the first shipped version treated `useProvidedSignedUrls`
+ * as an unconditional "never self-sign" switch. When the parent's single
+ * batched call failed, every card's signedThumbnailUrl/signedFileUrl props
+ * stayed at their "resolving" value forever, and the card just... waited,
+ * forever, blank. The 4th test below pins the fix: once the parent has
+ * explicitly settled with `null` (see resolveProvidedSignedUrl in
+ * utils/signedUrls.ts) for a path, the card must fall back to self-signing.
  */
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -94,12 +102,26 @@ describe("InspirationCard — batched vs. self-signed URLs", () => {
     );
   });
 
-  it("useProvidedSignedUrls true but URL still resolving: shows loading, still doesn't self-sign", async () => {
-    renderCard({ useProvidedSignedUrls: true, signedThumbnailUrl: null, signedFileUrl: null });
+  it("useProvidedSignedUrls true, batch still resolving (undefined): waits, doesn't self-sign", async () => {
+    renderCard({ useProvidedSignedUrls: true, signedThumbnailUrl: undefined, signedFileUrl: undefined });
 
     // No thumbnail yet and no file URL to extract a first frame from — the
     // "Loading…"/"No thumbnail" placeholder shows, not a self-signed image.
     await waitFor(() => expect(screen.queryByAltText("Test item")).toBeNull());
     expect(createSignedUrl).not.toHaveBeenCalled();
+  });
+
+  it("useProvidedSignedUrls true, batch settled with nothing (null): falls back to self-signing — the incident case", async () => {
+    // This is what a failed batch call looks like once it settles: every
+    // item's resolveProvidedSignedUrl result is null, not undefined.
+    renderCard({ useProvidedSignedUrls: true, signedThumbnailUrl: null, signedFileUrl: null });
+
+    await waitFor(() => expect(createSignedUrl).toHaveBeenCalledWith("a/thumb1.jpg", 3600));
+    expect(createSignedUrl).toHaveBeenCalledWith("a/file1.mp4", 3600);
+
+    const img = await screen.findByAltText<HTMLImageElement>("Test item");
+    await waitFor(() =>
+      expect(img.getAttribute("src")).toBe("https://signed.example/self#a/thumb1.jpg"),
+    );
   });
 });

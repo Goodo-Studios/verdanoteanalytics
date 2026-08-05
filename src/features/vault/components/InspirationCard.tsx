@@ -25,13 +25,15 @@ interface Props {
   onSelect?: (id: string) => void;
   onToggleFeatured?: (id: string, featured: boolean) => void;
   onDelete?: (id: string) => void;
-  /** When true, this card renders `signedThumbnailUrl` / `signedFileUrl`
-   * below as-is and never signs its own URLs — even while those props are
-   * still resolving. Set by callers that batch-sign every visible card's
-   * paths in one request up front (see LibraryPage's `vault-signed-urls`
-   * query). Callers that render a handful of cards at a time (e.g.
-   * BoardDetailPage) can omit this and the card signs its own URLs as
-   * before. */
+  /** Set by callers that batch-sign every visible card's paths in one
+   * request up front (see LibraryPage's `vault-signed-urls` query +
+   * utils/signedUrls.ts's `resolveProvidedSignedUrl`). When true, the two
+   * props below follow a 3-state contract: `undefined` = the batch call
+   * hasn't settled yet (wait, don't self-sign), `null` = it settled but has
+   * nothing for this item's path (self-sign as a fallback — see the
+   * 2026-08-04 incident note in signedUrls.ts), a string = use it directly.
+   * Callers that render a handful of cards at a time (e.g. BoardDetailPage)
+   * can omit this entirely and the card signs its own URLs as before. */
   useProvidedSignedUrls?: boolean;
   signedThumbnailUrl?: string | null;
   signedFileUrl?: string | null;
@@ -62,15 +64,24 @@ export function InspirationCard({
 
   const isImageFile = isImageFilePath(item.file_path);
 
-  // Either the batch-signed URL the parent already fetched, or (when the
-  // parent hasn't opted in) the URL this card signs for itself below.
-  const signedThumbnailUrl = useProvidedSignedUrls ? (signedThumbnailUrlProp ?? null) : signedThumbnailUrlSelf;
-  const signedFileUrl = useProvidedSignedUrls ? (signedFileUrlProp ?? null) : signedFileUrlSelf;
+  // signed*UrlProp follows the 3-state contract from utils/signedUrls.ts
+  // (resolveProvidedSignedUrl): `undefined` = parent's batch call hasn't
+  // settled yet (wait, don't self-sign), `null` = it settled but has
+  // nothing for this path (self-sign as a fallback), a string = use it
+  // directly. `?? self` means: once the effect below actually fills in
+  // signed*UrlSelf, it flows through here whether that happened because the
+  // parent opted out entirely (BoardDetailPage, prop always undefined) or
+  // because the parent's batch call came back empty for this item.
+  const signedThumbnailUrl = signedThumbnailUrlProp ?? signedThumbnailUrlSelf;
+  const signedFileUrl = signedFileUrlProp ?? signedFileUrlSelf;
 
   // Stored thumbnail (preferred — bypasses CDN hotlink restrictions). Skipped
-  // when the parent already batch-signed this URL.
+  // while the parent's batch call is still pending or already has a URL for
+  // us (signedThumbnailUrlProp is undefined/a string); runs as a fallback
+  // once the parent has explicitly settled with nothing (`null`) for this
+  // path — see the incident note on resolveProvidedSignedUrl.
   useEffect(() => {
-    if (useProvidedSignedUrls) return;
+    if (useProvidedSignedUrls && signedThumbnailUrlProp !== null) return;
     if (!item.thumbnail_path) return;
     supabase.storage
       .from("inspiration-media")
@@ -78,12 +89,12 @@ export function InspirationCard({
       .then(({ data }) => {
         if (data?.signedUrl) setSignedThumbnailUrlSelf(data.signedUrl);
       });
-  }, [item.thumbnail_path, useProvidedSignedUrls]);
+  }, [item.thumbnail_path, useProvidedSignedUrls, signedThumbnailUrlProp]);
 
   // Signed URL for the original file (used for hover playback + first-frame
-  // extraction). Skipped when the parent already batch-signed this URL.
+  // extraction). Same skip/fallback rule as the thumbnail effect above.
   useEffect(() => {
-    if (useProvidedSignedUrls) return;
+    if (useProvidedSignedUrls && signedFileUrlProp !== null) return;
     if (!item.file_path) return;
     supabase.storage
       .from("inspiration-media")
@@ -91,7 +102,7 @@ export function InspirationCard({
       .then(({ data }) => {
         if (data?.signedUrl) setSignedFileUrlSelf(data.signedUrl);
       });
-  }, [item.file_path, useProvidedSignedUrls]);
+  }, [item.file_path, useProvidedSignedUrls, signedFileUrlProp]);
 
   // First-frame fallback when no usable thumbnail.
   useEffect(() => {

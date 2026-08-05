@@ -103,4 +103,44 @@ describe("LibraryPage — batched signed-URL fetch", () => {
     const img1 = await screen.findByAltText<HTMLImageElement>("Item 1");
     expect(img1.getAttribute("src")).toBe("https://signed.example/a/thumb1.jpg");
   });
+
+  /**
+   * Incident (2026-08-04): the first shipped version had no fallback for
+   * this case — when the single batched `createSignedUrls` call failed,
+   * every card's props stayed at their "still resolving" value forever, so
+   * the whole grid went blank at once (worse than the old per-card calls,
+   * where one bad path never affected its neighbors). This pins the fix:
+   * a failed batch call must not leave every thumbnail blank.
+   */
+  it("falls back to self-signing every card when the batch call fails", async () => {
+    createSignedUrls.mockImplementationOnce(async () => ({
+      data: null,
+      error: new Error("signing failed"),
+    }));
+    createSignedUrl.mockImplementation(async (path: string) => ({
+      data: { signedUrl: `https://signed.example/self#${path}` },
+      error: null,
+    }));
+
+    renderPage();
+
+    await screen.findByText("Item 1");
+    await waitFor(() => expect(createSignedUrls).toHaveBeenCalledTimes(1));
+
+    // Every item's thumbnail_path must still get signed — just individually
+    // now, the same way it worked before batching existed.
+    await waitFor(() => expect(createSignedUrl).toHaveBeenCalledWith("a/thumb1.jpg", 3600));
+    expect(createSignedUrl).toHaveBeenCalledWith("a/thumb2.jpg", 3600);
+
+    const img1 = await screen.findByAltText<HTMLImageElement>("Item 1");
+    await waitFor(() =>
+      expect(img1.getAttribute("src")).toBe("https://signed.example/self#a/thumb1.jpg"),
+    );
+    // Item 3 reuses item 1's thumbnail path but is a separate card — it must
+    // resolve too, not stay stuck because item 1 already "used up" that path.
+    const img3 = await screen.findByAltText<HTMLImageElement>("Item 3");
+    await waitFor(() =>
+      expect(img3.getAttribute("src")).toBe("https://signed.example/self#a/thumb1.jpg"),
+    );
+  });
 });
