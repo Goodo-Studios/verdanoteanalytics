@@ -7,7 +7,7 @@
  * and how the batch response turns back into a lookup map.
  */
 import { describe, it, expect } from "vitest";
-import { buildSignedUrlMap, collectVaultStoragePaths } from "@/features/vault/utils/signedUrls";
+import { buildSignedUrlMap, collectVaultStoragePaths, resolveProvidedSignedUrl } from "@/features/vault/utils/signedUrls";
 
 describe("collectVaultStoragePaths", () => {
   it("collects both thumbnail_path and file_path across items, deduped", () => {
@@ -66,5 +66,41 @@ describe("buildSignedUrlMap", () => {
   it("returns an empty map for null/undefined input", () => {
     expect(buildSignedUrlMap(null)).toEqual({});
     expect(buildSignedUrlMap(undefined)).toEqual({});
+  });
+});
+
+/**
+ * Incident (2026-08-04): the first version of the batching shipped with no
+ * fallback — every InspirationCard skipped self-signing whenever the parent
+ * "opted in", full stop, even if the parent's one batched request failed.
+ * That turned an isolated failure into a page-wide one: every thumbnail in
+ * the Creative Vault went blank at once. `resolveProvidedSignedUrl` is the
+ * three-state signal LibraryPage now feeds each card so a batch failure
+ * degrades to the old self-signing behavior instead of going blank.
+ */
+describe("resolveProvidedSignedUrl", () => {
+  it("returns null (nothing to sign) when the item has no path, regardless of batch state", () => {
+    expect(resolveProvidedSignedUrl(null, {}, /* batchSettled */ false)).toBeNull();
+    expect(resolveProvidedSignedUrl(undefined, { "a/x.jpg": "https://signed" }, true)).toBeNull();
+  });
+
+  it("returns undefined (wait, don't self-sign) while the batch call hasn't settled yet", () => {
+    expect(resolveProvidedSignedUrl("a/thumb.jpg", undefined, /* batchSettled */ false)).toBeUndefined();
+    expect(resolveProvidedSignedUrl("a/thumb.jpg", {}, /* batchSettled */ false)).toBeUndefined();
+  });
+
+  it("returns the signed URL once the batch has settled and has this path", () => {
+    expect(
+      resolveProvidedSignedUrl("a/thumb.jpg", { "a/thumb.jpg": "https://signed.example/thumb" }, true),
+    ).toBe("https://signed.example/thumb");
+  });
+
+  it("returns null (fall back to self-signing) once settled with nothing for this path — the incident case", () => {
+    // The whole batch call failed (map never populated) — every item's path
+    // is missing from it, so every card must fall back, not go blank.
+    expect(resolveProvidedSignedUrl("a/thumb.jpg", undefined, /* batchSettled */ true)).toBeNull();
+    // The batch call succeeded overall but had no entry for THIS path
+    // specifically (e.g. a per-item error, or a since-deleted object).
+    expect(resolveProvidedSignedUrl("a/thumb.jpg", { "a/other.jpg": "https://signed" }, true)).toBeNull();
   });
 });

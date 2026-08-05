@@ -40,3 +40,26 @@ export function buildSignedUrlMap(
   }
   return map;
 }
+
+// Incident follow-up: shipping the batch above with NO fallback meant that
+// if the single `createSignedUrls` call failed for any reason (network
+// hiccup, an unexpected per-request error, anything), the whole grid lost
+// every thumbnail at once — worse than the old per-card behavior, where one
+// bad card never affected its neighbors. `resolveProvidedSignedUrl` is the
+// three-state contract LibraryPage now feeds to InspirationCard so a batch
+// failure degrades to the old self-signing behavior instead of going blank:
+//
+//   • `undefined` — the batch call hasn't settled yet; the card should WAIT,
+//     not self-sign (avoids double-fetching while the batch is in flight).
+//   • `null`      — the batch call settled (success or error) but has
+//     nothing for this exact path; the card should self-sign as a fallback.
+//   • a string     — use it directly, no self-signing needed.
+export function resolveProvidedSignedUrl(
+  path: string | null | undefined,
+  map: Record<string, string> | undefined,
+  batchSettled: boolean,
+): string | null | undefined {
+  if (!path) return null; // nothing to sign for this item, regardless of batch state
+  if (!batchSettled) return undefined; // still waiting on the batch call
+  return map?.[path] ?? null;
+}

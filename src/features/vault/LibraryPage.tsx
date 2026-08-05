@@ -18,7 +18,7 @@ import {
 } from "./components/FilterToolbar";
 import { useItemStatus } from "./hooks/useItemStatus";
 import { isImageFilePath, vaultListPollInterval, type LibraryItem } from "./types/vault";
-import { buildSignedUrlMap, collectVaultStoragePaths } from "./utils/signedUrls";
+import { buildSignedUrlMap, collectVaultStoragePaths, resolveProvidedSignedUrl } from "./utils/signedUrls";
 
 const VAULT_STATUSES: VaultStatusFilter[] = ["all", "pending", "ready", "error"];
 const VAULT_SORTS: VaultSort[] = ["newest", "oldest"];
@@ -234,8 +234,18 @@ export default function LibraryPage() {
   // page load). staleTime is set just under the 1h signed-URL expiry so the
   // map is refreshed before its links go stale, without re-signing on every
   // render in between.
+  //
+  // Incident follow-up (2026-08-04): the first version of this had NO
+  // fallback — if the single batched call failed for any reason, every card
+  // in the grid lost its thumbnail at once (worse than the old per-card
+  // calls, where one bad path never affected its neighbors). `retry: false`
+  // fails fast instead of spending several seconds retrying before cards can
+  // fall back; `signedUrlsSettled` + `resolveProvidedSignedUrl` (below) let
+  // each card self-sign as a fallback once the batch call has settled with
+  // nothing for its specific path — see signedUrls.ts for the 3-state
+  // contract this feeds into InspirationCard's `signed*Url` props.
   const storagePaths = useMemo(() => collectVaultStoragePaths(items), [items]);
-  const { data: signedUrlMap = {} } = useQuery({
+  const { data: signedUrlMap, status: signedUrlsStatus } = useQuery({
     queryKey: ["vault-signed-urls", storagePaths],
     enabled: storagePaths.length > 0,
     queryFn: async () => {
@@ -246,7 +256,9 @@ export default function LibraryPage() {
       return buildSignedUrlMap(data);
     },
     staleTime: 55 * 60 * 1000,
+    retry: false,
   });
+  const signedUrlsSettled = signedUrlsStatus !== "pending";
 
   // Semantic search results from vault-search edge function.
   const { data: searchResults, isFetching: isSearching } = useQuery<LibraryItem[]>({
@@ -315,8 +327,8 @@ export default function LibraryPage() {
         onToggleFeatured={(id, val) => toggleFeatured({ id, featured: val })}
         onDelete={(id) => deleteOne(id)}
         useProvidedSignedUrls
-        signedThumbnailUrl={item.thumbnail_path ? signedUrlMap[item.thumbnail_path] ?? null : null}
-        signedFileUrl={item.file_path ? signedUrlMap[item.file_path] ?? null : null}
+        signedThumbnailUrl={resolveProvidedSignedUrl(item.thumbnail_path, signedUrlMap, signedUrlsSettled)}
+        signedFileUrl={resolveProvidedSignedUrl(item.file_path, signedUrlMap, signedUrlsSettled)}
       />
     );
   };
