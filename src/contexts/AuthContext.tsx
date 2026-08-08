@@ -37,9 +37,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchRoleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchRole = async (userId: string) => {
-    const { data } = await supabase.rpc("get_user_role", { _user_id: userId });
-    setRole((data as AppRole) || null);
-    setRoleResolved(true);
+    // Always resolve roleResolved, even on error/rejection — otherwise a failed
+    // role RPC (network blip, transient 5xx) leaves the app pinned on the
+    // loading spinner with no recovery path.
+    try {
+      const { data, error } = await supabase.rpc("get_user_role", { _user_id: userId });
+      if (error) throw error;
+      setRole((data as AppRole) || null);
+    } catch (err) {
+      console.error("Failed to resolve user role:", err);
+      setRole(null);
+    } finally {
+      setRoleResolved(true);
+    }
   };
 
   // isLoading tracks role resolution in BOTH directions: true while a role is

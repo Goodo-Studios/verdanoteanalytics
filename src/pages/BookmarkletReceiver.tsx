@@ -150,7 +150,22 @@ export default function BookmarkletReceiver() {
       }
     }
 
+    function isAllowedOrigin(origin: string): boolean {
+      if (origin === window.location.origin) return true;
+      try {
+        const host = new URL(origin).hostname.toLowerCase();
+        // The bookmarklet runs on Facebook's Ad Library pages.
+        return host === "facebook.com" || host.endsWith(".facebook.com");
+      } catch {
+        return false;
+      }
+    }
+
     async function handleMessage(event: MessageEvent) {
+      // Only accept save messages from our own origin or Facebook (where the
+      // bookmarklet runs). Without this, any page open in another tab could post
+      // a crafted message to write rows into the user's vault and trigger fetches.
+      if (!isAllowedOrigin(event.origin)) return;
       if (!event.data || event.data.type !== "VERDANOTE_SAVE_AD") return;
 
       const ads: AdPayload[] = Array.isArray(event.data.ads)
@@ -177,12 +192,12 @@ export default function BookmarkletReceiver() {
           await new Promise((r) => setTimeout(r, 300));
       }
 
-      // Notify bookmarklet
+      // Notify bookmarklet — reply only to the sender's origin, never "*".
       if (event.source) {
         try {
           (event.source as Window).postMessage(
             { type: "VERDANOTE_SAVE_COMPLETE" },
-            "*"
+            event.origin && event.origin !== "null" ? event.origin : window.location.origin
           );
         } catch {}
       }
