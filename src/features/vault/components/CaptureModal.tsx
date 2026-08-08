@@ -3,8 +3,14 @@ import { toast } from "sonner";
 import { Upload, Link as LinkIcon, Loader2, X, CheckCircle2, AlertCircle } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Tabs from "@radix-ui/react-tabs";
-import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import {
+  captureFileToVault,
+  captureUrlToVault,
+  isSupportedCaptureFile,
+  type VaultCaptureMetadata,
+} from "../hooks/useVaultCapture";
 
 interface Props {
   open: boolean;
@@ -17,8 +23,15 @@ interface Props {
  * Diverges from the Creative Vault source in two ways:
  *   • No workspace_id — vault-save in Verdanote scopes items by user_id.
  *   • No "Meta Ads" tab — that flow ports separately (US-008).
+ *
+ * The actual capture work (session auth, role gate, vault-save call, storage
+ * upload, thumbnail, tags/notes) lives in useVaultCapture — the same module the
+ * mobile share-target and quick-add surfaces call, so all three stay in sync.
  */
 export function CaptureModal({ open, onOpenChange, onItemCreated }: Props) {
+  // The role gate is enforced inside the capture service; passing the already
+  // resolved role just avoids a redundant get_user_role round-trip per save.
+  const { role } = useAuth();
   const [tab, setTab] = useState<"url" | "upload">("url");
   const [url, setUrl] = useState("");
   const [brandName, setBrandName] = useState("");
@@ -33,54 +46,12 @@ export function CaptureModal({ open, onOpenChange, onItemCreated }: Props) {
   }>>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const callFunction = async (name: string, body: Record<string, unknown>) => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    if (!token) throw new Error("Not authenticated");
-
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-    const res = await fetch(`${supabaseUrl}/functions/v1/${name}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error ?? "Request failed");
-    return data;
-  };
-
-  const attachTagsAndNotes = async (itemId: string) => {
-    const parsedTags = tags
-      .split(",")
-      .map((t) => t.trim().toLowerCase())
-      .filter(Boolean);
-
-    if (parsedTags.length === 0 && !notes.trim()) return;
-
-    if (parsedTags.length > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await supabase
-        .from("inspiration_tags")
-        .upsert(parsedTags.map((tag) => ({ item_id: itemId, tag })), {
-          onConflict: "item_id,tag",
-        });
-      if (error) console.error("Tag insert failed:", error);
-    }
-
-    if (notes.trim()) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await supabase
-        .from("inspiration_items")
-        .update({ ad_body_text: notes.trim() })
-        .eq("id", itemId);
-    }
-  };
+  /** Brand / tags / notes typed into the form, in the shape the service wants. */
+  const buildMetadata = (): VaultCaptureMetadata => ({
+    brandName: brandName.trim() || null,
+    tags: tags.split(","),
+    notes,
+  });
 
   const reset = () => {
     setUrl("");
@@ -96,12 +67,8 @@ export function CaptureModal({ open, onOpenChange, onItemCreated }: Props) {
 
     setLoading(true);
     try {
-      const result = await callFunction("vault-save", {
-        url: url.trim(),
-        brand_name: brandName.trim() || null,
-      });
-      await attachTagsAndNotes(result.item_id);
-      onItemCreated(result.item_id);
+      const { itemId } = await captureUrlToVault(url, buildMetadata(), { role });
+      onItemCreated(itemId);
       toast.success("Saved! Processing in the background…");
       reset();
       onOpenChange(false);
@@ -112,109 +79,15 @@ export function CaptureModal({ open, onOpenChange, onItemCreated }: Props) {
     }
   };
 
-  const generateVideoThumbnail = (file: File): Promise<Blob | null> => {
-    return new Promise((resolve) => {
-      const video = document.createElement("video");
-      const objectUrl = URL.createObjectURL(file);
-      video.src = objectUrl;
-      video.muted = true;
-      video.preload = "metadata";
-
-      const cleanup = () => URL.revokeObjectURL(objectUrl);
-      const timeout = setTimeout(() => {
-        cleanup();
-        resolve(null);
-      }, 10_000);
-
-      video.addEventListener(
-        "loadeddata",
-        () => {
-          video.currentTime = Math.min(1, video.duration * 0.1);
-        },
-        { once: true },
-      );
-
-      video.addEventListener(
-        "seeked",
-        () => {
-          clearTimeout(timeout);
-          const canvas = document.createElement("canvas");
-          canvas.width = video.videoWidth || 320;
-          canvas.height = video.videoHeight || 568;
-          canvas.getContext("2d")!.drawImage(video, 0, 0, canvas.width, canvas.height);
-          canvas.toBlob(
-            (blob) => {
-              cleanup();
-              resolve(blob);
-            },
-            "image/jpeg",
-            0.8,
-          );
-        },
-        { once: true },
-      );
-
-      video.addEventListener(
-        "error",
-        () => {
-          clearTimeout(timeout);
-          cleanup();
-          resolve(null);
-        },
-        { once: true },
-      );
-    });
-  };
-
   /** Upload a single file to storage and register it in the vault. */
   const uploadSingleFile = async (file: File) => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session) throw new Error("Not authenticated");
-
-    const ext = file.name.split(".").pop();
-    const ts = Date.now();
-    const path = `uploads/${session.user.id}/${ts}.${ext}`;
-
-    const isVideo = file.type.startsWith("video/");
-    const [uploadResult, thumbnailBlob] = await Promise.all([
-      supabase.storage.from("inspiration-media").upload(path, file),
-      isVideo ? generateVideoThumbnail(file) : Promise.resolve(null),
-    ]);
-
-    if (uploadResult.error) throw uploadResult.error;
-
-    let thumbnailUrl: string | null = null;
-    if (thumbnailBlob) {
-      const thumbPath = `thumbnails/${session.user.id}/${ts}.jpg`;
-      const { error: thumbErr } = await supabase.storage
-        .from("inspiration-media")
-        .upload(thumbPath, thumbnailBlob, { contentType: "image/jpeg" });
-      if (!thumbErr) {
-        const { data: signed } = await supabase.storage
-          .from("inspiration-media")
-          .createSignedUrl(thumbPath, 365 * 24 * 60 * 60);
-        thumbnailUrl = signed?.signedUrl ?? null;
-      }
-    }
-
-    const result = await callFunction("vault-save", {
-      file_path: path,
-      platform: "upload",
-      mime_type: file.type,
-      brand_name: brandName.trim() || null,
-      thumbnail_url: thumbnailUrl,
-    });
-    await attachTagsAndNotes(result.item_id);
-    onItemCreated(result.item_id);
+    const { itemId } = await captureFileToVault(file, buildMetadata(), { role });
+    onItemCreated(itemId);
   };
 
   /** Handle one or more files — validates, shows per-file progress, uploads sequentially. */
   const handleFiles = async (rawFiles: File[]) => {
-    const files = rawFiles.filter(
-      (f) => f.type.startsWith("video/") || f.type.startsWith("image/"),
-    );
+    const files = rawFiles.filter(isSupportedCaptureFile);
     if (!files.length) {
       toast.error("Only video and image files are supported");
       return;

@@ -18,7 +18,18 @@ export default defineConfig(() => ({
   },
   build: {
     rollupOptions: {
+      // Two entries: the app (driven by index.html) and the PWA service worker.
+      // The worker must land at the server root as /sw.js so its scope covers
+      // the whole app — hence the un-hashed, un-nested filename below.
+      // Key the app entry "index" so its chunk keeps the default
+      // assets/index-[hash].js name rather than being renamed by this change.
+      input: {
+        index: path.resolve(__dirname, "index.html"),
+        sw: path.resolve(__dirname, "src/sw.ts"),
+      },
       output: {
+        entryFileNames: (chunk) =>
+          chunk.name === "sw" ? "sw.js" : "assets/[name]-[hash].js",
         manualChunks: {
           "vendor-react": ["react", "react-dom", "react-router-dom"],
           "vendor-query": ["@tanstack/react-query"],

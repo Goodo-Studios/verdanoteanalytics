@@ -25,6 +25,18 @@ interface Props {
   onSelect?: (id: string) => void;
   onToggleFeatured?: (id: string, featured: boolean) => void;
   onDelete?: (id: string) => void;
+  /** Set by callers that batch-sign every visible card's paths in one
+   * request up front (see LibraryPage's `vault-signed-urls` query +
+   * utils/signedUrls.ts's `resolveProvidedSignedUrl`). When true, the two
+   * props below follow a 3-state contract: `undefined` = the batch call
+   * hasn't settled yet (wait, don't self-sign), `null` = it settled but has
+   * nothing for this item's path (self-sign as a fallback — see the
+   * 2026-08-04 incident note in signedUrls.ts), a string = use it directly.
+   * Callers that render a handful of cards at a time (e.g. BoardDetailPage)
+   * can omit this entirely and the card signs its own URLs as before. */
+  useProvidedSignedUrls?: boolean;
+  signedThumbnailUrl?: string | null;
+  signedFileUrl?: string | null;
 }
 
 export function InspirationCard({
@@ -36,40 +48,61 @@ export function InspirationCard({
   onSelect,
   onToggleFeatured,
   onDelete,
+  useProvidedSignedUrls = false,
+  signedThumbnailUrl: signedThumbnailUrlProp,
+  signedFileUrl: signedFileUrlProp,
 }: Props) {
   const prefix = useRolePrefix();
   const isProcessing = VAULT_PROCESSING_STATUSES.has(item.status);
   const isError = item.status === "error";
   const [isHovered, setIsHovered] = useState(false);
-  const [signedFileUrl, setSignedFileUrl] = useState<string | null>(null);
-  const [signedThumbnailUrl, setSignedThumbnailUrl] = useState<string | null>(null);
+  const [signedFileUrlSelf, setSignedFileUrlSelf] = useState<string | null>(null);
+  const [signedThumbnailUrlSelf, setSignedThumbnailUrlSelf] = useState<string | null>(null);
   const [firstFrameUrl, setFirstFrameUrl] = useState<string | null>(null);
   const [thumbnailError, setThumbnailError] = useState(false);
   const [addToBoardOpen, setAddToBoardOpen] = useState(false);
 
   const isImageFile = isImageFilePath(item.file_path);
 
-  // Stored thumbnail (preferred — bypasses CDN hotlink restrictions).
+  // signed*UrlProp follows the 3-state contract from utils/signedUrls.ts
+  // (resolveProvidedSignedUrl): `undefined` = parent's batch call hasn't
+  // settled yet (wait, don't self-sign), `null` = it settled but has
+  // nothing for this path (self-sign as a fallback), a string = use it
+  // directly. `?? self` means: once the effect below actually fills in
+  // signed*UrlSelf, it flows through here whether that happened because the
+  // parent opted out entirely (BoardDetailPage, prop always undefined) or
+  // because the parent's batch call came back empty for this item.
+  const signedThumbnailUrl = signedThumbnailUrlProp ?? signedThumbnailUrlSelf;
+  const signedFileUrl = signedFileUrlProp ?? signedFileUrlSelf;
+
+  // Stored thumbnail (preferred — bypasses CDN hotlink restrictions). Skipped
+  // while the parent's batch call is still pending or already has a URL for
+  // us (signedThumbnailUrlProp is undefined/a string); runs as a fallback
+  // once the parent has explicitly settled with nothing (`null`) for this
+  // path — see the incident note on resolveProvidedSignedUrl.
   useEffect(() => {
+    if (useProvidedSignedUrls && signedThumbnailUrlProp !== null) return;
     if (!item.thumbnail_path) return;
     supabase.storage
       .from("inspiration-media")
       .createSignedUrl(item.thumbnail_path, 3600)
       .then(({ data }) => {
-        if (data?.signedUrl) setSignedThumbnailUrl(data.signedUrl);
+        if (data?.signedUrl) setSignedThumbnailUrlSelf(data.signedUrl);
       });
-  }, [item.thumbnail_path]);
+  }, [item.thumbnail_path, useProvidedSignedUrls, signedThumbnailUrlProp]);
 
-  // Signed URL for the original file (used for hover playback + first-frame extraction).
+  // Signed URL for the original file (used for hover playback + first-frame
+  // extraction). Same skip/fallback rule as the thumbnail effect above.
   useEffect(() => {
+    if (useProvidedSignedUrls && signedFileUrlProp !== null) return;
     if (!item.file_path) return;
     supabase.storage
       .from("inspiration-media")
       .createSignedUrl(item.file_path, 3600)
       .then(({ data }) => {
-        if (data?.signedUrl) setSignedFileUrl(data.signedUrl);
+        if (data?.signedUrl) setSignedFileUrlSelf(data.signedUrl);
       });
-  }, [item.file_path]);
+  }, [item.file_path, useProvidedSignedUrls, signedFileUrlProp]);
 
   // First-frame fallback when no usable thumbnail.
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Star, Trash2, Vault, Search, X } from "lucide-react";
@@ -17,7 +17,8 @@ import {
   type VaultStatusFilter,
 } from "./components/FilterToolbar";
 import { useItemStatus } from "./hooks/useItemStatus";
-import { isImageFilePath, type LibraryItem } from "./types/vault";
+import { isImageFilePath, vaultListPollInterval, type LibraryItem } from "./types/vault";
+import { buildSignedUrlMap, collectVaultStoragePaths, resolveProvidedSignedUrl } from "./utils/signedUrls";
 
 const VAULT_STATUSES: VaultStatusFilter[] = ["all", "pending", "ready", "error"];
 const VAULT_SORTS: VaultSort[] = ["newest", "oldest"];
@@ -220,8 +221,44 @@ export default function LibraryPage() {
       if (error) throw error;
       return (data ?? []) as LibraryItem[];
     },
-    refetchInterval: 5000,
+    // Was an unconditional 5s poll for as long as the page stayed open —
+    // re-downloading the whole filtered list (plus its two joins) even when
+    // nothing was processing. Now only polls while something in the current
+    // list hasn't reached ready/error yet.
+    refetchInterval: (query) => vaultListPollInterval(query.state.data as LibraryItem[] | undefined),
   });
+
+  // Batch-sign every visible item's thumbnail/file storage paths in ONE
+  // request instead of letting each InspirationCard mint its own signed URL
+  // on mount (previously up to 2 requests per card, fired immediately on
+  // page load). staleTime is set just under the 1h signed-URL expiry so the
+  // map is refreshed before its links go stale, without re-signing on every
+  // render in between.
+  //
+  // Incident follow-up (2026-08-04): the first version of this had NO
+  // fallback — if the single batched call failed for any reason, every card
+  // in the grid lost its thumbnail at once (worse than the old per-card
+  // calls, where one bad path never affected its neighbors). `retry: false`
+  // fails fast instead of spending several seconds retrying before cards can
+  // fall back; `signedUrlsSettled` + `resolveProvidedSignedUrl` (below) let
+  // each card self-sign as a fallback once the batch call has settled with
+  // nothing for its specific path — see signedUrls.ts for the 3-state
+  // contract this feeds into InspirationCard's `signed*Url` props.
+  const storagePaths = useMemo(() => collectVaultStoragePaths(items), [items]);
+  const { data: signedUrlMap, status: signedUrlsStatus } = useQuery({
+    queryKey: ["vault-signed-urls", storagePaths],
+    enabled: storagePaths.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.storage
+        .from("inspiration-media")
+        .createSignedUrls(storagePaths, 3600);
+      if (error) throw error;
+      return buildSignedUrlMap(data);
+    },
+    staleTime: 55 * 60 * 1000,
+    retry: false,
+  });
+  const signedUrlsSettled = signedUrlsStatus !== "pending";
 
   // Semantic search results from vault-search edge function.
   const { data: searchResults, isFetching: isSearching } = useQuery<LibraryItem[]>({
@@ -289,6 +326,9 @@ export default function LibraryPage() {
         onSelect={toggleSelect}
         onToggleFeatured={(id, val) => toggleFeatured({ id, featured: val })}
         onDelete={(id) => deleteOne(id)}
+        useProvidedSignedUrls
+        signedThumbnailUrl={resolveProvidedSignedUrl(item.thumbnail_path, signedUrlMap, signedUrlsSettled)}
+        signedFileUrl={resolveProvidedSignedUrl(item.file_path, signedUrlMap, signedUrlsSettled)}
       />
     );
   };
