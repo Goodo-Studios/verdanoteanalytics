@@ -61,6 +61,10 @@ const MatrixBoardPage = lazy(routeImports.matrix);
 const SharedAdBoardPage = lazy(() => import("./pages/SharedAdBoardPage"));
 const PublicVaultItemPage = lazy(() => import("./pages/PublicVaultItemPage"));
 const BookmarkletReceiver = lazy(() => import("./pages/BookmarkletReceiver"));
+// Mobile capture surfaces (vault-mobile-capture). Un-prefixed and lazy: both are
+// opened cold from a phone — the Android share sheet (US-003) and an iOS
+// home-screen icon (US-004) — so neither should pull in the app shell.
+const CaptureShareTarget = lazy(() => import("./pages/CaptureShareTarget"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -235,6 +239,14 @@ const App = () => {
                   <Route path="/bookmarklet-receiver" element={
                     <Suspense fallback={<PageFallback />}>
                       <BookmarkletReceiver />
+                    </Suspense>
+                  } />
+
+                  {/* Phone capture — no role prefix: the OS opens these paths
+                      verbatim from the manifest / a home-screen bookmark. */}
+                  <Route path="/capture/share-target" element={
+                    <Suspense fallback={<PageFallback />}>
+                      <CaptureShareTarget />
                     </Suspense>
                   } />
 

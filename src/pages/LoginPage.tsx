@@ -1,14 +1,21 @@
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { AuthLayout } from "@/components/AuthLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, Leaf } from "lucide-react";
+// Single hardened implementation — a surface that bounced an unauthenticated
+// visitor here (CaptureShareTarget) parks its own path in router state so the
+// interrupted action resumes instead of dumping the user on the dashboard.
+// That path is derived from attacker-influenced share text, so the sanitising
+// lives in one place next to the code that produces it.
+import { resolvePostLoginPath } from "@/pwa/shareTarget";
 
 const LoginPage = () => {
   const { signIn, user, isLoading: authLoading } = useAuth();
+  const location = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +29,7 @@ const LoginPage = () => {
     );
   }
 
-  if (user) return <Navigate to="/" replace />;
+  if (user) return <Navigate to={resolvePostLoginPath(location.state)} replace />;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
