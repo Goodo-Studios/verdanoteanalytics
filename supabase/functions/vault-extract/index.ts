@@ -2,6 +2,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
+import { signWebhookItem } from "../_shared/webhook-signature.ts";
 import { ACTOR_CONFIGS } from "../_shared/actor-configs.ts";
 import { detectPlatform } from "../_shared/platform.ts";
 
@@ -57,7 +58,10 @@ Deno.serve(async (req) => {
     // Webhook URL — Apify POSTs here when the run succeeds or fails.
     // itemId is passed as a query param so we don't need Apify's template engine at all.
     // vault-extract-webhook reads eventType and runId from Apify's default payload body.
-    const webhookUrl = `${supabaseUrl}/functions/v1/vault-extract-webhook?item_id=${itemId}`;
+    // itemId is HMAC-signed so the webhook can reject forged callbacks for
+    // arbitrary items (the endpoint runs with the service role).
+    const sig = await signWebhookItem(itemId);
+    const webhookUrl = `${supabaseUrl}/functions/v1/vault-extract-webhook?item_id=${itemId}&sig=${sig}`;
     const webhooks = [
       {
         eventTypes: [
