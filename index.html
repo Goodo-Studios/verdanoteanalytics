@@ -4,6 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="/favicon.png" type="image/png" />
+
+    <!-- PWA: installable to a phone home screen (Android share target + iOS quick-add) -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#1B7A4E" />
+    <!-- iOS ignores the manifest entirely; these are the Safari equivalents. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Verdanote" />
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <!-- Non-blocking font load: media="print" prevents render-blocking; onload swaps to "all" -->
