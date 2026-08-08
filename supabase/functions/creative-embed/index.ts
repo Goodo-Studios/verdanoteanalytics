@@ -55,6 +55,7 @@ Deno.serve(async (req) => {
   // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
   // so this check is the only gate. pg_cron and function-to-function calls forward
   // the real service-role key. See _shared/internal-auth.ts.
+  // (service-role gate — required; do not remove.)
   const authFailure = await requireServiceRole(req);
   if (authFailure) return authFailure;
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
