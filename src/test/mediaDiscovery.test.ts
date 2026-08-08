@@ -22,8 +22,9 @@ const PAGE2 = "https://web.facebook.com/business/ads";
 describe("extractPreviewImageSrc", () => {
   it("returns null for empty / missing body", () => {
     expect(extractPreviewImageSrc("")).toBeNull();
-    // guarding the runtime null path (not a type error — strictNullChecks is off)
-    expect(extractPreviewImageSrc(undefined)).toBeNull();
+    // guarding the runtime null path — cast because the signature is `string`
+    // but we intentionally exercise an undefined caller value.
+    expect(extractPreviewImageSrc(undefined as unknown as string)).toBeNull();
   });
 
   it("NEVER returns a facebook.com page URL (the garbage-thumbnail root cause)", () => {

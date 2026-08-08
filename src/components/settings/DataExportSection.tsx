@@ -42,9 +42,9 @@ export function DataExportSection() {
       </div>
 
       <div className="space-y-4">
-        <CreativePerformanceExport accounts={accounts} selectedAccountId={selectedAccountId} />
-        <TagPerformanceExport accounts={accounts} selectedAccountId={selectedAccountId} />
-        <ConceptPerformanceExport accounts={accounts} selectedAccountId={selectedAccountId} />
+        <CreativePerformanceExport accounts={accounts} selectedAccountId={selectedAccountId ?? undefined} />
+        <TagPerformanceExport accounts={accounts} selectedAccountId={selectedAccountId ?? undefined} />
+        <ConceptPerformanceExport accounts={accounts} selectedAccountId={selectedAccountId ?? undefined} />
         
         <AccountSummaryExport accounts={accounts} />
       </div>
@@ -142,7 +142,7 @@ function CreativePerformanceExport({ accounts, selectedAccountId }: { accounts: 
   const [loading, setLoading] = useState(false);
 
   const filters = useMemo(() => ({
-    ...(accountFilter !== "all" ? { account_id: accountFilter } : {}),
+    ...((accountFilter !== "all" ? { account_id: accountFilter } : {}) as Record<string, string>),
     ...(dateFrom ? { date_from: dateFrom } : {}),
     ...(dateTo ? { date_to: dateTo } : {}),
   }), [accountFilter, dateFrom, dateTo]);
@@ -271,7 +271,7 @@ function TagPerformanceExport({ accounts, selectedAccountId }: { accounts: any[]
   const [accountFilter, setAccountFilter] = useState(selectedAccountId === "all" ? "all" : selectedAccountId || "all");
   const [loading, setLoading] = useState(false);
 
-  const filters = useMemo(() => (accountFilter !== "all" ? { account_id: accountFilter } : {}), [accountFilter]);
+  const filters = useMemo<Record<string, string>>(() => ((accountFilter !== "all" ? { account_id: accountFilter } : {}) as Record<string, string>), [accountFilter]);
   const { data: creatives = [] } = useAllCreatives(filters);
 
   const handleExport = useCallback(() => {
@@ -348,7 +348,7 @@ function ConceptPerformanceExport({ accounts, selectedAccountId }: { accounts: a
   const [accountFilter, setAccountFilter] = useState(selectedAccountId === "all" ? "all" : selectedAccountId || "all");
   const [loading, setLoading] = useState(false);
 
-  const filters = useMemo(() => (accountFilter !== "all" ? { account_id: accountFilter } : {}), [accountFilter]);
+  const filters = useMemo<Record<string, string>>(() => ((accountFilter !== "all" ? { account_id: accountFilter } : {}) as Record<string, string>), [accountFilter]);
   const { data: creatives = [] } = useAllCreatives(filters);
 
   const handleExport = useCallback(() => {

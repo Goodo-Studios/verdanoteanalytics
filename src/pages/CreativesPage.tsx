@@ -92,7 +92,7 @@ const CreativesPage = () => {
   const totalCreatives = creativesResult?.total || 0;
   const totalPages = Math.ceil(totalCreatives / CREATIVES_PAGE_SIZE);
   const { data: filterOptions } = useCreativeFilters();
-  const { data: wowTrends } = useWoWTrends(selectedAccountId);
+  const { data: wowTrends } = useWoWTrends(selectedAccountId ?? undefined);
   const syncMut = useSync();
   const isSyncing = useIsSyncing();
 

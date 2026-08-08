@@ -9,6 +9,7 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  type YAxisProps,
 } from "recharts";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Expand } from "lucide-react";
@@ -189,7 +190,7 @@ function TrendChart({
             {...axisProps}
             tick={{ ...axisProps.tick, fill: tickFill(leftLines) }}
             width={56}
-            domain={paddedDomain}
+            domain={paddedDomain as unknown as YAxisProps["domain"]}
             tickFormatter={(v: number) => formatAxisTick(leftFormat, v)}
           />
 
@@ -200,7 +201,7 @@ function TrendChart({
               {...axisProps}
               tick={{ ...axisProps.tick, fill: tickFill(rightLines) }}
               width={56}
-              domain={paddedDomain}
+              domain={paddedDomain as unknown as YAxisProps["domain"]}
               tickFormatter={(v: number) => formatAxisTick(rightFormat, v)}
             />
           )}
