@@ -31,6 +31,7 @@
 
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { type DrainCandidate, selectDrainBatch } from "../_shared/preview-drain-logic.ts";
 import { STORAGE_URL_MARKER } from "../_shared/preview-capture-logic.ts";
 
@@ -74,6 +75,15 @@ async function pendingCount(db: SupabaseClient): Promise<number> {
 
 export async function handler(req: Request, supabaseOverride?: SupabaseClient): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
+  // so this check is the only gate. pg_cron / function-to-function calls forward
+  // the real service-role key. Skipped when a test injects a client.
+  const isInjectedClient = !!supabaseOverride && typeof (supabaseOverride as { from?: unknown }).from === "function";
+  if (!isInjectedClient) {
+    const authFailure = await requireServiceRole(req);
+    if (authFailure) return authFailure;
+  }
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
 
   // Internal-only: no self-auth (mirrors drain-media-queue). Outgoing calls to

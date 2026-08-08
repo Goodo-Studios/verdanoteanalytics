@@ -285,8 +285,9 @@ verify_jwt = false
 verify_jwt = false
 
 # One-off backfill of creatives.destination_key (Landing Pages report, F4).
-# Does no auth of its own; do not link it from any client — invoke with the secret key.
+# Handler enforces requireServiceRole(); do not link it from any client — invoke with the service-role key.
 [functions.backfill-destination-key]
+verify_jwt = false
 # F2: one-time / periodic backfill of creatives.created_time + derivation of the
 # lifecycle-date columns. Invoked by an internal/trusted caller with the
 # service-role bearer — no end-user JWT (same pattern as the other backfill-*

@@ -13,6 +13,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { extractDestinationLink, normalizeDestinationUrl } from "../_shared/normalize-destination.ts";
 
 const META_API_VERSION = "v22.0";
@@ -27,6 +28,12 @@ const META_BATCH = 20;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
+  // so this check is the only gate. pg_cron and function-to-function calls forward
+  // the real service-role key. See _shared/internal-auth.ts.
+  const authFailure = await requireServiceRole(req);
+  if (authFailure) return authFailure;
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,

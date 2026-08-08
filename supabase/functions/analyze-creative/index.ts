@@ -31,6 +31,7 @@
 //     • chain      — internal self-chain depth (do not set by hand).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { json } from "../_shared/cors.ts";
+import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { parseLooseJson } from "../_shared/vault-analyze-logic.ts";
 import { extractDeepgramTranscript } from "../_shared/vault-transcribe-logic.ts";
 import {
@@ -645,6 +646,11 @@ async function embedCreative(
 }
 
 Deno.serve(async (req) => {
+  // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
+  // so this check is the only gate. pg_cron and function-to-function calls forward
+  // the real service-role key. See _shared/internal-auth.ts.
+  const authFailure = await requireServiceRole(req);
+  if (authFailure) return authFailure;
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
 
   const url = new URL(req.url);
