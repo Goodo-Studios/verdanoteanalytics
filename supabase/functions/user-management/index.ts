@@ -27,14 +27,16 @@ serve(async (req) => {
     });
   }
 
-  // Check builder role
-  const { data: callerRole } = await supabase
+  // Check builder role. Fetch ALL role rows (a user may hold more than one) —
+  // .single() throws for >1 row, which would spuriously 500/lock out a
+  // multi-role builder. Mirrors settings/reports/matrix.
+  const { data: callerRoles } = await supabase
     .from("user_roles")
     .select("role")
-    .eq("user_id", caller.id)
-    .single();
+    .eq("user_id", caller.id);
 
-  if (callerRole?.role !== "builder") {
+  const isBuilder = (callerRoles ?? []).some((r: { role?: string }) => r.role === "builder");
+  if (!isBuilder) {
     return new Response(JSON.stringify({ error: "Forbidden: builder only" }), {
       status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

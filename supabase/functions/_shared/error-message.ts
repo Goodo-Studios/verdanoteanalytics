@@ -10,9 +10,13 @@ export function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (err && typeof err === "object") {
     const e = err as { message?: unknown; code?: unknown };
+    // Use the human-readable message + PG code only. Do NOT fall back to
+    // JSON.stringify(err): that dumps internal `details`/`hint`/table names into
+    // responses returned to callers (schema disclosure). An empty message
+    // collapses to a generic string instead.
     const msg = typeof e.message === "string" && e.message.trim() !== ""
       ? e.message
-      : JSON.stringify(err);
+      : "Unexpected error";
     const code = typeof e.code === "string" && e.code.trim() !== "" ? ` (${e.code})` : "";
     return `${msg}${code}`;
   }
