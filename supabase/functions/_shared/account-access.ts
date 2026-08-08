@@ -7,13 +7,17 @@
 // deno-lint-ignore no-explicit-any
 type SupabaseLike = any;
 
+export async function isStaffUser(supabase: SupabaseLike, userId: string): Promise<boolean> {
+  const { data: role } = await supabase.rpc("get_user_role", { _user_id: userId });
+  return role === "builder" || role === "employee";
+}
+
 export async function hasAccountAccess(
   supabase: SupabaseLike,
   userId: string,
   accountId: string,
 ): Promise<boolean> {
-  const { data: role } = await supabase.rpc("get_user_role", { _user_id: userId });
-  if (role === "builder" || role === "employee") return true;
+  if (await isStaffUser(supabase, userId)) return true;
 
   const { data, error } = await supabase
     .from("user_accounts")

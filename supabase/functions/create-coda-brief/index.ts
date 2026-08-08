@@ -31,6 +31,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { isStaffUser } from "../_shared/account-access.ts";
 
 const CODA_DOC_ID = "Edw6ZW63pk";
 const CODA_TABLE_ID = "grid-MEOygYxxim";
@@ -248,6 +249,7 @@ Deno.serve(async (req) => {
     const body = await req.json();
 
     // HIGH-006: Auth validation — require a valid Supabase JWT
+    let authedUserId: string;
     {
       const supabaseForAuth = createClient(
         Deno.env.get("SUPABASE_URL")!,
@@ -261,6 +263,7 @@ Deno.serve(async (req) => {
           status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
+      authedUserId = user.id;
     }
 
     // Discriminate the input shape. Accept both the legacy create-coda-brief
@@ -280,6 +283,11 @@ Deno.serve(async (req) => {
         Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
       );
 
+      // Ownership guard: this uses the service-role client (bypasses RLS), so
+      // scope reads to items the caller saved unless they are staff. Otherwise
+      // any user could export another user's vault item into the shared Coda doc.
+      const vaultStaff = await isStaffUser(supabase, authedUserId);
+
       // Three accepted vault payload shapes:
       //   1. { inspiration_item_id: "<uuid>", task_name?, brief_note?,
       //        account_name? }
@@ -296,7 +304,7 @@ Deno.serve(async (req) => {
       let defaultTaskName: string;
 
       if (body.inspiration_item_id) {
-        const { data: row, error } = await supabase
+        let singleQuery = supabase
           .from("inspiration_items")
           .select(
             `id, title, source_url, platform, creator_handle, brand_name,
@@ -307,8 +315,9 @@ Deno.serve(async (req) => {
                cta_type, cta_formula, fill_in_blank_script, copywriting_framework,
                hook_verbal, hook_text)`,
           )
-          .eq("id", body.inspiration_item_id)
-          .single<InspirationRow>();
+          .eq("id", body.inspiration_item_id);
+        if (!vaultStaff) singleQuery = singleQuery.eq("saved_by", authedUserId);
+        const { data: row, error } = await singleQuery.single<InspirationRow>();
 
         if (error || !row) {
           return json(
@@ -319,7 +328,7 @@ Deno.serve(async (req) => {
         brief = buildInspirationBrief(row, briefNote);
         defaultTaskName = `Vault Brief — ${row.brand_name ?? row.title ?? row.id}`;
       } else if (Array.isArray(body.inspiration_item_ids) && body.inspiration_item_ids.length > 0) {
-        const { data: rows, error } = await supabase
+        let multiQuery = supabase
           .from("inspiration_items")
           .select(
             `id, title, source_url, platform, creator_handle, brand_name,
@@ -331,6 +340,8 @@ Deno.serve(async (req) => {
                hook_verbal, hook_text)`,
           )
           .in("id", body.inspiration_item_ids);
+        if (!vaultStaff) multiQuery = multiQuery.eq("saved_by", authedUserId);
+        const { data: rows, error } = await multiQuery;
 
         if (error) {
           return json({ error: error.message }, 500);
