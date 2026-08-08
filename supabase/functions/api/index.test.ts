@@ -41,7 +41,7 @@ interface Call {
  * answers the user_accounts link check. Only read verbs are modelled — there is
  * no insert/update/delete/upsert, matching the read-only contract under test.
  */
-function makeRecorder(opts: { role?: string; linked?: boolean; rows?: unknown[] } = {}) {
+function makeRecorder(opts: { role?: string; linked?: boolean; rows?: unknown[]; single?: unknown } = {}) {
   const calls: Call[] = [];
   let currentTable = "";
   const builder: Record<string, unknown> = {};
@@ -55,6 +55,13 @@ function makeRecorder(opts: { role?: string; linked?: boolean; rows?: unknown[] 
   builder.maybeSingle = () =>
     Promise.resolve({
       data: opts.linked ? { "1": 1 } : null,
+      error: null,
+    });
+  // .single() answers the GET /creatives/:id lookup with a row that carries an
+  // account_id (so the ownership check has something to authorize against).
+  builder.single = () =>
+    Promise.resolve({
+      data: opts.single ?? { ad_id: "ad_x", account_id: "act_1" },
       error: null,
     });
   // Awaiting the builder (terminal, no .single/.maybeSingle) yields the
@@ -209,6 +216,70 @@ Deno.test("GET /accounts scopes a linked client to their user_accounts ids", asy
   assert(inCall, "ad_accounts query must be scoped with .in");
   assertEquals(inCall!.args[1], "id");
   assertEquals(inCall!.args[2], ["act_1"]);
+});
+
+// ---- Cross-tenant IDOR fixes on /creatives and /metrics (regression) --------
+// Previously: GET /creatives/:id returned any tenant's creative by id, GET
+// /creatives with no account_id returned every tenant's creatives, and GET
+// /metrics with no account_id aggregated spend/revenue across all tenants.
+
+Deno.test("GET /creatives/:id denies a client who does not own the creative's account", async () => {
+  // Creative belongs to act_other; caller is an unlinked client.
+  const { supabase, calls } = makeRecorder({
+    role: "client",
+    linked: false,
+    single: { ad_id: "ad_x", account_id: "act_other" },
+  });
+  const res = await mod.handleApi(getReq("/api/creatives/ad_x"), supabase, READ);
+  assertEquals(res.status, 403);
+  const json = await res.json();
+  assertEquals(json.error, "Access denied");
+  // Ownership was checked against the creative's account.
+  assert(calls.some((c) => c.method === "rpc" && c.args[0] === "get_user_role"));
+});
+
+Deno.test("GET /creatives/:id lets staff read any creative", async () => {
+  const { supabase } = makeRecorder({ role: "builder", single: { ad_id: "ad_x", account_id: "act_other" } });
+  const res = await mod.handleApi(getReq("/api/creatives/ad_x"), supabase, READ);
+  assertEquals(res.status, 200);
+  const json = await res.json();
+  assertEquals(json.data.account_id, "act_other");
+});
+
+Deno.test("GET /creatives without account_id scopes a client to their linked ids", async () => {
+  const { supabase, calls } = makeRecorder({ role: "client", rows: [{ account_id: "act_1" }] });
+  const res = await mod.handleApi(getReq("/api/creatives"), supabase, READ);
+  assertEquals(res.status, 200);
+  // The creatives query is restricted with .in("account_id", ["act_1"]) — never
+  // returned unscoped across tenants.
+  const inCall = callsForTable(calls, "creatives").find((c) => c.method === "in");
+  assert(inCall, "creatives query must be scoped with .in for a non-staff caller");
+  assertEquals(inCall!.args[1], "account_id");
+  assertEquals(inCall!.args[2], ["act_1"]);
+});
+
+Deno.test("GET /creatives without account_id returns [] for a client with no links", async () => {
+  const { supabase, calls } = makeRecorder({ role: "client", rows: [] });
+  const res = await mod.handleApi(getReq("/api/creatives"), supabase, READ);
+  assertEquals(res.status, 200);
+  const json = await res.json();
+  assertEquals(json.data, []);
+  // No unscoped creatives query ran.
+  assertEquals(callsForTable(calls, "creatives").filter((c) => c.method === "in").length, 0);
+});
+
+Deno.test("GET /metrics without account_id is rejected for a non-staff caller (400)", async () => {
+  const { supabase } = makeRecorder({ role: "client" });
+  const res = await mod.handleApi(getReq("/api/metrics"), supabase, READ);
+  assertEquals(res.status, 400);
+  const json = await res.json();
+  assertEquals(json.error, "account_id is required");
+});
+
+Deno.test("GET /metrics without account_id is allowed for staff (all accounts)", async () => {
+  const { supabase } = makeRecorder({ role: "builder", rows: [{ total_spend: 5 }] });
+  const res = await mod.handleApi(getReq("/api/metrics"), supabase, READ);
+  assertEquals(res.status, 200);
 });
 
 // ---- POST /sync body validation (regression) --------------------------------

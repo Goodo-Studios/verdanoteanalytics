@@ -126,8 +126,10 @@ export function LeaderboardTab() {
             </div>
           </div>
 
-          {/* Column headers */}
-          <div className="hidden sm:grid grid-cols-[2.5rem_minmax(0,1fr)_7rem_4rem_5rem_5rem] gap-3 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground border-b border-border">
+          {/* Column headers — desktop/wide-tablet grid only. Below `lg` the numeric
+              columns don't leave enough room for a readable label, so rows switch
+              to a stacked card layout instead (see below). */}
+          <div className="hidden lg:grid grid-cols-[2.5rem_minmax(0,1fr)_7rem_4rem_5rem_5rem] gap-3 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground border-b border-border">
             <span>#</span>
             <span>{dimLabel}</span>
             <span className="text-right">Spend</span>
@@ -138,33 +140,65 @@ export function LeaderboardTab() {
 
           {/* Rows — rendered in API order (is_untagged ASC, total_spend DESC). */}
           <div>
-            {data.rows.map((row, idx) => (
-              <div
-                key={`${dimension}-${row.is_untagged ? "untagged" : row.label}-${idx}`}
-                className={`grid grid-cols-[2.5rem_minmax(0,1fr)_7rem_4rem_5rem_5rem] gap-3 px-4 py-3 items-center text-sm ${
-                  row.is_untagged
-                    ? "border-t-2 border-dashed border-border bg-muted/20 text-muted-foreground"
-                    : "border-t border-border"
-                }`}
-              >
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {row.is_untagged ? "—" : idx + 1}
-                </span>
-                <span className="truncate font-medium text-foreground">
-                  {row.is_untagged ? (
-                    <span className="italic text-muted-foreground">Untagged</span>
-                  ) : (
-                    row.label
-                  )}
-                </span>
-                <span className="text-right font-semibold text-foreground tabular-nums">
-                  {fmtSpend(row.total_spend)}
-                </span>
-                <span className="text-right tabular-nums">{Number(row.n_ads) || 0}</span>
-                <span className="text-right tabular-nums">{fmtRoas(row.avg_roas)}</span>
-                <span className="text-right tabular-nums">{fmtCtr(row.avg_ctr)}</span>
-              </div>
-            ))}
+            {data.rows.map((row, idx) => {
+              const label = row.is_untagged ? (
+                <span className="italic text-muted-foreground">Untagged</span>
+              ) : (
+                row.label
+              );
+              const rowBorder = row.is_untagged
+                ? "border-t-2 border-dashed border-border bg-muted/20 text-muted-foreground"
+                : "border-t border-border";
+
+              return (
+                <div
+                  key={`${dimension}-${row.is_untagged ? "untagged" : row.label}-${idx}`}
+                  className={`px-4 py-3 text-sm ${rowBorder}`}
+                >
+                  {/* Mobile & tablet: stacked card — label gets full width and can
+                      wrap instead of being squeezed to nothing or unreadable. */}
+                  <div className="lg:hidden space-y-1.5">
+                    <div className="flex items-baseline gap-2">
+                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                        {row.is_untagged ? "—" : idx + 1}
+                      </span>
+                      <span className="font-medium text-foreground break-words">{label}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 pl-6 text-xs tabular-nums text-muted-foreground">
+                      <span>
+                        Spend{" "}
+                        <span className="font-semibold text-foreground">
+                          {fmtSpend(row.total_spend)}
+                        </span>
+                      </span>
+                      <span>
+                        Ads <span className="text-foreground">{Number(row.n_ads) || 0}</span>
+                      </span>
+                      <span>
+                        ROAS <span className="text-foreground">{fmtRoas(row.avg_roas)}</span>
+                      </span>
+                      <span>
+                        CTR <span className="text-foreground">{fmtCtr(row.avg_ctr)}</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Desktop: full grid table */}
+                  <div className="hidden lg:grid grid-cols-[2.5rem_minmax(0,1fr)_7rem_4rem_5rem_5rem] gap-3 items-center">
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {row.is_untagged ? "—" : idx + 1}
+                    </span>
+                    <span className="truncate font-medium text-foreground">{label}</span>
+                    <span className="text-right font-semibold text-foreground tabular-nums">
+                      {fmtSpend(row.total_spend)}
+                    </span>
+                    <span className="text-right tabular-nums">{Number(row.n_ads) || 0}</span>
+                    <span className="text-right tabular-nums">{fmtRoas(row.avg_roas)}</span>
+                    <span className="text-right tabular-nums">{fmtCtr(row.avg_ctr)}</span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

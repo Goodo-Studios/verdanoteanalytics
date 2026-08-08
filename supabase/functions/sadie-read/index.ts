@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { timingSafeEqual } from "../_shared/timing.ts";
 
 // Private API key for Sadie — set this in Supabase edge function secrets
 const SADIE_API_KEY = Deno.env.get("SADIE_API_KEY")!;
@@ -11,7 +12,7 @@ serve(async (req) => {
 
   // Auth check
   const apiKey = req.headers.get("x-sadie-key");
-  if (!apiKey || apiKey !== SADIE_API_KEY) {
+  if (!apiKey || !SADIE_API_KEY || !timingSafeEqual(apiKey, SADIE_API_KEY)) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

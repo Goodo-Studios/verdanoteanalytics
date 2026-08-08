@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { isAllowedFacebookUrl } from "../_shared/ssrf.ts";
 import { isMediaContentType } from "../_shared/vault-save-logic.ts";
 import { ACTOR_CONFIGS } from "../_shared/actor-configs.ts";
 
@@ -145,6 +146,11 @@ function extractFacebookAdId(url: string): string | null {
 function extractPageIdFromUrl(url: string): string | null {
   try {
     const parsed = new URL(url);
+    // SSRF guard: only trust view_all_page_id from a real Facebook host. Reading
+    // it from an arbitrary host let an attacker pass an internal URL that still
+    // produced a truthy page id, bypassing the "is this a Facebook URL?" gate
+    // and reaching the direct-fetch path below.
+    if (!isAllowedFacebookUrl(url)) return null;
     return parsed.searchParams.get("view_all_page_id") || null;
   } catch {
     return null;
@@ -797,6 +803,11 @@ function normalizeMetaResult(ad: any, pageId: string, country: string): ScrapeRe
 }
 
 async function tryDirectPageFetch(url: string): Promise<ScrapeResult | null> {
+  // SSRF guard (defense in depth): never fetch a non-Facebook host directly.
+  if (!isAllowedFacebookUrl(url)) {
+    console.error("Direct page fetch blocked: non-Facebook host", url);
+    return null;
+  }
   try {
     const resp = await fetchWithTimeout(url, {
       headers: { "User-Agent": CHROME_UA, Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "en-US,en;q=0.9" },

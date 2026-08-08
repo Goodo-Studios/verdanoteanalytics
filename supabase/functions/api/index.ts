@@ -109,6 +109,18 @@ export async function handleApi(
           .single();
 
         if (error) throw error;
+
+        // Broken object-level authorization fix: this query runs on the
+        // service-role client (bypasses RLS), so we must verify the caller owns
+        // the creative's account before returning it. Without this, any read
+        // key could fetch any tenant's creative by its (enumerable) Meta ad id.
+        const allowed = await verifyAccountOwnership(supabase, userId, data.account_id);
+        if (!allowed) {
+          return new Response(JSON.stringify({ error: "Access denied" }), {
+            status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
         return new Response(JSON.stringify({ data }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -116,19 +128,41 @@ export async function handleApi(
 
       const accountId = url.searchParams.get("account_id");
 
-      if (accountId) {
-        const allowed = await verifyAccountOwnership(supabase, userId, accountId);
-        if (!allowed) {
-          return new Response(JSON.stringify({ error: "Access denied" }), {
-            status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
+      // Resolve caller scope. This query runs on the service-role client
+      // (bypasses RLS), so we must restrict non-staff callers to their linked
+      // accounts here. Previously, omitting account_id returned creatives across
+      // ALL tenants to any read key. Mirrors the /accounts route's model.
+      const { data: listRole } = await supabase.rpc("get_user_role", { _user_id: userId });
+      const isStaff = listRole === "builder" || listRole === "employee";
+
+      let allowedIds: string[] | null = null; // null = unrestricted (staff)
+      if (!isStaff) {
+        const { data: links, error: linksError } = await supabase
+          .from("user_accounts")
+          .select("account_id")
+          .eq("user_id", userId);
+        if (linksError) throw linksError;
+        allowedIds = (links || []).map((l: { account_id: string }) => l.account_id);
+      }
+
+      // An explicitly requested account must be one the caller owns.
+      if (accountId && allowedIds && !allowedIds.includes(accountId)) {
+        return new Response(JSON.stringify({ error: "Access denied" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       const limit = Math.min(parseInt(url.searchParams.get("limit") || "100"), 500);
       const offset = parseInt(url.searchParams.get("offset") || "0");
       const minRoas = url.searchParams.get("min_roas");
       const status = url.searchParams.get("status");
+
+      // Non-staff caller with zero linked accounts sees nothing.
+      if (allowedIds && allowedIds.length === 0) {
+        return new Response(JSON.stringify({ data: [], total: 0, limit, offset }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
       let query = supabase
         .from("creatives")
@@ -137,6 +171,7 @@ export async function handleApi(
         .range(offset, offset + limit - 1);
 
       if (accountId) query = query.eq("account_id", accountId);
+      else if (allowedIds) query = query.in("account_id", allowedIds);
       if (minRoas) query = query.gte("roas", parseFloat(minRoas));
       if (status) query = query.eq("ad_status", status);
 
@@ -164,6 +199,17 @@ export async function handleApi(
         if (!allowed) {
           return new Response(JSON.stringify({ error: "Access denied" }), {
             status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      } else {
+        // No account_id means "all accounts". This runs on the service-role
+        // client, so a null p_account_id would aggregate spend/revenue/ROAS
+        // across EVERY tenant — allow that only for staff. Non-staff must scope.
+        const { data: metricsRole } = await supabase.rpc("get_user_role", { _user_id: userId });
+        const isStaff = metricsRole === "builder" || metricsRole === "employee";
+        if (!isStaff) {
+          return new Response(JSON.stringify({ error: "account_id is required" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
       }

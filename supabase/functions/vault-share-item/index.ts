@@ -19,6 +19,7 @@
 //      explicit column allowlist that omits internal fields.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { isStaffUser } from "../_shared/account-access.ts";
 
 export type ShareAction = "mint" | "revoke" | "resolve";
 
@@ -111,12 +112,12 @@ export async function handler(req: Request, injectedDb?: any): Promise<Response>
       return await resolveShare(db, parsed.token);
     }
 
-    // mint / revoke — require an authenticated user (any one will do).
-    const user = await getAuthUser(db, req);
-    if (!user) return json({ error: "unauthorized" }, 401);
+    // mint / revoke — require an authenticated user who OWNS the item (or staff).
+    const user = await getAuthUser(db, req) as { id?: string } | null;
+    if (!user?.id) return json({ error: "unauthorized" }, 401);
 
-    if (parsed.action === "mint") return await mintShare(db, parsed.itemId);
-    return await revokeShare(db, parsed.itemId);
+    if (parsed.action === "mint") return await mintShare(db, parsed.itemId, user.id);
+    return await revokeShare(db, parsed.itemId, user.id);
   } catch (err) {
     console.error("vault-share-item error:", err);
     return json({ error: String(err) }, 500);
@@ -159,14 +160,19 @@ async function resolveShare(db: any, token: string): Promise<Response> {
 }
 
 // deno-lint-ignore no-explicit-any
-async function mintShare(db: any, itemId: string): Promise<Response> {
+async function mintShare(db: any, itemId: string, userId: string): Promise<Response> {
   const { data: existing, error: readErr } = await db
     .from("inspiration_items")
-    .select("share_token")
+    .select("share_token, saved_by")
     .eq("id", itemId)
     .maybeSingle();
   if (readErr) return json({ error: readErr.message }, 500);
   if (!existing) return json({ error: "item not found" }, 404);
+
+  // Ownership guard: only the item's owner (or staff) may mint a public link.
+  if (existing.saved_by !== userId && !(await isStaffUser(db, userId))) {
+    return json({ error: "forbidden" }, 403);
+  }
 
   // Idempotent: a re-mint returns the live token rather than churning it.
   let token: string | null = existing.share_token ?? null;
@@ -182,7 +188,21 @@ async function mintShare(db: any, itemId: string): Promise<Response> {
 }
 
 // deno-lint-ignore no-explicit-any
-async function revokeShare(db: any, itemId: string): Promise<Response> {
+async function revokeShare(db: any, itemId: string, userId: string): Promise<Response> {
+  const { data: existing, error: readErr } = await db
+    .from("inspiration_items")
+    .select("saved_by")
+    .eq("id", itemId)
+    .maybeSingle();
+  if (readErr) return json({ error: readErr.message }, 500);
+  if (!existing) return json({ error: "item not found" }, 404);
+
+  // Ownership guard: only the item's owner (or staff) may revoke its share link
+  // — previously any authenticated user could kill another user's live link.
+  if (existing.saved_by !== userId && !(await isStaffUser(db, userId))) {
+    return json({ error: "forbidden" }, 403);
+  }
+
   const { error } = await db
     .from("inspiration_items")
     .update({ share_token: null, shared_at: null })

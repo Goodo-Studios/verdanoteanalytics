@@ -28,6 +28,7 @@ import { TagInput } from "./components/TagInput";
 import { AddToBoardModal } from "./components/AddToBoardModal";
 import { CopyButton } from "./components/CopyButton";
 import { VaultShareControl } from "./components/VaultShareControl";
+import { safeExternalHref } from "@/lib/safe-url";
 
 interface TranscriptRow {
   id: string;
@@ -404,9 +405,9 @@ export default function ItemDetailPage() {
               {createdAt.toLocaleDateString()}
             </span>
             <div className="ml-auto flex items-center gap-1">
-              {data.source_url && (
+              {safeExternalHref(data.source_url) && (
                 <a
-                  href={data.source_url}
+                  href={safeExternalHref(data.source_url)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground"

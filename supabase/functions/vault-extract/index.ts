@@ -1,6 +1,8 @@
 // vault-extract — port from Creative Vault (US-002). User-scoped only; no workspace concept.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { requireServiceRole } from "../_shared/internal-auth.ts";
+import { signWebhookItem } from "../_shared/webhook-signature.ts";
 import { ACTOR_CONFIGS } from "../_shared/actor-configs.ts";
 import { detectPlatform } from "../_shared/platform.ts";
 
@@ -8,6 +10,12 @@ const APIFY_BASE = "https://api.apify.com/v2";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
+  // so this check is the only gate. pg_cron and function-to-function calls forward
+  // the real service-role key. See _shared/internal-auth.ts.
+  const authFailure = await requireServiceRole(req);
+  if (authFailure) return authFailure;
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -50,7 +58,10 @@ Deno.serve(async (req) => {
     // Webhook URL — Apify POSTs here when the run succeeds or fails.
     // itemId is passed as a query param so we don't need Apify's template engine at all.
     // vault-extract-webhook reads eventType and runId from Apify's default payload body.
-    const webhookUrl = `${supabaseUrl}/functions/v1/vault-extract-webhook?item_id=${itemId}`;
+    // itemId is HMAC-signed so the webhook can reject forged callbacks for
+    // arbitrary items (the endpoint runs with the service role).
+    const sig = await signWebhookItem(itemId);
+    const webhookUrl = `${supabaseUrl}/functions/v1/vault-extract-webhook?item_id=${itemId}&sig=${sig}`;
     const webhooks = [
       {
         eventTypes: [

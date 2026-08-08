@@ -71,11 +71,31 @@ export function isServiceRoleRequest(req: Request): boolean {
 const PROBE_TTL_OK_MS = 5 * 60 * 1000;
 const PROBE_TTL_DENY_MS = 30 * 1000;
 const PROBE_TIMEOUT_MS = 5_000;
+// Hard cap on distinct memoized probe results so a flood of distinct tokens
+// cannot grow this map without bound (isolate-memory DoS).
+const PROBE_CACHE_MAX = 1000;
 const probeCache = new Map<string, { ok: boolean; expires: number }>();
 
 /** Test seam: drop memoized probe results. */
 export function _resetProbeCache(): void {
   probeCache.clear();
+}
+
+// Insert into the probe cache with eviction: prune expired entries, then bound
+// the size by dropping the oldest insertions (Map preserves insertion order).
+function probeCacheSet(key: string, value: { ok: boolean; expires: number }): void {
+  if (probeCache.size >= PROBE_CACHE_MAX) {
+    const now = Date.now();
+    for (const [k, v] of probeCache) {
+      if (v.expires <= now) probeCache.delete(k);
+    }
+    while (probeCache.size >= PROBE_CACHE_MAX) {
+      const oldest = probeCache.keys().next().value;
+      if (oldest === undefined) break;
+      probeCache.delete(oldest);
+    }
+  }
+  probeCache.set(key, value);
 }
 
 async function sha256Hex(value: string): Promise<string> {
@@ -91,7 +111,28 @@ async function sha256Hex(value: string): Promise<string> {
  */
 function looksLikeServiceCredential(token: string): boolean {
   if (token.startsWith("sb_secret_")) return true;
-  return token.split(".").length === 3; // legacy service-role key is a JWT
+  // Legacy service-role key is a JWT carrying a role:"service_role" claim. We
+  // decode the (unverified) payload only as a cheap shape filter — the capability
+  // probe remains the real authority. This stops arbitrary "a.b.c" junk in the
+  // Authorization header from triggering an outbound admin probe + cache entry
+  // per distinct token (request amplification / unbounded-cache DoS).
+  return decodeJwtRole(token) === "service_role";
+}
+
+// Decode the role claim from a JWT payload WITHOUT verifying the signature.
+// Returns null for anything that isn't a well-formed 3-segment JWT with a JSON
+// payload. Not authorization — only a pre-probe shape filter.
+function decodeJwtRole(token: string): string | null {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded));
+    return typeof payload?.role === "string" ? payload.role : null;
+  } catch {
+    return null;
+  }
 }
 
 /** True when the token can actually exercise service-role privileges. */
@@ -121,7 +162,7 @@ async function hasServiceRoleCapability(token: string): Promise<boolean> {
     ok = false; // network error / timeout → fail closed
   }
 
-  probeCache.set(cacheKey, { ok, expires: Date.now() + (ok ? PROBE_TTL_OK_MS : PROBE_TTL_DENY_MS) });
+  probeCacheSet(cacheKey, { ok, expires: Date.now() + (ok ? PROBE_TTL_OK_MS : PROBE_TTL_DENY_MS) });
   return ok;
 }
 
