@@ -65,6 +65,7 @@ const BookmarkletReceiver = lazy(() => import("./pages/BookmarkletReceiver"));
 // opened cold from a phone — the Android share sheet (US-003) and an iOS
 // home-screen icon (US-004) — so neither should pull in the app shell.
 const CaptureShareTarget = lazy(() => import("./pages/CaptureShareTarget"));
+const CaptureQuickAdd = lazy(() => import("./pages/CaptureQuickAdd"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -247,6 +248,13 @@ const App = () => {
                   <Route path="/capture/share-target" element={
                     <Suspense fallback={<PageFallback />}>
                       <CaptureShareTarget />
+                    </Suspense>
+                  } />
+                  {/* iOS has no share-target equivalent, so the iPhone path is
+                      this page, opened from a home-screen icon (US-004). */}
+                  <Route path="/capture/quick-add" element={
+                    <Suspense fallback={<PageFallback />}>
+                      <CaptureQuickAdd />
                     </Suspense>
                   } />
 
