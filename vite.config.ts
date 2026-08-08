@@ -18,13 +18,23 @@ export default defineConfig(() => ({
   },
   build: {
     rollupOptions: {
-      // Two entries: the app (driven by index.html) and the PWA service worker.
+      // Three entries: the app (driven by index.html), the iOS quick-add
+      // document, and the PWA service worker.
+      //
       // The worker must land at the server root as /sw.js so its scope covers
       // the whole app — hence the un-hashed, un-nested filename below.
       // Key the app entry "index" so its chunk keeps the default
       // assets/index-[hash].js name rather than being renamed by this change.
+      //
+      // capture/quick-add.html boots the SAME app bundle but deliberately does
+      // NOT link /manifest.json: on iOS, Add to Home Screen saves a web app
+      // built from the manifest's start_url ("/") whenever a manifest is
+      // present, so /capture/quick-add could never be bookmarked as itself.
+      // Its nested path under the project root is what makes Vite emit
+      // dist/capture/quick-add.html, which vercel.json rewrites the route to.
       input: {
         index: path.resolve(__dirname, "index.html"),
+        "capture/quick-add": path.resolve(__dirname, "capture/quick-add.html"),
         sw: path.resolve(__dirname, "src/sw.ts"),
       },
       output: {

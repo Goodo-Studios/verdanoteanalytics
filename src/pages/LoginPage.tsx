@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate, useLocation } from "react-router-dom";
 import { AuthLayout } from "@/components/AuthLayout";
@@ -12,6 +12,9 @@ import { Loader2, Leaf } from "lucide-react";
 // That path is derived from attacker-influenced share text, so the sanitising
 // lives in one place next to the code that produces it.
 import { resolvePostLoginPath } from "@/pwa/shareTarget";
+// /capture/quick-add is the one route with its own (manifest-free) HTML
+// document, so returning to it after login has to be a real document load.
+import { requiresDocumentNavigation } from "@/pwa/quickAdd";
 
 const LoginPage = () => {
   const { signIn, user, isLoading: authLoading } = useAuth();
@@ -21,6 +24,18 @@ const LoginPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const postLoginPath = user ? resolvePostLoginPath(location.state) : null;
+  // A client-side <Navigate> would render the quick-add route inside the
+  // index.html document, which links the manifest — and iOS would then offer
+  // "Add to Home Screen" for the manifest's start_url ("/") rather than for the
+  // quick-add page the user is actually looking at. A full load fetches
+  // /capture/quick-add.html instead, which links no manifest.
+  const needsDocumentLoad = postLoginPath !== null && requiresDocumentNavigation(postLoginPath);
+
+  useEffect(() => {
+    if (needsDocumentLoad && postLoginPath) window.location.assign(postLoginPath);
+  }, [needsDocumentLoad, postLoginPath]);
+
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -29,7 +44,17 @@ const LoginPage = () => {
     );
   }
 
-  if (user) return <Navigate to={resolvePostLoginPath(location.state)} replace />;
+  // The effect above owns the navigation; hold a spinner rather than flashing
+  // the form (or the SPA-rendered quick-add page) while the document loads.
+  if (needsDocumentLoad) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (postLoginPath) return <Navigate to={postLoginPath} replace />;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

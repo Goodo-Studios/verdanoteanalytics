@@ -26,6 +26,25 @@ export const ADD_TO_HOME_SCREEN_TIP =
  */
 export const CAPTURE_FILE_ACCEPT = "image/*,video/*";
 
+/**
+ * True when `path` must be reached by a full document load rather than a
+ * client-side route change.
+ *
+ * QUICK_ADD_PATH is served by its own HTML document (capture/quick-add.html),
+ * which — unlike index.html — links no web app manifest. That is what lets iOS
+ * Safari's Add to Home Screen bookmark this URL instead of building a web app
+ * from the manifest's start_url ("/"). A React Router navigation would leave
+ * the browser on whatever document it already loaded (index.html, manifest and
+ * all), so the icon would once again point at the site root.
+ *
+ * Deliberately narrow: only the quick-add page has a document of its own, so
+ * only the quick-add path pays the cost of a full reload.
+ */
+export function requiresDocumentNavigation(path: string): boolean {
+  const pathname = path.split(/[?#]/, 1)[0];
+  return pathname === QUICK_ADD_PATH;
+}
+
 /** Remembers a dismissed tip across visits (device-scoped, hence localStorage). */
 const TIP_DISMISSED_KEY = "verdanote:quick-add-tip-dismissed";
 

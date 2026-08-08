@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.png" type="image/png" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+
+    <!--
+      THIS DOCUMENT MUST NEVER LINK THE WEB APP MANIFEST. That is the entire
+      reason it exists as a separate HTML entry rather than being served by
+      index.html. (The prose below deliberately avoids the literal link markup
+      so that grepping the built file for it returns nothing at all.)
+
+      On iOS, Share ▸ Add to Home Screen does not bookmark the page you are
+      looking at. If Safari found a manifest requesting standalone display when
+      the page loaded, it saves a *web app* built from that manifest — and the
+      icon then launches `start_url`, which for us is "/". A user sitting on
+      /capture/quick-add would get an icon that opens the dashboard, which is
+      exactly the bug this file fixes ("it only lets me add verdanote.com").
+
+      Only when there is no manifest requesting web-app behaviour does Safari
+      fall back to the legacy Apple meta tags below — and that fallback bookmarks
+      the CURRENT URL while still launching without browser chrome.
+
+      Stripping the manifest link from index.html at runtime is not an option
+      either: since iOS 15.4 Safari fetches the manifest at page load, not when
+      the share sheet is opened, so a DOM edit after load is too late.
+
+      The root manifest (and its Android share_target) is untouched — index.html
+      still links it, and every other route is still served by index.html.
+    -->
+    <meta name="theme-color" content="#1B7A4E" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Quick Add" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- Non-blocking font load: media="print" prevents render-blocking; onload swaps to "all" -->
+    <link href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Display&family=Crimson+Pro:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Display&family=Crimson+Pro:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet"></noscript>
+    <title>Quick add · Verdanote</title>
+    <meta name="description" content="Save a link or a photo straight into the Verdanote Creative Vault." />
+    <meta name="author" content="Verdanote" />
+    <!-- A duplicate document for an in-app route; keep it out of search results. -->
+    <meta name="robots" content="noindex" />
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
