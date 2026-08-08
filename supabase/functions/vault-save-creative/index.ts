@@ -10,6 +10,7 @@
 // auth.uid() so the owner-scoped INSERT RLS policy from US-001 is satisfied.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { hasAccountAccess } from "../_shared/account-access.ts";
 // Pure save logic (sentinel filtering, snapshot shaping, dedupe decision) lives in
 // a dependency-free module so it can be unit-tested under Vitest (US-005).
 import {
@@ -172,6 +173,14 @@ Deno.serve(async (req) => {
     } = body ?? {};
 
     if (!ad_id) return json({ error: "ad_id required" }, 400);
+
+    // Ownership guard: account_id drives a service-role media-recovery call to
+    // cache-creative-image and is persisted as source_account_id, so the caller
+    // must own it. Staff see all; others must be linked. (account_id is optional
+    // — a save with no account_id does no cross-account work.)
+    if (account_id && !(await hasAccountAccess(db, user.id, account_id))) {
+      return json({ error: "Access denied" }, 403);
+    }
 
     // ─── Dedupe against the GLOBAL library (not per-user) ─────────────────────
     const { data: existing } = await db

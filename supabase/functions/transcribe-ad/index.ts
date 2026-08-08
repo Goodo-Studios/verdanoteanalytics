@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { isPublicHttpUrl } from "../_shared/ssrf.ts";
 
 
 function json(body: unknown, status = 200) {
@@ -42,6 +43,24 @@ Deno.serve(async (req) => {
 
     if (!ad_id || !video_url) {
       return json({ success: false, error: "ad_id and video_url are required" }, 400);
+    }
+
+    // SSRF guard: video_url is handed to Deepgram to fetch. Reject non-public /
+    // internal targets and non-https URLs before spending on the API.
+    if (!isPublicHttpUrl(video_url)) {
+      return json({ success: false, error: "video_url must be a public https URL" }, 400);
+    }
+
+    // Ownership guard: the RLS client only sees rows the caller owns, so this
+    // returns null if ad_id belongs to another user — reject before spending on
+    // Deepgram or mutating anything.
+    const { data: ownRow } = await supabase
+      .from("ad_library_saved_ads")
+      .select("id")
+      .eq("id", ad_id)
+      .maybeSingle();
+    if (!ownRow) {
+      return json({ success: false, error: "Not found" }, 404);
     }
 
     // Mark as processing
