@@ -113,10 +113,12 @@ describe("LibraryPage — batched signed-URL fetch", () => {
    * a failed batch call must not leave every thumbnail blank.
    */
   it("falls back to self-signing every card when the batch call fails", async () => {
+    // Intentional failure shape (data: null) — cast because the mock's type is
+    // inferred from its happy-path default, which has non-null data.
     createSignedUrls.mockImplementationOnce(async () => ({
       data: null,
       error: new Error("signing failed"),
-    }));
+    }) as unknown as { data: { path: string; signedUrl: string; error: null }[]; error: null });
     createSignedUrl.mockImplementation(async (path: string) => ({
       data: { signedUrl: `https://signed.example/self#${path}` },
       error: null,

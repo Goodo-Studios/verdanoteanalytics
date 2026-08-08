@@ -3,6 +3,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { ACTOR_CONFIGS } from "../_shared/actor-configs.ts";
+import { verifyWebhookItem } from "../_shared/webhook-signature.ts";
 
 const APIFY_BASE = "https://api.apify.com/v2";
 
@@ -21,6 +22,17 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     itemId = url.searchParams.get("item_id") ?? "";
 
+    // This endpoint is verify_jwt=false and runs with the service role, so it
+    // must authenticate the caller itself. vault-extract signs the item_id into
+    // the callback URL; reject any callback whose signature is missing or wrong
+    // so an attacker cannot forge a result for an arbitrary item. Fails closed
+    // when VAULT_WEBHOOK_SECRET is unset.
+    if (!itemId) return json({ error: "itemId required" }, 400);
+    const sig = url.searchParams.get("sig");
+    if (!(await verifyWebhookItem(itemId, sig))) {
+      return json({ error: "invalid or missing signature" }, 401);
+    }
+
     const body = await req.json();
     const eventType = (body.eventType ?? "") as string;
     // Apify's default payload: resource.id = run ID; fallback to eventData.actorRunId
@@ -28,8 +40,6 @@ Deno.serve(async (req) => {
 
     console.log(`vault-extract-webhook: itemId=${itemId} eventType=${eventType} runId=${runId}`);
     console.log("Apify webhook body:", JSON.stringify(body).slice(0, 500));
-
-    if (!itemId) return json({ error: "itemId required" }, 400);
 
     // Non-success events — mark the item as failed so the UI shows an error.
     if (eventType !== "ACTOR.RUN.SUCCEEDED") {

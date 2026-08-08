@@ -171,11 +171,13 @@ export function toBriefRow(v: ValidationResult) {
 /**
  * Returns true if the request carries the shared write-brief secret. Accepts
  * either an `x-write-brief-secret` header or `Authorization: Bearer <secret>`.
- * If WRITE_BRIEF_SECRET is unset, the guard is open — the Supabase gateway
- * bearer is still required to reach the function at all. Mirrors ingest-reviews.
+ * This function is verify_jwt=false, so the Supabase gateway does NOT
+ * authenticate the caller — this shared secret is the only gate. Fails CLOSED
+ * when WRITE_BRIEF_SECRET is unset so a misconfigured environment rejects all
+ * callers rather than accepting anonymous writes. Mirrors ingest-reviews.
  */
 export function isAuthorized(req: Request, secret: string | undefined): boolean {
-  if (!secret) return true; // no secret configured -> rely on gateway bearer only
+  if (!secret) return false; // no secret configured -> reject (fail closed)
   const headerSecret = req.headers.get("x-write-brief-secret");
   if (headerSecret && headerSecret === secret) return true;
   const auth = req.headers.get("Authorization") || "";

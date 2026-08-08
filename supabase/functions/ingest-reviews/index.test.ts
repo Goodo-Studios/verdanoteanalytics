@@ -22,8 +22,10 @@ Deno.env.set("INGEST_NO_SERVE", "1");
 // Read with `!` at client-build time; irrelevant because tests inject a mock client.
 Deno.env.set("SUPABASE_URL", "https://example.supabase.co");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "fake-service-role");
-// No INGEST_SECRET by default -> auth guard is open (gateway bearer assumed).
-Deno.env.delete("INGEST_SECRET");
+// Auth now fails closed when INGEST_SECRET is unset, so the handler tests set a
+// known secret and makePost() sends the matching header. Tests that assert a 401
+// override INGEST_SECRET to a different value.
+Deno.env.set("INGEST_SECRET", "test-secret");
 
 const mod = await import("./index.ts");
 
@@ -192,9 +194,9 @@ Deno.test("handler resolves cluster review_index tokens to inserted review UUIDs
   assertEquals(insertedClusterRows[0].supporting_review_ids, [reviewId0, reviewId1]);
 });
 
-Deno.test("isAuthorized is open when no secret configured", () => {
+Deno.test("isAuthorized fails closed when no secret configured", () => {
   const req = new Request("https://fn.local/ingest-reviews", { method: "POST" });
-  assert(mod.isAuthorized(req, undefined));
+  assert(!mod.isAuthorized(req, undefined));
 });
 
 Deno.test("isAuthorized checks x-ingest-secret header and Bearer", () => {
@@ -271,7 +273,7 @@ function hasCall(calls: Call[], method: string, table: string, arg1: unknown, ar
 function makePost(body: unknown): Request {
   return new Request("https://fn.local/ingest-reviews", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-ingest-secret": "test-secret" },
     body: JSON.stringify(body),
   });
 }
@@ -308,7 +310,7 @@ Deno.test("handler 401s when secret is set and request lacks it", async () => {
     const res = await mod.handler(makePost({ account_id: "act_1", batch_key: "b1", reviews: [{}] }), supabase);
     assertEquals(res.status, 401);
   } finally {
-    Deno.env.delete("INGEST_SECRET");
+    Deno.env.set("INGEST_SECRET", "test-secret"); // restore default for later tests
   }
 });
 

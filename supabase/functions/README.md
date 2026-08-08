@@ -24,6 +24,23 @@ supabase secrets set RESEND_API_KEY=<key>         # for digest emails
 supabase secrets set META_ACCESS_TOKEN=<token>    # for Meta/Facebook sync
 ```
 
+### Security-critical secrets (fail closed)
+
+These gate authentication for functions that are `verify_jwt = false`. The
+functions **reject all requests when the secret is unset**, so they must be
+configured in every deployed environment or the corresponding feature stops
+working:
+
+```bash
+# Signs/verifies the Apify callback URL for vault-extract → vault-extract-webhook.
+# Generate once: openssl rand -hex 32
+supabase secrets set VAULT_WEBHOOK_SECRET=<random-32-byte-hex>
+
+# Shared secret required by the review-ingest and brief-write persisters.
+supabase secrets set INGEST_SECRET=<random-secret>       # ingest-reviews
+supabase secrets set WRITE_BRIEF_SECRET=<random-secret>  # write-brief
+```
+
 ---
 
 ## Function Reference

@@ -14,7 +14,7 @@ import { toast } from "sonner";
 const BriefsPage = () => {
   const { selectedAccountId } = useAccountContext();
   const { user } = useAuth();
-  const { data: briefs = [], isLoading } = useBriefs(selectedAccountId);
+  const { data: briefs = [], isLoading } = useBriefs(selectedAccountId ?? undefined);
   const { data: accounts = [] } = useAccounts();
   const { data: templates = [] } = useBriefTemplates();
   const createBrief = useCreateBrief();

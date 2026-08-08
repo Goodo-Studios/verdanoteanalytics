@@ -8,6 +8,7 @@
 // against the per-connection signing_secret before acting on the payload.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { detectPlatform, VIDEO_URL_PATTERN } from "../_shared/platform.ts";
+import { timingSafeEqual } from "../_shared/timing.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -36,7 +37,7 @@ async function verifySlackSignature(
   const hex = "v0=" + Array.from(new Uint8Array(mac))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-  return hex === signature;
+  return timingSafeEqual(hex, signature);
 }
 
 // Downloads a file from Slack (requires bot token) and uploads it to Supabase Storage.

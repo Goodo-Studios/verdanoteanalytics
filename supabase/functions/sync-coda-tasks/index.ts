@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { requireServiceRole } from "../_shared/internal-auth.ts";
 
 
 const CODA_DOC_ID = "Edw6ZW63pk";
@@ -126,6 +127,15 @@ export async function handler(
 ): Promise<Response> {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
+  }
+
+  // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
+  // so this check is the only gate. pg_cron / function-to-function calls forward
+  // the real service-role key. Skipped when a test injects a client.
+  const isInjectedClient = !!injectedClient && typeof (injectedClient as { from?: unknown }).from === "function";
+  if (!isInjectedClient) {
+    const authFailure = await requireServiceRole(req);
+    if (authFailure) return authFailure;
   }
 
   try {

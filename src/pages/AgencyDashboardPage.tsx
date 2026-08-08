@@ -67,7 +67,7 @@ export default function AgencyDashboardPage() {
     for (const c of creativesArr.filter((c: any) => (Number(c.spend) || 0) > 100).slice(0, 50)) {
       const f = computeFatigue(c);
       if (f.level === "high") {
-        items.push({ id: `fatigue-${c.ad_id}`, label: c.ad_name?.slice(0, 40), detail: `Fatigue: ${f.score}/100`, type: "fatigue" });
+        items.push({ id: `fatigue-${c.ad_id}`, label: c.ad_name?.slice(0, 40) ?? "", detail: `Fatigue: ${f.score}/100`, type: "fatigue" });
       }
     }
 

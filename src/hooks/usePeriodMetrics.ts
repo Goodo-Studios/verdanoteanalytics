@@ -36,7 +36,7 @@ export function usePeriodMetrics(opts: {
     // Intentionally no keepPreviousData — on account switch, stale cross-account data must not render.
     queryFn: async () => {
       const { data, error } = await supabase.rpc("get_period_metrics", {
-        p_account_id: accountId && accountId !== "all" ? accountId : null,
+        p_account_id: accountId && accountId !== "all" ? accountId : undefined,
         p_from: dateFrom!,
         p_to: dateTo!,
       });

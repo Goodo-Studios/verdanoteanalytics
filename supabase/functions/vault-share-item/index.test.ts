@@ -65,6 +65,8 @@ interface MockOpts {
   signedUrl?: string | null;
   // User returned by auth.getUser. null => unauthenticated.
   user?: Record<string, unknown> | null;
+  // Role returned by the get_user_role rpc (isStaffUser). Default: "client".
+  role?: string;
 }
 
 interface Captured {
@@ -104,6 +106,9 @@ function makeClient(opts: MockOpts) {
 
   const client = {
     from: (table: string) => builder(table),
+    // isStaffUser() calls get_user_role; default a non-staff "client" role.
+    rpc: (_fn: string, _args: unknown) =>
+      Promise.resolve({ data: opts.role ?? "client", error: null }),
     auth: {
       // deno-lint-ignore no-explicit-any
       getUser: (_token: string) =>
@@ -215,7 +220,7 @@ Deno.test("mint 401s without a valid user", async () => {
 Deno.test("mint reuses an existing token (idempotent, no update)", async () => {
   const { client, captured } = makeClient({
     user: { id: "u1" },
-    item: { share_token: "existing12345" },
+    item: { share_token: "existing12345", saved_by: "u1" },
   });
   const res = await mod.handler(post({ action: "mint", item_id: "it1" }, AUTH), client);
   assertEquals(res.status, 200);
@@ -226,7 +231,7 @@ Deno.test("mint reuses an existing token (idempotent, no update)", async () => {
 Deno.test("mint generates + persists a new token when none exists", async () => {
   const { client, captured } = makeClient({
     user: { id: "u1" },
-    item: { share_token: null },
+    item: { share_token: null, saved_by: "u1" },
   });
   const res = await mod.handler(post({ action: "mint", item_id: "it1" }, AUTH), client);
   assertEquals(res.status, 200);
@@ -244,6 +249,27 @@ Deno.test("mint 404s a missing item", async () => {
   assertEquals(res.status, 404);
 });
 
+Deno.test("mint 403s when the caller does not own the item (non-staff)", async () => {
+  const { client, captured } = makeClient({
+    user: { id: "u1" },
+    item: { share_token: null, saved_by: "someone-else" },
+    role: "client",
+  });
+  const res = await mod.handler(post({ action: "mint", item_id: "it1" }, AUTH), client);
+  assertEquals(res.status, 403);
+  assertEquals(captured.updates.length, 0);
+});
+
+Deno.test("mint allows staff to share any item", async () => {
+  const { client } = makeClient({
+    user: { id: "staff1" },
+    item: { share_token: "existing12345", saved_by: "someone-else" },
+    role: "builder",
+  });
+  const res = await mod.handler(post({ action: "mint", item_id: "it1" }, AUTH), client);
+  assertEquals(res.status, 200);
+});
+
 // ---- revoke ----------------------------------------------------------------
 
 Deno.test("revoke 401s without a user", async () => {
@@ -252,12 +278,23 @@ Deno.test("revoke 401s without a user", async () => {
   assertEquals(res.status, 401);
 });
 
-Deno.test("revoke nulls share_token + shared_at when authed", async () => {
-  const { client, captured } = makeClient({ user: { id: "u1" } });
+Deno.test("revoke nulls share_token + shared_at when the owner is authed", async () => {
+  const { client, captured } = makeClient({ user: { id: "u1" }, item: { saved_by: "u1" } });
   const res = await mod.handler(post({ action: "revoke", item_id: "it1" }, AUTH), client);
   assertEquals(res.status, 200);
   assertEquals((await res.json()).ok, true);
   assertEquals(captured.updates.length, 1);
   assertEquals(captured.updates[0].values.share_token, null);
   assertEquals(captured.updates[0].values.shared_at, null);
+});
+
+Deno.test("revoke 403s when the caller does not own the item (non-staff)", async () => {
+  const { client, captured } = makeClient({
+    user: { id: "u1" },
+    item: { saved_by: "someone-else" },
+    role: "client",
+  });
+  const res = await mod.handler(post({ action: "revoke", item_id: "it1" }, AUTH), client);
+  assertEquals(res.status, 403);
+  assertEquals(captured.updates.length, 0);
 });

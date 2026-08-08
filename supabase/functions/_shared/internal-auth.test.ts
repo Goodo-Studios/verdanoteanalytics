@@ -170,6 +170,11 @@ Deno.test("junk tokens are not probed at all (no outbound amplification)", async
     try {
       assertEquals(await isTrustedInternalRequest(reqWith("Bearer not-a-credential")), false);
       assertEquals(await isTrustedInternalRequest(reqWith("Bearer x")), false);
+      // A 3-part dotted string that is NOT a role:service_role JWT must also be
+      // rejected before any probe — this is the amplification-hardening case
+      // (previously any "a.b.c" shape triggered an outbound admin request).
+      assertEquals(await isTrustedInternalRequest(reqWith("Bearer a.b.c")), false);
+      assertEquals(await isTrustedInternalRequest(reqWith(`Bearer ${forgedJwt({ role: "authenticated" })}`)), false);
       assertEquals(f.calls.length, 0);
     } finally {
       f.restore();

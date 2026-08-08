@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { hasAccountAccess } from "../_shared/account-access.ts";
 import {
   assetStoragePath,
   computeContentHash,
@@ -178,10 +179,21 @@ serve(async (req) => {
     });
   }
 
+  // Ownership guard: this runs on the service-role client (bypasses RLS), so
+  // verify the caller may access account_id before doing any Meta discovery or
+  // mutating another tenant's creative. Staff see all; others must be linked.
+  if (!(await hasAccountAccess(supabase, user.id, account_id))) {
+    return new Response(JSON.stringify({ error: "Access denied" }), {
+      status: 403,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   const { data: creative, error: fetchErr } = await supabase
     .from("creatives")
     .select("ad_id, account_id, thumbnail_url, full_res_url, video_url, thumb_asset_id, video_asset_id")
     .eq("ad_id", ad_id)
+    .eq("account_id", account_id)
     .single();
 
   if (fetchErr || !creative) {

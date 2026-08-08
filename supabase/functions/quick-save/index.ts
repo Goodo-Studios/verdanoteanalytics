@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { isAllowedMediaUrl } from "../_shared/ssrf.ts";
 
 
 const CHROME_UA =
@@ -120,6 +121,13 @@ async function cacheThumbnail(
   imageUrl: string,
   userId: string
 ): Promise<string | null> {
+  // SSRF guard: imageUrl comes from the caller's extracted_data. Only fetch it
+  // if it's an allowed media CDN — otherwise the server could be made to fetch
+  // an internal URL (e.g. cloud metadata) and re-serve it from a public bucket.
+  if (!isAllowedMediaUrl(imageUrl)) {
+    console.error("cacheThumbnail blocked: disallowed host", imageUrl);
+    return null;
+  }
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);

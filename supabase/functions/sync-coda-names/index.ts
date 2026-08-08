@@ -17,6 +17,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { resolveConvention, type NamingConvention } from "../_shared/naming-convention.ts";
 import { parseAdName } from "../_shared/parse-ad-name.ts";
 
@@ -54,6 +55,12 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+
+  // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
+  // so this check is the only gate. pg_cron and function-to-function calls forward
+  // the real service-role key. See _shared/internal-auth.ts.
+  const authFailure = await requireServiceRole(req);
+  if (authFailure) return authFailure;
 
   try {
     const CODA_API_KEY = Deno.env.get("CODA_API_KEY");

@@ -39,6 +39,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { requireServiceRole } from "../_shared/internal-auth.ts";
 import {
   assetStoragePath,
   classifyVideoFailure,
@@ -978,6 +979,15 @@ export async function drainOnce(
 
 export async function handler(req: Request, supabaseOverride?: unknown): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
+  // so this check is the only gate. pg_cron / function-to-function calls forward
+  // the real service-role key. Skipped when a test injects a client.
+  const isInjectedClient = !!supabaseOverride && typeof (supabaseOverride as { from?: unknown }).from === "function";
+  if (!isInjectedClient) {
+    const authFailure = await requireServiceRole(req);
+    if (authFailure) return authFailure;
+  }
 
   // serve() invokes handler(req, connInfo); connInfo is truthy but has no `.from`,
   // so only accept an override that actually looks like a Supabase client.

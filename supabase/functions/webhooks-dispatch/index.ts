@@ -62,6 +62,24 @@ Deno.serve(
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
+    // Agency staff (builder/employee) may dispatch to any account and to the
+    // "global" webhooks (those with no account_ids). Memoised — used to gate the
+    // paths that would otherwise let any key reach another tenant's webhook.
+    let staffChecked = false;
+    let staffCached = false;
+    const callerIsStaff = async (): Promise<boolean> => {
+      if (staffChecked) return staffCached;
+      const { data: roleRow } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId)
+        .in("role", ["builder", "employee"])
+        .maybeSingle();
+      staffCached = !!roleRow;
+      staffChecked = true;
+      return staffCached;
+    };
+
     try {
       const { event, account_id, account_name, data, test_webhook_id } =
         await req.json();
@@ -170,7 +188,26 @@ Deno.serve(
               );
             }
           }
+        } else if (!(await callerIsStaff())) {
+          // A webhook with no account_ids is a "global" webhook. Previously the
+          // empty-account_ids case skipped the ownership check entirely, letting
+          // any key test-dispatch to another tenant's global webhook. Require staff.
+          return new Response(
+            JSON.stringify({ error: "Forbidden: you do not have access to this webhook" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
         }
+      }
+
+      // Non-test dispatch with no account_id fans out to every "global" webhook
+      // (those with empty account_ids). That is a staff-only operation — without
+      // this gate any key could broadcast attacker-controlled data (signed with
+      // each webhook's secret) to every tenant's global webhook.
+      if (!test_webhook_id && !account_id && !(await callerIsStaff())) {
+        return new Response(
+          JSON.stringify({ error: "Forbidden: account_id is required" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
       }
 
       const matching = (webhooks || []).filter((wh: any) => {

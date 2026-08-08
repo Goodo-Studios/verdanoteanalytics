@@ -10,6 +10,7 @@
 // upserts the vector into item_embeddings for semantic search via vault-search.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { json } from "../_shared/cors.ts";
+import { requireServiceRole } from "../_shared/internal-auth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -37,6 +38,11 @@ async function embed(text: string): Promise<number[]> {
 }
 
 Deno.serve(async (req) => {
+  // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
+  // so this check is the only gate. pg_cron and function-to-function calls forward
+  // the real service-role key. See _shared/internal-auth.ts.
+  const authFailure = await requireServiceRole(req);
+  if (authFailure) return authFailure;
   const { item_id } = await req.json() as { item_id: string };
   if (!item_id) return json({ error: "item_id required" }, 400);
 

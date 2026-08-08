@@ -249,12 +249,14 @@ export function toClusterRow(
 
 /**
  * Returns true if the request carries the shared ingest secret. Accepts either
- * an `x-ingest-secret` header or an `Authorization: Bearer <secret>`. If
- * INGEST_SECRET is unset (e.g. local dev with no env), the guard is open — the
- * Supabase gateway bearer is still required to reach the function at all.
+ * an `x-ingest-secret` header or an `Authorization: Bearer <secret>`. This
+ * function is verify_jwt=false, so the Supabase gateway does NOT authenticate
+ * the caller — this shared secret is the only gate. Fails CLOSED when
+ * INGEST_SECRET is unset so a misconfigured environment rejects all callers
+ * rather than accepting anonymous writes.
  */
 export function isAuthorized(req: Request, secret: string | undefined): boolean {
-  if (!secret) return true; // no secret configured -> rely on gateway bearer only
+  if (!secret) return false; // no secret configured -> reject (fail closed)
   const headerSecret = req.headers.get("x-ingest-secret");
   if (headerSecret && headerSecret === secret) return true;
   const auth = req.headers.get("Authorization") || "";

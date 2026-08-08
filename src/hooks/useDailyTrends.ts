@@ -30,9 +30,11 @@ export function useDailyTrends(
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("get_daily_trends", {
-        p_account_id: accountId && accountId !== "all" ? accountId : null,
-        p_from: dateRange?.from ?? null,
-        p_to: dateRange?.to ?? null,
+        // undefined (not null) matches the generated Args type; supabase-js omits
+        // it, so the SQL function still applies its DEFAULT NULL ("all accounts").
+        p_account_id: accountId && accountId !== "all" ? accountId : undefined,
+        p_from: dateRange?.from ?? undefined,
+        p_to: dateRange?.to ?? undefined,
       });
 
       if (error) throw error;
