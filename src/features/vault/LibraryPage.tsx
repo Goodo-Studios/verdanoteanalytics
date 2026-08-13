@@ -17,7 +17,12 @@ import {
   type VaultStatusFilter,
 } from "./components/FilterToolbar";
 import { useItemStatus } from "./hooks/useItemStatus";
-import { isImageFilePath, vaultListPollInterval, type LibraryItem } from "./types/vault";
+import {
+  isImageFilePath,
+  vaultListPollInterval,
+  VAULT_CARD_COLUMNS,
+  type LibraryItem,
+} from "./types/vault";
 import { buildSignedUrlMap, collectVaultStoragePaths, resolveProvidedSignedUrl } from "./utils/signedUrls";
 
 const VAULT_STATUSES: VaultStatusFilter[] = ["all", "pending", "ready", "error"];
@@ -201,13 +206,18 @@ export default function LibraryPage() {
         if (tagItemIds.length === 0) return [];
       }
 
+      // Explicit column list, not `*`. inspiration_items carries the two AI
+      // analysis blobs (script_analysis, visual_analysis) plus ad_body_text,
+      // and none of them are rendered on a card — `*` was pulling all of it for
+      // every item in the library on each load. The detail page still selects
+      // `*` for the single item it shows.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let q = supabase
         .from("inspiration_items")
         .select(
-          `*,
+          `${VAULT_CARD_COLUMNS},
            inspiration_transcripts(cleaned_script),
-           inspiration_frameworks(hook_verbal, hook_text, hook_formula, copywriting_framework)`,
+           inspiration_frameworks(hook_verbal, hook_text, copywriting_framework)`,
         )
         .eq("user_id", user!.id)
         .order("created_at", { ascending: sort === "oldest" });

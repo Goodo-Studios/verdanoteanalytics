@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { Loader2, AlertCircle, MoreHorizontal, Check, Star, Trash2, LayoutGrid } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -11,12 +11,15 @@ import {
   STATUS_LABELS,
   VAULT_PROCESSING_STATUSES,
   isImageFilePath,
-  type InspirationItem,
+  type InspirationCardItem,
 } from "../types/vault";
 import { AddToBoardModal } from "./AddToBoardModal";
 
 interface Props {
-  item: InspirationItem;
+  /** Narrow on purpose — only the columns a card renders, so the library grid
+   * can select those and skip the AI analysis blobs. Callers holding a full
+   * InspirationItem row still satisfy this. */
+  item: InspirationCardItem;
   hookPreview?: string | null;
   hookVerbal?: string | null;
   hookText?: string | null;
@@ -59,10 +62,38 @@ export function InspirationCard({
   const [signedFileUrlSelf, setSignedFileUrlSelf] = useState<string | null>(null);
   const [signedThumbnailUrlSelf, setSignedThumbnailUrlSelf] = useState<string | null>(null);
   const [firstFrameUrl, setFirstFrameUrl] = useState<string | null>(null);
+  const [firstFrameFailed, setFirstFrameFailed] = useState(false);
   const [thumbnailError, setThumbnailError] = useState(false);
   const [addToBoardOpen, setAddToBoardOpen] = useState(false);
+  const mediaRef = useRef<HTMLDivElement | null>(null);
+  const [nearViewport, setNearViewport] = useState(false);
 
   const isImageFile = isImageFilePath(item.file_path);
+
+  // Only cards at or near the viewport do any media work. The first-frame
+  // extraction below downloads real video bytes, so letting every card in a
+  // several-hundred-item grid start one on mount saturated the connection and
+  // left the whole page crawling. `rootMargin` keeps a screenful of lead time
+  // so frames are ready before a scrolling user reaches them.
+  useEffect(() => {
+    const el = mediaRef.current;
+    if (!el || nearViewport) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setNearViewport(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setNearViewport(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "600px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [nearViewport]);
 
   // signed*UrlProp follows the 3-state contract from utils/signedUrls.ts
   // (resolveProvidedSignedUrl): `undefined` = parent's batch call hasn't
@@ -104,10 +135,12 @@ export function InspirationCard({
       });
   }, [item.file_path, useProvidedSignedUrls, signedFileUrlProp]);
 
-  // First-frame fallback when no usable thumbnail.
+  // First-frame fallback when no usable thumbnail. Deferred until the card is
+  // near the viewport (see the observer above) because this pulls real video
+  // bytes over the wire.
   useEffect(() => {
     const hasThumbnail = signedThumbnailUrl || (item.thumbnail_url && !thumbnailError);
-    if (!signedFileUrl || isImageFile || hasThumbnail) return;
+    if (!nearViewport || !signedFileUrl || isImageFile || hasThumbnail) return;
     let cancelled = false;
 
     const video = document.createElement("video");
@@ -115,23 +148,35 @@ export function InspirationCard({
     video.muted = true;
     video.preload = "metadata";
 
+    // Every exit path has to land on either a frame or `firstFrameFailed`.
+    // Previously a CORS-tainted canvas was swallowed by a bare `catch` and a
+    // stalled/erroring video had no handler at all, so the card sat on the
+    // "Loading…" placeholder forever with nothing left in flight to change it.
+    const giveUp = () => {
+      if (!cancelled) setFirstFrameFailed(true);
+    };
+    // Videos that never fire `error` (a dead signed URL that stalls, a codec the
+    // browser won't decode) still need a floor.
+    const timer = setTimeout(giveUp, 10_000);
+
     const onSeeked = () => {
       if (cancelled) return;
       const canvas = document.createElement("canvas");
       canvas.width = video.videoWidth || 360;
       canvas.height = video.videoHeight || 640;
       const ctx = canvas.getContext("2d");
-      if (ctx) {
+      if (!ctx) return giveUp();
+      try {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        try {
-          setFirstFrameUrl(canvas.toDataURL("image/jpeg", 0.85));
-        } catch {
-          /* CORS-blocked frame — silently skip */
-        }
+        setFirstFrameUrl(canvas.toDataURL("image/jpeg", 0.85));
+      } catch {
+        // CORS-tainted canvas — no frame is possible for this item.
+        giveUp();
       }
     };
 
     video.addEventListener("seeked", onSeeked, { once: true });
+    video.addEventListener("error", giveUp, { once: true });
     video.addEventListener(
       "loadedmetadata",
       () => {
@@ -144,8 +189,20 @@ export function InspirationCard({
 
     return () => {
       cancelled = true;
+      clearTimeout(timer);
+      // Drop the request so a card scrolled past mid-fetch stops competing for
+      // bandwidth with the cards the user is actually looking at.
+      video.removeAttribute("src");
+      video.load();
     };
-  }, [signedFileUrl, isImageFile, item.thumbnail_url, signedThumbnailUrl, thumbnailError]);
+  }, [
+    nearViewport,
+    signedFileUrl,
+    isImageFile,
+    item.thumbnail_url,
+    signedThumbnailUrl,
+    thumbnailError,
+  ]);
 
   const visibleHook = hookVerbal ?? hookPreview ?? null;
   const platformKey = item.platform ?? "unknown";
@@ -159,6 +216,7 @@ export function InspirationCard({
     >
       <Link to={`${prefix}/ad-library/${item.id}`} className="block">
         <div
+          ref={mediaRef}
           className="relative aspect-[9/16] bg-muted overflow-hidden"
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
@@ -176,12 +234,16 @@ export function InspirationCard({
             <img
               src={signedThumbnailUrl}
               alt={item.title ?? "Inspiration"}
+              loading="lazy"
+              decoding="async"
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             />
           ) : item.thumbnail_url && !thumbnailError ? (
             <img
               src={item.thumbnail_url}
               alt={item.title ?? "Inspiration"}
+              loading="lazy"
+              decoding="async"
               onError={() => setThumbnailError(true)}
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             />
@@ -189,15 +251,18 @@ export function InspirationCard({
             <img
               src={signedFileUrl}
               alt={item.title ?? "Inspiration"}
+              loading="lazy"
+              decoding="async"
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             />
           ) : firstFrameUrl ? (
             <img
               src={firstFrameUrl}
               alt={item.title ?? "Inspiration"}
+              decoding="async"
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             />
-          ) : signedFileUrl ? (
+          ) : signedFileUrl && !firstFrameFailed ? (
             <div className="w-full h-full flex items-center justify-center text-muted-foreground text-sm">
               Loading…
             </div>

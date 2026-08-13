@@ -55,15 +55,44 @@ export interface CreativeFrame {
   } | null;
 }
 
-export type LibraryItem = InspirationItem & {
-  inspiration_transcripts?: { cleaned_script: string | null }[];
-  inspiration_frameworks?: {
-    hook_verbal: string | null;
-    hook_text: string | null;
-    hook_formula: string | null;
-    copywriting_framework: string | null;
-  }[];
-};
+/** The subset of InspirationItem an InspirationCard actually renders.
+ *
+ * Typed narrowly on purpose: the library grid no longer selects `*` (the AI
+ * analysis blobs dominated the payload), so a wider type here would let a
+ * future edit read a column the list query doesn't fetch and get `undefined`
+ * at runtime with no compile error. Callers holding a full row still satisfy
+ * it. Keep in lockstep with VAULT_CARD_COLUMNS below. */
+export type InspirationCardItem = Pick<
+  InspirationItem,
+  | "id"
+  | "platform"
+  | "creator_handle"
+  | "title"
+  | "brand_name"
+  | "thumbnail_url"
+  | "thumbnail_path"
+  | "video_url"
+  | "file_path"
+  | "status"
+  | "error_message"
+  | "is_featured"
+>;
+
+/** Columns LibraryPage selects for the grid — every field the cards, the
+ * media-type filter and the sort need, and nothing else. */
+export const VAULT_CARD_COLUMNS = `id, user_id, platform, creator_handle, title, brand_name,
+   thumbnail_url, thumbnail_path, video_url, file_path,
+   status, error_message, is_featured, created_at`;
+
+export type LibraryItem = InspirationCardItem &
+  Pick<InspirationItem, "user_id" | "created_at"> & {
+    inspiration_transcripts?: { cleaned_script: string | null }[];
+    inspiration_frameworks?: {
+      hook_verbal: string | null;
+      hook_text: string | null;
+      copywriting_framework: string | null;
+    }[];
+  };
 
 export const PLATFORM_LABELS: Record<string, string> = {
   tiktok: "TikTok",

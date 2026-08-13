@@ -255,4 +255,97 @@ describe("AuthContext", () => {
     expect(screen.getByTestId("isClient").textContent).toBe("true");
     expect(screen.getByTestId("isBuilder").textContent).toBe("false");
   });
+
+  // Regression (2026-08-13): "the vault does a full page refresh when I open an
+  // ad in another tab". Supabase fires TOKEN_REFRESHED on the current tab and
+  // broadcasts SIGNED_IN to other tabs when a second tab picks up the persisted
+  // session. Both used to reset roleResolved, and RoleGuardedRoutes renders a
+  // full-screen spinner whenever isLoading is true — so a routine token refresh
+  // unmounted and remounted the whole app. For a SAME-user event, isLoading must
+  // never flip back to true and the role must not be re-fetched.
+  it.each(["TOKEN_REFRESHED", "SIGNED_IN", "USER_UPDATED"])(
+    "stays mounted on a same-user %s event (no spurious remount)",
+    async (event) => {
+      let changeCallback!: (event: string, session: any) => void;
+      const fakeUser = { id: "u5", email: "builder@test.com" };
+
+      vi.mocked(supabase.auth.getSession).mockResolvedValue({
+        data: { session: { user: fakeUser } },
+        error: null,
+      } as any);
+      vi.mocked(supabase.auth.onAuthStateChange).mockImplementation((cb: any) => {
+        changeCallback = cb;
+        return { data: { subscription: mockUnsub } } as any;
+      });
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: "builder", error: null } as any);
+
+      render(
+        <AuthProvider>
+          <TestConsumer />
+        </AuthProvider>
+      );
+
+      await waitFor(() =>
+        expect(screen.getByTestId("isBuilder").textContent).toBe("true")
+      );
+      expect(supabase.rpc).toHaveBeenCalledTimes(1);
+
+      // Same user, refreshed session — must not re-enter the loading state.
+      await act(async () => {
+        changeCallback(event, { user: { ...fakeUser } });
+      });
+
+      expect(screen.queryByText("loading")).not.toBeInTheDocument();
+      expect(screen.getByTestId("isBuilder").textContent).toBe("true");
+      // And it must not re-resolve a role it already has.
+      expect(supabase.rpc).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  // The other half of the contract: switching to a DIFFERENT user must still
+  // re-enter loading, or useRolePrefix() briefly returns the "/builder" default
+  // for what is really a client account (the /builder flash, US-009).
+  it("still re-enters loading when a different user signs in", async () => {
+    let changeCallback!: (event: string, session: any) => void;
+
+    vi.mocked(supabase.auth.getSession).mockResolvedValue({
+      data: { session: { user: { id: "u6", email: "builder@test.com" } } },
+      error: null,
+    } as any);
+    vi.mocked(supabase.auth.onAuthStateChange).mockImplementation((cb: any) => {
+      changeCallback = cb;
+      return { data: { subscription: mockUnsub } } as any;
+    });
+    vi.mocked(supabase.rpc).mockResolvedValue({ data: "builder", error: null } as any);
+
+    render(
+      <AuthProvider>
+        <TestConsumer />
+      </AuthProvider>
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("isBuilder").textContent).toBe("true")
+    );
+
+    // Deferred rpc so the window between sign-in and role resolution is observable.
+    let resolveRole!: (v: any) => void;
+    vi.mocked(supabase.rpc).mockReturnValue(
+      new Promise((res) => {
+        resolveRole = res;
+      }) as any
+    );
+
+    await act(async () => {
+      changeCallback("SIGNED_IN", { user: { id: "u7", email: "client@brand.com" } });
+    });
+    expect(screen.getByText("loading")).toBeInTheDocument();
+
+    await act(async () => {
+      resolveRole({ data: "client", error: null });
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("isClient").textContent).toBe("true")
+    );
+  });
 });
