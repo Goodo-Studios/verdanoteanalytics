@@ -36,16 +36,33 @@ const ITEMS = [
   },
 ];
 
-function tableBuilder(rows: unknown[]) {
+/** Minimal PostgREST-shaped fake: honours `.eq("is_featured", true)` (the
+ * featured rail's query) and `.range()` (the paged grid), so the grid and the
+ * rail are actually distinguishable. Without `.range()` the grid query throws
+ * and the rail alone satisfies the assertions — a false pass. */
+function tableBuilder(rows: { is_featured?: boolean }[]) {
+  let featuredOnly = false;
+  let range: [number, number] | null = null;
   const builder: Record<string, unknown> = {};
   const chain = () => builder;
   builder.select = vi.fn(chain);
-  builder.eq = vi.fn(chain);
+  builder.eq = vi.fn((col: string, val: unknown) => {
+    if (col === "is_featured" && val === true) featuredOnly = true;
+    return builder;
+  });
   builder.in = vi.fn(chain);
   builder.order = vi.fn(chain);
   builder.delete = vi.fn(chain);
   builder.update = vi.fn(chain);
-  builder.then = (resolve: (v: unknown) => void) => resolve({ data: rows, error: null });
+  builder.range = vi.fn((from: number, to: number) => {
+    range = [from, to];
+    return builder;
+  });
+  builder.then = (resolve: (v: unknown) => void) => {
+    let out = featuredOnly ? rows.filter((r) => r.is_featured) : rows;
+    if (range) out = out.slice(range[0], range[1] + 1);
+    return resolve({ data: out, error: null });
+  };
   return builder;
 }
 

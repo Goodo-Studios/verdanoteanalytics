@@ -35,6 +35,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [roleResolved, setRoleResolved] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const fetchRoleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The user id whose role is currently held in state. Used to tell a real
+  // identity change (sign-in, account switch) apart from a same-user session
+  // event (TOKEN_REFRESHED, or the SIGNED_IN that Supabase broadcasts to every
+  // other tab when a second tab boots). See the auth-event handler below.
+  const roleUserIdRef = useRef<string | null>(null);
 
   const fetchRole = async (userId: string) => {
     // Always resolve roleResolved, even on error/rejection — otherwise a failed
@@ -69,8 +74,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
+        roleUserIdRef.current = session.user.id;
         fetchRole(session.user.id);
       } else {
+        roleUserIdRef.current = null;
         setRole(null);
         setRoleResolved(true);
       }
@@ -83,13 +90,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
-          // Re-enter the loading state until the new user's role resolves, so
-          // useRolePrefix() does not momentarily return the "/builder" default
-          // for what is actually a client/employee account (the /builder flash).
-          setRoleResolved(false);
-          if (fetchRoleTimerRef.current !== null) clearTimeout(fetchRoleTimerRef.current);
-          fetchRoleTimerRef.current = setTimeout(() => fetchRole(session.user.id), 0);
+          // Same user, refreshed session — keep the role we already resolved and
+          // stay OUT of the loading state.
+          //
+          // Regression (2026-08-13, "the vault refreshes when I open an ad in a
+          // new tab"): this branch used to reset roleResolved unconditionally.
+          // Supabase fires onAuthStateChange for TOKEN_REFRESHED, and it
+          // broadcasts SIGNED_IN to every other open tab when a new tab boots
+          // and picks up the persisted session. Because RoleGuardedRoutes
+          // renders a full-screen spinner whenever isLoading is true, each of
+          // those routine events unmounted the entire app subtree — AppLayout,
+          // the page, and all of its component state — and remounted it a
+          // moment later, refetching everything. To the user that is
+          // indistinguishable from a full page refresh, and it fired every time
+          // they cmd-clicked a card into a second tab.
+          //
+          // A genuine identity change (first sign-in, switching accounts) still
+          // re-enters loading, which is what keeps useRolePrefix() from
+          // briefly returning the "/builder" default for a client or employee
+          // account — the /builder flash guarded by the US-009 redirect E2E.
+          if (roleUserIdRef.current !== session.user.id) {
+            roleUserIdRef.current = session.user.id;
+            setRoleResolved(false);
+            if (fetchRoleTimerRef.current !== null) clearTimeout(fetchRoleTimerRef.current);
+            fetchRoleTimerRef.current = setTimeout(() => fetchRole(session.user.id), 0);
+          }
         } else {
+          roleUserIdRef.current = null;
           setRole(null);
           setRoleResolved(true);
         }
