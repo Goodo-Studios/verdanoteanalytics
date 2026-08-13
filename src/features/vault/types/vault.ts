@@ -78,6 +78,10 @@ export type InspirationCardItem = Pick<
   | "is_featured"
 >;
 
+/** Items the library grid loads per page. Four columns at the widest
+ * breakpoint, so this is a whole number of rows. */
+export const VAULT_PAGE_SIZE = 48;
+
 /** Columns LibraryPage selects for the grid — every field the cards, the
  * media-type filter and the sort need, and nothing else. */
 export const VAULT_CARD_COLUMNS = `id, user_id, platform, creator_handle, title, brand_name,

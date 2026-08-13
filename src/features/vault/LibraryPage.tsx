@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Star, Trash2, Vault, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
@@ -20,10 +20,12 @@ import { useItemStatus } from "./hooks/useItemStatus";
 import {
   isImageFilePath,
   vaultListPollInterval,
+  VAULT_PAGE_SIZE,
   VAULT_CARD_COLUMNS,
   type LibraryItem,
 } from "./types/vault";
 import { buildSignedUrlMap, collectVaultStoragePaths, resolveProvidedSignedUrl } from "./utils/signedUrls";
+import { fillVaultPage, type VaultPage } from "./utils/pagination";
 
 const VAULT_STATUSES: VaultStatusFilter[] = ["all", "pending", "ready", "error"];
 const VAULT_SORTS: VaultSort[] = ["newest", "oldest"];
@@ -125,6 +127,7 @@ export default function LibraryPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["vault-items"] });
+      queryClient.invalidateQueries({ queryKey: ["vault-featured"] });
       queryClient.invalidateQueries({ queryKey: ["vault-tags"] });
       clearSelection();
       toast.success("Deleted");
@@ -143,6 +146,7 @@ export default function LibraryPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["vault-items"] });
+      queryClient.invalidateQueries({ queryKey: ["vault-featured"] });
       queryClient.invalidateQueries({ queryKey: ["vault-tags"] });
       toast.success("Deleted");
     },
@@ -160,6 +164,7 @@ export default function LibraryPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["vault-items"] });
+      queryClient.invalidateQueries({ queryKey: ["vault-featured"] });
     },
   });
 
@@ -190,22 +195,22 @@ export default function LibraryPage() {
     },
   });
 
-  const { data: items = [], isLoading } = useQuery<LibraryItem[]>({
-    queryKey: ["vault-items", user?.id, status, sort, activeTag],
-    enabled: !!user,
-    queryFn: async () => {
-      let tagItemIds: string[] | null = null;
-      if (activeTag) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { data: tagRows, error: tagErr } = await supabase
-          .from("inspiration_tags")
-          .select("item_id")
-          .eq("tag", activeTag);
-        if (tagErr) throw tagErr;
-        tagItemIds = (tagRows ?? []).map((r: { item_id: string }) => r.item_id);
-        if (tagItemIds.length === 0) return [];
-      }
+  // Video/static isn't a DB column — it's derived from file_path's extension
+  // (same signal InspirationCard uses to decide <img> vs <video>), so it can
+  // only be applied after rows come back. fillVaultPage below keeps that from
+  // producing half-empty pages.
+  const matchesMediaType = useCallback(
+    (item: Pick<LibraryItem, "file_path">) => {
+      if (mediaType === "all") return true;
+      const isStatic = isImageFilePath(item.file_path);
+      return mediaType === "static" ? isStatic : !isStatic;
+    },
+    [mediaType],
+  );
 
+  // One shared row-fetcher for both the paged grid and the featured rail.
+  const selectItems = useCallback(
+    (tagItemIds: string[] | null) => {
       // Explicit column list, not `*`. inspiration_items carries the two AI
       // analysis blobs (script_analysis, visual_analysis) plus ad_body_text,
       // and none of them are rendered on a card — `*` was pulling all of it for
@@ -226,16 +231,81 @@ export default function LibraryPage() {
       else if (status === "ready") q = q.eq("status", "ready");
       else if (status === "error") q = q.eq("status", "error");
       if (tagItemIds) q = q.in("id", tagItemIds);
+      return q;
+    },
+    [user, sort, status],
+  );
 
-      const { data, error } = await q;
-      if (error) throw error;
-      return (data ?? []) as LibraryItem[];
+  // Resolves the active tag chip to the item ids it covers. `null` means "no
+  // tag filter"; an empty array means "this tag matches nothing".
+  const resolveTagItemIds = useCallback(async (): Promise<string[] | null> => {
+    if (!activeTag) return null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: tagRows, error: tagErr } = await supabase
+      .from("inspiration_tags")
+      .select("item_id")
+      .eq("tag", activeTag);
+    if (tagErr) throw tagErr;
+    return (tagRows ?? []).map((r: { item_id: string }) => r.item_id);
+  }, [activeTag]);
+
+  // Paged, not "every row the user has ever saved". A large library used to
+  // fetch and mount its entire contents on load; the grid now pulls
+  // VAULT_PAGE_SIZE at a time and appends on demand.
+  const {
+    data: pages,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ["vault-items", user?.id, status, sort, activeTag, mediaType],
+    enabled: !!user,
+    initialPageParam: 0,
+    getNextPageParam: (last: VaultPage<LibraryItem>) => last.nextOffset ?? undefined,
+    queryFn: async ({ pageParam }) => {
+      const tagItemIds = await resolveTagItemIds();
+      if (tagItemIds?.length === 0) {
+        return { items: [], nextOffset: null } as VaultPage<LibraryItem>;
+      }
+      return fillVaultPage<LibraryItem>({
+        startOffset: pageParam as number,
+        pageSize: VAULT_PAGE_SIZE,
+        matches: matchesMediaType,
+        fetchRange: async (from, to) => {
+          const { data, error } = await selectItems(tagItemIds).range(from, to);
+          if (error) throw error;
+          return (data ?? []) as LibraryItem[];
+        },
+      });
     },
     // Was an unconditional 5s poll for as long as the page stayed open —
     // re-downloading the whole filtered list (plus its two joins) even when
-    // nothing was processing. Now only polls while something in the current
-    // list hasn't reached ready/error yet.
-    refetchInterval: (query) => vaultListPollInterval(query.state.data as LibraryItem[] | undefined),
+    // nothing was processing. Now only polls while something already loaded
+    // hasn't reached ready/error yet.
+    refetchInterval: (query) =>
+      vaultListPollInterval(
+        (query.state.data as { pages: VaultPage<LibraryItem>[] } | undefined)?.pages.flatMap(
+          (p) => p.items,
+        ),
+      ),
+  });
+
+  const items = useMemo(() => pages?.pages.flatMap((p) => p.items) ?? [], [pages]);
+
+  // Featured is its own query rather than a filter over the grid. Once the grid
+  // is paged, a starred item on page 4 would otherwise vanish from the rail
+  // until the user happened to scroll far enough to load it.
+  const { data: featuredAll = [] } = useQuery<LibraryItem[]>({
+    queryKey: ["vault-featured", user?.id, status, sort, activeTag],
+    enabled: !!user,
+    queryFn: async () => {
+      const tagItemIds = await resolveTagItemIds();
+      if (tagItemIds?.length === 0) return [];
+      const { data, error } = await selectItems(tagItemIds).eq("is_featured", true);
+      if (error) throw error;
+      return (data ?? []) as LibraryItem[];
+    },
   });
 
   // Batch-sign every visible item's thumbnail/file storage paths in ONE
@@ -254,7 +324,10 @@ export default function LibraryPage() {
   // each card self-sign as a fallback once the batch call has settled with
   // nothing for its specific path — see signedUrls.ts for the 3-state
   // contract this feeds into InspirationCard's `signed*Url` props.
-  const storagePaths = useMemo(() => collectVaultStoragePaths(items), [items]);
+  const storagePaths = useMemo(
+    () => collectVaultStoragePaths([...featuredAll, ...items]),
+    [featuredAll, items],
+  );
   const { data: signedUrlMap, status: signedUrlsStatus } = useQuery({
     queryKey: ["vault-signed-urls", storagePaths],
     enabled: storagePaths.length > 0,
@@ -294,21 +367,33 @@ export default function LibraryPage() {
   });
 
   const isSemanticMode = searchQuery.length >= 3;
-  // Video/static isn't a DB column — it's derived from file_path's extension
-  // (same signal InspirationCard already uses to decide <img> vs <video>), so
-  // it's applied client-side rather than as a query filter.
-  const matchesMediaType = (item: LibraryItem) => {
-    if (mediaType === "all") return true;
-    const isStatic = isImageFilePath(item.file_path);
-    return mediaType === "static" ? isStatic : !isStatic;
-  };
-  const displayItems = (isSemanticMode ? searchResults ?? [] : items).filter(matchesMediaType);
+  // Grid items are already media-filtered by fillVaultPage; semantic results
+  // come straight from the edge function, so they still need the filter here.
+  const displayItems = isSemanticMode ? (searchResults ?? []).filter(matchesMediaType) : items;
   const displayLoading = isSemanticMode ? isSearching : isLoading;
-  const featuredItems = isSemanticMode ? [] : items.filter((i) => i.is_featured && matchesMediaType(i));
+  const featuredItems = isSemanticMode ? [] : featuredAll.filter(matchesMediaType);
+  // Paging is a grid concern; semantic search returns its whole result set.
+  const canLoadMore = !isSemanticMode && hasNextPage;
 
   // Restore scroll position once real content has rendered — restoring
   // against the loading placeholder would scroll to the wrong offset.
   useScrollRestoration("vault-library", !displayLoading);
+
+  // Infinite scroll: pull the next page as the sentinel below the grid comes
+  // into view, so the button is a fallback rather than the only way through.
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = loadMoreRef.current;
+    if (!el || !canLoadMore || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting) && !isFetchingNextPage) fetchNextPage();
+      },
+      { rootMargin: "400px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [canLoadMore, isFetchingNextPage, fetchNextPage]);
 
   const handleItemCreated = (itemId: string) => {
     setPollingIds((prev) => [...prev, itemId]);
@@ -427,9 +512,28 @@ export default function LibraryPage() {
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {displayItems.map(renderCard)}
-            </div>
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {displayItems.map(renderCard)}
+              </div>
+
+              {canLoadMore && (
+                // The sentinel auto-loads on scroll; the button is the same
+                // action for anyone who never reaches it that way (keyboard,
+                // reduced motion, no IntersectionObserver).
+                <div ref={loadMoreRef} className="flex justify-center pt-8 pb-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fetchNextPage()}
+                    disabled={isFetchingNextPage}
+                  >
+                    {isFetchingNextPage && <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />}
+                    {isFetchingNextPage ? "Loading…" : "Load more"}
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
