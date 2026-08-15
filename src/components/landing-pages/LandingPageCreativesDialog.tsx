@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { getLandingPageCreatives, type LandingPageCreativeRow } from "@/lib/api";
+import { realMediaUrl } from "@/lib/mediaUrl";
 
 const usd = (n: number) =>
   `$${(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
@@ -19,11 +20,10 @@ const x = (n: number) => `${(n || 0).toFixed(2)}x`;
 const pct = (n: number) => `${(n || 0).toFixed(1)}%`;
 const hostPath = (url: string) => url.replace(/^https?:\/\//, "");
 
-// Media columns can be NULL or a "no-thumbnail"/"no-video" sentinel (see api.ts).
-// Filter those out before treating a value as a real, renderable URL.
-const isSentinel = (u: string | null) =>
-  !u || u === "no-thumbnail" || u === "no-video";
-const realUrl = (u: string | null): string | null => (isSentinel(u) ? null : u);
+// Media columns can be NULL or carry a discovery sentinel. Use the shared guard —
+// the local copy this replaced only knew "no-thumbnail"/"no-video" and let the
+// four no-video-* / no-cover-media variants through as if they were real URLs.
+const realUrl = realMediaUrl;
 
 function CreativeThumb({ row }: { row: LandingPageCreativeRow }) {
   const thumb = realUrl(row.thumbnail_url) ?? realUrl(row.preview_url);

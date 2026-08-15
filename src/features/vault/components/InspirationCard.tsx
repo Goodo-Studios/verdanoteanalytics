@@ -222,7 +222,12 @@ export function InspirationCard({
           onMouseLeave={() => setIsHovered(false)}
         >
           {isHovered && !isImageFile && (signedFileUrl ?? item.video_url) ? (
+            // Keyed on the resolved src: signedFileUrl is fetched lazily, so a
+            // hover that starts before it lands mounts this element against the
+            // fbcdn video_url. Media elements ignore a src swap, so without the
+            // key the preview would stay stuck on the expired CDN source.
             <video
+              key={signedFileUrl ?? item.video_url ?? "no-video-src"}
               src={signedFileUrl ?? item.video_url ?? undefined}
               autoPlay
               muted

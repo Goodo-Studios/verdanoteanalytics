@@ -425,7 +425,14 @@ export default function ItemDetailPage() {
           <div className="space-y-4">
             <div className="rounded-xl overflow-hidden bg-muted aspect-[9/16]">
               {!isImageFile && (signedUrl || data.video_url) ? (
+                // `key` is load-bearing: signedUrl arrives from a query AFTER first
+                // paint, so this element first mounts against the fbcdn video_url
+                // and then swaps src. A media element does NOT reload on a src
+                // change, so without a key the browser kept showing the expired CDN
+                // source and the durable signed URL never took effect. Keying on the
+                // resolved src forces a fresh media-element lifecycle.
                 <video
+                  key={signedUrl ?? data.video_url ?? "no-video-src"}
                   src={signedUrl ?? data.video_url ?? undefined}
                   controls
                   poster={signedThumbnailUrl ?? data.thumbnail_url ?? undefined}
