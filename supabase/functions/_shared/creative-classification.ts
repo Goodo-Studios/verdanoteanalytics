@@ -185,6 +185,62 @@ export function classifyOne(
 }
 
 /**
+ * Spend percentile within the (>= minSpend) spending cohort.
+ *
+ * The cohort deliberately excludes sub-minSpend ads: a long tail of $0/near-$0
+ * ads would otherwise drag every real ad into the "high spend" bucket.
+ *
+ * Shared by classifyAll and selectWinnersBySpend so the Library labels and every
+ * win-rate surface compute "high spend" identically. Mirrored on the frontend in
+ * `src/lib/winnerSelection.ts` (this module is Deno-flavoured and cannot be
+ * bundled); `src/test/winnerSelection.test.ts` pins the two to the same answers.
+ */
+export function spendPercentileFn(
+  spends: number[],
+  minSpend: number = DEFAULT_CLASSIFICATION_CONFIG.minSpend,
+): (spend: number) => number {
+  const cohort = spends.filter((s) => (s || 0) >= minSpend).sort((a, b) => a - b);
+  return (spend: number): number => {
+    if (cohort.length === 0) return 0;
+    if (cohort[0] === cohort[cohort.length - 1]) return 0.5;
+    let count = 0;
+    for (const v of cohort) {
+      if (v < spend) count++;
+      else break;
+    }
+    return count / cohort.length;
+  };
+}
+
+/**
+ * Winners for rate/count reporting, decided by SPEND FIRST.
+ *
+ * Same gate as classifyOne's Winner branch, minus the fatigue precedence check —
+ * report aggregates carry no recent-vs-prior window metrics to evaluate it with.
+ * Callers that HAVE trend data should prefer classifyAll and count `klass ===
+ * "winner"`, which additionally demotes decaying high spenders to Fatiguing.
+ *
+ * Replaces three older ad-hoc definitions that all disagreed: `roas > 1` in the
+ * report builders, a hardcoded `roas >= 2.0` on the agency dashboard, and the
+ * account's ROAS scale_threshold in the CSV export.
+ */
+export function selectWinnersBySpend<T extends { spend?: number | null }>(
+  rows: T[],
+  cfg: ClassificationConfig = DEFAULT_CLASSIFICATION_CONFIG,
+): T[] {
+  const percentileOf = spendPercentileFn(
+    rows.map((r) => Number(r.spend) || 0),
+    cfg.minSpend,
+  );
+  return rows
+    .filter((r) => {
+      const spend = Number(r.spend) || 0;
+      return spend >= cfg.minSpend && percentileOf(spend) >= cfg.highSpendPercentile;
+    })
+    .sort((a, b) => (Number(b.spend) || 0) - (Number(a.spend) || 0));
+}
+
+/**
  * Classify a whole account's per-ad rows. Computes each ad's spend percentile
  * within the (>= minSpend) cohort, then labels each ad. Returns a Map keyed by
  * ad_id for O(1) lookup from a card grid.
@@ -197,21 +253,7 @@ export function classifyAll(
 
   // Spend percentile is computed over the spending cohort so a long tail of
   // $0/near-$0 ads doesn't drag every real ad into the "high spend" bucket.
-  const spendCohort = rows
-    .filter((r) => (r.spend || 0) >= cfg.minSpend)
-    .map((r) => r.spend || 0)
-    .sort((a, b) => a - b);
-
-  const percentileOf = (spend: number): number => {
-    if (spendCohort.length === 0) return 0;
-    if (spendCohort[0] === spendCohort[spendCohort.length - 1]) return 0.5;
-    let count = 0;
-    for (const v of spendCohort) {
-      if (v < spend) count++;
-      else break;
-    }
-    return count / spendCohort.length;
-  };
+  const percentileOf = spendPercentileFn(rows.map((r) => r.spend || 0), cfg.minSpend);
 
   for (const r of rows) {
     out.set(r.ad_id, classifyOne(r, percentileOf(r.spend || 0), cfg));

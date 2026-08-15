@@ -71,13 +71,24 @@ export function useOverviewPageState() {
   // Kill/Scale/Watch counts (still uses creatives table for per-ad classification)
   const { scale, watch, kill } = useKillScaleLogic(creatives, killScaleConfig);
 
-  // Winner threshold config — single source of truth shared with the client
-  // "What's working" surface (US-004) so winner definition cannot diverge.
-  const winnerConfig: WinnerThresholdConfig = useMemo(() => ({
-    winnerKpi: killScaleConfig.winnerKpi,
-    isGte: killScaleConfig.winnerKpiDirection !== "lte",
-    threshold: killScaleConfig.scaleAt,
-  }), [killScaleConfig]);
+  // Winner config — single source of truth shared with the client "What's
+  // working" surface (US-004) so winner definition cannot diverge.
+  //
+  // Winners are decided by SPEND FIRST (spend percentile), not by the ROAS
+  // threshold this used to read from killScaleConfig — that disagreed with the
+  // Creative Library classifier, which has always gated on relative spend.
+  // Both now use the same cohort rule and the same defaults.
+  //
+  // Consequence for "Win Rate": under a percentile gate the metric measures how
+  // concentrated spend is, not how efficient the account is, so it sits near a
+  // structural baseline (~40% of the spending cohort clears the 60th percentile)
+  // rather than swinging with performance. That is the intended reading now.
+  //
+  // Deliberately NOT parameterised by the account's iteration_spend_threshold:
+  // that is a different concept (iteration analysis), and threading it here
+  // would put the two surfaces back on different cohorts. Both take the shared
+  // classifier defaults.
+  const winnerConfig: WinnerThresholdConfig = useMemo(() => ({}), []);
 
   // ── Metrics from daily aggregation (accurate period totals) ──
   const metrics = useMemo(() => {

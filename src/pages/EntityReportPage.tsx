@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { realMediaUrl } from "@/lib/mediaUrl";
 import {
   type ConfidenceTier,
   type EntityCluster,
@@ -171,17 +172,22 @@ function ClusterMembersDialog({
           )
           : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {(members ?? []).map((m) => (
+              {(members ?? []).map((m) => {
+                const thumb = realMediaUrl(m.thumbnail_url);
+                return (
                 <div key={m.ad_id} className="flex gap-3 rounded-md border p-2">
                   <div className="h-16 w-16 shrink-0 rounded bg-muted overflow-hidden flex items-center justify-center">
-                    {m.thumbnail_url
-                      ? <img src={m.thumbnail_url} alt={m.ad_name} className="h-full w-full object-cover" loading="lazy" />
+                    {thumb
+                      ? <img src={thumb} alt={m.ad_name} className="h-full w-full object-cover" loading="lazy" />
                       : <ImageOff className="h-5 w-5 text-muted-foreground/50" />}
                   </div>
                   <div className="min-w-0 text-xs">
                     <div className="font-medium truncate" title={m.ad_name}>{m.ad_name}</div>
                     <div className="text-muted-foreground mt-1">
-                      Spend {fmtMoney(m.spend)} · ROAS {m.roas?.toFixed(2)} · CTR {(m.ctr * 100).toFixed(2)}%
+                      {/* creatives.ctr is already a percentage (Meta Insights convention,
+                          e.g. 1.67 = 1.67%) and rpc_entity_cluster_members passes it
+                          through raw — rendering it with ×100 showed 167.00%. */}
+                      Spend {fmtMoney(m.spend)} · ROAS {m.roas?.toFixed(2)} · CTR {(m.ctr ?? 0).toFixed(2)}%
                     </div>
                     <div className="text-muted-foreground/70 truncate mt-0.5">
                       {[m.theme, m.hook, m.product].filter(Boolean).join(" · ") || "—"}
@@ -196,7 +202,8 @@ function ClusterMembersDialog({
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
               {(members ?? []).length === 0 && (
                 <div className="text-sm text-muted-foreground py-6 col-span-full text-center">
                   No members found.

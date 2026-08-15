@@ -161,17 +161,68 @@ describe("EntityReportPage headline + clusters", () => {
   });
 
   it("opens the drill-in dialog on card click", async () => {
-    mockMembers.mockReturnValue({
-      data: [{
-        ad_id: "a1", ad_name: "Ad One", thumbnail_url: null, preview_url: null,
-        spend: 4000, roas: 2.1, ctr: 0.02, cpa: 20, ad_type: "Video",
-        person: null, style: null, product: "mixer", hook: "ugc", theme: "holiday",
-        tag_source: "parsed", ai_visual_notes: "notes",
-      }],
-      isLoading: false,
-    });
+    mockMembers.mockReturnValue({ data: [member()], isLoading: false });
     renderPage();
     fireEvent.click(screen.getByText("holiday · ugc"));
     await waitFor(() => expect(screen.getByText("Ad One")).toBeInTheDocument());
+  });
+});
+
+// ─── Drill-in member rendering ───────────────────────────────────────────────
+// rpc_entity_cluster_members passes `creatives` columns through raw, so the
+// dialog inherits both of that table's conventions: ctr is ALREADY a percentage,
+// and the media columns carry sentinels rather than NULL when an asset is absent.
+const member = (over: Record<string, unknown> = {}) => ({
+  ad_id: "a1", ad_name: "Ad One", thumbnail_url: null, preview_url: null,
+  spend: 4000, roas: 2.1, ctr: 1.67, cpa: 20, ad_type: "Video",
+  person: null, style: null, product: "mixer", hook: "ugc", theme: "holiday",
+  tag_source: "parsed", ai_visual_notes: "notes", analysis_status: "done",
+  ...over,
+});
+
+async function openDrillIn(members: Record<string, unknown>[]) {
+  mockMembers.mockReturnValue({ data: members, isLoading: false });
+  renderPage();
+  fireEvent.click(screen.getByText("holiday · ugc"));
+  await waitFor(() => expect(screen.getByText("Ad One")).toBeInTheDocument());
+}
+
+describe("EntityReportPage drill-in member metrics", () => {
+  it("renders ctr as a percentage without re-scaling it", async () => {
+    // Regression: this rendered `ctr * 100`, turning a 1.67% CTR into 167.00%.
+    await openDrillIn([member({ ctr: 1.67 })]);
+    expect(screen.getByText(/CTR 1\.67%/)).toBeInTheDocument();
+    expect(screen.queryByText(/167\.00%/)).not.toBeInTheDocument();
+  });
+
+  it("keeps a realistic ctr under 100% for a range of values", async () => {
+    await openDrillIn([member({ ctr: 0.84 })]);
+    expect(screen.getByText(/CTR 0\.84%/)).toBeInTheDocument();
+  });
+
+  it("tolerates a null ctr without rendering NaN", async () => {
+    await openDrillIn([member({ ctr: null })]);
+    expect(screen.getByText(/CTR 0\.00%/)).toBeInTheDocument();
+  });
+});
+
+describe("EntityReportPage drill-in thumbnails", () => {
+  it("renders a real thumbnail URL", async () => {
+    await openDrillIn([member({ thumbnail_url: "https://cdn.example.com/a.jpg" })]);
+    expect(screen.getByAltText("Ad One")).toHaveAttribute(
+      "src", "https://cdn.example.com/a.jpg",
+    );
+  });
+
+  it("treats the no-thumbnail sentinel as absent, not as a URL", async () => {
+    // Regression: `<img src="no-thumbnail">` — a broken-image icon and a stray
+    // request to a relative path — instead of the ImageOff placeholder.
+    await openDrillIn([member({ thumbnail_url: "no-thumbnail" })]);
+    expect(screen.queryByAltText("Ad One")).not.toBeInTheDocument();
+  });
+
+  it("treats the no-video-* sentinels as absent too", async () => {
+    await openDrillIn([member({ thumbnail_url: "no-video-permission" })]);
+    expect(screen.queryByAltText("Ad One")).not.toBeInTheDocument();
   });
 });

@@ -9,6 +9,7 @@
 // SESSION_CONVERSION accounts read Sessions / Cost per session.
 
 import { getObjectiveConfig, type MetricConfig } from "@/lib/objectiveConfig";
+import { realMediaUrl } from "@/lib/mediaUrl";
 import type { MatrixAtomicAd } from "./api";
 import { fmtMoney, tagLabel } from "./matrixView";
 
@@ -59,6 +60,14 @@ export function AtomicAdCard({ ad, angleLabel, creativeType, optimizationGoal }:
   const objective = getObjectiveConfig(optimizationGoal);
   const metrics = objective.primaryMetrics;
 
+  // rpc_creative_matrix_cell passes creatives.thumbnail_url / video_url through
+  // raw, so these columns carry discovery sentinels ("no-thumbnail", "no-video")
+  // rather than NULL when an asset is confirmed absent. A truthiness check
+  // rendered <img src="no-thumbnail"> and a Preview link to a relative
+  // "no-video" path instead of falling through to the "No media" placeholder.
+  const thumbUrl = realMediaUrl(ad.thumbnail_url);
+  const previewHref = realMediaUrl(ad.preview_url) ?? realMediaUrl(ad.video_url);
+
   return (
     <div
       className="glass-panel flex gap-3 p-3 animate-in fade-in slide-in-from-bottom-1 duration-200"
@@ -66,16 +75,16 @@ export function AtomicAdCard({ ad, angleLabel, creativeType, optimizationGoal }:
     >
       {/* Thumbnail / preview */}
       <div className="h-20 w-20 shrink-0 overflow-hidden rounded-md bg-muted">
-        {ad.thumbnail_url ? (
+        {thumbUrl ? (
           <img
-            src={ad.thumbnail_url}
+            src={thumbUrl}
             alt={ad.ad_name ?? "Ad thumbnail"}
             className="h-full w-full object-cover"
             loading="lazy"
           />
-        ) : ad.preview_url || ad.video_url ? (
+        ) : previewHref ? (
           <a
-            href={ad.preview_url ?? ad.video_url ?? undefined}
+            href={previewHref}
             target="_blank"
             rel="noopener noreferrer"
             className="flex h-full w-full items-center justify-center font-label text-[10px] uppercase tracking-wide text-sage hover:text-forest"

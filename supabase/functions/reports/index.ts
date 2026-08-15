@@ -1,6 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+// Win rate is decided by SPEND FIRST, shared with the Creative Library
+// classifier. This used to be an ad-hoc `roas > 1` filter here, which agreed
+// with neither the Library nor the Overview.
+import { selectWinnersBySpend } from "../_shared/creative-classification.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
@@ -302,7 +306,7 @@ serve(async (req) => {
         return list.reduce((s: number, c: any) => s + Number(c[field] || 0), 0) / list.length;
       };
 
-      const winners = list.filter((c: any) => Number(c.roas || 0) > 1);
+      const winners = selectWinnersBySpend(list as { spend?: number | null }[]);
       const winRate = list.length > 0 ? (winners.length / list.length) * 100 : 0;
 
       const tagCounts = { parsed: 0, csv_match: 0, manual: 0, untagged: 0 };
@@ -376,7 +380,7 @@ serve(async (req) => {
         const totalPurchases = list.reduce((s: number, c: any) => s + Number(c.purchases || 0), 0);
         const totalPurchaseValue = list.reduce((s: number, c: any) => s + Number(c.purchase_value || 0), 0);
         const avgField = (field: string) => list.length === 0 ? 0 : list.reduce((s: number, c: any) => s + Number(c[field] || 0), 0) / list.length;
-        const winners = list.filter((c: any) => Number(c.roas || 0) > 1);
+        const winners = selectWinnersBySpend(list as { spend?: number | null }[]);
         const winRate = list.length > 0 ? (winners.length / list.length) * 100 : 0;
         const blendedRoas = totalSpend > 0 ? totalPurchaseValue / totalSpend : 0;
         const avgCpa = totalPurchases > 0 ? totalSpend / totalPurchases : 0;
@@ -549,7 +553,7 @@ serve(async (req) => {
             if (list.length === 0) return 0;
             return list.reduce((s: number, c: any) => s + Number(c[field] || 0), 0) / list.length;
           };
-          const winners = list.filter((c: any) => Number(c.roas || 0) > 1);
+          const winners = selectWinnersBySpend(list as { spend?: number | null }[]);
           const winRate = list.length > 0 ? (winners.length / list.length) * 100 : 0;
 
           const tagCounts = { parsed: 0, csv_match: 0, manual: 0, untagged: 0 };
