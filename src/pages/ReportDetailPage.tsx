@@ -137,7 +137,10 @@ const ReportDetailPage = () => {
 
   const topPerformers = (() => { try { return JSON.parse(report.top_performers || "[]"); } catch { return []; } })();
   const highlights: string[] = [];
-  if (report.win_rate) highlights.push(`Win rate: ${Number(report.win_rate).toFixed(0)}% of creatives are above scale threshold`);
+  // Win rate is now a SPEND-first measure (top spend percentile), not a ROAS
+  // threshold — this line still said "above scale threshold" after the gate
+  // changed, describing a rule the number no longer follows.
+  if (report.win_rate) highlights.push(`Win rate: ${Number(report.win_rate).toFixed(0)}% of creatives are carrying the account's spend`);
   if (report.blended_roas) highlights.push(`Blended ROAS of ${Number(report.blended_roas).toFixed(2)}x across ${report.creative_count || 0} creatives`);
   if (topPerformers.length > 0) highlights.push(`Top performer: ${topPerformers[0]?.ad_name} at ${Number(topPerformers[0]?.roas || 0).toFixed(2)}x ROAS`);
   if (report.average_cpa) highlights.push(`Average CPA of $${Number(report.average_cpa).toFixed(2)}`);

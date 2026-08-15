@@ -10,6 +10,7 @@ import { computeScoreMap } from "@/lib/creativeScore";
 import { computeFatigueMap } from "@/lib/fatigueScore";
 import { groupByConcept } from "@/lib/conceptGrouping";
 import { useKillScaleLogic } from "@/lib/killScaleLogic";
+import { selectWinners } from "@/lib/winnerSelection";
 import { Button } from "@/components/ui/button";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { Download, Loader2, FileSpreadsheet, BarChart3, Layers, FlaskConical, Building2 } from "lucide-react";
@@ -419,8 +420,10 @@ function AccountSummaryExport({ accounts }: { accounts: any[] }) {
           const totalSpend = active.reduce((s: number, c: any) => s + (Number(c.spend) || 0), 0);
           const totalPV = active.reduce((s: number, c: any) => s + (Number(c.purchase_value) || 0), 0);
           const avgRoas = totalSpend > 0 ? totalPV / totalSpend : 0;
-          const scaleThreshold = parseFloat(a.scale_threshold || "2.0");
-          const winners = active.filter((c: any) => (Number(c.roas) || 0) >= scaleThreshold);
+          // Winners are decided by SPEND FIRST (see src/lib/winnerSelection.ts).
+          // This used to gate on the account's ROAS scale_threshold, so the
+          // exported win rate disagreed with the one shown in the product.
+          const winners = selectWinners(active);
           const winRate = active.length > 0 ? (winners.length / active.length) * 100 : 0;
 
           return [

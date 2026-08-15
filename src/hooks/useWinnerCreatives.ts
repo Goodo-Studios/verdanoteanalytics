@@ -4,10 +4,16 @@ import { apiFetch } from "@/lib/api";
 /**
  * Upper bound on candidate creatives fetched to compute the client "What's
  * working" winners. The edge function returns creatives ordered by spend DESC,
- * and a winner must have spend > 0 (see winnerSelection.isWinner), so the
- * highest-spend page is the candidate set selectWinners ranks by KPI. 500 is
- * the edge function's max page size and is a generous superset of the 6 winners
- * the client surface ever displays.
+ * and winners are selected by spend percentile (see selectWinners), so the
+ * highest-spend page is the candidate set. 500 is the edge function's max page
+ * size and is a generous superset of the 6 winners the client surface displays.
+ *
+ * CAVEAT: selectWinners computes the percentile relative to what it is handed.
+ * For an account with more than CANDIDATE_LIMIT delivering creatives this page
+ * is already the top of the spend distribution, so the 60th percentile within
+ * it sits higher than the account-wide 60th percentile and the gate is stricter
+ * than the Creative Library's. Harmless while the surface shows only the top 6;
+ * revisit if this hook ever feeds a rate or a count.
  */
 const CANDIDATE_LIMIT = 500;
 
@@ -24,6 +30,9 @@ const CANDIDATE_LIMIT = 500;
  * Instead we ask the edge function for one spend-ranked page of delivering
  * creatives (delivery=had_delivery → spend > 0, already ordered spend DESC),
  * which is exactly the candidate set selectWinners filters and ranks.
+ *
+ * See the CANDIDATE_LIMIT note above for how truncation interacts with the
+ * spend-percentile gate.
  */
 export function useWinnerCreatives(accountId?: string) {
   return useQuery<any[]>({

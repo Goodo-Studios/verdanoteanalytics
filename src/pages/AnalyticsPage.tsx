@@ -89,11 +89,8 @@ const AnalyticsPage = () => {
         <TabsContent value="dna" className="space-y-4">
           <CreativeDnaTab
             creatives={creatives}
-            scaleThreshold={killScaleConfig.scaleAt}
             spendThreshold={spendThreshold}
             accountName={selectedAccount?.name}
-            killScaleKpi={killScaleConfig.winnerKpi}
-            killScaleKpiDirection={killScaleConfig.winnerKpiDirection}
           />
         </TabsContent>
         {canBenchmark && (

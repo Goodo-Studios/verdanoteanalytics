@@ -3,15 +3,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dna, FileText, Video, Image, Mic, Target, Lightbulb, Clock, Trophy } from "lucide-react";
 import { extractConceptRoot, groupByConcept } from "@/lib/conceptGrouping";
+import { DEFAULT_HIGH_SPEND_PERCENTILE, selectWinners } from "@/lib/winnerSelection";
 import { useRoleNavigate } from "@/hooks/useRolePath";
 
 interface Props {
   creatives: any[];
-  scaleThreshold: number;
+  /** Minimum spend for a creative to be classifiable at all. */
   spendThreshold: number;
   accountName?: string;
-  killScaleKpi?: string;
-  killScaleKpiDirection?: string;
 }
 
 interface PatternResult {
@@ -88,7 +87,7 @@ function PctBar({ pct }: { pct: number }) {
   );
 }
 
-export function CreativeDnaTab({ creatives, scaleThreshold, spendThreshold, accountName, killScaleKpi = "roas", killScaleKpiDirection = "gte" }: Props) {
+export function CreativeDnaTab({ creatives, spendThreshold, accountName }: Props) {
   const navigate = useRoleNavigate();
 
   const { winners, taggedCount, dna } = useMemo(() => {
@@ -97,16 +96,12 @@ export function CreativeDnaTab({ creatives, scaleThreshold, spendThreshold, acco
     );
     const taggedCount = tagged.length;
 
-    // Filter winners using scale threshold
-    const kpi = killScaleKpi || "roas";
-    const isGte = killScaleKpiDirection !== "lte";
-
-    const winners = creatives.filter((c) => {
-      const spend = Number(c.spend) || 0;
-      if (spend < spendThreshold) return false;
-      const val = Number(c[kpi]) || 0;
-      return isGte ? val >= scaleThreshold : val <= scaleThreshold;
-    });
+    // Winners are decided by SPEND FIRST (see src/lib/winnerSelection.ts), the
+    // same gate the Creative Library and every win-rate surface use. This tab
+    // used to select on the account's KPI/scale threshold, so "what our winners
+    // have in common" was answered from a different set of ads than the ones
+    // the rest of the product calls winners.
+    const winners = selectWinners(creatives, { minSpend: spendThreshold });
 
     // Format analysis
     const formats = analyzeField(winners, "ad_type");
@@ -146,7 +141,7 @@ export function CreativeDnaTab({ creatives, scaleThreshold, spendThreshold, acco
         allAngles: angles.slice(0, 5),
       },
     };
-  }, [creatives, scaleThreshold, spendThreshold, killScaleKpi, killScaleKpiDirection]);
+  }, [creatives, spendThreshold]);
 
   // Guard: need 20+ tagged creatives
   if (taggedCount < 20) {
@@ -171,7 +166,8 @@ export function CreativeDnaTab({ creatives, scaleThreshold, spendThreshold, acco
         <Dna className="h-10 w-10 text-muted-foreground mx-auto mb-4" />
         <h3 className="text-lg font-heading mb-2">Not Enough Top Performers</h3>
         <p className="text-sm text-muted-foreground">
-          DNA analysis needs at least 3 creatives above the scale threshold ({scaleThreshold}x ROAS with ${spendThreshold}+ spend).
+          DNA analysis needs at least 3 top-spending creatives (${spendThreshold}+ spend, in the
+          top {Math.round((1 - DEFAULT_HIGH_SPEND_PERCENTILE) * 100)}% of this account by spend).
           You currently have {winners.length}.
         </p>
       </div>
@@ -199,7 +195,7 @@ export function CreativeDnaTab({ creatives, scaleThreshold, spendThreshold, acco
           <div>
             <h2 className="section-title">Your Creative DNA</h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Based on {winners.length} top performers (above {scaleThreshold}x {killScaleKpi.toUpperCase()})
+              Based on {winners.length} top performers (the creatives carrying this account's spend)
             </p>
           </div>
         </div>
