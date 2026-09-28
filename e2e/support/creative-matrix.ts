@@ -131,8 +131,8 @@ export async function selectMatrixAccount(
 // ── Read-surface parity types + fetches ──────────────────────────────────────
 
 export interface ParityCell {
-  angle_id: string | null;
   creative_type: string | null;
+  theme: string | null;
   total_spend: number;
   n_ads: number;
   spend_rank: number;
@@ -140,16 +140,16 @@ export interface ParityCell {
 
 export interface ParityMatrix {
   account_id: string;
-  angles: { angle_id: string | null; total_spend: number }[];
   creative_types: { creative_type: string | null; total_spend: number }[];
+  themes: { theme: string | null; total_spend: number }[];
   cells: ParityCell[];
 }
 
 /** Project a matrix payload down to the fields parity compares (order-stable). */
 export function normalizeCells(m: ParityMatrix): ParityCell[] {
   return m.cells.map((c) => ({
-    angle_id: c.angle_id,
     creative_type: c.creative_type,
+    theme: c.theme,
     total_spend: c.total_spend,
     n_ads: c.n_ads,
     spend_rank: c.spend_rank,
@@ -190,16 +190,16 @@ export function assertSpendRanked(cells: ParityCell[]): void {
 
 /**
  * Grand-total reconciliation: the sum of every cell's spend equals the sum of
- * the column (angle) totals and the sum of the row (creative_type) totals — the
+ * the column (theme) totals and the sum of the row (creative type) totals — the
  * "cell spend totals reconcile with the report totals" acceptance check. Uses a
  * cents-level tolerance for floating rollup.
  */
 export function assertGrandTotalReconciles(m: ParityMatrix): void {
   const round = (n: number) => Math.round(n * 100) / 100;
   const cellSum = round(m.cells.reduce((s, c) => s + c.total_spend, 0));
-  const angleSum = round(m.angles.reduce((s, a) => s + a.total_spend, 0));
+  const themeSum = round(m.themes.reduce((s, t) => s + t.total_spend, 0));
   const typeSum = round(m.creative_types.reduce((s, t) => s + t.total_spend, 0));
-  expect(angleSum, "column (angle) totals must reconcile with cell grand total").toBeCloseTo(
+  expect(themeSum, "column (theme) totals must reconcile with cell grand total").toBeCloseTo(
     cellSum,
     1,
   );

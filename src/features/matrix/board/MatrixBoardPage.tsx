@@ -1,14 +1,13 @@
-// US-007: Creative Matrix board (builder-only). A /matrix board of Theme/Persona
-// columns × creative-type rows, rows grouped by collapsible lane, cells colored
-// by SUM(spend) in every view mode (verdanote-winners-decided-by-spend-first),
-// with an explicit untagged bucket on each axis. Five view modes: performance
-// (spend), status, coverage, volume, win rate.
+// Creative Matrix board (builder-only), following the Goodo ad naming
+// convention: Creative Type rows (the 4 types from creatives.style in fixed
+// order, plus Other / untagged) × Theme / Persona columns (creatives.theme),
+// cells colored by SUM(spend) in every view mode
+// (verdanote-winners-decided-by-spend-first). Clicking a cell splits its ads by
+// exact Hook. Four view modes: performance (spend), coverage, volume, win rate.
 //
-// Data comes from the session-authed `matrix` edge fn → rpc_creative_matrix
-// (US-006); the row-lane grouping reuses the account taxonomy read (US-003) for
-// its creative_type → lane map. Route access is gated builder-only in App.tsx
-// (matching the US-003 config surface); this page assumes it only mounts for a
-// builder.
+// Data comes from the session-authed `matrix` edge fn → rpc_creative_matrix and
+// rpc_creative_matrix_theme_cell. Route access is gated builder-only in App.tsx;
+// this page assumes it only mounts for a builder.
 
 import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
@@ -18,11 +17,10 @@ import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { Button } from "@/components/ui/button";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { useDateRangeContext } from "@/contexts/DateRangeContext";
-import { useAccountTaxonomy } from "@/features/matrix/config/useAccountTaxonomy";
 import { MatrixBoard } from "./MatrixBoard";
 import { CellDrilldown } from "./CellDrilldown";
 import { useCreativeMatrix, useCreativeMatrixCell } from "./useCreativeMatrix";
-import { cellKey, fmtMoney, VIEW_MODES, type ViewMode } from "./matrixView";
+import { cellKey, creativeTypeLabel, fmtMoney, tagLabel, VIEW_MODES, type ViewMode } from "./matrixView";
 import type { MatrixCell } from "./api";
 
 const MatrixBoardPage = () => {
@@ -50,15 +48,13 @@ const MatrixBoardPage = () => {
   const [selectedCell, setSelectedCell] = useState<MatrixCell | null>(null);
 
   const matrixQuery = useCreativeMatrix(accountId, dateFrom, dateTo);
-  const taxonomyQuery = useAccountTaxonomy(accountId).query;
-
-  // US-008: the selected outer cell's inner hook × body grid + atomic ads.
-  // Fires only once a cell is open (hasCell), and re-keys on the cell selector.
+  // The selected cell's hook split + atomic ads. Fires only once a cell is
+  // open (hasCell), and re-keys on the cell selector.
   const cellQuery = useCreativeMatrixCell(
     accountId,
     !!selectedCell,
-    selectedCell?.angle_id ?? null,
     selectedCell?.creative_type ?? null,
+    selectedCell?.theme ?? null,
     dateFrom,
     dateTo,
   );
@@ -70,23 +66,13 @@ const MatrixBoardPage = () => {
     [accounts, accountId],
   );
 
-  // type_name → lane, sourced from the account taxonomy. Matrix rows whose
-  // creative_type has no lane mapping fall into "Other" (see groupTypesByLane).
-  const typeNameToLane = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const ct of taxonomyQuery.data?.creative_types ?? []) {
-      if (ct.type_name) m.set(ct.type_name, ct.lane);
-    }
-    return m;
-  }, [taxonomyQuery.data]);
-
   const handleSelectCell = (cell: MatrixCell | null) => {
     if (!cell) {
       setSelectedKey(null);
       setSelectedCell(null);
       return;
     }
-    const key = cellKey(cell.angle_id, cell.creative_type);
+    const key = cellKey(cell.creative_type, cell.theme);
     if (key === selectedKey) {
       setSelectedKey(null);
       setSelectedCell(null);
@@ -103,14 +89,13 @@ const MatrixBoardPage = () => {
   }, [accountId]);
 
   const matrix = matrixQuery.data;
-  const isEmpty =
-    !!matrix && matrix.angles.length === 0 && matrix.cells.length === 0;
+  const isEmpty = !!matrix && matrix.cells.length === 0;
 
   return (
     <div className="p-6 space-y-4">
       <PageHeader
         title="Creative Matrix"
-        description="Theme/Persona × creative-type coverage, ranked and colored by spend."
+        description="Creative Type × Theme / Persona coverage, colored by spend. Click a cell to split it by Hook."
         actions={
           <div className="flex items-center gap-2">
             <DateRangeFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDateRange} />
@@ -137,20 +122,20 @@ const MatrixBoardPage = () => {
         ))}
       </div>
 
-      {/* Selected-cell strip + US-008 drill-down: the inner hook × body grid and
-          the atomic ads behind the opened combination. */}
+      {/* Selected-cell strip + drill-down: the cell's ads split by Hook, and the
+          atomic ads behind the opened hook. */}
       {selectedCell && (
         <>
           <div className="glass-panel px-4 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1">
             <span className="font-body text-[13px] text-forest font-medium">
-              {selectedCell.angle_label ?? "Untagged"} × {selectedCell.creative_type ?? "Untagged"}
+              {creativeTypeLabel(selectedCell.creative_type)} × {tagLabel(selectedCell.theme)}
             </span>
             <span className="font-body text-[12px] text-muted-foreground">
               {fmtMoney(selectedCell.total_spend)} spend · {selectedCell.n_ads} ads · spend rank #
               {selectedCell.spend_rank}
             </span>
             <span className="font-body text-[11px] text-slate">
-              Hook × body drill-down
+              Split by Hook
             </span>
             <Button
               size="sm"
@@ -198,15 +183,14 @@ const MatrixBoardPage = () => {
       ) : isEmpty ? (
         <div className="glass-panel p-8 flex items-center justify-center text-center">
           <p className="font-body text-[13px] text-slate">
-            No creatives in scope yet — tag creatives and adjust the date range to populate the
-            matrix.
+            No ads with spend in this date range yet. The board fills in as new ads are named
+            with the generator.
           </p>
         </div>
       ) : matrix ? (
         <MatrixBoard
           matrix={matrix}
           mode={mode}
-          typeNameToLane={typeNameToLane}
           selectedKey={selectedKey}
           onSelectCell={handleSelectCell}
         />
