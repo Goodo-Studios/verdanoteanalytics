@@ -19,21 +19,25 @@ const h = vi.hoisted(() => ({ invoke: vi.fn() }));
 const ACC_A = "acc_a";
 const ACC_B = "acc_b";
 
+const CELL_BASE = { roas: 3, cpa: 10, ctr: 2, cpm: 5, purchases: 60, total_purchase_value: 1800, result_count: 60, cost_per_result: 10 };
 const MATRIX_PAYLOAD = {
   account_id: ACC_B,
   date_from: null,
   date_to: null,
-  angles: [
-    { angle_id: "a1", label: "Busy parents", test_status: "Winner", archived: false, total_spend: 600 },
-    { angle_id: null, label: "Untagged", test_status: null, archived: false, total_spend: 100 },
-  ],
   creative_types: [
-    { creative_type: "UGC", total_spend: 600 },
-    { creative_type: null, total_spend: 100 },
+    { creative_type: "UGC Native", is_other: false, total_spend: 600, n_ads: 5 },
+    { creative_type: "Studio Clean", is_other: false, total_spend: 0, n_ads: 0 },
+    { creative_type: "Text Forward", is_other: false, total_spend: 0, n_ads: 0 },
+    { creative_type: "Lifestyle", is_other: false, total_spend: 0, n_ads: 0 },
+    { creative_type: null, is_other: true, total_spend: 100, n_ads: 1 },
+  ],
+  themes: [
+    { theme: "Busy parents", is_untagged: false, total_spend: 600, n_ads: 5 },
+    { theme: null, is_untagged: true, total_spend: 100, n_ads: 1 },
   ],
   cells: [
-    { angle_id: "a1", angle_label: "Busy parents", is_untagged_angle: false, test_status: "Winner", creative_type: "UGC", is_untagged_type: false, total_spend: 600, n_ads: 5, roas: 3, cpa: 10, ctr: 2, cpm: 5, purchases: 60, total_purchase_value: 1800, result_count: 60, cost_per_result: 10, spend_rank: 1 },
-    { angle_id: null, angle_label: "Untagged", is_untagged_angle: true, test_status: null, creative_type: null, is_untagged_type: true, total_spend: 100, n_ads: 1, roas: 1, cpa: 20, ctr: 0.5, cpm: 9, purchases: 5, total_purchase_value: 100, result_count: 5, cost_per_result: 20, spend_rank: 2 },
+    { ...CELL_BASE, creative_type: "UGC Native", is_other_type: false, theme: "Busy parents", is_untagged_theme: false, total_spend: 600, n_ads: 5, spend_rank: 1 },
+    { ...CELL_BASE, creative_type: null, is_other_type: true, theme: null, is_untagged_theme: true, total_spend: 100, n_ads: 1, spend_rank: 2 },
   ],
 };
 

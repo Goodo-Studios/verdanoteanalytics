@@ -1,14 +1,18 @@
 // US-003: Builder-only per-account taxonomy config surface — the "Taxonomy" tab
 // in Settings. Manages the account's governed Theme/Persona list (add, rename,
-// soft archive) and toggles which house-menu creative types are active for the
-// account. All reads/writes go through the session-authed account-taxonomy edge
-// function (see ./api.ts); rendering is gated builder-only by SettingsPage.
+// soft archive). All reads/writes go through the session-authed
+// account-taxonomy edge function (see ./api.ts); rendering is gated
+// builder-only by SettingsPage.
+//
+// The per-account creative-type activation panel was retired on 2026-09-27:
+// Creative Type now comes from the ad name (the 4 fixed types in
+// creatives.style), so there is nothing to activate. The account_creative_types
+// table and its API stay in place; this surface just no longer writes them.
 
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -28,7 +32,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAccountContext } from "@/contexts/AccountContext";
-import { isReviewMiningOrigin, TaxonomyTheme, TaxonomyCreativeType } from "./api";
+import { isReviewMiningOrigin, TaxonomyTheme } from "./api";
 import { useAccountTaxonomy } from "./useAccountTaxonomy";
 
 export interface TaxonomyAccountOption {
@@ -59,8 +63,7 @@ const TaxonomyConfigSection = ({ accounts }: TaxonomyConfigSectionProps) => {
     setAccountId(appMatch ?? accounts[0]?.id ?? null);
   }, [accounts, appAccountId, accountId]);
 
-  const { query, create, rename, setArchived, setTypeActive, seed } =
-    useAccountTaxonomy(accountId);
+  const { query, create, rename, setArchived, seed } = useAccountTaxonomy(accountId);
 
   const [newName, setNewName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -74,17 +77,6 @@ const TaxonomyConfigSection = ({ accounts }: TaxonomyConfigSectionProps) => {
       liveThemes: themes.filter((t) => !t.archived),
       archivedThemes: themes.filter((t) => t.archived),
     };
-  }, [taxonomy]);
-
-  // Group creative types by lane, preserving payload order (lane then sort).
-  const lanes = useMemo(() => {
-    const byLane = new Map<string, TaxonomyCreativeType[]>();
-    for (const ct of taxonomy?.creative_types ?? []) {
-      const list = byLane.get(ct.lane);
-      if (list) list.push(ct);
-      else byLane.set(ct.lane, [ct]);
-    }
-    return [...byLane.entries()];
   }, [taxonomy]);
 
   const handleCreate = () => {
@@ -139,16 +131,6 @@ const TaxonomyConfigSection = ({ accounts }: TaxonomyConfigSectionProps) => {
     });
   };
 
-  const handleTypeToggle = (ct: TaxonomyCreativeType, active: boolean) => {
-    setTypeActive.mutate(
-      { creativeTypeId: ct.creative_type_id, active },
-      {
-        onError: (err) =>
-          toast.error(err instanceof Error ? err.message : "Failed to update creative type"),
-      },
-    );
-  };
-
   if (accounts.length === 0) {
     return (
       <div className="glass-panel p-8 flex flex-col items-center justify-center text-center max-w-2xl">
@@ -166,8 +148,8 @@ const TaxonomyConfigSection = ({ accounts }: TaxonomyConfigSectionProps) => {
         <div>
           <h3 className="font-heading text-[16px] text-forest">Account taxonomy</h3>
           <p className="font-body text-[12px] text-slate mt-1">
-            Govern this account's Theme/Persona list and which house creative types are active
-            when tagging.
+            Govern this account's Theme/Persona list. Creative Type comes from the ad name, so
+            there is nothing to activate here.
           </p>
         </div>
         <Select value={accountId ?? ""} onValueChange={(v) => setAccountId(v)}>
@@ -310,58 +292,6 @@ const TaxonomyConfigSection = ({ accounts }: TaxonomyConfigSectionProps) => {
             )}
           </div>
 
-          {/* Panel 2: Creative types */}
-          <div className="glass-panel p-6 space-y-4">
-            <div>
-              <h3 className="font-heading text-[16px] text-forest">Creative types</h3>
-              <p className="font-body text-[12px] text-slate mt-1">
-                Activate the subset of the house menu this account uses. Only active types appear
-                when tagging.
-              </p>
-            </div>
-
-            {lanes.length === 0 ? (
-              <p className="font-body text-[12px] text-muted-foreground py-2">
-                The house creative-type menu is empty.
-              </p>
-            ) : (
-              <div className="space-y-5">
-                {lanes.map(([lane, types]) => (
-                  <div key={lane} className="space-y-1">
-                    <div className="font-body text-[11px] uppercase tracking-wider text-muted-foreground font-medium pb-1 border-b border-border-light">
-                      {lane}
-                    </div>
-                    {types.map((ct) => {
-                      const pending =
-                        setTypeActive.isPending &&
-                        setTypeActive.variables?.creativeTypeId === ct.creative_type_id;
-                      return (
-                        <div
-                          key={ct.creative_type_id}
-                          className="flex items-center justify-between py-1.5"
-                        >
-                          <span className="font-body text-[13px] text-charcoal">
-                            {ct.type_name}
-                          </span>
-                          <div className="flex items-center gap-2">
-                            {pending && (
-                              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                            )}
-                            <Switch
-                              checked={ct.active}
-                              disabled={pending}
-                              onCheckedChange={(checked) => handleTypeToggle(ct, checked)}
-                              aria-label={`Toggle ${ct.type_name}`}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         </>
       )}
     </div>

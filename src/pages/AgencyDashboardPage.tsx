@@ -11,6 +11,7 @@ import { useAccountContext } from "@/contexts/AccountContext";
 import { useWoWTrends } from "@/hooks/useWoWTrends";
 import { useSync } from "@/hooks/useSyncApi";
 import { computeFatigue } from "@/lib/fatigueScore";
+import { selectWinners } from "@/lib/winnerSelection";
 
 import { cn } from "@/lib/utils";
 import { fmt$, fmtSignedPct } from "@/lib/formatters";
@@ -37,8 +38,24 @@ export default function AgencyDashboardPage() {
 
   const portfolioMetrics = useMemo(() => {
     const activeCreatives = creativesArr.filter((c: any) => (Number(c.spend) || 0) > 0);
-    const aboveScale = activeCreatives.filter((c: any) => (Number(c.roas) || 0) >= 2.0).length;
-    const winRate = activeCreatives.length > 0 ? aboveScale / activeCreatives.length : 0;
+
+    // Winners are decided by SPEND FIRST (see src/lib/winnerSelection.ts); this
+    // used to gate on a hardcoded `roas >= 2.0`, which disagreed with both the
+    // Overview and the Creative Library.
+    //
+    // Percentile is computed PER ACCOUNT and then summed: pooling every
+    // account's creatives into one cohort would let the largest account's
+    // budgets set the bar and push smaller accounts' real winners below it.
+    const byAccount = new Map<string, any[]>();
+    for (const c of activeCreatives) {
+      const key = String(c.account_id ?? "unknown");
+      const bucket = byAccount.get(key);
+      if (bucket) bucket.push(c);
+      else byAccount.set(key, [c]);
+    }
+    const winnerCount = [...byAccount.values()]
+      .reduce((total, rows) => total + selectWinners(rows).length, 0);
+    const winRate = activeCreatives.length > 0 ? winnerCount / activeCreatives.length : 0;
 
     return {
       mtdSpend: agencyData?.portfolio.mtdSpend ?? 0,

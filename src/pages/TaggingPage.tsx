@@ -17,6 +17,7 @@ import { useCreatives, useUpdateCreative, CREATIVES_PAGE_SIZE, useAutoTagPreview
 import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { useUploadMappings } from "@/hooks/useAccountsApi";
 import { TAG_OPTIONS_MAP } from "@/lib/tagOptions";
+import { TAG_FIELD_LABELS, TAG_FIELD_ORDER } from "@/lib/tagDisplay";
 import { parseCsvLine } from "@/lib/csv";
 import { toast } from "sonner";
 import {
@@ -26,11 +27,9 @@ import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { NamingCheckTab } from "@/components/tagging/NamingCheckTab";
 import { cn } from "@/lib/utils";
 
-const TAG_FIELDS = ["ad_type", "person", "style", "hook", "product", "theme"] as const;
-const TAG_LABELS: Record<string, string> = {
-  ad_type: "Type", person: "Person", style: "Style",
-  hook: "Hook", product: "Product", theme: "Theme",
-};
+// Naming-convention order and labels; `style` is shown as "Creative Type".
+const TAG_FIELDS = TAG_FIELD_ORDER;
+const TAG_LABELS: Record<string, string> = TAG_FIELD_LABELS;
 
 function EditableTagCell({
   adId, field, value, onLocalChange, columnEditMode,

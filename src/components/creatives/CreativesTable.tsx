@@ -5,7 +5,7 @@ import {
 } from "@/components/ui/table";
 import { SortableTableHead, type SortConfig } from "@/components/SortableTableHead";
 import { TagSourceBadge } from "@/components/TagSourceBadge";
-import { InlineTagSelect } from "@/components/InlineTagSelect";
+import { InlineTagSelect, InlineTagText } from "@/components/InlineTagSelect";
 import { Checkbox } from "@/components/ui/checkbox";
 import { LayoutGrid } from "lucide-react";
 import { HEAD_LABELS, NUMERIC_COLS, fmt, CELL_CONFIG, MOBILE_HIDDEN_COLS } from "./constants";
@@ -46,8 +46,13 @@ interface CreativesTableProps {
   optimizationGoal?: string;
 }
 
-const TAG_SELECT_FIELDS: Record<string, "ad_type" | "person" | "style" | "hook"> = {
-  type: "ad_type", person: "person", style: "style", hook: "hook",
+// Controlled tag columns render a dropdown; free-text ones an inline text edit.
+// Every tag cell is editable, whether or not it already has a value.
+const TAG_SELECT_FIELDS: Record<string, "ad_type" | "person" | "style"> = {
+  type: "ad_type", person: "person", style: "style",
+};
+const TAG_TEXT_FIELDS: Record<string, "product" | "hook" | "theme"> = {
+  product: "product", hook: "hook", theme: "theme",
 };
 
 function CreativeCell({ c }: { c: any }) {
@@ -85,7 +90,11 @@ function renderCell(c: any, key: string, wowTrends?: Map<string, WoWTrend>, grad
   if (key === "tags") return <TableCell key={key} className={mobileHide}><TagSourceBadge source={c.tag_source} /></TableCell>;
   if (key in TAG_SELECT_FIELDS) {
     const field = TAG_SELECT_FIELDS[key];
-    return <TableCell key={key} className={mobileHide}><InlineTagSelect adId={c.ad_id} field={field} currentValue={c[field]} /></TableCell>;
+    return <TableCell key={key} className={mobileHide} onClick={(e) => e.stopPropagation()}><InlineTagSelect adId={c.ad_id} field={field} currentValue={c[field] ?? null} /></TableCell>;
+  }
+  if (key in TAG_TEXT_FIELDS) {
+    const field = TAG_TEXT_FIELDS[key];
+    return <TableCell key={key} className={mobileHide} onClick={(e) => e.stopPropagation()}><InlineTagText adId={c.ad_id} field={field} currentValue={c[field] ?? null} /></TableCell>;
   }
 
   // Session-conversion columns not in CELL_CONFIG — handle inline

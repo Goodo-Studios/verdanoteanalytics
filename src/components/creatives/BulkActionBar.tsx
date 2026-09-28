@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Tag, Download, FileText, XCircle, BookmarkPlus, Loader2 } from "lucide-react";
+import { Tag, Download, FileText, XCircle, BookmarkPlus, Loader2, FileSearch } from "lucide-react";
 
 interface BulkActionBarProps {
   count: number;
@@ -11,9 +11,11 @@ interface BulkActionBarProps {
   // the bar without the vault action.
   onSaveToVault?: () => void;
   savingToVault?: boolean;
+  /** Re-read tags from the selected ads' names (preview first). */
+  onSyncFromName?: () => void;
 }
 
-export function BulkActionBar({ count, onTag, onExport, onAddToReport, onClear, onSaveToVault, savingToVault }: BulkActionBarProps) {
+export function BulkActionBar({ count, onTag, onExport, onAddToReport, onClear, onSaveToVault, savingToVault, onSyncFromName }: BulkActionBarProps) {
   if (count === 0) return null;
 
   return (
@@ -34,6 +36,11 @@ export function BulkActionBar({ count, onTag, onExport, onAddToReport, onClear, 
       <Button size="sm" variant="outline" onClick={onTag} className="gap-1.5">
         <Tag className="h-3.5 w-3.5" />Tag selected
       </Button>
+      {onSyncFromName && (
+        <Button size="sm" variant="outline" onClick={onSyncFromName} className="gap-1.5">
+          <FileSearch className="h-3.5 w-3.5" />Sync from name
+        </Button>
+      )}
       <Button size="sm" variant="outline" onClick={onExport} className="gap-1.5">
         <Download className="h-3.5 w-3.5" />Export CSV
       </Button>

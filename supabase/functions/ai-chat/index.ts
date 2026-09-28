@@ -1,6 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import {
+  CREATIVE_TABLE_COLUMNS,
+  formatCreativeTable,
+} from "../_shared/creative-prompt-format.ts";
 
 
 const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
@@ -121,10 +125,16 @@ serve(async (req) => {
     ];
 
     if (convId) {
-      await supabase
+      // Scope by user_id as well as id: RLS already blocks a cross-user write, but
+      // an RLS rejection returns zero rows rather than an error, so without the
+      // explicit scope (and the error check) a silently-dropped save looked
+      // identical to a successful one and the turn vanished from history.
+      const { error: convErr } = await supabase
         .from("ai_conversations")
         .update({ messages: updatedMessages, updated_at: new Date().toISOString() })
-        .eq("id", convId);
+        .eq("id", convId)
+        .eq("user_id", user.id);
+      if (convErr) console.error("ai-chat conversation update failed:", convErr.message);
     } else {
       const { data: newConv } = await supabase
         .from("ai_conversations")
@@ -177,12 +187,6 @@ async function fetchCreativeContext(supabase: any, accountId: string | null) {
   return { creatives: creatives || [], accountName };
 }
 
-function formatCreativeTable(creatives: any[]): string {
-  return creatives.slice(0, 40).map(c =>
-    `${c.ad_name} | $${(c.spend||0).toFixed(0)} | ${(c.roas||0).toFixed(2)}x | $${(c.cpa||0).toFixed(0)} | ${((c.ctr||0)*100).toFixed(1)}% | ${((c.thumb_stop_rate||0)*100).toFixed(1)}% | ${((c.hold_rate||0)*100).toFixed(1)}% | ${c.ad_type||'?'} | ${c.hook||'?'} | ${c.style||'?'} | ${c.ad_status||'?'}`
-  ).join("\n");
-}
-
 function computeStats(creatives: any[]) {
   const totalSpend = creatives.reduce((s, c) => s + (c.spend || 0), 0);
   const avgRoas = creatives.length
@@ -222,12 +226,12 @@ function buildSystemPrompt(
   const table = formatCreativeTable(creatives);
 
   const baseContext = `CURRENT ACCOUNT: ${accountName}
-DATASET: ${creatives.length} creatives | Total Spend: $${stats.totalSpend.toFixed(0)} | Avg ROAS: ${stats.avgRoas.toFixed(2)}x | Avg CTR: ${(stats.avgCtr * 100).toFixed(2)}% | Avg CPA: $${stats.avgCpa.toFixed(0)}
+DATASET: ${creatives.length} creatives | Total Spend: $${stats.totalSpend.toFixed(0)} | Avg ROAS: ${stats.avgRoas.toFixed(2)}x | Avg CTR: ${stats.avgCtr.toFixed(2)}% | Avg CPA: $${stats.avgCpa.toFixed(0)}
 
 TOP PERFORMERS (by spend — highest spend = most trusted by media buyers): ${stats.topBySpend || "N/A"}
 HIGH ROAS (efficient but not necessarily best): ${stats.topByRoas || "N/A"}
 
-FULL CREATIVE DATA (name | spend | roas | cpa | ctr% | hook% | hold% | type | hook | style | status):
+FULL CREATIVE DATA (${CREATIVE_TABLE_COLUMNS}):
 ${table}`;
 
   switch (mode) {

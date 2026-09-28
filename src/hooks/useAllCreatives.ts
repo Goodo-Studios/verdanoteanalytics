@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
+import { withDisplayTagsAll } from "@/lib/tagDisplay";
 
 /**
  * Fetches ALL creatives for an account in a SINGLE request.
@@ -27,7 +28,8 @@ export function useAllCreatives(filters: Record<string, string> = {}) {
     queryKey: ["all-creatives", filterKey],
     queryFn: async () => {
       const result = await apiFetch("creatives", `?${qs.toString()}`);
-      return Array.isArray(result) ? result : (result?.data ?? []);
+      // Legacy ad_type "Image"/"Photo" display as "Static" (read-side only).
+      return withDisplayTagsAll(Array.isArray(result) ? result : (result?.data ?? []));
     },
     // 2 hours: this payload only changes when a Meta sync completes (~2h
     // cadence), so refetching more often than the sync interval just re-runs

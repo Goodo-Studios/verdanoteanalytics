@@ -160,13 +160,21 @@ describe("US-004: feature wiring (static)", () => {
     expect(fn).not.toContain("tag_source");
   });
 
-  it("the governed tag editor sources every dropdown from the account lists", () => {
+  // Updated for the Goodo naming convention (2026-09-27): the 90-type creative
+  // type menu, lane and body are retired from the tagging UI (data untouched).
+  // The editor now offers Theme/Persona only and hook is free text (read-only here).
+  it("the governed tag editor offers Theme/Persona only; creative type, lane and body are retired", () => {
     const cmp = read("src", "features", "creative-library", "components", "GovernedTagEditor.tsx");
     expect(cmp).toContain("useAccountTaxonomy");
     expect(cmp).toContain("options.themes");
-    expect(cmp).toContain("options.creativeTypeGroups");
-    expect(cmp).toContain("options.bodies");
-    // Untagged is reachable per dimension.
+    expect(cmp).not.toContain("options.creativeTypeGroups");
+    expect(cmp).not.toContain("options.bodies");
+    expect(cmp).not.toContain("HOOK_OPTIONS");
+    // The save patch carries angle_id only, so retired columns are never written.
+    expect(cmp).not.toMatch(/creative_type\s*:/);
+    expect(cmp).not.toMatch(/creative_lane\s*:/);
+    expect(cmp).not.toMatch(/\bbody\s*:/);
+    // Untagged stays reachable.
     expect(cmp).toContain("Untagged");
   });
 
