@@ -23,7 +23,7 @@ jobs:
         run: npm ci
 
       - name: Lint
-        run: npm run lint
+        run: npm run lint:ci
 
       # Root tsconfig.json is a solution file ("files": [] + project references),
       # so a bare `tsc --noEmit` checks nothing and always exits 0. Point tsc at
@@ -52,6 +52,30 @@ jobs:
 
       - name: Test edge functions
         run: deno test --allow-all --no-check supabase/functions/
+
+  database-test:
+    name: Database migrations & pgTAP
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start isolated Supabase stack
+        run: supabase start
+
+      - name: Apply migrations from a clean database
+        run: supabase db reset --local
+
+      - name: Run database tests
+        run: supabase test db --local
+
+      - name: Stop isolated Supabase stack
+        if: always()
+        run: supabase stop --no-backup
 
   e2e:
     name: E2E tests (Playwright)
@@ -84,11 +108,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Require authenticated E2E configuration
+        run: npm run check:e2e-env
+
       - name: Install Playwright browsers
         run: npx playwright install chromium --with-deps
 
       - name: Build app
-        run: npm run build
+        run: npm run build:check
 
       - name: Start preview server
         run: npx vite preview --port 8080 &
@@ -136,9 +163,9 @@ jobs:
           retention-days: 7
 
   deploy-functions:
-    name: Deploy Supabase edge functions
+    name: Deploy database & Supabase edge functions
     runs-on: ubuntu-latest
-    needs: check
+    needs: [check, deno-test, database-test]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
@@ -147,38 +174,30 @@ jobs:
           # Full history so the migration-warning step can diff the push range.
           fetch-depth: 0
 
-      - name: Warn if migrations changed (CI does not deploy them)
-        # Never fails the build — purely an annotation reminding the operator
-        # that supabase/migrations/ are applied manually via `supabase db push`.
-        run: |
-          BEFORE="${{ github.event.before }}"
-          if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] \
-            && git cat-file -e "$BEFORE" 2>/dev/null; then
-            RANGE="$BEFORE..HEAD"
-          elif git rev-parse -q --verify 'HEAD^' >/dev/null 2>&1; then
-            # Fallback (force push / missing before-sha): compare the last commit.
-            RANGE="HEAD^..HEAD"
-          else
-            # First push to the branch — nothing to diff against.
-            echo "No previous commit to diff against; skipping migration check."
-            exit 0
-          fi
-          CHANGED="$(git diff --name-only "$RANGE" -- supabase/migrations/ || true)"
-          if [ -n "$CHANGED" ]; then
-            echo "::warning::Migration files changed in this push — Supabase migrations are NOT deployed by CI. Run 'supabase db push' manually."
-            echo "Changed migration files ($RANGE):"
-            echo "$CHANGED"
-          else
-            echo "No migration changes in $RANGE."
-          fi
-          exit 0
-
       - uses: supabase/setup-cli@v1
         with:
           version: latest
+
+      - name: Link production project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+
+      - name: Apply database migrations
+        run: supabase db push --include-all --yes
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
 
       - name: Deploy all edge functions
         run: bash scripts/deploy-functions.sh
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+
+      - name: Smoke test deployed edge functions
+        run: bash scripts/smoke-test.sh
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}

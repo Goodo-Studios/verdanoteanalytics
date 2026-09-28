@@ -20,30 +20,65 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { json } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { classifyDestination, productNameFromTitle } from "../_shared/classify-destination.ts";
+import { assertPublicNetworkTarget } from "../_shared/public-url.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
+async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (total < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const remaining = maxBytes - total;
+      chunks.push(value.byteLength <= remaining ? value : value.subarray(0, remaining));
+      total += Math.min(value.byteLength, remaining);
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(merged);
+}
+
 // Polite, bounded page-title fetch. Returns og:title (preferred) or <title>, or
 // null on any failure / non-HTML / timeout. One fetch per destination (cached).
 async function fetchPageTitle(url: string): Promise<string | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
   try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 8000);
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      },
-      signal: ctrl.signal,
-      redirect: "follow",
-    });
-    clearTimeout(timer);
+    let current = await assertPublicNetworkTarget(url);
+    let res: Response | null = null;
+    for (let redirects = 0; redirects <= 3; redirects++) {
+      res = await fetch(current, {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        },
+        signal: ctrl.signal,
+        redirect: "manual",
+      });
+      if (![301, 302, 303, 307, 308].includes(res.status)) break;
+      const location = res.headers.get("location");
+      await res.body?.cancel();
+      if (!location || redirects === 3) return null;
+      current = await assertPublicNetworkTarget(new URL(location, current).href);
+    }
+    if (!res) return null;
     if (!res.ok) return null;
     const ct = res.headers.get("content-type") ?? "";
     if (!ct.includes("text/html")) return null;
-    const html = (await res.text()).slice(0, 200_000);
+    const html = await readBoundedText(res, 200_000);
     const og = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i) ??
       html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i);
     if (og?.[1]) return og[1].trim();
@@ -51,6 +86,8 @@ async function fetchPageTitle(url: string): Promise<string | null> {
     return title?.[1]?.trim() ?? null;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

@@ -23,18 +23,19 @@ export function SyncStatusBanner({ accountId }: SyncStatusBannerProps = {}) {
 
   // If an accountId is provided, only show syncs for that account
   const logs = accountId
-    ? (allLogs || []).filter((l: any) => l.account_id === accountId)
+    ? (allLogs || []).filter((log) => log.account_id === accountId)
     : allLogs;
   const cancelSync = useCancelSync();
   const [elapsed, setElapsed] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
-  const runningLog = (logs || []).find((l: any) => l.status === "running") || (logs || []).find((l: any) => l.status === "queued");
+  const runningLog = (logs || []).find((log) => log.status === "running") || (logs || []).find((log) => log.status === "queued");
   const isRunning = runningLog?.status === "running";
+  const runningStartedAt = runningLog?.started_at;
 
   useEffect(() => {
-    if (isRunning && runningLog) {
-      const start = new Date(runningLog.started_at).getTime();
+    if (isRunning && runningStartedAt) {
+      const start = new Date(runningStartedAt).getTime();
       const tick = () => setElapsed(Math.floor((Date.now() - start) / 1000));
       tick();
       intervalRef.current = setInterval(tick, 1000);
@@ -42,7 +43,7 @@ export function SyncStatusBanner({ accountId }: SyncStatusBannerProps = {}) {
     } else {
       setElapsed(0);
     }
-  }, [isRunning, runningLog?.id]);
+  }, [isRunning, runningStartedAt]);
 
   if (isClientView) return null;
   if (!runningLog) return null;
@@ -52,12 +53,12 @@ export function SyncStatusBanner({ accountId }: SyncStatusBannerProps = {}) {
   const timeStr = mins > 0 ? `${mins}m ${String(secs).padStart(2, "0")}s` : `${secs}s`;
 
   const logAccountId = runningLog?.account_id || "";
-  const accountName = (accounts || []).find((a: any) => a.id === logAccountId)?.name || logAccountId;
+  const accountName = (accounts || []).find((account) => account.id === logAccountId)?.name || logAccountId;
   const fetched = runningLog?.creatives_fetched ?? 0;
   const upserted = runningLog?.creatives_upserted ?? 0;
   const currentPhase = runningLog?.current_phase ?? 0;
   const isQueued = runningLog?.status === "queued";
-  const queuedCount = (logs || []).filter((l: any) => l.status === "queued").length;
+  const queuedCount = (logs || []).filter((log) => log.status === "queued").length;
 
   const phaseLabels: Record<number, string> = {
     1: "Fetching ads",

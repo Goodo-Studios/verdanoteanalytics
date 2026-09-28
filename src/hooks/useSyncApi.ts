@@ -1,6 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useMutationWithToast } from "./useMutationWithToast";
+import type { Database } from "@/integrations/supabase/types";
+
+export type SyncLog = Database["public"]["Tables"]["sync_logs"]["Row"];
+
+interface RefreshMediaResponse {
+  skipped?: boolean;
+  thumbnails?: { cached?: number };
+  videos?: { cached?: number };
+}
 
 export function useSync() {
   return useMutationWithToast({
@@ -24,14 +33,14 @@ export function useCancelSync() {
 export function useSyncHistory(accountId?: string) {
   return useQuery({
     queryKey: ["sync-history", accountId],
-    queryFn: () => apiFetch("sync", `history${accountId ? `?account_id=${accountId}` : ""}`),
+    queryFn: () => apiFetch("sync", `history${accountId ? `?account_id=${accountId}` : ""}`) as Promise<SyncLog[]>,
     refetchInterval: (query) => {
-      const logs = query.state.data as any[] | undefined;
-      const hasActive = logs?.some((l: any) => l.status === "running" || l.status === "queued");
+      const logs = query.state.data;
+      const hasActive = logs?.some((log) => log.status === "running" || log.status === "queued");
       if (!hasActive) return false;
       // Cap polling: stop after 30 minutes to prevent indefinite polling on stuck syncs
-      const oldestActive = logs?.filter((l: any) => l.status === "running" || l.status === "queued")
-        .map((l: any) => new Date(l.started_at).getTime())
+      const oldestActive = logs?.filter((log) => log.status === "running" || log.status === "queued")
+        .map((log) => new Date(log.started_at).getTime())
         .sort((a: number, b: number) => a - b)[0];
       if (oldestActive && Date.now() - oldestActive > 30 * 60 * 1000) return false;
       return 2000;
@@ -48,7 +57,7 @@ export function useRefreshMedia() {
       return apiFetch("refresh-thumbnails", `?${qs.toString()}`);
     },
     invalidateKeys: [["creatives"], ["all-creatives"]],
-    successMessage: (data: any) =>
+    successMessage: (data: RefreshMediaResponse) =>
       data?.skipped
         ? "All media already cached — nothing to refresh"
         : `Media refreshed — ${data?.thumbnails?.cached ?? 0} thumbnails, ${data?.videos?.cached ?? 0} videos cached`,

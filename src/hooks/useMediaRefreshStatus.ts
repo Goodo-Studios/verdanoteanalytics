@@ -2,6 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
+import type { Database } from "@/integrations/supabase/types";
+
+export type MediaRefreshLog = Database["public"]["Tables"]["media_refresh_logs"]["Row"];
 
 export function useMediaRefreshLogs() {
   return useQuery({
@@ -15,12 +18,12 @@ export function useMediaRefreshLogs() {
       return data || [];
     },
     refetchInterval: (query) => {
-      const logs = query.state.data as any[] | undefined;
-      const hasRunning = logs?.some((l: any) => l.status === "running");
+      const logs = query.state.data as MediaRefreshLog[] | undefined;
+      const hasRunning = logs?.some((log) => log.status === "running");
       if (!hasRunning) return false;
       // Cap polling: stop after 30 minutes to prevent indefinite polling
-      const oldestRunning = logs?.filter((l: any) => l.status === "running")
-        .map((l: any) => new Date(l.started_at).getTime())
+      const oldestRunning = logs?.filter((log) => log.status === "running")
+        .map((log) => new Date(log.started_at).getTime())
         .sort((a: number, b: number) => a - b)[0];
       if (oldestRunning && Date.now() - oldestRunning > 30 * 60 * 1000) return false;
       return 2000;
@@ -33,11 +36,11 @@ export function useIsRefreshingMedia() {
   const { data: logs } = useMediaRefreshLogs();
   const wasRefreshing = useRef(false);
 
-  const isRefreshing = (logs || []).some((l: any) => l.status === "running");
+  const isRefreshing = (logs || []).some((log) => log.status === "running");
 
   useEffect(() => {
     if (wasRefreshing.current && !isRefreshing && logs?.length) {
-      const latest = logs[0] as any;
+      const latest = logs[0];
       if (latest.status === "completed") {
         const thumbs = latest.thumbs_cached ?? 0;
         const videos = latest.videos_cached ?? 0;
