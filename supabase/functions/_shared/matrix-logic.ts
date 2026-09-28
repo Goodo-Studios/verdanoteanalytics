@@ -85,27 +85,28 @@ export function parseMatrixParams(
   return { ok: true, accountId: accountId.trim(), dateFrom: from.value, dateTo: to.value };
 }
 
-// ── US-008: cell drill-down params ───────────────────────────────────────────
-// The `matrix` edge fn's cell view (?view=cell) and GET /api/matrix drill-down
-// share this parser so validation is byte-identical, exactly like the outer
-// board shares parseMatrixParams.
+// ── Cell drill-down params (naming convention, 2026-09-27) ──────────────────
+// The `matrix` edge fn's cell view (?view=cell) parses its params here so the
+// validation lives next to parseMatrixParams. A cell is one (Creative Type,
+// Theme) pair of rpc_creative_matrix; the drill-down RPC
+// (rpc_creative_matrix_theme_cell) splits it by exact hook text.
 
 export interface MatrixCellParamsOk {
   ok: true;
   accountId: string;
-  // The outer cell selector. null ⇒ the untagged bucket on that axis (the
-  // board always emits explicit untagged buckets, and the drill-down always
-  // targets exactly one cell — so null is unambiguous, never "no filter").
-  angleId: string | null;
+  // The outer cell selector. null ⇒ the Other / untagged Creative Type row or
+  // the untagged Theme column. The board always emits those buckets and the
+  // drill-down always targets exactly one cell, so null is never "no filter".
   creativeType: string | null;
+  theme: string | null;
   dateFrom: string | null;
   dateTo: string | null;
 }
 
 export type MatrixCellParamsResult = MatrixCellParamsOk | MatrixParamsError;
 
-// Strict RFC-4122-shaped UUID (any version). The angle axis keys on
-// angle_clusters.id (a uuid), so a malformed angle_id is a 400, not a DB error.
+// Strict RFC-4122-shaped UUID (any version). Kept exported for callers that
+// still validate uuid ids; the cell view no longer takes an angle_id.
 const UUID_SHAPE =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
@@ -113,47 +114,51 @@ export function isValidUuid(value: string): boolean {
   return UUID_SHAPE.test(value);
 }
 
+// Theme and creative type are free text; cap them so a query string can't
+// carry an unbounded value into the RPC.
+const MAX_SELECTOR_LENGTH = 500;
+
+function normalizeSelector(raw: string | null | undefined): string | null {
+  if (raw === null || raw === undefined) return null;
+  const trimmed = raw.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
 /**
- * Validate the cell drill-down params shared by the `matrix` edge fn's cell
- * view and the GET /api/matrix drill-down.
+ * Validate the cell drill-down params for the `matrix` edge fn's cell view.
  *
- * - account_id is required (non-empty), same as parseMatrixParams.
- * - angle_id is optional; absent/empty ⇒ null (the untagged Theme/Persona
- *   bucket). When present it must be a well-formed UUID.
- * - creative_type is optional; absent/empty ⇒ null (the untagged creative-type
- *   bucket). Any non-empty free-text value is accepted (the type space is
- *   extensible, no CHECK constraint — see 20260724000001).
- * - date_from / date_to follow the same rules as parseMatrixParams.
+ * - account_id / date_from / date_to follow parseMatrixParams.
+ * - creative_type is optional; absent/blank ⇒ null (the Other / untagged
+ *   row). Any other value is passed through trimmed; the RPC maps it onto the
+ *   4 Creative Types the same way it buckets creatives.style.
+ * - theme is optional; absent/blank ⇒ null (the untagged Theme column). Any
+ *   other value is free text, trimmed, matched exactly by the RPC.
+ * - Either selector longer than 500 characters is a 400.
  */
 export function parseMatrixCellParams(
   accountId: string | null,
-  angleId: string | null,
   creativeType: string | null,
+  theme: string | null,
   dateFrom: string | null,
   dateTo: string | null,
 ): MatrixCellParamsResult {
   const base = parseMatrixParams(accountId, dateFrom, dateTo);
   if (!base.ok) return base;
 
-  let normalizedAngle: string | null;
-  if (angleId === null || angleId === undefined || angleId === "") {
-    normalizedAngle = null;
-  } else if (typeof angleId !== "string" || !isValidUuid(angleId)) {
-    return { ok: false, error: "angle_id must be a valid UUID or absent" };
-  } else {
-    normalizedAngle = angleId;
+  const normalizedType = normalizeSelector(creativeType);
+  const normalizedTheme = normalizeSelector(theme);
+  if (normalizedType !== null && normalizedType.length > MAX_SELECTOR_LENGTH) {
+    return { ok: false, error: "creative_type is too long" };
   }
-
-  const normalizedType =
-    creativeType === null || creativeType === undefined || creativeType.trim() === ""
-      ? null
-      : creativeType;
+  if (normalizedTheme !== null && normalizedTheme.length > MAX_SELECTOR_LENGTH) {
+    return { ok: false, error: "theme is too long" };
+  }
 
   return {
     ok: true,
     accountId: base.accountId,
-    angleId: normalizedAngle,
     creativeType: normalizedType,
+    theme: normalizedTheme,
     dateFrom: base.dateFrom,
     dateTo: base.dateTo,
   };

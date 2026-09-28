@@ -1,23 +1,23 @@
-// US-008: the atomic ad — the leaf of the drill-down. Opened when a strategist
-// clicks an inner hook × body cell. Shows the ad's Theme/Persona, creative type,
-// hook, body, spend, objective metric, delivery state, and a thumbnail/preview.
+// The atomic ad — the leaf of the drill-down. Opened when a strategist clicks a
+// hook row inside a Creative Type × Theme cell. Shows the ad's Creative Type,
+// Theme / Persona, hook, spend, objective metric, delivery state, and a
+// thumbnail/preview.
 //
-// Theme/Persona (angleLabel) and creative type come from the OUTER cell (they
-// are constant across the inner grid); hook / body / spend / metric / state /
-// media are per-ad. The objective metric follows the account's optimization
+// Creative Type and Theme come from the opened cell (constant across its hook
+// rows); hook / spend / metric / state / media are per-ad. The objective metric follows the account's optimization
 // goal (getObjectiveConfig) so PURCHASE accounts read ROAS/CPA and
 // SESSION_CONVERSION accounts read Sessions / Cost per session.
 
 import { getObjectiveConfig, type MetricConfig } from "@/lib/objectiveConfig";
 import { realMediaUrl } from "@/lib/mediaUrl";
 import type { MatrixAtomicAd } from "./api";
-import { fmtMoney, tagLabel } from "./matrixView";
+import { creativeTypeLabel, fmtMoney, tagLabel } from "./matrixView";
 
 export interface AtomicAdCardProps {
   ad: MatrixAtomicAd;
-  /** Outer-cell Theme/Persona label. */
-  angleLabel: string | null;
-  /** Outer-cell creative type (null ⇒ untagged). */
+  /** The opened cell's Theme / Persona (null ⇒ untagged). */
+  theme: string | null;
+  /** The opened cell's Creative Type (null ⇒ Other / untagged). */
   creativeType: string | null;
   /** Account optimization goal → which objective metric(s) to surface. */
   optimizationGoal: string | null | undefined;
@@ -56,11 +56,11 @@ function StateBadge({ status }: { status: string | null }) {
   );
 }
 
-export function AtomicAdCard({ ad, angleLabel, creativeType, optimizationGoal }: AtomicAdCardProps) {
+export function AtomicAdCard({ ad, theme, creativeType, optimizationGoal }: AtomicAdCardProps) {
   const objective = getObjectiveConfig(optimizationGoal);
   const metrics = objective.primaryMetrics;
 
-  // rpc_creative_matrix_cell passes creatives.thumbnail_url / video_url through
+  // rpc_creative_matrix_theme_cell passes creatives.thumbnail_url / video_url through
   // raw, so these columns carry discovery sentinels ("no-thumbnail", "no-video")
   // rather than NULL when an asset is confirmed absent. A truthiness check
   // rendered <img src="no-thumbnail"> and a Preview link to a relative
@@ -107,10 +107,10 @@ export function AtomicAdCard({ ad, angleLabel, creativeType, optimizationGoal }:
           <StateBadge status={ad.ad_status} />
         </div>
 
-        {/* Dimension chips: Theme/Persona × type, hook, body */}
+        {/* Dimension chips: Creative Type · Theme / Persona, Hook */}
         <div className="mt-1 flex flex-wrap gap-1.5 font-body text-[11px]">
           <span className="rounded bg-sage-light/50 px-1.5 py-0.5 text-forest">
-            {tagLabel(angleLabel)} · {tagLabel(creativeType)}
+            {creativeTypeLabel(creativeType)} · {tagLabel(theme)}
           </span>
           <span
             className={`rounded px-1.5 py-0.5 ${
@@ -120,15 +120,6 @@ export function AtomicAdCard({ ad, angleLabel, creativeType, optimizationGoal }:
             }`}
           >
             Hook: {tagLabel(ad.hook)}
-          </span>
-          <span
-            className={`rounded px-1.5 py-0.5 ${
-              ad.is_untagged_body
-                ? "bg-muted text-muted-foreground italic"
-                : "bg-accent/50 text-charcoal"
-            }`}
-          >
-            Body: {tagLabel(ad.body)}
           </span>
         </div>
 

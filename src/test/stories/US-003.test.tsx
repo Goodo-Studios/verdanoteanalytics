@@ -1,8 +1,10 @@
 // US-003 — Per-account taxonomy configuration surface (builder-only).
 //
 // e2eTests (from the PRD):
-//   1. Given a builder on the config surface, when they add a Theme/Persona and
-//      activate a creative type, then both appear and persist after reload.
+//   1. Given a builder on the config surface, when they add a Theme/Persona,
+//      then it appears and persists after reload. (Updated 2026-09-27: the
+//      creative-type activation panel is retired — Creative Type now comes
+//      from the ad name — so the test asserts that panel is gone.)
 //   2. Given a non-builder session, when navigating to the config surface, then
 //      access is denied.
 //
@@ -12,9 +14,9 @@
 //   • Test 1 renders the REAL TaxonomyConfigSection wired to the REAL api.ts +
 //     useAccountTaxonomy hook, with only the network boundary
 //     (supabase.functions.invoke) mocked by an in-memory fake of the
-//     account-taxonomy edge function. Adding a Theme/Persona and toggling a
-//     creative type mutate that fake's state; a fresh remount (new QueryClient =
-//     "reload") re-fetches via `list` and must still show both — proving the
+//     account-taxonomy edge function. Adding a Theme/Persona mutates that fake's
+//     state; a fresh remount (new QueryClient = "reload") re-fetches via `list`
+//     and must still show it — proving the
 //     write persisted server-side and every surface reads the single RPC shape.
 //   • Test 2 renders the REAL SettingsPage and asserts the builder-only gate:
 //     the "Taxonomy" tab and surface appear for a builder and are absent for a
@@ -196,14 +198,12 @@ beforeEach(() => {
 
 afterEach(() => cleanup());
 
-describe("US-003: builder adds a Theme/Persona and activates a creative type (e2e 1)", () => {
-  it("both appear immediately and persist after a reload", async () => {
+describe("US-003: builder adds a Theme/Persona; creative-type activation is retired (e2e 1)", () => {
+  it("the added Theme/Persona appears immediately and persists after a reload", async () => {
     renderSection();
 
-    // Initial list resolves — the empty-state prompt shows, UGC is inactive.
+    // Initial list resolves — the empty-state prompt shows.
     await screen.findByText(/No Theme\/Personas yet/i);
-    const ugc = screen.getByRole("switch", { name: "Toggle UGC" });
-    expect(ugc).toHaveAttribute("aria-checked", "false");
 
     // Add a Theme/Persona.
     fireEvent.change(screen.getByPlaceholderText(/New Theme\/Persona/i), {
@@ -212,20 +212,22 @@ describe("US-003: builder adds a Theme/Persona and activates a creative type (e2
     fireEvent.click(screen.getByRole("button", { name: /Add/i }));
     expect(await screen.findByText("Busy parents")).toBeInTheDocument();
 
-    // Activate a creative type.
-    fireEvent.click(screen.getByRole("switch", { name: "Toggle UGC" }));
-    await waitFor(() =>
-      expect(screen.getByRole("switch", { name: "Toggle UGC" })).toHaveAttribute("aria-checked", "true"),
-    );
-
-    // "Reload": fresh QueryClient + remount re-fetches via `list`. Both the added
-    // Theme/Persona and the activated creative type must still be present.
+    // "Reload": fresh QueryClient + remount re-fetches via `list`. The added
+    // Theme/Persona must still be present.
     cleanup();
     renderSection();
     expect(await screen.findByText("Busy parents")).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.getByRole("switch", { name: "Toggle UGC" })).toHaveAttribute("aria-checked", "true"),
-    );
+  });
+
+  it("no longer renders the creative-type activation panel (Creative Type comes from the ad name)", async () => {
+    renderSection();
+    await screen.findByText(/No Theme\/Personas yet/i);
+    // 2026-09-27 naming convention: the 90-type menu activation toggles are
+    // retired from the UI; the payload still carries creative_types, but no
+    // switch renders for them and no set-type-active write can be issued.
+    expect(screen.queryAllByRole("switch")).toHaveLength(0);
+    expect(screen.queryByText("Creative types")).toBeNull();
+    expect(screen.getByText(/Creative Type comes from the ad name/i)).toBeInTheDocument();
   });
 
   it("routes every read/write through the session-authed account-taxonomy edge fn", async () => {

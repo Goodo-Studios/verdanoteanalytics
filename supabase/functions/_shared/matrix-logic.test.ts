@@ -127,7 +127,7 @@ Deno.test("isValidUuid accepts well-formed UUIDs, rejects junk", () => {
   assertEquals(isValidUuid(""), false);
 });
 
-// ── US-008: parseMatrixCellParams ────────────────────────────────────────────
+// ── parseMatrixCellParams (Creative Type × Theme cell, split by hook) ───────
 Deno.test("parseMatrixCellParams inherits account_id + date validation", () => {
   assertEquals(parseMatrixCellParams(null, null, null, null, null).ok, false);
   const badDate = parseMatrixCellParams("acct", null, null, "06/01/2026", null);
@@ -135,40 +135,44 @@ Deno.test("parseMatrixCellParams inherits account_id + date validation", () => {
   if (!badDate.ok) assertEquals(badDate.error, "date_from must be a valid YYYY-MM-DD date");
 });
 
-Deno.test("parseMatrixCellParams treats absent/empty angle_id + creative_type as the untagged buckets", () => {
+Deno.test("parseMatrixCellParams treats absent/blank creative_type + theme as the Other/untagged buckets", () => {
   const res = parseMatrixCellParams("acct", null, null, null, null);
   assertEquals(res.ok, true);
   if (res.ok) {
-    assertEquals(res.angleId, null);
     assertEquals(res.creativeType, null);
+    assertEquals(res.theme, null);
   }
   const empties = parseMatrixCellParams("acct", "", "   ", null, null);
   assertEquals(empties.ok, true);
   if (empties.ok) {
-    assertEquals(empties.angleId, null);
     assertEquals(empties.creativeType, null);
+    assertEquals(empties.theme, null);
   }
 });
 
-Deno.test("parseMatrixCellParams passes a valid angle_id UUID + creative_type through", () => {
+Deno.test("parseMatrixCellParams passes a creative type + free-text theme through (trimmed)", () => {
   const res = parseMatrixCellParams(
     "acct",
-    "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
-    "UGC",
+    "UGC Native",
+    "  Tired By 3pm ",
     "2026-06-01",
     "2026-06-30",
   );
   assertEquals(res.ok, true);
   if (res.ok) {
-    assertEquals(res.angleId, "3f2504e0-4f89-41d3-9a0c-0305e82c3301");
-    assertEquals(res.creativeType, "UGC");
+    assertEquals(res.creativeType, "UGC Native");
+    assertEquals(res.theme, "Tired By 3pm");
     assertEquals(res.dateFrom, "2026-06-01");
     assertEquals(res.dateTo, "2026-06-30");
   }
 });
 
-Deno.test("parseMatrixCellParams rejects a malformed angle_id", () => {
-  const res = parseMatrixCellParams("acct", "not-a-uuid", "UGC", null, null);
-  assertEquals(res.ok, false);
-  if (!res.ok) assertEquals(res.error, "angle_id must be a valid UUID or absent");
+Deno.test("parseMatrixCellParams rejects over-long selectors", () => {
+  const long = "x".repeat(501);
+  const badTheme = parseMatrixCellParams("acct", "Lifestyle", long, null, null);
+  assertEquals(badTheme.ok, false);
+  if (!badTheme.ok) assertEquals(badTheme.error, "theme is too long");
+  const badType = parseMatrixCellParams("acct", long, null, null, null);
+  assertEquals(badType.ok, false);
+  if (!badType.ok) assertEquals(badType.error, "creative_type is too long");
 });

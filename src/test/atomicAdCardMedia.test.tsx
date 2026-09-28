@@ -1,7 +1,7 @@
 /**
  * AtomicAdCard media handling — sentinel regression.
  *
- * rpc_creative_matrix_cell passes `creatives.thumbnail_url` / `preview_url` /
+ * rpc_creative_matrix_theme_cell passes `creatives.thumbnail_url` / `preview_url` /
  * `video_url` through raw. Discovery never leaves those NULL: a confirmed-absent
  * asset is stored as a sentinel string. The card used a plain truthiness check,
  * so it rendered `<img src="no-thumbnail">` (a broken-image icon plus a request
@@ -20,10 +20,8 @@ const ad = (over: Partial<MatrixAtomicAd> = {}): MatrixAtomicAd => ({
   thumbnail_url: null,
   preview_url: null,
   video_url: null,
-  hook: "ugc",
-  body: "testimonial",
+  hook: "Tired By 3pm",
   is_untagged_hook: false,
-  is_untagged_body: false,
   total_spend: 4210,
   roas: 2.13,
   cpa: 19.8,
@@ -40,8 +38,8 @@ function renderCard(over: Partial<MatrixAtomicAd> = {}) {
   return render(
     <AtomicAdCard
       ad={ad(over)}
-      angleLabel="Holiday"
-      creativeType="video"
+      theme="Holiday"
+      creativeType="UGC Native"
       optimizationGoal="PURCHASE"
     />,
   );
