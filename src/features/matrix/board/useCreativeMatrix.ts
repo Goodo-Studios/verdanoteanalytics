@@ -1,6 +1,6 @@
-// US-007: react-query hook for the creative-matrix board read path. Thin wrapper
-// over fetchCreativeMatrix (the session-authed `matrix` edge fn). Read-only — no
-// mutations — so unlike the config hook there is no cache-write plumbing.
+// react-query hooks for the creative-matrix board read path. Thin wrapper
+// over fetchCreativeMatrix / fetchCreativeMatrixCell (the session-authed
+// `matrix` edge fn). Read-only — no mutations.
 
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -29,42 +29,43 @@ export function useCreativeMatrix(
   });
 }
 
-// ── US-008: cell drill-down query ────────────────────────────────────────────
+// ── Cell drill-down query (ads split by hook) ────────────────────────────────
 
 const creativeMatrixCellQueryKey = (
   accountId: string | null | undefined,
-  angleId: string | null,
   creativeType: string | null,
+  theme: string | null,
   dateFrom?: string | null,
   dateTo?: string | null,
 ) =>
   [
     "creative-matrix-cell",
     accountId,
-    angleId,
     creativeType,
+    theme,
     dateFrom ?? null,
     dateTo ?? null,
   ] as const;
 
 /**
- * Fetch one outer cell's inner hook × body grid + atomic ads. `enabled` only
- * when both an account and a selected cell are present, so nothing fires until
- * a strategist actually drills in. angleId / creativeType null are legitimate
- * selectors (the untagged buckets), so the cell is keyed by `hasCell`.
+ * Fetch one Creative Type × Theme cell's hook split + atomic ads. `enabled`
+ * only when both an account and a selected cell are present, so nothing fires
+ * until a strategist actually drills in. creativeType / theme null are
+ * legitimate selectors (the Other / untagged buckets), so the cell is keyed by
+ * `hasCell`.
  */
 export function useCreativeMatrixCell(
   accountId: string | null,
   hasCell: boolean,
-  angleId: string | null,
   creativeType: string | null,
+  theme: string | null,
   dateFrom?: string | null,
   dateTo?: string | null,
 ) {
   return useQuery<CreativeMatrixCell>({
-    queryKey: creativeMatrixCellQueryKey(accountId, angleId, creativeType, dateFrom, dateTo),
+    queryKey: creativeMatrixCellQueryKey(accountId, creativeType, theme, dateFrom, dateTo),
     queryFn: () =>
-      fetchCreativeMatrixCell({ accountId: accountId!, angleId, creativeType, dateFrom, dateTo }),
+      fetchCreativeMatrixCell({ accountId: accountId!, creativeType, theme, dateFrom, dateTo }),
     enabled: !!accountId && hasCell,
     staleTime: 30_000,
   });

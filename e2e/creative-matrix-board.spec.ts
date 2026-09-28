@@ -43,10 +43,12 @@ test.describe("Creative Matrix — board + view modes (US-007)", () => {
       timeout: 15_000,
     });
 
-    // Five view-mode toggles (performance / status / coverage / volume / win rate).
-    for (const label of [/performance/i, /status/i, /coverage/i, /volume/i, /win rate/i]) {
+    // Four view-mode toggles. Status was retired with the naming-convention
+    // board (it read test status from angle_clusters, which themes no longer use).
+    for (const label of [/performance/i, /coverage/i, /volume/i, /win rate/i]) {
       await expect(page.getByRole("button", { name: label })).toBeVisible({ timeout: 10_000 });
     }
+    await expect(page.getByRole("button", { name: /^status$/i })).toHaveCount(0);
     // Performance is the default pressed mode.
     await expect(page.getByRole("button", { name: /performance/i })).toHaveAttribute(
       "aria-pressed",

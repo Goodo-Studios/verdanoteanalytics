@@ -33,7 +33,9 @@ test.describe("Creative Matrix — taxonomy config surface (US-003)", () => {
       timeout: 10_000,
     });
     await expect(page.getByRole("heading", { name: /theme \/ persona list/i })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /^creative types$/i })).toBeVisible();
+    // The 90-type creative-type activation panel is retired: Creative Type is
+    // now the fixed four-value list from the ad naming convention.
+    await expect(page.getByRole("heading", { name: /^creative types$/i })).toHaveCount(0);
   });
 
   test("add → rename → archive a Theme/Persona persists across reload", async ({ page }) => {
@@ -73,37 +75,15 @@ test.describe("Creative Matrix — taxonomy config surface (US-003)", () => {
     await expect(page.getByText(renamed, { exact: true })).toBeVisible({ timeout: 15_000 });
   });
 
-  test("creative-type activation toggle persists across reload", async ({ page }) => {
+  test("no creative-type activation toggles remain on the Taxonomy tab", async ({ page }) => {
     await loginAsBuilder(page);
     await gotoSettings(page);
     expect(await openTaxonomyTab(page)).toBeTruthy();
 
-    const firstToggle = page.getByRole("switch").first();
-    await expect(firstToggle).toBeVisible({ timeout: 10_000 });
-    const before = await firstToggle.getAttribute("aria-checked");
-
-    await firstToggle.click();
-    // Wait for the optimistic/settled state to flip.
-    await expect
-      .poll(async () => firstToggle.getAttribute("aria-checked"), { timeout: 10_000 })
-      .not.toBe(before);
-    const after = await firstToggle.getAttribute("aria-checked");
-
-    await page.reload();
-    expect(await openTaxonomyTab(page)).toBeTruthy();
-    const persisted = page.getByRole("switch").first();
-    await expect(persisted).toBeVisible({ timeout: 15_000 });
-    await expect
-      .poll(async () => persisted.getAttribute("aria-checked"), { timeout: 10_000 })
-      .toBe(after);
-
-    // Restore original state so the account is left as we found it.
-    if (after !== before) {
-      await persisted.click();
-      await expect
-        .poll(async () => persisted.getAttribute("aria-checked"), { timeout: 10_000 })
-        .toBe(before);
-    }
+    await expect(page.getByRole("heading", { name: /theme \/ persona list/i })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByRole("switch")).toHaveCount(0);
   });
 });
 

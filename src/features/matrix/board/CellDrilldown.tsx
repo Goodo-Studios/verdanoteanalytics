@@ -1,13 +1,11 @@
-// US-008: cell drill-down — the inner hook × body grid + atomic-ad panel that
-// opens when a strategist clicks an outer Theme/Persona × creative-type cell.
-//
-// Hooks are columns, bodies are rows (mirrors the outer board's angle-columns /
-// type-rows shape). Every inner cell is spend-colored in the same verdant scale
-// as the outer board (verdanote-winners-decided-by-spend-first — fill is ALWAYS
-// SUM(spend), never ROAS). Explicit untagged hook/body header + row/column are
-// rendered, never hidden (AC #3). Clicking an inner cell opens the atomic ads in
-// that hook×body combo below the grid (AC #2). All aggregation, ranking, and
-// bucketing come from rpc_creative_matrix_cell — this component only renders.
+// Cell drill-down: opens when a strategist clicks a Creative Type × Theme cell
+// and splits that cell's ads by their EXACT hook text (no clustering, no body
+// axis). Each hook row is spend-colored in the same verdant scale as the board
+// (verdanote-winners-decided-by-spend-first — fill is ALWAYS SUM(spend), never
+// ROAS). The untagged hook bucket is rendered, never hidden. Clicking a hook
+// row opens the atomic ads carrying that hook below the list. All aggregation,
+// ranking, and bucketing come from rpc_creative_matrix_theme_cell — this
+// component only renders.
 
 import { useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
@@ -15,12 +13,11 @@ import { Loader2 } from "lucide-react";
 import type { CreativeMatrixCell } from "./api";
 import { AtomicAdCard } from "./AtomicAdCard";
 import {
-  adsForInnerCell,
+  adsForHook,
   fmtMoney,
-  indexInnerCells,
-  innerCellDisplay,
-  innerCellKey,
-  maxInnerCellSpend,
+  hookKey,
+  hookRowDisplay,
+  maxCellSpend,
   spendColor,
   spendTextColor,
   tagLabel,
@@ -44,21 +41,20 @@ export function CellDrilldown({
   onRetry,
   optimizationGoal,
 }: CellDrilldownProps) {
-  const [selectedInner, setSelectedInner] = useState<string | null>(null);
+  const [selectedHook, setSelectedHook] = useState<string | null>(null);
 
-  const cellIndex = useMemo(() => indexInnerCells(cell?.cells ?? []), [cell?.cells]);
-  const maxSpend = useMemo(() => maxInnerCellSpend(cell?.cells ?? []), [cell?.cells]);
+  const hooks = useMemo(() => cell?.hooks ?? [], [cell?.hooks]);
+  const maxSpend = useMemo(() => maxCellSpend(hooks), [hooks]);
 
-  // The (hook, body) pair currently opened, resolved back from its key.
-  const openedInner = useMemo(() => {
-    if (!selectedInner) return null;
-    return (cell?.cells ?? []).find((c) => innerCellKey(c.hook, c.body) === selectedInner) ?? null;
-  }, [selectedInner, cell?.cells]);
+  const openedHook = useMemo(() => {
+    if (selectedHook === null) return null;
+    return hooks.find((h) => hookKey(h.hook) === selectedHook) ?? null;
+  }, [selectedHook, hooks]);
 
   const openedAds = useMemo(() => {
-    if (!openedInner || !cell) return [];
-    return adsForInnerCell(cell.ads, openedInner.hook, openedInner.body);
-  }, [openedInner, cell]);
+    if (!openedHook || !cell) return [];
+    return adsForHook(cell.ads, openedHook.hook);
+  }, [openedHook, cell]);
 
   if (isLoading) {
     return (
@@ -72,7 +68,7 @@ export function CellDrilldown({
     return (
       <div className="glass-panel p-6 flex flex-col items-center justify-center gap-3 text-center">
         <p className="font-body text-[13px] text-slate">
-          {errorMessage ?? "Failed to load the hook × body grid."}
+          {errorMessage ?? "Failed to load the hook breakdown."}
         </p>
         <button
           type="button"
@@ -87,14 +83,12 @@ export function CellDrilldown({
 
   if (!cell) return null;
 
-  const { hooks, bodies } = cell;
-
-  if (hooks.length === 0 || bodies.length === 0) {
+  if (hooks.length === 0) {
     return (
       <div className="glass-panel p-6 flex items-center justify-center text-center">
         <p className="font-body text-[13px] text-slate">
-          No hook × body breakdown for this cell yet — tag the ads' hooks and bodies to populate the
-          inner grid.
+          No hooks for this cell yet. The breakdown fills in as new ads are named with the
+          generator.
         </p>
       </div>
     );
@@ -109,96 +103,73 @@ export function CellDrilldown({
         <table className="w-full border-collapse text-[12px]">
           <thead>
             <tr>
-              <th className="sticky left-0 z-10 bg-card border-b border-r border-border-light px-3 py-2 text-left font-body text-[11px] uppercase tracking-wide text-slate min-w-[160px]">
-                Body ╲ Hook
+              <th className="border-b border-r border-border-light px-3 py-2 text-left font-body text-[11px] uppercase tracking-wide text-slate min-w-[200px]">
+                Hook
               </th>
-              {hooks.map((h) => (
-                <th
-                  key={h.hook ?? "__untagged_hook"}
-                  className={`border-b border-border-light px-2 py-2 text-left align-bottom min-w-[92px] ${
-                    h.is_untagged ? "bg-muted/40" : ""
-                  }`}
-                >
-                  <div
-                    className={`font-body text-[12px] font-medium ${
-                      h.is_untagged ? "text-muted-foreground italic" : "text-forest"
-                    }`}
-                  >
-                    {tagLabel(h.hook)}
-                  </div>
-                  <div className="font-body text-[10px] text-muted-foreground mt-0.5">
-                    {fmtMoney(h.total_spend)}
-                  </div>
-                </th>
-              ))}
+              <th className="border-b border-border-light px-3 py-2 text-left font-body text-[11px] uppercase tracking-wide text-slate min-w-[120px]">
+                Spend
+              </th>
+              <th className="border-b border-border-light px-3 py-2 text-right font-body text-[11px] uppercase tracking-wide text-slate w-[80px]">
+                Ads
+              </th>
             </tr>
           </thead>
           <tbody>
-            {bodies.map((b) => (
-              <tr key={b.body ?? "__untagged_body"} className="hover:bg-accent/30">
-                <th
-                  scope="row"
-                  className={`sticky left-0 z-10 bg-card border-b border-r border-border-light px-3 py-1.5 text-left font-body text-[12px] font-normal min-w-[160px] ${
-                    b.is_untagged ? "text-muted-foreground italic" : "text-charcoal"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate">{tagLabel(b.body)}</span>
-                    <span className="text-[10px] text-muted-foreground shrink-0">
-                      {fmtMoney(b.total_spend)}
-                    </span>
-                  </div>
-                </th>
-                {hooks.map((h) => {
-                  const key = innerCellKey(h.hook, b.body);
-                  const inner = cellIndex.get(key);
-                  const spend = inner?.total_spend ?? 0;
-                  const covered = !!inner && inner.n_ads > 0;
-                  const isSelected = selectedInner === key;
-                  return (
-                    <td
-                      key={h.hook ?? "__untagged_hook"}
-                      className="border-b border-l border-border-light p-0"
+            {hooks.map((h) => {
+              const key = hookKey(h.hook);
+              const isSelected = selectedHook === key;
+              const covered = h.n_ads > 0;
+              return (
+                <tr key={key} className="hover:bg-accent/30" data-testid="hook-row">
+                  <th
+                    scope="row"
+                    className={`border-b border-r border-border-light px-3 py-1.5 text-left font-body text-[12px] font-normal ${
+                      h.is_untagged ? "text-muted-foreground italic" : "text-charcoal"
+                    }`}
+                  >
+                    {tagLabel(h.hook)}
+                  </th>
+                  <td className="border-b border-border-light p-0">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedHook(isSelected ? null : key)}
+                      disabled={!covered}
+                      style={{
+                        backgroundColor: spendColor(h.total_spend, maxSpend),
+                        color: spendTextColor(h.total_spend, maxSpend) || undefined,
+                      }}
+                      className={`flex h-full min-h-[34px] w-full items-center px-3 py-1.5 font-body text-[12px] transition-shadow ${
+                        covered ? "cursor-pointer hover:brightness-95" : "cursor-default"
+                      } ${isSelected ? "ring-2 ring-inset ring-verdant" : ""}`}
+                      aria-label={`Hook ${tagLabel(h.hook)}: ${fmtMoney(h.total_spend)} spend, ${
+                        h.n_ads
+                      } ads`}
+                      aria-pressed={isSelected}
                     >
-                      <button
-                        type="button"
-                        onClick={() => setSelectedInner(isSelected ? null : key)}
-                        disabled={!covered}
-                        style={{
-                          backgroundColor: spendColor(spend, maxSpend),
-                          color: spendTextColor(spend, maxSpend) || undefined,
-                        }}
-                        className={`flex h-full min-h-[38px] w-full items-center justify-center px-2 py-1.5 text-center font-body text-[12px] transition-shadow ${
-                          covered ? "cursor-pointer hover:brightness-95" : "cursor-default"
-                        } ${isSelected ? "ring-2 ring-inset ring-verdant" : ""}`}
-                        aria-label={`Hook ${tagLabel(h.hook)} × body ${tagLabel(b.body)}: ${fmtMoney(
-                          spend,
-                        )} spend, ${inner?.n_ads ?? 0} ads`}
-                        aria-pressed={isSelected}
-                      >
-                        {innerCellDisplay(inner)}
-                      </button>
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
+                      {hookRowDisplay(h)}
+                    </button>
+                  </td>
+                  <td className="border-b border-border-light px-3 py-1.5 text-right font-body text-[12px] text-charcoal">
+                    {h.n_ads}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
 
-      {/* Atomic-ad panel for the opened inner cell */}
-      {openedInner && (
+      {/* Atomic-ad panel for the opened hook */}
+      {openedHook && (
         <div className="space-y-2" data-testid="atomic-ad-panel">
           <div className="font-body text-[12px] text-muted-foreground">
             {openedAds.length} ad{openedAds.length === 1 ? "" : "s"} · Hook{" "}
-            <span className="text-forest">{tagLabel(openedInner.hook)}</span> × Body{" "}
-            <span className="text-forest">{tagLabel(openedInner.body)}</span> ·{" "}
-            {fmtMoney(openedInner.total_spend)} spend
+            <span className="text-forest">{tagLabel(openedHook.hook)}</span> ·{" "}
+            {fmtMoney(openedHook.total_spend)} spend
           </div>
           {openedAds.length === 0 ? (
             <div className="glass-panel p-4 text-center font-body text-[12px] text-slate">
-              No individual ads resolved for this combination.
+              No individual ads resolved for this hook.
             </div>
           ) : (
             <div className="grid gap-2">
@@ -206,7 +177,7 @@ export function CellDrilldown({
                 <AtomicAdCard
                   key={ad.ad_id}
                   ad={ad}
-                  angleLabel={cell.angle_label}
+                  theme={cell.theme}
                   creativeType={cell.creative_type}
                   optimizationGoal={optimizationGoal}
                 />

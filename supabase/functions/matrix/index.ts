@@ -3,13 +3,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { parseMatrixCellParams, parseMatrixParams } from "../_shared/matrix-logic.ts";
 
-// US-006: session-authed read path for the 2-D creative matrix
-// (Theme/Persona × creative-type cross-tab).
+// Session-authed read path for the Creative Matrix: Creative Type rows
+// (creatives.style, the 4 naming-convention types + Other / untagged) × Theme
+// columns (creatives.theme) — see migration 20260927200001.
 //
-// US-008 extends this SAME function (no new edge fn ⇒ no deploy-script change)
-// with a cell drill-down view: `GET matrix?view=cell&account_id=…&angle_id=…&
-// creative_type=…` invokes rpc_creative_matrix_cell to open one Theme/Persona ×
-// creative-type cell into its inner hook × body grid + atomic ads. Same auth +
+// The cell drill-down lives on this SAME function (no new edge fn ⇒ no
+// deploy-script change): `GET matrix?view=cell&account_id=…&creative_type=…&
+// theme=…` invokes rpc_creative_matrix_theme_cell, which opens one Creative
+// Type × Theme cell and splits its ads by exact hook text. Same auth +
 // ownership gate; same verbatim-jsonb posture (the RPC is the single source of
 // truth for aggregation / spend-ranking).
 //
@@ -81,13 +82,12 @@ serve(async (req) => {
 
   const url = new URL(req.url);
 
-  // ── US-008 cell drill-down view: ?view=cell → rpc_creative_matrix_cell ──────
+  // ── Cell drill-down view: ?view=cell → rpc_creative_matrix_theme_cell ──────
   if (url.searchParams.get("view") === "cell") {
-    // Shared with the GET /api/matrix drill-down so validation is identical.
     const cellParams = parseMatrixCellParams(
       url.searchParams.get("account_id"),
-      url.searchParams.get("angle_id"),
       url.searchParams.get("creative_type"),
+      url.searchParams.get("theme"),
       url.searchParams.get("date_from"),
       url.searchParams.get("date_to")
     );
@@ -105,10 +105,10 @@ serve(async (req) => {
     }
 
     try {
-      const { data, error } = await supabase.rpc("rpc_creative_matrix_cell", {
+      const { data, error } = await supabase.rpc("rpc_creative_matrix_theme_cell", {
         p_account_id: cellParams.accountId,
-        p_angle_id: cellParams.angleId,
         p_creative_type: cellParams.creativeType,
+        p_theme: cellParams.theme,
         p_date_from: cellParams.dateFrom,
         p_date_to: cellParams.dateTo,
       });

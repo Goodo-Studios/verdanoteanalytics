@@ -9,10 +9,12 @@
 // Both are live behavioral tests on the REAL surface (jsdom + Testing Library),
 // with only the network boundary (supabase.functions.invoke) faked in memory:
 //   • Test 1 renders the REAL MatrixBoardPage wired to the REAL board api.ts +
-//     useCreativeMatrix + useAccountTaxonomy (for lane grouping). The fake edge
-//     fn serves rpc_creative_matrix's exact jsonb shape; the board must render
-//     spend-colored cells in Theme/Persona spend-DESC column order (spend-first
-//     ranking), and the five view-mode toggles must switch the cell display.
+//     useCreativeMatrix. The fake edge fn serves rpc_creative_matrix's exact
+//     jsonb shape (20260927200001: Creative Type rows × Theme columns); the
+//     board must render the 4 Creative Types in fixed order + Other / untagged,
+//     Theme / Persona columns spend-DESC, and the four view-mode toggles must
+//     switch the cell display. (Updated 2026-09-27 from the old Theme/Persona
+//     angle × 90-type lane board.)
 //   • Test 2 renders App's REAL exported RoleGuardedRoutes and asserts the
 //     builder-only /matrix guard: a builder reaches the board, while an
 //     employee, a client, and a builder in client-preview are all redirected to
@@ -40,49 +42,54 @@ const h = vi.hoisted(() => ({
   preview: { isClientPreview: false, isEmployeePreview: false },
 }));
 
-// --- Network boundary: an in-memory fake of the two session-authed edge fns the
-// board reads — `matrix` (GET rpc_creative_matrix) and `account-taxonomy` (the
-// creative_type → lane map). Payloads use the exact RPC shapes.
+// --- Network boundary: an in-memory fake of the session-authed `matrix` edge fn
+// (GET rpc_creative_matrix). The payload uses the exact RPC shape from
+// 20260927200001: Creative Type rows (fixed order + Other / untagged) × Theme
+// columns (spend DESC, untagged last).
+const CELL_BASE = { roas: 1, cpa: 10, ctr: 1, cpm: 5, purchases: 1, total_purchase_value: 1, result_count: 1, cost_per_result: 10 };
 const MATRIX_PAYLOAD = {
   account_id: ACCOUNT_ID,
   date_from: null,
   date_to: null,
-  angles: [
-    { angle_id: "a1", label: "Busy parents", test_status: "Winner", archived: false, total_spend: 800 },
-    { angle_id: "a2", label: "Value seekers", test_status: null, archived: false, total_spend: 300 },
-    { angle_id: null, label: "Untagged", test_status: null, archived: false, total_spend: 100 },
-  ],
   creative_types: [
-    { creative_type: "UGC", total_spend: 700 },
-    { creative_type: "Static Image", total_spend: 400 },
-    { creative_type: null, total_spend: 100 },
+    { creative_type: "UGC Native", is_other: false, total_spend: 700, n_ads: 6 },
+    { creative_type: "Studio Clean", is_other: false, total_spend: 0, n_ads: 0 },
+    { creative_type: "Text Forward", is_other: false, total_spend: 400, n_ads: 5 },
+    { creative_type: "Lifestyle", is_other: false, total_spend: 0, n_ads: 0 },
+    { creative_type: null, is_other: true, total_spend: 100, n_ads: 1 },
+  ],
+  themes: [
+    { theme: "Busy Parents", is_untagged: false, total_spend: 800, n_ads: 7 },
+    { theme: "Tired By 3pm", is_untagged: false, total_spend: 300, n_ads: 4 },
+    { theme: null, is_untagged: true, total_spend: 100, n_ads: 1 },
   ],
   cells: [
-    { angle_id: "a1", angle_label: "Busy parents", is_untagged_angle: false, test_status: "Winner", creative_type: "UGC", is_untagged_type: false, total_spend: 600, n_ads: 5, roas: 3, cpa: 10, ctr: 2, cpm: 5, purchases: 60, total_purchase_value: 1800, result_count: 60, cost_per_result: 10, spend_rank: 1 },
-    { angle_id: "a1", angle_label: "Busy parents", is_untagged_angle: false, test_status: "Winner", creative_type: "Static Image", is_untagged_type: false, total_spend: 200, n_ads: 2, roas: 2, cpa: 12, ctr: 1.5, cpm: 6, purchases: 16, total_purchase_value: 400, result_count: 16, cost_per_result: 12, spend_rank: 2 },
-    { angle_id: "a2", angle_label: "Value seekers", is_untagged_angle: false, test_status: null, creative_type: "Static Image", is_untagged_type: false, total_spend: 200, n_ads: 3, roas: 1.5, cpa: 15, ctr: 1, cpm: 7, purchases: 13, total_purchase_value: 300, result_count: 13, cost_per_result: 15, spend_rank: 2 },
-    { angle_id: "a2", angle_label: "Value seekers", is_untagged_angle: false, test_status: null, creative_type: "UGC", is_untagged_type: false, total_spend: 100, n_ads: 1, roas: 1, cpa: 20, ctr: 0.9, cpm: 8, purchases: 5, total_purchase_value: 100, result_count: 5, cost_per_result: 20, spend_rank: 4 },
-    { angle_id: null, angle_label: "Untagged", is_untagged_angle: true, test_status: null, creative_type: null, is_untagged_type: true, total_spend: 100, n_ads: 1, roas: 1, cpa: 20, ctr: 0.5, cpm: 9, purchases: 5, total_purchase_value: 100, result_count: 5, cost_per_result: 20, spend_rank: 5 },
+    { ...CELL_BASE, creative_type: "UGC Native", is_other_type: false, theme: "Busy Parents", is_untagged_theme: false, total_spend: 600, n_ads: 5, spend_rank: 1 },
+    { ...CELL_BASE, creative_type: "Text Forward", is_other_type: false, theme: "Busy Parents", is_untagged_theme: false, total_spend: 200, n_ads: 2, spend_rank: 2 },
+    { ...CELL_BASE, creative_type: "Text Forward", is_other_type: false, theme: "Tired By 3pm", is_untagged_theme: false, total_spend: 200, n_ads: 3, spend_rank: 2 },
+    { ...CELL_BASE, creative_type: "UGC Native", is_other_type: false, theme: "Tired By 3pm", is_untagged_theme: false, total_spend: 100, n_ads: 1, spend_rank: 4 },
+    { ...CELL_BASE, creative_type: null, is_other_type: true, theme: null, is_untagged_theme: true, total_spend: 100, n_ads: 1, spend_rank: 5 },
   ],
 };
 
-const TAXONOMY_PAYLOAD = {
+const EMPTY_PAYLOAD = {
   account_id: ACCOUNT_ID,
-  themes: [],
+  date_from: null,
+  date_to: null,
   creative_types: [
-    { creative_type_id: "ct_ugc", lane: "Video", type_name: "UGC", menu_sort_order: 0, active: true, activation_id: "x", account_sort_order: 0 },
-    { creative_type_id: "ct_static", lane: "Static", type_name: "Static Image", menu_sort_order: 1, active: true, activation_id: "y", account_sort_order: 1 },
+    { creative_type: "UGC Native", is_other: false, total_spend: 0, n_ads: 0 },
+    { creative_type: "Studio Clean", is_other: false, total_spend: 0, n_ads: 0 },
+    { creative_type: "Text Forward", is_other: false, total_spend: 0, n_ads: 0 },
+    { creative_type: "Lifestyle", is_other: false, total_spend: 0, n_ads: 0 },
   ],
+  themes: [],
+  cells: [],
 };
 
-function makeServer() {
-  return async (name: string, opts?: { body?: Record<string, unknown> }) => {
+function makeServer(payload: unknown = MATRIX_PAYLOAD) {
+  return async (name: string) => {
     if (name.startsWith("matrix")) {
-      return { data: { matrix: MATRIX_PAYLOAD }, error: null };
-    }
-    if (name === "account-taxonomy") {
-      if (opts?.body?.action === "list") return { data: { taxonomy: TAXONOMY_PAYLOAD }, error: null };
-      return { data: { taxonomy: TAXONOMY_PAYLOAD }, error: null };
+      return { data: { matrix: payload }, error: null };
     }
     return { data: null, error: { message: `unexpected fn ${name}` } };
   };
@@ -172,46 +179,81 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("US-007: builder board renders spend-ranked cells and mode toggles switch views (e2e 1)", () => {
-  it("renders Theme/Persona columns spend-DESC with an explicit untagged bucket", async () => {
+  it("labels the axes Creative Type and Theme / Persona, with no Body axis", async () => {
     renderPage();
+    await screen.findByText("Busy Parents");
+    expect(screen.getByText("Creative Type")).toBeInTheDocument();
+    expect(screen.getByText("Theme / Persona")).toBeInTheDocument();
+    expect(screen.queryByText(/body/i)).toBeNull();
+    // The legend states how untyped / legacy ads are handled.
+    expect(screen.getByTestId("matrix-legend")).toHaveTextContent(/Other \/ untagged/);
+  });
 
-    // Board resolves — the two tagged Theme/Persona columns + the untagged one.
-    const parents = await screen.findByText("Busy parents");
-    const value = screen.getByText("Value seekers");
-    // Both axes carry an explicit "Untagged" bucket (angle + type).
-    expect(screen.getAllByText("Untagged").length).toBeGreaterThanOrEqual(2);
+  it("renders the 4 Creative Types in fixed order, then Other / untagged", async () => {
+    renderPage();
+    await screen.findByText("Busy Parents");
+    const rowLabels = screen
+      .getAllByTestId("matrix-row")
+      .map((row) => row.querySelector("th span")?.textContent);
+    expect(rowLabels).toEqual([
+      "UGC Native",
+      "Studio Clean",
+      "Text Forward",
+      "Lifestyle",
+      "Other / untagged",
+    ]);
+  });
 
-    // Spend-first ranking: the higher-spend Theme/Persona column comes first.
-    expect(
-      parents.compareDocumentPosition(value) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+  it("renders Theme / Persona columns spend-DESC with the untagged column last", async () => {
+    renderPage();
+    const parents = await screen.findByText("Busy Parents");
+    const tired = screen.getByText("Tired By 3pm");
+    const untagged = screen.getByText("Untagged");
+    expect(parents.compareDocumentPosition(tired) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tired.compareDocumentPosition(untagged) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Cells are addressed as Creative Type × Theme.
+    expect(screen.getByRole("button", { name: /^UGC Native × Busy Parents: \$600 spend, 5 ads$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Other \/ untagged × Untagged:/ })).toBeInTheDocument();
   });
 
   it("shows spend in performance mode, then switches to volume and win rate", async () => {
     renderPage();
-    await screen.findByText("Busy parents");
+    await screen.findByText("Busy Parents");
 
     // Performance (default): the top-spend cell shows its spend.
     expect(screen.getByText("$600")).toBeInTheDocument();
+    // Status mode is gone (theme is free text, no test status).
+    expect(screen.queryByRole("button", { name: /^Status$/i })).toBeNull();
 
-    // Volume: cell display switches to the ad count (5 ads in the top cell);
-    // the spend figure is gone.
+    // Volume: cell display switches to the ad count (5 ads in the top cell).
     fireEvent.click(screen.getByRole("button", { name: /^Volume$/i }));
     expect(await screen.findByText("5")).toBeInTheDocument();
     expect(screen.queryByText("$600")).toBeNull();
 
-    // Win rate: spend share of the column — 600 / 800 = 75% (spend-first, never ROAS).
+    // Win rate: spend share of the theme column — 600 / 800 = 75%.
     fireEvent.click(screen.getByRole("button", { name: /^Win rate$/i }));
     expect(await screen.findByText("75%")).toBeInTheDocument();
   });
 
-  it("reads the matrix through the session-authed `matrix` edge fn (never the external api)", async () => {
+  it("shows the generator empty state when no ads are in scope", async () => {
+    h.invoke.mockImplementation(makeServer(EMPTY_PAYLOAD));
     renderPage();
-    await screen.findByText("Busy parents");
+    expect(
+      await screen.findByText(/fills in as new ads are named with the generator/i),
+    ).toBeInTheDocument();
+  });
+
+  it("reads the matrix through the session-authed `matrix` edge fn only (no taxonomy read)", async () => {
+    renderPage();
+    await screen.findByText("Busy Parents");
     const fnNames = h.invoke.mock.calls.map((c) => c[0] as string);
     expect(fnNames.some((n) => n.startsWith("matrix"))).toBe(true);
-    // No call targets the key-gated external `api` function.
-    for (const n of fnNames) expect(n === "api" || n.startsWith("api?")).toBe(false);
+    // No call targets the key-gated external `api` function, and the retired
+    // creative-type lane map is no longer fetched.
+    for (const n of fnNames) {
+      expect(n === "api" || n.startsWith("api?")).toBe(false);
+      expect(n).not.toBe("account-taxonomy");
+    }
   });
 });
 

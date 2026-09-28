@@ -7,7 +7,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { X, Plus, Trash2 } from "lucide-react";
-import { TYPE_OPTIONS, HOOK_OPTIONS } from "@/lib/tagOptions";
+import { TYPE_OPTIONS } from "@/lib/tagOptions";
+import { displayAdType } from "@/lib/tagDisplay";
 import type { Grade } from "@/lib/creativeGrading";
 
 
@@ -41,8 +42,10 @@ const FIELD_DEFS: FieldDef[] = [
   { key: "hook_rate", label: "Hook Rate", type: "number", operators: ["gt", "lt"] },
   { key: "cpa", label: "CPA", type: "number", operators: ["gt", "lt"] },
   { key: "grade", label: "Grade", type: "multiSelect", options: ["A", "B", "C", "D", "F"] },
-  { key: "format", label: "Format", type: "multiSelect", options: TYPE_OPTIONS },
-  { key: "hook_type", label: "Hook Type", type: "multiSelect", options: HOOK_OPTIONS },
+  { key: "format", label: "Ad Type", type: "multiSelect", options: TYPE_OPTIONS },
+  // The tag hook is free text, so it filters by "contains". Key kept as
+  // hook_type so previously shared filter URLs still parse.
+  { key: "hook_type", label: "Hook", type: "text" },
   { key: "status", label: "Status", type: "multiSelect", options: ["Scaling", "Monitoring", "Paused", "Losing Momentum", "High Fatigue"] },
   { key: "campaign", label: "Campaign", type: "text" },
   { key: "days_running", label: "Days Running", type: "number", operators: ["gt"] },
@@ -323,12 +326,14 @@ function passesCondition(
       return (cond.multiValues || []).includes(gi.grade);
     }
     case "format": {
-      const adType = c.ad_type || "";
+      // Legacy "Image"/"Photo" rows match "Static".
+      const adType = displayAdType(c.ad_type) ?? "";
       return (cond.multiValues || []).length === 0 || (cond.multiValues || []).includes(adType);
     }
     case "hook_type": {
-      const hook = c.hook || "";
-      return (cond.multiValues || []).length === 0 || (cond.multiValues || []).includes(hook);
+      const needle = (cond.value || "").trim().toLowerCase();
+      if (!needle) return true;
+      return String(c.hook || "").toLowerCase().includes(needle);
     }
     case "status": {
       const selected = cond.multiValues || [];

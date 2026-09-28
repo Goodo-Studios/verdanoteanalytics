@@ -12,7 +12,7 @@ interface TagBreakdownSectionProps {
 const TAG_FIELDS = [
   { value: "hook", label: "Hook Type" },
   { value: "ad_type", label: "Format" },
-  { value: "style", label: "Style" },
+  { value: "style", label: "Creative Type" },
   { value: "person", label: "Person" },
 ];
 

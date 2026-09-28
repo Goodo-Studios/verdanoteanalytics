@@ -21,6 +21,13 @@ export interface Segment {
   position: number;
   dimension: Dimension;
   required: boolean;
+  /**
+   * true => any non-empty token is accepted for this segment (product, hook and
+   * theme in the Goodo convention). A token that also matches vocab still maps to
+   * the vocab canonical. Optional so a get_convention payload from before
+   * migration 20260927100001 (no free_text key) still parses as vocab-only.
+   */
+  free_text?: boolean;
 }
 
 /** A controlled-vocabulary entry: a canonical value plus its accepted aliases. */

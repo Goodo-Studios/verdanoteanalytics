@@ -32,12 +32,14 @@ export const TABLE_COLUMNS: ColumnDef[] = [
   { key: "adds_to_cart", label: "Adds to Cart", defaultVisible: false, group: "Commerce" },
   { key: "cost_per_atc", label: "Cost per Add to Cart", defaultVisible: false, group: "Commerce" },
   // Tags
-  { key: "type", label: "Type", defaultVisible: false, group: "Tags" },
-  { key: "person", label: "Person", defaultVisible: false, group: "Tags" },
-  { key: "style", label: "Style", defaultVisible: false, group: "Tags" },
-  { key: "hook", label: "Hook", defaultVisible: false, group: "Tags" },
-  { key: "product", label: "Product", defaultVisible: false, group: "Tags" },
-  { key: "theme", label: "Theme", defaultVisible: false, group: "Tags" },
+  // Naming-convention order: Ad Type, Person, Creative Type, Product, Hook, Theme.
+  // `style` is the DB column behind "Creative Type".
+  { key: "type", label: "Ad Type", defaultVisible: true, group: "Tags" },
+  { key: "person", label: "Person", defaultVisible: true, group: "Tags" },
+  { key: "style", label: "Creative Type", defaultVisible: true, group: "Tags" },
+  { key: "product", label: "Product", defaultVisible: true, group: "Tags" },
+  { key: "hook", label: "Hook", defaultVisible: true, group: "Tags" },
+  { key: "theme", label: "Theme", defaultVisible: true, group: "Tags" },
   { key: "tags", label: "Tag Source", defaultVisible: false, group: "Tags" },
   // Context
   { key: "campaign", label: "Campaign", defaultVisible: false, group: "Context" },
@@ -46,11 +48,11 @@ export const TABLE_COLUMNS: ColumnDef[] = [
 
 export const GROUP_BY_OPTIONS = [
   { value: "__none__", label: "No grouping" },
-  { value: "ad_type", label: "Type" },
+  { value: "ad_type", label: "Ad Type" },
   { value: "person", label: "Person" },
-  { value: "style", label: "Style" },
-  { value: "hook", label: "Hook" },
+  { value: "style", label: "Creative Type" },
   { value: "product", label: "Product" },
+  { value: "hook", label: "Hook" },
   { value: "theme", label: "Theme" },
 ];
 
@@ -72,7 +74,7 @@ export const SORT_FIELD_MAP: Record<string, string> = {
 
 export const HEAD_LABELS: Record<string, string> = {
   creative: "Creative", grade: "Grade", ad_status: "Status", result_type: "Result Type",
-  type: "Type", person: "Person", style: "Style", hook: "Hook",
+  type: "Ad Type", person: "Person", style: "Creative Type", hook: "Hook",
   product: "Product", theme: "Theme", tags: "Tags",
   spend: "Spent", roas: "ROAS", cpa: "Cost/Result", cpm: "CPM",
   cpc: "CPC", frequency: "Frequency", cpmr: "CPMr",
@@ -145,8 +147,6 @@ interface CellCfg {
 export const CELL_CONFIG: Record<string, CellCfg> = {
   ad_status:   { field: "ad_status" },
   result_type: { field: "result_type" },
-  product:     { field: "product", truncate: true },
-  theme:       { field: "theme", truncate: true },
   campaign:    { field: "campaign_name", truncate: true },
   adset:       { field: "adset_name", truncate: true },
   spend:       { field: "spend", format: { prefix: "$" } },
@@ -172,3 +172,82 @@ export const CELL_CONFIG: Record<string, CellCfg> = {
   adds_to_cart:   { field: "adds_to_cart", format: { decimals: 0 } },
   cost_per_atc:   { field: "cost_per_add_to_cart", format: { prefix: "$" } },
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Saved column preferences (localStorage) + one-time migrations.
+//
+// Visibility and order are stored as explicit key lists, so a changed
+// `defaultVisible` never reaches users who already saved prefs. Each entry in
+// COLUMN_PREF_MIGRATIONS runs once per browser (tracked by a version number)
+// and edits the saved lists in place; everything else the user chose stays.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const COLUMN_VISIBLE_KEY = "creatives_visible_columns";
+export const COLUMN_ORDER_KEY = "creatives_column_order";
+export const COLUMN_PREFS_VERSION_KEY = "creatives_columns_prefs_version";
+
+/** The naming-convention tag columns, in display order. */
+export const NAMING_TAG_COLUMNS = ["type", "person", "style", "product", "hook", "theme"];
+
+/** Current prefs version. v2 = naming-convention tag columns shown + reordered. */
+export const COLUMN_PREFS_VERSION = 2;
+
+export interface ColumnPrefs {
+  visible: string[] | null;
+  order: string[] | null;
+}
+
+/**
+ * Re-sequence `keys` inside `order` so they appear in `wanted` order while
+ * occupying the same slots they already held. Keys missing from `order` are
+ * appended at the end in `wanted` order.
+ */
+function reorderInPlace(order: string[], wanted: string[]): string[] {
+  const wantedSet = new Set(wanted);
+  const present = wanted.filter((k) => order.includes(k));
+  const out: string[] = [];
+  let i = 0;
+  for (const k of order) {
+    if (wantedSet.has(k)) out.push(present[i++]);
+    else out.push(k);
+  }
+  for (const k of wanted) if (!out.includes(k)) out.push(k);
+  return out;
+}
+
+/**
+ * Apply every migration newer than `fromVersion` to saved prefs. Returns the
+ * (possibly unchanged) prefs. Null lists mean "never saved" and stay null so
+ * the new defaults apply.
+ */
+export function migrateColumnPrefs(prefs: ColumnPrefs, fromVersion: number): ColumnPrefs {
+  let { visible, order } = prefs;
+  if (fromVersion < 2) {
+    if (visible) visible = [...new Set([...visible, ...NAMING_TAG_COLUMNS])];
+    if (order) order = reorderInPlace(order, NAMING_TAG_COLUMNS);
+  }
+  return { visible, order };
+}
+
+function readList(key: string): string[] | null {
+  const raw = localStorage.getItem(key);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(String) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Load saved column prefs, running (and persisting) any pending migration. */
+export function loadColumnPrefs(): ColumnPrefs {
+  const prefs: ColumnPrefs = { visible: readList(COLUMN_VISIBLE_KEY), order: readList(COLUMN_ORDER_KEY) };
+  const fromVersion = Number(localStorage.getItem(COLUMN_PREFS_VERSION_KEY) || "1") || 1;
+  if (fromVersion >= COLUMN_PREFS_VERSION) return prefs;
+  const migrated = migrateColumnPrefs(prefs, fromVersion);
+  if (migrated.visible) localStorage.setItem(COLUMN_VISIBLE_KEY, JSON.stringify(migrated.visible));
+  if (migrated.order) localStorage.setItem(COLUMN_ORDER_KEY, JSON.stringify(migrated.order));
+  localStorage.setItem(COLUMN_PREFS_VERSION_KEY, String(COLUMN_PREFS_VERSION));
+  return migrated;
+}

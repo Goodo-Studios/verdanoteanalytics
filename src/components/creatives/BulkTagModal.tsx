@@ -9,7 +9,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useUpdateCreative } from "@/hooks/useCreatives";
-import { TYPE_OPTIONS, PERSON_OPTIONS, STYLE_OPTIONS, HOOK_OPTIONS } from "@/lib/tagOptions";
+import { TYPE_OPTIONS, PERSON_OPTIONS, STYLE_OPTIONS } from "@/lib/tagOptions";
+import { TAG_FIELD_LABELS } from "@/lib/tagDisplay";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -24,15 +25,20 @@ const EMPTY = "__empty__";
 export function BulkTagModal({ open, onClose, adIds }: BulkTagModalProps) {
   const updateCreative = useUpdateCreative();
   const [tags, setTags] = useState({
-    ad_type: EMPTY, person: EMPTY, style: EMPTY, product: "", hook: EMPTY, theme: "",
+    ad_type: EMPTY, person: EMPTY, style: EMPTY, product: "", hook: "", theme: "",
   });
   const [saving, setSaving] = useState(false);
 
   const selectFields = [
-    { key: "ad_type" as const, label: "Type", options: TYPE_OPTIONS },
-    { key: "person" as const, label: "Person", options: PERSON_OPTIONS },
-    { key: "style" as const, label: "Style", options: STYLE_OPTIONS },
-    { key: "hook" as const, label: "Hook", options: HOOK_OPTIONS },
+    { key: "ad_type" as const, label: TAG_FIELD_LABELS.ad_type, options: TYPE_OPTIONS },
+    { key: "person" as const, label: TAG_FIELD_LABELS.person, options: PERSON_OPTIONS },
+    { key: "style" as const, label: TAG_FIELD_LABELS.style, options: STYLE_OPTIONS },
+  ];
+  // Free-text columns: a blank field means "no change".
+  const textFields = [
+    { key: "product" as const, label: TAG_FIELD_LABELS.product },
+    { key: "hook" as const, label: TAG_FIELD_LABELS.hook },
+    { key: "theme" as const, label: TAG_FIELD_LABELS.theme },
   ];
 
   const handleSave = async () => {
@@ -40,9 +46,9 @@ export function BulkTagModal({ open, onClose, adIds }: BulkTagModalProps) {
     if (tags.ad_type !== EMPTY) updates.ad_type = tags.ad_type;
     if (tags.person !== EMPTY) updates.person = tags.person;
     if (tags.style !== EMPTY) updates.style = tags.style;
-    if (tags.hook !== EMPTY) updates.hook = tags.hook;
-    if (tags.product) updates.product = tags.product;
-    if (tags.theme) updates.theme = tags.theme;
+    if (tags.product.trim()) updates.product = tags.product.trim();
+    if (tags.hook.trim()) updates.hook = tags.hook.trim();
+    if (tags.theme.trim()) updates.theme = tags.theme.trim();
 
     if (Object.keys(updates).length === 0) {
       toast.info("No tags selected to apply");
@@ -51,11 +57,15 @@ export function BulkTagModal({ open, onClose, adIds }: BulkTagModalProps) {
 
     setSaving(true);
     try {
-      await Promise.all(adIds.map(adId => updateCreative.mutateAsync({ adId, updates })));
-      toast.success(`Tags applied to ${adIds.length} creatives`);
-      onClose();
-    } catch {
-      toast.error("Some tags failed to apply");
+      const results = await Promise.allSettled(adIds.map(adId => updateCreative.mutateAsync({ adId, updates })));
+      const failed = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+      if (failed.length === 0) {
+        toast.success(`Tags applied to ${adIds.length} creatives`);
+        onClose();
+      } else {
+        const reason = failed[0].reason instanceof Error ? failed[0].reason.message : String(failed[0].reason);
+        toast.error(`Tags failed to apply to ${failed.length} of ${adIds.length} creatives`, { description: reason });
+      }
     } finally {
       setSaving(false);
     }
@@ -85,14 +95,12 @@ export function BulkTagModal({ open, onClose, adIds }: BulkTagModalProps) {
               </Select>
             </div>
           ))}
-          <div className="space-y-1.5">
-            <Label className="font-label text-[11px] uppercase tracking-wider">Product</Label>
-            <Input className="bg-background h-8 text-xs font-body" value={tags.product} onChange={(e) => setTags({ ...tags, product: e.target.value })} placeholder="Leave blank to skip" />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="font-label text-[11px] uppercase tracking-wider">Theme</Label>
-            <Input className="bg-background h-8 text-xs font-body" value={tags.theme} onChange={(e) => setTags({ ...tags, theme: e.target.value })} placeholder="Leave blank to skip" />
-          </div>
+          {textFields.map(({ key, label }) => (
+            <div key={key} className="space-y-1.5">
+              <Label htmlFor={`bulk-tag-${key}`} className="font-label text-[11px] uppercase tracking-wider">{label}</Label>
+              <Input id={`bulk-tag-${key}`} className="bg-background h-8 text-xs font-body" value={tags[key]} onChange={(e) => setTags({ ...tags, [key]: e.target.value })} placeholder="Leave blank to skip" />
+            </div>
+          ))}
         </div>
         <DialogFooter className="mt-4">
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
