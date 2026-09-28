@@ -24,6 +24,14 @@ import {
   looksLikeHtml,
 } from "../_shared/media-discovery.ts";
 import { isMediaContentType } from "../_shared/vault-save-logic.ts";
+import {
+  isMetaAdAccountId,
+  isTerminalMetaError,
+  MAX_CAMPAIGN_LIST_ERROR_RETRIES,
+  shouldRetryCampaignList,
+  urlTargetsAccount,
+} from "../_shared/meta-errors.ts";
+import { cooldownRemainingMs, cooldownWaitMs } from "../_shared/sync-handoff.ts";
 
 // US-002: Rolling-window incremental daily sync.
 //
@@ -396,9 +404,19 @@ export function countRealErrors(errs: { message?: string }[]): number {
   return errs.filter((e) => !isInformationalSyncNote(e.message || "")).length;
 }
 
+export interface MetaFetchCtx {
+  metaApiCalls: number;
+  apiErrors: { timestamp: string; message: string }[];
+  isTimedOut: () => boolean;
+  /** The sync's ad account; lets metaFetch tell account-level failures from per-object ones. */
+  accountId?: string;
+  /** Set when Meta returns a permanent error for the account itself (or a bad token). */
+  terminalError?: string | null;
+}
+
 export async function metaFetch(
   url: string,
-  ctx: { metaApiCalls: number; apiErrors: { timestamp: string; message: string }[]; isTimedOut: () => boolean }
+  ctx: MetaFetchCtx
 ): Promise<{ data: any[] | null; next: string | null; error: boolean; rateLimited: boolean; retriableUrl: string | null }> {
   if (ctx.isTimedOut()) return { data: null, next: null, error: false, rateLimited: false, retriableUrl: url };
 
@@ -467,6 +485,12 @@ export async function metaFetch(
         const fullErrMsg = `Meta API error — code: ${json.error.code ?? "?"}, subcode: ${json.error.error_subcode ?? "?"}, type: ${json.error.type ?? "?"}, msg: ${json.error.message ?? "?"}`;
         console.error(fullErrMsg, JSON.stringify(json.error));
         ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: fullErrMsg });
+        // A bad token fails every call; a missing/forbidden account fails every
+        // account-scoped call. Flag both so callers stop retrying. A permanent
+        // error on a single ad or video URL is not flagged.
+        if (isTerminalMetaError(json.error) && (json.error.code === 190 || (ctx.accountId && urlTargetsAccount(url, ctx.accountId)))) {
+          ctx.terminalError = fullErrMsg;
+        }
         return { data: null, next: null, error: true, rateLimited: false, retriableUrl: null };
       }
 
@@ -667,7 +691,7 @@ const HEARTBEAT_INTERVAL_MS = 20 * 1000;
 // HTTP POST to /sync/continue so the next phase starts immediately instead of
 // waiting for the cron tick (~1 min). This eliminates the race condition where
 // cleanup-stuck-syncs marks a sync as "stuck" before the cron re-invokes it.
-async function selfContinue(claimId: string): Promise<void> {
+async function selfContinue(claimId: string | null): Promise<void> {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -702,7 +726,12 @@ async function selfContinue(claimId: string): Promise<void> {
 }
 
 // ─── Promote Next Queued Sync ────────────────────────────────────────────────
-async function promoteNextQueued(supabase: any) {
+type PromoteResult =
+  | { kind: "promoted"; id: number }
+  | { kind: "cooldown"; remainingMs: number }
+  | { kind: "empty" };
+
+async function promoteNextQueued(supabase: any): Promise<PromoteResult> {
   // Check for cooldown between sequential account syncs (default: 2 min to let Meta rate limits recover)
   const { data: cooldownRow } = await supabase
     .from("settings")
@@ -717,18 +746,15 @@ async function promoteNextQueued(supabase: any) {
       .from("sync_logs")
       .select("completed_at")
       .in("status", ["completed", "completed_with_errors", "failed", "cancelled"])
+      .not("completed_at", "is", null)
       .order("completed_at", { ascending: false })
       .limit(1);
 
-    if (lastCompleted?.length && lastCompleted[0].completed_at) {
-      const completedAt = new Date(lastCompleted[0].completed_at).getTime();
-      const cooldownMs = cooldownMinutes * 60 * 1000;
-      const elapsed = Date.now() - completedAt;
-      if (elapsed < cooldownMs) {
-        const remainingSec = Math.ceil((cooldownMs - elapsed) / 1000);
-        console.log(`Cooldown active — next sync will start in ~${remainingSec}s`);
-        return; // cron will retry in ~1 minute
-      }
+    const remainingMs = cooldownRemainingMs(lastCompleted?.[0]?.completed_at, cooldownMinutes, Date.now());
+    if (remainingMs > 0) {
+      console.log(`Cooldown active — next sync can start in ~${Math.ceil(remainingMs / 1000)}s`);
+      // Callers re-fire /continue after the wait (see the /continue handler).
+      return { kind: "cooldown", remainingMs };
     }
   }
 
@@ -737,13 +763,17 @@ async function promoteNextQueued(supabase: any) {
     .eq("status", "queued")
     .order("started_at", { ascending: true })
     .limit(1);
-  if (next?.length) {
-    await supabase.from("sync_logs").update({
-      status: "running",
-      sync_state: { ...(next[0].sync_state || {}), last_activity: new Date().toISOString() },
-    }).eq("id", next[0].id);
-    console.log(`Promoted queued sync ${next[0].id} to running`);
-  }
+  if (!next?.length) return { kind: "empty" };
+
+  // Clear any claim left from an earlier run (e.g. a requeued retry) so the
+  // fresh /continue kick below can claim it immediately.
+  const { claim_id: _staleClaim, ...restState } = next[0].sync_state || {};
+  await supabase.from("sync_logs").update({
+    status: "running",
+    sync_state: { ...restState, last_activity: new Date().toISOString() },
+  }).eq("id", next[0].id);
+  console.log(`Promoted queued sync ${next[0].id} to running`);
+  return { kind: "promoted", id: next[0].id };
 }
 
 // ─── Sync Worker: Resumable Phase Execution ──────────────────────────────────
@@ -760,7 +790,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
   // Use extended budget for Phase 1 (metadata fetch) to handle large accounts
   const phaseBudget = phase === 1 ? PHASE_1_BUDGET_MS : PHASE_BUDGET_MS;
   const isTimedOut = () => (Date.now() - startMs) > phaseBudget;
-  const ctx = { metaApiCalls: 0, apiErrors: [] as { timestamp: string; message: string }[], isTimedOut };
+  const ctx: MetaFetchCtx = { metaApiCalls: 0, apiErrors: [], isTimedOut, accountId: syncLog.account_id, terminalError: null };
 
   // Lightweight heartbeat
   let lastHeartbeat = Date.now();
@@ -1158,8 +1188,25 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         while (campUrl && !isTimedOut()) {
           const result = await metaFetch(campUrl, ctx);
           if (result.error) {
-            console.error("Failed to fetch campaigns — will retry next continue");
-            await saveState(1, { campaigns: [], creatives_fetched: fetchedCount });
+            // A permanent error (account missing, no permission, bad token) can
+            // never succeed, and an unbounded retry here re-invoked the sync about
+            // once a second while holding the single-runner lock, so every queued
+            // account behind it waited forever. Fail the sync and let the queue move.
+            if (ctx.terminalError) {
+              console.error(`Campaign list fetch hit a permanent Meta error — failing sync: ${ctx.terminalError}`);
+              ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Sync stopped: Meta cannot reach this ad account (${ctx.terminalError})` });
+              await saveState(1, { campaigns: [], creatives_fetched: fetchedCount, campaign_list_error_retries: 0 }, "failed");
+              return;
+            }
+            const priorRetries = state.campaign_list_error_retries || 0;
+            if (shouldRetryCampaignList(priorRetries)) {
+              console.error(`Failed to fetch campaigns — will retry next continue (attempt ${priorRetries + 1}/${MAX_CAMPAIGN_LIST_ERROR_RETRIES})`);
+              await saveState(1, { campaigns: [], creatives_fetched: fetchedCount, campaign_list_error_retries: priorRetries + 1 });
+              return;
+            }
+            console.error(`Campaign list fetch failed ${MAX_CAMPAIGN_LIST_ERROR_RETRIES} times — failing sync`);
+            ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Sync stopped: campaign list fetch failed ${MAX_CAMPAIGN_LIST_ERROR_RETRIES} times` });
+            await saveState(1, { campaigns: [], creatives_fetched: fetchedCount, campaign_list_error_retries: 0 }, "failed");
             return;
           }
           if (result.rateLimited && result.retriableUrl) {
@@ -1180,6 +1227,8 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           await saveState(1, { campaigns: [], creatives_fetched: fetchedCount });
           return;
         }
+        // Full list fetched — clear the error budget so later saveStates don't carry it.
+        state.campaign_list_error_retries = 0;
         console.log(`  Found ${campaigns.length} campaigns (statuses: ${campStatuses.join("/")})`);
 
         // ── Spend-based pre-filter: only keep campaigns with spend in the date window ──
@@ -1500,6 +1549,12 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             // resumed (only the rate-limit path below paused). Now we PAUSE and
             // resume THIS exact page via /continue, like a rate-limit, bounded by a
             // retry cap so a persistently-failing chunk can't wedge the queue.
+            if (ctx.terminalError) {
+              // Permanent account/token error: retrying the chunk can't help.
+              ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Sync stopped: Meta cannot reach this ad account (${ctx.terminalError})` });
+              await saveState(4, { daily_chunk_offset: currentChunk, daily_cursor: null, daily_days: dailyDays, daily_since_date: dailySinceDate, daily_error_retries: 0 }, "failed");
+              return;
+            }
             const dailyErrorRetries = (state.daily_error_retries || 0) + 1;
             if (shouldPauseForDailyRetry(state.daily_error_retries || 0, MAX_DAILY_ERROR_RETRIES)) {
               ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Phase 4 chunk ${currentChunk + 1}/${totalChunks} errored — pausing to resume (attempt ${dailyErrorRetries}/${MAX_DAILY_ERROR_RETRIES})` });
@@ -2231,8 +2286,20 @@ const handler = async (req: Request) => {
         .order("started_at", { ascending: true });
 
       if (!runningSyncs?.length) {
-        await promoteNextQueued(supabase);
-        return new Response(JSON.stringify({ message: "No syncs to continue, promoted queued if any" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        // Nothing running: hand off to the next queued account. If the
+        // between-account cooldown is active, wait it out here and re-fire,
+        // instead of leaving the queue idle until an external cron kicks it.
+        let promotion = await promoteNextQueued(supabase);
+        if (promotion.kind === "cooldown") {
+          const waitMs = cooldownWaitMs(promotion.remainingMs);
+          console.log(`Handoff: waiting ${Math.ceil(waitMs / 1000)}s for cooldown before promoting`);
+          await new Promise((r) => setTimeout(r, waitMs));
+          promotion = await promoteNextQueued(supabase);
+        }
+        // Fresh kick (no claim): claims a newly promoted sync, or re-enters this
+        // branch to keep waiting if the cooldown is longer than one wait.
+        if (promotion.kind !== "empty") await selfContinue(null);
+        return new Response(JSON.stringify({ message: "No syncs to continue", promotion }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       // Enforce single-runner: if multiple are "running", demote all but the oldest back to queued
@@ -2277,9 +2344,12 @@ const handler = async (req: Request) => {
 
       await runSyncPhase(supabase, claimed, metaToken);
 
-      // Auto-continue: fire unconditionally so the next phase of the current sync (if still
-      // running) OR the next promoted queued sync gets picked up immediately.
-      await selfContinue(newClaimId);
+      // Auto-continue. If this sync is still running, continue its chain with our
+      // claim. If it finished, the next account (promoted or waiting on cooldown)
+      // has no claim of ours, so a chained kick would lose the claim and stall
+      // the queue — send a fresh (unclaimed) kick instead.
+      const { data: after } = await supabase.from("sync_logs").select("status").eq("id", claimed.id).single();
+      await selfContinue(after?.status === "running" ? newClaimId : null);
 
       return new Response(JSON.stringify({ continued: syncLog.id, phase: syncLog.current_phase }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -2313,6 +2383,16 @@ const handler = async (req: Request) => {
       } else {
         const { data } = await supabase.from("ad_accounts").select("*").eq("is_active", true);
         accounts = data || [];
+      }
+      // Demo/seed accounts (e.g. act_demo_glowdrip) don't exist on Meta. Queuing
+      // one only produces a sync that fails on every call, so never queue them.
+      const nonMeta = accounts.filter((a: any) => !isMetaAdAccountId(a.id));
+      if (nonMeta.length) {
+        console.log(`Skipping non-Meta accounts: ${nonMeta.map((a: any) => a.id).join(", ")}`);
+        accounts = accounts.filter((a: any) => isMetaAdAccountId(a.id));
+        if (!accounts.length) {
+          return new Response(JSON.stringify({ error: "This is a demo account and can't be synced from Meta" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
       }
       if (!accounts.length) return new Response(JSON.stringify({ error: "No accounts to sync" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
