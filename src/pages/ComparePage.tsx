@@ -30,7 +30,7 @@ const TAG_FIELDS = [
   { key: "ad_type", label: "Type" },
   { key: "hook", label: "Hook" },
   { key: "person", label: "Person" },
-  { key: "style", label: "Style" },
+  { key: "style", label: "Creative Type" },
   { key: "product", label: "Product" },
   { key: "theme", label: "Theme" },
 ];

@@ -326,8 +326,8 @@ export default function CreativeLibraryPage() {
         />
       )}
 
-      {/* Governed matrix-axis tagging (US-004): select Theme/Persona, creative
-          type, and body from the account's managed lists. */}
+      {/* Governed Theme/Persona tagging from the account's managed list. Creative
+          type (90-type menu), lane and body are retired from tagging. */}
       <Dialog open={!!tagging} onOpenChange={(open) => !open && setTagging(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>

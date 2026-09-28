@@ -54,7 +54,7 @@ export function downloadCSV(filename: string, headers: string[], rows: string[][
 
 export function exportCreativesCSV(creatives: any[]) {
   const headers = [
-    "Ad ID", "Ad Name", "Unique Code", "Status", "Type", "Person", "Style",
+    "Ad ID", "Ad Name", "Unique Code", "Status", "Type", "Person", "Creative Type",
     "Hook", "Product", "Theme", "Tag Source", "Campaign", "Ad Set",
     "Spend", "ROAS", "CPA", "CTR", "CPM", "Clicks", "Impressions", "Purchases",
   ];

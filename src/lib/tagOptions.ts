@@ -1,9 +1,8 @@
 // Static tag vocabularies + the governed (per-account) option builders.
 //
-// The four *_OPTIONS arrays below are the app-wide fallback vocabularies for the
-// six-dimension tag editor (ad_type / person / style / hook). They stay static —
-// hook in particular "remains the existing tag" per the Creative Matrix spec
-// (US-004): it is NOT governed by the per-account list.
+// The *_OPTIONS arrays below are the app-wide vocabularies for the controlled
+// tag columns (ad_type / person / style, the last shown as "Creative Type").
+// product, hook and theme are free text under the Goodo naming convention.
 //
 // US-004 adds the GOVERNED axes on top: Theme/Persona, creative type, and body
 // are sourced from the account's managed lists (the account-taxonomy read path,
@@ -14,13 +13,23 @@
 export const TYPE_OPTIONS = ["Video", "Static", "GIF", "Carousel"];
 export const PERSON_OPTIONS = ["Creator", "Customer", "Founder", "Actor", "No Talent"];
 export const STYLE_OPTIONS = ["UGC Native", "Studio Clean", "Text Forward", "Lifestyle"];
+/**
+ * LEGACY fixed hook vocabulary. Under the Goodo naming convention (2026-09-27)
+ * hook is FREE TEXT (whatever the ad name says), so no tagging surface offers
+ * this list as a dropdown any more. Kept exported only for older read paths.
+ */
 export const HOOK_OPTIONS = ["Problem Callout", "Confession", "Question", "Statement Bold", "Authority Intro", "Before & After", "Pattern Interrupt"];
 
+/**
+ * Fixed vocabularies for the tag columns that are dropdowns. Only ad_type,
+ * person and style (shown as "Creative Type") are controlled; product, hook
+ * and theme are free text, so they are deliberately absent here — callers
+ * render a text input when a field has no entry.
+ */
 export const TAG_OPTIONS_MAP: Record<string, string[]> = {
   ad_type: TYPE_OPTIONS,
   person: PERSON_OPTIONS,
   style: STYLE_OPTIONS,
-  hook: HOOK_OPTIONS,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -3,15 +3,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useUpdateCreative } from "@/hooks/useCreatives";
 import { TAG_OPTIONS_MAP } from "@/lib/tagOptions";
+import { TAG_FIELD_LABELS, TAG_FIELD_ORDER } from "@/lib/tagDisplay";
 import { extractConceptRoot } from "@/lib/conceptGrouping";
 import { cn } from "@/lib/utils";
 import { ChevronLeft, ChevronRight, X, Sparkles, LayoutGrid } from "lucide-react";
 
-const TAG_FIELDS = ["ad_type", "hook", "person", "style", "theme", "product"] as const;
-const TAG_LABELS: Record<string, string> = {
-  ad_type: "Format", hook: "Hook Type", person: "Person",
-  style: "Style", theme: "Angle", product: "Product",
-};
+// Naming-convention order and labels (style is shown as "Creative Type").
+// ad_type / person / style are option chips; product, hook, theme are free text.
+const TAG_FIELDS = TAG_FIELD_ORDER;
+const TAG_LABELS: Record<string, string> = TAG_FIELD_LABELS;
 
 interface QuickTagModeProps {
   creatives: any[];
@@ -124,6 +124,9 @@ export function QuickTagMode({ creatives, allCreatives = [], onExit }: QuickTagM
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") { onExit(); return; }
+      // Arrow keys move the caret while typing a free-text tag (e.g. hook).
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
       if (e.key === "ArrowRight") { saveAndNext(); return; }
       if (e.key === "ArrowLeft") { goPrev(); return; }
     };
@@ -266,7 +269,8 @@ export function QuickTagMode({ creatives, allCreatives = [], onExit }: QuickTagM
                   <input
                     className="h-8 px-3 rounded-md border border-border bg-card font-body text-[12px] text-foreground w-64"
                     value={localTags[field] || ""}
-                    onChange={(e) => handleSelectTag(field, e.target.value)}
+                    onChange={(e) => setLocalTags((prev) => ({ ...prev, [field]: e.target.value }))}
+                    aria-label={TAG_LABELS[field]}
                     placeholder={`Enter ${TAG_LABELS[field].toLowerCase()}...`}
                   />
                 )}

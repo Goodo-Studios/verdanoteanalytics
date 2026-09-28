@@ -224,7 +224,7 @@ export function CreativeDnaTab({ creatives, spendThreshold, accountName }: Props
           {dna.angle && (
             <PatternRow
               icon={<Lightbulb className="h-4 w-4" />}
-              label="Angle / Style"
+              label="Creative Type"
               value={dna.angle.label}
               pct={dna.angle.pct}
             />
@@ -294,9 +294,9 @@ export function CreativeDnaTab({ creatives, spendThreshold, accountName }: Props
 
         {/* Angle breakdown */}
         <div className="glass-panel p-4 space-y-3">
-          <h3 className="card-title">Angles / Styles</h3>
+          <h3 className="card-title">Creative Types</h3>
           {dna.allAngles.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No angle data available. Tag creatives with styles.</p>
+            <p className="text-xs text-muted-foreground">No creative type data available. Tag creatives with a creative type.</p>
           ) : (
             dna.allAngles.map((a) => (
               <div key={a.label} className="space-y-1">

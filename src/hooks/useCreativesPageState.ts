@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import { TABLE_COLUMNS, SORT_FIELD_MAP } from "@/components/creatives/constants";
+import { TABLE_COLUMNS, COLUMN_ORDER_KEY, COLUMN_VISIBLE_KEY, loadColumnPrefs } from "@/components/creatives/constants";
 import { type SortConfig } from "@/components/SortableTableHead";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { useDateRangeContext } from "@/contexts/DateRangeContext";
@@ -16,9 +16,12 @@ export function useCreativesPageState() {
 
   const [viewMode, setViewMode] = useState<"table" | "card" | "timeline">("table");
 
+  // Saved prefs are migrated once (e.g. v2 shows the naming-convention tag
+  // columns) without discarding the rest of the user's choices.
+  const [initialPrefs] = useState(loadColumnPrefs);
+
   const [visibleCols, setVisibleCols] = useState<Set<string>>(() => {
-    const saved = localStorage.getItem("creatives_visible_columns");
-    if (saved) { try { return new Set(JSON.parse(saved) as string[]); } catch { /* fall through */ } }
+    if (initialPrefs.visible) return new Set(initialPrefs.visible);
     return new Set(TABLE_COLUMNS.filter(c => c.defaultVisible !== false).map(c => c.key));
   });
 
@@ -26,20 +29,19 @@ export function useCreativesPageState() {
     setVisibleCols(prev => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
-      localStorage.setItem("creatives_visible_columns", JSON.stringify([...next]));
+      localStorage.setItem(COLUMN_VISIBLE_KEY, JSON.stringify([...next]));
       return next;
     });
   }, []);
 
   const [columnOrder, setColumnOrder] = useState<string[]>(() => {
-    const saved = localStorage.getItem("creatives_column_order");
-    if (saved) { try { return JSON.parse(saved) as string[]; } catch { /* fall through */ } }
+    if (initialPrefs.order) return initialPrefs.order;
     return TABLE_COLUMNS.map(c => c.key);
   });
 
   const handleReorder = useCallback((newOrder: string[]) => {
     setColumnOrder(newOrder);
-    localStorage.setItem("creatives_column_order", JSON.stringify(newOrder));
+    localStorage.setItem(COLUMN_ORDER_KEY, JSON.stringify(newOrder));
   }, []);
 
   const [filters, setFilters] = useState<Record<string, string>>(() => {

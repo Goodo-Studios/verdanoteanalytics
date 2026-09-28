@@ -6,6 +6,8 @@ import {
 } from "@/components/ui/select";
 import { Layers, Filter, ChevronDown, ChevronUp } from "lucide-react";
 import { GROUP_BY_OPTIONS } from "./constants";
+import { TAG_FIELD_LABELS } from "@/lib/tagDisplay";
+import { useDistinctHooks } from "@/hooks/useCreatives";
 
 interface CreativesFiltersProps {
   dateFrom?: string;
@@ -17,13 +19,27 @@ interface CreativesFiltersProps {
   groupBy: string;
   setGroupBy: (v: string) => void;
   viewMode: "table" | "card" | "timeline";
+  /** Scopes the hook filter's value list to one account. */
+  accountId?: string | null;
 }
+
+const FILTER_FIELDS = ["ad_type", "person", "style", "hook"] as const;
 
 export function CreativesFilters({
   dateFrom, dateTo, onDateChange,
-  filters, updateFilter, filterOptions, groupBy, setGroupBy, viewMode,
+  filters, updateFilter, filterOptions, groupBy, setGroupBy, viewMode, accountId,
 }: CreativesFiltersProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  // Hook is free text: offer the exact hook values actually stored, not a fixed list.
+  const { data: hookValues } = useDistinctHooks(accountId);
+  const optionsFor = (field: (typeof FILTER_FIELDS)[number]): string[] => {
+    if (field === "hook") {
+      const current = filters.hook;
+      const list = hookValues ?? [];
+      return current && current !== "__all__" && !list.includes(current) ? [current, ...list] : list;
+    }
+    return filterOptions?.[field] || [];
+  };
 
   const activeCount = Object.entries(filters).filter(([k, v]) => v && v !== "__all__" && k !== "tag_source").length;
 
@@ -31,14 +47,14 @@ export function CreativesFilters({
     <>
       {filterOptions && (
         <>
-          {(["ad_type", "person", "style", "hook"] as const).map((field) => (
+          {FILTER_FIELDS.map((field) => (
             <Select key={field} value={filters[field] || "__all__"} onValueChange={(v) => updateFilter(field, v)}>
-              <SelectTrigger className={`w-full sm:w-32 h-8 font-body text-[12px] font-medium bg-background rounded-[6px] border ${filters[field] && filters[field] !== "__all__" ? "border-verdant text-forest bg-sage-light" : "border-border-light text-slate"}`}>
-                <SelectValue placeholder={field.replace("ad_", "").replace("_", " ")} />
+              <SelectTrigger aria-label={`Filter by ${TAG_FIELD_LABELS[field]}`} className={`w-full sm:w-36 h-8 font-body text-[12px] font-medium bg-background rounded-[6px] border ${filters[field] && filters[field] !== "__all__" ? "border-verdant text-forest bg-sage-light" : "border-border-light text-slate"}`}>
+                <SelectValue placeholder={TAG_FIELD_LABELS[field]} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__all__">All {field.replace("ad_", "").replace("_", " ")}</SelectItem>
-                {(filterOptions[field] || []).map((opt: string) => (
+                <SelectItem value="__all__">All {TAG_FIELD_LABELS[field]}</SelectItem>
+                {optionsFor(field).map((opt: string) => (
                   <SelectItem key={opt} value={opt}>{opt}</SelectItem>
                 ))}
               </SelectContent>

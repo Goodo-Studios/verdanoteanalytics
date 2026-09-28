@@ -15,7 +15,7 @@ import { KPI_LABELS } from "@/lib/killScaleLogic";
 const TAG_DIMENSIONS = [
   { key: "ad_type", label: "Type" },
   { key: "person", label: "Person" },
-  { key: "style", label: "Style" },
+  { key: "style", label: "Creative Type" },
   { key: "hook", label: "Hook" },
   { key: "product", label: "Product" },
   { key: "theme", label: "Theme" },

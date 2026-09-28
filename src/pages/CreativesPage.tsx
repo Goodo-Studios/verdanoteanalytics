@@ -13,6 +13,7 @@ import { AdvancedFiltersPanel, applyAdvancedFilters, countActiveConditions } fro
 
 import { BulkActionBar } from "@/components/creatives/BulkActionBar";
 import { BulkTagModal } from "@/components/creatives/BulkTagModal";
+import { SyncFromNameDialog } from "@/components/creatives/SyncFromNameDialog";
 import { AddToReportModal } from "@/components/creatives/AddToReportModal";
 import { TABLE_COLUMNS, compareCreativesBy } from "@/components/creatives/constants";
 import { ColumnPicker } from "@/components/ColumnPicker";
@@ -79,6 +80,7 @@ const CreativesPage = () => {
   // Bulk selection
   const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
   const [bulkTagOpen, setBulkTagOpen] = useState(false);
+  const [syncFromNameOpen, setSyncFromNameOpen] = useState(false);
   const [addToReportOpen, setAddToReportOpen] = useState(false);
   const [bulkSavingToVault, setBulkSavingToVault] = useState(false);
   const canBulkAction = isBuilder || isEmployee;
@@ -348,6 +350,7 @@ const CreativesPage = () => {
         dateFrom={dateFrom} dateTo={dateTo} onDateChange={setDateRange}
         filters={filters} updateFilter={updateFilter} filterOptions={filterOptions}
         groupBy={groupBy} setGroupBy={setGroupBy} viewMode={viewMode}
+        accountId={selectedAccountId}
       />
 
       {isLoading ? (
@@ -410,6 +413,7 @@ const CreativesPage = () => {
           <BulkActionBar
             count={bulkSelectedIds.size}
             onTag={() => setBulkTagOpen(true)}
+            onSyncFromName={() => setSyncFromNameOpen(true)}
             onExport={exportBulkCSV}
             onAddToReport={() => setAddToReportOpen(true)}
             onSaveToVault={saveSelectedToVault}
@@ -420,6 +424,12 @@ const CreativesPage = () => {
             open={bulkTagOpen}
             onClose={() => { setBulkTagOpen(false); setBulkSelectedIds(new Set()); }}
             adIds={[...bulkSelectedIds]}
+          />
+          <SyncFromNameDialog
+            open={syncFromNameOpen}
+            onClose={() => setSyncFromNameOpen(false)}
+            adIds={[...bulkSelectedIds]}
+            onApplied={() => setBulkSelectedIds(new Set())}
           />
           <AddToReportModal
             open={addToReportOpen}
