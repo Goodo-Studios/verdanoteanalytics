@@ -197,30 +197,41 @@ COMMENT ON COLUMN public.creatives.parsed_ad_name IS
   'Ad name the current tags were last auto-parsed from. Sync re-parses tag_source parsed/untagged rows when ad_name differs. NULL = never parsed.';
 
 -- Baseline existing rows once so this release does not re-tag them. Only rows
--- still NULL are touched, so a re-run never moves an existing baseline. The
--- updated_at trigger is suspended for this bookkeeping write so every creative's
--- updated_at is not bumped to the migration time.
+-- still NULL are touched, so a re-run never moves an existing baseline.
+-- This bookkeeping write changes neither updated_at-relevant data nor
+-- tag_source, so the two row triggers are suspended for it:
+--   update_creatives_updated_at          — would bump every updated_at
+--   trg_refresh_account_creative_counts  — recounts the account per row, which
+--                                          made an 18k-row baseline exceed the
+--                                          statement timeout; counts are
+--                                          unchanged by this write.
+-- Only triggers that are currently enabled are suspended and re-enabled.
 DO $$
 DECLARE
-  has_trigger boolean;
+  t text;
+  suspended text[] := ARRAY[]::text[];
 BEGIN
-  SELECT EXISTS (
-    SELECT 1 FROM pg_trigger
-    WHERE tgrelid = 'public.creatives'::regclass
-      AND tgname = 'update_creatives_updated_at'
-      AND NOT tgisinternal
-  ) INTO has_trigger;
+  SET LOCAL statement_timeout = '10min';
 
-  IF has_trigger THEN
-    ALTER TABLE public.creatives DISABLE TRIGGER update_creatives_updated_at;
-  END IF;
+  FOREACH t IN ARRAY ARRAY['update_creatives_updated_at', 'trg_refresh_account_creative_counts'] LOOP
+    IF EXISTS (
+      SELECT 1 FROM pg_trigger
+      WHERE tgrelid = 'public.creatives'::regclass
+        AND tgname = t
+        AND NOT tgisinternal
+        AND tgenabled <> 'D'
+    ) THEN
+      EXECUTE format('ALTER TABLE public.creatives DISABLE TRIGGER %I', t);
+      suspended := suspended || t;
+    END IF;
+  END LOOP;
 
   UPDATE public.creatives
      SET parsed_ad_name = ad_name
    WHERE parsed_ad_name IS NULL
      AND tag_source IN ('parsed', 'untagged');
 
-  IF has_trigger THEN
-    ALTER TABLE public.creatives ENABLE TRIGGER update_creatives_updated_at;
-  END IF;
+  FOREACH t IN ARRAY suspended LOOP
+    EXECUTE format('ALTER TABLE public.creatives ENABLE TRIGGER %I', t);
+  END LOOP;
 END $$;
