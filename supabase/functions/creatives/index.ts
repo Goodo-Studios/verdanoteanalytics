@@ -4,6 +4,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { resolveConvention } from "../_shared/naming-convention.ts";
 import { parseAdName } from "../_shared/parse-ad-name.ts";
 import { parsedDisplayTags } from "../_shared/ad-name-display.ts";
+import { applyAdTypeFilter, distinctValues } from "../_shared/creative-filters.ts";
 import { buildNameSyncChange, nameSyncUpdate, validateSyncFromNameBody, type NameSyncRow } from "../_shared/name-sync-logic.ts";
 import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
 import { sanitizeSearchTerm } from "../_shared/postgrest-search.ts";
@@ -145,7 +146,6 @@ serve(async (req) => {
       const controlledTypes = ["Video", "Static", "GIF", "Carousel"];
       const controlledPersons = ["Creator", "Customer", "Founder", "Actor", "No Talent"];
       const controlledStyles = ["UGC Native", "Studio Clean", "Text Forward", "Lifestyle"];
-      const controlledHooks = ["Problem Callout", "Confession", "Question", "Statement Bold", "Authority Intro", "Before & After", "Pattern Interrupt"];
 
       // Scope every lookup to the caller's accounts. This endpoint used to hand any
       // authenticated user the id + name of EVERY account, plus the distinct product
@@ -164,6 +164,21 @@ serve(async (req) => {
       const { data: themes } = await themesQuery;
       const { data: accounts } = await accountsQuery;
 
+      // Hooks are free text in the naming convention, so the option list is the
+      // distinct hook values actually stored for the caller's accounts (same
+      // allowedIds scope as products/themes). Paged: one PostgREST select is
+      // capped at 1000 rows; bounded at 50 pages so this stays cheap.
+      const hookValues: unknown[] = [];
+      for (let page = 0; page < 50; page++) {
+        let hooksQuery = supabase.from("creatives").select("hook").not("hook", "is", null)
+          .order("hook").range(page * 1000, page * 1000 + 999);
+        if (allowedIds) hooksQuery = hooksQuery.in("account_id", allowedIds);
+        const { data: hookRows, error: hooksErr } = await hooksQuery;
+        if (hooksErr) throw hooksErr;
+        hookValues.push(...(hookRows || []).map((r: { hook: string | null }) => r.hook));
+        if (!hookRows || hookRows.length < 1000) break;
+      }
+
       const uniqueProducts = [...new Set((products || []).map((r: any) => r.product).filter(Boolean))];
       const uniqueThemes = [...new Set((themes || []).map((r: any) => r.theme).filter(Boolean))];
 
@@ -171,7 +186,7 @@ serve(async (req) => {
         ad_type: controlledTypes,
         person: controlledPersons,
         style: controlledStyles,
-        hook: controlledHooks,
+        hook: distinctValues(hookValues),
         product: uniqueProducts,
         theme: uniqueThemes,
         accounts: accounts || [],
@@ -215,7 +230,7 @@ serve(async (req) => {
         // own accounts, never the whole table.
         if (allowedIds) qq = qq.in("account_id", allowedIds);
         if (accountId) qq = qq.eq("account_id", accountId);
-        if (adType) qq = qq.eq("ad_type", adType);
+        qq = applyAdTypeFilter(qq, adType); // Static also matches legacy Image/Photo
         if (person) qq = qq.eq("person", person);
         if (style) qq = qq.eq("style", style);
         if (hook) qq = qq.eq("hook", hook);
@@ -331,7 +346,7 @@ serve(async (req) => {
           for (let i = 0; i < relevantAdIds.length; i += 100) {
             const batch = relevantAdIds.slice(i, i + 100);
             let cQuery = supabase.from("creatives").select(CREATIVE_COLS).in("ad_id", batch);
-            if (adType) cQuery = cQuery.eq("ad_type", adType);
+            cQuery = applyAdTypeFilter(cQuery, adType); // Static also matches legacy Image/Photo
             if (person) cQuery = cQuery.eq("person", person);
             if (style) cQuery = cQuery.eq("style", style);
             if (hook) cQuery = cQuery.eq("hook", hook);
