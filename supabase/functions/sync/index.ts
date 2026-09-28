@@ -3,7 +3,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireStaffOrServiceRole } from "../_shared/internal-auth.ts";
 import { resolveConvention } from "../_shared/naming-convention.ts";
-import { parseAdName, type ParsedAdName, type AdNameTags } from "../_shared/parse-ad-name.ts";
+import { parseAdName } from "../_shared/parse-ad-name.ts";
+import { parsedDisplayTags } from "../_shared/ad-name-display.ts";
+import { needsAutoParse } from "../_shared/name-sync-logic.ts";
 import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
 import { parsePlayCurve } from "../_shared/play-curve.ts";
 import { RECENT_WINDOW_DAYS, RETENTION_DAYS } from "../_shared/retention-config.ts";
@@ -356,27 +358,8 @@ export function rollupDailyRows(rows: DailyRollupInputRow[]) {
 
 // US-003: Phase 5 tagging flows through the single canonical parser + precedence
 // resolver — no inline regex. Stored tag columns hold display names, so parser
-// output (canonical vocab) is mapped through toDisplayName before the resolver.
-const DISPLAY_NAMES: Record<string, string> = {
-  UGCNative: "UGC Native", StudioClean: "Studio Clean", TextForward: "Text Forward",
-  NoTalent: "No Talent", ProblemCallout: "Problem Callout", StatementBold: "Statement Bold",
-  AuthorityIntro: "Authority Intro", BeforeAndAfter: "Before & After", PatternInterrupt: "Pattern Interrupt",
-};
-function toDisplayName(val: string): string { return DISPLAY_NAMES[val] || val; }
+// output (canonical vocab) is mapped through the shared parsedDisplayTags (_shared/ad-name-display.ts) before the resolver.
 
-/** Parser tags (canonical vocab) -> display-name PartialTags for the resolver's parser layer. */
-function parsedDisplayTags(parsed: ParsedAdName | null): AdNameTags | null {
-  if (!parsed) return null;
-  const t = parsed.tags;
-  return {
-    ad_type: t.ad_type ? toDisplayName(t.ad_type) : null,
-    person: t.person ? toDisplayName(t.person) : null,
-    style: t.style ? toDisplayName(t.style) : null,
-    product: t.product,
-    hook: t.hook ? toDisplayName(t.hook) : null,
-    theme: t.theme,
-  };
-}
 
 /** A name_mappings row -> PartialTags for the resolver's Coda (csv_match) layer. */
 function mappingTags(m: Record<string, unknown> | null): PartialTags | null {
@@ -1700,7 +1683,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       }
       // ─────────────────────────────────────────────────────────────────────
 
-      // ── Auto-tag untagged creatives via canonical parser + resolver (BATCHED) ──
+      // ── Auto-tag new + renamed creatives via canonical parser + resolver (BATCHED) ──
       try {
         // Resolve the account's naming convention once; preload its name_mappings
         // into a Map keyed by unique_code. No manual layer in sync, so the locked
@@ -1715,15 +1698,33 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           if (m.unique_code) mappingByCode.set(m.unique_code, m);
         }
 
-        const { data: untagged } = await supabase
-          .from("creatives")
-          .select("ad_id, ad_name")
-          .eq("account_id", accountId)
-          .eq("tag_source", "untagged");
+        // Candidates: tag_source 'untagged' (new ads) or 'parsed' (may have been
+        // renamed). needsAutoParse keeps only rows whose ad_name differs from the
+        // name they were last parsed from (parsed_ad_name; NULL = never parsed).
+        // 'manual' rows are never selected, so a manual tag is never overwritten.
+        // Paged: PostgREST caps a single select at 1000 rows and large accounts
+        // hold far more 'parsed' creatives than that.
+        const candidates: { ad_id: string; ad_name: string; tag_source: string; parsed_ad_name: string | null }[] = [];
+        for (let from = 0; ; from += 1000) {
+          const { data: page, error: pageErr } = await supabase
+            .from("creatives")
+            .select("ad_id, ad_name, tag_source, parsed_ad_name")
+            .eq("account_id", accountId)
+            .in("tag_source", ["untagged", "parsed"])
+            .order("ad_id")
+            .range(from, from + 999);
+          if (pageErr) throw pageErr;
+          candidates.push(...(page || []));
+          if (!page || page.length < 1000) break;
+        }
 
         // Batch: collect all updates, then update in chunks instead of one-by-one
         const tagUpdates: { ad_id: string; [k: string]: any }[] = [];
-        for (const c of (untagged || [])) {
+        for (const c of candidates) {
+          const codeKey = c.ad_name.split(convention?.separator ?? "_")[0] || c.ad_name;
+          if (!needsAutoParse(c, mappingByCode.has(codeKey))) continue;
+          // No convention configured: never strip tags from a renamed parsed ad.
+          if (!convention && c.tag_source === "parsed") continue;
           const parsed = convention ? parseAdName(c.ad_name, convention) : null;
           const unique_code = parsed?.unique_code ?? (c.ad_name.split("_")[0] || c.ad_name);
           const { tags, tag_source } = resolveTags(
@@ -1731,11 +1732,19 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             mappingTags(mappingByCode.get(unique_code) ?? null),
             null,
           );
-          if (tag_source === "untagged") continue;
+          if (tag_source === "untagged" && c.tag_source === "untagged") {
+            // Still nothing to tag — just record that this name has been tried so
+            // it is not re-parsed every sync until the ad is renamed.
+            tagUpdates.push({ ad_id: c.ad_id, parsed_ad_name: c.ad_name });
+            continue;
+          }
+          // Renamed 'parsed' ad whose new name yields nothing clears to untagged
+          // (all six columns null) rather than keeping tags from the old name.
           tagUpdates.push({
             ad_id: c.ad_id,
             tag_source,
             unique_code,
+            parsed_ad_name: c.ad_name,
             ad_type: tags.ad_type,
             person: tags.person,
             style: tags.style,

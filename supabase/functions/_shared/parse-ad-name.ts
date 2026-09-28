@@ -92,6 +92,10 @@ function isTagDimension(dimension: Dimension): dimension is keyof AdNameTags {
  *       * a tag dimension token that resolves via the vocab index (canonical OR
  *         alias, case-insensitive) sets that tag to the canonical value and is
  *         pushed to matchedSegments.
+ *       * a token at a free_text segment that does NOT resolve via vocab is
+ *         accepted as-is (trimmed) when non-empty, and pushed to matchedSegments
+ *         with canonical = the token. Display formatting (CamelCase splitting)
+ *         is the caller's job — see ad-name-display.ts.
  *       * a tag dimension token present but unresolved leaves the tag null and is
  *         pushed to unknownSegments (with the dimension it was expected to fill).
  *       * no token at a defined position => tag stays null, nothing pushed.
@@ -123,6 +127,8 @@ export function parseAdName(
   // rather than silently overwriting the earlier tag (last-write-wins).
   const dimensionByPosition = new Map<number, Dimension>();
   const claimedDimensions = new Set<Dimension>();
+  // Dimensions whose (first-claiming) segment is free text.
+  const freeTextDimensions = new Set<Dimension>();
   const sortedSegments = [...convention.segments].sort(
     (a, b) => a.position - b.position,
   );
@@ -130,6 +136,7 @@ export function parseAdName(
     if (claimedDimensions.has(segment.dimension)) continue;
     dimensionByPosition.set(segment.position, segment.dimension);
     claimedDimensions.add(segment.dimension);
+    if (segment.free_text === true) freeTextDimensions.add(segment.dimension);
   }
 
   for (let i = 0; i < tokens.length; i++) {
@@ -155,6 +162,11 @@ export function parseAdName(
       if (canonical !== undefined) {
         tags[dimension] = canonical;
         matchedSegments.push({ position: i, dimension, raw, canonical });
+      } else if (freeTextDimensions.has(dimension) && raw.trim() !== "") {
+        // Free-text segment: any non-empty token is the value as written.
+        const value = raw.trim();
+        tags[dimension] = value;
+        matchedSegments.push({ position: i, dimension, raw, canonical: value });
       } else {
         // Present but unresolved: partial tagging — leave null, record unknown.
         unknownSegments.push({ position: i, raw, dimension });

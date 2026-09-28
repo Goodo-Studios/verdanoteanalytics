@@ -2,7 +2,9 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { resolveConvention } from "../_shared/naming-convention.ts";
-import { parseAdName, type ParsedAdName, type AdNameTags } from "../_shared/parse-ad-name.ts";
+import { parseAdName } from "../_shared/parse-ad-name.ts";
+import { parsedDisplayTags } from "../_shared/ad-name-display.ts";
+import { buildNameSyncChange, nameSyncUpdate, validateSyncFromNameBody, type NameSyncRow } from "../_shared/name-sync-logic.ts";
 import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
 import { sanitizeSearchTerm } from "../_shared/postgrest-search.ts";
 import { errorMessage } from "../_shared/error-message.ts";
@@ -13,7 +15,7 @@ import { TtlCache, makeCreativesCacheKey } from "../_shared/creatives-page-cache
 // branch below — see creatives-page-cache.ts for why. 30s balances "page 2
 // shouldn't redo page 1's full-account aggregation" against picking up a
 // fresh Meta sync quickly. Cleared on every tag-changing mutation (PUT /
-// bulk-untag / auto-tag) below so a retag is never served back stale.
+// bulk-untag / auto-tag / sync-from-name) below so a retag is never served back stale.
 const creativesPageCache = new TtlCache<{
   result: any[];
   total: number;
@@ -21,13 +23,6 @@ const creativesPageCache = new TtlCache<{
   noDailyData?: boolean;
 }>({ ttlMs: 30_000, maxEntries: 200 });
 
-const DISPLAY_NAMES: Record<string, string> = {
-  UGCNative: "UGC Native", StudioClean: "Studio Clean", TextForward: "Text Forward",
-  NoTalent: "No Talent", ProblemCallout: "Problem Callout", StatementBold: "Statement Bold",
-  AuthorityIntro: "Authority Intro", BeforeAndAfter: "Before & After", PatternInterrupt: "Pattern Interrupt",
-};
-
-function toDisplayName(val: string): string { return DISPLAY_NAMES[val] || val; }
 
 // Explicit column list avoids SELECT * overhead — only fetch what the client actually uses.
 // Intentionally omits preview_url / scheduled_launch_date / created_at / updated_at: no GET
@@ -50,26 +45,13 @@ const CREATIVE_COLS = [
 // All tagging now flows through the single canonical parser (_shared/parse-ad-name.ts,
 // driven by the convention/vocab store) and the single precedence resolver
 // (_shared/resolveTags). Stored tag columns hold display names, so parser output
-// (canonical vocab) is mapped through toDisplayName before it enters the resolver.
+// (canonical vocab) is mapped through the shared parsedDisplayTags (_shared/ad-name-display.ts) before it enters the resolver.
 
 /** unique_code is always the first separator-split token (matches the parser contract). */
 function uniqueCodeOf(adName: string): string {
   return adName.split("_")[0] || adName;
 }
 
-/** Parser tags (canonical vocab) -> display-name PartialTags for the resolver's parser layer. */
-function parsedDisplayTags(parsed: ParsedAdName | null): AdNameTags | null {
-  if (!parsed) return null;
-  const t = parsed.tags;
-  return {
-    ad_type: t.ad_type ? toDisplayName(t.ad_type) : null,
-    person: t.person ? toDisplayName(t.person) : null,
-    style: t.style ? toDisplayName(t.style) : null,
-    product: t.product,
-    hook: t.hook ? toDisplayName(t.hook) : null,
-    theme: t.theme,
-  };
-}
 
 /** A name_mappings row -> PartialTags for the resolver's Coda (csv_match) layer. */
 function mappingTags(m: Record<string, unknown> | null): PartialTags | null {
@@ -494,6 +476,8 @@ serve(async (req) => {
           update.theme = tags.theme;
           update.tag_source = resolvedSource;
           update.unique_code = unique_code;
+          // Record the name these tags came from (sync re-parses on rename).
+          update.parsed_ad_name = creative.ad_name;
         }
       } else {
         update.tag_source = "manual";
@@ -521,8 +505,11 @@ serve(async (req) => {
         return new Response(JSON.stringify({ error: "ad_ids array required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
+      // parsed_ad_name := null so the next sync re-parses these from their names
+      // (the behaviour untagged rows had before rename tracking existed).
       const { error } = await supabase.from("creatives").update({
         tag_source: "untagged", ad_type: null, person: null, style: null, product: null, hook: null, theme: null,
+        parsed_ad_name: null,
       }).in("ad_id", ad_ids);
 
       if (error) throw error;
@@ -618,6 +605,82 @@ serve(async (req) => {
       return new Response(JSON.stringify({ success: true, applied, total_untagged: (untagged || []).length }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // POST /creatives/sync-from-name — re-derive all six tags from the ad name.
+    // Explicit user action: the name wins over EVERY tag_source, including
+    // 'manual'. dry_run=true returns the before/after preview and writes nothing.
+    // Staff-only like every other write here (clients were rejected above).
+    if (req.method === "POST" && path === "sync-from-name") {
+      let body: unknown;
+      try {
+        body = await req.json();
+      } catch {
+        body = null;
+      }
+      const v = validateSyncFromNameBody(body);
+      if (!v.ok) {
+        return new Response(JSON.stringify({ error: v.error }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Fetched in chunks of 100 ids to keep the PostgREST query URL short.
+      const rows: Record<string, any>[] = [];
+      for (let i = 0; i < v.ids.length; i += 100) {
+        const { data, error: fetchErr } = await supabase
+          .from("creatives")
+          .select("ad_id, account_id, ad_name, ad_type, person, style, product, hook, theme")
+          .in("ad_id", v.ids.slice(i, i + 100));
+        if (fetchErr) throw fetchErr;
+        rows.push(...(data || []));
+      }
+
+      // Tenant check on every row touched (no-op for staff, whose scope is
+      // unrestricted — kept so this path can never widen access if the
+      // read-only-client rule above changes).
+      for (const r of rows) {
+        const denied = denyAccount(r.account_id);
+        if (denied) return denied;
+      }
+
+      // One convention per account (override or global), resolved once.
+      const conventionByAccount = new Map<string, Awaited<ReturnType<typeof resolveConvention>>>();
+      for (const accountId of new Set(rows.map((r) => r.account_id as string))) {
+        conventionByAccount.set(accountId, await resolveConvention(supabase, accountId));
+      }
+      const missing = [...conventionByAccount.entries()].filter(([, c]) => !c).map(([id]) => id);
+      if (missing.length > 0) {
+        return new Response(JSON.stringify({ error: "No naming convention configured", account_ids: missing }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const order = new Map(v.ids.map((id, i) => [id, i]));
+      const changes = rows
+        .filter((r) => typeof r.ad_name === "string")
+        .sort((a, b) => (order.get(a.ad_id) ?? 0) - (order.get(b.ad_id) ?? 0))
+        .map((r) => buildNameSyncChange(r as NameSyncRow, conventionByAccount.get(r.account_id)!));
+
+      if (!v.dry_run && changes.length > 0) {
+        // Every requested row is written (not only changed ones) so tag_source
+        // becomes 'parsed' even where a manual tag already matched the name.
+        for (let i = 0; i < changes.length; i += 50) {
+          const chunk = changes.slice(i, i + 50);
+          const results = await Promise.all(chunk.map((c) =>
+            supabase.from("creatives").update(nameSyncUpdate(c)).eq("ad_id", c.id)
+          ));
+          const failed = results.find((r) => r.error);
+          if (failed?.error) throw failed.error;
+        }
+        creativesPageCache.clear();
+
+        for (const accountId of conventionByAccount.keys()) {
+          const { count } = await supabase.from("creatives").select("*", { count: "exact", head: true }).eq("account_id", accountId).eq("tag_source", "untagged");
+          await supabase.from("ad_accounts").update({ untagged_count: count || 0 }).eq("id", accountId);
+        }
+      }
+
+      return new Response(JSON.stringify({
+        changes: changes.map(({ id, ad_name, before, after, changed }) => ({ id, ad_name, before, after, changed })),
+        applied: !v.dry_run,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });

@@ -262,3 +262,64 @@ Deno.test("garbage input -> unique_code = first token, no throw", () => {
     theme: null,
   });
 });
+
+// ── Goodo convention (20260927100001): free-text product/hook/theme ─────────
+import { goodoConvention } from "./goodo-convention.fixture.ts";
+
+Deno.test("free-text segments accept any non-empty token", () => {
+  const r = parseAdName("GS200001_Video_Creator_UGCNative_WeightedBlanket_TiredBy3pm_BedtimeRoutine", goodoConvention);
+  assertEquals(r.unique_code, "GS200001");
+  assertEquals(r.tags, {
+    ad_type: "Video",
+    person: "Creator",
+    style: "UGCNative",
+    product: "WeightedBlanket",
+    hook: "TiredBy3pm",
+    theme: "BedtimeRoutine",
+  });
+  assertEquals(r.unknownSegments.length, 0);
+});
+
+Deno.test("free-text token matching vocab uses the vocab canonical", () => {
+  const r = parseAdName("GS1_Video_Creator_UGC_Blanket_problem_proof", goodoConvention);
+  assertEquals(r.tags.style, "UGCNative");
+  assertEquals(r.tags.hook, "Problem");
+  assertEquals(r.tags.theme, "SocialProof");
+  assertEquals(r.tags.product, "Blanket");
+});
+
+Deno.test("free-text: empty token stays null (no empty-string tag)", () => {
+  const r = parseAdName("GS1_Video_Creator_UGCNative__Hook_", goodoConvention);
+  assertEquals(r.tags.product, null);
+  assertEquals(r.tags.hook, "Hook");
+  assertEquals(r.tags.theme, null);
+});
+
+Deno.test("vocab-only segments still reject unknown tokens", () => {
+  const r = parseAdName("GS1_Banner_Influencer_Grainy_P_H_T", goodoConvention);
+  assertEquals(r.tags.ad_type, null);
+  assertEquals(r.tags.person, null);
+  assertEquals(r.tags.style, null);
+  assertEquals(r.tags.product, "P");
+  assertEquals(r.unknownSegments.map((u) => u.dimension), ["ad_type", "person", "style"]);
+});
+
+Deno.test("Image / Photo / IMG are aliases of Static; GIF resolves", () => {
+  for (const t of ["Image", "image", "IMG", "Photo", "Static", "static"]) {
+    assertEquals(parseAdName(`GS1_${t}`, goodoConvention).tags.ad_type, "Static");
+  }
+  assertEquals(parseAdName("GS1_gif", goodoConvention).tags.ad_type, "GIF");
+});
+
+Deno.test("segment without free_text key behaves as vocab-only (pre-migration payload)", () => {
+  const r = parseAdName("GS1_Video_Creator_UGCNative_Blanket", {
+    ...goodoConvention,
+    segments: goodoConvention.segments.map(({ free_text: _f, ...s }) => s),
+  });
+  assertEquals(r.tags.product, null);
+});
+
+Deno.test("unique_code rule unchanged: first token, even with free text", () => {
+  assertEquals(parseAdName("GS200001", goodoConvention).unique_code, "GS200001");
+  assertEquals(parseAdName("", goodoConvention).unique_code, "");
+});
