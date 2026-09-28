@@ -16,11 +16,12 @@ export function MediaRefreshBanner() {
   const [elapsed, setElapsed] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
-  const runningLog = (logs || []).find((l: any) => l.status === "running");
+  const runningLog = (logs || []).find((log) => log.status === "running");
+  const runningStartedAt = runningLog?.started_at;
 
   useEffect(() => {
-    if (isRefreshing && runningLog) {
-      const start = new Date(runningLog.started_at).getTime();
+    if (isRefreshing && runningStartedAt) {
+      const start = new Date(runningStartedAt).getTime();
       const tick = () => setElapsed(Math.floor((Date.now() - start) / 1000));
       tick();
       intervalRef.current = setInterval(tick, 1000);
@@ -28,7 +29,7 @@ export function MediaRefreshBanner() {
     } else {
       setElapsed(0);
     }
-  }, [isRefreshing, runningLog?.id]);
+  }, [isRefreshing, runningStartedAt]);
 
   if (isClientView) return null;
   if (!isRefreshing || !runningLog) return null;
@@ -40,7 +41,7 @@ export function MediaRefreshBanner() {
   const accountId = runningLog.account_id || "";
   const accountName = accountId === "all"
     ? "All accounts"
-    : (accounts || []).find((a: any) => a.id === accountId)?.name || accountId;
+    : (accounts || []).find((account) => account.id === accountId)?.name || accountId;
 
   const currentPhase = runningLog.current_phase ?? 0;
   const thumbsTotal = runningLog.thumbs_total ?? 0;
