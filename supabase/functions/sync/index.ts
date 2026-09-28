@@ -31,6 +31,7 @@ import {
   shouldRetryCampaignList,
   urlTargetsAccount,
 } from "../_shared/meta-errors.ts";
+import { cooldownRemainingMs, cooldownWaitMs } from "../_shared/sync-handoff.ts";
 
 // US-002: Rolling-window incremental daily sync.
 //
@@ -690,7 +691,7 @@ const HEARTBEAT_INTERVAL_MS = 20 * 1000;
 // HTTP POST to /sync/continue so the next phase starts immediately instead of
 // waiting for the cron tick (~1 min). This eliminates the race condition where
 // cleanup-stuck-syncs marks a sync as "stuck" before the cron re-invokes it.
-async function selfContinue(claimId: string): Promise<void> {
+async function selfContinue(claimId: string | null): Promise<void> {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -725,7 +726,12 @@ async function selfContinue(claimId: string): Promise<void> {
 }
 
 // ─── Promote Next Queued Sync ────────────────────────────────────────────────
-async function promoteNextQueued(supabase: any) {
+type PromoteResult =
+  | { kind: "promoted"; id: number }
+  | { kind: "cooldown"; remainingMs: number }
+  | { kind: "empty" };
+
+async function promoteNextQueued(supabase: any): Promise<PromoteResult> {
   // Check for cooldown between sequential account syncs (default: 2 min to let Meta rate limits recover)
   const { data: cooldownRow } = await supabase
     .from("settings")
@@ -740,18 +746,15 @@ async function promoteNextQueued(supabase: any) {
       .from("sync_logs")
       .select("completed_at")
       .in("status", ["completed", "completed_with_errors", "failed", "cancelled"])
+      .not("completed_at", "is", null)
       .order("completed_at", { ascending: false })
       .limit(1);
 
-    if (lastCompleted?.length && lastCompleted[0].completed_at) {
-      const completedAt = new Date(lastCompleted[0].completed_at).getTime();
-      const cooldownMs = cooldownMinutes * 60 * 1000;
-      const elapsed = Date.now() - completedAt;
-      if (elapsed < cooldownMs) {
-        const remainingSec = Math.ceil((cooldownMs - elapsed) / 1000);
-        console.log(`Cooldown active — next sync will start in ~${remainingSec}s`);
-        return; // cron will retry in ~1 minute
-      }
+    const remainingMs = cooldownRemainingMs(lastCompleted?.[0]?.completed_at, cooldownMinutes, Date.now());
+    if (remainingMs > 0) {
+      console.log(`Cooldown active — next sync can start in ~${Math.ceil(remainingMs / 1000)}s`);
+      // Callers re-fire /continue after the wait (see the /continue handler).
+      return { kind: "cooldown", remainingMs };
     }
   }
 
@@ -760,13 +763,17 @@ async function promoteNextQueued(supabase: any) {
     .eq("status", "queued")
     .order("started_at", { ascending: true })
     .limit(1);
-  if (next?.length) {
-    await supabase.from("sync_logs").update({
-      status: "running",
-      sync_state: { ...(next[0].sync_state || {}), last_activity: new Date().toISOString() },
-    }).eq("id", next[0].id);
-    console.log(`Promoted queued sync ${next[0].id} to running`);
-  }
+  if (!next?.length) return { kind: "empty" };
+
+  // Clear any claim left from an earlier run (e.g. a requeued retry) so the
+  // fresh /continue kick below can claim it immediately.
+  const { claim_id: _staleClaim, ...restState } = next[0].sync_state || {};
+  await supabase.from("sync_logs").update({
+    status: "running",
+    sync_state: { ...restState, last_activity: new Date().toISOString() },
+  }).eq("id", next[0].id);
+  console.log(`Promoted queued sync ${next[0].id} to running`);
+  return { kind: "promoted", id: next[0].id };
 }
 
 // ─── Sync Worker: Resumable Phase Execution ──────────────────────────────────
@@ -2279,8 +2286,20 @@ const handler = async (req: Request) => {
         .order("started_at", { ascending: true });
 
       if (!runningSyncs?.length) {
-        await promoteNextQueued(supabase);
-        return new Response(JSON.stringify({ message: "No syncs to continue, promoted queued if any" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        // Nothing running: hand off to the next queued account. If the
+        // between-account cooldown is active, wait it out here and re-fire,
+        // instead of leaving the queue idle until an external cron kicks it.
+        let promotion = await promoteNextQueued(supabase);
+        if (promotion.kind === "cooldown") {
+          const waitMs = cooldownWaitMs(promotion.remainingMs);
+          console.log(`Handoff: waiting ${Math.ceil(waitMs / 1000)}s for cooldown before promoting`);
+          await new Promise((r) => setTimeout(r, waitMs));
+          promotion = await promoteNextQueued(supabase);
+        }
+        // Fresh kick (no claim): claims a newly promoted sync, or re-enters this
+        // branch to keep waiting if the cooldown is longer than one wait.
+        if (promotion.kind !== "empty") await selfContinue(null);
+        return new Response(JSON.stringify({ message: "No syncs to continue", promotion }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       // Enforce single-runner: if multiple are "running", demote all but the oldest back to queued
@@ -2325,9 +2344,12 @@ const handler = async (req: Request) => {
 
       await runSyncPhase(supabase, claimed, metaToken);
 
-      // Auto-continue: fire unconditionally so the next phase of the current sync (if still
-      // running) OR the next promoted queued sync gets picked up immediately.
-      await selfContinue(newClaimId);
+      // Auto-continue. If this sync is still running, continue its chain with our
+      // claim. If it finished, the next account (promoted or waiting on cooldown)
+      // has no claim of ours, so a chained kick would lose the claim and stall
+      // the queue — send a fresh (unclaimed) kick instead.
+      const { data: after } = await supabase.from("sync_logs").select("status").eq("id", claimed.id).single();
+      await selfContinue(after?.status === "running" ? newClaimId : null);
 
       return new Response(JSON.stringify({ continued: syncLog.id, phase: syncLog.current_phase }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
