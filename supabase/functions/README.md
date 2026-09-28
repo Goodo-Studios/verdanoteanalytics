@@ -129,6 +129,7 @@ The Vault is a creative-inspiration library: paste a TikTok, Instagram, YouTube,
 | `scrape-ad` | User action | Scrapes ad landing page metadata (title, description, OG image) for a given URL. |
 | `quick-save` | User action | Saves an ad from the Ad Library bookmarklet to the user's saved ads. |
 | `transcribe-ad` | User action | Transcribes audio/video from an ad using a speech-to-text model. |
+| `resolve-destinations` | Internal / service role | Classifies unique landing destinations and optionally refines product names from bounded page-title fetches. External URLs and every redirect are checked with `_shared/public-url.ts` to reject private, loopback, link-local, and other non-public network targets. |
 
 ### User & Account Management
 
@@ -163,6 +164,7 @@ The Vault is a creative-inspiration library: paste a TikTok, Instagram, YouTube,
 | `cors.ts` | Standard CORS headers returned by all functions |
 | `api-auth.ts` | Shared auth helpers — validates the calling user's session/role and exposes a `hashKey` SHA-256 utility used by API-style endpoints |
 | `media-discovery.ts` | Meta Graph API v22.0 media URL resolver. Provides `discoverImageUrl` / `discoverVideoUrl` / `fetchWithTimeout` and the `NO_THUMB_SENTINEL` / `NO_VIDEO_SENTINEL` markers used to short-circuit known-empty creatives. Also owns `assetStoragePath` (account-scoped, hash-keyed storage path for `media_assets` dedupe) and `isStorageUrl` (canonical guard that short-circuits re-discovery/re-download of already-cached media). Consumed by `refresh-thumbnails`, `enrich-thumbnails`, `fetch-thumbnail`, `cache-creative-image`, and `drain-media-queue`. |
+| `public-url.ts` | SSRF guard for outbound HTTP fetches. Rejects unsafe URL shapes and non-public IPv4/IPv6 targets after DNS resolution; callers must validate the initial destination and each redirect. |
 | `retention-config.ts` | Single source of truth for long-horizon retention windows: `RETENTION_DAYS` (365 — daily-history target), `RECENT_WINDOW_DAYS` (28 — incremental re-pull window), `TRIM_BUFFER_DAYS` (400 — nightly-trim floor, never deletes within the 365d window). Consumed by `sync`, `backfill-daily-history`, and the retention-trim cron. |
 | `platform.ts` | URL → platform detection for the Vault. Owns `PLATFORM_MAP`, `VIDEO_PLATFORMS`, `VIDEO_URL_PATTERN`, and `detectPlatform(url)`. Add a new platform here first before wiring it elsewhere. |
 | `actor-configs.ts` | Apify actor registry for the Vault. `ACTOR_CONFIGS[platform]` returns `{ actorId, buildInput, extractVideoUrl, extractThumbnailUrl, extractCreatorHandle, extractTitle, apiRunOptions }`. New ingestion platforms drop in here without touching `vault-extract` / `vault-extract-webhook`. |
