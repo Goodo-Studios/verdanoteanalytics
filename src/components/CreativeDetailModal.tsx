@@ -310,6 +310,10 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
     video_url?: string | null;
   } | null>(null);
   const [caching, setCaching] = useState(false);
+  const creativeAdId = creative?.ad_id;
+  const creativeAccountId = creative?.account_id;
+  const creativeVideoUrl = creative?.video_url;
+  const creativeThumbnailUrl = creative?.thumbnail_url;
 
   // On-demand media caching / self-heal: fire when modal opens unless BOTH media
   // slots are already "settled" — i.e. a permanent storage url or a confirmed-absent
@@ -319,20 +323,20 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
   // recovery path. cache-creative-image is idempotent (its own skip guards no-op the
   // parts already in storage), so re-triggering only re-downloads what's still a CDN url.
   useEffect(() => {
-    if (!open || !creative) return;
+    if (!open || !creativeAdId || !creativeAccountId) return;
     setCachedMedia(null);
     const isStorageUrl = (u?: string | null) =>
       !!u && u.includes("/storage/v1/object/public/");
     const videoSettled =
-      creative.video_url === "no-video" || isStorageUrl(creative.video_url);
+      creativeVideoUrl === "no-video" || isStorageUrl(creativeVideoUrl);
     const thumbSettled =
-      creative.thumbnail_url === "no-thumbnail" || isStorageUrl(creative.thumbnail_url);
+      creativeThumbnailUrl === "no-thumbnail" || isStorageUrl(creativeThumbnailUrl);
     // Both permanent or confirmed-absent → nothing to recover.
     if (videoSettled && thumbSettled) return;
     setCaching(true);
     supabase.functions
       .invoke("cache-creative-image", {
-        body: { ad_id: creative.ad_id, account_id: creative.account_id },
+        body: { ad_id: creativeAdId, account_id: creativeAccountId },
       })
       .then(({ data, error }) => {
         if (!error && data) {
@@ -345,13 +349,13 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
         }
       })
       .finally(() => setCaching(false));
-  }, [open, creative?.ad_id, creative?.account_id]);
+  }, [open, creativeAdId, creativeAccountId, creativeVideoUrl, creativeThumbnailUrl, queryClient]);
 
   // Reflect already-in-vault state when the modal opens. The vault library is
   // global, so an item saved by anyone (matched on source_ad_id) marks this
   // creative as saved.
   useEffect(() => {
-    if (!open || !creative) return;
+    if (!open || !creativeAdId) return;
     let cancelled = false;
     setSavedToVault(false);
     setAlreadyInVault(false);
@@ -361,7 +365,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
     supabase
       .from("inspiration_items")
       .select("id, share_token")
-      .eq("source_ad_id", creative.ad_id)
+      .eq("source_ad_id", creativeAdId)
       .limit(1)
       .maybeSingle()
       .then(({ data }) => {
@@ -382,7 +386,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
     return () => {
       cancelled = true;
     };
-  }, [open, creative?.ad_id]);
+  }, [open, creativeAdId]);
 
   // Lazy per-creative fetch of the AI-analysis + Vault-parity columns (framework,
   // hooks, transcript, brand/industry/ad_format/target_audience). Enabled while

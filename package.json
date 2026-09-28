@@ -3,15 +3,24 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "packageManager": "npm@10.9.2",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:check": "npm run build && npm run bundle:check",
     "build:dev": "vite build --mode development",
+    "bundle:check": "node scripts/check-bundle-budget.mjs",
     "lint": "eslint .",
+    "lint:ci": "eslint . --max-warnings 986",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:scripts": "node --test scripts/*.test.mjs",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "check:e2e-env": "node scripts/require-e2e-env.mjs"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.14",

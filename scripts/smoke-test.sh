@@ -73,14 +73,11 @@ OTHER_FUNCTIONS=(
   api
   # api-auth is a shared library module (no serve() handler) — not an HTTP endpoint
   backfill-post-urls
-  cleanup-stuck-media
-  cleanup-stuck-syncs
   clear-media-cache
   client-insights
   competitor-ads
   create-coda-brief
   enrich-thumbnails
-  fetch-thumbnail
   portfolio
   quick-save
   refresh-thumbnails
@@ -101,6 +98,13 @@ OTHER_FUNCTIONS=(
 
 for fn in "${OTHER_FUNCTIONS[@]}"; do
   check_cors "$fn"
+done
+
+echo ""
+echo "── Internal auth-only functions ───────────────"
+INTERNAL_FUNCTIONS=(cleanup-stuck-media cleanup-stuck-syncs)
+for fn in "${INTERNAL_FUNCTIONS[@]}"; do
+  check_auth_gate "$fn"
 done
 
 echo ""
