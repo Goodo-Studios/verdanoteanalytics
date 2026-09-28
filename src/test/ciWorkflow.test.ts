@@ -12,11 +12,17 @@ describe("CI deployment safety", () => {
     expect(workflow).toContain("supabase test db --local");
   });
 
-  it("pushes migrations before deploying edge functions", () => {
-    const pushAt = workflow.indexOf("run: supabase db push");
-    const deployAt = workflow.indexOf("bash scripts/deploy-functions.sh");
-    expect(pushAt).toBeGreaterThan(-1);
-    expect(deployAt).toBeGreaterThan(pushAt);
+  it("never pushes migrations to production from CI", () => {
+    // Prod migrations are applied manually until the prod migration ledger is
+    // reconciled; an automatic db push would apply drifted history on merge.
+    expect(workflow).not.toMatch(/run: supabase db push/);
+    expect(workflow).not.toContain("supabase link");
+    expect(workflow).toContain("Supabase migrations are NOT deployed by CI");
+    expect(workflow).toContain("bash scripts/deploy-functions.sh");
+  });
+
+  it("gates the edge-function deploy on the database replay", () => {
+    expect(workflow).toContain("needs: [check, deno-test, database-test]");
   });
 
   it("fails CI before E2E when authenticated-test secrets are missing", () => {

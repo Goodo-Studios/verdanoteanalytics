@@ -55,6 +55,13 @@ DO $$
 DECLARE
   cid uuid;
 BEGIN
+  -- Client-specific override: skip when the account row is absent (a clean
+  -- database, e.g. the CI migration replay). Production already applied this.
+  IF NOT EXISTS (SELECT 1 FROM public.ad_accounts WHERE id = 'act_26608804') THEN
+    RAISE NOTICE 'Skipping naming-convention override: account act_26608804 not present';
+    RETURN;
+  END IF;
+
   SELECT id INTO cid
     FROM public.naming_conventions
     WHERE account_id = 'act_26608804';
