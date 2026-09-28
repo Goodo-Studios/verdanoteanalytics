@@ -12,7 +12,7 @@
 // this job writes into name_mappings.
 //
 // Stored tag columns hold DISPLAY names, so the parser's canonical vocab is
-// mapped through toDisplayName before it is written (same contract as
+// mapped through the shared parsedDisplayTags (_shared/ad-name-display.ts) before it is written (same contract as
 // creatives/index.ts and sync/index.ts).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -20,20 +20,12 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { resolveConvention, type NamingConvention } from "../_shared/naming-convention.ts";
 import { parseAdName } from "../_shared/parse-ad-name.ts";
+import { parsedDisplayTags } from "../_shared/ad-name-display.ts";
 
 const CODA_DOC_ID = "Edw6ZW63pk";
 const CODA_TABLE_ID = "grid-MEOygYxxim";
 const CODA_AD_NAME_COL = "Goodo Ad Name";
 const CODA_ACCOUNT_COL = "Connected Project";
-
-// Canonical vocab -> display name. Duplicated from creatives/index.ts per the
-// HQ learned rule (prefer duplication over a shared extraction needing 5+ wired files).
-const DISPLAY_NAMES: Record<string, string> = {
-  UGCNative: "UGC Native", StudioClean: "Studio Clean", TextForward: "Text Forward",
-  NoTalent: "No Talent", ProblemCallout: "Problem Callout", StatementBold: "Statement Bold",
-  AuthorityIntro: "Authority Intro", BeforeAndAfter: "Before & After", PatternInterrupt: "Pattern Interrupt",
-};
-function toDisplayName(val: string): string { return DISPLAY_NAMES[val] || val; }
 
 function normalise(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -157,15 +149,7 @@ Deno.serve(async (req) => {
       const uniqueCode = parsed.unique_code;
       if (!uniqueCode) continue; // empty unique_code -> skip
 
-      const t = parsed.tags;
-      const mapped = {
-        ad_type: t.ad_type ? toDisplayName(t.ad_type) : null,
-        person: t.person ? toDisplayName(t.person) : null,
-        style: t.style ? toDisplayName(t.style) : null,
-        product: t.product,
-        hook: t.hook ? toDisplayName(t.hook) : null,
-        theme: t.theme,
-      };
+      const mapped = parsedDisplayTags(parsed)!;
 
       const hasAnyTag = Object.values(mapped).some((v) => v != null && v !== "");
       if (!hasAnyTag) { counters.untagged++; continue; } // parsed but produced no tags

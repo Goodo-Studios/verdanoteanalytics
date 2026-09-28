@@ -42,46 +42,26 @@
 // (optionally per account_id) and read coverage.parsed.style / .person.
 //
 // Stored tag columns hold DISPLAY names, so the parser's canonical vocab is mapped
-// through toDisplayName before it enters the resolver (same contract as
+// through the shared parsedDisplayTags (_shared/ad-name-display.ts) before it enters the resolver (same contract as
 // creatives/index.ts, sync/index.ts, backfill-retag/index.ts).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { resolveConvention, type NamingConvention } from "../_shared/naming-convention.ts";
-import { parseAdName, type ParsedAdName, type AdNameTags } from "../_shared/parse-ad-name.ts";
+import { parseAdName } from "../_shared/parse-ad-name.ts";
+import { parsedDisplayTags } from "../_shared/ad-name-display.ts";
 import { type PartialTags, type TagSource } from "../_shared/resolve-tags.ts";
 import { computeAutoTags } from "../_shared/derive-creative-tags.ts";
 import { NO_VIDEO_SENTINELS } from "../_shared/media-discovery.ts";
 import { errorMessage } from "../_shared/error-message.ts";
 
-// Canonical vocab -> display name. Duplicated per the HQ learned rule (prefer
-// duplication over a shared extraction needing 5+ wired files).
-const DISPLAY_NAMES: Record<string, string> = {
-  UGCNative: "UGC Native", StudioClean: "Studio Clean", TextForward: "Text Forward",
-  NoTalent: "No Talent", ProblemCallout: "Problem Callout", StatementBold: "Statement Bold",
-  AuthorityIntro: "Authority Intro", BeforeAndAfter: "Before & After", PatternInterrupt: "Pattern Interrupt",
-};
-function toDisplayName(val: string): string { return DISPLAY_NAMES[val] || val; }
 
 /** unique_code is always the first separator-split token (matches the parser contract). */
 function uniqueCodeOf(adName: string): string {
   return adName.split("_")[0] || adName;
 }
 
-/** Parser tags (canonical vocab) -> display-name AdNameTags for the parser layer. */
-function parsedDisplayTags(parsed: ParsedAdName | null): AdNameTags | null {
-  if (!parsed) return null;
-  const t = parsed.tags;
-  return {
-    ad_type: t.ad_type ? toDisplayName(t.ad_type) : null,
-    person: t.person ? toDisplayName(t.person) : null,
-    style: t.style ? toDisplayName(t.style) : null,
-    product: t.product,
-    hook: t.hook ? toDisplayName(t.hook) : null,
-    theme: t.theme,
-  };
-}
 
 /** A name_mappings row -> PartialTags for the resolver's Coda (csv_match) layer. */
 function mappingTags(m: Record<string, unknown> | null): PartialTags | null {
