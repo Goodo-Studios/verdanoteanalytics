@@ -24,6 +24,13 @@ import {
   looksLikeHtml,
 } from "../_shared/media-discovery.ts";
 import { isMediaContentType } from "../_shared/vault-save-logic.ts";
+import {
+  isMetaAdAccountId,
+  isTerminalMetaError,
+  MAX_CAMPAIGN_LIST_ERROR_RETRIES,
+  shouldRetryCampaignList,
+  urlTargetsAccount,
+} from "../_shared/meta-errors.ts";
 
 // US-002: Rolling-window incremental daily sync.
 //
@@ -396,9 +403,19 @@ export function countRealErrors(errs: { message?: string }[]): number {
   return errs.filter((e) => !isInformationalSyncNote(e.message || "")).length;
 }
 
+export interface MetaFetchCtx {
+  metaApiCalls: number;
+  apiErrors: { timestamp: string; message: string }[];
+  isTimedOut: () => boolean;
+  /** The sync's ad account; lets metaFetch tell account-level failures from per-object ones. */
+  accountId?: string;
+  /** Set when Meta returns a permanent error for the account itself (or a bad token). */
+  terminalError?: string | null;
+}
+
 export async function metaFetch(
   url: string,
-  ctx: { metaApiCalls: number; apiErrors: { timestamp: string; message: string }[]; isTimedOut: () => boolean }
+  ctx: MetaFetchCtx
 ): Promise<{ data: any[] | null; next: string | null; error: boolean; rateLimited: boolean; retriableUrl: string | null }> {
   if (ctx.isTimedOut()) return { data: null, next: null, error: false, rateLimited: false, retriableUrl: url };
 
@@ -467,6 +484,12 @@ export async function metaFetch(
         const fullErrMsg = `Meta API error — code: ${json.error.code ?? "?"}, subcode: ${json.error.error_subcode ?? "?"}, type: ${json.error.type ?? "?"}, msg: ${json.error.message ?? "?"}`;
         console.error(fullErrMsg, JSON.stringify(json.error));
         ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: fullErrMsg });
+        // A bad token fails every call; a missing/forbidden account fails every
+        // account-scoped call. Flag both so callers stop retrying. A permanent
+        // error on a single ad or video URL is not flagged.
+        if (isTerminalMetaError(json.error) && (json.error.code === 190 || (ctx.accountId && urlTargetsAccount(url, ctx.accountId)))) {
+          ctx.terminalError = fullErrMsg;
+        }
         return { data: null, next: null, error: true, rateLimited: false, retriableUrl: null };
       }
 
@@ -760,7 +783,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
   // Use extended budget for Phase 1 (metadata fetch) to handle large accounts
   const phaseBudget = phase === 1 ? PHASE_1_BUDGET_MS : PHASE_BUDGET_MS;
   const isTimedOut = () => (Date.now() - startMs) > phaseBudget;
-  const ctx = { metaApiCalls: 0, apiErrors: [] as { timestamp: string; message: string }[], isTimedOut };
+  const ctx: MetaFetchCtx = { metaApiCalls: 0, apiErrors: [], isTimedOut, accountId: syncLog.account_id, terminalError: null };
 
   // Lightweight heartbeat
   let lastHeartbeat = Date.now();
@@ -1158,8 +1181,25 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         while (campUrl && !isTimedOut()) {
           const result = await metaFetch(campUrl, ctx);
           if (result.error) {
-            console.error("Failed to fetch campaigns — will retry next continue");
-            await saveState(1, { campaigns: [], creatives_fetched: fetchedCount });
+            // A permanent error (account missing, no permission, bad token) can
+            // never succeed, and an unbounded retry here re-invoked the sync about
+            // once a second while holding the single-runner lock, so every queued
+            // account behind it waited forever. Fail the sync and let the queue move.
+            if (ctx.terminalError) {
+              console.error(`Campaign list fetch hit a permanent Meta error — failing sync: ${ctx.terminalError}`);
+              ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Sync stopped: Meta cannot reach this ad account (${ctx.terminalError})` });
+              await saveState(1, { campaigns: [], creatives_fetched: fetchedCount, campaign_list_error_retries: 0 }, "failed");
+              return;
+            }
+            const priorRetries = state.campaign_list_error_retries || 0;
+            if (shouldRetryCampaignList(priorRetries)) {
+              console.error(`Failed to fetch campaigns — will retry next continue (attempt ${priorRetries + 1}/${MAX_CAMPAIGN_LIST_ERROR_RETRIES})`);
+              await saveState(1, { campaigns: [], creatives_fetched: fetchedCount, campaign_list_error_retries: priorRetries + 1 });
+              return;
+            }
+            console.error(`Campaign list fetch failed ${MAX_CAMPAIGN_LIST_ERROR_RETRIES} times — failing sync`);
+            ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Sync stopped: campaign list fetch failed ${MAX_CAMPAIGN_LIST_ERROR_RETRIES} times` });
+            await saveState(1, { campaigns: [], creatives_fetched: fetchedCount, campaign_list_error_retries: 0 }, "failed");
             return;
           }
           if (result.rateLimited && result.retriableUrl) {
@@ -1180,6 +1220,8 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           await saveState(1, { campaigns: [], creatives_fetched: fetchedCount });
           return;
         }
+        // Full list fetched — clear the error budget so later saveStates don't carry it.
+        state.campaign_list_error_retries = 0;
         console.log(`  Found ${campaigns.length} campaigns (statuses: ${campStatuses.join("/")})`);
 
         // ── Spend-based pre-filter: only keep campaigns with spend in the date window ──
@@ -1500,6 +1542,12 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             // resumed (only the rate-limit path below paused). Now we PAUSE and
             // resume THIS exact page via /continue, like a rate-limit, bounded by a
             // retry cap so a persistently-failing chunk can't wedge the queue.
+            if (ctx.terminalError) {
+              // Permanent account/token error: retrying the chunk can't help.
+              ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Sync stopped: Meta cannot reach this ad account (${ctx.terminalError})` });
+              await saveState(4, { daily_chunk_offset: currentChunk, daily_cursor: null, daily_days: dailyDays, daily_since_date: dailySinceDate, daily_error_retries: 0 }, "failed");
+              return;
+            }
             const dailyErrorRetries = (state.daily_error_retries || 0) + 1;
             if (shouldPauseForDailyRetry(state.daily_error_retries || 0, MAX_DAILY_ERROR_RETRIES)) {
               ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Phase 4 chunk ${currentChunk + 1}/${totalChunks} errored — pausing to resume (attempt ${dailyErrorRetries}/${MAX_DAILY_ERROR_RETRIES})` });
@@ -2313,6 +2361,16 @@ const handler = async (req: Request) => {
       } else {
         const { data } = await supabase.from("ad_accounts").select("*").eq("is_active", true);
         accounts = data || [];
+      }
+      // Demo/seed accounts (e.g. act_demo_glowdrip) don't exist on Meta. Queuing
+      // one only produces a sync that fails on every call, so never queue them.
+      const nonMeta = accounts.filter((a: any) => !isMetaAdAccountId(a.id));
+      if (nonMeta.length) {
+        console.log(`Skipping non-Meta accounts: ${nonMeta.map((a: any) => a.id).join(", ")}`);
+        accounts = accounts.filter((a: any) => isMetaAdAccountId(a.id));
+        if (!accounts.length) {
+          return new Response(JSON.stringify({ error: "This is a demo account and can't be synced from Meta" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
       }
       if (!accounts.length) return new Response(JSON.stringify({ error: "No accounts to sync" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
