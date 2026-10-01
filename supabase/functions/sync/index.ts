@@ -1728,13 +1728,18 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         // run, so scheduled-sync runs the light daily scope [4,5] routinely and
         // escalates to full ~once/day when this marker goes stale.
         if (syncScope === "full") tsPatch.last_full_sync_at = nowIso;
-        await supabase
+        // supabase-js returns errors instead of throwing, so check it: an
+        // unrecorded last_data_sync silently widens every later incremental run.
+        const { error: tsErr } = await supabase
           .from("ad_accounts")
           .update(tsPatch)
           .eq("id", accountId);
+        if (tsErr) throw tsErr;
         console.log(`  Updated last_data_sync${syncScope === "full" ? " + last_full_sync_at" : ""} for ${account.name}`);
       } catch (syncTimestampErr) {
-        console.error("Failed to update last_data_sync (non-fatal):", syncTimestampErr);
+        const msg = syncTimestampErr instanceof Error ? syncTimestampErr.message : (syncTimestampErr as { message?: string })?.message ?? String(syncTimestampErr);
+        console.error("Failed to update last_data_sync (non-fatal):", msg);
+        ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Failed to record last_data_sync: ${msg}` });
       }
       // ─────────────────────────────────────────────────────────────────────
 
@@ -1844,10 +1849,16 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         supabase.from("creatives").select("*", { count: "exact", head: true }).eq("account_id", accountId).eq("tag_source", "untagged"),
       ]);
 
-      await supabase.from("ad_accounts").update({
+      const { error: stampErr } = await supabase.from("ad_accounts").update({
         creative_count: totalResult.count || 0, untagged_count: untaggedResult.count || 0,
         last_synced_at: new Date().toISOString(),
       }).eq("id", accountId);
+      if (stampErr) {
+        // last_synced_at is the source of truth for "last real sync"; surface a
+        // failed stamp on the sync log instead of reporting a clean finish.
+        console.error("Failed to stamp last_synced_at:", stampErr.message);
+        ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Failed to record last_synced_at: ${stampErr.message}` });
+      }
 
       // Snapshot current ROAS → prior_roas for next sync's threshold comparison
       try {
