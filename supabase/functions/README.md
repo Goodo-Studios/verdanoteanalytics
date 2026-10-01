@@ -63,7 +63,7 @@ supabase secrets set WRITE_BRIEF_SECRET=<random-secret>  # write-brief
 
 | Function | Method | Purpose |
 |---|---|---|
-| `creatives` | GET / PUT | Main creatives endpoint. GET supports filtering, pagination, and date-range aggregation. PUT updates tags/notes on a single creative. |
+| `creatives` | GET / PUT | Main creatives endpoint. GET supports filtering, pagination, and date-range aggregation. The date-filtered aggregation branch caches its pre-slice result for 30s per unique filter/tenant combination (`_shared/creatives-page-cache.ts`), so paging through results doesn't re-aggregate on every page turn; the cache is cleared on any tag/note mutation. PUT updates tags/notes on a single creative. |
 | `accounts` | GET / POST / PUT / DELETE | CRUD for `ad_accounts`. Also handles name-mapping uploads. |
 | `api` | GET | General-purpose data query endpoint. Authenticates with provisioned API keys (`api_keys` table), NOT user session JWTs — for external/programmatic callers only. |
 | `leaderboard` | GET | Session-authed sibling of `api` /library. Powers the Analytics → Leaderboard tab. `verify_jwt=false`; manually verifies the session JWT via `supabase.auth.getUser`, enforces `verifyAccountOwnership`, then calls the SECURITY DEFINER hook/angle RPCs (`rpc_hook_angle_leaderboard` / `rpc_hook_angle_coverage`) with the service-role client. In-app UI must use this, never `api`. |
@@ -168,6 +168,7 @@ The Vault is a creative-inspiration library: paste a TikTok, Instagram, YouTube,
 | `retention-config.ts` | Single source of truth for long-horizon retention windows: `RETENTION_DAYS` (365 — daily-history target), `RECENT_WINDOW_DAYS` (28 — incremental re-pull window), `TRIM_BUFFER_DAYS` (400 — nightly-trim floor, never deletes within the 365d window). Consumed by `sync`, `backfill-daily-history`, and the retention-trim cron. |
 | `platform.ts` | URL → platform detection for the Vault. Owns `PLATFORM_MAP`, `VIDEO_PLATFORMS`, `VIDEO_URL_PATTERN`, and `detectPlatform(url)`. Add a new platform here first before wiring it elsewhere. |
 | `actor-configs.ts` | Apify actor registry for the Vault. `ACTOR_CONFIGS[platform]` returns `{ actorId, buildInput, extractVideoUrl, extractThumbnailUrl, extractCreatorHandle, extractTitle, apiRunOptions }`. New ingestion platforms drop in here without touching `vault-extract` / `vault-extract-webhook`. |
+| `creatives-page-cache.ts` | Process-local TTL cache for the `creatives` function's date-filtered aggregation branch. `TtlCache` stores the pre-slice computed result (full sorted array + total + aggregates) for 30s; `makeCreativesCacheKey` derives a deterministic key from every filter param plus tenant scope so a cache hit only serves the exact same request. Callers must `clear()` it after any tag/note mutation. |
 
 ---
 
