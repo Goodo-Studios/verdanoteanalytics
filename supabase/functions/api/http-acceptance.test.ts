@@ -117,7 +117,9 @@ function makeFixture() {
     "client-b": "client",
     "staff-1": "employee",
   };
-  let rateLimited = false;
+  // check_api_rate_limit returns true when the request is allowed and false
+  // when the durable counter has reached its limit.
+  let rateLimitAllowed = true;
   const matches = (row: Row, filters: Array<[string, string, unknown]>) =>
     filters.every(([op, key, value]) => {
       if (op === "eq") return row[key] === value;
@@ -209,7 +211,7 @@ function makeFixture() {
         });
       }
       if (name === "check_api_rate_limit") {
-        return Promise.resolve({ data: rateLimited, error: null });
+        return Promise.resolve({ data: rateLimitAllowed, error: null });
       }
       return Promise.resolve({ data: null, error: null });
     },
@@ -219,7 +221,7 @@ function makeFixture() {
     rows,
     roles,
     setRateLimited(value: boolean) {
-      rateLimited = value;
+      rateLimitAllowed = value;
     },
   };
 }
@@ -327,7 +329,7 @@ Deno.test("US044 real HTTP enforces key, scope, ownership, rate, and paged daily
       )).status,
       403,
     );
-    fixture.setRateLimited(true);
+    fixture.setRateLimited(false);
     const limited = await fetch(endpoint, {
       headers: { "x-api-key": "client-key" },
     });
