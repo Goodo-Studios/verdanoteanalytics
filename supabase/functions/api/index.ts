@@ -819,13 +819,18 @@ export async function handleApi(
 
 // Bind the network listener unless a test imports the module (API_NO_SERVE=1),
 // mirroring the ingest-reviews INGEST_NO_SERVE guard. The service-role client is
-// built per-request here so handleApi stays injectable with a mock in tests.
+// built once here so handleApi stays injectable with a mock in tests.
+// Production HTTP composition is exported so acceptance can bind the same
+// authenticated entrypoint over loopback without bypassing API-key checks.
+// deno-lint-ignore no-explicit-any -- injectable Supabase fixture uses the production fluent client surface.
+export function createApiHttpHandler(supabase: any) {
+  return withApiAuth((req, { userId, permissions }) =>
+    handleApi(req, supabase, { userId, permissions }), { supabase });
+}
+
 if (!Deno.env.get("API_NO_SERVE")) {
-  serve(withApiAuth(async (req, { userId, permissions }) => {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
-    return await handleApi(req, supabase, { userId, permissions });
-  }));
+  serve(createApiHttpHandler(createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+  )));
 }
