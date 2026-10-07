@@ -84,10 +84,12 @@ export async function handleApi(
       if (!(await verifyAccountOwnership(supabase, userId, accountId))) return new Response(JSON.stringify({ error: "Access denied" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       const { data: creative, error } = await supabase.from("creatives").select("ad_id,account_id,ad_name,updated_at,ad_status").eq("account_id", accountId).eq("ad_id", adId).maybeSingle();
       if (error) throw error;
-      if (!creative || creative.ad_name !== adName) return new Response(JSON.stringify({ error: "provider identity unavailable" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (!creative || creative.account_id !== accountId || creative.ad_id !== adId || creative.ad_name !== adName) return new Response(JSON.stringify({ error: "provider identity unavailable" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       const observed = Date.parse(String(creative.updated_at));
       if (!Number.isFinite(observed)) return new Response(JSON.stringify({ error: "provider evidence unavailable" }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      return new Response(JSON.stringify({ accountId: creative.account_id, adId: creative.ad_id, adName: creative.ad_name, sourceProvider: "verdanote", sourceRecordId: creative.ad_id, sourceVersion: Math.floor(observed / 1000), state: creative.ad_status === "UNKNOWN" ? "unavailable" : "confirmed", evidenceAt: new Date(observed).toISOString(), expiresAt: null }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const expiresAt = new Date(observed + 24 * 60 * 60 * 1000);
+      if (expiresAt.getTime() <= Date.now()) return new Response(JSON.stringify({ error: "provider evidence expired" }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ accountId: creative.account_id, adId: creative.ad_id, adName: creative.ad_name, sourceProvider: "verdanote", sourceRecordId: creative.ad_id, sourceVersion: Math.floor(observed / 1000), state: creative.ad_status === "UNKNOWN" ? "unavailable" : "confirmed", evidenceAt: new Date(observed).toISOString(), expiresAt: expiresAt.toISOString() }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     // GET /api/accounts — scoped to the key's user, mirroring the accounts
     // edge function's access model: builders/employees see every account; a

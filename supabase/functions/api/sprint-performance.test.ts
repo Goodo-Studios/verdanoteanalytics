@@ -94,5 +94,10 @@ Deno.test("US044 refuses a partial mapping set instead of returning misleading m
 Deno.test("US044 server-owned resolver proves only the account/ad provider tuple", async () => {
   const response = await handleApi(request("/api/workspace/asset-ad-mappings/resolve", "POST", { accountId: "acct-1", adId: "ad-1", adName: "Ad ad-1" }), makeSupabase({ providerCreative: { account_id: "acct-1", ad_id: "ad-1", ad_name: "Ad ad-1", updated_at: "2026-10-07T10:00:00.000Z", ad_status: "ACTIVE" } }), READ);
   assertEquals(response.status, 200);
-  assertEquals(await response.json(), { accountId: "acct-1", adId: "ad-1", adName: "Ad ad-1", sourceProvider: "verdanote", sourceRecordId: "ad-1", sourceVersion: 1791367200, state: "confirmed", evidenceAt: "2026-10-07T10:00:00.000Z", expiresAt: null });
+  assertEquals(await response.json(), { accountId: "acct-1", adId: "ad-1", adName: "Ad ad-1", sourceProvider: "verdanote", sourceRecordId: "ad-1", sourceVersion: 1791367200, state: "confirmed", evidenceAt: "2026-10-07T10:00:00.000Z", expiresAt: "2026-10-08T10:00:00.000Z" });
+});
+
+Deno.test("US044 resolver rejects a same-name creative returned for the wrong account or ad", async () => {
+  const response = await handleApi(request("/api/workspace/asset-ad-mappings/resolve", "POST", { accountId: "acct-1", adId: "ad-1", adName: "Ad ad-1" }), makeSupabase({ providerCreative: { account_id: "acct-other", ad_id: "ad-other", ad_name: "Ad ad-1", updated_at: "2026-10-07T10:00:00.000Z", ad_status: "ACTIVE" } }), READ);
+  assertEquals(response.status, 404);
 });
