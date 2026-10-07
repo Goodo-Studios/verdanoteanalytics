@@ -119,3 +119,9 @@ Deno.test("US044 resolver rejects a same-name creative returned for the wrong ac
   const response = await handleApi(request("/api/workspace/asset-ad-mappings/resolve", "POST", { accountId: "acct-1", adId: "ad-1", adName: "Ad ad-1" }), makeSupabase({ providerCreative: { account_id: "acct-other", ad_id: "ad-other", ad_name: "Ad ad-1", updated_at: "2026-10-07T10:00:00.000Z", ad_status: "ACTIVE" } }), READ);
   assertEquals(response.status, 404);
 });
+
+Deno.test("US044 resolver rejects provider identity with a future observation timestamp", async () => {
+  const response = await handleApi(request("/api/workspace/asset-ad-mappings/resolve", "POST", { accountId: "acct-1", adId: "ad-1", adName: "Ad ad-1" }), makeSupabase({ providerCreative: { account_id: "acct-1", ad_id: "ad-1", ad_name: "Ad ad-1", updated_at: new Date(Date.now() + 86400000).toISOString(), ad_status: "ACTIVE" } }), READ);
+  assertEquals(response.status, 503);
+  assertEquals(await response.json(), { error: "provider evidence unavailable" });
+});

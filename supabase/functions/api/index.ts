@@ -86,7 +86,7 @@ export async function handleApi(
       if (error) throw error;
       if (!creative || creative.account_id !== accountId || creative.ad_id !== adId || creative.ad_name !== adName) return new Response(JSON.stringify({ error: "provider identity unavailable" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       const observed = Date.parse(String(creative.updated_at));
-      if (!Number.isFinite(observed)) return new Response(JSON.stringify({ error: "provider evidence unavailable" }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (!Number.isFinite(observed) || observed > Date.now()) return new Response(JSON.stringify({ error: "provider evidence unavailable" }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       const expiresAt = new Date(observed + 24 * 60 * 60 * 1000);
       if (expiresAt.getTime() <= Date.now()) return new Response(JSON.stringify({ error: "provider evidence expired" }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       return new Response(JSON.stringify({ accountId: creative.account_id, adId: creative.ad_id, adName: creative.ad_name, sourceProvider: "verdanote", sourceRecordId: creative.ad_id, sourceVersion: Math.floor(observed / 1000), state: creative.ad_status === "UNKNOWN" ? "unavailable" : "confirmed", evidenceAt: new Date(observed).toISOString(), expiresAt: expiresAt.toISOString() }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -306,7 +306,7 @@ export async function handleApi(
       const requestedIds = creativeRows.map((row) => row.ad_id);
       const dailyPages: SprintDailyRow[] = [];
       for (let page = 0; ; page += 1) {
-        let dailyQuery = supabase.from("creative_daily_metrics").select("ad_id, date, spend, impressions, clicks, purchases, purchase_value, created_at").eq("account_id", parsed.accountId).in("ad_id", requestedIds).gte("date", parsed.dateFrom).lte("date", parsed.dateTo).order("date", { ascending: true }).range(page * 1000, page * 1000 + 999);
+        let dailyQuery = supabase.from("creative_daily_metrics").select("ad_id, date, spend, impressions, clicks, purchases, purchase_value, created_at").eq("account_id", parsed.accountId).in("ad_id", requestedIds).gte("date", parsed.dateFrom).lte("date", parsed.dateTo).order("date", { ascending: true }).order("ad_id", { ascending: true }).range(page * 1000, page * 1000 + 999);
         const { data: daily, error: dailyError } = await dailyQuery;
         if (dailyError) throw dailyError;
         const rows = (daily ?? []) as SprintDailyRow[];
