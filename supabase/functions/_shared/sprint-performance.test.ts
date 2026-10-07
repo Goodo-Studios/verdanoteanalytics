@@ -32,6 +32,7 @@ Deno.test("US044 query parsing requires exact account and one or more ad IDs", (
     dateFrom: "2026-10-07",
     dateTo: "2026-10-07",
   });
+  assertEquals(parseSprintQuery(new URL("https://fn.local/api/sprint-performance?account_id=acct-1&ad_id=all&date_from=2026-10-07&date_to=2026-10-07")), { error: "ad_id must identify explicit ads" });
 });
 
 Deno.test("US044 page contract makes empty and partial pages explicit", () => {

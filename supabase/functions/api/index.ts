@@ -264,6 +264,9 @@ export async function handleApi(
       }
 
       const creativeRows = creativePages;
+      if (creativeRows.some((row) => row.account_id !== parsed.accountId)) {
+        return new Response(JSON.stringify({ error: "Creative account scope mismatch" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       const creativeById = new Map(creativeRows.map((row) => [row.ad_id, row]));
       if (creativeById.size !== parsed.adIds.length) {
         return new Response(JSON.stringify({ error: "One or more requested ads were not found in this account" }), {
@@ -287,6 +290,9 @@ export async function handleApi(
         .in("unique_code", uniqueCodes);
       if (mappingError) throw mappingError;
       const mappingByCode = new Map(((mappings ?? []) as SprintMappingRow[]).map((row) => [row.unique_code, row]));
+      if ([...(mappings ?? [])].some((row: SprintMappingRow) => row.account_id !== parsed.accountId)) {
+        return new Response(JSON.stringify({ error: "Mapping account scope mismatch" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       const missingMapping = creativeRows.some((row) => !row.unique_code || !mappingByCode.has(row.unique_code));
       if (missingMapping || mappingByCode.size !== uniqueCodes.length) {
         return new Response(JSON.stringify({ error: "Every requested ad must have a verified mapping" }), {

@@ -97,6 +97,7 @@ export function parseSprintQuery(url: URL): SprintQuery | { error: string } {
   const adIds = [...url.searchParams.getAll("ad_id"), ...(url.searchParams.get("ad_ids")?.split(",") ?? [])].map((value) => value.trim()).filter(Boolean);
   const uniqueAdIds = [...new Set(adIds)];
   if (uniqueAdIds.length === 0) return { error: "ad_id is required" };
+  if (uniqueAdIds.includes("all")) return { error: "ad_id must identify explicit ads" };
   if (uniqueAdIds.length > MAX_REQUESTED_ADS) return { error: `at most ${MAX_REQUESTED_ADS} ad_ids may be requested` };
   const dateFrom = url.searchParams.get("date_from")?.trim() ?? "";
   const dateTo = url.searchParams.get("date_to")?.trim() ?? "";
