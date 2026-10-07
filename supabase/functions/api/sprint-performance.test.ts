@@ -97,6 +97,18 @@ Deno.test("US044 rejects the whole-account alias at the authenticated API bounda
   assertEquals(await response.json(), { error: "ad_id must identify explicit ads" });
 });
 
+Deno.test("US044 preserves the existing account-scoped creatives projection around sprint reads", async () => {
+  const creatives = [creative("ad-1", "CODE-1"), creative("ad-2", "CODE-2")];
+  const before = await handleApi(request("/api/creatives?account_id=acct-1"), makeSupabase({ creatives }), READ);
+  const sprint = await handleApi(request("/api/sprint-performance?account_id=acct-1&ad_id=ad-1&ad_id=ad-2&date_from=2026-10-07&date_to=2026-10-07"), makeSupabase({ creatives, mappings: [{ id: "map-1", account_id: "acct-1", unique_code: "CODE-1", updated_at: "2026-10-07T09:00:00.000Z" }, { id: "map-2", account_id: "acct-1", unique_code: "CODE-2", updated_at: "2026-10-07T09:00:00.000Z" }] }), READ);
+  const after = await handleApi(request("/api/creatives?account_id=acct-1"), makeSupabase({ creatives }), READ);
+  assertEquals(before.status, 200);
+  assertEquals(sprint.status, 200, JSON.stringify(await sprint.clone().json()));
+  assertEquals(after.status, 200);
+  const normalize = async (response: Response) => (await response.json()).data.map((row: { account_id: string; ad_id: string; ad_name: string }) => ({ account_id: row.account_id, ad_id: row.ad_id, ad_name: row.ad_name }));
+  assertEquals(await normalize(before), await normalize(after));
+});
+
 Deno.test("US044 server-owned resolver proves only the account/ad provider tuple", async () => {
   const response = await handleApi(request("/api/workspace/asset-ad-mappings/resolve", "POST", { accountId: "acct-1", adId: "ad-1", adName: "Ad ad-1" }), makeSupabase({ providerCreative: { account_id: "acct-1", ad_id: "ad-1", ad_name: "Ad ad-1", updated_at: "2026-10-07T10:00:00.000Z", ad_status: "ACTIVE" } }), READ);
   assertEquals(response.status, 200);
