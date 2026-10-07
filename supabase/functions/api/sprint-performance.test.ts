@@ -78,7 +78,7 @@ Deno.test("US044 returns only fully verified, account-scoped mappings with page 
   assertEquals(body.account_id, "acct-1");
   assertEquals(body.data.length, 1);
   assertEquals(body.data[0].attribution.mapping_id, "map-1");
-  assertEquals(body.page, { limit: 1, offset: 0, returned: 1, requested: 2, has_more: true, next_cursor: "1", empty: false, partial: true });
+  assertEquals(body.page, { limit: 1, offset: 0, returned: 1, requested: 2, has_more: true, next_cursor: "1", empty: false, partial: false });
 });
 
 Deno.test("US044 refuses a partial mapping set instead of returning misleading metrics", async () => {
