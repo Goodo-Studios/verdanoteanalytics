@@ -45,7 +45,8 @@ Deno.test("US044 page contract makes empty and partial pages explicit", () => {
     has_more: true,
     next_cursor: "1",
     empty: false,
-    partial: true,
+    // A full page with has_more is ordinary pagination, not partial coverage.
+    partial: false,
   });
   assertEquals(pageSprintRows(rows, "acct-1", 2, 2, 2).page, {
     limit: 2,

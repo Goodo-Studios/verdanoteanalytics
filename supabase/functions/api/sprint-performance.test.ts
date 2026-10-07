@@ -91,6 +91,12 @@ Deno.test("US044 refuses a partial mapping set instead of returning misleading m
   assertEquals(await response.json(), { error: "Every requested ad must have a verified mapping" });
 });
 
+Deno.test("US044 rejects the whole-account alias at the authenticated API boundary", async () => {
+  const response = await handleApi(request("/api/sprint-performance?account_id=acct-1&ad_id=all&date_from=2026-10-07&date_to=2026-10-07"), makeSupabase(), READ);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), { error: "ad_id must identify explicit ads" });
+});
+
 Deno.test("US044 server-owned resolver proves only the account/ad provider tuple", async () => {
   const response = await handleApi(request("/api/workspace/asset-ad-mappings/resolve", "POST", { accountId: "acct-1", adId: "ad-1", adName: "Ad ad-1" }), makeSupabase({ providerCreative: { account_id: "acct-1", ad_id: "ad-1", ad_name: "Ad ad-1", updated_at: "2026-10-07T10:00:00.000Z", ad_status: "ACTIVE" } }), READ);
   assertEquals(response.status, 200);
