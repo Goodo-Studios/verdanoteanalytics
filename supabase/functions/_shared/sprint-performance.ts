@@ -8,6 +8,7 @@ export const MAX_WINDOW_DAYS = 366;
 export interface SprintQuery {
   accountId: string;
   adIds: string[];
+  wholeAccount: boolean;
   limit: number;
   offset: number;
   dateFrom: string;
@@ -96,7 +97,9 @@ export function parseSprintQuery(url: URL): SprintQuery | { error: string } {
   if (!accountId) return { error: "account_id is required" };
   const adIds = [...url.searchParams.getAll("ad_id"), ...(url.searchParams.get("ad_ids")?.split(",") ?? [])].map((value) => value.trim()).filter(Boolean);
   const uniqueAdIds = [...new Set(adIds)];
+  const wholeAccount = uniqueAdIds.length === 1 && uniqueAdIds[0] === "all";
   if (uniqueAdIds.length === 0) return { error: "ad_id is required" };
+  if (wholeAccount) uniqueAdIds.length = 0;
   if (uniqueAdIds.length > MAX_REQUESTED_ADS) return { error: `at most ${MAX_REQUESTED_ADS} ad_ids may be requested` };
   const dateFrom = url.searchParams.get("date_from")?.trim() ?? "";
   const dateTo = url.searchParams.get("date_to")?.trim() ?? "";
@@ -109,7 +112,7 @@ export function parseSprintQuery(url: URL): SprintQuery | { error: string } {
   const rawCursor = url.searchParams.get("cursor");
   const offset = rawCursor === null || rawCursor === "" ? 0 : Number(rawCursor);
   if (!Number.isSafeInteger(offset) || offset < 0) return { error: "cursor must be a non-negative integer" };
-  return { accountId, adIds: uniqueAdIds, limit, offset, dateFrom, dateTo };
+  return { accountId, adIds: uniqueAdIds, wholeAccount, limit, offset, dateFrom, dateTo };
 }
 
 function finite(value: number | null): number | null {

@@ -232,18 +232,20 @@ export async function handleApi(
         return new Response(JSON.stringify({ error: "Account not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      const { data: creatives, error: creativeError } = await supabase
-        .from("creatives")
-        .select("ad_id, account_id, ad_name, unique_code, ad_status, updated_at, created_at")
-        .eq("account_id", parsed.accountId)
-        .in("ad_id", parsed.adIds)
-        .order("ad_id", { ascending: true })
-        .limit(parsed.adIds.length);
-      if (creativeError) throw creativeError;
+      const creativePages: SprintCreativeRow[] = [];
+      for (let page = 0; ; page += 1) {
+        let creativeQuery = supabase.from("creatives").select("ad_id, account_id, ad_name, unique_code, ad_status, updated_at, created_at").eq("account_id", parsed.accountId).order("ad_id", { ascending: true }).range(page * 1000, page * 1000 + 999);
+        if (!parsed.wholeAccount) creativeQuery = creativeQuery.in("ad_id", parsed.adIds);
+        const { data: creatives, error: creativeError } = await creativeQuery;
+        if (creativeError) throw creativeError;
+        const rows = (creatives ?? []) as SprintCreativeRow[];
+        creativePages.push(...rows);
+        if (rows.length < 1000) break;
+      }
 
-      const creativeRows = (creatives ?? []) as SprintCreativeRow[];
+      const creativeRows = creativePages;
       const creativeById = new Map(creativeRows.map((row) => [row.ad_id, row]));
-      if (creativeById.size !== parsed.adIds.length) {
+      if (!parsed.wholeAccount && creativeById.size !== parsed.adIds.length) {
         return new Response(JSON.stringify({ error: "One or more requested ads were not found in this account" }), {
           status: 404,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -273,17 +275,17 @@ export async function handleApi(
         });
       }
 
-      const { data: daily, error: dailyError } = await supabase
-        .from("creative_daily_metrics")
-        .select("ad_id, date, spend, impressions, clicks, purchases, purchase_value, created_at")
-        .eq("account_id", parsed.accountId)
-        .in("ad_id", parsed.adIds)
-        .gte("date", parsed.dateFrom)
-        .lte("date", parsed.dateTo)
-        .order("date", { ascending: true })
-        .limit(parsed.adIds.length * 366);
-      if (dailyError) throw dailyError;
-      const dailyRows = (daily ?? []) as SprintDailyRow[];
+      const requestedIds = creativeRows.map((row) => row.ad_id);
+      const dailyPages: SprintDailyRow[] = [];
+      for (let page = 0; ; page += 1) {
+        let dailyQuery = supabase.from("creative_daily_metrics").select("ad_id, date, spend, impressions, clicks, purchases, purchase_value, created_at").eq("account_id", parsed.accountId).in("ad_id", requestedIds).gte("date", parsed.dateFrom).lte("date", parsed.dateTo).order("date", { ascending: true }).range(page * 1000, page * 1000 + 999);
+        const { data: daily, error: dailyError } = await dailyQuery;
+        if (dailyError) throw dailyError;
+        const rows = (daily ?? []) as SprintDailyRow[];
+        dailyPages.push(...rows);
+        if (rows.length < 1000) break;
+      }
+      const dailyRows = dailyPages;
       const dailyByAd = new Map<string, SprintDailyRow[]>();
       for (const row of dailyRows) dailyByAd.set(row.ad_id, [...(dailyByAd.get(row.ad_id) ?? []), row]);
 
@@ -291,7 +293,8 @@ export async function handleApi(
         .map((adId) => creativeById.get(adId))
         .filter((row): row is SprintCreativeRow => Boolean(row))
         .map((row) => shapeSprintRow(row, mappingByCode.get(row.unique_code!)!, dailyByAd.get(row.ad_id) ?? [], settings, parsed.dateFrom, parsed.dateTo));
-      return new Response(JSON.stringify(pageSprintRows(shaped, parsed.accountId, parsed.adIds.length, parsed.limit, parsed.offset)), {
+      const page = pageSprintRows(shaped, parsed.accountId, parsed.wholeAccount ? creativeRows.length : parsed.adIds.length, parsed.limit, parsed.offset);
+      return new Response(JSON.stringify({ ...page, coverage: { account_id: parsed.accountId, requested_ads: parsed.wholeAccount ? creativeRows.length : parsed.adIds.length, mapped_ads: shaped.length, metric_rows: dailyRows.length, complete_ads: shaped.filter((row) => row.attribution.complete).length, incomplete_ads: shaped.filter((row) => !row.attribution.complete).length, metrics_missing_are_null: true } }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

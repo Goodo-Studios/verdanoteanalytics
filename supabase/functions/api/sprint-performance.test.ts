@@ -90,3 +90,22 @@ Deno.test("US044 refuses a partial mapping set instead of returning misleading m
   assertEquals(response.status, 409);
   assertEquals(await response.json(), { error: "Every requested ad must have a verified mapping" });
 });
+
+Deno.test("US044 whole-account mode paginates the account and exposes coverage without zero-filling", async () => {
+  const response = await handleApi(
+    request("/api/sprint-performance?account_id=acct-1&ad_id=all&date_from=2026-10-07&date_to=2026-10-07&limit=1"),
+    makeSupabase({
+      creatives: [creative("ad-1", "CODE-1"), creative("ad-2", "CODE-2")],
+      mappings: [
+        { id: "map-1", account_id: "acct-1", unique_code: "CODE-1", updated_at: "2026-10-07T09:00:00.000Z" },
+        { id: "map-2", account_id: "acct-1", unique_code: "CODE-2", updated_at: "2026-10-07T09:00:00.000Z" },
+      ],
+      daily: [{ ad_id: "ad-1", date: "2026-10-07", spend: null, impressions: null, clicks: null, purchases: null, purchase_value: null, created_at: "2026-10-07T10:00:00.000Z" }],
+    }),
+    READ,
+  );
+  assertEquals(response.status, 200);
+  const body = await response.json();
+  assertEquals(body.coverage, { account_id: "acct-1", requested_ads: 2, mapped_ads: 2, metric_rows: 1, complete_ads: 1, incomplete_ads: 1, metrics_missing_are_null: true });
+  assertEquals(body.data[0].metrics.spend, null);
+});
