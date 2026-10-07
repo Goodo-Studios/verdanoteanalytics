@@ -7,7 +7,7 @@ const { handleApi } = await import("./index.ts");
 
 type Row = Record<string, unknown>;
 
-function makeSupabase(opts: { role?: string; linked?: boolean; creatives?: Row[]; mappings?: Row[]; daily?: Row[] } = {}) {
+function makeSupabase(opts: { role?: string; linked?: boolean; creatives?: Row[]; mappings?: Row[]; daily?: Row[]; providerCreative?: Row } = {}) {
   const tables: Record<string, Row[]> = {
     ad_accounts: [{ id: "acct-1", attribution_model: "last_touch", click_window: 7, view_window: 1, last_synced_at: "2026-10-07T11:00:00.000Z" }],
     creatives: opts.creatives ?? [],
@@ -19,7 +19,7 @@ function makeSupabase(opts: { role?: string; linked?: boolean; creatives?: Row[]
   for (const method of ["select", "eq", "in", "order", "range", "limit", "gte", "lte"]) {
     builder[method] = (..._args: unknown[]) => builder;
   }
-  builder.maybeSingle = () => Promise.resolve({ data: opts.linked ? { "1": 1 } : null, error: null });
+  builder.maybeSingle = () => Promise.resolve({ data: table === "creatives" ? (opts.providerCreative ?? null) : opts.linked ? { "1": 1 } : null, error: null });
   builder.then = (resolve: (value: unknown) => void) => resolve({ data: tables[table] ?? [], error: null });
   return {
     from(name: string) {
@@ -33,7 +33,7 @@ function makeSupabase(opts: { role?: string; linked?: boolean; creatives?: Row[]
   };
 }
 
-const request = (path: string) => new Request(`https://fn.local${path}`, { method: "GET" });
+const request = (path: string, method = "GET", body?: unknown) => new Request(`https://fn.local${path}`, { method, headers: body ? { "content-type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
 const READ = { userId: "user-1", permissions: ["read"] };
 
 const creative = (adId: string, code: string): Row => ({
@@ -91,21 +91,8 @@ Deno.test("US044 refuses a partial mapping set instead of returning misleading m
   assertEquals(await response.json(), { error: "Every requested ad must have a verified mapping" });
 });
 
-Deno.test("US044 whole-account mode paginates the account and exposes coverage without zero-filling", async () => {
-  const response = await handleApi(
-    request("/api/sprint-performance?account_id=acct-1&ad_id=all&date_from=2026-10-07&date_to=2026-10-07&limit=1"),
-    makeSupabase({
-      creatives: [creative("ad-1", "CODE-1"), creative("ad-2", "CODE-2")],
-      mappings: [
-        { id: "map-1", account_id: "acct-1", unique_code: "CODE-1", updated_at: "2026-10-07T09:00:00.000Z" },
-        { id: "map-2", account_id: "acct-1", unique_code: "CODE-2", updated_at: "2026-10-07T09:00:00.000Z" },
-      ],
-      daily: [{ ad_id: "ad-1", date: "2026-10-07", spend: null, impressions: null, clicks: null, purchases: null, purchase_value: null, created_at: "2026-10-07T10:00:00.000Z" }],
-    }),
-    READ,
-  );
+Deno.test("US044 server-owned resolver proves only the account/ad provider tuple", async () => {
+  const response = await handleApi(request("/api/workspace/asset-ad-mappings/resolve", "POST", { accountId: "acct-1", adId: "ad-1", adName: "Ad ad-1" }), makeSupabase({ providerCreative: { account_id: "acct-1", ad_id: "ad-1", ad_name: "Ad ad-1", updated_at: "2026-10-07T10:00:00.000Z", ad_status: "ACTIVE" } }), READ);
   assertEquals(response.status, 200);
-  const body = await response.json();
-  assertEquals(body.coverage, { account_id: "acct-1", requested_ads: 2, mapped_ads: 2, metric_rows: 1, complete_ads: 1, incomplete_ads: 1, metrics_missing_are_null: true });
-  assertEquals(body.data[0].metrics.spend, null);
+  assertEquals(await response.json(), { accountId: "acct-1", adId: "ad-1", adName: "Ad ad-1", sourceProvider: "verdanote", sourceRecordId: "ad-1", sourceVersion: 1791367200, state: "confirmed", evidenceAt: "2026-10-07T10:00:00.000Z", expiresAt: null });
 });

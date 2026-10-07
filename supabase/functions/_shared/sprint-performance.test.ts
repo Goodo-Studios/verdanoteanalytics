@@ -27,14 +27,10 @@ Deno.test("US044 query parsing requires exact account and one or more ad IDs", (
   assertEquals(parseSprintQuery(new URL("https://fn.local/api/sprint-performance?account_id=acct-1&ad_id=a&ad_id=a&ad_ids=b&date_from=2026-10-07&date_to=2026-10-07&limit=2&cursor=3")), {
     accountId: "acct-1",
     adIds: ["a", "b"],
-    wholeAccount: false,
     limit: 2,
     offset: 3,
     dateFrom: "2026-10-07",
     dateTo: "2026-10-07",
-  });
-  assertEquals(parseSprintQuery(new URL("https://fn.local/api/sprint-performance?account_id=acct-1&ad_id=all&date_from=2026-10-07&date_to=2026-10-07")), {
-    accountId: "acct-1", adIds: [], wholeAccount: true, limit: 50, offset: 0, dateFrom: "2026-10-07", dateTo: "2026-10-07",
   });
 });
 

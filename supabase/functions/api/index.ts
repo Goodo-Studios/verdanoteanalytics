@@ -69,6 +69,26 @@ export async function handleApi(
   const resourceId = pathParts[1];
 
   try {
+    // Server-owned Goodo resolver. Goodo validates the delivered asset tuple
+    // in its own transaction; Verdanote proves only the account/ad pair and
+    // current provider identity. Asset metadata is deliberately not accepted
+    // as provider authority here.
+    if (resource === "workspace" && resourceId === "asset-ad-mappings" && pathParts[2] === "resolve" && req.method === "POST") {
+      const raw = await req.text();
+      if (new TextEncoder().encode(raw).byteLength > 64 * 1024) return new Response(JSON.stringify({ error: "request too large" }), { status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      let input: Record<string, unknown>;
+      try { input = JSON.parse(raw) as Record<string, unknown>; } catch { return new Response(JSON.stringify({ error: "invalid JSON" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
+      const allowed = ["accountId", "adId", "adName"];
+      if (Object.keys(input).length !== allowed.length || Object.keys(input).some((key) => !allowed.includes(key)) || ![input.accountId, input.adId, input.adName].every((value) => typeof value === "string" && value.trim().length > 0 && value.length <= 200)) return new Response(JSON.stringify({ error: "invalid resolver request" }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const accountId = input.accountId as string; const adId = input.adId as string; const adName = input.adName as string;
+      if (!(await verifyAccountOwnership(supabase, userId, accountId))) return new Response(JSON.stringify({ error: "Access denied" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const { data: creative, error } = await supabase.from("creatives").select("ad_id,account_id,ad_name,updated_at,ad_status").eq("account_id", accountId).eq("ad_id", adId).maybeSingle();
+      if (error) throw error;
+      if (!creative || creative.ad_name !== adName) return new Response(JSON.stringify({ error: "provider identity unavailable" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const observed = Date.parse(String(creative.updated_at));
+      if (!Number.isFinite(observed)) return new Response(JSON.stringify({ error: "provider evidence unavailable" }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ accountId: creative.account_id, adId: creative.ad_id, adName: creative.ad_name, sourceProvider: "verdanote", sourceRecordId: creative.ad_id, sourceVersion: Math.floor(observed / 1000), state: creative.ad_status === "UNKNOWN" ? "unavailable" : "confirmed", evidenceAt: new Date(observed).toISOString(), expiresAt: null }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     // GET /api/accounts — scoped to the key's user, mirroring the accounts
     // edge function's access model: builders/employees see every account; a
     // client (or any unrecognised role) sees ONLY the ad_accounts they are
@@ -235,7 +255,7 @@ export async function handleApi(
       const creativePages: SprintCreativeRow[] = [];
       for (let page = 0; ; page += 1) {
         let creativeQuery = supabase.from("creatives").select("ad_id, account_id, ad_name, unique_code, ad_status, updated_at, created_at").eq("account_id", parsed.accountId).order("ad_id", { ascending: true }).range(page * 1000, page * 1000 + 999);
-        if (!parsed.wholeAccount) creativeQuery = creativeQuery.in("ad_id", parsed.adIds);
+        creativeQuery = creativeQuery.in("ad_id", parsed.adIds);
         const { data: creatives, error: creativeError } = await creativeQuery;
         if (creativeError) throw creativeError;
         const rows = (creatives ?? []) as SprintCreativeRow[];
@@ -245,7 +265,7 @@ export async function handleApi(
 
       const creativeRows = creativePages;
       const creativeById = new Map(creativeRows.map((row) => [row.ad_id, row]));
-      if (!parsed.wholeAccount && creativeById.size !== parsed.adIds.length) {
+      if (creativeById.size !== parsed.adIds.length) {
         return new Response(JSON.stringify({ error: "One or more requested ads were not found in this account" }), {
           status: 404,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -293,8 +313,8 @@ export async function handleApi(
         .map((adId) => creativeById.get(adId))
         .filter((row): row is SprintCreativeRow => Boolean(row))
         .map((row) => shapeSprintRow(row, mappingByCode.get(row.unique_code!)!, dailyByAd.get(row.ad_id) ?? [], settings, parsed.dateFrom, parsed.dateTo));
-      const page = pageSprintRows(shaped, parsed.accountId, parsed.wholeAccount ? creativeRows.length : parsed.adIds.length, parsed.limit, parsed.offset);
-      return new Response(JSON.stringify({ ...page, coverage: { account_id: parsed.accountId, requested_ads: parsed.wholeAccount ? creativeRows.length : parsed.adIds.length, mapped_ads: shaped.length, metric_rows: dailyRows.length, complete_ads: shaped.filter((row) => row.attribution.complete).length, incomplete_ads: shaped.filter((row) => !row.attribution.complete).length, metrics_missing_are_null: true } }), {
+      const page = pageSprintRows(shaped, parsed.accountId, parsed.adIds.length, parsed.limit, parsed.offset);
+      return new Response(JSON.stringify({ ...page, coverage: { account_id: parsed.accountId, requested_ads: parsed.adIds.length, mapped_ads: shaped.length, metric_rows: dailyRows.length, complete_ads: shaped.filter((row) => row.attribution.complete).length, incomplete_ads: shaped.filter((row) => !row.attribution.complete).length, metrics_missing_are_null: true } }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
