@@ -4,6 +4,15 @@ import { withApiAuth, corsHeaders } from "../_shared/api-auth.ts";
 import { resolveConvention } from "../_shared/naming-convention.ts";
 import { errorMessage } from "../_shared/error-message.ts";
 import { parseMatrixParams } from "../_shared/matrix-logic.ts";
+import {
+  pageSprintRows,
+  parseSprintQuery,
+  shapeSprintRow,
+  type SprintCreativeRow,
+  type SprintDailyRow,
+  type SprintAccountSettings,
+  type SprintMappingRow,
+} from "../_shared/sprint-performance.ts";
 
 // Rate limiting is enforced durably inside withApiAuth (see _shared/api-auth.ts),
 // backed by the api_rate_limit_counters table — survives cold starts and holds
@@ -186,6 +195,103 @@ export async function handleApi(
       const { data, error, count } = await query;
       if (error) throw error;
       return new Response(JSON.stringify({ data, total: count, limit, offset }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // GET /api/sprint-performance — an exact, account-scoped projection for
+    // Goodo OS. Every requested ad must belong to the requested account and
+    // carry an account-local name_mappings row before any page is returned.
+    // This keeps names from becoming an authority boundary and makes an
+    // incomplete mapping explicit instead of silently returning a partial set.
+    if (resource === "sprint-performance" && req.method === "GET") {
+      const parsed = parseSprintQuery(url);
+      if ("error" in parsed) {
+        return new Response(JSON.stringify({ error: parsed.error }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const allowed = await verifyAccountOwnership(supabase, userId, parsed.accountId);
+      if (!allowed) {
+        return new Response(JSON.stringify({ error: "Access denied" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: accounts, error: accountError } = await supabase
+        .from("ad_accounts")
+        .select("id, attribution_model, click_window, view_window, last_synced_at")
+        .eq("id", parsed.accountId)
+        .limit(1);
+      if (accountError) throw accountError;
+      const settings = (accounts?.[0] ?? null) as SprintAccountSettings | null;
+      if (!settings) {
+        return new Response(JSON.stringify({ error: "Account not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const { data: creatives, error: creativeError } = await supabase
+        .from("creatives")
+        .select("ad_id, account_id, ad_name, unique_code, ad_status, updated_at, created_at")
+        .eq("account_id", parsed.accountId)
+        .in("ad_id", parsed.adIds)
+        .order("ad_id", { ascending: true })
+        .limit(parsed.adIds.length);
+      if (creativeError) throw creativeError;
+
+      const creativeRows = (creatives ?? []) as SprintCreativeRow[];
+      const creativeById = new Map(creativeRows.map((row) => [row.ad_id, row]));
+      if (creativeById.size !== parsed.adIds.length) {
+        return new Response(JSON.stringify({ error: "One or more requested ads were not found in this account" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const uniqueCodes = [...new Set(creativeRows.map((row) => row.unique_code).filter((code): code is string => Boolean(code)))];
+      if (uniqueCodes.length === 0 || creativeRows.some((row) => !row.unique_code)) {
+        return new Response(JSON.stringify({ error: "Every requested ad must have a verified mapping" }), {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: mappings, error: mappingError } = await supabase
+        .from("name_mappings")
+        .select("id, account_id, unique_code, updated_at")
+        .eq("account_id", parsed.accountId)
+        .in("unique_code", uniqueCodes);
+      if (mappingError) throw mappingError;
+      const mappingByCode = new Map(((mappings ?? []) as SprintMappingRow[]).map((row) => [row.unique_code, row]));
+      const missingMapping = creativeRows.some((row) => !row.unique_code || !mappingByCode.has(row.unique_code));
+      if (missingMapping || mappingByCode.size !== uniqueCodes.length) {
+        return new Response(JSON.stringify({ error: "Every requested ad must have a verified mapping" }), {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: daily, error: dailyError } = await supabase
+        .from("creative_daily_metrics")
+        .select("ad_id, date, spend, impressions, clicks, purchases, purchase_value, created_at")
+        .eq("account_id", parsed.accountId)
+        .in("ad_id", parsed.adIds)
+        .gte("date", parsed.dateFrom)
+        .lte("date", parsed.dateTo)
+        .order("date", { ascending: true })
+        .limit(parsed.adIds.length * 366);
+      if (dailyError) throw dailyError;
+      const dailyRows = (daily ?? []) as SprintDailyRow[];
+      const dailyByAd = new Map<string, SprintDailyRow[]>();
+      for (const row of dailyRows) dailyByAd.set(row.ad_id, [...(dailyByAd.get(row.ad_id) ?? []), row]);
+
+      const shaped = parsed.adIds
+        .map((adId) => creativeById.get(adId))
+        .filter((row): row is SprintCreativeRow => Boolean(row))
+        .map((row) => shapeSprintRow(row, mappingByCode.get(row.unique_code!)!, dailyByAd.get(row.ad_id) ?? [], settings, parsed.dateFrom, parsed.dateTo));
+      return new Response(JSON.stringify(pageSprintRows(shaped, parsed.accountId, parsed.adIds.length, parsed.limit, parsed.offset)), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -664,7 +770,7 @@ export async function handleApi(
       });
     }
 
-    return new Response(JSON.stringify({ error: "Not found", available_endpoints: ["/accounts", "/creatives", "/creatives/:id", "/metrics", "/summary", "/hooks", "/angles", "/coverage", "/convention", "/library", "/account-taxonomy", "/matrix", "/sync"] }), {
+    return new Response(JSON.stringify({ error: "Not found", available_endpoints: ["/accounts", "/creatives", "/creatives/:id", "/sprint-performance", "/metrics", "/summary", "/hooks", "/angles", "/coverage", "/convention", "/library", "/account-taxonomy", "/matrix", "/sync"] }), {
       status: 404,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

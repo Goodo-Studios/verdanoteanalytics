@@ -85,6 +85,74 @@ export async function getLibrary(
   return apiFetch("leaderboard", `?${params.toString()}`) as Promise<LibraryResponse>;
 }
 
+export interface SprintPerformanceRow {
+  ad_id: string;
+  ad_name: string;
+  account_id: string;
+  metrics: {
+    spend: number | null;
+    roas: number | null;
+    ctr: number | null;
+    cpa: number | null;
+    cpm: number | null;
+    clicks: number | null;
+    impressions: number | null;
+    purchases: number | null;
+    purchase_value: number | null;
+  };
+  attribution: {
+    source: "verdanote";
+    account_id: string;
+    mapping_id: string;
+    unique_code: string;
+    observed_at: string;
+    creative_updated_at: string;
+    mapping_updated_at: string;
+    date_from: string;
+    date_to: string;
+    attribution_model: string | null;
+    click_window: number | null;
+    view_window: number | null;
+    last_synced_at: string | null;
+    observations: number;
+    expected_observations: number;
+    complete: boolean;
+  };
+  status: string | null;
+}
+
+export interface SprintPerformancePage {
+  account_id: string;
+  data: SprintPerformanceRow[];
+  page: {
+    limit: number;
+    offset: number;
+    returned: number;
+    requested: number;
+    has_more: boolean;
+    next_cursor: string | null;
+    empty: boolean;
+    partial: boolean;
+  };
+}
+
+/**
+ * Read an exact set of confirmed ad mappings from Verdanote. The server
+ * rejects missing account ownership or any unverified mapping before it emits
+ * a page, so callers never mistake a partial page for a complete sprint.
+ */
+export async function getSprintPerformance(
+  accountId: string,
+  adIds: string[],
+  options: { limit?: number; cursor?: string } = {},
+): Promise<SprintPerformancePage> {
+  const params = new URLSearchParams({ account_id: accountId });
+  for (const adId of adIds) params.append("ad_id", adId);
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.cursor !== undefined) params.set("cursor", options.cursor);
+  return apiFetch("api", `sprint-performance?${params.toString()}`) as Promise<SprintPerformancePage>;
+}
+
 /** One destination row from the Landing Pages report (Creative Terminal — Feature 1).
  * Ratios are derived in the SQL RPC from summed base metrics — render verbatim,
  * never recompute. Percentages (cvr, atc_rate, ctr) are already true percentages. */
