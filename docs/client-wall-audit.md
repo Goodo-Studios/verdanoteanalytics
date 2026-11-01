@@ -43,20 +43,28 @@ All 78 `public` tables on staging have row rules on. No policy uses `using (true
 
 The client read test seeds a row owned by another account in each table (76 of 78 get one; the two single-row backend state tables cannot take a second row) and confirms a signed-in client sees none of them.
 
-## Not fixed here: database functions callable with the public key
+## Database functions callable with the public key: fixed by migration 20261101000020
 
-Found while checking tables. This is outside the six items of this change and needs a migration, so it is reported and not changed.
-
-60 `SECURITY DEFINER` functions in `public` can be executed by the `anon` role (anyone holding the public key in the browser bundle) or `authenticated`. Many take an account id and do not check who is asking. Read-only probe on staging, as an unauthenticated caller and as a client with no linked accounts, for the demo account:
+Found while checking tables. 60 `SECURITY DEFINER` functions in `public` could be executed by the `anon` role (anyone holding the public key in the browser bundle) or `authenticated`. Many take an account id and did not check who was asking. Read-only probe on staging, as an unauthenticated caller and as a client with no linked accounts, for the demo account:
 
 - `rpc_creative_matrix`: returned data to the unauthenticated caller. The client was refused, because the grant to `authenticated` was revoked but the grant to `anon` was not.
 - `rpc_entity_report`: returned data to both.
 - `get_media_coverage`: returned data to both.
-- `get_landing_pages_report`: both callers got past permissions and only stopped on the date window check (the default `PUBLIC` grant is still in place after an earlier migration revoked `authenticated`).
+- `get_landing_pages_report`: both callers got past permissions and only stopped on the date window check (the default `PUBLIC` grant was still in place after an earlier migration revoked `authenticated`).
 - `get_creative_library`: the unauthenticated caller got past permissions and stopped on the date window check. The client was refused.
 - `get_account_metrics`, `get_period_metrics`, `get_daily_trends`, `get_agency_dashboard_summary` check the caller inside and refused.
-- Also executable with no check inside: `bulk_update_creative_metrics`, `bulk_update_creative_metadata`, `create_api_key` (has a check), the `claim_*` queue functions and `snapshot_*` functions. These write or lock rows.
+- Also executable with no check inside: `bulk_update_creative_metrics`, `bulk_update_creative_metadata`, the `claim_*` queue functions and `snapshot_*` functions. These write or lock rows.
 
-The fix is a migration that revokes `EXECUTE` from `PUBLIC`, `anon` and `authenticated` on every function that only the edge functions call (they use the service role), and keeps it on the few the browser calls directly. It needs a pass over which ones `src/` calls through `supabase.rpc`. A pgTAP test can then fail if a new `SECURITY DEFINER` function is executable by `anon` without an allow-list entry.
+What the migration does: for every `SECURITY DEFINER` function in `public` it revokes `EXECUTE` from `PUBLIC`, `anon` and `authenticated` and grants it to `service_role` (edge functions and cron). Three groups keep `authenticated`:
+
+- Browser calls through `supabase.rpc` in `src/`: `create_api_key`, `get_agency_dashboard_summary`, `get_creative_window_aggregates`, `get_daily_trends`, `get_period_metrics`, `get_user_role`. The four reports check staff role or account membership inside. `create_api_key` stores the key against `auth.uid()`, with no role check: any signed-in user, a client included, can create an API key for themselves. That is unchanged and worth a decision.
+- Helpers that row rules call (rules run as the caller): `has_role`, `get_user_account_ids`, `owns_ad_library_ad`, `owns_ad_library_board`, `vault_owns_board`, `vault_visible_item_ids`, and `match_items` (the vault-search function uses a user-token client). `board_is_public` and `ad_is_on_public_board` also keep `anon` because public Ad Library board rules apply to signed-out visitors. `has_role`, `get_user_role` and `get_user_account_ids` accept any user id, so a signed-in user who knows another user's id can read that user's role or account list. They cannot be locked down without rewriting every row rule.
+- The 48 staff area functions added by migrations 20261101000002, 05 and 06 (create_shoot, approve_application and so on). Each starts with a `has_role(auth.uid(), 'builder' ...)` check, never reaches `anon`, and the test fails if one loses the check.
+
+Every other edge-function call to a locked function goes through a service-role client (checked for all callers of `supabase.rpc` in `supabase/functions`), and `pg_cron` jobs run as `postgres`, so none of them lose access. Trigger functions are not affected: `EXECUTE` is checked when a trigger is created, not when it fires.
+
+Not done: a default that stops new functions from being open. PostgreSQL grants `EXECUTE` on new functions to `PUBLIC`, and a schema-level `ALTER DEFAULT PRIVILEGES` cannot remove that. The global form also changes functions created by extension installs. The pgTAP test is the gate instead: it fails CI when a new `SECURITY DEFINER` function is open to `anon` or `authenticated` without an allow-list entry.
+
+Checks: `supabase/tests/security_definer_grants_test.sql` (CI, with a self-test) and `scripts/staging-function-grants-check.mjs` (staging, calls every exposed function as `anon` and as client B).
 
 Also noted: `moodboards` and `moodboard_items` have a policy for the `public` role that lets anyone read every row flagged shared, without presenting the share token. Same for shared `briefs` and public Ad Library boards. That is how share links work today, so it is listed and not changed.

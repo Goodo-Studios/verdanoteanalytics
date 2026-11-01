@@ -60,7 +60,7 @@ It signs in as the test staff user and both test clients and confirms that clien
 
 ### The full client wall
 
-The wall has five parts. Parts 1 and 2 run on every change in CI (`supabase test db`). Parts 3 to 5 run against staging.
+The wall has six parts. Parts 1, 2 and 6 run on every change in CI (`supabase test db`). Parts 3 to 5 run against staging, and so does the HTTP check for part 6 (`scripts/staging-function-grants-check.mjs`).
 
 | # | What it checks | Where | How to run |
 |---|---|---|---|
@@ -70,10 +70,17 @@ The wall has five parts. Parts 1 and 2 run on every change in CI (`supabase test
 | 3 | A test client token is refused by every server function that handles staff data, every internal function and every secret-gated function. Also checks that client B cannot read the demo account, and that builder and employee are accepted where they should be. | `scripts/staging-client-wall-functions.mjs` | the command below |
 | 4 | Every function directory is classified in `supabase/function-access.json`, and each class has the gate its name says. A new function fails CI until it is classified. | `src/test/functionAccessManifest.test.ts` | `npm test` (CI) |
 | 5 | A client cannot load any staff page, and the employee login reaches them. Unit level (route table) and in a real browser. | `src/test/StaffArea.test.tsx`, `src/test/StaffMenu.test.tsx`, `e2e/staff-area.spec.ts` | `npm test`, and the Playwright command below |
+| 6 | No `SECURITY DEFINER` function in `public` is executable by `anon` or `authenticated` unless it is on the allow-list in the test (browser calls, row-rule helpers, staff area functions that check `has_role(auth.uid(), ...)` in their body). Includes a self-test. The staging script calls every function the REST API exposes as `anon` and as client B (no linked accounts) with inert arguments and requires permission denied from each, plus positive controls (service role, builder, client A on its own account). | `supabase/tests/security_definer_grants_test.sql`, `scripts/staging-function-grants-check.mjs` | `supabase test db` (CI), and the second command below |
 
 ```bash
 hq secrets exec --company goodo-studios --only STAGING_SUPABASE_URL,STAGING_SUPABASE_ANON_KEY,STAGING_TEST_PASSWORD -- node scripts/staging-client-wall-functions.mjs
 ```
+
+```bash
+hq secrets exec --company goodo-studios --only STAGING_SUPABASE_URL,STAGING_SUPABASE_ANON_KEY,STAGING_SUPABASE_SERVICE_ROLE_KEY,STAGING_TEST_PASSWORD -- node scripts/staging-function-grants-check.mjs
+```
+
+A new database function that the browser must call needs `REVOKE ALL ... FROM PUBLIC, anon, authenticated`, `GRANT EXECUTE ... TO authenticated, service_role` and an entry in the allow-list of `security_definer_grants_test.sql`, plus a check on who is asking inside the function. A function that only edge functions or cron call needs the revoke and `GRANT EXECUTE ... TO service_role`.
 
 The browser check starts a local copy of the pages that talks to the staging project. Set these before `npx playwright test e2e/staff-area.spec.ts`: `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` from the staging project, `PLAYWRIGHT_CLIENT_EMAIL`/`_PASSWORD` for `client-a@staging.verdanote.test`, and `PLAYWRIGHT_EMPLOYEE_EMAIL`/`_PASSWORD` for `employee@staging.verdanote.test` (plus the existing `PLAYWRIGHT_TEST_*` for the builder). Take the values from the vault. Never type them into a file.
 
