@@ -6,7 +6,7 @@ Staging is a full second copy of Verdanote with its own database, its own logins
 |---|---|---|
 | Site | www.verdanote.com | staging.verdanote.com (password protected) |
 | Supabase project | `gwyxaqoaldnaavkjqquv` | `mnvcksbhbvypuiwozvct` (`verdanote-staging`) |
-| Vercel project | `verdanoteanalytics` | `verdanote-staging` |
+| Vercel project | `verdanoteanalytics` | `verdanote-staging` (team goodo-studios) |
 | Git branch | `main` | `staging` (long-lived) |
 | CI job on push | `deploy-functions` | `deploy-staging` |
 | GitHub secrets | `SUPABASE_*`, `VITE_*`, `PLAYWRIGHT_*` | `STAGING_*` only |
@@ -42,7 +42,7 @@ The site password is `STAGING_GATE_PASSWORD` in the vault (user name `staging`).
 
 1. Build each piece on its own branch and open a pull request into `staging`.
 2. Merging into `staging` runs CI. The `deploy-staging` job applies database changes, runs the lockdown script, ships all server functions and smoke tests them, all against the staging project only.
-3. Vercel builds the staging site from the `staging` branch.
+3. Ship the staging pages by hand, the same way production pages are shipped. From a clean checkout of the `staging` branch linked to the `verdanote-staging` Vercel project: `vercel deploy --prod`. The Vercel GitHub app is not installed for this repo, so there is no automatic page deploy.
 4. Check the piece on staging. Run the client wall check (below).
 5. Normal fixes keep going to `main`. Merge `main` into `staging` weekly so the two do not drift.
 
@@ -74,6 +74,6 @@ If the pages break, roll back in Vercel within minutes. Database changes do not 
 
 - Supabase project `verdanote-staging` in the Goodo Studios org, us-east-2.
 - GitHub repo secrets: `STAGING_SUPABASE_PROJECT_ID`, `STAGING_SUPABASE_URL`, `STAGING_SUPABASE_ACCESS_TOKEN`, `STAGING_SUPABASE_DB_PASSWORD`.
-- Vercel project `verdanote-staging` with production branch `staging` and env vars `STAGING_SITE`, `STAGING_GATE_USER`, `STAGING_GATE_PASSWORD`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`.
-- DNS: a CNAME for `staging` on verdanote.com pointing at Vercel.
+- Vercel project `verdanote-staging` (pages shipped with `vercel deploy --prod`) with env vars `STAGING_SITE`, `STAGING_GATE_USER`, `STAGING_GATE_PASSWORD`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`.
+- Domain `staging.verdanote.com` added to the Vercel project. DNS for verdanote.com is at GoDaddy; it needs an `A` record for `staging` pointing at Vercel (value shown in the Vercel project's Domains page).
 - Vault secrets (goodo-studios): `STAGING_SUPABASE_*`, `VERDANOTE_STAGING_DB_PASSWORD`, `STAGING_TEST_PASSWORD`, `STAGING_GATE_PASSWORD`.
