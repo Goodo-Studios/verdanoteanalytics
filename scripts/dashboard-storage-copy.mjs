@@ -43,11 +43,16 @@ async function signIn() {
   });
   if (!r.ok) throw new Error(`viewer sign-in failed (${r.status})`);
   session = (await r.json()).access_token;
+  signedInAt = Date.now();
 }
+// Login tokens last an hour and storage answers an expired one with a 400, so sign in again
+// before they run out and retry once on any auth-looking failure.
+let signedInAt = 0;
 const srcFetch = async (url, init = {}) => {
   const go = () => fetch(url, { ...init, headers: { apikey: anon, authorization: `Bearer ${session}`, ...(init.headers || {}) } });
+  if (Date.now() - signedInAt > 30 * 60 * 1000) await signIn();
   let r = await go();
-  if (r.status === 401 || r.status === 403 && !r.ok) { await signIn(); r = await go(); }
+  if ([400, 401, 403].includes(r.status)) { await signIn(); r = await go(); }
   return r;
 };
 const dstHeaders = { apikey: stagingKey, authorization: `Bearer ${stagingKey}` };
