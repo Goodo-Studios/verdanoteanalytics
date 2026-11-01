@@ -6,6 +6,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { detectPlatform } from "../_shared/platform.ts";
 import { errorMessage } from "../_shared/error-message.ts";
+import { requireStaffOrServiceRole } from "../_shared/internal-auth.ts";
 
 // Supabase Edge Runtime global (not in Deno's lib types).
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
@@ -19,6 +20,15 @@ const KICKOFF_ACK_TIMEOUT_MS = 10_000;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // Staff-only: this function reads or writes staff data, or spends the org's
+  // third-party budget. Client accounts are refused here, not only in the menu.
+  // Service-role callers (cron, other functions) still pass.
+  const staffGate = await requireStaffOrServiceRole(
+    req,
+    createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!),
+  );
+  if (staffGate) return staffGate;
 
   try {
     const authHeader = req.headers.get("Authorization");

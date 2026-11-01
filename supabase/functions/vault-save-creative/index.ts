@@ -23,6 +23,7 @@ import {
   selectMediaSources,
 } from "../_shared/vault-save-logic.ts";
 import { errorMessage } from "../_shared/error-message.ts";
+import { requireStaffOrServiceRole } from "../_shared/internal-auth.ts";
 
 // Supabase Edge Runtime global (not in Deno's lib types).
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
@@ -141,6 +142,15 @@ async function copyMedia(
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // Staff-only: this function reads or writes staff data, or spends the org's
+  // third-party budget. Client accounts are refused here, not only in the menu.
+  // Service-role callers (cron, other functions) still pass.
+  const staffGate = await requireStaffOrServiceRole(
+    req,
+    createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!),
+  );
+  if (staffGate) return staffGate;
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;

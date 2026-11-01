@@ -112,9 +112,11 @@ export async function handler(req: Request, injectedDb?: any): Promise<Response>
       return await resolveShare(db, parsed.token);
     }
 
-    // mint / revoke — require an authenticated user who OWNS the item (or staff).
+    // mint / revoke: require an authenticated STAFF user who OWNS the item (or any
+    // staff). Clients have no vault access, so they never mint or revoke links.
     const user = await getAuthUser(db, req) as { id?: string } | null;
     if (!user?.id) return json({ error: "unauthorized" }, 401);
+    if (!(await isStaffUser(db, user.id))) return json({ error: "forbidden" }, 403);
 
     if (parsed.action === "mint") return await mintShare(db, parsed.itemId, user.id);
     return await revokeShare(db, parsed.itemId, user.id);

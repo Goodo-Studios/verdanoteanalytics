@@ -1,0 +1,262 @@
+{
+  "_comment": "Access class of every edge function in supabase/functions. A new function must be added here; src/test/functionAccessManifest.test.ts and scripts/staging-client-wall-functions.mjs both read this file. staff = refuses client accounts (JWT plus staff role). service = only the service-role key. secret = shared secret, signature or API key. account-scoped = clients may call it, limited to accounts linked to them. public = no login by design.",
+  "functions": {
+    "account-taxonomy": {
+      "class": "staff"
+    },
+    "accounts": {
+      "class": "account-scoped"
+    },
+    "ad-preview": {
+      "class": "account-scoped"
+    },
+    "ai-chat": {
+      "class": "account-scoped",
+      "rls": true,
+      "note": "Reads through the caller's own session, so row rules limit it to the client's accounts."
+    },
+    "analyze-creative": {
+      "class": "service"
+    },
+    "api": {
+      "class": "secret"
+    },
+    "apify-debug": {
+      "class": "staff",
+      "minRole": "builder"
+    },
+    "backfill-ai-tags": {
+      "class": "service"
+    },
+    "backfill-daily-history": {
+      "class": "service"
+    },
+    "backfill-destination-key": {
+      "class": "service"
+    },
+    "backfill-launch-dates": {
+      "class": "service"
+    },
+    "backfill-play-curves": {
+      "class": "service"
+    },
+    "backfill-post-urls": {
+      "class": "service"
+    },
+    "backfill-retag": {
+      "class": "service"
+    },
+    "backfill-thumbnail-storage-path": {
+      "class": "service"
+    },
+    "cache-creative-image": {
+      "class": "account-scoped"
+    },
+    "cleanup-stuck-media": {
+      "class": "service"
+    },
+    "cleanup-stuck-syncs": {
+      "class": "service"
+    },
+    "clear-media-cache": {
+      "class": "staff",
+      "minRole": "builder"
+    },
+    "client-insights": {
+      "class": "account-scoped",
+      "rls": true,
+      "note": "Reads through the caller's own session, so row rules limit it to the client's accounts."
+    },
+    "cluster-creatives": {
+      "class": "service"
+    },
+    "competitor-ads": {
+      "class": "staff"
+    },
+    "create-coda-brief": {
+      "class": "staff"
+    },
+    "creative-embed": {
+      "class": "service"
+    },
+    "creative-library": {
+      "class": "staff"
+    },
+    "creative-media-archive": {
+      "class": "staff"
+    },
+    "creative-rotation": {
+      "class": "account-scoped",
+      "crossAccountProbe": {
+        "method": "GET",
+        "query": "account_id=act_demo_glowdrip"
+      }
+    },
+    "creatives": {
+      "class": "account-scoped"
+    },
+    "drain-media-queue": {
+      "class": "service"
+    },
+    "enrich-thumbnails": {
+      "class": "service"
+    },
+    "entity-report": {
+      "class": "account-scoped",
+      "crossAccountProbe": {
+        "method": "GET",
+        "query": "account_id=act_demo_glowdrip"
+      }
+    },
+    "ingest-reviews": {
+      "class": "secret"
+    },
+    "landing-pages": {
+      "class": "account-scoped",
+      "crossAccountProbe": {
+        "method": "GET",
+        "query": "account_id=act_demo_glowdrip"
+      }
+    },
+    "leaderboard": {
+      "class": "account-scoped",
+      "crossAccountProbe": {
+        "method": "GET",
+        "query": "account_id=act_demo_glowdrip"
+      }
+    },
+    "matrix": {
+      "class": "account-scoped",
+      "crossAccountProbe": {
+        "method": "GET",
+        "query": "account_id=act_demo_glowdrip"
+      }
+    },
+    "portfolio": {
+      "class": "public",
+      "note": "Public portfolio page looked up by slug; returns only aggregate numbers for accounts that switched portfolio_enabled on."
+    },
+    "preview-capture": {
+      "class": "service"
+    },
+    "preview-capture-drain": {
+      "class": "service"
+    },
+    "quick-save": {
+      "class": "staff"
+    },
+    "refresh-media-queue": {
+      "class": "service"
+    },
+    "refresh-thumbnails": {
+      "class": "staff"
+    },
+    "reports": {
+      "class": "staff"
+    },
+    "resolve-destinations": {
+      "class": "service"
+    },
+    "sadie-read": {
+      "class": "secret"
+    },
+    "scheduled-reports": {
+      "class": "service"
+    },
+    "scheduled-sync": {
+      "class": "service"
+    },
+    "scrape-ad": {
+      "class": "staff"
+    },
+    "send-digest": {
+      "class": "account-scoped",
+      "note": "Digest accounts are filtered to the caller's linked accounts for non-staff."
+    },
+    "settings": {
+      "class": "staff",
+      "minRole": "builder"
+    },
+    "spend-diagnostic": {
+      "class": "staff"
+    },
+    "sync": {
+      "class": "staff"
+    },
+    "sync-coda-names": {
+      "class": "service"
+    },
+    "sync-coda-tasks": {
+      "class": "service"
+    },
+    "system-health-check": {
+      "class": "service"
+    },
+    "transcribe-ad": {
+      "class": "staff"
+    },
+    "user-management": {
+      "class": "staff",
+      "minRole": "builder"
+    },
+    "vault-ads": {
+      "class": "staff"
+    },
+    "vault-analyze": {
+      "class": "service"
+    },
+    "vault-embed": {
+      "class": "service"
+    },
+    "vault-extract": {
+      "class": "service"
+    },
+    "vault-extract-webhook": {
+      "class": "secret"
+    },
+    "vault-frame-analyze": {
+      "class": "staff"
+    },
+    "vault-save": {
+      "class": "staff"
+    },
+    "vault-save-creative": {
+      "class": "staff"
+    },
+    "vault-search": {
+      "class": "staff"
+    },
+    "vault-share-item": {
+      "class": "staff",
+      "note": "mint and revoke are staff only; resolve is public by share token (shared vault links).",
+      "probe": {
+        "method": "POST",
+        "body": {
+          "action": "mint",
+          "item_id": "00000000-0000-0000-0000-000000000000"
+        }
+      }
+    },
+    "vault-slack-connect": {
+      "class": "staff"
+    },
+    "vault-slack-events": {
+      "class": "secret"
+    },
+    "vault-slack-import": {
+      "class": "staff"
+    },
+    "vault-status": {
+      "class": "staff"
+    },
+    "vault-transcribe": {
+      "class": "service"
+    },
+    "webhooks-dispatch": {
+      "class": "secret"
+    },
+    "write-brief": {
+      "class": "secret"
+    }
+  }
+}

@@ -45,6 +45,8 @@ const LandingPagesPage = lazy(routeImports.landingPages);
 const BriefsPage = lazy(routeImports.briefs);
 const PublicBriefPage = lazy(() => import("./pages/PublicBriefPage"));
 const AgencyDashboardPage = lazy(routeImports.agencyDashboard);
+// Staff menu: the front door of the staff area (builder and employee only).
+const StaffHomePage = lazy(routeImports.staffHome);
 const ContentPipelinePage = lazy(routeImports.contentPipeline);
 // Old Ad Library is replaced by the Creative Vault Library page (US-006).
 // The old page lives at features/ad-library/AdLibraryPage.tsx and is no longer routed.
@@ -127,6 +129,9 @@ export function RoleGuardedRoutes() {
   // PRODUCT surface builders have. Admin (user mgmt, Meta/settings, API keys,
   // cache tools) stays builder-only.
   const isStaff = isBuilder || isEmployee;
+  // A staff page loads for real staff only. A builder previewing the client view sees what a
+  // client sees, so staff pages redirect there too.
+  const staffPage = isStaff && !effectiveClient;
   // Builder-only surfaces (US-007 Creative Matrix, matching the US-003 taxonomy
   // config gate): a real builder, not previewing another role.
   const effectiveBuilder = isBuilder && !isClientPreview && !isEmployeePreview;
@@ -158,21 +163,24 @@ export function RoleGuardedRoutes() {
         <Suspense fallback={<PageSkeleton />}>
         <Routes>
           <Route path="/" element={agencyHome ? <AgencyDashboardPage /> : <OverviewPage />} />
-          <Route path="/agency" element={isStaff ? <AgencyDashboardPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/agency" element={staffPage ? <AgencyDashboardPage /> : <Navigate to={`${prefix}/`} replace />} />
+          {/* Staff menu. A client, or a builder previewing the client view, goes to the index. */}
+          <Route path="/staff" element={staffPage ? <StaffHomePage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/creatives" element={<CreativesPage />} />
           <Route path="/creatives/compare" element={<ComparePage />} />
           {/* Creative Library (Feature 4 + F3 + F6). Builder/employee only; the
               page itself gates to the builder account for the dogfood rollout. */}
-          <Route path="/creative-library" element={isStaff ? <CreativeLibraryPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/creative-library" element={staffPage ? <CreativeLibraryPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/tagging" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <TaggingPage />} />
           
-          <Route path="/landing-pages" element={isStaff ? <LandingPagesPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/landing-pages" element={staffPage ? <LandingPagesPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : <ReportsPage />} />
-          <Route path="/entities" element={isStaff ? <EntityReportPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/entities" element={staffPage ? <EntityReportPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/reports/:id" element={<ReportDetailPage />} />
-          <Route path="/reports/:id/build" element={<ReportBuilderPage />} />
-          <Route path="/creative-rotation" element={isStaff ? <CreativeRotationPage /> : <Navigate to={`${prefix}/`} replace />} />
+          {/* The report builder is a staff page. Clients read finished reports only. */}
+          <Route path="/reports/:id/build" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <ReportBuilderPage />} />
+          <Route path="/creative-rotation" element={staffPage ? <CreativeRotationPage /> : <Navigate to={`${prefix}/`} replace />} />
           {/* Creative Matrix board (US-007) — builder-only; employees, clients,
               and role-preview sessions are redirected to their index. */}
           <Route path="/matrix" element={effectiveBuilder ? <MatrixBoardPage /> : <Navigate to={`${prefix}/`} replace />} />
