@@ -41,12 +41,12 @@ The site password is `STAGING_GATE_PASSWORD` in the vault (user name `staging`).
 ## How work flows
 
 1. Build each piece on its own branch and open a pull request into `staging`.
-2. Merging into `staging` runs CI. The `deploy-staging` job applies database changes, runs the lockdown script, ships all server functions and smoke tests them, all against the staging project only.
+2. Merging into `staging` runs CI. The `deploy-staging` job applies database changes (staging only; production migrations stay manual), runs the lockdown script, ships all server functions and smoke tests them, all against the staging project only.
 3. Ship the staging pages by hand, the same way production pages are shipped. From a clean checkout of the `staging` branch linked to the `verdanote-staging` Vercel project: `vercel deploy --prod`. The Vercel GitHub app is not installed for this repo, so there is no automatic page deploy.
 4. Check the piece on staging. Run the client wall check (below).
 5. Normal fixes keep going to `main`. Merge `main` into `staging` weekly so the two do not drift.
 
-`deploy-staging` reads only `STAGING_*` secrets. Before it does anything it stops if any of them is empty, if the project id equals the production id, or if the URL does not match the project id. Pushes to `main` still run `deploy-functions` against production exactly as before. The production E2E job does not run for `staging` pushes or for pull requests into `staging`.
+`deploy-staging` reads only `STAGING_*` secrets. Before it does anything it stops if any of them is empty, if the project id equals the production id, or if the URL does not match the project id. Pushes to `main` still run `deploy-functions` against production exactly as before (server functions only, no migrations). The production E2E job does not run for `staging` pushes or for pull requests into `staging`.
 
 ## Client wall check
 
@@ -64,7 +64,7 @@ This step is one-way for the database. Get Matthew's sign-off first.
 
 1. Take a fresh backup of the production database.
 2. Rehearse: copy production into a scratch project, apply every staging migration to it, confirm nothing fails.
-3. Merge `staging` into `main`. CI applies the database changes and ships the server functions to production. The staging lockdown script never runs here.
+3. Merge `staging` into `main`. CI ships the server functions to production. CI does not apply database changes to production (the `ciWorkflow` test enforces this until the production migration history is reconciled), so apply them by hand with `supabase db push` against `gwyxaqoaldnaavkjqquv` once the rehearsal passed. The staging lockdown script never runs against production.
 4. Ship the pages by hand: `vercel --prod` from `repos/private/verdanoteanalytics`, then confirm the live bundle changed.
 5. Run the client wall check and the main page checks against production.
 
