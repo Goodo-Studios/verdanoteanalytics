@@ -1,4 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { FakeTime } from "https://deno.land/std@0.224.0/testing/time.ts";
 
 Deno.env.set("API_NO_SERVE", "1");
 Deno.env.set("SUPABASE_URL", "https://example.supabase.co");
@@ -110,6 +111,10 @@ Deno.test("US044 preserves the existing account-scoped creatives projection arou
 });
 
 Deno.test("US044 server-owned resolver proves only the account/ad provider tuple", async () => {
+  // The fixture's provider evidence is from 2026-10-07T10:00Z and the resolver
+  // treats evidence older than 24 hours as expired, so pin the clock inside
+  // that window instead of depending on the day the suite runs.
+  using _time = new FakeTime(new Date("2026-10-07T12:00:00.000Z"));
   const response = await handleApi(request("/api/workspace/asset-ad-mappings/resolve", "POST", { accountId: "acct-1", adId: "ad-1", adName: "Ad ad-1" }), makeSupabase({ providerCreative: { account_id: "acct-1", ad_id: "ad-1", ad_name: "Ad ad-1", updated_at: "2026-10-07T10:00:00.000Z", ad_status: "ACTIVE" } }), READ);
   assertEquals(response.status, 200);
   assertEquals(await response.json(), { accountId: "acct-1", adId: "ad-1", adName: "Ad ad-1", sourceProvider: "verdanote", sourceRecordId: "ad-1", sourceVersion: 1791367200, state: "confirmed", evidenceAt: "2026-10-07T10:00:00.000Z", expiresAt: "2026-10-08T10:00:00.000Z" });

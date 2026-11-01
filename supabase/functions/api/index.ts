@@ -306,7 +306,7 @@ export async function handleApi(
       const requestedIds = creativeRows.map((row) => row.ad_id);
       const dailyPages: SprintDailyRow[] = [];
       for (let page = 0; ; page += 1) {
-        let dailyQuery = supabase.from("creative_daily_metrics").select("ad_id, date, spend, impressions, clicks, purchases, purchase_value, created_at").eq("account_id", parsed.accountId).in("ad_id", requestedIds).gte("date", parsed.dateFrom).lte("date", parsed.dateTo).order("date", { ascending: true }).order("ad_id", { ascending: true }).range(page * 1000, page * 1000 + 999);
+        const dailyQuery = supabase.from("creative_daily_metrics").select("ad_id, date, spend, impressions, clicks, purchases, purchase_value, created_at").eq("account_id", parsed.accountId).in("ad_id", requestedIds).gte("date", parsed.dateFrom).lte("date", parsed.dateTo).order("date", { ascending: true }).order("ad_id", { ascending: true }).range(page * 1000, page * 1000 + 999);
         const { data: daily, error: dailyError } = await dailyQuery;
         if (dailyError) throw dailyError;
         const rows = (daily ?? []) as SprintDailyRow[];
@@ -823,7 +823,7 @@ export async function handleApi(
 // Production HTTP composition is exported so acceptance can bind the same
 // authenticated entrypoint over loopback without bypassing API-key checks.
 // deno-lint-ignore no-explicit-any -- injectable Supabase fixture uses the production fluent client surface.
-export function createApiHttpHandler(supabase: any) {
+export function createApiHttpHandler(supabase: Parameters<typeof handleApi>[1]) {
   return withApiAuth((req, { userId, permissions }) =>
     handleApi(req, supabase, { userId, permissions }), { supabase });
 }
