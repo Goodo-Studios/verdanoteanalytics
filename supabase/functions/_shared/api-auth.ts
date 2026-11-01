@@ -9,8 +9,9 @@ async function hashKey(key: string): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export async function validateApiKey(key: string) {
-  const supabase = createClient(
+// deno-lint-ignore no-explicit-any -- production Supabase and local acceptance fixture share the fluent surface.
+export async function validateApiKey(key: string, clientOverride?: any) {
+  const supabase = clientOverride ?? createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
@@ -67,12 +68,13 @@ function extractApiKey(req: Request): string | null {
 // 100), API_RATE_LIMIT_WINDOW_SECONDS (default 60). Returns the window length
 // in seconds when the request is over the limit, or null when allowed.
 // Fails open on RPC error so a counter outage cannot take the API down.
-export async function checkRateLimit(keyId: string): Promise<number | null> {
+// deno-lint-ignore no-explicit-any -- production Supabase and local acceptance fixture share the fluent surface.
+export async function checkRateLimit(keyId: string, clientOverride?: any): Promise<number | null> {
   const limit = parseInt(Deno.env.get("API_RATE_LIMIT") ?? "100", 10);
   const windowSeconds = parseInt(Deno.env.get("API_RATE_LIMIT_WINDOW_SECONDS") ?? "60", 10);
 
   // deno-lint-ignore no-explicit-any
-  const supabase: any = createClient(
+  const supabase: any = clientOverride ?? createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
@@ -89,7 +91,9 @@ export async function checkRateLimit(keyId: string): Promise<number | null> {
 }
 
 export function withApiAuth(
-  handler: (req: Request, ctx: { userId: string; permissions: string[]; keyId: string }) => Promise<Response>
+  handler: (req: Request, ctx: { userId: string; permissions: string[]; keyId: string }) => Promise<Response>,
+  // deno-lint-ignore no-explicit-any -- production Supabase and local acceptance fixture share the fluent surface.
+  options?: { supabase?: any }
 ) {
   return async (req: Request): Promise<Response> => {
     if (req.method === "OPTIONS") {
@@ -104,7 +108,7 @@ export function withApiAuth(
       );
     }
 
-    const validation = await validateApiKey(apiKey);
+    const validation = await validateApiKey(apiKey, options?.supabase);
     if (!validation.valid) {
       return new Response(
         JSON.stringify({ error: validation.error }),
@@ -112,7 +116,7 @@ export function withApiAuth(
       );
     }
 
-    const retryAfter = await checkRateLimit(validation.keyId);
+    const retryAfter = await checkRateLimit(validation.keyId, options?.supabase);
     if (retryAfter !== null) {
       return new Response(
         JSON.stringify({ error: "Rate limit exceeded" }),

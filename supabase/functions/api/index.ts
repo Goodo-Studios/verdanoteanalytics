@@ -4,6 +4,15 @@ import { withApiAuth, corsHeaders } from "../_shared/api-auth.ts";
 import { resolveConvention } from "../_shared/naming-convention.ts";
 import { errorMessage } from "../_shared/error-message.ts";
 import { parseMatrixParams } from "../_shared/matrix-logic.ts";
+import {
+  pageSprintRows,
+  parseSprintQuery,
+  shapeSprintRow,
+  type SprintCreativeRow,
+  type SprintDailyRow,
+  type SprintAccountSettings,
+  type SprintMappingRow,
+} from "../_shared/sprint-performance.ts";
 
 // Rate limiting is enforced durably inside withApiAuth (see _shared/api-auth.ts),
 // backed by the api_rate_limit_counters table — survives cold starts and holds
@@ -60,6 +69,28 @@ export async function handleApi(
   const resourceId = pathParts[1];
 
   try {
+    // Server-owned Goodo resolver. Goodo validates the delivered asset tuple
+    // in its own transaction; Verdanote proves only the account/ad pair and
+    // current provider identity. Asset metadata is deliberately not accepted
+    // as provider authority here.
+    if (resource === "workspace" && resourceId === "asset-ad-mappings" && pathParts[2] === "resolve" && req.method === "POST") {
+      const raw = await req.text();
+      if (new TextEncoder().encode(raw).byteLength > 64 * 1024) return new Response(JSON.stringify({ error: "request too large" }), { status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      let input: Record<string, unknown>;
+      try { input = JSON.parse(raw) as Record<string, unknown>; } catch { return new Response(JSON.stringify({ error: "invalid JSON" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
+      const allowed = ["accountId", "adId", "adName"];
+      if (Object.keys(input).length !== allowed.length || Object.keys(input).some((key) => !allowed.includes(key)) || ![input.accountId, input.adId, input.adName].every((value) => typeof value === "string" && value.trim().length > 0 && value.length <= 200)) return new Response(JSON.stringify({ error: "invalid resolver request" }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const accountId = input.accountId as string; const adId = input.adId as string; const adName = input.adName as string;
+      if (!(await verifyAccountOwnership(supabase, userId, accountId))) return new Response(JSON.stringify({ error: "Access denied" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const { data: creative, error } = await supabase.from("creatives").select("ad_id,account_id,ad_name,updated_at,ad_status").eq("account_id", accountId).eq("ad_id", adId).maybeSingle();
+      if (error) throw error;
+      if (!creative || creative.account_id !== accountId || creative.ad_id !== adId || creative.ad_name !== adName) return new Response(JSON.stringify({ error: "provider identity unavailable" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const observed = Date.parse(String(creative.updated_at));
+      if (!Number.isFinite(observed) || observed > Date.now()) return new Response(JSON.stringify({ error: "provider evidence unavailable" }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const expiresAt = new Date(observed + 24 * 60 * 60 * 1000);
+      if (expiresAt.getTime() <= Date.now()) return new Response(JSON.stringify({ error: "provider evidence expired" }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ accountId: creative.account_id, adId: creative.ad_id, adName: creative.ad_name, sourceProvider: "verdanote", sourceRecordId: creative.ad_id, sourceVersion: Math.floor(observed / 1000), state: creative.ad_status === "UNKNOWN" ? "unavailable" : "confirmed", evidenceAt: new Date(observed).toISOString(), expiresAt: expiresAt.toISOString() }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     // GET /api/accounts — scoped to the key's user, mirroring the accounts
     // edge function's access model: builders/employees see every account; a
     // client (or any unrecognised role) sees ONLY the ad_accounts they are
@@ -186,6 +217,112 @@ export async function handleApi(
       const { data, error, count } = await query;
       if (error) throw error;
       return new Response(JSON.stringify({ data, total: count, limit, offset }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // GET /api/sprint-performance — an exact, account-scoped projection for
+    // Goodo OS. Every requested ad must belong to the requested account and
+    // carry an account-local name_mappings row before any page is returned.
+    // This keeps names from becoming an authority boundary and makes an
+    // incomplete mapping explicit instead of silently returning a partial set.
+    if (resource === "sprint-performance" && req.method === "GET") {
+      const parsed = parseSprintQuery(url);
+      if ("error" in parsed) {
+        return new Response(JSON.stringify({ error: parsed.error }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const allowed = await verifyAccountOwnership(supabase, userId, parsed.accountId);
+      if (!allowed) {
+        return new Response(JSON.stringify({ error: "Access denied" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: accounts, error: accountError } = await supabase
+        .from("ad_accounts")
+        .select("id, attribution_model, click_window, view_window, last_synced_at")
+        .eq("id", parsed.accountId)
+        .limit(1);
+      if (accountError) throw accountError;
+      const settings = (accounts?.[0] ?? null) as SprintAccountSettings | null;
+      if (!settings) {
+        return new Response(JSON.stringify({ error: "Account not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const creativePages: SprintCreativeRow[] = [];
+      for (let page = 0; ; page += 1) {
+        let creativeQuery = supabase.from("creatives").select("ad_id, account_id, ad_name, unique_code, ad_status, updated_at, created_at").eq("account_id", parsed.accountId).order("ad_id", { ascending: true }).range(page * 1000, page * 1000 + 999);
+        creativeQuery = creativeQuery.in("ad_id", parsed.adIds);
+        const { data: creatives, error: creativeError } = await creativeQuery;
+        if (creativeError) throw creativeError;
+        const rows = (creatives ?? []) as SprintCreativeRow[];
+        creativePages.push(...rows);
+        if (rows.length < 1000) break;
+      }
+
+      const creativeRows = creativePages;
+      if (creativeRows.some((row) => row.account_id !== parsed.accountId)) {
+        return new Response(JSON.stringify({ error: "Creative account scope mismatch" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const creativeById = new Map(creativeRows.map((row) => [row.ad_id, row]));
+      if (creativeById.size !== parsed.adIds.length) {
+        return new Response(JSON.stringify({ error: "One or more requested ads were not found in this account" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const uniqueCodes = [...new Set(creativeRows.map((row) => row.unique_code).filter((code): code is string => Boolean(code)))];
+      if (uniqueCodes.length === 0 || creativeRows.some((row) => !row.unique_code)) {
+        return new Response(JSON.stringify({ error: "Every requested ad must have a verified mapping" }), {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: mappings, error: mappingError } = await supabase
+        .from("name_mappings")
+        .select("id, account_id, unique_code, updated_at")
+        .eq("account_id", parsed.accountId)
+        .in("unique_code", uniqueCodes);
+      if (mappingError) throw mappingError;
+      const mappingByCode = new Map(((mappings ?? []) as SprintMappingRow[]).map((row) => [row.unique_code, row]));
+      if ([...(mappings ?? [])].some((row: SprintMappingRow) => row.account_id !== parsed.accountId)) {
+        return new Response(JSON.stringify({ error: "Mapping account scope mismatch" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const missingMapping = creativeRows.some((row) => !row.unique_code || !mappingByCode.has(row.unique_code));
+      if (missingMapping || mappingByCode.size !== uniqueCodes.length) {
+        return new Response(JSON.stringify({ error: "Every requested ad must have a verified mapping" }), {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const requestedIds = creativeRows.map((row) => row.ad_id);
+      const dailyPages: SprintDailyRow[] = [];
+      for (let page = 0; ; page += 1) {
+        const dailyQuery = supabase.from("creative_daily_metrics").select("ad_id, date, spend, impressions, clicks, purchases, purchase_value, created_at").eq("account_id", parsed.accountId).in("ad_id", requestedIds).gte("date", parsed.dateFrom).lte("date", parsed.dateTo).order("date", { ascending: true }).order("ad_id", { ascending: true }).range(page * 1000, page * 1000 + 999);
+        const { data: daily, error: dailyError } = await dailyQuery;
+        if (dailyError) throw dailyError;
+        const rows = (daily ?? []) as SprintDailyRow[];
+        dailyPages.push(...rows);
+        if (rows.length < 1000) break;
+      }
+      const dailyRows = dailyPages;
+      const dailyByAd = new Map<string, SprintDailyRow[]>();
+      for (const row of dailyRows) dailyByAd.set(row.ad_id, [...(dailyByAd.get(row.ad_id) ?? []), row]);
+
+      const shaped = parsed.adIds
+        .map((adId) => creativeById.get(adId))
+        .filter((row): row is SprintCreativeRow => Boolean(row))
+        .map((row) => shapeSprintRow(row, mappingByCode.get(row.unique_code!)!, dailyByAd.get(row.ad_id) ?? [], settings, parsed.dateFrom, parsed.dateTo));
+      const page = pageSprintRows(shaped, parsed.accountId, parsed.adIds.length, parsed.limit, parsed.offset);
+      return new Response(JSON.stringify({ ...page, coverage: { account_id: parsed.accountId, requested_ads: parsed.adIds.length, mapped_ads: shaped.length, metric_rows: dailyRows.length, complete_ads: shaped.filter((row) => row.attribution.complete).length, incomplete_ads: shaped.filter((row) => !row.attribution.complete).length, metrics_missing_are_null: true } }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -664,7 +801,7 @@ export async function handleApi(
       });
     }
 
-    return new Response(JSON.stringify({ error: "Not found", available_endpoints: ["/accounts", "/creatives", "/creatives/:id", "/metrics", "/summary", "/hooks", "/angles", "/coverage", "/convention", "/library", "/account-taxonomy", "/matrix", "/sync"] }), {
+    return new Response(JSON.stringify({ error: "Not found", available_endpoints: ["/accounts", "/creatives", "/creatives/:id", "/sprint-performance", "/metrics", "/summary", "/hooks", "/angles", "/coverage", "/convention", "/library", "/account-taxonomy", "/matrix", "/sync"] }), {
       status: 404,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -682,13 +819,18 @@ export async function handleApi(
 
 // Bind the network listener unless a test imports the module (API_NO_SERVE=1),
 // mirroring the ingest-reviews INGEST_NO_SERVE guard. The service-role client is
-// built per-request here so handleApi stays injectable with a mock in tests.
+// built once here so handleApi stays injectable with a mock in tests.
+// Production HTTP composition is exported so acceptance can bind the same
+// authenticated entrypoint over loopback without bypassing API-key checks.
+// deno-lint-ignore no-explicit-any -- injectable Supabase fixture uses the production fluent client surface.
+export function createApiHttpHandler(supabase: Parameters<typeof handleApi>[1]) {
+  return withApiAuth((req, { userId, permissions }) =>
+    handleApi(req, supabase, { userId, permissions }), { supabase });
+}
+
 if (!Deno.env.get("API_NO_SERVE")) {
-  serve(withApiAuth(async (req, { userId, permissions }) => {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
-    return await handleApi(req, supabase, { userId, permissions });
-  }));
+  serve(createApiHttpHandler(createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+  )));
 }
