@@ -58,6 +58,31 @@ hq secrets exec --company goodo-studios --only STAGING_SUPABASE_URL,STAGING_SUPA
 
 It signs in as the test staff user and both test clients and confirms that clients only read their own rows and linked accounts, and that a client token is refused by a staff-only server function. Every new staff table needs its own client-blocking rule and a line in this script.
 
+### The full client wall
+
+The wall has five parts. Parts 1 and 2 run on every change in CI (`supabase test db`). Parts 3 to 5 run against staging.
+
+| # | What it checks | Where | How to run |
+|---|---|---|---|
+| 1 | Every table in `public` has row rules on. Fails and names the table if not. | `supabase/tests/rls_enabled_on_all_tables_test.sql` | `supabase test db` (CI) |
+| 2 | No policy gives signed-in users open access (`using (true)`, `auth.uid() is not null`, `auth.role() = 'authenticated'`) outside an allow-list. Today the allow-list is `creative_type_menu` only. | `supabase/tests/no_open_policies_test.sql` | `supabase test db` (CI) |
+| 2b | A test client reads every table and sees only rows of its own account or user. Writes a filler row for another account in each table first, so an open table shows up as a leak. | `supabase/tests/client_reads_only_own_rows_test.sql` | `supabase test db` (CI) |
+| 3 | A test client token is refused by every server function that handles staff data, every internal function and every secret-gated function. Also checks that client B cannot read the demo account, and that builder and employee are accepted where they should be. | `scripts/staging-client-wall-functions.mjs` | the command below |
+| 4 | Every function directory is classified in `supabase/function-access.json`, and each class has the gate its name says. A new function fails CI until it is classified. | `src/test/functionAccessManifest.test.ts` | `npm test` (CI) |
+| 5 | A client cannot load any staff page, and the employee login reaches them. Unit level (route table) and in a real browser. | `src/test/StaffArea.test.tsx`, `src/test/StaffMenu.test.tsx`, `e2e/staff-area.spec.ts` | `npm test`, and the Playwright command below |
+
+```bash
+hq secrets exec --company goodo-studios --only STAGING_SUPABASE_URL,STAGING_SUPABASE_ANON_KEY,STAGING_TEST_PASSWORD -- node scripts/staging-client-wall-functions.mjs
+```
+
+The browser check starts a local copy of the pages that talks to the staging project. Set these before `npx playwright test e2e/staff-area.spec.ts`: `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` from the staging project, `PLAYWRIGHT_CLIENT_EMAIL`/`_PASSWORD` for `client-a@staging.verdanote.test`, and `PLAYWRIGHT_EMPLOYEE_EMAIL`/`_PASSWORD` for `employee@staging.verdanote.test` (plus the existing `PLAYWRIGHT_TEST_*` for the builder). Take the values from the vault. Never type them into a file.
+
+Adding a function: add it to `supabase/function-access.json` with its class. Adding a staff page: add its path to `STAFF_PAGES` in `src/test/StaffArea.test.tsx` and to `STAFF_PATHS` in `e2e/staff-area.spec.ts`. Adding a staff table: enable row rules and write a policy that names `builder` or `employee` in the same migration. The three database tests then cover it with no edit.
+
+### Roles from the old dashboard
+
+The dashboard role `admin` becomes `builder` and `producer` becomes `employee`. `user-management` accepts `dashboard_role` in place of `role` when creating or updating a user, using `supabase/functions/_shared/dashboard-role-map.ts`. A dashboard `viewer` is refused: Verdanote has no read-only staff role, and adding one is Matthew's decision (see the role mapping research note in the consolidation project).
+
 ## Releasing staging to production
 
 This step is one-way for the database. Get Matthew's sign-off first.

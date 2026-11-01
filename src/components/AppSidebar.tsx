@@ -21,6 +21,7 @@ import {
   Film,
   Globe,
   Grid3x3,
+  LayoutList,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
@@ -80,6 +81,11 @@ export const builderSections: NavSection[] = [
       { title: "Boards", url: "/ad-library/boards", icon: Vault },
       { title: "Hooks", url: "/ad-library/hooks", icon: Zap },
     ],
+  },
+  {
+    id: "staff",
+    label: "Staff",
+    items: [{ title: "Staff menu", url: "/staff", icon: LayoutList }],
   },
 ];
 

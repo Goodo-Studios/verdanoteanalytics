@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { mapDashboardRole } from "../_shared/dashboard-role-map.ts";
 
 
 serve(async (req) => {
@@ -65,7 +66,20 @@ serve(async (req) => {
 
     // POST /user-management — create user
     if (req.method === "POST" && !path) {
-      const { email, password, role, display_name, account_ids } = await req.json();
+      const { email, password, role: requestedRole, dashboard_role, display_name, account_ids } = await req.json();
+
+      // A staff member coming from the old dashboard can be created by their
+      // dashboard role (admin -> builder, producer -> employee). See _shared/dashboard-role-map.ts.
+      let role = requestedRole;
+      if (!role && dashboard_role) {
+        const mapped = mapDashboardRole(dashboard_role);
+        if (!mapped.ok) {
+          return new Response(JSON.stringify({ error: mapped.error }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        role = mapped.role;
+      }
 
       if (!email || !password || !role) {
         return new Response(JSON.stringify({ error: "email, password, and role are required" }), {
@@ -105,7 +119,18 @@ serve(async (req) => {
     // PUT /user-management/:userId — update user role/accounts
     if (req.method === "PUT" && path) {
       const userId = path;
-      const { role, account_ids, display_name } = await req.json();
+      const { role: requestedRole, dashboard_role, account_ids, display_name } = await req.json();
+
+      let role = requestedRole;
+      if (!role && dashboard_role) {
+        const mapped = mapDashboardRole(dashboard_role);
+        if (!mapped.ok) {
+          return new Response(JSON.stringify({ error: mapped.error }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        role = mapped.role;
+      }
 
       if (display_name !== undefined) {
         await supabase.from("profiles").update({ display_name }).eq("user_id", userId);
