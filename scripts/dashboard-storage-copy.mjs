@@ -94,7 +94,10 @@ async function copyOne(bucket, f) {
     method: 'POST', duplex: 'half', body: d.body,
     headers: { ...dstHeaders, 'content-type': f.type || 'application/octet-stream', 'content-length': d.headers.get('content-length') ?? String(f.size), 'x-upsert': 'true' },
   });
-  if (!u.ok) throw new Error(`upload ${bucket}/${f.path} failed (${u.status})`);
+  if (!u.ok) {
+    const why = (await u.text().catch(() => '')).slice(0, 160);
+    throw new Error(`upload ${bucket}/${f.path} failed (${u.status}) ${why} [${f.size} bytes]`);
+  }
   return 'copied';
 }
 
