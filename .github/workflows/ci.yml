@@ -264,7 +264,7 @@ jobs:
         run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
 
       - name: Apply database migrations
-        run: supabase db push --include-all --yes
+        run: supabase db push --linked --include-all --yes
 
       # Migrations schedule cron jobs and hard-code the production function URL.
       # This step removes every cron job and rewrites production URLs to the
