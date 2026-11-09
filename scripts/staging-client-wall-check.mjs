@@ -62,6 +62,15 @@ check("client A sees only linked accounts", (accA.data ?? []).every((a) => a.id 
 const accB = await clientB.c.from("ad_accounts").select("id");
 check("client B sees no accounts", (accB.data ?? []).length === 0, `rows=${accB.data?.length ?? "error"}`);
 
+// Content Pipeline board (pipeline_tasks, fed from ClickUp): a client reads rows of linked
+// accounts only, and never the staff-only ClickUp folder mapping.
+const pipeA = await clientA.c.from("pipeline_tasks").select("account_id");
+check("client A reads pipeline rows of its own account only", !pipeA.error && (pipeA.data ?? []).every((r) => r.account_id === "act_demo_glowdrip"), `error=${pipeA.error?.message ?? "none"} accounts=${[...new Set((pipeA.data ?? []).map((r) => r.account_id))]}`);
+const pipeB = await clientB.c.from("pipeline_tasks").select("account_id");
+check("client B reads no pipeline rows", !pipeB.error && (pipeB.data ?? []).length === 0, `rows=${pipeB.data?.length ?? "error"}`);
+const foldersA = await clientA.c.from("clickup_client_folders").select("folder_id");
+check("client A cannot read the ClickUp folder mapping", (foldersA.data ?? []).length === 0, `rows=${foldersA.data?.length ?? "error"}`);
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

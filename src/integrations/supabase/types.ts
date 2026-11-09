@@ -1046,6 +1046,38 @@ export type Database = {
           },
         ]
       }
+      clickup_client_folders: {
+        Row: {
+          account_id: string
+          created_at: string
+          folder_id: string
+          folder_name: string | null
+          updated_at: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          folder_id: string
+          folder_name?: string | null
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          folder_id?: string
+          folder_name?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "clickup_client_folders_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "ad_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       coda_tasks: {
         Row: {
           account_id: string | null
@@ -2485,6 +2517,50 @@ export type Database = {
             foreignKeyName: "performance_stories_account_id_fkey"
             columns: ["account_id"]
             isOneToOne: true
+            referencedRelation: "ad_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pipeline_tasks: {
+        Row: {
+          account_id: string
+          clickup_task_id: string
+          content_type: string | null
+          due_date: string | null
+          id: string
+          stage: string
+          synced_at: string
+          task_name: string | null
+          updated_at: string
+        }
+        Insert: {
+          account_id: string
+          clickup_task_id: string
+          content_type?: string | null
+          due_date?: string | null
+          id?: string
+          stage: string
+          synced_at?: string
+          task_name?: string | null
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string
+          clickup_task_id?: string
+          content_type?: string | null
+          due_date?: string | null
+          id?: string
+          stage?: string
+          synced_at?: string
+          task_name?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_tasks_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
             referencedRelation: "ad_accounts"
             referencedColumns: ["id"]
           },

@@ -1,14 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
-export interface CodaTask {
+/**
+ * One card on the Content Pipeline board. Rows come from `pipeline_tasks`, which
+ * the sync-clickup-tasks edge function fills from ClickUp. The table holds only
+ * client-safe fields: the column (`stage`) is already mapped from the ClickUp
+ * status, and no internal status, assignee, link or task id is selected here.
+ */
+export interface PipelineTask {
   id: string;
   task_name: string | null;
   stage: string | null;
   due_date: string | null;
   content_type: string | null;
-  coda_url: string | null;
-  brief: string | null;
   updated_at: string | null;
 }
 
@@ -20,15 +24,15 @@ const STAGE_ORDER: Record<string, number> = {
   "Ready to Launch": 5,
 };
 
-export function useCodaTasks(accountId?: string) {
-  return useQuery<CodaTask[]>({
-    queryKey: ["coda-tasks", accountId],
+export function usePipelineTasks(accountId?: string) {
+  return useQuery<PipelineTask[]>({
+    queryKey: ["pipeline-tasks", accountId],
     enabled: !!accountId && accountId !== "all",
     refetchInterval: 15 * 60 * 1000, // 15 minutes
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("coda_tasks")
-        .select("id, task_name, stage, due_date, content_type, coda_url, brief, updated_at")
+        .from("pipeline_tasks")
+        .select("id, task_name, stage, due_date, content_type, updated_at")
         .eq("account_id", accountId!);
 
       if (error) throw error;
