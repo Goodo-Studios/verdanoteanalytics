@@ -272,7 +272,7 @@ jobs:
       - name: Lock down staging (cron off, no production URLs)
         run: |
           sed "s/__STAGING_REF__/$SUPABASE_PROJECT_ID/g" scripts/staging-lockdown.sql > /tmp/staging-lockdown.sql
-          supabase db query --linked -f /tmp/staging-lockdown.sql
+          supabase db query --linked --yes -f /tmp/staging-lockdown.sql
 
       - name: Deploy all edge functions
         run: bash scripts/deploy-functions.sh
