@@ -1,4 +1,4 @@
-import { useCodaTasks, CodaTask } from "@/hooks/useCodaTasks";
+import { usePipelineTasks, PipelineTask } from "@/hooks/usePipelineTasks";
 import { differenceInDays, parseISO, format } from "date-fns";
 import { PackageOpen } from "lucide-react";
 import { ClientEmptyState } from "@/components/client/ClientEmptyState";
@@ -12,9 +12,9 @@ const STAGE_CONFIG: Record<string, { color: string; bg: string; label: string }>
 };
 
 /**
- * The board mirrors the live Coda workflow as five columns (set with the
+ * The board shows the delivery workflow as five client-facing columns (set with the
  * operator 2026-06-02). The display stage on each task is computed upstream by
- * the sync-coda-tasks edge function's STAGE_MAP, so this component just buckets
+ * the sync-clickup-tasks edge function's STAGE_MAP, so this component just buckets
  * by the already-mapped value. A task whose stage is null defaults to the first
  * column ("Preparing Content"); a task whose stage is any unmapped/drifted raw
  * string falls into no column and is omitted from the board. "Ready to Launch"
@@ -49,10 +49,10 @@ function dueDateLabel(dueDateStr: string | null): { text: string; urgent: boolea
  * A single pipeline card in its stage column, framed in client language: what it
  * is (content type) and roughly when it lands. Intentionally READ-ONLY — no
  * click handler, no link-out, no internal task IDs or strategist-only fields
- * (US-007 AC2/AC3). The Coda URL on the task is deliberately NOT surfaced. The
+ * (US-007 AC2/AC3). No link to the task in ClickUp is stored or surfaced. The
  * card is a plain <div> with no interactive affordances.
  */
-function TaskCard({ task, stage }: { task: CodaTask; stage: string }) {
+function TaskCard({ task, stage }: { task: PipelineTask; stage: string }) {
   const dueInfo = dueDateLabel(task.due_date);
 
   return (
@@ -68,7 +68,7 @@ function TaskCard({ task, stage }: { task: CodaTask; stage: string }) {
       )}
 
       <p className="font-body text-[13px] text-foreground mt-0.5">
-        {task.task_name || task.brief || "Untitled task"}
+        {task.task_name || "Untitled task"}
       </p>
 
       {dueInfo && (
@@ -81,8 +81,8 @@ function TaskCard({ task, stage }: { task: CodaTask; stage: string }) {
 }
 
 /** Group tasks into the active board columns, preserving incoming order. */
-function bucketByColumn(tasks: CodaTask[]): Record<string, CodaTask[]> {
-  const buckets: Record<string, CodaTask[]> = {};
+function bucketByColumn(tasks: PipelineTask[]): Record<string, PipelineTask[]> {
+  const buckets: Record<string, PipelineTask[]> = {};
   for (const col of COLUMN_ORDER) buckets[col] = [];
   for (const task of tasks) {
     const stage = task.stage || "Preparing Content";
@@ -103,14 +103,14 @@ function bucketByColumn(tasks: CodaTask[]): Record<string, CodaTask[]> {
  * (AC4/AC5), consistent with the rest of the client home.
  *
  * Takes its data as plain props so it can be rendered (and tested) without a
- * QueryClient. The exported `ContentPipeline` wraps it with `useCodaTasks`.
+ * QueryClient. The exported `ContentPipeline` wraps it with `usePipelineTasks`.
  */
 export function ContentPipelineView({
   tasks,
   isLoading,
   isError,
 }: {
-  tasks?: CodaTask[];
+  tasks?: PipelineTask[];
   isLoading?: boolean;
   isError?: boolean;
 }) {
@@ -188,9 +188,9 @@ export function ContentPipelineView({
 
 /**
  * Read-only client view of in-flight + upcoming creative (US-007). Self-fetches
- * via `useCodaTasks` and delegates rendering to `ContentPipelineView`.
+ * via `usePipelineTasks` and delegates rendering to `ContentPipelineView`.
  */
 export function ContentPipeline({ accountId }: { accountId: string }) {
-  const { data: tasks, isLoading, isError } = useCodaTasks(accountId);
+  const { data: tasks, isLoading, isError } = usePipelineTasks(accountId);
   return <ContentPipelineView tasks={tasks} isLoading={isLoading} isError={isError} />;
 }

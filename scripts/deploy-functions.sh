@@ -59,6 +59,7 @@ FUNCTIONS=(
   settings
   spend-diagnostic
   sync
+  sync-clickup-tasks
   sync-coda-tasks
   sync-coda-names
   system-health-check

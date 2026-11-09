@@ -109,6 +109,10 @@ verify_jwt = false
 [functions.sync-coda-tasks]
 verify_jwt = false
 
+# ClickUp -> pipeline_tasks. Service-role only; gated inside the function.
+[functions.sync-clickup-tasks]
+verify_jwt = false
+
 [functions.sync-coda-names]
 verify_jwt = false
 

@@ -89,6 +89,7 @@ OTHER_FUNCTIONS=(
   send-digest
   spend-diagnostic
   sync
+  sync-clickup-tasks
   sync-coda-tasks
   system-health-check
   transcribe-ad

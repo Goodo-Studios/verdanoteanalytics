@@ -8,25 +8,23 @@
  * task IDs or strategist-only fields leak (AC3) and that missing data — empty
  * or errored — degrades to a calm onboarding state (AC4/AC5).
  *
- * Columns mirror the live Coda workflow (set with the operator 2026-06-02):
+ * Columns are the five client-facing stages (set with the operator 2026-06-02):
  * Preparing Content / Production / Editing / Client Review / Ready to Launch.
- * The display stage on each task is computed upstream by sync-coda-tasks'
+ * The display stage on each task is computed upstream by sync-clickup-tasks'
  * STAGE_MAP; this view just buckets by the already-mapped value.
  */
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
 import { ContentPipelineView } from "@/components/client/ContentPipeline";
-import type { CodaTask } from "@/hooks/useCodaTasks";
+import type { PipelineTask } from "@/hooks/usePipelineTasks";
 
-const mockTasks: CodaTask[] = [
+const mockTasks: PipelineTask[] = [
   {
     id: "task-internal-id-001",
     task_name: "Spring hero video",
     stage: "Production",
     due_date: "2026-06-15",
     content_type: "Video",
-    coda_url: "https://coda.io/d/internal-secret-doc",
-    brief: "Spring hero brief",
     updated_at: "2026-05-20",
   },
   {
@@ -35,8 +33,6 @@ const mockTasks: CodaTask[] = [
     stage: "Preparing Content",
     due_date: "2026-07-01",
     content_type: "Static",
-    coda_url: "https://coda.io/d/another-internal-doc",
-    brief: null,
     updated_at: "2026-05-22",
   },
 ];
@@ -75,7 +71,7 @@ describe("ContentPipeline (US-007)", () => {
     expect(text).not.toMatch(/reply/i);
   });
 
-  it("never leaks internal task IDs or the internal Coda URL (AC3)", () => {
+  it("never leaks internal task IDs or a link to the task system (AC3)", () => {
     const { container } = render(
       <ContentPipelineView tasks={mockTasks} isLoading={false} isError={false} />,
     );
@@ -84,6 +80,7 @@ describe("ContentPipeline (US-007)", () => {
     expect(html).not.toContain("task-internal-id-001");
     expect(html).not.toContain("task-internal-id-002");
     expect(html).not.toContain("coda.io");
+    expect(html).not.toContain("clickup.com");
   });
 
   it("lays out the five workflow stages as kanban columns", () => {
@@ -102,7 +99,7 @@ describe("ContentPipeline (US-007)", () => {
   });
 
   it("shows recently-launched work in the Ready to Launch column", () => {
-    const tasks: CodaTask[] = [
+    const tasks: PipelineTask[] = [
       { ...mockTasks[0], id: "launch-1", task_name: "Shipped winter promo", stage: "Ready to Launch" },
     ];
     render(<ContentPipelineView tasks={tasks} isLoading={false} isError={false} />);
@@ -113,7 +110,7 @@ describe("ContentPipeline (US-007)", () => {
   });
 
   it("drops unmapped / drifted-stage tasks from the board", () => {
-    const tasks: CodaTask[] = [
+    const tasks: PipelineTask[] = [
       { ...mockTasks[0], id: "drift-1", task_name: "Stale Complete bucket", stage: "Complete" },
       { ...mockTasks[1], id: "drift-2", task_name: "Some future stage", stage: "Brand New Stage" },
       { ...mockTasks[0], id: "active-1", task_name: "Active spring video", stage: "Production" },
@@ -129,7 +126,7 @@ describe("ContentPipeline (US-007)", () => {
   });
 
   it("degrades to onboarding when only unmapped work remains (AC4)", () => {
-    const tasks: CodaTask[] = [
+    const tasks: PipelineTask[] = [
       { ...mockTasks[0], id: "unmapped-only", stage: "Complete" },
     ];
     render(<ContentPipelineView tasks={tasks} isLoading={false} isError={false} />);

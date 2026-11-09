@@ -1,9 +1,9 @@
 /**
- * Content Pipeline E2E (US-005) — the live Coda→Verdanote pipeline surface.
+ * Content Pipeline E2E (US-005) — the live ClickUp→Verdanote pipeline surface.
  *
- * This is the truth signal for the coda-pipeline-live-sync project: it proves
+ * This is the truth signal for the pipeline sync: it proves
  * that the once-DARK /pipeline page now renders LIVE task data sourced from the
- * 4-hourly `sync-coda-tasks` edge function into the `coda_tasks` table, for both
+ * 4-hourly `sync-clickup-tasks` edge function into the `pipeline_tasks` table, for both
  * the client (brand owner) surface and the staff/agency surface.
  *
  * What it asserts end-to-end against the running app + prod data:
@@ -23,7 +23,7 @@
  * Authenticated checks require real test accounts in env (tests skip otherwise,
  * never silently pass):
  *   PLAYWRIGHT_CLIENT_EMAIL / PLAYWRIGHT_CLIENT_PASSWORD   (a client-role user
- *       whose linked account has resolvable live Coda tasks — see US-002)
+ *       whose linked account has asset tasks in its ClickUp client folder)
  *   PLAYWRIGHT_TEST_EMAIL   / PLAYWRIGHT_TEST_PASSWORD     (a builder/staff user)
  *   PLAYWRIGHT_BASE_URL                                    (local dev or staging)
  */
@@ -40,9 +40,9 @@ const hasStaffCreds = !!STAFF_EMAIL && !!STAFF_PASSWORD;
 /**
  * The canonical display stages produced by the sync's STAGE_MAP. Reconciled
  * 2026-06-02 with the column-model change (PR #17): the board now mirrors the
- * real Coda workflow as five client-facing columns. These MUST stay in lockstep
+ * delivery workflow as five client-facing columns. These MUST stay in lockstep
  * with the STAGE_MAP values in
- * supabase/functions/sync-coda-tasks/index.ts — a drift here is what silently
+ * supabase/functions/_shared/clickup-pipeline.ts — a drift here is what silently
  * red-lined this spec after PR #17 (the old collapsed buckets — Planning /
  * Review / Your Review / Complete — no longer exist in synced data).
  */

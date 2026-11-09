@@ -183,6 +183,9 @@
     "sync": {
       "class": "staff"
     },
+    "sync-clickup-tasks": {
+      "class": "service"
+    },
     "sync-coda-names": {
       "class": "service"
     },
