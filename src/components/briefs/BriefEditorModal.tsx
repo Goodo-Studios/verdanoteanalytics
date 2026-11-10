@@ -8,11 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useUpdateBrief, type Brief } from "@/hooks/useBriefsApi";
-import { useAccounts } from "@/hooks/useAccountsApi";
-import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
-import { Copy, Save, Send, Plus, X } from "lucide-react";
-import { toast } from "sonner";
+import { Copy, Save, Plus, X } from "lucide-react";
 import { CreativePickerModal, type VisualItem } from "./CreativePickerModal";
 
 const SECTION_DEFS = [
@@ -29,13 +25,10 @@ interface Props {
 
 export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Props) {
   const updateBrief = useUpdateBrief();
-  const { user } = useAuth();
-  const { data: accounts = [] } = useAccounts();
   const [name, setName] = useState("");
   const [content, setContent] = useState<Record<string, any>>({});
   const [refItems, setRefItems] = useState<VisualItem[]>([]);
   const [dirty, setDirty] = useState(false);
-  const [pushing, setPushing] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
@@ -97,49 +90,6 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
     setDirty(false);
   };
 
-  const buildBriefMarkdown = () => {
-    const lines: string[] = [`# ${name || "Brief"}`, ""];
-    for (const section of SECTION_DEFS) {
-      const value = (content[section.key] || "").toString().trim();
-      if (value) {
-        lines.push(`## ${section.label}`);
-        lines.push(value);
-        lines.push("");
-      }
-    }
-    if (refItems.length > 0) {
-      lines.push("## Visual Inspiration");
-      for (const c of refItems) {
-        lines.push(`- ${c.unique_code || c.ad_name || c.ad_id}`);
-      }
-      lines.push("");
-    }
-    return lines.join("\n");
-  };
-
-  const pushToCoda = async () => {
-    if (dirty) await save();
-    const account = accounts.find((a: any) => a.id === brief.account_id);
-    setPushing(true);
-    try {
-      const { error } = await supabase.functions.invoke("create-coda-brief", {
-        body: {
-          account_id: brief.account_id,
-          account_name: account?.name || brief.account_id,
-          task_name: name,
-          brief_note: buildBriefMarkdown(),
-          user_id: user?.id,
-        },
-      });
-      if (error) throw error;
-      toast.success("Pushed to Coda");
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to push to Coda");
-    } finally {
-      setPushing(false);
-    }
-  };
-
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto p-0">
@@ -161,9 +111,6 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
             </Button>
             <Button size="sm" variant="outline" className="gap-1 font-body text-[11px]" onClick={save} disabled={!dirty || updateBrief.isPending}>
               <Save className="h-3 w-3" /> Save
-            </Button>
-            <Button size="sm" className="gap-1 bg-verdant hover:bg-verdant/90 text-white font-body text-[11px]" onClick={pushToCoda} disabled={pushing}>
-              <Send className="h-3 w-3" /> {pushing ? "Pushing…" : "Push to Coda"}
             </Button>
           </div>
         </div>

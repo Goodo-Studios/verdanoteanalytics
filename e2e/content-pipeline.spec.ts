@@ -14,7 +14,7 @@
  *      sync's STAGE_MAP (Preparing Content | Production | Editing | Client
  *      Review | Ready to Launch — the five-column model reconciled 2026-06-02).
  *   2. CLIENT read-only invariant: the surface exposes no comment / approve /
- *      request-changes / upload controls and never leaks the internal coda.io URL.
+ *      request-changes / upload controls and never leaks an internal ClickUp URL.
  *   3. STAFF/AGENCY: signs in as a builder, opens /pipeline, and — selecting
  *      accounts via the account switcher — confirms at least one account renders a
  *      populated pipeline with live tasks. This proves staff see the same live
@@ -97,12 +97,12 @@ async function expectPopulatedPipeline(page: Page): Promise<Set<string>> {
     ).toBeTruthy();
     stages.add(stage as string);
   }
-  // At least one task in an expected display column (matching its Coda stage).
+  // At least one task in an expected display column (mapped from its ClickUp status).
   expect(stages.size, "expected at least one populated display stage").toBeGreaterThan(0);
   return stages;
 }
 
-test.describe("Content Pipeline — live Coda sync (US-005)", () => {
+test.describe("Content Pipeline — live ClickUp sync (US-005)", () => {
   test.describe("client surface", () => {
     test.skip(!hasClientCreds, "Set PLAYWRIGHT_CLIENT_EMAIL and PLAYWRIGHT_CLIENT_PASSWORD to run");
     // Reuse the client session authenticated once by the `setup` project.
@@ -133,7 +133,8 @@ test.describe("Content Pipeline — live Coda sync (US-005)", () => {
       await expect(
         panel.getByRole("button", { name: /comment|approve|request changes|upload/i })
       ).toHaveCount(0);
-      // The internal Coda URL must never be surfaced to the client.
+      // No internal task-system URL may be surfaced to the client.
+      await expect(panel.locator('a[href*="clickup.com"]')).toHaveCount(0);
       await expect(panel.locator('a[href*="coda.io"]')).toHaveCount(0);
     });
   });

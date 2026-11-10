@@ -7,7 +7,6 @@
 //     (Creative Rotation cohorts), cluster_id (Entities) — only for columns that
 //     actually exist in the live schema (probed first).
 //   * creative_clusters  — entity cards for the Entities tab (grouped by angle).
-//   * coda_tasks         — Content Pipeline board (across the 5 pipeline stages).
 //   * briefs             — Briefs list.
 //   * reports            — Reports list/detail (aggregates computed like the app's
 //     report generator, since that endpoint needs a real user JWT we don't have).
@@ -91,7 +90,6 @@ async function insertRows(table, rows) {
 async function teardown() {
   console.log(`\n=== Extras teardown — ${ACCOUNT_ID} ===`);
   const dels = [
-    ["coda_tasks", () => db.from("coda_tasks").delete().eq("account_id", ACCOUNT_ID)],
     ["briefs", () => db.from("briefs").delete().eq("account_id", ACCOUNT_ID)],
     ["reports", () => db.from("reports").delete().eq("account_id", ACCOUNT_ID)],
     ["creative_clusters", () => db.from("creative_clusters").delete().eq("account_id", ACCOUNT_ID)],
@@ -162,29 +160,6 @@ async function seed() {
     return { ad_id: c.ad_id, payload };
   }).filter((b) => Object.keys(b.payload).length);
 
-  // ── Content Pipeline (coda_tasks) across the 5 mapped stages ─────────────────
-  const STAGES = ["Preparing Content", "Production", "Editing", "Client Review", "Ready to Launch"];
-  const stagePlan = [3, 3, 3, 2, 3];
-  const codaTasks = [];
-  let ci = 0;
-  STAGES.forEach((stage, si) => {
-    for (let k = 0; k < stagePlan[si]; k++) {
-      const c = creatives[(ci * 3 + si) % creatives.length]; ci++;
-      const due = new Date(today); due.setDate(today.getDate() + Math.floor(rand() * 18) - 4);
-      const launched = stage === "Ready to Launch";
-      codaTasks.push({
-        id: randomUUID(), account_id: ACCOUNT_ID, account_name: ACCOUNT_NAME,
-        task_name: `${c.ad_name} (concept)`, stage, status: launched ? "Live" : "In progress",
-        content_type: c.ad_format || "UGC", ad_type: c.ad_type || "video",
-        brief: `${c.theme} angle — ${c.hook || "hook TBD"}. ${c.ad_format} for ${c.style}.`,
-        creative_name: c.ad_name, due_date: isoDate(due),
-        roas: launched ? String(c.roas ?? "") : null, spend: launched ? String(c.spend ?? "") : null,
-        coda_url: `https://coda.io/d/glowdrip-demo#Row-${1000 + ci}`, coda_row_id: `demo-${1000 + ci}`,
-        synced_at: today.toISOString(), coda_created_at: isoDate(new Date(today.getTime() - rand() * 20 * 86400000)),
-      });
-    }
-  });
-
   // ── Briefs ───────────────────────────────────────────────────────────────────
   const topAds = [...creatives].sort((a, b) => Number(b.roas) - Number(a.roas));
   const briefDefs = [
@@ -242,14 +217,12 @@ async function seed() {
   // ── Plan summary ─────────────────────────────────────────────────────────────
   console.log(`  clusters (Entities):     ${clusters.length}  (${clusters.map((c) => c.label).slice(0, 3).join(", ")}${clusters.length > 3 ? ", …" : ""})`);
   console.log(`  creatives backfilled:    ${backfills.length}  (${Object.keys(backfills[0]?.payload || {}).join(", ") || "none"})`);
-  console.log(`  coda_tasks (Pipeline):   ${codaTasks.length}  across ${STAGES.length} stages`);
   console.log(`  briefs:                  ${briefs.length}`);
   console.log(`  reports:                 ${reports.length}`);
 
   if (!EXECUTE) { console.log("\n  DRY RUN — no writes. Re-run with --execute to apply."); return; }
 
   // Clean any prior extras first (idempotent re-seed).
-  await db.from("coda_tasks").delete().eq("account_id", ACCOUNT_ID);
   await db.from("briefs").delete().eq("account_id", ACCOUNT_ID);
   await db.from("reports").delete().eq("account_id", ACCOUNT_ID);
   if (await tableExists("creative_clusters")) await db.from("creative_clusters").delete().eq("account_id", ACCOUNT_ID);
@@ -269,7 +242,6 @@ async function seed() {
   }
   console.log(`  ✓ creatives backfilled: ${bf}/${backfills.length}`);
 
-  const t1 = await insertRows("coda_tasks", codaTasks); console.log(`  ✓ coda_tasks: ${t1.inserted}${t1.dropped.length ? " (dropped " + t1.dropped.join(",") + ")" : ""}`);
   const t2 = await insertRows("briefs", briefs); console.log(`  ✓ briefs: ${t2.inserted}${t2.dropped.length ? " (dropped " + t2.dropped.join(",") + ")" : ""}`);
   const t3 = await insertRows("reports", reports); console.log(`  ✓ reports: ${t3.inserted}${t3.dropped.length ? " (dropped " + t3.dropped.join(",") + ")" : ""}`);
 

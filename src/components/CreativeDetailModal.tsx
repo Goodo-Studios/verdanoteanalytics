@@ -4,7 +4,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, ExternalLink, FileEdit, Loader2, BookmarkPlus, Bookmark, FileText, Layers, Sparkles } from "lucide-react";
+import { Image as ImageIcon, ExternalLink, Loader2, BookmarkPlus, Bookmark, FileText, Layers, Sparkles } from "lucide-react";
 import { useState, forwardRef, useEffect, useCallback } from "react";
 import { useCachedMedia } from "@/hooks/useCachedMedia";
 
@@ -14,11 +14,9 @@ import { CreativeTagEditor } from "@/components/creative-detail/CreativeTagEdito
 
 import { CreativeFrames } from "@/components/creative-detail/CreativeFrames";
 import { GradeBadge } from "@/components/creatives/GradeBadge";
-import { Textarea } from "@/components/ui/textarea";
 
 import type { GradeInfo } from "@/lib/creativeGrading";
 import { useAuth } from "@/contexts/AuthContext";
-import { useAccountContext } from "@/contexts/AccountContext";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 
@@ -281,14 +279,9 @@ export function MediaPreview({ creative, caching = false }: { creative: Creative
   );
 }
 export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModalProps>(function CreativeDetailModal({ creative, open, onClose, gradeMap }, ref) {
-  const { isBuilder, isEmployee, user } = useAuth();
-  const { selectedAccount } = useAccountContext();
+  const { isBuilder, isEmployee } = useAuth();
   const queryClient = useQueryClient();
   const canEdit = isBuilder || isEmployee;
-  const [codaBriefOpen, setCodaBriefOpen] = useState(false);
-  const [briefTaskName, setBriefTaskName] = useState("");
-  const [briefNote, setBriefNote] = useState("");
-  const [pushing, setPushing] = useState(false);
   const [savingToVault, setSavingToVault] = useState(false);
   const [savedToVault, setSavedToVault] = useState(false);
   // true when the saved state came from a dedupe hit / pre-existing vault item,
@@ -399,39 +392,6 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
   const displayCreative: Creative = cachedMedia
     ? { ...creative, ...(Object.fromEntries(Object.entries(cachedMedia).filter(([, v]) => v != null)) as Partial<Creative>) }
     : creative;
-
-  const creativeLink = creative ? `https://www.facebook.com/ads/library/?id=${creative.ad_id}` : "";
-
-  const handleOpenCodaBrief = () => {
-    setBriefTaskName("");
-    setBriefNote(`Reference creative: ${creative?.ad_name || creative?.ad_id}\n${creativeLink}\n\n`);
-    setCodaBriefOpen(true);
-  };
-
-  const handlePushToCoda = async () => {
-    setPushing(true);
-    try {
-      const { error } = await supabase.functions.invoke("create-coda-brief", {
-        body: {
-          creative_id: creative.ad_id,
-          account_id: creative.account_id,
-          account_name: selectedAccount?.name || "",
-          task_name: briefTaskName,
-          brief_note: briefNote,
-          user_id: user?.id,
-        },
-      });
-      if (error) throw error;
-      toast.success("Brief created in Coda");
-      setCodaBriefOpen(false);
-      setBriefNote("");
-      setBriefTaskName("");
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to create brief in Coda");
-    } finally {
-      setPushing(false);
-    }
-  };
 
   // Save this analytics creative into the global Creative Vault via the
   // vault-save-creative edge function (US-002). Uses cached media when available
@@ -569,18 +529,9 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
               <p className="font-body text-[13px]"><span className="font-semibold text-foreground">Ad Set:</span> <span className="font-normal text-muted-foreground break-all">{creative.adset_name || "—"}</span></p>
             </div>
 
-            {/* Create Brief in Coda */}
+            {/* Save to Vault */}
             {(isBuilder || isEmployee) && (
               <div className="flex items-center gap-2 flex-wrap">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5 font-body text-[12px]"
-                  onClick={handleOpenCodaBrief}
-                >
-                  <FileEdit className="h-3.5 w-3.5" />
-                  Create brief in Coda
-                </Button>
                 <Button
                   variant={savedToVault ? "default" : "outline"}
                   size="sm"
@@ -642,44 +593,6 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
         </div>
       </DialogContent>
 
-      {/* Coda Brief Modal */}
-      <Dialog open={codaBriefOpen} onOpenChange={setCodaBriefOpen}>
-        <DialogContent className="max-w-md bg-card rounded-lg shadow-modal">
-          <DialogHeader>
-            <DialogTitle className="font-label text-[14px] font-semibold text-foreground">Create Brief</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 mt-2">
-            <div className="space-y-1.5">
-              <label className="font-body text-[12px] font-medium text-foreground">Task name</label>
-              <input
-                type="text"
-                placeholder="e.g., Sleep anxiety hook variation"
-                value={briefTaskName}
-                onChange={(e) => setBriefTaskName(e.target.value)}
-                className="w-full h-9 px-3 rounded-md border border-input bg-background font-body text-[13px] focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="font-body text-[12px] font-medium text-foreground">Brief note</label>
-              <Textarea
-                placeholder="e.g., Hook variation leaning into sleep anxiety"
-                value={briefNote}
-                onChange={(e) => setBriefNote(e.target.value)}
-                className="min-h-[100px] font-body text-[13px]"
-              />
-            </div>
-          </div>
-          <div className="flex justify-end gap-2 mt-4">
-            <Button variant="outline" size="sm" onClick={() => setCodaBriefOpen(false)} disabled={pushing}>
-              Cancel
-            </Button>
-            <Button size="sm" onClick={handlePushToCoda} disabled={pushing} className="gap-1.5">
-              {pushing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              Push to Coda
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </Dialog>
   );
 });

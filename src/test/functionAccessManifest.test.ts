@@ -45,8 +45,8 @@ describe("function access manifest", () => {
     expect(Object.keys(manifest).sort()).toEqual(deployed);
   });
 
-  it("covers all 76 functions today", () => {
-    expect(deployed).toHaveLength(76);
+  it("covers all 73 functions today", () => {
+    expect(deployed).toHaveLength(73);
   });
 
   it("uses only known classes", () => {
@@ -97,7 +97,7 @@ describe("function access manifest", () => {
     const mustBeStaff = [
       "vault-ads", "vault-save", "vault-save-creative", "vault-search", "vault-status", "vault-frame-analyze",
       "vault-slack-connect", "vault-slack-import", "vault-share-item", "quick-save", "scrape-ad", "transcribe-ad",
-      "create-coda-brief", "account-taxonomy", "creative-library", "creative-media-archive",
+      "account-taxonomy", "creative-library", "creative-media-archive",
     ];
     for (const name of mustBeStaff) expect(manifest[name]?.class, name).toBe("staff");
   });

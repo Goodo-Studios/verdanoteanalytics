@@ -76,7 +76,6 @@ OTHER_FUNCTIONS=(
   clear-media-cache
   client-insights
   competitor-ads
-  create-coda-brief
   enrich-thumbnails
   portfolio
   quick-save
@@ -92,7 +91,6 @@ OTHER_FUNCTIONS=(
   sync-clickup-tasks
   run-slack-jobs
   fireflies-transcript
-  sync-coda-tasks
   system-health-check
   transcribe-ad
   user-management
