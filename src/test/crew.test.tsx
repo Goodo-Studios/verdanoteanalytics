@@ -64,13 +64,10 @@ describe("crew model", () => {
 });
 
 describe("Crew page", () => {
-  let confirmReturn = true;
   beforeEach(() => {
     for (const f of Object.values(api)) f.mockReset();
     api.loadCrew.mockResolvedValue({ crew: [ROB, PAT, OLD], sheets: new Map([["c1", 3]]) });
     for (const f of [api.createCrewMember, api.updateCrewMember, api.setCrewActive]) f.mockResolvedValue(undefined);
-    confirmReturn = true;
-    vi.spyOn(window, "confirm").mockImplementation(() => confirmReturn);
   });
 
   it("lists active crew with contact links, rates and call sheet counts", async () => {
@@ -108,11 +105,12 @@ describe("Crew page", () => {
   it("archives only after a confirm and restores without one", async () => {
     render(<CrewPage />);
     const pat = await screen.findByTestId("crew-row-c2");
-    confirmReturn = false;
     fireEvent.click(within(pat).getByText("Archive"));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
     expect(api.setCrewActive).not.toHaveBeenCalled();
-    confirmReturn = true;
     fireEvent.click(within(pat).getByText("Archive"));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Archive" }));
     await waitFor(() => expect(api.setCrewActive).toHaveBeenCalledWith("c2", false));
     fireEvent.click(screen.getByLabelText("Show archived"));
     fireEvent.click(within(screen.getByTestId("crew-row-c3")).getByText("Restore"));

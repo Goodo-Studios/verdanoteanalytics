@@ -9,7 +9,8 @@
 // Not ported: the month grid view and the Google Calendar sync.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { EmptyState, ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField, useConfirm } from "@/components/page-kit";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { DashboardError, loadBrandsAndTeam, type BrandOption } from "./api";
 import { confirmTalent, createBlock, createShoot, deleteBlock, deleteShoot, loadCalendar, unconfirmTalent, updateBlock, updateShoot, type CalendarData } from "./productionApi";
@@ -37,7 +38,7 @@ import {
 } from "./productionModel";
 import { errorText, formatDay } from "./model";
 
-const CTRL = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
+const LINK_BTN = "h-auto p-0 text-xs";
 
 function messageOf(e: unknown, fallback: string): string {
   if (e instanceof DashboardError) return e.code === "42501" ? errorText(e.code, fallback) : e.message || fallback;
@@ -53,25 +54,15 @@ function ShootEditor({ initial, title, busy, brands, locations, fixedClient, onS
     <form aria-label={title} className="space-y-2 rounded-lg border p-3" onSubmit={(e) => { e.preventDefault(); onSave(form); }}>
       <h3 className="text-sm font-semibold">{title}</h3>
       <div className="grid gap-2 sm:grid-cols-3">
-        <label className="text-xs">Client
-          <select aria-label="Shoot client" disabled={fixedClient} className={`${CTRL} mt-0.5 w-full`} value={form.client_slug} onChange={(e) => set({ client_slug: e.target.value })}>
-            <option value="">Pick a client</option>
-            {brands.filter((b) => b.active || b.slug === form.client_slug).map((b) => <option key={b.slug} value={b.slug}>{b.name}</option>)}
-          </select>
-        </label>
-        <label className="text-xs">Date<input aria-label="Shoot date" type="date" className={`${CTRL} mt-0.5 w-full`} value={form.shoot_date} onChange={(e) => set({ shoot_date: e.target.value })} /></label>
-        <label className="text-xs">Location
-          <select aria-label="Shoot location" className={`${CTRL} mt-0.5 w-full`} value={form.location_id} onChange={(e) => set({ location_id: e.target.value })}>
-            <option value="">Typed below, or none</option>
-            {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-          </select>
-        </label>
-        {!form.location_id && <label className="text-xs">Typed location<input aria-label="Typed location" className={`${CTRL} mt-0.5 w-full`} value={form.location} onChange={(e) => set({ location: e.target.value })} /></label>}
-        <label className="text-xs sm:col-span-2">Notes<input aria-label="Shoot notes" className={`${CTRL} mt-0.5 w-full`} value={form.notes} onChange={(e) => set({ notes: e.target.value })} /></label>
+        <SelectField label="Shoot client" disabled={fixedClient} value={form.client_slug} onChange={(e) => set({ client_slug: e.target.value })} placeholder="Pick a client" options={brands.filter((b) => b.active || b.slug === form.client_slug).map((b) => ({ value: b.slug, label: b.name }))} />
+        <TextField label="Shoot date" type="date" value={form.shoot_date} onChange={(e) => set({ shoot_date: e.target.value })} />
+        <SelectField label="Shoot location" value={form.location_id} onChange={(e) => set({ location_id: e.target.value })} placeholder="Typed below, or none" options={locations.map((l) => ({ value: l.id, label: l.name }))} />
+        {!form.location_id && <TextField label="Typed location" value={form.location} onChange={(e) => set({ location: e.target.value })} />}
+        <TextField label="Shoot notes" className="sm:col-span-2" value={form.notes} onChange={(e) => set({ notes: e.target.value })} />
       </div>
       <div className="flex gap-2">
-        <button type="submit" className={CTRL} disabled={busy}>{busy ? "Saving..." : "Save shoot"}</button>
-        <button type="button" className={CTRL} onClick={onCancel}>Cancel</button>
+        <Button type="submit" size="sm" disabled={busy}>{busy ? "Saving..." : "Save shoot"}</Button>
+        <Button type="button" size="sm" variant="outline" onClick={onCancel}>Cancel</Button>
       </div>
     </form>
   );
@@ -86,11 +77,11 @@ function BlockEditor({ initial, busy, talent, crew, onSave, onCancel }: {
   return (
     <form aria-label="Schedule block" className="mt-2 space-y-2 rounded border p-2" onSubmit={(e) => { e.preventDefault(); onSave(form); }}>
       <div className="flex flex-wrap gap-2">
-        <input aria-label="Block label" placeholder="Label, for example Kitchen scenes" className={CTRL} value={form.label} onChange={(e) => set({ label: e.target.value })} />
-        <input aria-label="Block start" type="time" className={CTRL} value={form.start_time} onChange={(e) => set({ start_time: e.target.value })} />
-        <input aria-label="Block end" type="time" className={CTRL} value={form.end_time} onChange={(e) => set({ end_time: e.target.value })} />
-        <input aria-label="Block location" placeholder="Room or spot" className={CTRL} value={form.location} onChange={(e) => set({ location: e.target.value })} />
-        <input aria-label="Block notes" placeholder="Notes" className={CTRL} value={form.notes} onChange={(e) => set({ notes: e.target.value })} />
+        <TextField label="Block label" hideLabel placeholder="Label, for example Kitchen scenes" value={form.label} onChange={(e) => set({ label: e.target.value })} />
+        <TextField label="Block start" hideLabel type="time" value={form.start_time} onChange={(e) => set({ start_time: e.target.value })} />
+        <TextField label="Block end" hideLabel type="time" value={form.end_time} onChange={(e) => set({ end_time: e.target.value })} />
+        <TextField label="Block location" hideLabel placeholder="Room or spot" value={form.location} onChange={(e) => set({ location: e.target.value })} />
+        <TextField label="Block notes" hideLabel placeholder="Notes" value={form.notes} onChange={(e) => set({ notes: e.target.value })} />
       </div>
       <div className="text-xs">Talent called: {talent.length === 0 ? <span className="text-muted-foreground">confirm talent onto the shoot first</span> : talent.map((t) => (
         <label key={t.id} className="mr-3"><input type="checkbox" checked={form.talent.includes(t.id)} onChange={() => toggle("talent", t.id)} /> {t.actors?.name ?? "Actor"}</label>
@@ -99,8 +90,8 @@ function BlockEditor({ initial, busy, talent, crew, onSave, onCancel }: {
         <label key={c.id} className="mr-3"><input type="checkbox" checked={form.crew.includes(c.id)} onChange={() => toggle("crew", c.id)} /> {c.name}</label>
       ))}</div>
       <div className="flex gap-2">
-        <button type="submit" className={CTRL} disabled={busy}>Save block</button>
-        <button type="button" className={CTRL} onClick={onCancel}>Cancel</button>
+        <Button type="submit" size="sm" disabled={busy}>Save block</Button>
+        <Button type="button" size="sm" variant="outline" onClick={onCancel}>Cancel</Button>
       </div>
     </form>
   );
@@ -117,14 +108,17 @@ export default function ProductionCalendarPage() {
   const [editingBlock, setEditingBlock] = useState<{ shootId: string; block: ShootBlock | null } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const { confirm, dialog } = useConfirm();
 
   const load = useCallback(async () => {
     const { from, to } = monthRange(month);
     try {
       setData(await loadCalendar(from, to));
+      setLoadError(null);
     } catch (e) {
-      setError(messageOf(e, "Could not load shoots."));
+      setLoadError(messageOf(e, "Could not load shoots."));
     }
   }, [month]);
   useEffect(() => {
@@ -194,13 +188,23 @@ export default function ProductionCalendarPage() {
     }).then((ok) => { if (ok) setEditingBlock(null); });
   };
 
+  const removeShoot = async (s: Shoot) => {
+    const who = names.get(s.client_slug) ?? s.client_slug;
+    if (!(await confirm({ title: `Delete the ${who} shoot on ${formatDay(s.shoot_date)}?`, description: "Its schedule blocks and call sheet go with it.", actionLabel: "Delete" }))) return;
+    void run(async () => { await deleteShoot(s.id); return "Shoot deleted."; });
+  };
+  const removeBlock = async (b: ShootBlock) => {
+    if (!(await confirm({ title: `Delete the block "${b.label}"?`, description: "This cannot be undone.", actionLabel: "Delete" }))) return;
+    void run(async () => { await deleteBlock(b.id); return "Block deleted."; });
+  };
+
   return (
-    <div className="p-6 space-y-4" data-testid="production-calendar-page">
+    <PageShell data-testid="production-calendar-page">
       <PageHeader title="Production calendar" description="Booked shoots by day: location, confirmed talent, schedule blocks and call sheets." />
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <button type="button" className={CTRL} onClick={() => goMonth(shiftMonth(month, -1))}>Previous month</button>
+        <Button type="button" size="sm" variant="outline" onClick={() => goMonth(shiftMonth(month, -1))}>Previous month</Button>
         <span className="font-semibold" data-testid="calendar-month">{monthLabel(month)}</span>
-        <button type="button" className={CTRL} onClick={() => goMonth(shiftMonth(month, 1))}>Next month</button>
+        <Button type="button" size="sm" variant="outline" onClick={() => goMonth(shiftMonth(month, 1))}>Next month</Button>
         <Link to={`${prefix}/call-sheets`} className="underline">Call sheets</Link>
         <Link to={`${prefix}/locations`} className="underline">Locations</Link>
         <Link to={`${prefix}/crew`} className="underline">Crew</Link>
@@ -211,12 +215,14 @@ export default function ProductionCalendarPage() {
       {adding ? (
         <ShootEditor initial={EMPTY_SHOOT_FORM} title="Schedule a shoot" busy={busy} brands={brands} locations={data?.locations ?? []} fixedClient={false} onSave={(f) => saveShoot(f, null)} onCancel={() => setAdding(false)} />
       ) : (
-        <button type="button" className={CTRL} onClick={() => { setAdding(true); setError(null); setNotice(null); }}>Schedule a shoot</button>
+        <Button type="button" size="sm" variant="outline" onClick={() => { setAdding(true); setError(null); setNotice(null); }}>Schedule a shoot</Button>
       )}
 
-      {!data ? (
-        error ? null : <p role="status" className="text-sm text-muted-foreground">Loading shoots...</p>
-      ) : days.length === 0 ? <p className="text-sm text-muted-foreground">No shoots in {monthLabel(month)}.</p> : (
+      {loadError ? (
+        <ErrorState message={loadError} onRetry={() => void load()} />
+      ) : !data ? (
+        <LoadingState label="Loading shoots" />
+      ) : days.length === 0 ? <EmptyState title={`No shoots in ${monthLabel(month)}.`} /> : (
         days.map(([date, shoots]) => (
           <section key={date} aria-label={formatDay(date)} className="space-y-2">
             <h2 className="text-sm font-semibold">{formatDay(date)}</h2>
@@ -232,11 +238,8 @@ export default function ProductionCalendarPage() {
                     <Link to={`${prefix}/clients/${encodeURIComponent(s.client_slug)}`} className="font-semibold underline">{names.get(s.client_slug) ?? s.client_slug}</Link>
                     <span className="text-muted-foreground">{s.location ?? "No location yet"}</span>
                     <span className="text-xs">{sheet === "live" ? "Call sheet made" : sheet === "revoked" ? "Call sheet revoked" : "No call sheet"}</span>
-                    <button type="button" className="text-xs underline" onClick={() => setEditingShoot(s.id)}>Edit shoot</button>
-                    <button type="button" className="text-xs underline" disabled={busy} onClick={() => {
-                      if (!window.confirm(`Delete the ${names.get(s.client_slug) ?? s.client_slug} shoot on ${formatDay(s.shoot_date)}? Its schedule blocks and call sheet go with it.`)) return;
-                      void run(async () => { await deleteShoot(s.id); return "Shoot deleted."; });
-                    }}>Delete shoot</button>
+                    <Button type="button" variant="link" size="sm" className={LINK_BTN} onClick={() => setEditingShoot(s.id)}>Edit shoot</Button>
+                    <Button type="button" variant="link" size="sm" className={LINK_BTN} disabled={busy} onClick={() => void removeShoot(s)}>Delete shoot</Button>
                   </div>
                   {s.notes && <p className="text-xs text-muted-foreground">{s.notes}</p>}
                   {editingShoot === s.id && (
@@ -248,14 +251,11 @@ export default function ProductionCalendarPage() {
                     {confirmed.length === 0 ? <span className="text-muted-foreground">none confirmed. </span> : confirmed.map((c) => (
                       <span key={c.id} className="mr-3">
                         <Link to={`${prefix}/actors/${c.actor_id}`} className="underline">{c.actors?.name ?? "Actor"}</Link>
-                        <button type="button" aria-label={`Remove ${c.actors?.name ?? "actor"} from the shoot`} className="ml-1 underline" disabled={busy} onClick={() => void run(async () => { await unconfirmTalent(c.id); return `${c.actors?.name ?? "Actor"} removed from the shoot.`; })}>remove</button>
+                        <Button type="button" variant="link" size="sm" aria-label={`Remove ${c.actors?.name ?? "actor"} from the shoot`} className="ml-1 h-auto p-0 text-xs" disabled={busy} onClick={() => void run(async () => { await unconfirmTalent(c.id); return `${c.actors?.name ?? "Actor"} removed from the shoot.`; })}>remove</Button>
                       </span>
                     ))}
                     {available.length > 0 && (
-                      <select aria-label={`Confirm talent for ${s.id}`} className={CTRL} value="" disabled={busy} onChange={(e) => { const id = e.target.value; const c = available.find((x) => x.id === id); if (c) void run(async () => { await confirmTalent(c.id, s.id); return `${c.actors?.name ?? "Actor"} confirmed for the shoot.`; }); }}>
-                        <option value="">Confirm a cast actor...</option>
-                        {available.map((c) => <option key={c.id} value={c.id}>{c.actors?.name ?? "Actor"} ({c.stage.replace(/_/g, " ")})</option>)}
-                      </select>
+                      <SelectField label={`Confirm talent for ${s.id}`} hideLabel className="inline-block w-56 align-middle" value="" disabled={busy} onChange={(e) => { const id = e.target.value; const c = available.find((x) => x.id === id); if (c) void run(async () => { await confirmTalent(c.id, s.id); return `${c.actors?.name ?? "Actor"} confirmed for the shoot.`; }); }} placeholder="Confirm a cast actor..." options={available.map((c) => ({ value: c.id, label: `${c.actors?.name ?? "Actor"} (${c.stage.replace(/_/g, " ")})` }))} />
                     )}
                   </div>
 
@@ -270,8 +270,8 @@ export default function ProductionCalendarPage() {
                             {b.shoot_schedule_block_talent.length > 0 && <span> · Talent: {b.shoot_schedule_block_talent.map((t) => talentName.get(t.actor_assignment_id) ?? "removed actor").join(", ")}</span>}
                             {b.shoot_schedule_block_crew.length > 0 && <span> · Crew: {b.shoot_schedule_block_crew.map((c) => crewName.get(c.crew_member_id) ?? "archived crew").join(", ")}</span>}
                             {b.notes && <div className="text-muted-foreground">{b.notes}</div>}
-                            <button type="button" className="mr-2 underline" onClick={() => setEditingBlock({ shootId: s.id, block: b })}>Edit</button>
-                            <button type="button" className="underline" disabled={busy} onClick={() => { if (window.confirm(`Delete the block "${b.label}"?`)) void run(async () => { await deleteBlock(b.id); return "Block deleted."; }); }}>Delete</button>
+                            <Button type="button" variant="link" size="sm" className="mr-2 h-auto p-0 text-xs" onClick={() => setEditingBlock({ shootId: s.id, block: b })}>Edit</Button>
+                            <Button type="button" variant="link" size="sm" className={LINK_BTN} disabled={busy} onClick={() => void removeBlock(b)}>Delete</Button>
                           </li>
                         ))}
                       </ul>
@@ -279,7 +279,7 @@ export default function ProductionCalendarPage() {
                     {editingBlock?.shootId === s.id ? (
                       <BlockEditor key={editingBlock.block?.id ?? "new"} initial={editingBlock.block ? blockToForm(editingBlock.block) : EMPTY_BLOCK_FORM} busy={busy} talent={confirmed} crew={data.crew} onSave={saveBlock} onCancel={() => setEditingBlock(null)} />
                     ) : (
-                      <button type="button" className="mt-1 text-xs underline" onClick={() => setEditingBlock({ shootId: s.id, block: null })}>Add block</button>
+                      <Button type="button" variant="link" size="sm" className="mt-1 h-auto p-0 text-xs" onClick={() => setEditingBlock({ shootId: s.id, block: null })}>Add block</Button>
                     )}
                   </div>
                 </article>
@@ -288,6 +288,7 @@ export default function ProductionCalendarPage() {
           </section>
         ))
       )}
-    </div>
+      {dialog}
+    </PageShell>
   );
 }

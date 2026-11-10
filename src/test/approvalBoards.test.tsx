@@ -41,6 +41,7 @@ vi.mock("@/features/dashboard/approvalBoardsApi", () => ({
   applyVotes: (...a: unknown[]) => applyVotes(...a),
 }));
 
+import { answerConfirm } from "@/test/productionConfirm";
 import ApprovalBoardsPage from "@/features/dashboard/ApprovalBoardsPage";
 import {
   BOARD_TOKEN_LENGTH,
@@ -64,8 +65,6 @@ const vote = (id: string, v: "up" | "down", name: string, extra: Partial<Approva
 const BOARDS = [board("b1"), board("b0", { revoked: true, created_at: "2026-10-01T00:00:00Z", expires_at: "2026-10-15T00:00:00Z" })];
 const VOTES = [vote("v1", "up", "Avery Stone", { voted_by: "Sam" }), vote("v2", "up", "Blake Rivers"), vote("v3", "down", "Casey Moreno")];
 
-let confirmReturn = true;
-let confirmSpy: { mockRestore: () => void };
 beforeEach(() => {
   for (const f of [loadBrandsAndTeam, loadBoards, loadVotes, createBoard, revokeBoard, applyVotes]) f.mockReset();
   loadBrandsAndTeam.mockResolvedValue({
@@ -80,13 +79,10 @@ beforeEach(() => {
   createBoard.mockResolvedValue(board("b2"));
   revokeBoard.mockResolvedValue(undefined);
   applyVotes.mockResolvedValue(3);
-  confirmReturn = true;
-  confirmSpy = vi.spyOn(window, "confirm").mockImplementation(() => confirmReturn);
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
 });
 afterEach(() => {
-  confirmSpy.mockRestore();
   vi.useRealTimers();
 });
 
@@ -122,6 +118,7 @@ describe("Approval boards page", () => {
   it("applies the decisions after a confirm", async () => {
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "Apply decisions" }));
+    await answerConfirm("Apply");
     await waitFor(() => expect(applyVotes).toHaveBeenCalledWith("glow", [
       { assignment_id: "as-v1", vote: "up" }, { assignment_id: "as-v2", vote: "up" }, { assignment_id: "as-v3", vote: "down" },
     ]));
@@ -129,19 +126,20 @@ describe("Approval boards page", () => {
   });
 
   it("explains a refused apply and applies nothing when the confirm is cancelled", async () => {
-    confirmReturn = false;
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "Apply decisions" }));
+    await answerConfirm("Cancel");
     expect(applyVotes).not.toHaveBeenCalled();
-    confirmReturn = true;
     applyVotes.mockRejectedValueOnce(new FakeDashboardError({ code: "P0002", message: "assignment not found for client" }));
     fireEvent.click(screen.getByRole("button", { name: "Apply decisions" }));
+    await answerConfirm("Apply");
     expect(await screen.findByRole("alert")).toHaveTextContent("no longer on the client. Nothing was applied.");
   });
 
   it("revokes the live link after a confirm", async () => {
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "Revoke" }));
+    await answerConfirm("Revoke");
     await waitFor(() => expect(revokeBoard).toHaveBeenCalledWith("b1"));
     expect(await screen.findByRole("status")).toHaveTextContent("Link revoked.");
   });

@@ -17,7 +17,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { PickClientPrompt } from "@/components/PickClientPrompt";
-import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { DataTable, EmptyState, ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField, useConfirm, type DataColumn } from "@/components/page-kit";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { DashboardError, loadBrandsAndTeam, type BrandOption } from "./api";
 import { activeBoard, boardState, defaultExpiry, parseExpiry } from "./approvalBoardsModel";
@@ -25,8 +26,6 @@ import { addActors, applyActorVotes, createCastingLink, loadActorOptions, loadCa
 import { addableActors, castingUrl, sortCastings, splitActorVotes, stageCounts, type ActorOption, type CastingRow } from "./castingModel";
 import { ACTOR_STAGES, actorStageLabel } from "./rosterModel";
 import { errorText, formatDay, type AppUser } from "./model";
-
-const CTRL = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
 
 function messageOf(e: unknown, fallback: string): string {
   if (e instanceof DashboardError) return e.code === "P0002" ? "An actor on this link is no longer cast on the client. Nothing was applied." : errorText(e.code, e.message || fallback);
@@ -47,7 +46,9 @@ export default function CastingPage() {
   const [expiry, setExpiry] = useState(() => defaultExpiry(new Date()));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const { confirm, dialog } = useConfirm();
 
   useEffect(() => {
     loadBrandsAndTeam().then((b) => { setBrands(b.brands); setUsers(b.users); }, (e) => setError(e instanceof Error ? e.message : "Could not load clients."));
@@ -61,8 +62,9 @@ export default function CastingPage() {
     }
     try {
       setData(await loadCasting(brand));
+      setLoadError(null);
     } catch (e) {
-      setError(messageOf(e, "Could not load castings."));
+      setLoadError(messageOf(e, "Could not load castings."));
     }
   }, [brand]);
   useEffect(() => {
@@ -92,10 +94,69 @@ export default function CastingPage() {
     setBusy(false);
     await load();
   };
+  const removeActor = async (r: CastingRow) => {
+    const who = r.actors?.name ?? "this actor";
+    if (!(await confirm({ title: `Take ${who} off ${brandName}?`, description: "Their votes on casting links go too.", actionLabel: "Remove" }))) return;
+    void run(async () => { await removeCasting(r.id); return `${r.actors?.name ?? "Actor"} taken off ${brandName}.`; });
+  };
+  const revokeLink = async (id: string) => {
+    if (!(await confirm({ title: `Revoke the ${brandName} casting link?`, description: "It stops working, and a new one can be made after.", actionLabel: "Revoke" }))) return;
+    void run(async () => { await revokeCastingLink(id); return "Link revoked."; });
+  };
+  const applyDecisions = async (up: number, down: number, payload: { assignment_id: string; vote: "up" | "down" }[]) => {
+    if (!(await confirm({ title: `Apply the client's decisions for ${brandName}?`, description: `${up} move to Client Approved and ${down} to Declined.`, actionLabel: "Apply", tone: "default" }))) return;
+    void run(async () => { const n = await applyActorVotes(brand, payload); return `Applied ${n} decision${n === 1 ? "" : "s"}: ${up} approved, ${down} declined.`; });
+  };
   const patch = (r: CastingRow, p: CastingPatch, what: string) => void run(async () => { await updateCasting(r.id, p); return `${r.actors?.name ?? "Actor"}: ${what}.`; });
 
+  const columns: DataColumn<CastingRow>[] = [
+    {
+      key: "actor",
+      header: "Actor",
+      cell: (r) => (
+        <>
+          <Link to={`${prefix}/actors/${r.actor_id}`} className="font-medium underline">{r.actors?.name ?? "Unknown actor"}</Link>
+          <div className="text-xs text-muted-foreground">{[r.actors?.gender, ...(r.actors?.age_range ?? [])].filter(Boolean).join(" · ")}</div>
+          {r.actors?.do_not_use_again && <span className="rounded bg-muted px-1 text-xs font-medium">Do not use</span>}
+        </>
+      ),
+    },
+    {
+      key: "stage",
+      header: "Stage",
+      cell: (r) => <SelectField label={`Stage for ${r.actors?.name ?? r.id}`} hideLabel value={r.stage} disabled={busy} onChange={(e) => { const v = e.target.value; patch(r, { stage: v }, `moved to ${actorStageLabel(v)}`); }} options={ACTOR_STAGES.map((st) => ({ value: st.value, label: st.label }))} />,
+    },
+    {
+      key: "owner",
+      header: "Owner",
+      cell: (r) => <SelectField label={`Owner for ${r.actors?.name ?? r.id}`} hideLabel value={r.owner_id ?? ""} disabled={busy} onChange={(e) => { const v = e.target.value || null; patch(r, { owner_id: v }, "owner changed"); }} placeholder="No owner" options={users.filter((u) => u.active || u.id === r.owner_id).map((u) => ({ value: u.id, label: `${u.name}${u.active ? "" : " (inactive)"}` }))} />,
+    },
+    {
+      key: "follow",
+      header: "Follow up",
+      cell: (r) => <TextField label={`Follow up for ${r.actors?.name ?? r.id}`} hideLabel type="date" value={r.next_follow_up_at ?? ""} disabled={busy} onChange={(e) => { const v = e.target.value || null; patch(r, { next_follow_up_at: v }, v ? `follow up ${formatDay(v)}` : "follow-up cleared"); }} />,
+    },
+    { key: "shoot", header: "Shoot", cell: (r) => `${r.scheduled_shoot_date ? formatDay(r.scheduled_shoot_date) : ""}${r.shoot_id ? "" : r.scheduled_shoot_date ? " (not on a shoot)" : ""}` },
+    {
+      key: "notes",
+      header: "Notes",
+      cell: (r) => (
+        <>
+          {r.notes ?? ""}
+          <Button type="button" variant="link" size="sm" className="ml-1 h-auto p-0" disabled={busy} onClick={() => { const v = window.prompt(`Notes for ${r.actors?.name ?? "this actor"}`, r.notes ?? ""); if (v !== null) patch(r, { notes: v.trim() || null }, "notes saved"); }}>edit</Button>
+        </>
+      ),
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      srOnlyHeader: true,
+      cell: (r) => <Button type="button" variant="link" size="sm" className="h-auto p-0" disabled={busy} onClick={() => void removeActor(r)}>Remove</Button>,
+    },
+  ];
+
   return (
-    <div className="p-6 space-y-4" data-testid="casting-page">
+    <PageShell wide data-testid="casting-page">
       <PageHeader title="Casting" description="Actors cast per production client, and the casting link the client uses to approve them." />
       <div className="flex flex-wrap items-center gap-2 text-sm">
         {brand && <Link to={`${prefix}/clients/${encodeURIComponent(brand)}`} className="underline">Client page</Link>}
@@ -108,60 +169,25 @@ export default function CastingPage() {
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
-      {!brand ? <PickClientPrompt what="its castings" /> : !data ? (
-        error ? null : <p role="status" className="text-sm text-muted-foreground">Loading castings...</p>
+      {!brand ? <PickClientPrompt what="its castings" /> : loadError ? (
+        <ErrorState message={loadError} onRetry={() => void load()} />
+      ) : !data ? (
+        <LoadingState label="Loading castings" />
       ) : (
         <>
           <p className="text-xs text-muted-foreground" data-testid="stage-counts">
             {ACTOR_STAGES.filter((s) => counts.get(s.value)).map((s) => `${s.label} ${counts.get(s.value)}`).join(" · ") || "No actors cast yet."}
           </p>
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <select aria-label="Actor to add" className={CTRL} value={toAdd} onChange={(e) => setToAdd(e.target.value)}>
-              <option value="">Add an actor from the roster...</option>
-              {addable.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
-            <button type="button" className={CTRL} disabled={busy || !toAdd} onClick={() => { const id = toAdd; setToAdd(""); void run(async () => { await addActors(brand, [id]); return `${actors.find((a) => a.id === id)?.name ?? "Actor"} added to ${brandName} as Sourced.`; }); }}>Add</button>
+            <SelectField label="Actor to add" hideLabel value={toAdd} onChange={(e) => setToAdd(e.target.value)} placeholder="Add an actor from the roster..." options={addable.map((a) => ({ value: a.id, label: a.name }))} />
+            <Button type="button" size="sm" variant="outline" disabled={busy || !toAdd} onClick={() => { const id = toAdd; setToAdd(""); void run(async () => { await addActors(brand, [id]); return `${actors.find((a) => a.id === id)?.name ?? "Actor"} added to ${brandName} as Sourced.`; }); }}>Add</Button>
             <label><input type="checkbox" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} /> Show declined and passed</label>
           </div>
 
-          {rows.length === 0 ? <p className="text-sm text-muted-foreground">No castings to show.</p> : (
-            <table className="w-full text-sm">
-              <thead><tr className="text-left text-xs text-muted-foreground"><th>Actor</th><th>Stage</th><th>Owner</th><th>Follow up</th><th>Shoot</th><th>Notes</th><th /></tr></thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id} className="border-t align-top" data-testid={`casting-${r.id}`}>
-                    <td className="py-1.5">
-                      <Link to={`${prefix}/actors/${r.actor_id}`} className="font-medium underline">{r.actors?.name ?? "Unknown actor"}</Link>
-                      <div className="text-xs text-muted-foreground">{[r.actors?.gender, ...(r.actors?.age_range ?? [])].filter(Boolean).join(" · ")}</div>
-                      {r.actors?.do_not_use_again && <span className="rounded bg-destructive/10 px-1 text-xs text-destructive">Do not use</span>}
-                    </td>
-                    <td>
-                      <select aria-label={`Stage for ${r.actors?.name ?? r.id}`} className={CTRL} value={r.stage} disabled={busy} onChange={(e) => { const v = e.target.value; patch(r, { stage: v }, `moved to ${actorStageLabel(v)}`); }}>
-                        {ACTOR_STAGES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-                      </select>
-                    </td>
-                    <td>
-                      <select aria-label={`Owner for ${r.actors?.name ?? r.id}`} className={CTRL} value={r.owner_id ?? ""} disabled={busy} onChange={(e) => { const v = e.target.value || null; patch(r, { owner_id: v }, "owner changed"); }}>
-                        <option value="">No owner</option>
-                        {users.filter((u) => u.active || u.id === r.owner_id).map((u) => <option key={u.id} value={u.id}>{u.name}{u.active ? "" : " (inactive)"}</option>)}
-                      </select>
-                    </td>
-                    <td><input aria-label={`Follow up for ${r.actors?.name ?? r.id}`} type="date" className={CTRL} value={r.next_follow_up_at ?? ""} disabled={busy} onChange={(e) => { const v = e.target.value || null; patch(r, { next_follow_up_at: v }, v ? `follow up ${formatDay(v)}` : "follow-up cleared"); }} /></td>
-                    <td className="text-xs">{r.scheduled_shoot_date ? formatDay(r.scheduled_shoot_date) : ""}{r.shoot_id ? "" : r.scheduled_shoot_date ? " (not on a shoot)" : ""}</td>
-                    <td className="text-xs">
-                      {r.notes ?? ""}
-                      <button type="button" className="ml-1 underline" disabled={busy} onClick={() => { const v = window.prompt(`Notes for ${r.actors?.name ?? "this actor"}`, r.notes ?? ""); if (v !== null) patch(r, { notes: v.trim() || null }, "notes saved"); }}>edit</button>
-                    </td>
-                    <td className="text-xs">
-                      <button type="button" className="underline" disabled={busy} onClick={() => {
-                        if (!window.confirm(`Take ${r.actors?.name ?? "this actor"} off ${brandName}? Their votes on casting links go too.`)) return;
-                        void run(async () => { await removeCasting(r.id); return `${r.actors?.name ?? "Actor"} taken off ${brandName}.`; });
-                      }}>Remove</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {rows.length === 0 ? (
+            <EmptyState title="No castings to show." />
+          ) : (
+            <DataTable label="Castings" columns={columns} rows={rows} rowKey={(r) => r.id} rowTestId={(r) => `casting-${r.id}`} minWidthClass="min-w-[56rem]" />
           )}
           {activeUsers.length === 0 && <p className="text-xs text-muted-foreground">No one is on the dashboard team list, so owners cannot be set yet.</p>}
 
@@ -171,18 +197,18 @@ export default function CastingPage() {
               <div className="mt-1 flex flex-wrap items-center gap-2" data-testid="live-link">
                 <a href={castingUrl(live.token)} target="_blank" rel="noopener noreferrer" className="break-all underline">{castingUrl(live.token)}</a>
                 <span className="text-xs text-muted-foreground">expires {formatDay(live.expires_at)}</span>
-                <button type="button" className={CTRL} onClick={() => void navigator.clipboard?.writeText(castingUrl(live.token)).then(() => setNotice("Link copied."), () => setNotice(`Copy the link: ${castingUrl(live.token)}`))}>Copy link</button>
-                <button type="button" className={CTRL} disabled={busy} onClick={() => { if (window.confirm(`Revoke the ${brandName} casting link? It stops working, and a new one can be made after.`)) void run(async () => { await revokeCastingLink(live.id); return "Link revoked."; }); }}>Revoke</button>
+                <Button type="button" size="sm" variant="outline" onClick={() => void navigator.clipboard?.writeText(castingUrl(live.token)).then(() => setNotice("Link copied."), () => setNotice(`Copy the link: ${castingUrl(live.token)}`))}>Copy link</Button>
+                <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void revokeLink(live.id)}>Revoke</Button>
               </div>
             ) : (
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <span className="text-muted-foreground">No live casting link for {brandName}.</span>
-                <label className="text-xs">Expires<input aria-label="Expiry date" type="date" className={`${CTRL} ml-1`} value={expiry} onChange={(e) => setExpiry(e.target.value)} /></label>
-                <button type="button" className={CTRL} disabled={busy} onClick={() => {
+                <TextField label="Expiry date" type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} />
+                <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => {
                   const at = parseExpiry(expiry, new Date());
                   if (!at) { setError("Pick an expiry date in the future."); return; }
                   void run(async () => { await createCastingLink(brand, at); return `New casting link created for ${brandName}.`; });
-                }}>Create link</button>
+                }}>Create link</Button>
               </div>
             )}
             {live && (
@@ -204,12 +230,7 @@ export default function CastingPage() {
                         </section>
                       ))}
                     </div>
-                    <button type="button" className={CTRL} disabled={busy} onClick={() => {
-                      const up = responses.approved.length;
-                      const down = responses.passed.length;
-                      if (!window.confirm(`Apply the client's decisions for ${brandName}? ${up} move to Client Approved and ${down} to Declined.`)) return;
-                      void run(async () => { const n = await applyActorVotes(brand, liveVotes.map((v) => ({ assignment_id: v.assignment_id, vote: v.vote }))); return `Applied ${n} decision${n === 1 ? "" : "s"}: ${up} approved, ${down} declined.`; });
-                    }}>Apply decisions</button>
+                    <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void applyDecisions(responses.approved.length, responses.passed.length, liveVotes.map((v) => ({ assignment_id: v.assignment_id, vote: v.vote })))}>Apply decisions</Button>
                   </>
                 )}
               </div>
@@ -221,6 +242,7 @@ export default function CastingPage() {
           </section>
         </>
       )}
-    </div>
+      {dialog}
+    </PageShell>
   );
 }

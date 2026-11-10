@@ -43,6 +43,7 @@ vi.mock("@/features/dashboard/locationsApi", () => ({
   revokeLocationBoard: (...a: unknown[]) => revokeLocationBoard(...a),
 }));
 
+import { answerConfirm } from "@/test/productionConfirm";
 import LocationsPage from "@/features/dashboard/LocationsPage";
 import {
   DEFAULT_LOCATION_FILTERS,
@@ -111,7 +112,6 @@ describe("locations model", () => {
 });
 
 describe("Locations page", () => {
-  let confirmReturn = true;
   beforeEach(() => {
     for (const f of [loadLocations, createLocation, updateLocation, deleteLocation, createLocationBoard, revokeLocationBoard, loadBrandsAndTeam]) f.mockReset();
     loadLocations.mockResolvedValue({
@@ -126,8 +126,6 @@ describe("Locations page", () => {
     deleteLocation.mockResolvedValue(undefined);
     createLocationBoard.mockResolvedValue(board("b2", { token: "newtok" }));
     revokeLocationBoard.mockResolvedValue(undefined);
-    confirmReturn = true;
-    vi.spyOn(window, "confirm").mockImplementation(() => confirmReturn);
   });
 
   const renderPage = () => render(<MemoryRouter><LocationsPage /></MemoryRouter>);
@@ -181,11 +179,11 @@ describe("Locations page", () => {
   it("deletes only after a confirm", async () => {
     renderPage();
     const house = await screen.findByTestId("location-row-l2");
-    confirmReturn = false;
     fireEvent.click(within(house).getByText("Delete"));
+    await answerConfirm("Cancel");
     expect(deleteLocation).not.toHaveBeenCalled();
-    confirmReturn = true;
     fireEvent.click(within(house).getByText("Delete"));
+    await answerConfirm("Delete");
     await waitFor(() => expect(deleteLocation).toHaveBeenCalledWith("l2"));
   });
 
@@ -205,6 +203,7 @@ describe("Locations page", () => {
     await waitFor(() => expect(createLocationBoard).toHaveBeenCalledWith("harbor", "June", ["l1", "l2"]));
     expect((await screen.findByRole("status")).textContent).toMatch(/locations-board\/newtok/);
     fireEvent.click(within(screen.getByTestId("location-board-b1")).getByText("Revoke"));
+    await answerConfirm("Revoke");
     await waitFor(() => expect(revokeLocationBoard).toHaveBeenCalledWith("b1"));
   });
 
@@ -212,6 +211,7 @@ describe("Locations page", () => {
     deleteLocation.mockRejectedValue(new FakeDashboardError({ code: "42501", message: "Only active staff can delete locations." }));
     renderPage();
     fireEvent.click(within(await screen.findByTestId("location-row-l3")).getByText("Delete"));
+    await answerConfirm("Delete");
     expect((await screen.findByRole("alert")).textContent).toBe("You do not have permission to do that.");
   });
 });

@@ -5,7 +5,8 @@
 // (at studio, client supplied, outcome) and delete after a confirm, all
 // through the checked prop functions.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { DataTable, EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField, TextField, useConfirm, type DataColumn } from "@/components/page-kit";
 import { DashboardError } from "./api";
 import { createProp, deleteProp, loadProps, setAtStudio, setClientSupplied, setReturnStatus, updateProp } from "./propsApi";
 import {
@@ -26,8 +27,6 @@ import {
 } from "./propsModel";
 import { errorText } from "./model";
 
-const CTRL = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
-
 function messageOf(e: unknown, fallback: string): string {
   if (e instanceof DashboardError) return e.code === "P0002" ? "That prop no longer exists." : errorText(e.code, e.message || fallback);
   return e instanceof Error ? e.message : fallback;
@@ -42,6 +41,8 @@ const FIELDS: { key: "name" | "store" | "price" | "client" | "bin_number" | "not
   { key: "notes", label: "Notes" },
 ];
 
+const outcomeOptions = RETURN_STATUSES.map((s) => ({ value: s, label: s }));
+
 function PropEditor({ initial, title, busy, onSave, onCancel }: { initial: PropForm; title: string; busy: boolean; onSave: (f: PropForm) => void; onCancel: () => void }) {
   const [form, setForm] = useState(initial);
   const set = (patch: Partial<PropForm>) => setForm((f) => ({ ...f, ...patch }));
@@ -50,26 +51,17 @@ function PropEditor({ initial, title, busy, onSave, onCancel }: { initial: PropF
       <h2 className="text-sm font-semibold">{title}</h2>
       <div className="grid gap-2 sm:grid-cols-3">
         {FIELDS.map((f) => (
-          <label key={f.key} className="text-xs">
-            {f.label}
-            <input aria-label={f.label} className={`${CTRL} mt-0.5 w-full`} value={form[f.key]} onChange={(e) => set({ [f.key]: e.target.value } as Partial<PropForm>)} />
-          </label>
+          <TextField key={f.key} label={f.label} value={form[f.key]} onChange={(e) => set({ [f.key]: e.target.value } as Partial<PropForm>)} />
         ))}
-        <label className="text-xs">
-          Outcome
-          <select aria-label="Outcome" className={`${CTRL} mt-0.5 w-full`} value={form.return_status} onChange={(e) => set({ return_status: e.target.value as PropForm["return_status"] })}>
-            <option value="">Not decided</option>
-            {RETURN_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </label>
+        <SelectField label="Outcome" value={form.return_status} onChange={(e) => set({ return_status: e.target.value as PropForm["return_status"] })} placeholder="Not decided" options={outcomeOptions} />
         <div className="flex items-end gap-3 text-sm">
           <label><input type="checkbox" checked={form.at_studio} onChange={(e) => set({ at_studio: e.target.checked })} /> At the studio</label>
           <label><input type="checkbox" checked={form.client_supplied} onChange={(e) => set({ client_supplied: e.target.checked })} /> Client supplied</label>
         </div>
       </div>
       <div className="flex gap-2">
-        <button type="submit" className={CTRL} disabled={busy}>{busy ? "Saving..." : "Save"}</button>
-        <button type="button" className={CTRL} onClick={onCancel}>Cancel</button>
+        <Button type="submit" size="sm" disabled={busy}>{busy ? "Saving..." : "Save"}</Button>
+        <Button type="button" size="sm" variant="outline" onClick={onCancel}>Cancel</Button>
       </div>
     </form>
   );
@@ -81,13 +73,16 @@ export default function PropsPage() {
   const [editing, setEditing] = useState<Prop | "new" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const { confirm, dialog } = useConfirm();
 
   const load = useCallback(async () => {
     try {
       setProps(await loadProps());
+      setLoadError(null);
     } catch (e) {
-      setError(messageOf(e, "Could not load props."));
+      setLoadError(messageOf(e, "Could not load props."));
     }
   }, []);
   useEffect(() => {
@@ -135,16 +130,65 @@ export default function PropsPage() {
     }).then((ok) => { if (ok) setEditing(null); });
   };
 
-  const remove = (p: Prop) => {
-    if (!window.confirm(`Delete ${p.name}? This cannot be undone.`)) return;
+  const remove = async (p: Prop) => {
+    if (!(await confirm({ title: `Delete ${p.name}?`, description: "This cannot be undone.", actionLabel: "Delete" }))) return;
     void run(async () => {
       await deleteProp(p.id);
       return `Deleted ${p.name}.`;
     });
   };
 
+  const columns: DataColumn<Prop>[] = [
+    {
+      key: "name",
+      header: "Prop",
+      cell: (p) => (
+        <>
+          <div className="font-medium">{p.name}</div>
+          {p.notes && <div className="text-xs text-muted-foreground">{p.notes}</div>}
+        </>
+      ),
+    },
+    { key: "store", header: "Store", cell: (p) => p.store ?? "" },
+    { key: "price", header: "Price", cell: (p) => formatPrice(p.price) },
+    { key: "client", header: "Client", cell: (p) => p.client ?? "" },
+    { key: "bin", header: "Bin", cell: (p) => p.bin_number ?? "" },
+    {
+      key: "studio",
+      header: "At studio",
+      cell: (p) => (
+        <input type="checkbox" aria-label={`${p.name} at the studio`} checked={p.at_studio} disabled={busy} onChange={(e) => { const v = e.target.checked; void run(async () => { await setAtStudio(p.id, v); return `${p.name}: ${v ? "at the studio" : "not at the studio"}.`; }); }} />
+      ),
+    },
+    {
+      key: "supplied",
+      header: "Client supplied",
+      cell: (p) => (
+        <input type="checkbox" aria-label={`${p.name} client supplied`} checked={p.client_supplied} disabled={busy} onChange={(e) => { const v = e.target.checked; void run(async () => { await setClientSupplied(p.id, v); return `${p.name}: ${v ? "client supplied" : "bought by Goodo"}.`; }); }} />
+      ),
+    },
+    {
+      key: "outcome",
+      header: "Outcome",
+      cell: (p) => (
+        <SelectField label={`${p.name} outcome`} hideLabel value={p.return_status ?? ""} disabled={busy} onChange={(e) => { const v = (e.target.value || null) as ReturnStatus | null; void run(async () => { await setReturnStatus(p.id, v); return `${p.name}: ${v ?? "not decided"}.`; }); }} placeholder="Not decided" options={outcomeOptions} />
+      ),
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      srOnlyHeader: true,
+      cell: (p) => (
+        <div className="flex gap-1">
+          <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => { setEditing(p); setError(null); setNotice(null); }}>Edit</Button>
+          <Button type="button" variant="link" size="sm" className="h-auto p-0" disabled={busy} onClick={() => void remove(p)}>Delete</Button>
+        </div>
+      ),
+    },
+  ];
+
   return (
-    <div className="p-6 space-y-4" data-testid="props-page">
+    <PageShell wide data-testid="props-page">
       <PageHeader title="Props" description="Everything bought or borrowed for a shoot: what it cost, whose shoot it was for, and whether it is still at the studio." />
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
@@ -159,73 +203,40 @@ export default function PropsPage() {
           onCancel={() => setEditing(null)}
         />
       ) : (
-        <button type="button" className={CTRL} onClick={() => { setEditing("new"); setError(null); setNotice(null); }}>Add prop</button>
+        <Button type="button" size="sm" variant="outline" onClick={() => { setEditing("new"); setError(null); setNotice(null); }}>Add prop</Button>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <input aria-label="Search props" placeholder="Search name, store, client, bin" className={`${CTRL} min-w-[16rem]`} value={filters.search} onChange={(e) => set({ search: e.target.value })} />
-        <select aria-label="Store" className={CTRL} value={filters.store} onChange={(e) => set({ store: e.target.value })}>
-          <option value="">Any store</option>
-          {stores.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <select aria-label="Client filter" className={CTRL} value={filters.client} onChange={(e) => set({ client: e.target.value })}>
-          <option value="">Any client</option>
-          {clients.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select aria-label="Outcome filter" className={CTRL} value={filters.status} onChange={(e) => set({ status: e.target.value as PropFilters["status"] })}>
-          <option value="">Outcome: any</option>
-          <option value="open">Outcome: not decided</option>
-          {RETURN_STATUSES.map((s) => <option key={s} value={s}>Outcome: {s}</option>)}
-        </select>
-        <select aria-label="Where" className={CTRL} value={filters.where} onChange={(e) => set({ where: e.target.value as PropFilters["where"] })}>
-          <option value="">Anywhere</option>
-          <option value="studio">At the studio</option>
-          <option value="away">Not at the studio</option>
-        </select>
-      </div>
+      <FilterBar search={{ value: filters.search, onChange: (v) => set({ search: v }), label: "Search props", placeholder: "Search name, store, client, bin" }}>
+        <SelectField label="Store" hideLabel value={filters.store} onChange={(e) => set({ store: e.target.value })} placeholder="Any store" options={stores.map((x) => ({ value: x, label: x }))} />
+        <SelectField label="Client filter" hideLabel value={filters.client} onChange={(e) => set({ client: e.target.value })} placeholder="Any client" options={clients.map((c) => ({ value: c, label: c }))} />
+        <SelectField
+          label="Outcome filter"
+          hideLabel
+          value={filters.status}
+          onChange={(e) => set({ status: e.target.value as PropFilters["status"] })}
+          placeholder="Outcome: any"
+          options={[{ value: "open", label: "Outcome: not decided" }, ...RETURN_STATUSES.map((x) => ({ value: x, label: `Outcome: ${x}` }))]}
+        />
+        <SelectField label="Where" hideLabel value={filters.where} onChange={(e) => set({ where: e.target.value as PropFilters["where"] })} placeholder="Anywhere" options={[{ value: "studio", label: "At the studio" }, { value: "away", label: "Not at the studio" }]} />
+      </FilterBar>
 
-      {!props ? (
-        error ? null : <p role="status" className="text-sm text-muted-foreground">Loading props...</p>
+      {loadError ? (
+        <ErrorState message={loadError} onRetry={() => void load()} />
+      ) : !props ? (
+        <LoadingState label="Loading props" />
       ) : (
         <>
           <p className="text-sm text-muted-foreground" data-testid="props-count">
             {shown.length === all.length ? `${all.length} props` : `${shown.length} of ${all.length} props`} · {formatPrice(spentTotal(shown))} spent, not counting client supplied
           </p>
-          {shown.length === 0 ? <p className="text-sm text-muted-foreground">No props match these filters.</p> : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-muted-foreground"><th>Prop</th><th>Store</th><th>Price</th><th>Client</th><th>Bin</th><th>At studio</th><th>Client supplied</th><th>Outcome</th><th /></tr>
-              </thead>
-              <tbody>
-                {shown.map((p) => (
-                  <tr key={p.id} className="border-t align-top" data-testid={`prop-row-${p.id}`}>
-                    <td className="py-1.5">
-                      <div className="font-medium">{p.name}</div>
-                      {p.notes && <div className="text-xs text-muted-foreground">{p.notes}</div>}
-                    </td>
-                    <td className="text-xs">{p.store ?? ""}</td>
-                    <td className="text-xs">{formatPrice(p.price)}</td>
-                    <td className="text-xs">{p.client ?? ""}</td>
-                    <td className="text-xs">{p.bin_number ?? ""}</td>
-                    <td><input type="checkbox" aria-label={`${p.name} at the studio`} checked={p.at_studio} disabled={busy} onChange={(e) => { const v = e.target.checked; void run(async () => { await setAtStudio(p.id, v); return `${p.name}: ${v ? "at the studio" : "not at the studio"}.`; }); }} /></td>
-                    <td><input type="checkbox" aria-label={`${p.name} client supplied`} checked={p.client_supplied} disabled={busy} onChange={(e) => { const v = e.target.checked; void run(async () => { await setClientSupplied(p.id, v); return `${p.name}: ${v ? "client supplied" : "bought by Goodo"}.`; }); }} /></td>
-                    <td>
-                      <select aria-label={`${p.name} outcome`} className={CTRL} value={p.return_status ?? ""} disabled={busy} onChange={(e) => { const v = (e.target.value || null) as ReturnStatus | null; void run(async () => { await setReturnStatus(p.id, v); return `${p.name}: ${v ?? "not decided"}.`; }); }}>
-                        <option value="">Not decided</option>
-                        {RETURN_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                    </td>
-                    <td className="space-x-2 text-xs">
-                      <button type="button" className="underline" onClick={() => { setEditing(p); setError(null); setNotice(null); }}>Edit</button>
-                      <button type="button" className="underline" disabled={busy} onClick={() => remove(p)}>Delete</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {shown.length === 0 ? (
+            <EmptyState title="No props match these filters." />
+          ) : (
+            <DataTable label="Props" columns={columns} rows={shown} rowKey={(p) => p.id} rowTestId={(p) => `prop-row-${p.id}`} />
           )}
         </>
       )}
-    </div>
+      {dialog}
+    </PageShell>
   );
 }

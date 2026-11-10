@@ -7,7 +7,8 @@
 // Not ported: the calendar view of expected and delivered dates.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { DataTable, EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField, StatusBadge, TextField, useConfirm, type DataColumn } from "@/components/page-kit";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { DashboardError, loadBrandsAndTeam, type BrandOption } from "./api";
 import {
@@ -42,7 +43,7 @@ import {
 } from "./shipmentsModel";
 import { errorText, formatDay, todayValue } from "./model";
 
-const CTRL = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
+const STATUS_KEY: Record<string, string> = { not_shipped: "draft", in_transit: "in_progress", stuck: "blocked", delivered: "done", footage_due: "waiting", footage_overdue: "late" };
 
 function messageOf(e: unknown, fallback: string): string {
   if (e instanceof DashboardError) return e.code === "P0002" ? "That shipment no longer exists." : errorText(e.code, e.message || fallback);
@@ -65,38 +66,20 @@ function StudioEditor({ initial, title, busy, brands, shoots, onSave, onCancel }
     <form aria-label={title} className="space-y-2 rounded-lg border p-3" onSubmit={(e) => { e.preventDefault(); onSave(form); }}>
       <h2 className="text-sm font-semibold">{title}</h2>
       <div className="grid gap-2 sm:grid-cols-3">
-        <label className="text-xs">Client
-          <select aria-label="Client" className={`${CTRL} mt-0.5 w-full`} value={form.client_slug} onChange={(e) => set({ client_slug: e.target.value, actor_assignment_id: "" })}>
-            <option value="">Pick a client</option>
-            {brands.filter((b) => b.active || b.slug === form.client_slug).map((b) => <option key={b.slug} value={b.slug}>{b.name}</option>)}
-          </select>
-        </label>
-        <label className="text-xs sm:col-span-2">What is in it
-          <input aria-label="What is in it" className={`${CTRL} mt-0.5 w-full`} value={form.description} onChange={(e) => set({ description: e.target.value })} />
-        </label>
-        <label className="text-xs">Carrier
-          <input aria-label="Carrier" list="carrier-suggestions" className={`${CTRL} mt-0.5 w-full`} value={form.carrier} onChange={(e) => set({ carrier: e.target.value })} />
+        <SelectField label="Client" value={form.client_slug} onChange={(e) => set({ client_slug: e.target.value, actor_assignment_id: "" })} placeholder="Pick a client" options={brands.filter((b) => b.active || b.slug === form.client_slug).map((b) => ({ value: b.slug, label: b.name }))} />
+        <TextField label="What is in it" className="sm:col-span-2" value={form.description} onChange={(e) => set({ description: e.target.value })} />
+        <div>
+          <TextField label="Carrier" list="carrier-suggestions" value={form.carrier} onChange={(e) => set({ carrier: e.target.value })} />
           <datalist id="carrier-suggestions">{CARRIER_SUGGESTIONS.map((c) => <option key={c} value={c} />)}</datalist>
-        </label>
-        <label className="text-xs">Tracking number
-          <input aria-label="Tracking number" className={`${CTRL} mt-0.5 w-full`} value={form.tracking_number} onChange={(e) => set({ tracking_number: e.target.value })} />
-        </label>
-        <label className="text-xs">For the shoot
-          <select aria-label="For the shoot" className={`${CTRL} mt-0.5 w-full`} value={form.actor_assignment_id} onChange={(e) => set({ actor_assignment_id: e.target.value })}>
-            <option value="">No shoot</option>
-            {clientShoots.map((s) => <option key={s.id} value={s.id}>{formatDay(s.scheduled_shoot_date)} ({s.actors?.name ?? "actor"})</option>)}
-          </select>
-        </label>
-        <label className="text-xs">Shipped
-          <input aria-label="Shipped" type="date" className={`${CTRL} mt-0.5 w-full`} value={form.shipped_at} onChange={(e) => set({ shipped_at: e.target.value })} />
-        </label>
-        <label className="text-xs">Expected
-          <input aria-label="Expected" type="date" className={`${CTRL} mt-0.5 w-full`} value={form.expected_delivery_at} onChange={(e) => set({ expected_delivery_at: e.target.value })} />
-        </label>
+        </div>
+        <TextField label="Tracking number" value={form.tracking_number} onChange={(e) => set({ tracking_number: e.target.value })} />
+        <SelectField label="For the shoot" value={form.actor_assignment_id} onChange={(e) => set({ actor_assignment_id: e.target.value })} placeholder="No shoot" options={clientShoots.map((x) => ({ value: x.id, label: `${formatDay(x.scheduled_shoot_date)} (${x.actors?.name ?? "actor"})` }))} />
+        <TextField label="Shipped" type="date" value={form.shipped_at} onChange={(e) => set({ shipped_at: e.target.value })} />
+        <TextField label="Expected" type="date" value={form.expected_delivery_at} onChange={(e) => set({ expected_delivery_at: e.target.value })} />
       </div>
       <div className="flex gap-2">
-        <button type="submit" className={CTRL} disabled={busy}>{busy ? "Saving..." : "Save"}</button>
-        <button type="button" className={CTRL} onClick={onCancel}>Cancel</button>
+        <Button type="submit" size="sm" disabled={busy}>{busy ? "Saving..." : "Save"}</Button>
+        <Button type="button" size="sm" variant="outline" onClick={onCancel}>Cancel</Button>
       </div>
     </form>
   );
@@ -111,13 +94,16 @@ export default function ShipmentsPage() {
   const [editing, setEditing] = useState<StudioShipment | "new" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const { confirm, dialog } = useConfirm();
 
   const load = useCallback(async () => {
     try {
       setData(await loadShipments());
+      setLoadError(null);
     } catch (e) {
-      setError(messageOf(e, "Could not load shipments."));
+      setLoadError(messageOf(e, "Could not load shipments."));
     }
   }, []);
   useEffect(() => {
@@ -197,8 +183,8 @@ export default function ShipmentsPage() {
     });
   };
 
-  const remove = (r: ShipmentRow) => {
-    if (!window.confirm(`Delete the studio shipment "${r.description}"? This cannot be undone.`)) return;
+  const remove = async (r: ShipmentRow) => {
+    if (!(await confirm({ title: `Delete the studio shipment "${r.description}"?`, description: "This cannot be undone.", actionLabel: "Delete" }))) return;
     void run(async () => {
       await deleteStudioShipment(r.sourceId);
       return "Shipment deleted.";
@@ -207,14 +193,83 @@ export default function ShipmentsPage() {
 
   const studioById = useMemo(() => new Map((data?.studio ?? []).map((s) => [s.id, s])), [data]);
 
+  const linkBtn = "h-auto p-0";
+  const columns: DataColumn<ShipmentRow>[] = [
+    {
+      key: "status",
+      header: "Status",
+      cell: (r) => {
+        const status = shipmentStatus(r, today);
+        return <StatusBadge status={STATUS_KEY[status]} label={STATUS_LABELS[status]} />;
+      },
+    },
+    { key: "client", header: "Client", cell: (r) => <Link to={`${prefix}/clients/${encodeURIComponent(r.clientSlug)}`} className="underline">{clientName(r.clientSlug)}</Link> },
+    {
+      key: "what",
+      header: filters.lane === "creators" ? "Creator" : "Contents",
+      cell: (r) => (
+        <>
+          {r.creatorId ? <Link to={`${prefix}/creators/${r.creatorId}`} className="underline">{r.recipient}</Link> : r.description}
+          {r.shootDate && <div className="text-muted-foreground">Shoot {formatDay(r.shootDate)}</div>}
+        </>
+      ),
+    },
+    {
+      key: "tracking",
+      header: "Tracking",
+      cell: (r) => {
+        const track = trackingUrl(r.carrier, r.trackingNumber);
+        return (
+          <>
+            {r.carrier && <span>{r.carrier} </span>}
+            {track ? <a href={track} target="_blank" rel="noopener noreferrer" className="underline">{r.trackingNumber}</a> : r.trackingNumber ?? ""}
+          </>
+        );
+      },
+    },
+    {
+      key: "dates",
+      header: "Dates",
+      cell: (r) => (
+        <>
+          {r.shippedAt && <div>Shipped {formatDay(r.shippedAt)}</div>}
+          {r.expectedDeliveryAt && !r.deliveredAt && <div>Expected {formatDay(r.expectedDeliveryAt)}</div>}
+          {r.deliveredAt && <div>Delivered {formatDay(r.deliveredAt)}</div>}
+          {r.footageDueAt && <div>Footage due {formatDay(r.footageDueAt)}</div>}
+        </>
+      ),
+    },
+    { key: "notes", header: "Notes", cell: (r) => r.notes ?? "" },
+    {
+      key: "actions",
+      header: "Actions",
+      srOnlyHeader: true,
+      cell: (r) => (
+        <div className="flex flex-wrap gap-x-2 gap-y-1">
+          {r.deliveredAt
+            ? <Button type="button" variant="link" size="sm" className={linkBtn} disabled={busy} onClick={() => markDelivered(r, null)}>Not delivered</Button>
+            : <Button type="button" variant="link" size="sm" className={linkBtn} disabled={busy} onClick={() => markDelivered(r, today)}>Delivered today</Button>}
+          {r.lane === "creators" && <Button type="button" variant="link" size="sm" className={linkBtn} disabled={busy} onClick={() => editTracking(r)}>Tracking</Button>}
+          <Button type="button" variant="link" size="sm" className={linkBtn} disabled={busy} onClick={() => editNotes(r)}>Notes</Button>
+          {r.lane === "studio" && (
+            <>
+              <Button type="button" variant="link" size="sm" className={linkBtn} onClick={() => { const s = studioById.get(r.sourceId); if (s) { setEditing(s); setError(null); setNotice(null); } }}>Edit</Button>
+              <Button type="button" variant="link" size="sm" className={linkBtn} disabled={busy} onClick={() => void remove(r)}>Delete</Button>
+            </>
+          )}
+        </div>
+      ),
+    },
+  ];
+
   return (
-    <div className="p-6 space-y-4" data-testid="shipments-page">
+    <PageShell wide data-testid="shipments-page">
       <PageHeader title="Shipments" description="Product going out to creators and coming in to the studio, across every client." />
-      <div role="tablist" aria-label="Lane" className="flex gap-2">
+      <div role="tablist" aria-label="Lane" className="flex flex-wrap gap-2">
         {(["creators", "studio"] as const).map((lane) => (
-          <button key={lane} role="tab" aria-selected={filters.lane === lane} type="button" className={`${CTRL} ${filters.lane === lane ? "bg-muted font-semibold" : ""}`} onClick={() => set({ lane, client: "" })}>
+          <Button key={lane} role="tab" aria-selected={filters.lane === lane} type="button" size="sm" variant={filters.lane === lane ? "default" : "outline"} onClick={() => set({ lane, client: "" })}>
             {lane === "creators" ? "Creator shipments" : "Studio shipments"}{data && attention(lane) > 0 ? ` (${attention(lane)} need attention)` : ""}
-          </button>
+          </Button>
         ))}
       </div>
       <p className="text-xs text-muted-foreground">
@@ -237,71 +292,24 @@ export default function ShipmentsPage() {
           onCancel={() => setEditing(null)}
         />
       ) : (
-        <button type="button" className={CTRL} onClick={() => { setEditing("new"); setError(null); setNotice(null); }}>Add studio shipment</button>
+        <Button type="button" size="sm" variant="outline" onClick={() => { setEditing("new"); setError(null); setNotice(null); }}>Add studio shipment</Button>
       ))}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <input aria-label="Search shipments" placeholder="Search recipient, contents, carrier, tracking, notes" className={`${CTRL} min-w-[16rem]`} value={filters.search} onChange={(e) => set({ search: e.target.value })} />
-        <select aria-label="Client filter" className={CTRL} value={filters.client} onChange={(e) => set({ client: e.target.value })}>
-          <option value="">Every client</option>
-          {laneClients.map((s) => <option key={s} value={s}>{clientName(s)}</option>)}
-        </select>
-        <select aria-label="Show" className={CTRL} value={filters.show} onChange={(e) => set({ show: e.target.value as ShipmentFilters["show"] })}>
-          <option value="">All</option>
-          <option value="open">Not delivered yet</option>
-          <option value="attention">Needs attention</option>
-        </select>
-      </div>
+      <FilterBar search={{ value: filters.search, onChange: (v) => set({ search: v }), label: "Search shipments", placeholder: "Search recipient, contents, carrier, tracking, notes" }}>
+        <SelectField label="Client filter" hideLabel value={filters.client} onChange={(e) => set({ client: e.target.value })} placeholder="Every client" options={laneClients.map((c) => ({ value: c, label: clientName(c) }))} />
+        <SelectField label="Show" hideLabel value={filters.show} onChange={(e) => set({ show: e.target.value as ShipmentFilters["show"] })} placeholder="All" options={[{ value: "open", label: "Not delivered yet" }, { value: "attention", label: "Needs attention" }]} />
+      </FilterBar>
 
-      {!data ? (
-        error ? null : <p role="status" className="text-sm text-muted-foreground">Loading shipments...</p>
-      ) : shown.length === 0 ? <p className="text-sm text-muted-foreground">No shipments match these filters.</p> : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs text-muted-foreground"><th>Status</th><th>Client</th><th>{filters.lane === "creators" ? "Creator" : "Contents"}</th><th>Tracking</th><th>Dates</th><th>Notes</th><th /></tr>
-          </thead>
-          <tbody>
-            {shown.map((r) => {
-              const status = shipmentStatus(r, today);
-              const track = trackingUrl(r.carrier, r.trackingNumber);
-              return (
-                <tr key={r.key} className="border-t align-top" data-testid={`shipment-${r.key}`}>
-                  <td className="py-1.5 text-xs"><span className={`rounded px-1 ${status === "stuck" || status === "footage_overdue" ? "bg-destructive/10 text-destructive" : "bg-muted"}`}>{STATUS_LABELS[status]}</span></td>
-                  <td className="text-xs"><Link to={`${prefix}/clients/${encodeURIComponent(r.clientSlug)}`} className="underline">{clientName(r.clientSlug)}</Link></td>
-                  <td className="text-xs">
-                    {r.creatorId ? <Link to={`${prefix}/creators/${r.creatorId}`} className="underline">{r.recipient}</Link> : r.description}
-                    {r.shootDate && <div className="text-muted-foreground">Shoot {formatDay(r.shootDate)}</div>}
-                  </td>
-                  <td className="text-xs">
-                    {r.carrier && <span>{r.carrier} </span>}
-                    {track ? <a href={track} target="_blank" rel="noopener noreferrer" className="underline">{r.trackingNumber}</a> : r.trackingNumber ?? ""}
-                  </td>
-                  <td className="text-xs">
-                    {r.shippedAt && <div>Shipped {formatDay(r.shippedAt)}</div>}
-                    {r.expectedDeliveryAt && !r.deliveredAt && <div>Expected {formatDay(r.expectedDeliveryAt)}</div>}
-                    {r.deliveredAt && <div>Delivered {formatDay(r.deliveredAt)}</div>}
-                    {r.footageDueAt && <div>Footage due {formatDay(r.footageDueAt)}</div>}
-                  </td>
-                  <td className="text-xs">{r.notes ?? ""}</td>
-                  <td className="space-x-2 whitespace-nowrap text-xs">
-                    {r.deliveredAt
-                      ? <button type="button" className="underline" disabled={busy} onClick={() => markDelivered(r, null)}>Not delivered</button>
-                      : <button type="button" className="underline" disabled={busy} onClick={() => markDelivered(r, today)}>Delivered today</button>}
-                    {r.lane === "creators" && <button type="button" className="underline" disabled={busy} onClick={() => editTracking(r)}>Tracking</button>}
-                    <button type="button" className="underline" disabled={busy} onClick={() => editNotes(r)}>Notes</button>
-                    {r.lane === "studio" && (
-                      <>
-                        <button type="button" className="underline" onClick={() => { const s = studioById.get(r.sourceId); if (s) { setEditing(s); setError(null); setNotice(null); } }}>Edit</button>
-                        <button type="button" className="underline" disabled={busy} onClick={() => remove(r)}>Delete</button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      {loadError ? (
+        <ErrorState message={loadError} onRetry={() => void load()} />
+      ) : !data ? (
+        <LoadingState label="Loading shipments" />
+      ) : shown.length === 0 ? (
+        <EmptyState title="No shipments match these filters." />
+      ) : (
+        <DataTable label="Shipments" columns={columns} rows={shown} rowKey={(r) => r.key} rowTestId={(r) => `shipment-${r.key}`} minWidthClass="min-w-[56rem]" />
       )}
-    </div>
+      {dialog}
+    </PageShell>
   );
 }
