@@ -59,6 +59,8 @@ const HooksPage = lazy(routeImports.hooks);
 // Creative Matrix board (US-007) — builder-only, gated below like the US-003
 // taxonomy config surface.
 const MatrixBoardPage = lazy(routeImports.matrix);
+// Growth Dashboard (consolidation step 1): revenue figures, builder only like the Matrix.
+const GrowthDashboardPage = lazy(routeImports.growthDashboard);
 
 const SharedAdBoardPage = lazy(() => import("./pages/SharedAdBoardPage"));
 const PublicVaultItemPage = lazy(() => import("./pages/PublicVaultItemPage"));
@@ -184,6 +186,9 @@ export function RoleGuardedRoutes() {
           {/* Creative Matrix board (US-007) — builder-only; employees, clients,
               and role-preview sessions are redirected to their index. */}
           <Route path="/matrix" element={effectiveBuilder ? <MatrixBoardPage /> : <Navigate to={`${prefix}/`} replace />} />
+          {/* Growth Dashboard: builder only, the same gate as the Matrix. The table's row
+              rules also allow builders only, so this guard is not the only wall. */}
+          <Route path="/growth-dashboard" element={effectiveBuilder ? <GrowthDashboardPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/user-settings" element={<Navigate to={`${prefix}/settings`} replace />} />
           

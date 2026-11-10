@@ -1794,6 +1794,27 @@ export type Database = {
           },
         ]
       }
+      growth_dashboard_data: {
+        Row: {
+          data: Json
+          key: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          data?: Json
+          key: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          data?: Json
+          key?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       health_checks: {
         Row: {
           checked_at: string

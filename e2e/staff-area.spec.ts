@@ -18,6 +18,9 @@ const hasClientCreds = !!process.env.PLAYWRIGHT_CLIENT_EMAIL && !!process.env.PL
 const hasEmployeeCreds = !!process.env.PLAYWRIGHT_EMPLOYEE_EMAIL && !!process.env.PLAYWRIGHT_EMPLOYEE_PASSWORD;
 
 /** Staff pages, relative to the role prefix. Keep in step with STAFF_PAGES in src/test/StaffArea.test.tsx. */
+/** Builder-only pages: an employee is redirected to the index. */
+const BUILDER_ONLY_PATHS = ["/matrix", "/growth-dashboard"];
+
 const STAFF_PATHS = [
   "/staff",
   "/agency",
@@ -28,6 +31,7 @@ const STAFF_PATHS = [
   "/creative-rotation",
   "/entities",
   "/matrix",
+  "/growth-dashboard",
   "/ad-library",
   "/ad-library/boards",
   "/ad-library/hooks",
@@ -73,7 +77,7 @@ test.describe("employee reaches staff pages", () => {
     await expect(page.getByRole("link", { name: "Staff menu" })).toBeVisible({ timeout: 30_000 });
   });
 
-  for (const path of STAFF_PATHS.filter((p) => p !== "/matrix" && !p.includes("/build"))) {
+  for (const path of STAFF_PATHS.filter((p) => !BUILDER_ONLY_PATHS.includes(p) && !p.includes("/build"))) {
     test(`/employee${path} stays on the staff page`, async ({ page }) => {
       await page.goto(`/employee${path}`);
       await page.waitForLoadState("networkidle");
@@ -82,8 +86,10 @@ test.describe("employee reaches staff pages", () => {
     });
   }
 
-  test("/employee/matrix is builder only and redirects to the index", async ({ page }) => {
-    await page.goto("/employee/matrix");
-    await page.waitForURL(/\/employee\/?$/, { timeout: 30_000 });
-  });
+  for (const path of BUILDER_ONLY_PATHS) {
+    test(`/employee${path} is builder only and redirects to the index`, async ({ page }) => {
+      await page.goto(`/employee${path}`);
+      await page.waitForURL(/\/employee\/?$/, { timeout: 30_000 });
+    });
+  }
 });
