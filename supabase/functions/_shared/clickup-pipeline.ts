@@ -10,6 +10,12 @@
 // the client-safe fields (name, column, due date, content type). The raw
 // ClickUp status, assignees, hours, QA results, briefs and links never reach
 // pipeline_tasks.
+//
+// "Link to Asset" (the Air link) is deliberately not synced. A read-only sample
+// on 2026-11-09 found every value in the same app.air.inc/a/<id> shape, in
+// internal stages as well as client-facing ones, and briefs use that same shape
+// for raw creator footage. The shape alone cannot tell a client share link from
+// an internal one, so the link stays out until there is a rule that can.
 
 // The "Client Operations/Views" space. One folder per client, each holding a
 // "{Client} Project View" list with one task per asset.

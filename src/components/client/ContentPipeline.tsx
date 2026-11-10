@@ -2,6 +2,7 @@ import { usePipelineTasks, PipelineTask } from "@/hooks/usePipelineTasks";
 import { differenceInDays, parseISO, format } from "date-fns";
 import { PackageOpen } from "lucide-react";
 import { ClientEmptyState } from "@/components/client/ClientEmptyState";
+import { waitingOnYou } from "@/lib/pipelineSummary";
 
 const STAGE_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
   "Preparing Content": { color: "text-amber-500", bg: "bg-amber-500", label: "Preparing Content" },
@@ -80,6 +81,47 @@ function TaskCard({ task, stage }: { task: PipelineTask; stage: string }) {
   );
 }
 
+/**
+ * "Waiting on you": how many cards are in Client Review and the earliest due
+ * date among them. Read-only text, no buttons or links. Derived from the rows
+ * the board already has.
+ */
+function WaitingOnYouSummary({ tasks }: { tasks: PipelineTask[] }) {
+  const { count, nextDueDate } = waitingOnYou(tasks);
+
+  if (count === 0) {
+    return (
+      <div
+        className="rounded-[8px] border border-input bg-background/40 px-4 py-3 mb-5"
+        data-testid="pipeline-waiting-on-you"
+      >
+        <p className="font-body text-[13px] text-muted-foreground">
+          Nothing is waiting on you right now.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="rounded-[8px] border border-blue-500/40 bg-blue-500/5 px-4 py-3 mb-5"
+      data-testid="pipeline-waiting-on-you"
+    >
+      <p className="font-label text-[10px] uppercase tracking-wide font-medium text-blue-500">
+        Waiting on you
+      </p>
+      <p className="font-body text-[14px] text-foreground mt-0.5">
+        {count} {count === 1 ? "asset is" : "assets are"} ready for your review.
+      </p>
+      {nextDueDate && (
+        <p className="font-body text-[12px] text-muted-foreground mt-0.5">
+          Earliest due date: {format(parseISO(nextDueDate), "MMM d")}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** Group tasks into the active board columns, preserving incoming order. */
 function bucketByColumn(tasks: PipelineTask[]): Record<string, PipelineTask[]> {
   const buckets: Record<string, PipelineTask[]> = {};
@@ -151,6 +193,8 @@ export function ContentPipelineView({
   return (
     <div className="glass-panel p-7" data-testid="content-pipeline">
       <h2 className="font-heading text-[20px] text-foreground mb-4">Content Pipeline</h2>
+
+      <WaitingOnYouSummary tasks={tasks ?? []} />
 
       {/* Horizontal-scroll kanban board — one column per active stage. */}
       <div className="flex gap-4 overflow-x-auto pb-2 -mx-1 px-1 snap-x">
