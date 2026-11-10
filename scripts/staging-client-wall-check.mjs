@@ -132,6 +132,19 @@ for (const table of ["durable_jobs", "job_audit", "slack_destinations", "reminde
   const r = await staff.c.from(table).select("*").limit(1);
   check(`builder can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
 }
+// Operations page (migration 20261111000001, step 4d): cancel_queued_job is staff only.
+// Clients are refused before any lookup; the employee passes the staff check (unknown job)
+// and loads the page query (job columns with the job_audit embed, never the payload).
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  const r = await s.c.rpc("cancel_queued_job", { p_job_id: "00000000-0000-4000-8000-000000000000", p_reason: "wall check cancel" });
+  check(`${label} is refused cancel_queued_job`, r.error?.code === "42501", `code=${r.error?.code ?? "none"}`);
+}
+const opCancel = await employee.c.rpc("cancel_queued_job", { p_job_id: "00000000-0000-4000-8000-000000000000", p_reason: "wall check cancel" });
+check("employee passes the staff check in cancel_queued_job", opCancel.error?.code === "P0002", `code=${opCancel.error?.code ?? "none"}`);
+const opPage = await employee.c.from("durable_jobs").select("id, kind, state, client_slug, engagement_id, attempts, max_attempts, available_at, lease_until, fence, send_started_fence, last_error, receipt, created_at, updated_at, job_audit!job_audit_job_id_fkey(id, action, fence, actor, detail, created_at)").order("updated_at", { ascending: false }).limit(100);
+check("employee loads the operations page query", !opPage.error, `error=${opPage.error?.code ?? ""} ${opPage.error?.message ?? "none"}`);
+const opPageA = await clientA.c.from("durable_jobs").select("id, job_audit!job_audit_job_id_fkey(id)").limit(100);
+check("client A loads no rows with the operations page query", !opPageA.error && (opPageA.data ?? []).length === 0, `error=${opPageA.error?.message ?? "none"} rows=${opPageA.data?.length ?? "error"}`);
 const destEmployee = await employee.c.from("slack_destinations").insert({ label: "wall check", channel_id: "C0WALLCHECK", purpose: "internal" });
 check("employee cannot add a Slack destination (builder only)", !!destEmployee.error, `error=${destEmployee.error?.message ?? "none (write accepted)"}`);
 
