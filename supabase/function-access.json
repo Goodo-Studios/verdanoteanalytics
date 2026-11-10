@@ -117,6 +117,13 @@
     "ingest-reviews": {
       "class": "secret"
     },
+    "integration-health": {
+      "class": "staff",
+      "note": "Goodo OS Integration health page. Read-only status of the ClickUp, Fireflies, Slack and Verdanote data connectors, the job queue and owner alert jobs. Reports whether each secret is set, never its value; calls no outside service.",
+      "probe": {
+        "method": "GET"
+      }
+    },
     "landing-pages": {
       "class": "account-scoped",
       "crossAccountProbe": {

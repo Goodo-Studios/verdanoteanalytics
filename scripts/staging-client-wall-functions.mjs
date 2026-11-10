@@ -101,6 +101,10 @@ const controls = [
   ["employee passes the push-brief-to-clickup gate and it fails closed without a token", "push-brief-to-clickup", employee, { body: { action: "list", client_slug: "wall_probe" } }, (s) => s === 503],
   ["builder passes the push-brief-to-clickup gate and it fails closed without a token", "push-brief-to-clickup", builder, { body: { action: "list", client_slug: "wall_probe" } }, (s) => s === 503],
   ["client B refused by push-brief-to-clickup", "push-brief-to-clickup", clientB, { body: { action: "list", client_slug: "wall_probe" } }, refused],
+  // Integration health is read-only and calls nothing outside, so staff get 200.
+  ["employee accepted by integration-health", "integration-health", employee, { method: "GET" }, (s) => s === 200],
+  ["builder accepted by integration-health", "integration-health", builder, { method: "GET" }, (s) => s === 200],
+  ["client B refused by integration-health", "integration-health", clientB, { method: "GET" }, refused],
 ];
 for (const [label, name, token, opts, ok] of controls) {
   const status = await call(name, token, opts);
