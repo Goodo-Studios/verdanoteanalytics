@@ -124,9 +124,9 @@ test('demo applications: made-up addresses, valid status, one pending per email,
 
 test('demo approval boards: one live creator board on a demo client, votes on its own assignments', () => {
   const t = new Date(now.getTime());
-  const live = seed.approval_boards.filter((b) => !b.revoked && new Date(b.expires_at) > t);
+  const live = seed.approval_boards.filter((b) => b.board_type === 'creators' && !b.revoked && new Date(b.expires_at) > t);
   assert.equal(live.length, 1);
-  for (const b of seed.approval_boards) {
+  for (const b of seed.approval_boards.filter((x) => x.board_type === 'creators')) {
     assert.equal(b.board_type, 'creators');
     assert.match(b.client_slug, /^demo-/);
     assert.equal(b.token.length, 48);
@@ -209,4 +209,17 @@ test('demo shoot: blocks in order, talent confirmed onto the shoot, crew from th
   const crew = new Set(seed.crew_members.map((c) => c.id));
   for (const c of seed.shoot_schedule_block_crew) assert.ok(crew.has(c.crew_member_id));
   for (const a of seed.actor_assignments.filter((x) => x.shoot_id)) assert.equal(a.scheduled_shoot_date, shoot.shoot_date);
+});
+
+test('demo casting link: one live actor board on demo-harbor, votes on its own castings', () => {
+  const boards = seed.approval_boards.filter((b) => b.board_type === 'actors');
+  assert.equal(boards.length, 1);
+  assert.equal(boards[0].token.length, 48);
+  assert.equal(new Set(seed.approval_boards.map((b) => b.token)).size, seed.approval_boards.length);
+  const castings = new Map(seed.actor_assignments.map((a) => [a.id, a]));
+  for (const v of seed.actor_approval_votes) {
+    assert.equal(v.board_id, boards[0].id);
+    assert.equal(castings.get(v.assignment_id)?.client_slug, boards[0].client_slug);
+    assert.ok(['up', 'down'].includes(v.vote));
+  }
 });

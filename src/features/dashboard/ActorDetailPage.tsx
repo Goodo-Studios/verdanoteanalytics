@@ -3,8 +3,9 @@
 // actors), the clients the actor is cast on with their shoot date, and their
 // headshot, photos and videos through signed links.
 //
-// The casting list is read only: casting, shoot scheduling and call sheets move
-// with step 5c. Not ported: uploading or reordering media.
+// The casting list is read only here; casting is managed on the Casting page
+// and shoots on the Production calendar (step 5c). Not ported: uploading or
+// reordering media.
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
@@ -162,11 +163,12 @@ export default function ActorDetailPage() {
                 <Link to={`${prefix}/clients/${encodeURIComponent(c.client_slug)}`} className="font-medium underline">{c.clients?.name ?? c.client_slug}</Link>
                 <span>{actorStageLabel(c.stage)}</span>
                 {c.scheduled_shoot_date && <span className="text-muted-foreground">Shoot {formatDay(c.scheduled_shoot_date)}{c.shoot_location ? `, ${c.shoot_location}` : ""}</span>}
+                <Link to={`${prefix}/casting?brand=${encodeURIComponent(c.client_slug)}`} className="underline">Casting</Link>
               </li>
             ))}
           </ul>
         )}
-        <p className="mt-2 text-xs text-muted-foreground">Casting and shoot scheduling stay on the old dashboard until the production pages move into Verdanote.</p>
+        <p className="mt-2 text-xs text-muted-foreground">Change stages and casting links on the <Link to={`${prefix}/casting`} className="underline">Casting</Link> page and book shoots on the <Link to={`${prefix}/production-calendar`} className="underline">Production calendar</Link>.</p>
       </section>
 
       <MediaList title="Videos" items={detail.videos} links={detail.links} />

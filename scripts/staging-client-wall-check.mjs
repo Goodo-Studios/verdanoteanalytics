@@ -596,6 +596,32 @@ for (const [fn, args] of [
   check(`employee passes the staff check in ${fn}`, res.error?.code === "P0002", `code=${res.error?.code ?? "none"}`);
 }
 
+// Old dashboard batch 3, Casting (step 5c): castings name the talent and a casting link
+// token opens the public casting page without a login. Clients read no castings, no actor
+// casting links and no actor votes, cannot cast, make a link or vote, and are refused
+// apply_actor_approval_votes. The employee runs the page queries and applies an empty list
+// to a demo client, which changes nothing.
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of ["actor_assignments", "actor_approval_votes"]) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const links = await s.c.from("approval_boards").select("id").eq("board_type", "actors");
+  check(`${label} reads no casting links`, !links.error && (links.data ?? []).length === 0, `rows=${links.data?.length ?? "error"}`);
+  const cast = await s.c.from("actor_assignments").insert({ actor_id: ZERO, client_slug: "demo-harbor" });
+  check(`${label} cannot cast an actor`, !!cast.error, `error=${cast.error?.message ?? "none (write accepted)"}`);
+  const ins = await s.c.from("approval_boards").insert({ client_slug: "demo-harbor", board_type: "actors", token: `wall-cast-${label.replace(" ", "-")}-${Date.now()}`, expires_at: new Date(Date.now() + 86400000).toISOString() });
+  check(`${label} cannot make a casting link`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  const res = await s.c.rpc("apply_actor_approval_votes", { p_client_slug: "demo-harbor", p_votes: [] });
+  check(`${label} is refused apply_actor_approval_votes`, res.error?.code === "42501", `code=${res.error?.code ?? "none"}`);
+}
+const castPage = await employee.c.from("actor_assignments").select("id, actor_id, client_slug, stage, owner_id, next_follow_up_at, notes, scheduled_shoot_date, shoot_id, actors(name, gender, age_range, do_not_use_again)").eq("client_slug", "demo-harbor");
+check("employee loads the casting page query", !castPage.error && (castPage.data ?? []).length > 0, `error=${castPage.error?.message ?? "none"} rows=${castPage.data?.length ?? "error"}`);
+const castVotes = await employee.c.from("actor_approval_votes").select("id, board_id, assignment_id, vote, voted_at, voted_by").limit(5);
+check("employee can read actor_approval_votes", !castVotes.error, `error=${castVotes.error?.message ?? "none"}`);
+const applyCast = await employee.c.rpc("apply_actor_approval_votes", { p_client_slug: "demo-harbor", p_votes: [] });
+check("employee passes the staff check in apply_actor_approval_votes (empty list, nothing moves)", !applyCast.error && applyCast.data === 0, `error=${applyCast.error?.message ?? "none"} data=${applyCast.data}`);
+
 // QA gates (migration 20261110120003, step 4b): staff only. Clients read none of the three
 // tables, cannot write them and are refused every checked function, the gate read included.
 const qaTables = ["engagement_deliverable_confirmations", "engagement_deliverable_qa_returns", "engagement_deliverable_signoffs"];

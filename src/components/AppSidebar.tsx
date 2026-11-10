@@ -50,6 +50,7 @@ import {
   HardHat,
   Truck,
   CalendarDays,
+  Clapperboard,
 } from "lucide-react";
 import { ATTIO_URL, GOODO_TIME_URL } from "@/lib/staffMenu";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
@@ -134,6 +135,7 @@ export const builderSections: NavSection[] = [
       { title: "Crew", url: "/crew", icon: HardHat },
       { title: "Shipments", url: "/shipments", icon: Truck },
       { title: "Production calendar", url: "/production-calendar", icon: CalendarDays },
+      { title: "Casting", url: "/casting", icon: Clapperboard },
       { title: "Engagements", url: "/engagements", icon: CalendarRange },
       { title: "Deliverables", url: "/deliverables", icon: PackageCheck },
       { title: "QA gates", url: "/qa-gates", icon: ShieldCheck },

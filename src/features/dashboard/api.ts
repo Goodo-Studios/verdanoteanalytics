@@ -178,11 +178,13 @@ export interface BrandOption {
   name: string;
   active: boolean;
   does_creators: boolean;
+  /** Production clients (casting, shoots). Optional so older callers and mocks stay valid. */
+  does_production?: boolean;
 }
 
 export async function loadBrandsAndTeam(): Promise<{ brands: BrandOption[]; users: AppUser[] }> {
   const [brands, users] = await Promise.all([
-    unwrap(db.from("clients").select<BrandOption[]>("slug, name, active, does_creators").order("name")),
+    unwrap(db.from("clients").select<BrandOption[]>("slug, name, active, does_creators, does_production").order("name")),
     unwrap(db.from("app_users").select<AppUser[]>("id, name, email, role, active").order("name")),
   ]);
   return { brands, users };
