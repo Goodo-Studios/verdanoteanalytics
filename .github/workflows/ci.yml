@@ -300,3 +300,71 @@ jobs:
 
       - name: Smoke test deployed edge functions
         run: bash scripts/smoke-test.sh
+
+  # Browser tests against the DEPLOYED staging site, after the staging deploy (policy: E2E after
+  # deploy, not before). The production E2E job above never runs for staging because its secrets
+  # point at production; this job reads STAGING_* secrets only. It signs in to staging.verdanote.com
+  # as the seeded builder, employee and client test logins (docs/staging.md).
+  #
+  # The staging PAGES are shipped by hand (`vercel deploy --prod` from a staging checkout), not by
+  # this workflow, so these tests exercise whatever pages are live when the job runs. When the
+  # pages are older than the branch, ship them and re-run the job.
+  #
+  # Needs two repository secrets that someone with access to the repository settings must add:
+  # STAGING_TEST_PASSWORD (vault: STAGING_TEST_PASSWORD) and STAGING_GATE_PASSWORD (vault:
+  # STAGING_GATE_PASSWORD). Without either, the job passes with a warning that names what is
+  # missing and runs nothing.
+  e2e-staging:
+    name: E2E tests on STAGING (Playwright)
+    runs-on: ubuntu-24.04
+    needs: [deploy-staging]
+    if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
+
+    env:
+      STAGING_TEST_PASSWORD: ${{ secrets.STAGING_TEST_PASSWORD }}
+      STAGING_GATE_PASSWORD: ${{ secrets.STAGING_GATE_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check staging E2E configuration
+        id: cfg
+        run: |
+          missing=""
+          [ -z "$STAGING_TEST_PASSWORD" ] && missing="$missing STAGING_TEST_PASSWORD"
+          [ -z "$STAGING_GATE_PASSWORD" ] && missing="$missing STAGING_GATE_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Staging browser tests skipped::Add the repository secret(s)$missing to run the staging browser tests (see docs/staging.md, Browser tests on staging)."
+            echo "Staging browser tests skipped. Missing repository secret(s):$missing"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.cfg.outputs.configured == 'true'
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.cfg.outputs.configured == 'true'
+        run: npm ci
+
+      - name: Install Playwright browsers
+        if: steps.cfg.outputs.configured == 'true'
+        run: npx playwright install chromium --with-deps
+
+      - name: Run staging browser tests
+        if: steps.cfg.outputs.configured == 'true'
+        run: npm run test:e2e:staging
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-staging-artifacts
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
