@@ -11,7 +11,7 @@
 -- evidence is unchanged; the proposal cannot be changed. All rows are made up.
 
 BEGIN;
-SELECT plan(29);
+SELECT plan(30);
 
 INSERT INTO auth.users (id, email) VALUES
   ('eb000000-0000-4000-8000-000000000001', 'rc-builder@example.test'),
@@ -74,7 +74,7 @@ SELECT throws_ok($$SELECT public.decide_recommendation((SELECT id FROM r1), 2, '
 SELECT is(public.decide_recommendation((SELECT id FROM r1), 1, 'accepted', 'The current winner opens on a routine',
   'Routine openers lower CPA', 'Brief three routine hooks', '[{"kind":"ad","id":"rc_ad_a1"}]'::jsonb), 2, 'accepted with a cited ad, version 2');
 
--- ---------------------------------------------------------------- linking and evaluating (15-23)
+-- ---------------------------------------------------------------- linking and evaluating (15-24)
 SELECT is(public.record_recommendation_outcome((SELECT id FROM r1), 2), 'not_executed', 'without a link the outcome is not executed');
 SELECT throws_ok($$SELECT public.link_recommendation_execution((SELECT id FROM r1), 3, ARRAY['rc_ad_b1'], NULL, 'eb000000-0000-4000-8000-000000000002', '2020-01-01', '2020-01-07')$$,
   '22023', NULL, 'another client''s ad cannot be linked');
@@ -82,8 +82,9 @@ SELECT throws_ok($$SELECT public.link_recommendation_execution((SELECT id FROM r
   '22023', NULL, 'a client login cannot be the accountable owner');
 SELECT is(public.link_recommendation_execution((SELECT id FROM r1), 3, ARRAY['rc_ad_a1', 'rc_ad_a2'], NULL, 'eb000000-0000-4000-8000-000000000002',
   '2020-01-01', '2020-01-07'), 4, 'two ads linked, version 4');
-SELECT is(public.record_recommendation_outcome((SELECT id FROM r1), 4) || ':' || (SELECT reason FROM public.recommendation_outcomes WHERE recommendation_id = (SELECT id FROM r1) AND recommendation_version = 5),
-  'insufficient:insufficient_testing', 'an ad with no impressions in the window leaves the outcome insufficient');
+SELECT is(public.record_recommendation_outcome((SELECT id FROM r1), 4), 'insufficient', 'an ad with no impressions in the window leaves the outcome insufficient');
+SELECT is((SELECT reason FROM public.recommendation_outcomes WHERE recommendation_id = (SELECT id FROM r1) AND recommendation_version = 5),
+  'insufficient_testing', 'the recorded reason is insufficient testing');
 SELECT throws_ok($$SELECT public.review_recommendation_learning((SELECT id FROM r1), 5, (SELECT id FROM public.recommendation_outcomes WHERE recommendation_id = (SELECT id FROM r1) AND recommendation_version = 5), 'supported', 'x')$$,
   '40001', NULL, 'a learning needs a measured outcome');
 SELECT is(public.link_recommendation_execution((SELECT id FROM r1), 5, ARRAY['rc_ad_a1'], NULL, 'eb000000-0000-4000-8000-000000000002',
@@ -93,7 +94,7 @@ SELECT is((SELECT impressions || ':' || round(spend) || ':' || round(purchases) 
             WHERE outcome_id = (SELECT id FROM public.recommendation_outcomes WHERE recommendation_id = (SELECT id FROM r1) AND recommendation_version = 7)),
   '1000:50:2:1', 'the outcome stores the numbers it read from the ad metrics');
 
--- ---------------------------------------------------------------- learning (24-26)
+-- ---------------------------------------------------------------- learning (25-27)
 RESET role;
 INSERT INTO public.creative_daily_metrics (ad_id, account_id, date, impressions, spend, clicks, purchases, purchase_value)
 VALUES ('rc_ad_a1', 'act_rc_a', '2020-01-03', 500, 25, 5, 1, 60);
@@ -106,7 +107,7 @@ SELECT is(public.review_recommendation_learning((SELECT id FROM r1), 8,
   (SELECT id FROM public.recommendation_outcomes WHERE recommendation_id = (SELECT id FROM r1) AND recommendation_version = 8),
   'supported', 'Routine openers held CPA in the window'), 9, 'the learning is recorded, version 9');
 
--- ---------------------------------------------------------------- stale sync, ad options, history (27-29)
+-- ---------------------------------------------------------------- stale sync, ad options, history (28-30)
 RESET role;
 UPDATE public.ad_accounts SET last_synced_at = '2020-01-05' WHERE id = 'act_rc_a';
 SET LOCAL role authenticated;
