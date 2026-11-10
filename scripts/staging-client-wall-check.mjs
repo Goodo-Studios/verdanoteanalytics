@@ -975,6 +975,59 @@ const bidOne = await employee.c.from("client_bids").select("id, client_slug, ver
 check("employee loads the BID body query", !bidOne.error, `error=${bidOne.error?.code ?? ""} ${bidOne.error?.message ?? "none"}`);
 check("staging BIDs are all made up", !bidList.error && (bidList.data ?? []).every((b) => b.data_origin === "made_up"), `origins=${[...new Set((bidList.data ?? []).map((b) => b.data_origin))]}`);
 
+// Old dashboard batch 4, Settings and team (step 5d, migration 20261111040001): one staff
+// list. Clients read no staff list at all (team list, role mapping, invites, audit), cannot
+// give themselves a role and are refused the seven functions. The employee reads the mapping
+// and the team list (the page queries), reads no invites or audit, cannot grant themselves
+// builder by function or by direct write and is refused the reconciliation and the mapping
+// change. The builder reads the reconciliation; only counts per issue are printed. Nothing
+// here writes: every call that gets past a role check is given an id that matches nothing.
+const STAFF_5D_FUNCTIONS = [
+  ["staff_reconciliation", {}],
+  ["set_staff_role_mapping", { p_dashboard_role: "viewer", p_verdanote_role: "employee", p_needs_owner_decision: false, p_note: "wall" }],
+  ["prepare_staff_invite", { p_team_member_id: ZERO }],
+  ["cancel_staff_invite", { p_invite_id: ZERO, p_reason: "wall check" }],
+  ["add_login_to_team_list", { p_user_id: ZERO, p_name: "wall" }],
+  ["update_team_member", { p_team_member_id: ZERO, p_name: "wall", p_dashboard_role: "producer", p_active: true }],
+  ["set_staff_role", { p_user_id: ZERO, p_role: "builder" }],
+];
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of ["app_users", "staff_role_mappings", "staff_invites", "staff_admin_events"]) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const selfRole = await s.c.from("user_roles").insert({ user_id: s.userId, role: "builder" });
+  check(`${label} cannot give itself the builder role`, !!selfRole.error, `error=${selfRole.error?.message ?? "none (write accepted)"}`);
+  for (const [fn, args] of STAFF_5D_FUNCTIONS) {
+    const res = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, res.error?.code === "42501", `code=${res.error?.code ?? "none"}`);
+  }
+}
+const teamPage = await employee.c.from("app_users").select("id, name, email, role, active").order("name");
+check("employee loads the team list page query", !teamPage.error && (teamPage.data ?? []).length > 0, `error=${teamPage.error?.code ?? ""} ${teamPage.error?.message ?? "none"} rows=${teamPage.data?.length ?? "error"}`);
+const mapPage = await employee.c.from("staff_role_mappings").select("dashboard_role, verdanote_role, needs_owner_decision, note, updated_at").order("dashboard_role");
+check("employee loads the role mapping page query (three rows)", !mapPage.error && (mapPage.data ?? []).length === 3, `error=${mapPage.error?.code ?? ""} ${mapPage.error?.message ?? "none"} rows=${mapPage.data?.length ?? "error"}`);
+check("the viewer mapping is still flagged for the owner", (mapPage.data ?? []).some((m) => m.dashboard_role === "viewer" && m.needs_owner_decision === true));
+for (const table of ["staff_invites", "staff_admin_events"]) {
+  const r = await employee.c.from(table).select("*").limit(1000);
+  check(`employee reads no ${table} rows (builder only)`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+}
+const empSelf = await employee.c.rpc("set_staff_role", { p_user_id: employee.userId, p_role: "builder" });
+check("employee cannot grant themselves builder through set_staff_role", empSelf.error?.code === "42501", `code=${empSelf.error?.code ?? "none"}`);
+const empInsert = await employee.c.from("user_roles").insert({ user_id: employee.userId, role: "builder" });
+check("employee cannot insert a builder role for themselves", !!empInsert.error, `error=${empInsert.error?.message ?? "none (write accepted)"}`);
+check("employee is still not a builder", !(await roleOf(employee))?.includes("builder"), `roles=${await roleOf(employee)}`);
+for (const [fn, args] of STAFF_5D_FUNCTIONS.filter(([n]) => ["staff_reconciliation", "set_staff_role_mapping", "prepare_staff_invite"].includes(n))) {
+  const res = await employee.c.rpc(fn, args);
+  check(`employee is refused ${fn} (builder only)`, res.error?.code === "42501", `code=${res.error?.code ?? "none"}`);
+}
+const recon = await staff.c.rpc("staff_reconciliation");
+const issueCounts = {};
+for (const row of recon.data ?? []) for (const i of row.issues ?? []) issueCounts[i] = (issueCounts[i] ?? 0) + 1;
+check("builder reads the staff reconciliation", !recon.error && Array.isArray(recon.data), `error=${recon.error?.message ?? "none"} people=${recon.data?.length ?? "error"} issues=${JSON.stringify(issueCounts)}`);
+const prepNone = await staff.c.rpc("prepare_staff_invite", { p_team_member_id: ZERO });
+check("builder passes the role check in prepare_staff_invite (no such member)", prepNone.error?.code === "P0002", `code=${prepNone.error?.code ?? "none"}`);
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

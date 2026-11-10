@@ -50,6 +50,8 @@ INSERT INTO allow
     'replay_job', 'resolve_job_manually', 'cancel_queued_job', 'record_alert_exception', 'delete_prop', 'delete_shoot',
     'record_operating_cost_entry', 'record_operating_budget', 'evaluate_operating_budgets',
     'create_support_request', 'record_support_event', 'assign_support_request',
+    'staff_reconciliation', 'set_staff_role_mapping', 'prepare_staff_invite', 'cancel_staff_invite',
+    'add_login_to_team_list', 'update_team_member', 'set_staff_role',
     'create_knowledge_source', 'submit_knowledge_correction', 'review_knowledge_correction',
     'publish_knowledge_correction', 'rollback_knowledge_source',
     'save_engagement_template', 'create_engagement_from_template', 'record_engagement_kickoff',

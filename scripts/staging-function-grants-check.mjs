@@ -56,8 +56,9 @@ const OPEN_BY_DESIGN = {
 };
 
 // Plain helper functions that are not SECURITY DEFINER. They run with the caller's own
-// rights, touch no tables and return a value computed from their arguments, so they are
-// not a data path. Listed so the refusal check does not flag them.
+// rights and return a value computed from their arguments, so they are not a data path.
+// Listed so the refusal check does not flag them. dashboard_role_to_verdanote_role reads
+// staff_role_mappings (step 5d) under the caller's row rules, so a client gets null.
 const NOT_SECURITY_DEFINER = new Set([
   "dashboard_role_to_verdanote_role",
   "goodo_os_role_to_verdanote_role",
@@ -184,6 +185,8 @@ const mapB = await rpc("goodo_os_user_role_mapping", clientB, {});
 check("client B is refused the Goodo OS role mapping (check inside the function)", denied(mapB), show(mapB));
 const mapBuilder = await rpc("goodo_os_user_role_mapping", builder, {});
 check("builder reads the Goodo OS role mapping", mapBuilder.status === 200, show(mapBuilder));
+const reconBuilder = await rpc("staff_reconciliation", builder, {});
+check("builder reads the staff reconciliation (check inside the function)", reconBuilder.status === 200 && Array.isArray(reconBuilder.body), show(reconBuilder));
 
 // Job queue: the service role can claim (a kind nothing uses, so nothing changes), and a
 // builder gets past the staff check in replay_job (refused only because no such job exists).
