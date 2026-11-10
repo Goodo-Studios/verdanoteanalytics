@@ -10,7 +10,7 @@
 -- moves the lock; history cannot be changed. All rows are made up.
 
 BEGIN;
-SELECT plan(24);
+SELECT plan(26);
 
 INSERT INTO auth.users (id, email) VALUES
   ('ea000000-0000-4000-8000-000000000001', 'sc-builder@example.test'),
@@ -40,7 +40,7 @@ SELECT is((SELECT count(*)::int FROM information_schema.role_table_grants
 SELECT ok(NOT has_function_privilege('authenticated', 'public.lock_scope_on_shot_list_approval()', 'EXECUTE'),
   'the lock trigger function is not callable by signed-in users');
 
--- ---------------------------------------------------------------- locking (5-10)
+-- ---------------------------------------------------------------- locking (5-11)
 SET LOCAL role authenticated;
 SELECT set_config('request.jwt.claim.sub', 'ea000000-0000-4000-8000-000000000002', true);
 CREATE TEMP TABLE sl AS SELECT public.create_approval_subject('ea100000-0000-4000-8000-000000000001', 'shot_list', 'Shot list') AS id;
@@ -52,16 +52,16 @@ SELECT ok(public.record_approval_decision((SELECT id FROM sl), 1, 'changes_reque
   'a changes request is recorded');
 SELECT is((SELECT count(*)::int FROM public.scope_locks WHERE subject_id = (SELECT id FROM sl)), 0, 'a changes request does not lock the scope');
 SELECT is(public.save_approval_draft((SELECT id FROM idea), 0, 'Idea text') + public.publish_approval_version((SELECT id FROM idea), 1), 2, 'idea published');
-SELECT ok(public.record_approval_decision((SELECT id FROM idea), 1, 'approved', 'email', 'Approved by email') IS NOT NULL
-          AND NOT EXISTS (SELECT 1 FROM public.scope_locks WHERE subject_id = (SELECT id FROM idea)), 'an approved idea does not lock a scope');
+SELECT ok(public.record_approval_decision((SELECT id FROM idea), 1, 'approved', 'email', 'Approved by email') IS NOT NULL, 'the idea is approved');
+SELECT is((SELECT count(*)::int FROM public.scope_locks WHERE subject_id = (SELECT id FROM idea)), 0, 'an approved idea does not lock a scope');
 
--- ---------------------------------------------------------------- an approval locks (11-13)
+-- ---------------------------------------------------------------- an approval locks (12-15)
 SELECT is(public.save_approval_draft((SELECT id FROM sl), 1, '12 shots plus a bathroom shot'), 2, 'shot list draft 2');
 SELECT is(public.publish_approval_version((SELECT id FROM sl), 2), 2, 'shot list version 2 published');
-SELECT ok(public.record_approval_decision((SELECT id FROM sl), 2, 'approved', 'slack', 'Thumbs up in the client channel') IS NOT NULL
-          AND (SELECT version FROM public.scope_locks WHERE subject_id = (SELECT id FROM sl)) = 2, 'the client approval locks version 2');
+SELECT ok(public.record_approval_decision((SELECT id FROM sl), 2, 'approved', 'slack', 'Thumbs up in the client channel') IS NOT NULL, 'the client approves version 2');
+SELECT is((SELECT version FROM public.scope_locks WHERE subject_id = (SELECT id FROM sl)), 2, 'the approval locked version 2');
 
--- ---------------------------------------------------------------- client wall (14-17)
+-- ---------------------------------------------------------------- client wall (16-19)
 SELECT set_config('request.jwt.claim.sub', 'ea000000-0000-4000-8000-000000000003', true);
 SELECT is((SELECT count(*)::int FROM public.scope_locks) + (SELECT count(*)::int FROM public.scope_change_requests)
           + (SELECT count(*)::int FROM public.scope_change_evaluations), 0, 'a client reads no locks, requests or evaluations');
@@ -72,7 +72,7 @@ SELECT throws_ok($$INSERT INTO public.scope_change_requests (subject_id, base_ve
                    VALUES ((SELECT id FROM sl), 2, 'ea100000-0000-4000-8000-000000000001', 'sc-alpha', 'x', 'call', 'x', 'ea000000-0000-4000-8000-000000000003')$$,
   '42501', NULL, 'a client cannot write a request directly');
 
--- ---------------------------------------------------------------- requests and evaluations (18-23)
+-- ---------------------------------------------------------------- requests and evaluations (20-25)
 SELECT set_config('request.jwt.claim.sub', 'ea000000-0000-4000-8000-000000000002', true);
 SELECT throws_ok($$SELECT public.request_scope_change((SELECT id FROM sl), 1, 'Add a car shot', 'call', 'Kickoff call')$$, '40001', NULL,
   'a request against a version that is not locked now is refused');
@@ -85,7 +85,7 @@ SELECT ok(public.evaluate_scope_change((SELECT id FROM r1), 'declined', 'Outside
 SELECT throws_ok($$SELECT public.evaluate_scope_change((SELECT id FROM r1), 'accepted', 'Changed my mind')$$, '22023', NULL, 'a decided request stays decided');
 SELECT throws_ok($$SELECT public.request_scope_change((SELECT id FROM idea), 1, 'x', 'call', 'x')$$, 'P0002', NULL, 'an idea has no scope lock');
 
--- ---------------------------------------------------------------- history (24)
+-- ---------------------------------------------------------------- history (26)
 RESET role;
 SELECT throws_ok($$UPDATE public.scope_change_requests SET requested_change = 'changed'$$, '23514', NULL, 'requests cannot be changed');
 
