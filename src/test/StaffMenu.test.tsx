@@ -50,11 +50,12 @@ describe("staff menu content", () => {
     const slots = allStaffMenuItems.filter((i) => i.status === "slot");
     // Each slot is a tool still to move in. A slot leaves this list only when its pages are live
     // (step 5a: Client overview, client pages, Creator pipeline and Follow-ups replaced "dashboard-pipeline";
-    // step 5b: Creators, Actors, Applications and Approval boards replaced "dashboard-creators").
+    // step 5b: Creators, Actors, Applications and Approval boards replaced "dashboard-creators";
+    // step 4d: Operations, Operating costs and Support inbox replaced "goodo-os").
     expect(slots.map((s) => s.id).sort()).toEqual(
-      ["bid-viewer", "content-leaderboard", "dashboard-production", "dashboard-settings", "goodo-os", "wideframe"],
+      ["bid-viewer", "content-leaderboard", "dashboard-production", "dashboard-settings", "wideframe"],
     );
-    for (const id of ["client-overview", "creator-pipeline", "follow-ups", "creators", "actors", "applications", "approval-boards", "locations", "props", "crew", "shipments", "production-calendar", "casting"]) {
+    for (const id of ["client-overview", "creator-pipeline", "follow-ups", "creators", "actors", "applications", "approval-boards", "locations", "props", "crew", "shipments", "production-calendar", "casting", "operations", "operating-costs", "support"]) {
       expect(allStaffMenuItems.find((i) => i.id === id)?.status, id).toBe("live");
     }
     for (const slot of slots) {
@@ -67,7 +68,7 @@ describe("staff menu content", () => {
 
   it("names the planned tools", () => {
     renderAs("builder");
-    for (const title of ["Growth Dashboard", "Ad Name Generator", "Goodo OS areas", "Wideframe Prompt Library"]) {
+    for (const title of ["Growth Dashboard", "Ad Name Generator", "Support inbox", "Wideframe Prompt Library"]) {
       expect(screen.getByText(title)).toBeTruthy();
     }
   });

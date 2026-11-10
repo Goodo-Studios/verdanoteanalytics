@@ -363,6 +363,20 @@ Builders read all four; employees and clients read none. Checked functions (buil
 
 Differences from Goodo OS: Verdanote's meeting recaps and agent evaluations do not record token usage, so model spend is not measured and the one budget covers the active fixed entries; the forecast level (a month-end projection of variable spend) is therefore not ported. The separate Goodo OS alert outbox is replaced by the shared job queue. Budget checks run when a builder presses "Check budgets now"; nothing is scheduled. Tests in `supabase/tests/operating_costs_test.sql` and `src/test/operatingCostsPage.test.tsx`.
 
+### Support inbox
+
+Page `/support` (builder and employee) and migration `20261111000004_support_inbox.sql`, no edge function. Port of the Goodo OS staff support inbox (`src/pages/staff/SupportInbox.tsx`, `backend/services/support.ts`, migrations `017_support.sql` and `018_support_fallback.sql`).
+
+| Table | Purpose |
+|---|---|
+| `support_requests` | one client question: client, optional engagement, subject, question, channel it came in on (call, Slack, email, meeting, other), open or resolved, next update owed by, accountable owner, optional backup, revision |
+| `support_history` | the question and every staff update, resolution and reopen, with the status and revision after it. Immutable |
+| `support_assignment_history` | every owner and backup assignment. Immutable |
+
+Staff read all three; clients read none, including questions about their own client. Checked functions (`staff_area` allow-list, role tested in the body): `create_support_request` (the same subject and question for the same client returns the existing request; the owner defaults to the recorder and must be a builder or employee; the engagement must be the client's), `record_support_event` (staff update, resolution of an open request or reopen of a resolved one, against the revision on screen, optionally moving the next update date) and `assign_support_request` (owner or backup, staff only).
+
+Differences from Goodo OS: the client portal is dropped, so staff record the question with its channel and clients neither ask nor read here. Nothing is sent to the client: a staff update records what was said through the usual channel. The engagement strategist binding, the configured fallback owner and per-engagement capability grants are replaced by "the recorder names the owner, any builder or employee acts". Tests in `supabase/tests/support_inbox_test.sql` and `src/test/supportInboxPage.test.tsx`.
+
 ## Alternatives rejected
 
 **A new `os_clients` table with a uuid id, and the dashboard `clients` folded into it.** Gives a cleaner id, but the eight dashboard tables and the dashboard staff functions (`create_client`, `set_client_*`, `create_shoot` and others) already key on `clients.slug`, so it means either two client ids side by side or rewriting all of them. Not the smallest change.
