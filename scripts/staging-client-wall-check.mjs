@@ -889,6 +889,35 @@ for (const [table, select] of [
   check(`builder loads the operating costs page query on ${table}`, !r.error, `error=${r.error?.code ?? ""} ${r.error?.message ?? "none"}`);
 }
 
+// Support inbox (migration 20261111000004, step 4d): staff only. Clients read none of the three
+// tables, cannot write them and are refused every checked function. The employee reads, passes
+// the staff check (unknown request) and loads the page query. Nothing here writes.
+const supportTables = ["support_requests", "support_history", "support_assignment_history"];
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of supportTables) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const ins = await s.c.from("support_history").insert({ request_id: ZERO, event_kind: "response", body: "wall", status: "open", revision: 9, actor_id: s.userId });
+  check(`${label} cannot write support_history`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  for (const [fn, args] of [
+    ["create_support_request", { p_client_slug: "demo-glowdrip", p_engagement_id: null, p_subject: "wall", p_question: "wall", p_channel: "other", p_next_update_target: "2026-11-30", p_accountable_user_id: null }],
+    ["record_support_event", { p_request_id: ZERO, p_expected_revision: 1, p_event_kind: "response", p_body: "wall", p_next_update_target: null }],
+    ["assign_support_request", { p_request_id: ZERO, p_expected_revision: 1, p_assigned_to: s.userId, p_assignment_kind: "backup" }],
+  ]) {
+    const r = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, r.error?.code === "42501", `code=${r.error?.code ?? "none"}`);
+  }
+}
+for (const table of supportTables) {
+  const r = await employee.c.from(table).select("*").limit(1);
+  check(`employee can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
+}
+const siEvent = await employee.c.rpc("record_support_event", { p_request_id: ZERO, p_expected_revision: 1, p_event_kind: "response", p_body: "wall", p_next_update_target: null });
+check("employee passes the staff check in record_support_event", siEvent.error?.code === "P0002", `code=${siEvent.error?.code ?? "none"}`);
+const siPage = await employee.c.from("support_requests").select("*, support_history!support_history_request_id_fkey(*), support_assignment_history!support_assignment_history_request_id_fkey(*)").eq("status", "open").order("updated_at", { ascending: false }).limit(200);
+check("employee loads the support inbox page query", !siPage.error, `error=${siPage.error?.code ?? ""} ${siPage.error?.message ?? "none"}`);
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

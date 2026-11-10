@@ -49,6 +49,7 @@ INSERT INTO allow
     'create_studio_shipment', 'delete_location', 'goodo_os_user_role_mapping',
     'replay_job', 'resolve_job_manually', 'cancel_queued_job', 'record_alert_exception', 'delete_prop', 'delete_shoot',
     'record_operating_cost_entry', 'record_operating_budget', 'evaluate_operating_budgets',
+    'create_support_request', 'record_support_event', 'assign_support_request',
     'create_knowledge_source', 'submit_knowledge_correction', 'review_knowledge_correction',
     'publish_knowledge_correction', 'rollback_knowledge_source',
     'save_engagement_template', 'create_engagement_from_template', 'record_engagement_kickoff',
