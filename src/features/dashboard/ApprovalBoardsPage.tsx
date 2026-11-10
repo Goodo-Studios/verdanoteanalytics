@@ -10,7 +10,9 @@
 // at this database. The page says so. Actor boards are the casting links and
 // move with step 5c.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
+import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
+import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { PageHeader } from "@/components/PageHeader";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { DashboardError, loadBrandsAndTeam, type BrandOption } from "./api";
@@ -32,7 +34,7 @@ import { errorText, formatDay } from "./model";
 const CTRL = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
 
 function messageOf(e: unknown, fallback: string): string {
-  if (e instanceof DashboardError) return e.code === "P0002" ? "A creator on this board is no longer on the brand. Nothing was applied." : errorText(e.code, e.message || fallback);
+  if (e instanceof DashboardError) return e.code === "P0002" ? "A creator on this board is no longer on the client. Nothing was applied." : errorText(e.code, e.message || fallback);
   return e instanceof Error ? e.message : fallback;
 }
 
@@ -56,8 +58,8 @@ function VoteList({ title, votes, prefix }: { title: string; votes: ApprovalVote
 
 export default function ApprovalBoardsPage() {
   const prefix = useRolePrefix();
-  const [params, setParams] = useSearchParams();
-  const brand = params.get("brand") ?? "";
+  // The client comes from the one switcher at the top of the app (or the client hub address).
+  const brand = useSelectedClientSlug();
   const [now] = useState(() => new Date());
   const [brands, setBrands] = useState<BrandOption[] | null>(null);
   const [boards, setBoards] = useState<ApprovalBoard[] | null>(null);
@@ -68,7 +70,7 @@ export default function ApprovalBoardsPage() {
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    loadBrandsAndTeam().then((b) => setBrands(b.brands), (e) => setError(e instanceof Error ? e.message : "Could not load brands."));
+    loadBrandsAndTeam().then((b) => setBrands(b.brands), (e) => setError(e instanceof Error ? e.message : "Could not load clients."));
   }, []);
 
   const load = useCallback(async () => {
@@ -91,7 +93,6 @@ export default function ApprovalBoardsPage() {
     void load();
   }, [load]);
 
-  const creatorBrands = useMemo(() => (brands ?? []).filter((b) => b.does_creators && (b.active || b.slug === brand)), [brands, brand]);
   const brandName = brands?.find((b) => b.slug === brand)?.name ?? brand;
   const live = boards ? activeBoard(boards, now) : null;
   const past = (boards ?? []).filter((b) => b.id !== live?.id);
@@ -145,11 +146,7 @@ export default function ApprovalBoardsPage() {
     <div className="p-6 space-y-4" data-testid="approval-boards-page">
       <PageHeader title="Approval boards" description="Client links for approving shortlisted creators, and what each client decided." />
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <select aria-label="Brand" className={CTRL} value={brand} onChange={(e) => { setParams(e.target.value ? { brand: e.target.value } : {}, { replace: true }); setNotice(null); setError(null); }}>
-          <option value="">Choose a brand</option>
-          {creatorBrands.map((b) => <option key={b.slug} value={b.slug}>{b.name}</option>)}
-        </select>
-        {brand && <Link to={`${prefix}/creator-pipeline?brand=${encodeURIComponent(brand)}`} className="underline">Creator pipeline</Link>}
+        {brand && <Link to={`${prefix}/talent/pipeline`} className="underline">Creator pipeline</Link>}
         {brand && <Link to={`${prefix}/clients/${encodeURIComponent(brand)}`} className="underline">Client page</Link>}
       </div>
       <p className="text-xs text-muted-foreground" data-testid="old-dashboard-note">
@@ -158,7 +155,7 @@ export default function ApprovalBoardsPage() {
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
-      {!brand ? <p className="text-sm text-muted-foreground">Choose a brand to see its approval link.</p> : !boards ? (
+      {!brand ? <PickClientPrompt what="its approval link" /> : !boards ? (
         error ? null : <p role="status" className="text-sm text-muted-foreground">Loading approval boards...</p>
       ) : (
         <>

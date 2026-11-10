@@ -11,6 +11,8 @@
 // keeps the reference.
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
+import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -225,8 +227,8 @@ function CreateForm({ engagementId, staff, onCreated }: { engagementId: string; 
 export default function HandoffsPage() {
   const { user } = useAuth();
   const [staff, setStaff] = useState<StaffOption[]>([]);
-  const [clients, setClients] = useState<ClientOption[]>([]);
-  const [clientSlug, setClientSlug] = useState("");
+  // The client comes from the one switcher at the top of the app (or the client hub address).
+  const clientSlug = useSelectedClientSlug();
   const [engagements, setEngagements] = useState<EngagementOption[]>([]);
   const [engagementId, setEngagementId] = useState("");
   const [mine, setMine] = useState(false);
@@ -235,7 +237,6 @@ export default function HandoffsPage() {
 
   useEffect(() => {
     void db.rpc("handoff_staff_options", {}).then(({ data }) => setStaff((data ?? []) as StaffOption[]));
-    void db.from("clients").select("slug, name").order("name").then(({ data }) => setClients((data ?? []) as ClientOption[]));
   }, []);
   useEffect(() => {
     setEngagementId("");
@@ -264,10 +265,7 @@ export default function HandoffsPage() {
       </div>
       {!mine ? (
         <div className="grid gap-2 sm:grid-cols-2">
-          <select aria-label="Client" className={field} value={clientSlug} onChange={(e) => setClientSlug(e.target.value)}>
-            <option value="">Select a client</option>
-            {clients.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
-          </select>
+          {!clientSlug ? <div className="sm:col-span-2"><PickClientPrompt what="its handoffs" /></div> : null}
           <select aria-label="Engagement" className={field} value={engagementId} onChange={(e) => setEngagementId(e.target.value)} disabled={!clientSlug}>
             <option value="">Select an engagement</option>
             {engagements.map((e) => <option key={e.id} value={e.id}>Cycle {e.cycle_number} ({e.status})</option>)}

@@ -144,7 +144,7 @@ describe("Creators page", () => {
 describe("Creator page", () => {
   it("shows brands with links, media with a signed link and imported categories", async () => {
     renderDetail();
-    const brands = await screen.findByRole("region", { name: "Brands" });
+    const brands = await screen.findByRole("region", { name: "Clients" });
     expect(within(brands).getByRole("link", { name: "Glow Co" }).getAttribute("href")).toBe("/employee/clients/glow");
     expect(within(brands).getByRole("link", { name: "Open in Creator pipeline" }).getAttribute("href")).toBe("/employee/creator-pipeline?brand=glow");
     expect(within(screen.getByRole("region", { name: "Videos" })).getByRole("link", { name: "Play" }).getAttribute("href")).toBe("https://signed.example.test/v1");
@@ -154,7 +154,7 @@ describe("Creator page", () => {
 
   it("saves the profile and keeps imported categories", async () => {
     renderDetail();
-    await screen.findByRole("region", { name: "Brands" });
+    await screen.findByRole("region", { name: "Clients" });
     fireEvent.change(screen.getByLabelText("Location"), { target: { value: "Boston" } });
     fireEvent.click(screen.getByLabelText("Skincare"));
     fireEvent.click(screen.getByLabelText("Do not use again"));
@@ -168,7 +168,7 @@ describe("Creator page", () => {
 
   it("refuses a scale outside 1 to 5 without writing", async () => {
     renderDetail();
-    await screen.findByRole("region", { name: "Brands" });
+    await screen.findByRole("region", { name: "Clients" });
     fireEvent.change(screen.getByLabelText("Scale (1 to 5)"), { target: { value: "9" } });
     fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Scale is a whole number from 1 to 5.");
@@ -177,11 +177,11 @@ describe("Creator page", () => {
 
   it("adds the creator to a creators brand they are not on yet", async () => {
     renderDetail();
-    const select = await screen.findByLabelText("Add to brand");
+    const select = await screen.findByLabelText("Add to client");
     const options = within(select).getAllByRole("option").map((o) => o.textContent);
-    expect(options).toEqual(["Choose a brand", "Northwind"]);
+    expect(options).toEqual(["Choose a client", "Northwind"]);
     fireEvent.change(select, { target: { value: "north" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add to brand" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add to client" }));
     await waitFor(() => expect(addCreatorsToBrand).toHaveBeenCalledWith("north", ["c1"]));
   });
 

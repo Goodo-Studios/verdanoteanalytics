@@ -1,6 +1,10 @@
 import { ReactNode, useState } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { PresenceAvatars } from "@/components/PresenceAvatars";
+import { ClientSwitcher } from "@/components/ClientSwitcher";
+import { ClientSelectionProvider } from "@/contexts/ClientSelectionProvider";
+import { useAuth } from "@/contexts/AuthContext";
+import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
@@ -11,8 +15,13 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { isClient } = useAuth();
+  const { isClientPreview } = useClientPreview();
+  // Staff pick a client in one switcher at the top. A client login has none.
+  const showSwitcher = !isClient && !isClientPreview;
 
   return (
+    <ClientSelectionProvider>
     <div className="flex min-h-screen w-full bg-background">
       {/* Mobile overlay */}
       {mobileOpen && (
@@ -49,8 +58,8 @@ export function AppLayout({ children }: AppLayoutProps) {
             </Button>
             <img src={verdanoteLogo} alt="Verdanote" className="h-5" />
           </div>
-          {/* Spacer for desktop */}
-          <div className="hidden md:block" />
+          {/* Client switcher (staff) */}
+          <div className="min-w-0 flex-1 px-2">{showSwitcher ? <ClientSwitcher /> : null}</div>
           <div className="flex items-center gap-2">
             <PresenceAvatars />
           </div>
@@ -60,5 +69,6 @@ export function AppLayout({ children }: AppLayoutProps) {
         </div>
       </main>
     </div>
+    </ClientSelectionProvider>
   );
 }

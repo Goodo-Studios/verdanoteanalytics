@@ -8,6 +8,8 @@
 // 20261110200005). Clients see none of it: the client learning library is phase 2.
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
+import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -175,8 +177,8 @@ function LessonCard({ lesson, staff, onChanged }: { lesson: Lesson; staff: Staff
   );
 }
 
-function LessonsTab({ clients, staff }: { clients: ClientOption[]; staff: StaffOption[] }) {
-  const [clientSlug, setClientSlug] = useState("");
+function LessonsTab({ staff }: { staff: StaffOption[] }) {
+  const clientSlug = useSelectedClientSlug();
   const [lessons, setLessons] = useState<Lesson[] | null>(null);
   const [form, setForm] = useState({ key: "", title: "" });
   const [error, setError] = useState<string | null>(null);
@@ -200,10 +202,7 @@ function LessonsTab({ clients, staff }: { clients: ClientOption[]; staff: StaffO
   };
   return (
     <div className="space-y-3">
-      <select aria-label="Client" className={field} value={clientSlug} onChange={(e) => setClientSlug(e.target.value)}>
-        <option value="">Select a client</option>
-        {clients.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
-      </select>
+      {!clientSlug ? <PickClientPrompt what="its lessons" /> : null}
       {clientSlug ? (
         <div className="grid gap-2 sm:grid-cols-3">
           <input aria-label="Lesson key" className={field} placeholder="lesson-key" value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value })} />
@@ -218,8 +217,8 @@ function LessonsTab({ clients, staff }: { clients: ClientOption[]; staff: StaffO
   );
 }
 
-function SelfServiceTab({ clients }: { clients: ClientOption[] }) {
-  const [clientSlug, setClientSlug] = useState("");
+function SelfServiceTab() {
+  const clientSlug = useSelectedClientSlug();
   const [engagements, setEngagements] = useState<EngagementOption[]>([]);
   const [engagementId, setEngagementId] = useState("");
   const [weeks, setWeeks] = useState<SupportWeek[]>([]);
@@ -252,10 +251,7 @@ function SelfServiceTab({ clients }: { clients: ClientOption[] }) {
   return (
     <div className="space-y-3">
       <div className="grid gap-2 sm:grid-cols-2">
-        <select aria-label="Self-service client" className={field} value={clientSlug} onChange={(e) => setClientSlug(e.target.value)}>
-          <option value="">Select a client</option>
-          {clients.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
-        </select>
+        {!clientSlug ? <div className="sm:col-span-2"><PickClientPrompt what="its self-service tally" /></div> : null}
         <select aria-label="Engagement" className={field} value={engagementId} onChange={(e) => setEngagementId(e.target.value)} disabled={!clientSlug}>
           <option value="">Select an engagement</option>
           {engagements.map((e) => <option key={e.id} value={e.id}>Cycle {e.cycle_number} ({e.status})</option>)}
@@ -312,10 +308,8 @@ function SelfServiceTab({ clients }: { clients: ClientOption[] }) {
 
 export default function LearningPage() {
   const [tab, setTab] = useState<"lessons" | "self-service">("lessons");
-  const [clients, setClients] = useState<ClientOption[]>([]);
   const [staff, setStaff] = useState<StaffOption[]>([]);
   useEffect(() => {
-    void db.from("clients").select("slug, name").order("name").then(({ data }) => setClients((data ?? []) as ClientOption[]));
     void db.rpc("handoff_staff_options", {}).then(({ data }) => setStaff((data ?? []) as StaffOption[]));
   }, []);
   return (
@@ -325,7 +319,7 @@ export default function LearningPage() {
         <Button size="sm" variant={tab === "lessons" ? "default" : "outline"} onClick={() => setTab("lessons")}>Lessons</Button>
         <Button size="sm" variant={tab === "self-service" ? "default" : "outline"} onClick={() => setTab("self-service")}>Self-service</Button>
       </div>
-      {tab === "lessons" ? <LessonsTab clients={clients} staff={staff} /> : <SelfServiceTab clients={clients} />}
+      {tab === "lessons" ? <LessonsTab staff={staff} /> : <SelfServiceTab />}
     </div>
   );
 }

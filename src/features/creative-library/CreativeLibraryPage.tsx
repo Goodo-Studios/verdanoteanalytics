@@ -173,11 +173,11 @@ export default function CreativeLibraryPage() {
   if (gated) {
     return (
       <div className="p-6 max-w-7xl mx-auto">
-        <PageHeader title="Creative Library" description="Every live creative for this account, as playable cards." />
+        <PageHeader title="Creative Library" description="Every live creative for this client, as playable cards." />
         <div className="text-center py-24 space-y-2">
           <LayoutGrid className="w-10 h-10 text-muted-foreground mx-auto" />
           <p className="text-muted-foreground">
-            Select an account to view its Creative Library.
+            Pick a client to see its Creative Library.
           </p>
         </div>
       </div>

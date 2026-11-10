@@ -41,6 +41,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 import SupportInboxPage from "@/features/support/SupportInboxPage";
+import { WithClient } from "./clientSelection";
 import { isOverdue, newRequestProblem, sortRequests, toRequest, validDate, type RequestRow } from "@/features/support/model";
 
 const req = (over: Partial<RequestRow>): RequestRow => ({
@@ -67,9 +68,44 @@ beforeEach(() => {
   ];
 });
 
+const CLIENTS = [{ slug: "glow", name: "Glow Drip" }] as never[];
+const renderPage = (slug = "") =>
+  render(
+    <WithClient slug={slug} clients={CLIENTS}>
+      <SupportInboxPage />
+    </WithClient>,
+  );
+
+describe("SupportInboxPage with the shared client selection", () => {
+  it("shows every request when no client is selected", async () => {
+    renderPage("");
+    await screen.findAllByRole("listitem", { name: /Support request/ });
+    expect(filters.some(([table, column]) => table === "support_requests" && column === "client_slug")).toBe(false);
+  });
+
+  it("filters requests by the selected client", async () => {
+    renderPage("glow");
+    await screen.findAllByRole("listitem", { name: /Support request/ });
+    expect(filters).toContainEqual(["support_requests", "client_slug", "glow"]);
+  });
+
+  it("defaults the new-request form to the selected client", async () => {
+    renderPage("glow");
+    const form = await screen.findByRole("group", { name: "New support request" });
+    expect(within(form).getByLabelText("Client for the request")).toHaveValue("glow");
+    await within(form).findByRole("option", { name: "Cycle 1 (active)" });
+  });
+
+  it("leaves the new-request client empty when no client is selected", async () => {
+    renderPage("");
+    const form = await screen.findByRole("group", { name: "New support request" });
+    expect(within(form).getByLabelText("Client for the request")).toHaveValue("");
+  });
+});
+
 describe("SupportInboxPage", () => {
   it("opens on open requests, overdue first, with the no-send note and the history", async () => {
-    render(<SupportInboxPage />);
+    renderPage();
     const items = await screen.findAllByRole("listitem", { name: /Support request/ });
     expect(items.map((i) => i.getAttribute("aria-label"))).toEqual(["Support request Invoice copy", "Support request Launch date"]);
     expect(screen.getByTestId("support-status-r2")).toHaveTextContent("Update overdue");
@@ -86,7 +122,7 @@ describe("SupportInboxPage", () => {
   });
 
   it("records a staff update and a resolution against the revision on screen", async () => {
-    render(<SupportInboxPage />);
+    renderPage();
     const card = await screen.findByRole("listitem", { name: "Support request Launch date" });
     fireEvent.change(within(card).getByLabelText("Update"), { target: { value: "  Ads are live  " } });
     fireEvent.change(within(card).getByLabelText("Next update by"), { target: { value: "2026-11-20" } });
@@ -101,7 +137,7 @@ describe("SupportInboxPage", () => {
   it("offers reopen on a resolved request and shows a stale refusal", async () => {
     data.support_requests = [req({ status: "resolved" })];
     rpc.mockResolvedValue({ data: null, error: { code: "40001", message: "x" } });
-    render(<SupportInboxPage />);
+    renderPage();
     const card = await screen.findByRole("listitem", { name: "Support request Launch date" });
     expect(within(card).queryByRole("button", { name: "Resolve" })).toBeNull();
     fireEvent.change(within(card).getByLabelText("Update"), { target: { value: "Asked again" } });
@@ -111,7 +147,7 @@ describe("SupportInboxPage", () => {
   });
 
   it("assigns a backup", async () => {
-    render(<SupportInboxPage />);
+    renderPage();
     const card = await screen.findByRole("listitem", { name: "Support request Launch date" });
     await within(card).findByRole("option", { name: "Mia" });
     fireEvent.change(within(card).getByLabelText("Role"), { target: { value: "backup" } });
@@ -123,7 +159,7 @@ describe("SupportInboxPage", () => {
   });
 
   it("records a new question with me as the default owner", async () => {
-    render(<SupportInboxPage />);
+    renderPage();
     const form = await screen.findByRole("group", { name: "New support request" });
     await within(form).findByRole("option", { name: "Glow Drip" });
     const save = within(form).getByRole("button", { name: "Record question" });
@@ -145,7 +181,7 @@ describe("SupportInboxPage", () => {
   });
 
   it("keeps only my requests when asked", async () => {
-    render(<SupportInboxPage />);
+    renderPage();
     await screen.findAllByRole("listitem", { name: /Support request/ });
     fireEvent.click(screen.getByLabelText(/Only mine/));
     const items = screen.getAllByRole("listitem", { name: /Support request/ });

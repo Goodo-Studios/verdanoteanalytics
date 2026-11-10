@@ -8,6 +8,8 @@
 // see none of it, and the page shows only numbers the database stored.
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
+import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import {
@@ -233,8 +235,8 @@ function ProposeForm({ engagementId, onCreated }: { engagementId: string; onCrea
 }
 
 export default function RecommendationsPage() {
-  const [clients, setClients] = useState<ClientOption[]>([]);
-  const [clientSlug, setClientSlug] = useState("");
+  // The client comes from the one switcher at the top of the app (or the client hub address).
+  const clientSlug = useSelectedClientSlug();
   const [engagements, setEngagements] = useState<EngagementOption[]>([]);
   const [engagementId, setEngagementId] = useState("");
   const [ads, setAds] = useState<AdOption[]>([]);
@@ -244,7 +246,6 @@ export default function RecommendationsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void db.from("clients").select("slug, name").order("name").then(({ data }) => setClients((data ?? []) as ClientOption[]));
     void db.rpc("handoff_staff_options", {}).then(({ data }) => setStaff((data ?? []) as StaffOption[]));
   }, []);
   useEffect(() => {
@@ -278,10 +279,7 @@ export default function RecommendationsPage() {
     <div className="mx-auto w-full max-w-4xl space-y-4" data-testid="recommendations">
       <PageHeader title="Recommendations" description="From decision to measured outcome. Outcomes are computed from the client's ad data and are never a win by themselves; a person writes the learning." />
       <div className="grid gap-2 sm:grid-cols-2">
-        <select aria-label="Client" className={field} value={clientSlug} onChange={(e) => setClientSlug(e.target.value)}>
-          <option value="">Select a client</option>
-          {clients.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
-        </select>
+        {!clientSlug ? <div className="sm:col-span-2"><PickClientPrompt what="its recommendations" /></div> : null}
         <select aria-label="Engagement" className={field} value={engagementId} onChange={(e) => setEngagementId(e.target.value)} disabled={!clientSlug}>
           <option value="">Select an engagement</option>
           {engagements.map((e) => <option key={e.id} value={e.id}>Cycle {e.cycle_number} ({e.status})</option>)}

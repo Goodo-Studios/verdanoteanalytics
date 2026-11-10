@@ -14,7 +14,7 @@ export default function ContentPipelinePage() {
       <div className="space-y-6 p-6 md:p-10">
         {isLoading ? (
           // While accounts (and, for clients, their linked-account filter) are
-          // still resolving, do NOT prematurely show the "Select an account"
+          // still resolving, do NOT prematurely show the "Pick a client"
           // prompt — that empty state is only meaningful once loading settles
           // with no account auto-selected.
           <p className="text-muted-foreground" data-testid="pipeline-loading">
@@ -25,7 +25,7 @@ export default function ContentPipelinePage() {
         ) : selectedAccountId && selectedAccountId !== "all" ? (
           <ContentPipeline accountId={selectedAccountId} />
         ) : (
-          <p className="text-muted-foreground">Select an account to view the content pipeline.</p>
+          <p className="text-muted-foreground">Pick a client in the switcher at the top of the page to see the content pipeline.</p>
         )}
       </div>
     </>

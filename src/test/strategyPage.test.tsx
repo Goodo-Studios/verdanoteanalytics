@@ -11,6 +11,7 @@
  */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { WithClient } from "./clientSelection";
 
 const rpc = vi.fn();
 const data: Record<string, unknown[]> = {};
@@ -57,15 +58,20 @@ beforeEach(() => {
   auth = { user: { id: "reviewer-1" }, isBuilder: false };
 });
 
+const GLOW = [{ slug: "glow", name: "Glow Drip" }] as never[];
+
 async function openEngagement() {
-  render(<StrategyPage />);
-  await screen.findByRole("option", { name: "Glow Drip" });
-  fireEvent.change(screen.getByLabelText("Client"), { target: { value: "glow" } });
+  render(<WithClient slug="glow" clients={GLOW}><StrategyPage /></WithClient>);
   await screen.findByRole("option", { name: "Cycle 1 (active)" });
   fireEvent.change(screen.getByLabelText("Engagement"), { target: { value: "e1" } });
 }
 
 describe("StrategyPage", () => {
+  it("asks for a client when none is selected", () => {
+    render(<WithClient slug="" clients={GLOW}><StrategyPage /></WithClient>);
+    expect(screen.getByText(/Pick a client in the switcher at the top of the page to see its strategy proposals/)).toBeTruthy();
+  });
+
   it("shows the proposal with its state, source and fields", async () => {
     await openEngagement();
     const card = await screen.findByRole("region", { name: "Strategy proposal Routine strategy" });

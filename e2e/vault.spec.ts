@@ -100,7 +100,7 @@ test.describe("Vault features — authenticated golden path", () => {
 
     const prefix = await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
     await page.goto(`${prefix}/ad-library`);
-    await expect(page).toHaveURL(/\/ad-library/);
+    await expect(page).toHaveURL(/\/(ad-library|creative\/vault)/);
 
     // Either a content grid OR a recognisable empty state
     const content = page.locator(
@@ -120,7 +120,7 @@ test.describe("Vault features — authenticated golden path", () => {
 
     const prefix = await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
     await page.goto(`${prefix}/viral-feed`);
-    await expect(page).toHaveURL(/\/viral-feed/);
+    await expect(page).toHaveURL(/\/(viral-feed|creative\/vault)/);
 
     const content = page.locator(
       "[class*='grid'], [class*='card'], [class*='empty'], [class*='skeleton'], h1, h2"
@@ -139,7 +139,7 @@ test.describe("Vault features — authenticated golden path", () => {
 
     const prefix = await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
     await page.goto(`${prefix}/ad-library/boards`);
-    await expect(page).toHaveURL(/\/boards/);
+    await expect(page).toHaveURL(/boards/);
 
     const content = page.locator(
       "[class*='grid'], [class*='card'], [class*='board'], [class*='empty'], h1, h2"
@@ -159,7 +159,7 @@ test.describe("Vault features — authenticated golden path", () => {
 
     const prefix = await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
     await page.goto(`${prefix}/ad-library/boards`);
-    await expect(page).toHaveURL(/\/boards/);
+    await expect(page).toHaveURL(/boards/);
 
     // Look for a "New board" / "Create board" / "+ board" button — any plausible label
     const createButton = page.getByRole("button", {
@@ -179,7 +179,7 @@ test.describe("Vault features — authenticated golden path", () => {
 
     const prefix = await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
     await page.goto(`${prefix}/ad-library/hooks`);
-    await expect(page).toHaveURL(/\/hooks/);
+    await expect(page).toHaveURL(/hooks/);
 
     const content = page.locator(
       "[class*='grid'], [class*='card'], [class*='hook'], [class*='empty'], h1, h2"
@@ -202,15 +202,15 @@ test.describe("Vault features — authenticated golden path", () => {
     const prefix = await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
 
     await page.goto(`${prefix}/ad-library`);
-    await expect(page).toHaveURL(/\/ad-library(?!\/)/);
+    await expect(page).toHaveURL(/\/(ad-library(?!\/)|creative\/vault(?!-))/);
     await expectNoErrorPage(page);
 
     await page.goto(`${prefix}/viral-feed`);
-    await expect(page).toHaveURL(/\/viral-feed/);
+    await expect(page).toHaveURL(/\/(viral-feed|creative\/vault)/);
     await expectNoErrorPage(page);
 
     await page.goto(`${prefix}/ad-library/boards`);
-    await expect(page).toHaveURL(/\/boards/);
+    await expect(page).toHaveURL(/boards/);
     await expectNoErrorPage(page);
   });
 
@@ -225,7 +225,7 @@ test.describe("Vault features — authenticated golden path", () => {
 
     const prefix = await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
     await page.goto(`${prefix}/ad-library`);
-    await expect(page).toHaveURL(/\/ad-library/);
+    await expect(page).toHaveURL(/\/(ad-library|creative\/vault)/);
 
     // Give the grid a moment to fetch
     await page.waitForTimeout(2_500);
@@ -468,7 +468,7 @@ test.describe("Vault — save analytics creative to global library (US-006)", ()
 
     // --- AC2: navigate to the global vault library and assert presence ---
     await page.goto(`${prefix}/ad-library`);
-    await expect(page).toHaveURL(/\/ad-library/);
+    await expect(page).toHaveURL(/\/(ad-library|creative\/vault)/);
     await page.waitForTimeout(2_500); // let the library grid fetch
 
     // The library is global; the just-saved item should render as a card with

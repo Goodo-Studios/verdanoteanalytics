@@ -1,7 +1,7 @@
 /**
  * Creator pipeline (consolidation step 5a, port of the old dashboard Pipeline).
  *
- * - The brand lives in ?brand=; one brand shows every stage, All brands opens
+ * - The client comes from the one switcher (no page dropdown); one client shows every stage, All clients opens
  *   on the production stages and can widen to all active stages.
  * - Stage, owner and follow-up changes call updateAssignment; delivery goes
  *   through saveDelivery; add and remove change creator_assignments.
@@ -12,6 +12,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { WithClient } from "./clientSelection";
 import type { Assignment } from "@/features/dashboard/model";
 
 const api = {
@@ -61,22 +62,22 @@ beforeEach(() => {
   api.updateAssignment.mockResolvedValue(undefined);
 });
 
-const renderAt = (search = "") => render(<MemoryRouter initialEntries={[`/builder/creator-pipeline${search}`]}><CreatorPipelinePage /></MemoryRouter>);
+const renderAt = (slug = "") => render(<WithClient slug={slug}><MemoryRouter initialEntries={["/builder/talent/pipeline"]}><CreatorPipelinePage /></MemoryRouter></WithClient>);
 
 describe("Creator pipeline page", () => {
-  it("asks for a brand and offers only creator-line brands", async () => {
-    renderAt();
-    expect(await screen.findByText(/Choose a brand, or All brands/)).toBeTruthy();
-    const options = within(screen.getByLabelText("Brand")).getAllByRole("option").map((o) => o.textContent);
-    await waitFor(() => expect(within(screen.getByLabelText("Brand")).getAllByRole("option").length).toBe(4));
-    expect(options[0]).toBe("Choose a brand");
-    expect(screen.queryByRole("option", { name: "Shoot Co" })).toBeNull();
-    expect(api.loadAssignments).not.toHaveBeenCalled();
+  it("with no client selected shows every client's creators and has no client dropdown of its own", async () => {
+    api.loadAssignments.mockResolvedValue([row("1", "shooting", "north")]);
+    renderAt("");
+    expect(await screen.findByRole("region", { name: "Shooting" })).toBeTruthy();
+    expect(api.loadAssignments).toHaveBeenCalledWith("all");
+    expect(screen.queryByLabelText("Brand")).toBeNull();
+    expect(screen.queryByLabelText("Client")).toBeNull();
+    expect(screen.queryByText(/Choose a brand/)).toBeNull();
   });
 
   it("shows one brand on every stage and saves stage, owner and follow-up changes", async () => {
     api.loadAssignments.mockResolvedValue([row("1", "sourced"), row("2", "product_shipped", "glow", { owner_id: "u2" })]);
-    renderAt("?brand=glow");
+    renderAt("glow");
     const sourced = await screen.findByRole("region", { name: "Sourced" });
     expect(api.loadAssignments).toHaveBeenCalledWith("glow");
     expect(within(sourced).getByText("Creator 1")).toBeTruthy();
@@ -95,7 +96,7 @@ describe("Creator pipeline page", () => {
   it("records delivery on shipping stages", async () => {
     api.loadAssignments.mockResolvedValue([row("2", "product_shipped")]);
     api.saveDelivery.mockResolvedValue({});
-    renderAt("?brand=glow");
+    renderAt("glow");
     fireEvent.change(await screen.findByLabelText("Tracking number for Creator 2"), { target: { value: " 1Z99 " } });
     fireEvent.change(screen.getByLabelText("Delivered on for Creator 2"), { target: { value: "2026-11-09" } });
     fireEvent.click(screen.getByRole("button", { name: "Save delivery" }));
@@ -105,7 +106,7 @@ describe("Creator pipeline page", () => {
   it("keeps the delivery notes when tracking is saved (they were wiped before step 5c)", async () => {
     api.loadAssignments.mockResolvedValue([{ ...row("2", "product_shipped"), delivery_notes: "Left with the doorman" }]);
     api.saveDelivery.mockResolvedValue({});
-    renderAt("?brand=glow");
+    renderAt("glow");
     fireEvent.change(await screen.findByLabelText("Tracking number for Creator 2"), { target: { value: "1Z77" } });
     fireEvent.click(screen.getByRole("button", { name: "Save delivery" }));
     await waitFor(() => expect(api.saveDelivery).toHaveBeenCalledWith("2", "1Z77", null, "Left with the doorman"));
@@ -120,7 +121,7 @@ describe("Creator pipeline page", () => {
     ]);
     api.addCreatorsToBrand.mockResolvedValue(undefined);
     api.removeAssignment.mockResolvedValue(undefined);
-    renderAt("?brand=glow");
+    renderAt("glow");
     fireEvent.click(await screen.findByRole("button", { name: "Add creators" }));
     const picker = await screen.findByRole("group", { name: "Add creators" });
     expect(within(picker).queryByText("Banned")).toBeNull();
@@ -129,25 +130,25 @@ describe("Creator pipeline page", () => {
     fireEvent.click(within(picker).getByRole("button", { name: "Add 1 creator" }));
     await waitFor(() => expect(api.addCreatorsToBrand).toHaveBeenCalledWith("glow", ["c-9"]));
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    fireEvent.click(screen.getByRole("button", { name: "Remove from brand" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove from client" }));
     await waitFor(() => expect(api.removeAssignment).toHaveBeenCalledWith("1"));
   });
 
-  it("opens All brands on the production stages, with brand names and no remove button", async () => {
+  it("opens All clients on the production stages, with client names and no remove button", async () => {
     api.loadAssignments.mockResolvedValue([row("1", "sourced", "north"), row("2", "shooting", "north")]);
-    renderAt("?brand=all");
+    renderAt("");
     const shooting = await screen.findByRole("region", { name: "Shooting" });
     expect(within(shooting).getByText("North Co")).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Sourced" })).toBeNull();
     expect(screen.getByText(/1 creators are in stages not shown/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Remove from brand" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove from client" })).toBeNull();
     fireEvent.change(screen.getByLabelText("Stages shown"), { target: { value: "all" } });
     expect(await screen.findByRole("region", { name: "Sourced" })).toBeTruthy();
   });
 
   it("shows a list view and the link to the brand's approval board", async () => {
     api.loadAssignments.mockResolvedValue([row("1", "brief_sent", "glow", { brief_name: "Brief A", owner_id: "u1", next_follow_up_at: "2026-11-12" })]);
-    renderAt("?brand=glow");
+    renderAt("glow");
     await screen.findByRole("region", { name: "Brief Sent" });
     fireEvent.click(screen.getByRole("button", { name: "List" }));
     const table = screen.getByRole("table", { name: "Creator list" });

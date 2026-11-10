@@ -6,6 +6,7 @@
 // Clients read none of it, and nothing is sent to a client from here.
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -165,8 +166,8 @@ function RequestCard({ request, names, staff, clientName, onChanged }: {
   );
 }
 
-function NewRequest({ clients, staff, me, onCreated }: { clients: ClientOption[]; staff: StaffOption[]; me: string; onCreated: () => void }) {
-  const empty: NewRequestForm = { clientSlug: "", engagementId: "", subject: "", question: "", channel: "slack", nextUpdateTarget: today(), accountableUserId: me };
+function NewRequest({ clients, defaultClientSlug, staff, me, onCreated }: { clients: ClientOption[]; defaultClientSlug: string; staff: StaffOption[]; me: string; onCreated: () => void }) {
+  const empty: NewRequestForm = { clientSlug: defaultClientSlug, engagementId: "", subject: "", question: "", channel: "slack", nextUpdateTarget: today(), accountableUserId: me };
   const [form, setForm] = useState<NewRequestForm>(empty);
   const [engagements, setEngagements] = useState<EngagementOption[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -230,16 +231,15 @@ function NewRequest({ clients, staff, me, onCreated }: { clients: ClientOption[]
 export default function SupportInboxPage() {
   const { user } = useAuth();
   const me = user?.id ?? "";
-  const [clients, setClients] = useState<ClientOption[]>([]);
+  // The client comes from the one switcher at the top of the app. "All clients" shows every request.
+  const { clients, selectedSlug: clientSlug } = useClientSelection();
   const [staff, setStaff] = useState<StaffOption[]>([]);
   const [status, setStatus] = useState<StatusFilter>("open");
-  const [clientSlug, setClientSlug] = useState("");
   const [mine, setMine] = useState(false);
   const [requests, setRequests] = useState<SupportRequest[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void db.from("clients").select("slug, name").order("name").then(({ data }) => setClients((data ?? []) as ClientOption[]));
     void db.rpc("handoff_staff_options").then(({ data }) =>
       setStaff(((data ?? []) as Array<{ user_id: string; display_name: string | null; email: string | null }>).map((r) => ({ user_id: r.user_id, label: r.display_name || r.email || "A staff member" }))),
     );
@@ -268,15 +268,11 @@ export default function SupportInboxPage() {
     <div className="mx-auto w-full max-w-4xl space-y-4" data-testid="support-inbox">
       <PageHeader title="Support inbox" description="Client questions with an accountable owner and the date the next update is owed. Staff only." />
       <p className="rounded border border-input bg-muted/40 p-3 text-sm">{NO_SEND_NOTE}</p>
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid gap-2 sm:grid-cols-2">
         <select aria-label="Status" className={field} value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)}>
           <option value="open">Open</option>
           <option value="resolved">Resolved</option>
           <option value="all">All</option>
-        </select>
-        <select aria-label="Client" className={field} value={clientSlug} onChange={(e) => setClientSlug(e.target.value)}>
-          <option value="">All clients</option>
-          {clients.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
         </select>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> Only mine (owner or backup)
@@ -291,7 +287,7 @@ export default function SupportInboxPage() {
       </ul>
       <details>
         <summary className="cursor-pointer text-sm font-medium">Record a client question</summary>
-        <div className="mt-2"><NewRequest clients={clients} staff={staff} me={me} onCreated={() => void load()} /></div>
+        <div className="mt-2"><NewRequest clients={clients} defaultClientSlug={clientSlug} staff={staff} me={me} onCreated={() => void load()} /></div>
       </details>
     </div>
   );

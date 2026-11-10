@@ -8,8 +8,9 @@
 // decision. Every write goes through a checked database function (migration
 // 20261110120002); clients see none of it.
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
+import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -204,10 +205,8 @@ function SubjectCard({ s, onChanged }: { s: ApprovalSubject; onChanged: () => vo
 }
 
 export default function DeliverablesPage() {
-  // Optional ?client=<slug> (from a client page) preselects that client.
-  const [searchParams] = useSearchParams();
-  const [clients, setClients] = useState<ClientOption[]>([]);
-  const [clientSlug, setClientSlug] = useState(() => searchParams.get("client") ?? "");
+  // The client comes from the one switcher at the top of the app (or the client hub address).
+  const clientSlug = useSelectedClientSlug();
   const [engagements, setEngagements] = useState<EngagementOption[]>([]);
   const [engagementId, setEngagementId] = useState("");
   const [deliverables, setDeliverables] = useState<Deliverable[] | null>(null);
@@ -216,14 +215,6 @@ export default function DeliverablesPage() {
   const [newSubject, setNewSubject] = useState({ title: "", kind: "idea" });
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    void db.from("clients").select("slug, name").order("name").then(({ data }) => {
-      const list = (data ?? []) as ClientOption[];
-      setClients(list);
-      // Drop a preselected client that is not in the list (unknown or hidden slug).
-      setClientSlug((slug) => (slug && !list.some((c) => c.slug === slug) ? "" : slug));
-    });
-  }, []);
   useEffect(() => {
     setEngagementId("");
     if (!clientSlug) return setEngagements([]);
@@ -249,10 +240,7 @@ export default function DeliverablesPage() {
     <div className="mx-auto w-full max-w-4xl space-y-4" data-testid="deliverables">
       <PageHeader title="Deliverables and approvals" description="Each revision, the client's decision on it, and approvals of ideas and shot lists." />
       <div className="grid gap-2 sm:grid-cols-2">
-        <select aria-label="Client" className={field} value={clientSlug} onChange={(e) => setClientSlug(e.target.value)}>
-          <option value="">Select a client</option>
-          {clients.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
-        </select>
+        {!clientSlug ? <div className="sm:col-span-2"><PickClientPrompt what="deliverables and approvals" /></div> : null}
         <select aria-label="Engagement" className={field} value={engagementId} onChange={(e) => setEngagementId(e.target.value)} disabled={!clientSlug}>
           <option value="">Select an engagement</option>
           {engagements.map((e) => <option key={e.id} value={e.id}>Cycle {e.cycle_number} ({STATUS_LABEL[e.status] ?? e.status})</option>)}

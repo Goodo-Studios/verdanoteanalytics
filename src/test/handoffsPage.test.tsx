@@ -12,6 +12,7 @@
  */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { WithClient } from "./clientSelection";
 
 const rpc = vi.fn();
 const data: Record<string, unknown[]> = {};
@@ -67,15 +68,20 @@ const PACKET = {
 beforeEach(() => {
   rpc.mockReset();
   data.handoff_packets = [PACKET];
-  data.clients = [{ slug: "glow", name: "Glow Drip" }];
   data.engagements = [{ id: "e1", cycle_number: 1, status: "active" }];
   auth = { user: { id: "editor-1" }, isBuilder: false };
   source = "current";
   published = [];
 });
 
+// The client now comes from the shared switcher: render the page with it selected.
+const CLIENTS = [{ slug: "glow", name: "Glow Drip", active: true }];
+function renderPage(slug = "glow") {
+  return render(<WithClient slug={slug} clients={CLIENTS}><HandoffsPage /></WithClient>);
+}
+
 async function waitingForMe() {
-  render(<HandoffsPage />);
+  renderPage();
   fireEvent.click(screen.getByRole("button", { name: "Waiting for me" }));
   return screen.findByRole("region", { name: "Handoff to Editor" });
 }
@@ -132,9 +138,7 @@ describe("HandoffsPage", () => {
   it("creates a packet for an engagement", async () => {
     auth = { user: { id: "strat-1" }, isBuilder: false };
     rpc.mockResolvedValue({ data: "p2", error: null });
-    render(<HandoffsPage />);
-    await screen.findByRole("option", { name: "Glow Drip" });
-    fireEvent.change(screen.getByLabelText("Client"), { target: { value: "glow" } });
+    renderPage();
     await screen.findByRole("option", { name: "Cycle 1 (active)" });
     fireEvent.change(screen.getByLabelText("Engagement"), { target: { value: "e1" } });
     fireEvent.click(await screen.findByText("Create a handoff packet"));
@@ -155,9 +159,7 @@ describe("HandoffsPage", () => {
   async function openCreate() {
     auth = { user: { id: "strat-1" }, isBuilder: false };
     rpc.mockResolvedValue({ data: "p2", error: null });
-    render(<HandoffsPage />);
-    await screen.findByRole("option", { name: "Glow Drip" });
-    fireEvent.change(screen.getByLabelText("Client"), { target: { value: "glow" } });
+    renderPage();
     await screen.findByRole("option", { name: "Cycle 1 (active)" });
     fireEvent.change(screen.getByLabelText("Engagement"), { target: { value: "e1" } });
     fireEvent.click(await screen.findByText("Create a handoff packet"));
@@ -187,6 +189,13 @@ describe("HandoffsPage", () => {
     expect(screen.queryByTestId("strategy-prefill")).toBeNull();
     expect((screen.getByLabelText("Brief") as HTMLTextAreaElement).value).toBe("");
     expect(screen.getByRole("button", { name: "Create handoff" })).toBeDisabled();
+  });
+
+  it("asks for a client when none is selected", async () => {
+    renderPage("");
+    expect(await screen.findByText(/Pick a client in the switcher at the top of the page to see its handoffs/)).toBeTruthy();
+    expect(screen.getByLabelText("Engagement")).toBeDisabled();
+    expect(screen.queryByLabelText("Client")).toBeNull();
   });
 
   it("shows where a packet brief started", async () => {

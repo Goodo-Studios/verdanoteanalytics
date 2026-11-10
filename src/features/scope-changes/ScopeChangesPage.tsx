@@ -9,6 +9,8 @@
 // it, and nothing is sent to ClickUp.
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
+import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -131,17 +133,14 @@ function ShotListCard({ shotList, requests, onChanged }: { shotList: ShotList; r
 }
 
 export default function ScopeChangesPage() {
-  const [clients, setClients] = useState<ClientOption[]>([]);
-  const [clientSlug, setClientSlug] = useState("");
+  // The client comes from the one switcher at the top of the app (or the client hub address).
+  const clientSlug = useSelectedClientSlug();
   const [engagements, setEngagements] = useState<EngagementOption[]>([]);
   const [engagementId, setEngagementId] = useState("");
   const [shotLists, setShotLists] = useState<ShotList[] | null>(null);
   const [requests, setRequests] = useState<ChangeRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    void db.from("clients").select("slug, name").order("name").then(({ data }) => setClients((data ?? []) as ClientOption[]));
-  }, []);
   useEffect(() => {
     setEngagementId("");
     if (!clientSlug) return setEngagements([]);
@@ -170,10 +169,7 @@ export default function ScopeChangesPage() {
     <div className="mx-auto w-full max-w-4xl space-y-4" data-testid="scope-changes">
       <PageHeader title="Scope changes" description="The client's approved shot list is the locked scope. Record change requests against it; a builder accepts or declines each one." />
       <div className="grid gap-2 sm:grid-cols-2">
-        <select aria-label="Client" className={field} value={clientSlug} onChange={(e) => setClientSlug(e.target.value)}>
-          <option value="">Select a client</option>
-          {clients.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
-        </select>
+        {!clientSlug ? <div className="sm:col-span-2"><PickClientPrompt what="its scope changes" /></div> : null}
         <select aria-label="Engagement" className={field} value={engagementId} onChange={(e) => setEngagementId(e.target.value)} disabled={!clientSlug}>
           <option value="">Select an engagement</option>
           {engagements.map((e) => <option key={e.id} value={e.id}>Cycle {e.cycle_number} ({e.status})</option>)}

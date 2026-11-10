@@ -11,6 +11,7 @@
  */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { WithClient } from "./clientSelection";
 
 const rpc = vi.fn();
 const data: Record<string, unknown[]> = {};
@@ -61,16 +62,21 @@ beforeEach(() => {
   data.recommendations = [BASE];
 });
 
+const GLOW = [{ slug: "glow", name: "Glow Drip" }] as never[];
+
 async function open(title = "Test routine hooks") {
-  render(<RecommendationsPage />);
-  await screen.findByRole("option", { name: "Glow Drip" });
-  fireEvent.change(screen.getByLabelText("Client"), { target: { value: "glow" } });
+  render(<WithClient slug="glow" clients={GLOW}><RecommendationsPage /></WithClient>);
   await screen.findByRole("option", { name: "Cycle 1 (active)" });
   fireEvent.change(screen.getByLabelText("Engagement"), { target: { value: "e1" } });
   return screen.findByRole("region", { name: `Recommendation ${title}` });
 }
 
 describe("RecommendationsPage", () => {
+  it("asks for a client when none is selected", () => {
+    render(<WithClient slug="" clients={GLOW}><RecommendationsPage /></WithClient>);
+    expect(screen.getByText(/Pick a client in the switcher at the top of the page to see its recommendations/)).toBeTruthy();
+  });
+
   it("loads with explicit relationship names", async () => {
     await open();
     expect(selects).toContain(`recommendations:${SELECT}`);

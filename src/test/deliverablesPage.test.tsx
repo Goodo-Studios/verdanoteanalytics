@@ -15,7 +15,7 @@
  */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { WithClient } from "./clientSelection";
 
 const rpc = vi.fn();
 const data: Record<string, unknown[]> = {};
@@ -63,21 +63,21 @@ const IDEA = {
 
 beforeEach(() => {
   rpc.mockReset();
-  data.clients = [{ slug: "glow", name: "Glow Drip" }];
   data.engagements = [{ id: "e1", cycle_number: 1, status: "active" }];
   data.engagement_deliverables = [VIDEO, STATIC];
   data.approval_subjects = [IDEA];
   auth = { user: { id: "emp-1" }, isBuilder: false };
 });
 
-function renderPage(url = "/builder/deliverables") {
-  return render(<MemoryRouter initialEntries={[url]}><DeliverablesPage /></MemoryRouter>);
+const CLIENTS = [{ slug: "glow", name: "Glow Drip", active: true }];
+
+// The client now comes from the shared switcher: render the page with it selected.
+function renderPage(slug = "glow") {
+  return render(<WithClient slug={slug} clients={CLIENTS}><DeliverablesPage /></WithClient>);
 }
 
 async function open() {
   renderPage();
-  await screen.findByRole("option", { name: "Glow Drip" });
-  fireEvent.change(screen.getByLabelText("Client"), { target: { value: "glow" } });
   await screen.findByRole("option", { name: "Cycle 1 (Active)" });
   fireEvent.change(screen.getByLabelText("Engagement"), { target: { value: "e1" } });
   return screen.findByRole("region", { name: "Hook video" });
@@ -173,15 +173,16 @@ describe("DeliverablesPage", () => {
     expect(kinds).toEqual(["Video", "Image", "Design", "Document", "Other"]);
   });
 
-  it("preselects the client from ?client= and ignores an unknown one", async () => {
-    const { unmount } = renderPage("/builder/deliverables?client=glow");
-    await screen.findByRole("option", { name: "Glow Drip" });
-    expect((screen.getByLabelText("Client") as HTMLSelectElement).value).toBe("glow");
+  it("shows the selected client's engagements, and asks for a client when none is selected", async () => {
+    const { unmount } = renderPage("glow");
     expect(await screen.findByRole("option", { name: "Cycle 1 (Active)" })).toBeTruthy();
+    expect(screen.queryByLabelText("Client")).toBeNull();
+    expect(screen.queryByTestId("pick-client-prompt")).toBeNull();
     unmount();
-    renderPage("/builder/deliverables?client=nobody");
-    await screen.findByRole("option", { name: "Glow Drip" });
-    await waitFor(() => expect((screen.getByLabelText("Client") as HTMLSelectElement).value).toBe(""));
+    renderPage("");
+    expect(await screen.findByText(/Pick a client in the switcher at the top of the page to see deliverables and approvals/)).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Cycle 1 (Active)" })).toBeNull();
+    expect(screen.getByLabelText("Engagement")).toBeDisabled();
   });
 
   it("adds a deliverable to the engagement", async () => {

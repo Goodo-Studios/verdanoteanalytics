@@ -9,8 +9,9 @@
 // Overlap: the old dashboard Client Detail page (step 5a) shows the same clients;
 // it is not built here.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { useClientSelection } from "@/contexts/ClientSelectionContext";
+import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -51,12 +52,6 @@ interface Untyped {
 const db = supabase as unknown as Untyped;
 const SELECT = "*, engagement_terms(*), engagement_notes(purchase_reference), engagement_milestones(*), engagement_closeouts(*)";
 const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
-
-interface ClientOption {
-  slug: string;
-  name: string;
-  active: boolean;
-}
 
 function TemplateForm({ templates, clientSlug, onSaved }: { templates: EngagementTemplate[]; clientSlug: string; onSaved: () => void }) {
   const [form, setForm] = useState({ key: "standard-sprint", scope: "global", type: "standard_sprint", milestones: "kickoff\ndelivery", deliverables: "", source: "" });
@@ -201,24 +196,13 @@ function EngagementCard({ engagement, onChanged }: { engagement: Engagement; onC
 
 export default function EngagementsPage() {
   const { isBuilder } = useAuth();
-  // Optional ?client=<slug> (from a client page) preselects that client.
-  const [searchParams] = useSearchParams();
-  const [clients, setClients] = useState<ClientOption[]>([]);
-  const [clientSlug, setClientSlug] = useState(() => searchParams.get("client") ?? "");
+  // The client comes from the one switcher at the top of the app (or the client hub address).
+  const { clients, selectedSlug: clientSlug } = useClientSelection();
   const [engagements, setEngagements] = useState<Engagement[] | null>(null);
   const [templates, setTemplates] = useState<EngagementTemplate[]>([]);
   const [templateId, setTemplateId] = useState("");
   const [purchase, setPurchase] = useState("");
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    void db.from("clients").select("slug, name, active").order("name").then(({ data }) => {
-      const list = (data ?? []) as ClientOption[];
-      setClients(list);
-      // Drop a preselected client that is not in the list (unknown or hidden slug).
-      setClientSlug((slug) => (slug && !list.some((c) => c.slug === slug) ? "" : slug));
-    });
-  }, []);
 
   const loadTemplates = useCallback(async () => {
     const { data } = await db.from("engagement_templates").select("*").order("template_key");
@@ -250,10 +234,7 @@ export default function EngagementsPage() {
   return (
     <div className="mx-auto w-full max-w-4xl space-y-4" data-testid="engagements">
       <PageHeader title="Engagements" description="45-day cycles per client: create from a template, record the kickoff, write the closeout." />
-      <select aria-label="Client" className={field} value={clientSlug} onChange={(e) => setClientSlug(e.target.value)}>
-        <option value="">Select a client</option>
-        {clients.map((c) => <option key={c.slug} value={c.slug}>{c.name}{c.active ? "" : " (inactive)"}</option>)}
-      </select>
+      {!clientSlug ? <PickClientPrompt what="its engagements" /> : null}
       {isBuilder ? <TemplateForm templates={templates} clientSlug={clientSlug} onSaved={() => void loadTemplates()} /> : null}
       {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
       {clientSlug && client?.active ? (

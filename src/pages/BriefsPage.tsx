@@ -38,7 +38,7 @@ const BriefsPage = () => {
   const handleNew = (templateId?: string, refAdIds?: string[]) => {
     const acctId = selectedAccountId === "all" ? accounts[0]?.id : selectedAccountId;
     if (!acctId) {
-      toast.error("Select an account first");
+      toast.error("Pick a client first");
       return;
     }
     const template = templateId ? templates.find((t) => t.id === templateId) : null;

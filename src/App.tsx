@@ -17,6 +17,9 @@ import { AppLayout } from "@/components/AppLayout";
 import { RequireOneAccount } from "@/components/RequireOneAccount";
 import { PageSkeleton } from "@/components/skeletons/PageSkeleton";
 import { routeImports } from "@/lib/routePrefetch";
+import { SectionPage } from "@/components/sections/SectionPage";
+import { LEGACY_REDIRECTS } from "@/lib/legacyRoutes";
+import { SECTIONS } from "@/lib/sections";
 
 // Critical pages — loaded eagerly (auth flow)
 import LoginPage from "./pages/LoginPage";
@@ -26,112 +29,38 @@ import { PrivacyPolicyPage, TermsPage, DataDeletionPage } from "./pages/LegalPag
 
 // Non-critical pages — lazy loaded for bundle splitting. The shell pages share
 // their import thunks with the hover-prefetch registry (src/lib/routePrefetch)
-// so a hovered tab and its eventual mount resolve to one fetch.
+// so a hovered tab and its eventual mount resolve to one fetch. Pages that only
+// show inside a section tab are loaded by SectionPage (src/components/sections).
 const OverviewPage = lazy(routeImports.overview);
 const CreativesPage = lazy(routeImports.creatives);
-
 const AnalyticsPage = lazy(routeImports.analytics);
 const ComparePage = lazy(routeImports.compare);
-const TaggingPage = lazy(routeImports.tagging);
-const ReportsPage = lazy(routeImports.reports);
-const EntityReportPage = lazy(routeImports.entityReport);
 const ClientReportsPage = lazy(routeImports.clientReports);
 const ReportDetailPage = lazy(routeImports.reportDetail);
 const ReportBuilderPage = lazy(routeImports.reportBuilder);
-const CreativeRotationPage = lazy(routeImports.creativeRotation);
 const PublicReportPage = lazy(() => import("./pages/PublicReportPage"));
 const SettingsPage = lazy(routeImports.settings);
-const LandingPagesPage = lazy(routeImports.landingPages);
-
-const BriefsPage = lazy(routeImports.briefs);
 const PublicBriefPage = lazy(() => import("./pages/PublicBriefPage"));
-const AgencyDashboardPage = lazy(routeImports.agencyDashboard);
-// Staff menu: the front door of the staff area (builder and employee only).
-const StaffHomePage = lazy(routeImports.staffHome);
+// Staff Home: the front door of the staff area (builder and employee only).
+const HomePage = lazy(routeImports.home);
 const ContentPipelinePage = lazy(routeImports.contentPipeline);
-// Old Ad Library is replaced by the Creative Vault Library page (US-006).
-// The old page lives at features/ad-library/AdLibraryPage.tsx and is no longer routed.
-const CreativeLibraryPage = lazy(routeImports.creativeLibrary);
-const AdLibraryPage = lazy(routeImports.adLibrary);
 const VaultItemDetailPage = lazy(routeImports.vaultItemDetail);
-const BoardsPage = lazy(routeImports.boards);
 const BoardDetailPage = lazy(routeImports.boardDetail);
-const HooksPage = lazy(routeImports.hooks);
-// Creative Matrix board (US-007) — builder-only, gated below like the US-003
-// taxonomy config surface.
-const MatrixBoardPage = lazy(routeImports.matrix);
-// Growth Dashboard (consolidation step 1): revenue figures, builder only like the Matrix.
-const GrowthDashboardPage = lazy(routeImports.growthDashboard);
-// Ad Name Generator (consolidation step 2): builder and employee.
-const AdNameGeneratorPage = lazy(routeImports.adNameGenerator);
-// Deliverables and approvals (consolidation step 4b, Goodo OS): builder and employee.
+// Pages that move into the client hub (builder and employee).
 const DeliverablesPage = lazy(routeImports.deliverables);
-// QA gates (consolidation step 4b, Goodo OS): builder and employee.
 const QaGatesPage = lazy(routeImports.qaGates);
-// Handoffs (consolidation step 4b, Goodo OS): builder and employee.
 const HandoffsPage = lazy(routeImports.handoffs);
-// Agent evaluations (consolidation step 4c, Goodo OS): builder and employee.
-const AgentEvaluationsPage = lazy(routeImports.agentEvaluations);
-// Operations (consolidation step 4d, Goodo OS): builder and employee.
-const OperationsPage = lazy(routeImports.operations);
-// Operating costs (consolidation step 4d, Goodo OS): builder only.
-const OperatingCostsPage = lazy(routeImports.operatingCosts);
-// Support inbox (consolidation step 4d, Goodo OS): builder and employee.
-const SupportInboxPage = lazy(routeImports.supportInbox);
-// Client BIDs (consolidation step 6, read-only BID viewer): builder and employee.
-const BidViewerPage = lazy(routeImports.bidViewer);
-// Team and settings (consolidation step 5d, old dashboard Settings): builder and employee;
-// the page itself keeps the reconciliation, invites and every change builder only.
-const TeamPage = lazy(routeImports.team);
-// Learning (consolidation step 4c, Goodo OS): builder and employee.
-const LearningPage = lazy(routeImports.learning);
-// Scope changes (consolidation step 4c, Goodo OS): builder and employee.
 const ScopeChangesPage = lazy(routeImports.scopeChanges);
-// Recommendations (consolidation step 4c, Goodo OS): builder and employee.
 const RecommendationsPage = lazy(routeImports.recommendations);
-// Strategy proposals (consolidation step 4c, Goodo OS): builder and employee.
 const StrategyPage = lazy(routeImports.strategy);
-// Engagements (consolidation step 4b, Goodo OS): builder and employee.
 const EngagementsPage = lazy(routeImports.engagements);
-// Knowledge (consolidation step 4a, Goodo OS): builder and employee.
-const KnowledgePage = lazy(routeImports.knowledge);
-// Follow-ups (consolidation step 5a, old dashboard): builder and employee.
-const FollowUpsPage = lazy(routeImports.followUps);
-// Creator pipeline (consolidation step 5a, old dashboard): builder and employee.
-const CreatorPipelinePage = lazy(routeImports.creatorPipeline);
-// Client page (consolidation step 5a, old dashboard): builder and employee.
+// Client page and client list (builder and employee).
 const ClientDetailPage = lazy(routeImports.clientDetail);
-// Client overview (consolidation step 5a, old dashboard): builder and employee.
 const ClientOverviewPage = lazy(routeImports.clientOverview);
-// Approval boards (consolidation step 5b, old dashboard): builder and employee.
-const ApprovalBoardsPage = lazy(routeImports.approvalBoards);
-// Locations (consolidation step 5c, old dashboard Production): builder and employee.
-const LocationsPage = lazy(routeImports.locations);
-// Props (consolidation step 5c, old dashboard Production): builder and employee.
-const PropsPage = lazy(routeImports.props);
-// Crew (consolidation step 5c, old dashboard Production): builder and employee.
-const CrewPage = lazy(routeImports.crew);
-// Shipments (consolidation step 5c, old dashboard Production): builder and employee.
-const ShipmentsPage = lazy(routeImports.shipments);
-// Production calendar (consolidation step 5c, old dashboard Production): builder and employee.
-const ProductionCalendarPage = lazy(routeImports.productionCalendar);
-// Casting (consolidation step 5c, old dashboard Production): builder and employee.
-const CastingPage = lazy(routeImports.casting);
-// Call sheets (consolidation step 5c, old dashboard Production): builder and employee.
-const CallSheetsPage = lazy(routeImports.callSheets);
-// Applications (consolidation step 5b, old dashboard): builder and employee.
-const ApplicationsPage = lazy(routeImports.applications);
+// Detail pages for the Talent tabs (builder and employee).
 const ApplicationDetailPage = lazy(routeImports.applicationDetail);
-// Actors (consolidation step 5b, old dashboard): builder and employee.
-const ActorsPage = lazy(routeImports.actors);
 const ActorDetailPage = lazy(routeImports.actorDetail);
-// Creators (consolidation step 5b, old dashboard): builder and employee.
-const CreatorsPage = lazy(routeImports.creators);
 const CreatorDetailPage = lazy(routeImports.creatorDetail);
-// Meeting recaps (consolidation step 4a, Goodo OS): builder and employee.
-const MeetingRecapsPage = lazy(routeImports.meetingRecaps);
-// Integration health (consolidation step 4a, Goodo OS): builder and employee.
-const IntegrationHealthPage = lazy(routeImports.integrationHealth);
 
 const SharedAdBoardPage = lazy(() => import("./pages/SharedAdBoardPage"));
 const PublicVaultItemPage = lazy(() => import("./pages/PublicVaultItemPage"));
@@ -207,7 +136,6 @@ export function RoleGuardedRoutes() {
   const staffPage = isStaff && !effectiveClient;
   // Builder-only surfaces (US-007 Creative Matrix, matching the US-003 taxonomy
   // config gate): a real builder, not previewing another role.
-  const effectiveBuilder = isBuilder && !isClientPreview && !isEmployeePreview;
 
   const [agencyHomeFlag] = useState(() => localStorage.getItem("verdanote_agency_default_home") === "true");
   const agencyHome = isStaff && agencyHomeFlag;
@@ -235,84 +163,55 @@ export function RoleGuardedRoutes() {
       <AppLayout>
         <Suspense fallback={<PageSkeleton />}>
         <Routes>
-          <Route path="/" element={agencyHome ? <AgencyDashboardPage /> : <OverviewPage />} />
-          <Route path="/agency" element={staffPage ? <AgencyDashboardPage /> : <Navigate to={`${prefix}/`} replace />} />
-          {/* Staff menu. A client, or a builder previewing the client view, goes to the index. */}
-          <Route path="/staff" element={staffPage ? <StaffHomePage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/creatives" element={<CreativesPage />} />
+          {/* Home. Staff who chose the agency overview as their start page land on it. */}
+          <Route
+            path="/"
+            element={
+              staffPage ? (agencyHome ? <Navigate to={`${prefix}/creative/agency`} replace /> : <HomePage />) : <OverviewPage />
+            }
+          />
+          {/* Staff menu sections: one page each, with tabs. A client, or a builder previewing
+              the client view, goes to the index. */}
+          {SECTIONS.flatMap((section) => [
+            <Route key={section.id} path={`/${section.id}`} element={<SectionPage section={section} />} />,
+            <Route key={`${section.id}-tab`} path={`/${section.id}/:tab`} element={<SectionPage section={section} />} />,
+          ])}
+          {/* Old addresses: every page that moved under a tab redirects to it, keeping the
+              query string (?client=, ?brand=, ?account=). Anyone who is not staff goes to the
+              index, as these routes did before. */}
+          {LEGACY_REDIRECTS.filter((r) => !r.clientAccessible).map((r) => (
+            <Route
+              key={r.from}
+              path={r.from}
+              element={<Navigate to={staffPage ? `${prefix}${r.to}${location.search}` : `${prefix}/`} replace />}
+            />
+          ))}
+          {/* A client's own pages stay where they are. Staff are sent to the tab. */}
+          <Route path="/creatives" element={staffPage ? <Navigate to={`${prefix}/creative/creatives${location.search}`} replace /> : <CreativesPage />} />
           <Route path="/creatives/compare" element={<ComparePage />} />
-          {/* Creative Library (Feature 4 + F3 + F6). Builder/employee only; the
-              page itself gates to the builder account for the dogfood rollout. */}
-          <Route path="/creative-library" element={staffPage ? <CreativeLibraryPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/analytics" element={<AnalyticsPage />} />
-          <Route path="/tagging" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <TaggingPage />} />
-          
-          <Route path="/landing-pages" element={staffPage ? <RequireOneAccount pageName="Landing Pages"><LandingPagesPage /></RequireOneAccount> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : <ReportsPage />} />
-          <Route path="/entities" element={staffPage ? <RequireOneAccount pageName="Creative Diversity"><EntityReportPage /></RequireOneAccount> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/analytics" element={staffPage ? <Navigate to={`${prefix}/creative/analytics${location.search}`} replace /> : <AnalyticsPage />} />
+          <Route path="/reports" element={staffPage ? <Navigate to={`${prefix}/creative/reports${location.search}`} replace /> : <ClientReportsPage />} />
           <Route path="/reports/:id" element={<ReportDetailPage />} />
           {/* The report builder is a staff page. Clients read finished reports only. */}
           <Route path="/reports/:id/build" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <ReportBuilderPage />} />
-          <Route path="/creative-rotation" element={staffPage ? <RequireOneAccount pageName="Creative Rotation"><CreativeRotationPage /></RequireOneAccount> : <Navigate to={`${prefix}/`} replace />} />
-          {/* Creative Matrix board (US-007) — builder-only; employees, clients,
-              and role-preview sessions are redirected to their index. */}
-          <Route path="/matrix" element={effectiveBuilder ? <MatrixBoardPage /> : <Navigate to={`${prefix}/`} replace />} />
-          {/* Growth Dashboard: builder only, the same gate as the Matrix. The table's row
-              rules also allow builders only, so this guard is not the only wall. */}
-          <Route path="/growth-dashboard" element={effectiveBuilder ? <GrowthDashboardPage /> : <Navigate to={`${prefix}/`} replace />} />
-          {/* Ad Name Generator: staff page. peek_ad_code and claim_ad_code also refuse
-              anyone who is not builder or employee. */}
-          <Route path="/ad-name-generator" element={staffPage ? <AdNameGeneratorPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/integration-health" element={staffPage ? <IntegrationHealthPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/meeting-recaps" element={staffPage ? <MeetingRecapsPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/knowledge" element={staffPage ? <KnowledgePage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/follow-ups" element={staffPage ? <FollowUpsPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/creator-pipeline" element={staffPage ? <CreatorPipelinePage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/clients/:slug" element={staffPage ? <ClientDetailPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/clients" element={staffPage ? <ClientOverviewPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/approval-boards" element={staffPage ? <ApprovalBoardsPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/locations" element={staffPage ? <LocationsPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/props" element={staffPage ? <PropsPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/crew" element={staffPage ? <CrewPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/shipments" element={staffPage ? <ShipmentsPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/production-calendar" element={staffPage ? <ProductionCalendarPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/casting" element={staffPage ? <CastingPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/call-sheets" element={staffPage ? <CallSheetsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/applications/:kind/:id" element={staffPage ? <ApplicationDetailPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/applications" element={staffPage ? <ApplicationsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/actors/:id" element={staffPage ? <ActorDetailPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/actors" element={staffPage ? <ActorsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/creators/:id" element={staffPage ? <CreatorDetailPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/creators" element={staffPage ? <CreatorsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/engagements" element={staffPage ? <EngagementsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/deliverables" element={staffPage ? <DeliverablesPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/qa-gates" element={staffPage ? <QaGatesPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/handoffs" element={staffPage ? <HandoffsPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/agent-evaluations" element={staffPage ? <AgentEvaluationsPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/operations" element={staffPage ? <OperationsPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/operating-costs" element={effectiveBuilder ? <OperatingCostsPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/support" element={staffPage ? <SupportInboxPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/bids" element={staffPage ? <BidViewerPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/team" element={staffPage ? <TeamPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/learning" element={staffPage ? <LearningPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/scope-changes" element={staffPage ? <ScopeChangesPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/recommendations" element={staffPage ? <RecommendationsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/strategy" element={staffPage ? <StrategyPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/user-settings" element={<Navigate to={`${prefix}/settings`} replace />} />
-          
-          <Route path="/briefs" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <BriefsPage />} />
-          
           <Route path="/pipeline" element={<ContentPipelinePage />} />
-          {/* Viral Feed was removed — redirect old bookmarks/links to the Ad Library.
-              Bare (unprefixed) forms also land here via the role-mismatch redirect above.
-              /ad-library/viral must precede /ad-library/:id or the :id route swallows it. */}
-          <Route path="/viral-feed" element={<Navigate to={`${prefix}/ad-library`} replace />} />
-          <Route path="/ad-library/viral" element={<Navigate to={`${prefix}/ad-library`} replace />} />
-          <Route path="/ad-library" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <AdLibraryPage />} />
-          <Route path="/ad-library/boards" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <BoardsPage />} />
+          {/* Vault pages that are not tabs. The tabs are under /creative; item and board
+              detail pages keep their addresses. */}
           <Route path="/ad-library/boards/:id" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <BoardDetailPage />} />
-          <Route path="/ad-library/hooks" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <HooksPage />} />
           <Route path="/ad-library/:id" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <VaultItemDetailPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>

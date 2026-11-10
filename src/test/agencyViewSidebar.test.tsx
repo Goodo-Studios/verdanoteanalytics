@@ -1,9 +1,10 @@
 /**
- * Agency View (every account selected): staff keep the full staff menu plus the
- * agency overview, pages that need one account ask for one, and a client's
- * sidebar is unchanged. Also covers the labelled mobile menu button.
+ * The staff menu has seven items whatever client is selected (including "All clients", the
+ * old Agency View), Admin shows for builders and employees, a client's sidebar is unchanged,
+ * pages that need one client ask for one, and the mobile menu button is labelled.
  */
 import { fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
@@ -29,9 +30,9 @@ vi.mock("@/contexts/AccountContext", () => ({
 }));
 vi.mock("@/components/PresenceAvatars", () => ({ PresenceAvatars: () => null }));
 
-import { AppSidebar, builderSections } from "@/components/AppSidebar";
-import { AGENCY_OVERVIEW_ITEM, sectionsForAgencyView } from "@/lib/agencyNav";
+import { AppSidebar, staffNavItems } from "@/components/AppSidebar";
 import { RequireOneAccount } from "@/components/RequireOneAccount";
+import { WithClient } from "@/test/clientSelection";
 
 type Role = "builder" | "employee" | "client";
 
@@ -50,11 +51,13 @@ function setRole(role: Role) {
 function renderSidebar(role: Role) {
   setRole(role);
   return render(
-    <MemoryRouter initialEntries={[`/${role}/agency`]}>
+    <MemoryRouter initialEntries={[`/${role}/`]}>
       <AppSidebar />
     </MemoryRouter>,
   );
 }
+
+const SEVEN = ["Home", "Clients", "Production", "Talent", "Creative", "Knowledge", "Admin"];
 
 beforeEach(() => {
   h.selected = "all";
@@ -62,56 +65,83 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
-describe("sidebar on the Agency View", () => {
-  it.each(["builder", "employee"] as const)("%s keeps the staff menu and gets the agency overview", (role) => {
+describe("staff sidebar", () => {
+  it("has exactly the seven menu items, in order", () => {
+    expect(staffNavItems.map((i) => i.title)).toEqual(SEVEN);
+  });
+
+  it.each(["builder", "employee"] as const)("%s sees the seven items with role-prefixed links", (role) => {
     renderSidebar(role);
-    expect(screen.getByRole("link", { name: "Agency overview" }).getAttribute("href")).toBe(`/${role}/agency`);
-    for (const name of ["Creatives", "Analytics", "Staff menu", "Client overview", "Deliverables", "Library"]) {
-      expect(screen.getByRole("link", { name }), name).toBeTruthy();
+    const main = screen.getByRole("navigation", { name: "Main" });
+    const links = Array.from(main.querySelectorAll("a")).map((a) => a.textContent);
+    expect(links).toEqual(SEVEN);
+    expect(screen.getByRole("link", { name: "Production" }).getAttribute("href")).toBe(`/${role}/production`);
+    expect(screen.getByRole("link", { name: "Clients" }).getAttribute("href")).toBe(`/${role}/clients`);
+    expect(screen.getByRole("link", { name: "Home" }).getAttribute("href")).toBe(`/${role}/`);
+  });
+
+  it("drops the flat Staff group, the staff directory and the sidebar account switcher", () => {
+    renderSidebar("builder");
+    for (const name of ["Staff menu", "Client overview", "Deliverables", "Engagements", "Agency overview"]) {
+      expect(screen.queryByRole("link", { name }), name).toBeNull();
     }
-    // Pages that need one account stay listed; they ask for an account on the page.
-    expect(screen.getByRole("link", { name: "Landing Pages" })).toBeTruthy();
+    expect(screen.queryByText("Staff")).toBeNull();
+    expect(screen.queryByRole("combobox")).toBeNull();
   });
 
-  it("adds the agency overview only to the Creative Analytics section", () => {
-    const sections = sectionsForAgencyView(builderSections);
-    const analytics = sections.find((s) => s.id === "creative-analytics");
-    expect(analytics?.items[0]).toBe(AGENCY_OVERVIEW_ITEM);
-    expect(sections.flatMap((s) => s.items).filter((i) => i.url === "/agency")).toHaveLength(1);
-    expect(builderSections.find((s) => s.id === "creative-analytics")?.items.some((i) => i.url === "/agency")).toBe(false);
-  });
-
-  it("a staff member with one account selected sees no agency overview item", () => {
+  it("keeps the same menu on All clients and on one client", () => {
     h.selected = "act_a";
     renderSidebar("builder");
-    expect(screen.queryByRole("link", { name: "Agency overview" })).toBeNull();
-    expect(screen.getByRole("link", { name: "Staff menu" })).toBeTruthy();
+    const main = screen.getByRole("navigation", { name: "Main" });
+    expect(Array.from(main.querySelectorAll("a")).map((a) => a.textContent)).toEqual(SEVEN);
   });
 
-  it("a client keeps the short client menu", () => {
+  it("keeps Settings in the footer", () => {
+    renderSidebar("employee");
+    expect(screen.getByRole("link", { name: "Settings" }).getAttribute("href")).toBe("/employee/settings");
+  });
+
+  it("a client keeps the short client menu and its account switcher rules", () => {
     h.selected = "act_a";
     renderSidebar("client");
-    for (const name of ["Overview", "Creatives", "Analytics", "Content Pipeline", "Reports"]) {
-      expect(screen.getByRole("link", { name })).toBeTruthy();
-    }
-    expect(screen.queryByRole("link", { name: "Staff menu" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Agency overview" })).toBeNull();
+    const main = screen.getByRole("navigation", { name: "Main" });
+    expect(Array.from(main.querySelectorAll("a")).map((a) => a.textContent)).toEqual(["Overview", "Creatives", "Analytics", "Content Pipeline", "Reports"]);
+    for (const name of SEVEN.filter((n) => n !== "Home")) expect(screen.queryByRole("link", { name })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Home" })).toBeNull();
   });
 });
 
 describe("RequireOneAccount", () => {
-  it("asks for an account on the Agency View instead of rendering the page", () => {
+  it("asks for a client on All clients instead of rendering the page", () => {
     h.selected = "all";
-    render(<RequireOneAccount pageName="Landing Pages"><p>page body</p></RequireOneAccount>);
-    expect(screen.getByRole("heading", { name: "Pick an account" })).toBeTruthy();
-    expect(screen.getByText(/Landing Pages shows one account at a time/)).toBeTruthy();
+    render(
+      <WithClient slug="" clients={[{ slug: "glow", name: "Glow Drip", active: true }]}>
+        <RequireOneAccount pageName="Landing Pages"><p>page body</p></RequireOneAccount>
+      </WithClient>,
+    );
+    expect(screen.getByRole("heading", { name: "Pick a client" })).toBeTruthy();
+    expect(screen.getByText(/Landing Pages shows one client at a time/)).toBeTruthy();
     expect(screen.queryByText("page body")).toBeNull();
-    expect(screen.getByRole("combobox", { name: "Account" })).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Choose a client" })).toBeTruthy();
   });
 
-  it("renders the page when one account is selected", () => {
+  it("says plainly when the chosen client has no ad account", () => {
+    h.selected = "all";
+    render(
+      <WithClient slug="glow" clients={[{ slug: "glow", name: "Glow Drip", active: true }]} noAccount>
+        <RequireOneAccount pageName="Landing Pages"><p>page body</p></RequireOneAccount>
+      </WithClient>,
+    );
+    expect(screen.getByText("This client has no ad account linked yet, so there is nothing to show.")).toBeTruthy();
+  });
+
+  it("renders the page when one client's ad account is selected", () => {
     h.selected = "act_a";
-    render(<RequireOneAccount pageName="Landing Pages"><p>page body</p></RequireOneAccount>);
+    render(
+      <WithClient slug="glow">
+        <RequireOneAccount pageName="Landing Pages"><p>page body</p></RequireOneAccount>
+      </WithClient>,
+    );
     expect(screen.getByText("page body")).toBeTruthy();
     expect(screen.queryByTestId("pick-one-account")).toBeNull();
   });
@@ -123,9 +153,11 @@ describe("mobile menu button", () => {
     h.selected = "act_a";
     const { AppLayout } = await import("@/components/AppLayout");
     render(
-      <MemoryRouter initialEntries={["/builder/"]}>
-        <AppLayout><p>content</p></AppLayout>
-      </MemoryRouter>,
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={["/builder/"]}>
+          <AppLayout><p>content</p></AppLayout>
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
     const button = screen.getByRole("button", { name: "Open menu" });
     expect(button).toHaveAttribute("aria-expanded", "false");

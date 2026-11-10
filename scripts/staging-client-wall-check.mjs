@@ -1060,6 +1060,28 @@ check("employee is refused set_client_active (builder only)", empActive.error?.c
 const builderEdit = await staff.c.rpc("update_client", { p_slug: "wall-probe-no-such-client", p_name: "Wall" });
 check("builder passes the role check in update_client (no such client)", builderEdit.error?.code === "P0002", `code=${builderEdit.error?.code ?? "none"}`);
 
+// Client switcher and client hub (restructure phase 2a). Every browser query of the new staff shell
+// runs here with the exact select string the page sends (src/lib/pageQueries.ts; the test
+// src/test/pageQueryCheck.test.ts fails if the two lists differ). Staff load them; a client reads no
+// account links and no other client's row.
+const SHELL_QUERIES = [
+  ["clients", "slug, name, active"],
+  ["client_ad_accounts", "account_id, client_slug"],
+];
+for (const [table, select] of SHELL_QUERIES) {
+  for (const [label, s] of [["employee", employee], ["builder", staff]]) {
+    const r = await s.c.from(table).select(select);
+    check(`${label} loads the shell page query on ${table}`, !r.error && (r.data ?? []).length > 0, `error=${r.error?.code ?? ""} ${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+}
+{
+  const links = await clientA.c.from("client_ad_accounts").select("account_id, client_slug");
+  check("client A loads no client account links with the shell page query", !links.error && (links.data ?? []).length === 0, `error=${links.error?.message ?? "none"} rows=${links.data?.length ?? "error"}`);
+  const mine = await slugsOf(clientA);
+  const rows = await clientA.c.from("clients").select("slug, name, active");
+  check("client A loads only its own clients with the shell page query", !rows.error && (rows.data ?? []).every((r) => mine.includes(r.slug)), `error=${rows.error?.message ?? "none"} rows=${rows.data?.length ?? "error"} own=${mine}`);
+}
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

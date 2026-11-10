@@ -12,6 +12,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WithClient } from "./clientSelection";
 import type { ApprovalBoard, ApprovalVote } from "@/features/dashboard/approvalBoardsModel";
 
 const { FakeDashboardError } = vi.hoisted(() => ({
@@ -89,15 +90,16 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-const renderPage = (url = "/approval-boards?brand=glow") => render(
-  <MemoryRouter initialEntries={[url]}><Routes><Route path="/approval-boards" element={<ApprovalBoardsPage />} /></Routes></MemoryRouter>,
+const renderPage = (slug = "glow") => render(
+  <WithClient slug={slug}><MemoryRouter initialEntries={["/approval-boards"]}><Routes><Route path="/approval-boards" element={<ApprovalBoardsPage />} /></Routes></MemoryRouter></WithClient>,
 );
 
 describe("Approval boards page", () => {
-  it("asks for a brand and only offers creator brands", async () => {
-    renderPage("/approval-boards");
-    expect(await screen.findByText("Choose a brand to see its approval link.")).toBeTruthy();
-    await waitFor(() => expect(within(screen.getByLabelText("Brand")).getAllByRole("option").map((o) => o.textContent)).toEqual(["Choose a brand", "Glow Co"]));
+  it("asks for a client when none is selected and has no client dropdown of its own", async () => {
+    renderPage("");
+    expect(await screen.findByTestId("pick-client-prompt")).toHaveTextContent("Pick a client in the switcher at the top of the page to see its approval link.");
+    expect(screen.queryByLabelText("Brand")).toBeNull();
+    expect(screen.queryByLabelText("Client")).toBeNull();
     expect(loadBoards).not.toHaveBeenCalled();
   });
 
@@ -114,7 +116,7 @@ describe("Approval boards page", () => {
     expect(screen.getByRole("region", { name: "Passed on" })).toHaveTextContent("Casey Moreno");
     expect(screen.getByTestId("past-b0")).toHaveTextContent("revoked");
     expect(screen.getByTestId("old-dashboard-note")).toHaveTextContent("Public links still open on the old dashboard for now");
-    expect(screen.getByRole("link", { name: "Creator pipeline" }).getAttribute("href")).toBe("/employee/creator-pipeline?brand=glow");
+    expect(screen.getByRole("link", { name: "Creator pipeline" }).getAttribute("href")).toBe("/employee/talent/pipeline");
   });
 
   it("applies the decisions after a confirm", async () => {
@@ -134,7 +136,7 @@ describe("Approval boards page", () => {
     confirmReturn = true;
     applyVotes.mockRejectedValueOnce(new FakeDashboardError({ code: "P0002", message: "assignment not found for client" }));
     fireEvent.click(screen.getByRole("button", { name: "Apply decisions" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("no longer on the brand. Nothing was applied.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("no longer on the client. Nothing was applied.");
   });
 
   it("revokes the live link after a confirm", async () => {

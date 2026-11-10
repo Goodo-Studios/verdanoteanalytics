@@ -80,7 +80,7 @@ export function LeaderboardTab() {
 
       {!selectedAccountId ? (
         <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
-          Select an account to view its {dimension === "hook" ? "hook" : "angle"} leaderboard.
+          Pick a client to see its {dimension === "hook" ? "hook" : "angle"} leaderboard.
         </div>
       ) : isLoading ? (
         <div className="rounded-xl border border-border bg-card p-8 text-center text-muted-foreground">
