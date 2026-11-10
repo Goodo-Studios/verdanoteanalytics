@@ -152,6 +152,20 @@ The model is `claude-sonnet-5-5`, the Goodo OS default, with structured output a
 
 Not ported: transcript authorization records (choosing the transcript and client on the page is the request), the AI evaluation gate, the durable agent job (the call runs inside the request) and the ClickUp sync of a confirmed action. A confirmed action keeps its proposed action (internal note or due date) as a record only, because Verdanote has no ClickUp task-action path and staging sends nothing outward. Rules in `_shared/meeting-recaps.ts`; tests in `supabase/functions/meeting-recaps/index.test.ts`, `supabase/tests/meeting_recaps_test.sql` and `src/test/meetingRecaps.test.tsx`.
 
+### Knowledge pages
+
+Page `/knowledge` (builder and employee) and migration `20261110000003_knowledge_pages.sql`, no edge function. Port of the Goodo OS knowledge correction and publication pages (`knowledge_sources`, `knowledge_source_versions`, `knowledge_corrections`, `knowledge_correction_reviews`).
+
+A source has a title, a topic, a scope (all clients or one client) and numbered versions; each version keeps its full text and a sha256 fingerprint. Staff read every table through row rules (`has_role` builder or employee); clients read nothing, including sources scoped to their own client. Signed-in users hold no write grants. Every change goes through a checked function that tests the role in its body and is on the `staff_area` allow-list:
+
+- `create_knowledge_source`: builder only.
+- `submit_knowledge_correction`: builder or employee, against the current version only (40001 when stale, 22023 when the text is the same).
+- `review_knowledge_correction`: builder or employee, never the author. Procedure and permission corrections need a builder. Accepting needs the correction to match the current version; one review per correction.
+- `publish_knowledge_correction`: builder only, content and factual corrections only, accepted and still current. It adds a version.
+- `rollback_knowledge_source`: builder only, with the version on screen (40001 when stale). It adds a version with the old text; history is never changed.
+
+Not ported: the Goodo OS source provider and its sync (never wired in production), so sources are added on the page and no Goodo OS data is copied. Client-classified sources stay staff-only until the client portal phase. Tests in `supabase/tests/knowledge_pages_test.sql` and `src/test/knowledgePage.test.tsx`.
+
 ## Alternatives rejected
 
 **A new `os_clients` table with a uuid id, and the dashboard `clients` folded into it.** Gives a cleaner id, but the eight dashboard tables and the dashboard staff functions (`create_client`, `set_client_*`, `create_shoot` and others) already key on `clients.slug`, so it means either two client ids side by side or rewriting all of them. Not the smallest change.
