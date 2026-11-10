@@ -6,7 +6,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertOctagon, AlertTriangle, Users } from "lucide-react";
-import { PageHeader } from "@/components/PageHeader";
+import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, StatusBadge } from "@/components/page-kit";
+import { Badge } from "@/components/ui/badge";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { loadOverview, type OverviewData } from "./api";
 import {
@@ -55,12 +56,8 @@ function ClientCard({ client, cards, engagement, now, prefix }: {
     <Link to={`${prefix}/clients/${encodeURIComponent(client.slug)}`} className={`${CARD} block hover:bg-accent`} data-testid={`overview-client-${client.slug}`}>
       <div className="flex items-start justify-between gap-2">
         <h2 className="font-medium">{client.name}</h2>
-        {!client.active && <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">Hidden</span>}
-        {HEALTH_LABEL[health] && (
-          <span className={`rounded px-2 py-0.5 text-xs ${health === "stale" ? "bg-destructive/10 text-destructive" : "bg-amber-500/10 text-amber-700"}`}>
-            {HEALTH_LABEL[health]}
-          </span>
-        )}
+        {!client.active && <Badge variant="outline" className="text-muted-foreground">Hidden</Badge>}
+        {HEALTH_LABEL[health] && <StatusBadge status={health === "stale" ? "late" : "waiting"} label={HEALTH_LABEL[health] ?? undefined} />}
       </div>
       <div className="mt-3 h-2 w-full rounded bg-muted" aria-label={`Progress ${pct ?? 0} percent`} role="img">
         <div className="h-2 rounded bg-primary" style={{ width: `${pct ?? 0}%` }} />
@@ -115,41 +112,28 @@ export default function OverviewPage() {
   const cycleBySlug = useMemo(() => new Map((data?.engagements ?? []).map((e) => [e.client_slug, e])), [data]);
 
   return (
-    <div className="p-6 space-y-6" data-testid="client-overview-page">
+    <PageShell data-testid="client-overview-page">
       <PageHeader title="Clients" description="Every client. Open one for its work, briefs, performance, brand document, meetings and scope." />
       {error ? (
-        <div role="alert" className="rounded-lg border border-destructive/40 p-4 text-sm">
-          Could not load clients: {error}{" "}
-          <button type="button" className="underline" onClick={() => void load()}>Try again</button>
-        </div>
+        <ErrorState message={`Could not load clients: ${error}`} onRetry={() => void load()} />
       ) : !data ? (
-        <p role="status" className="text-sm text-muted-foreground">Loading clients...</p>
+        <LoadingState label="Loading clients" variant="cards" />
       ) : (
         <>
-          <div className="flex flex-wrap items-center gap-3">
-            <input
-              type="search"
-              aria-label="Search clients"
-              placeholder="Search clients"
-              className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
+          <FilterBar search={{ value: query, onChange: setQuery, label: "Search clients", placeholder: "Search clients" }}>
             {hiddenCount > 0 && (
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} /> Show hidden clients ({hiddenCount})
               </label>
             )}
-          </div>
+          </FilterBar>
           <section aria-label="Summary" className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Tile label="Clients" value={counts.total} Icon={Users} tone="text-primary" />
             <Tile label="At risk" value={counts.atRisk} Icon={AlertTriangle} tone="text-amber-700" />
             <Tile label="Stale" value={counts.stale} Icon={AlertOctagon} tone="text-destructive" />
           </section>
           {clients.length === 0 ? (
-            <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-              {query.trim() ? "No clients match that search." : "No clients yet."}
-            </p>
+            <EmptyState title={query.trim() ? "No clients match that search." : "No clients yet."} />
           ) : (
             <section aria-label="Clients" className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
               {clients.map((c) => (
@@ -162,6 +146,6 @@ export default function OverviewPage() {
           </p>
         </>
       )}
-    </div>
+    </PageShell>
   );
 }
