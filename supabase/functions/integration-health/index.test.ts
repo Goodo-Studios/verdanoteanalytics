@@ -214,6 +214,62 @@ Deno.test("loadSnapshotFromDatabase fails on a read error and without the servic
   assertEquals(err, "Server misconfigured");
 });
 
+// Phase 6b: the two storage signing secrets in the database vault. The function asks
+// storage_signing_secrets_present() (service role only) and reports each name as present,
+// missing or "could not check". A value never reaches the snapshot or the overview.
+function clientWithRpc(rpc: (name: string, args: Record<string, unknown>) => Promise<{ data?: unknown; error: { message: string } | null }>) {
+  const { client } = fakeClient({});
+  return { client: { ...(client as unknown as object), rpc } as unknown as SupabaseLike };
+}
+
+Deno.test("vault secrets: each storage signing secret is reported present or missing, names only", async () => {
+  const calls: string[] = [];
+  const { client } = clientWithRpc((name) => {
+    calls.push(name);
+    return Promise.resolve({ data: { storage_signing_project_url: true, storage_signing_service_role_key: false }, error: null });
+  });
+  const snap = await loadSnapshotFromDatabase((n) => ENV[n], NOW, () => client);
+  assertEquals(calls, ["storage_signing_secrets_present"]);
+  assertEquals(snap.vaultSecrets?.map((s) => [s.name, s.present]), [
+    ["storage_signing_project_url", true],
+    ["storage_signing_service_role_key", false],
+  ]);
+  const overview = evaluateIntegrationHealth(snap, NOW);
+  assertEquals(overview.vaultSecrets, snap.vaultSecrets);
+  const text = JSON.stringify(overview);
+  assert(text.includes("storage_signing_service_role_key"));
+  for (const value of Object.values(ENV)) if (value.trim()) assert(!text.includes(value), `leaked ${value}`);
+});
+
+Deno.test("vault secrets: a failed check is 'could not check', never 'missing'", async () => {
+  for (const rpc of [
+    () => Promise.resolve({ error: { message: "permission denied for function" } }),
+    () => Promise.reject(new Error("network down")),
+    () => Promise.resolve({ data: "not an object", error: null }),
+  ]) {
+    const { client } = clientWithRpc(rpc);
+    const snap = await loadSnapshotFromDatabase((n) => ENV[n], NOW, () => client);
+    assertEquals(snap.vaultSecrets?.map((s) => s.present), [null, null]);
+  }
+});
+
+Deno.test("vault secrets: a client without rpc leaves them out of the snapshot and the overview", async () => {
+  const { client } = fakeClient({});
+  const snap = await loadSnapshotFromDatabase((n) => ENV[n], NOW, () => client);
+  assertEquals(snap.vaultSecrets, undefined);
+  assert(!("vaultSecrets" in evaluateIntegrationHealth(snap, NOW)));
+});
+
+Deno.test("vault secrets: staff get the list in the overview", async () => {
+  const vaultSecrets = [
+    { name: "storage_signing_project_url", present: false, needed_for: "x" },
+    { name: "storage_signing_service_role_key", present: false, needed_for: "x" },
+  ];
+  const { res } = run(user(["employee"]), { snap: snapshot({ vaultSecrets }) });
+  const body = await (await res).json();
+  assertEquals(body.vaultSecrets, vaultSecrets);
+});
+
 Deno.test("ClickUp: no token is not connected, with a note and no problem", () => {
   const c = byKey(evaluateIntegrationHealth(snapshot({ secrets: { clickup: false, fireflies: false, slack: false } }), NOW), "clickup");
   assertEquals(c.state, "not_connected");

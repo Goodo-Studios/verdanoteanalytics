@@ -1,11 +1,11 @@
 // Actor page: staff page (consolidation step 5b, port of the old dashboard's
 // Actor detail). Profile fields (direct write under the staff row rule on
 // actors), the clients the actor is cast on with their shoot date, and their
-// headshot, photos and videos through signed links.
+// headshot, photos and videos through signed links. Staff add and delete the
+// headshot, photos and videos here (phase 6b, ./media).
 //
 // The casting list is read only here; casting is managed on the Casting page
-// and shoots on the Production calendar (step 5c). Not ported: uploading or
-// reordering media.
+// and shoots on the Production calendar (step 5c). Not ported: reordering media.
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,8 @@ import { ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { DashboardError } from "./api";
 import { loadActorDetail, saveActor, type ActorDetail } from "./rosterApi";
+import { HeadshotControl, MediaSection } from "./media/MediaSection";
+import { MEDIA_KINDS } from "./media/mediaModel";
 import { actorFormToPatch, actorStageLabel, actorToForm, safeHref, type ActorForm } from "./rosterModel";
 import { errorText, formatDay } from "./model";
 
@@ -27,31 +29,6 @@ const TEXT_FIELDS: { key: keyof ActorForm; label: string; type?: string }[] = [
   { key: "social_url", label: "Social link" },
   { key: "additional_social_url", label: "Second social link" },
 ];
-
-function MediaList({ title, items, links }: { title: string; items: { id: string; storage_path: string; thumbnail_path?: string | null; title?: string | null; caption?: string | null }[]; links: Map<string, string> }) {
-  const video = title === "Videos";
-  return (
-    <section aria-label={title} className="rounded-lg border p-3">
-      <h2 className="text-sm font-semibold">{title} ({items.length})</h2>
-      {items.length === 0 ? <p className="mt-1 text-sm text-muted-foreground">None yet.</p> : (
-        <ul className="mt-2 flex flex-wrap gap-2">
-          {items.map((m, i) => {
-            const url = links.get(m.storage_path);
-            const thumb = video ? (m.thumbnail_path ? links.get(m.thumbnail_path) : undefined) : url;
-            const label = (video ? m.title : m.caption) || `${video ? "Video" : "Photo"} ${i + 1}`;
-            return (
-              <li key={m.id} className="w-32 text-xs">
-                {thumb ? <img src={thumb} alt={label} className="h-24 w-32 rounded object-cover" /> : <div className="h-24 w-32 rounded bg-muted" />}
-                <div className="truncate">{label}</div>
-                {url ? <a href={url} target="_blank" rel="noopener noreferrer" className="underline">{video ? "Play" : "Open"}</a> : <span className="text-muted-foreground">File not in storage</span>}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </section>
-  );
-}
 
 export default function ActorDetailPage() {
   const { id = "" } = useParams();
@@ -129,6 +106,7 @@ export default function ActorDetailPage() {
         <div className="w-40">
           {headshot ? <img src={headshot} alt={`Headshot of ${a.name}`} className="h-40 w-40 rounded object-cover" />
             : <div className="flex h-40 w-40 items-center justify-center rounded bg-muted text-xs text-muted-foreground">{a.headshot_path ? "Headshot not in storage" : "No headshot"}</div>}
+          <HeadshotControl cfg={MEDIA_KINDS["actor-headshot"]} ownerId={a.id} path={a.headshot_path} onChanged={load} onNotice={setNotice} />
           {socials.map((href, i) => <a key={href} href={href} target="_blank" rel="noopener noreferrer" className="mt-1 block text-xs underline">{i === 0 ? "Social" : "Second social"}</a>)}
         </div>
         <form aria-label="Profile" className="flex-1 space-y-3 rounded-lg border p-3" onSubmit={(e) => { e.preventDefault(); void save(); }}>
@@ -161,8 +139,24 @@ export default function ActorDetailPage() {
         <p className="mt-2 text-xs text-muted-foreground">Change stages and casting links on the <Link to={`${prefix}/casting`} className="underline">Casting</Link> page and book shoots on the <Link to={`${prefix}/production-calendar`} className="underline">Production calendar</Link>.</p>
       </section>
 
-      <MediaList title="Videos" items={detail.videos} links={detail.links} />
-      <MediaList title="Photos" items={detail.photos} links={detail.links} />
+      <MediaSection
+        cfg={MEDIA_KINDS["actor-video"]}
+        ownerId={a.id}
+        title="Videos"
+        items={detail.videos.map((v, i) => ({ id: v.id, storage_path: v.storage_path, thumbnail_path: v.thumbnail_path, label: v.title || `Video ${i + 1}`, sort_order: v.sort_order }))}
+        links={detail.links}
+        onChanged={load}
+        onNotice={setNotice}
+      />
+      <MediaSection
+        cfg={MEDIA_KINDS["actor-photo"]}
+        ownerId={a.id}
+        title="Photos"
+        items={detail.photos.map((p, i) => ({ id: p.id, storage_path: p.storage_path, label: p.caption || `Photo ${i + 1}` }))}
+        links={detail.links}
+        onChanged={load}
+        onNotice={setNotice}
+      />
     </PageShell>
   );
 }

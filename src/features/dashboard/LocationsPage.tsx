@@ -2,13 +2,14 @@
 // /locations page and its shared location links). Spaces Goodo can shoot in:
 // search, neighborhood and bedroom and bathroom floors, add and edit (through
 // the checked location functions), delete after a confirm, photos through
-// signed links, and links that share a set of locations with a client.
+// signed links (upload, delete and "set as main photo" in the editor, phase 6b),
+// and links that share a set of locations with a client.
 //
 // The page a client opens (/locations-board/<token>) stays on the old
 // dashboard and reads the old dashboard's database until the release, so a
 // link made or revoked here takes effect for clients only once the release
-// points that page at this database. The page says so. Not ported: photo
-// upload and reorder, and editing the locations on an existing link.
+// points that page at this database. The page says so. Not ported: editing the
+// locations on an existing link.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -33,11 +34,18 @@ import {
   type LocationForm,
 } from "./locationsModel";
 import { errorText, formatDay } from "./model";
+import { MediaSection, type MediaTile } from "./media/MediaSection";
+import { MEDIA_KINDS } from "./media/mediaModel";
+import { storageSecretsText } from "./media/storageSecrets";
 
 const LINK_BTN = "h-auto p-0 text-xs";
 
 function messageOf(e: unknown, fallback: string): string {
-  if (e instanceof DashboardError) return e.code === "P0002" ? "That location no longer exists." : errorText(e.code, e.message || fallback);
+  if (e instanceof DashboardError) {
+    const storage = storageSecretsText(e.code, e.message, "removing the photo files");
+    if (storage) return storage;
+    return e.code === "P0002" ? "That location no longer exists." : errorText(e.code, e.message || fallback);
+  }
   return e instanceof Error ? e.message : fallback;
 }
 
@@ -61,13 +69,13 @@ const TEXT_FIELDS: { key: keyof LocationForm; label: string; type?: string; wide
   { key: "notes", label: "Notes", wide: true },
 ];
 
-function LocationEditor({ initial, title, busy, onSave, onCancel, photos }: {
+function LocationEditor({ initial, title, busy, onSave, onCancel, media }: {
   initial: LocationForm;
   title: string;
   busy: boolean;
   onSave: (f: LocationForm) => void;
   onCancel: () => void;
-  photos?: { id: string; label: string; url?: string }[];
+  media?: { locationId: string; tiles: MediaTile[]; links: Map<string, string>; onChanged: () => void | Promise<void>; onNotice: (m: string) => void };
 }) {
   const [form, setForm] = useState(initial);
   const set = (patch: Partial<LocationForm>) => setForm((f) => ({ ...f, ...patch }));
@@ -84,20 +92,8 @@ function LocationEditor({ initial, title, busy, onSave, onCancel, photos }: {
           <label><input type="checkbox" checked={form.dont_rent_again} onChange={(e) => set({ dont_rent_again: e.target.checked })} /> Do not rent again</label>
         </div>
       </div>
-      {photos && (
-        <section aria-label="Photos" className="text-xs">
-          <h3 className="font-semibold">Photos ({photos.length})</h3>
-          {photos.length === 0 ? <p className="text-muted-foreground">No photos. Photos are added on the old dashboard until the release.</p> : (
-            <ul className="mt-1 flex flex-wrap gap-2">
-              {photos.map((p) => (
-                <li key={p.id} className="w-32">
-                  {p.url ? <a href={p.url} target="_blank" rel="noopener noreferrer"><img src={p.url} alt={p.label} className="h-24 w-32 rounded object-cover" /></a> : <div className="flex h-24 w-32 items-center justify-center rounded bg-muted text-muted-foreground">File not in storage</div>}
-                  <div className="truncate">{p.label}</div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+      {media && (
+        <MediaSection cfg={MEDIA_KINDS["location-photo"]} ownerId={media.locationId} title="Photos" items={media.tiles} links={media.links} allowSetMain onChanged={media.onChanged} onNotice={media.onNotice} />
       )}
       <div className="flex gap-2">
         <Button type="submit" size="sm" disabled={busy}>{busy ? "Saving..." : "Save"}</Button>
@@ -266,15 +262,21 @@ export default function LocationsPage() {
     },
   ];
 
-  const editingPhotos = editing && editing !== "new"
-    ? (photosOf.get(editing.id) ?? []).map((p, i) => ({ id: p.id, label: p.caption || `Photo ${i + 1}`, url: data?.links.get(p.storage_path) }))
+  const editingMedia = editing && editing !== "new"
+    ? {
+        locationId: editing.id,
+        tiles: (photosOf.get(editing.id) ?? []).map((p, i): MediaTile => ({ id: p.id, storage_path: p.storage_path, label: p.caption || `Photo ${i + 1}`, sort_order: p.sort_order })),
+        links: data?.links ?? new Map<string, string>(),
+        onChanged: load,
+        onNotice: setNotice,
+      }
     : undefined;
 
   return (
     <PageShell wide data-testid="locations-page">
       <PageHeader title="Locations" description="Spaces Goodo can shoot in, and links that share a set of them with a client." />
       <p className="text-xs text-muted-foreground" data-testid="old-dashboard-note">
-        Public links still open on the old dashboard for now. Links you make or revoke here reach clients once the public pages move over. Photos are still uploaded on the old dashboard.
+        Public links still open on the old dashboard for now. Links you make or revoke here reach clients once the public pages move over. Open a location to add, delete or reorder its photos.
       </p>
       {notice && <p role="status" className="break-all text-sm text-muted-foreground">{notice}</p>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
@@ -287,7 +289,7 @@ export default function LocationsPage() {
           busy={busy}
           onSave={save}
           onCancel={() => setEditing(null)}
-          photos={editingPhotos}
+          media={editingMedia}
         />
       ) : (
         <Button type="button" size="sm" variant="outline" onClick={() => { setEditing("new"); setError(null); setNotice(null); }}>Add location</Button>

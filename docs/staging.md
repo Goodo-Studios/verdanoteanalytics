@@ -288,6 +288,15 @@ From the plan's "Decisions for you". Decision 1 (port everything) is decided. Th
 - 11. One release (the stated direction) or batches. Step 0 is the first batch if you choose batches, and is recommended either way.
 - Also open: whether `CODA_API_KEY` is removed (step 14), whether `.env` should leave git (it is tracked and uploaded with every `vercel deploy`), and the read confirmation of the old dashboard database.
 
+## Photo and video upload (phase 6b)
+
+Staff add and delete creator, actor and location media in Verdanote: the creator and actor pages (headshot, videos, photos, filming locations) and the location editor (photos, with "Set as main photo"). The browser asks storage for a signed upload link with the staff member's own login, sends the file straight to it with a progress bar, then adds the row. Nothing goes through the vault secrets, so uploads and deletes work on staging today.
+
+- Layout: new files are `<owner id>/<headshot|video|photo|location>-<uuid>.<ext>` in the same buckets and tables as the copy from the old dashboard (`approve_application` uses `<id>/headshot-<name>` and `<id>/video-<name>`), so old and new files sit side by side.
+- Limits: the buckets' own. Photos JPG, PNG or WebP up to 5 MB; videos MP4 or MOV, creator videos up to 100 MB, actor videos up to 250 MB. The database caps are 10 creator videos, 8 actor videos and 8 actor photos.
+- Clients: refused by the staff write policy on each bucket and by the row rules on each table. `supabase/tests/dashboard_media_upload_test.sql` proves it, and the "Media upload and delete" block of `scripts/staging-client-wall-check.mjs` repeats it on staging with a throwaway creator, actor and location and one tiny file per bucket, all deleted at the end.
+- Two actions still need the vault secrets `storage_signing_project_url` and `storage_signing_service_role_key`: approving an application that has files and deleting a location that has photos (they copy and remove files through `storage_admin_request`). Without them both stop, change nothing and say so in plain words. Integration health lists the two names as set, missing or "could not check" (`storage_signing_secrets_present()`, service role only; names and true or false, never a value).
+
 ## One-time setup (already done)
 
 - Supabase project `verdanote-staging` in the Goodo Studios org, us-east-2.

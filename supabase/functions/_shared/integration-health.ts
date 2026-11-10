@@ -49,6 +49,34 @@ export interface HealthSnapshot {
   ownerAlerts: Array<{ id: string; state: string; createdAt: string; updatedAt: string; text: string | null }>;
   /** Active alert exceptions (expires_at in the future). */
   exceptions: AlertException[];
+  /**
+   * Database vault secrets that features depend on (phase 6b: the two storage signing
+   * secrets). Names and presence only. present is null when the check could not be made.
+   */
+  vaultSecrets?: VaultSecretStatus[];
+}
+
+export interface VaultSecretStatus {
+  name: string;
+  present: boolean | null;
+  /** What stops working while it is missing. */
+  needed_for: string;
+}
+
+/** The vault secrets reported, and what each one is for. Names only. */
+export const STORAGE_SECRETS: Array<{ name: string; needed_for: string }> = [
+  { name: "storage_signing_project_url", needed_for: "approving an application that has files, and deleting a location that has photos" },
+  { name: "storage_signing_service_role_key", needed_for: "approving an application that has files, and deleting a location that has photos" },
+];
+
+/** Builds the vault secret list from what storage_signing_secrets_present() returned (or null when it failed). */
+export function vaultSecretsFrom(result: unknown): VaultSecretStatus[] {
+  const found = result && typeof result === "object" && !Array.isArray(result) ? (result as Record<string, unknown>) : null;
+  return STORAGE_SECRETS.map((s) => ({
+    name: s.name,
+    present: found && typeof found[s.name] === "boolean" ? (found[s.name] as boolean) : null,
+    needed_for: s.needed_for,
+  }));
 }
 
 export type AlertConnector = "clickup" | "fireflies" | "slack" | "verdanote_data" | "queue";
@@ -87,6 +115,8 @@ export interface HealthOverview {
   queue: { state: "healthy" | "needs_attention"; patterns: string[]; suppressed: string[]; pending: number };
   ownerAlerts: HealthSnapshot["ownerAlerts"];
   exceptions: AlertException[];
+  /** Present only when the snapshot carried it. Never includes a value. */
+  vaultSecrets?: VaultSecretStatus[];
 }
 
 /** The code of a pattern without its count: "sync.stuck:2" -> "sync.stuck". */
@@ -222,6 +252,7 @@ export function evaluateIntegrationHealth(snapshot: HealthSnapshot, now: Date = 
       text: a.text === null ? null : a.text.length > ALERT_TEXT_MAX ? `${a.text.slice(0, ALERT_TEXT_MAX - 1)}…` : a.text,
     })),
     exceptions: ex,
+    ...(snapshot.vaultSecrets ? { vaultSecrets: snapshot.vaultSecrets } : {}),
   };
 }
 

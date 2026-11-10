@@ -150,6 +150,24 @@ describe("Application page", () => {
     expect(await screen.findByTestId("creator-opened")).toBeTruthy();
   });
 
+  it("says plainly that storage is not connected when approving an application with files fails for missing secrets", async () => {
+    loadApplicationDetail.mockResolvedValue({
+      application: capp("c1", "Morgan Ellis"),
+      videos: [{ id: "v1", storage_path: "app/v1.mp4", thumbnail_path: null, title: null, sort_order: 1 }],
+      roster: [], links: new Map(),
+    });
+    approveApplication.mockRejectedValueOnce(new FakeDashboardError({ code: "F0000", message: "storage_signing_service_role_key is not present in vault.secrets" }));
+    renderDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    await answerDialog("Approve");
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/Media storage is not connected on this site yet/);
+    expect(alert.textContent).toMatch(/copying the applicant's files could not be done. Nothing was changed/);
+    expect(alert.textContent).toMatch(/storage_signing_project_url and storage_signing_service_role_key/);
+    expect(alert.textContent).not.toMatch(/vault\.secrets/);
+    expect(screen.queryByTestId("creator-opened")).toBeNull();
+  });
+
   it("does not approve when the confirm is cancelled", async () => {
     loadApplicationDetail.mockResolvedValue({ application: capp("c1", "Morgan Ellis"), videos: [], roster: [], links: new Map() });
     renderDetail();
