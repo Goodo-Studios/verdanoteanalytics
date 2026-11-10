@@ -51,11 +51,14 @@ describe("staff menu content", () => {
     // Each slot is a tool still to move in. A slot leaves this list only when its pages are live
     // (step 5a: Client overview, client pages, Creator pipeline and Follow-ups replaced "dashboard-pipeline";
     // step 5b: Creators, Actors, Applications and Approval boards replaced "dashboard-creators";
-    // step 4d: Operations, Operating costs and Support inbox replaced "goodo-os").
+    // step 4d: Operations, Operating costs and Support inbox replaced "goodo-os";
+    // step 6: Client BIDs replaced "bid-viewer", and "wideframe" was dropped on 2026-11-10).
     expect(slots.map((s) => s.id).sort()).toEqual(
-      ["bid-viewer", "content-leaderboard", "dashboard-production", "dashboard-settings", "wideframe"],
+      ["content-leaderboard", "dashboard-production", "dashboard-settings"],
     );
-    for (const id of ["client-overview", "creator-pipeline", "follow-ups", "creators", "actors", "applications", "approval-boards", "locations", "props", "crew", "shipments", "production-calendar", "casting", "operations", "operating-costs", "support"]) {
+    expect(allStaffMenuItems.find((i) => i.id === "wideframe")).toBeUndefined();
+    expect(allStaffMenuItems.find((i) => i.id === "bid-viewer")?.to).toBe("/bids");
+    for (const id of ["client-overview", "creator-pipeline", "follow-ups", "creators", "actors", "applications", "approval-boards", "locations", "props", "crew", "shipments", "production-calendar", "casting", "operations", "operating-costs", "support", "bid-viewer"]) {
       expect(allStaffMenuItems.find((i) => i.id === id)?.status, id).toBe("live");
     }
     for (const slot of slots) {
@@ -68,7 +71,7 @@ describe("staff menu content", () => {
 
   it("names the planned tools", () => {
     renderAs("builder");
-    for (const title of ["Growth Dashboard", "Ad Name Generator", "Support inbox", "Wideframe Prompt Library"]) {
+    for (const title of ["Growth Dashboard", "Ad Name Generator", "Support inbox", "Client BIDs"]) {
       expect(screen.getByText(title)).toBeTruthy();
     }
   });

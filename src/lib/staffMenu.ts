@@ -78,6 +78,7 @@ export const staffMenuSections: StaffMenuSection[] = [
       { id: "operations", title: "Operations", description: "The work queue: replay or resolve jobs that need recovery and cancel queued jobs that never ran.", status: "live", to: "/operations" },
       { id: "operating-costs", title: "Operating costs", description: "Fixed monthly costs, the monthly budget and its alerts. Builder only.", status: "live", to: "/operating-costs", builderOnly: true },
       { id: "support", title: "Support inbox", description: "Client questions with an accountable owner and the next update owed. Nothing is sent to clients from here.", status: "live", to: "/support" },
+      { id: "bid-viewer", title: "Client BIDs", description: "Read-only view of each client's finished BID from the BID Builder.", status: "live", to: "/bids" },
       { id: "learning", title: "Learning", description: "Client lessons with a named reviewer and builder publication, and the weekly self-service tally.", status: "live", to: "/learning" },
       { id: "scope-changes", title: "Scope changes", description: "The approved shot list locks the scope; change requests are accepted or declined by a builder.", status: "live", to: "/scope-changes" },
       { id: "recommendations", title: "Recommendations", description: "Decisions with evidence, linked ads and outcomes measured from ad data.", status: "live", to: "/recommendations" },
@@ -92,8 +93,6 @@ export const staffMenuSections: StaffMenuSection[] = [
     items: [
       { id: "dashboard-production", title: "Old dashboard: Production", description: "Call sheets. Locations, props, crew, shipments, the production calendar and casting are live.", status: "slot", step: "Step 5c" },
       { id: "dashboard-settings", title: "Old dashboard: Settings and team", description: "Team management, merged with Verdanote user management.", status: "slot", step: "Step 5d" },
-      { id: "wideframe", title: "Wideframe Prompt Library", description: "Read-only prompt pages for editors.", status: "slot", step: "Step 6" },
-      { id: "bid-viewer", title: "Client BIDs", description: "Read-only view of each client's finished BID.", status: "slot", step: "Step 6" },
       { id: "content-leaderboard", title: "Content Leaderboard", description: "LinkedIn post log for the team.", status: "slot", step: "Step 8" },
     ],
   },

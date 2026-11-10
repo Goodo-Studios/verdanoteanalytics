@@ -377,6 +377,16 @@ Staff read all three; clients read none, including questions about their own cli
 
 Differences from Goodo OS: the client portal is dropped, so staff record the question with its channel and clients neither ask nor read here. Nothing is sent to the client: a staff update records what was said through the usual channel. The engagement strategist binding, the configured fallback owner and per-engagement capability grants are replaced by "the recorder names the owner, any builder or employee acts". Tests in `supabase/tests/support_inbox_test.sql` and `src/test/supportInboxPage.test.tsx`.
 
+### Client BIDs (step 6)
+
+Page `/bids` (builder and employee) and migration `20261111020001_client_bids.sql`, no edge function. The read-only BID viewer from the plan ("BID Builder: read-only BID viewer in Verdanote"). The BID Builder worker (`repos/private/bid-builder`) keeps writing each client's 17-section Brand Intelligence Document as markdown outside Verdanote.
+
+`client_bids` holds one finished BID version per row: client, version, title, the markdown body with its sha256 fingerprint, source (`bid-builder` or `staging-seed`), source reference, data origin (made up or real), generated and imported times. Immutable; a new BID is a new version. Staff read; clients read nothing, including their own client's BID (a client view is phase 2). Nobody signed in can write. BIDs arrive only through `import_client_bid`, callable by the service role only, which computes the fingerprint, returns the existing version for a body it already holds and otherwise writes the next version, so an import can be re-run. A staging seed BID must be marked made up. There is no edit function and no editing UI.
+
+The page lists clients that have a BID, opens the latest version, shows a section list built from the `## ` headings and renders the markdown with `react-markdown` (no raw HTML; tables show as text because GitHub-style tables are not enabled). Older versions can be picked.
+
+Staging data: `scripts/seed-staging-bids.mjs` imports one made-up BID for `demo-glowdrip` (17 headings in the BID Builder's order, every line labelled made up), refuses any project but verdanote-staging and is idempotent. No real BID is loaded; that waits on decision 10. Tests in `supabase/tests/client_bids_test.sql`, `src/test/bidViewerPage.test.tsx` and `scripts/seed-staging-bids.test.mjs`.
+
 ## Alternatives rejected
 
 **A new `os_clients` table with a uuid id, and the dashboard `clients` folded into it.** Gives a cleaner id, but the eight dashboard tables and the dashboard staff functions (`create_client`, `set_client_*`, `create_shoot` and others) already key on `clients.slug`, so it means either two client ids side by side or rewriting all of them. Not the smallest change.

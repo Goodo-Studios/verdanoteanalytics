@@ -918,6 +918,25 @@ check("employee passes the staff check in record_support_event", siEvent.error?.
 const siPage = await employee.c.from("support_requests").select("*, support_history!support_history_request_id_fkey(*), support_assignment_history!support_assignment_history_request_id_fkey(*)").eq("status", "open").order("updated_at", { ascending: false }).limit(200);
 check("employee loads the support inbox page query", !siPage.error, `error=${siPage.error?.code ?? ""} ${siPage.error?.message ?? "none"}`);
 
+// Client BIDs (migration 20261111020001, step 6): read-only viewer. Clients read no BIDs (not
+// even their own client's), cannot write and cannot import; the employee reads, cannot import
+// and loads the page queries. The import is service role only. Nothing here writes.
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  const r = await s.c.from("client_bids").select("*").limit(1000);
+  check(`${label} reads no client_bids rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  const ins = await s.c.from("client_bids").insert({ client_slug: "demo-glowdrip", version: 99, title: "wall", body_markdown: "wall", body_sha256: "0".repeat(64), source: "bid-builder", source_ref: "wall", data_origin: "real", generated_at: new Date().toISOString() });
+  check(`${label} cannot write client_bids`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+}
+for (const [label, s] of [["client A", clientA], ["employee", employee]]) {
+  const r = await s.c.rpc("import_client_bid", { p_client_slug: "demo-glowdrip", p_title: "wall", p_body_markdown: "wall", p_source: "bid-builder", p_source_ref: "wall", p_data_origin: "real", p_generated_at: new Date().toISOString() });
+  check(`${label} is refused import_client_bid`, r.error?.code === "42501", `code=${r.error?.code ?? "none"}`);
+}
+const bidList = await employee.c.from("client_bids").select("id, client_slug, version, title, source, data_origin, generated_at, imported_at").order("version", { ascending: false }).limit(1000);
+check("employee loads the BID list query", !bidList.error, `error=${bidList.error?.code ?? ""} ${bidList.error?.message ?? "none"}`);
+const bidOne = await employee.c.from("client_bids").select("id, client_slug, version, title, source, data_origin, generated_at, imported_at, body_markdown, body_sha256, source_ref").limit(1);
+check("employee loads the BID body query", !bidOne.error, `error=${bidOne.error?.code ?? ""} ${bidOne.error?.message ?? "none"}`);
+check("staging BIDs are all made up", !bidList.error && (bidList.data ?? []).every((b) => b.data_origin === "made_up"), `origins=${[...new Set((bidList.data ?? []).map((b) => b.data_origin))]}`);
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

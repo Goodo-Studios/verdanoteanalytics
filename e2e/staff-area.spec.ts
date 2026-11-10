@@ -61,6 +61,7 @@ const STAFF_PATHS = [
   "/operations",
   "/operating-costs",
   "/support",
+  "/bids",
   "/learning",
   "/scope-changes",
   "/recommendations",
