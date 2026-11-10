@@ -7,6 +7,8 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { CLIENT_SWITCHER_COLUMNS } from "@/lib/pageQueries";
 import { Button } from "@/components/ui/button";
+import { ErrorState, SelectField, TextField, useConfirm } from "@/components/page-kit";
+import { fmtDate } from "@/lib/formatters";
 import {
   canActOnInvite,
   confirmationText,
@@ -36,7 +38,6 @@ interface Untyped {
   functions: { invoke(name: string, options: { body: Record<string, unknown> }): Promise<{ data: unknown; error: unknown }> };
 }
 const db = supabase as unknown as Untyped;
-const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 const FN = "invite-user";
 
 export interface InvitePrefill {
@@ -52,17 +53,22 @@ interface ClientOption {
   name: string;
 }
 
-const dateText = (iso: string) => new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+const dateText = (iso: string) => fmtDate(iso, "unknown");
 
 function LogRow({ row, onChanged }: { row: InviteLogRow; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const { confirm, dialog } = useConfirm();
 
   const act = async (action: "resend" | "revoke") => {
     if (
       action === "revoke" &&
-      !window.confirm(`Revoke the invite for ${row.display_name} (${row.email})? Their login is removed and the link in their email stops working.`)
+      !(await confirm({
+        title: `Revoke the invite for ${row.display_name} (${row.email})?`,
+        description: "Their login is removed and the link in their email stops working.",
+        actionLabel: "Revoke",
+      }))
     ) return;
     setBusy(true);
     setError(null);
@@ -93,7 +99,8 @@ function LogRow({ row, onChanged }: { row: InviteLogRow; onChanged: () => void }
         </div>
       ) : null}
       {notice ? <p role="status" className="mt-1 text-[12px] text-muted-foreground">{notice}</p> : null}
-      {error ? <p role="alert" className="mt-1 text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="mt-1 text-destructive">{error}</p> : null}
+      {dialog}
     </li>
   );
 }
@@ -171,16 +178,13 @@ export function InviteSection({ prefill, onSent }: { prefill: InvitePrefill | nu
       <p className="rounded border border-input bg-muted/40 p-3 text-sm">{INVITE_NOTE}</p>
       {step === "form" ? (
         <div role="group" aria-label="Invite details" className="grid gap-2 sm:grid-cols-2">
-          <input aria-label="Invitee name" className={field} placeholder="Name" value={form.name} maxLength={120} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <input aria-label="Invitee email" type="email" className={field} placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          <select aria-label="Invitee role" className={field} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as InviteRole, clientSlug: "" })}>
-            {INVITE_ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-          </select>
+          <TextField label="Invitee name" hideLabel placeholder="Name" value={form.name} maxLength={120} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <TextField label="Invitee email" hideLabel type="email" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          <SelectField label="Invitee role" hideLabel value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as InviteRole, clientSlug: "" })}
+            options={INVITE_ROLE_OPTIONS.map((r) => ({ value: r.value, label: r.label }))} />
           {form.role === "client" ? (
-            <select aria-label="Invitee client" className={field} value={form.clientSlug} onChange={(e) => setForm({ ...form, clientSlug: e.target.value })}>
-              <option value="">Choose a client</option>
-              {clients.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
-            </select>
+            <SelectField label="Invitee client" hideLabel value={form.clientSlug} onChange={(e) => setForm({ ...form, clientSlug: e.target.value })}
+              placeholder="Choose a client" options={clients.map((c) => ({ value: c.slug, label: c.name }))} />
           ) : <div />}
           {problem && (form.name || form.email) ? <p className="text-[12px] text-muted-foreground sm:col-span-2">{problem}</p> : null}
           <div className="sm:col-span-2">
@@ -197,10 +201,10 @@ export function InviteSection({ prefill, onSent }: { prefill: InvitePrefill | nu
         </div>
       )}
       {notice ? <p role="status" className="text-sm">{notice}</p> : null}
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
 
       <h3 className="pt-2 text-sm font-semibold">Sent invites</h3>
-      {logError ? <p role="alert" className="text-sm text-red-700">{logError}</p> : null}
+      {logError ? <ErrorState message={logError} onRetry={() => void load()} /> : null}
       {log && log.length === 0 && !logError ? <p className="text-sm text-muted-foreground">No invites have been sent yet.</p> : null}
       <ul className="space-y-2">{(log ?? []).map((r) => <LogRow key={`${r.id}:${r.status}:${r.sent_count}:${r.accepted}`} row={r} onChanged={() => void load()} />)}</ul>
     </section>

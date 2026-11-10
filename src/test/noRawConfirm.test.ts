@@ -12,10 +12,6 @@ import { describe, expect, it } from "vitest";
 
 const ROOT = join(__dirname, "..");
 const NOT_YET_MIGRATED: string[] = [
-  "features/notifications/NotificationsPage.tsx",
-  "features/team/ClientsSettings.tsx",
-  "features/team/InviteSection.tsx",
-  "features/team/TeamPage.tsx",
 ];
 
 function walk(dir: string): string[] {

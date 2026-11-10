@@ -8,7 +8,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { LastRunLine } from "@/components/LastRunLine";
-import { PageHeader } from "@/components/PageHeader";
+import { EmptyState, ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField } from "@/components/page-kit";
+import { fmtDateTime } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 import {
   ALERT_SELECT,
@@ -49,7 +50,6 @@ interface Untyped {
   rpc(name: string, args?: Record<string, unknown>): PromiseLike<DbResult>;
 }
 const db = supabase as unknown as Untyped;
-const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 const EMPTY: EntryForm = { entryKey: "", label: "", category: "other", monthlyUsd: "", basis: "proposed", sourceReference: "", active: true };
 
@@ -81,18 +81,16 @@ function EntryEditor({ entry, onSaved }: { entry: CostEntry | null; onSaved: () 
   return (
     <div role="group" aria-label={name} className="space-y-2">
       <div className="grid gap-2 sm:grid-cols-2">
-        <input aria-label="Key" className={field} placeholder="Key, for example supabase-pro" value={form.entryKey} disabled={!!entry}
+        <TextField label="Key" hideLabel placeholder="Key, for example supabase-pro" value={form.entryKey} disabled={!!entry}
           onChange={(e) => setForm({ ...form, entryKey: e.target.value })} />
-        <input aria-label="Label" className={field} placeholder="Label" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} />
-        <select aria-label="Category" className={field} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value as EntryForm["category"] })}>
-          {CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-        </select>
-        <input aria-label="Monthly amount (USD)" className={field} inputMode="decimal" placeholder="Monthly amount in USD" value={form.monthlyUsd}
+        <TextField label="Label" hideLabel placeholder="Label" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} />
+        <SelectField label="Category" hideLabel value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value as EntryForm["category"] })}
+          options={CATEGORIES.map((c) => ({ value: c.value, label: c.label }))} />
+        <TextField label="Monthly amount (USD)" hideLabel inputMode="decimal" placeholder="Monthly amount in USD" value={form.monthlyUsd}
           onChange={(e) => setForm({ ...form, monthlyUsd: e.target.value })} />
-        <select aria-label="Basis" className={field} value={form.basis} onChange={(e) => setForm({ ...form, basis: e.target.value as EntryForm["basis"] })}>
-          {BASES.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
-        </select>
-        <input aria-label="Source" className={field} placeholder="Where the figure comes from (invoice, quote, pricing page)" value={form.sourceReference}
+        <SelectField label="Basis" hideLabel value={form.basis} onChange={(e) => setForm({ ...form, basis: e.target.value as EntryForm["basis"] })}
+          options={BASES.map((b) => ({ value: b.value, label: b.label }))} />
+        <TextField label="Source" hideLabel placeholder="Where the figure comes from (invoice, quote, pricing page)" value={form.sourceReference}
           onChange={(e) => setForm({ ...form, sourceReference: e.target.value })} />
       </div>
       <label className="flex items-center gap-2 text-sm">
@@ -100,7 +98,7 @@ function EntryEditor({ entry, onSaved }: { entry: CostEntry | null; onSaved: () 
       </label>
       {problem && (form.entryKey || form.label || form.monthlyUsd) ? <p className="text-[12px] text-muted-foreground">{problem}</p> : null}
       <Button size="sm" disabled={!!problem} onClick={() => void save()}>{entry ? `Save version ${entry.version + 1}` : "Add cost"}</Button>
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </div>
   );
 }
@@ -124,12 +122,12 @@ function BudgetEditor({ budget, onSaved }: { budget: Budget | null; onSaved: () 
   return (
     <div role="group" aria-label="Budget" className="space-y-2">
       <div className="grid gap-2 sm:grid-cols-2">
-        <input aria-label="Monthly limit (USD)" className={field} inputMode="decimal" placeholder="Monthly limit" value={limit} onChange={(e) => setLimit(e.target.value)} />
-        <input aria-label="Warning amount (USD)" className={field} inputMode="decimal" placeholder="Warning amount, below the limit" value={warning} onChange={(e) => setWarning(e.target.value)} />
+        <TextField label="Monthly limit (USD)" hideLabel inputMode="decimal" placeholder="Monthly limit" value={limit} onChange={(e) => setLimit(e.target.value)} />
+        <TextField label="Warning amount (USD)" hideLabel inputMode="decimal" placeholder="Warning amount, below the limit" value={warning} onChange={(e) => setWarning(e.target.value)} />
       </div>
       {problem && (limit || warning) ? <p className="text-[12px] text-muted-foreground">{problem}</p> : null}
       <Button size="sm" disabled={!!problem} onClick={() => void save()}>{budget ? `Save budget version ${budget.version + 1}` : "Set budget"}</Button>
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </div>
   );
 }
@@ -177,9 +175,10 @@ export default function OperatingCostsPage() {
   const month = new Date().toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6" data-testid="operating-costs">
+    <PageShell className="space-y-6" data-testid="operating-costs">
       <PageHeader title="Operating costs" description="Fixed monthly costs, the monthly budget and its alerts. Builder only." />
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+      {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      {!loaded && !error ? <LoadingState label="Loading operating costs" /> : null}
       {loaded ? (
         <>
           <section aria-labelledby="oc-month" className="space-y-1 rounded-lg border border-input bg-background p-4 text-sm">
@@ -194,7 +193,7 @@ export default function OperatingCostsPage() {
 
           <section aria-labelledby="oc-entries" className="space-y-3">
             <h2 id="oc-entries" className="text-base font-semibold">Fixed costs</h2>
-            {entries.length === 0 ? <p className="text-sm text-muted-foreground">No costs recorded yet.</p> : null}
+            {entries.length === 0 ? <EmptyState title="No costs recorded yet." /> : null}
             <ul className="space-y-2">
               {entries.map((e) => (
                 <li key={`${e.entry_key}:${e.version}`} aria-label={`Cost ${e.label}`} className="space-y-1 rounded border border-input p-3 text-sm">
@@ -242,12 +241,12 @@ export default function OperatingCostsPage() {
             <h2 id="oc-history" className="text-base font-semibold">History</h2>
             <ol className="space-y-1 text-[12px] text-muted-foreground">
               {events.map((e) => (
-                <li key={e.id}>{new Date(e.created_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })} · {eventText(e)}</li>
+                <li key={e.id}>{fmtDateTime(e.created_at)} · {eventText(e)}</li>
               ))}
             </ol>
           </section>
         </>
       ) : null}
-    </div>
+    </PageShell>
   );
 }

@@ -11,7 +11,8 @@ import { RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
-import { PageHeader } from "@/components/PageHeader";
+import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField, StatusBadge, TextField, TextareaField } from "@/components/page-kit";
+import { fmtWhen } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 import {
   actionLabel,
@@ -20,7 +21,6 @@ import {
   boundedCause,
   boundedReceipt,
   errorText,
-  formatWhen,
   type Job,
   JOB_LIMIT,
   JOB_SELECT,
@@ -53,7 +53,16 @@ interface Untyped {
   rpc(name: string, args?: Record<string, unknown>): PromiseLike<DbResult>;
 }
 const db = supabase as unknown as Untyped;
-const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
+
+// How each job state reads as a status. Needs recovery is "blocked", never red.
+const JOB_STATUS: Record<string, string> = {
+  queued: "waiting",
+  leased: "in_progress",
+  delivered: "done",
+  recovery: "blocked",
+  canceled: "draft",
+  resolved_manually: "done",
+};
 
 function JobActions({ job, onChanged }: { job: Job; onChanged: () => void }) {
   const [note, setNote] = useState("");
@@ -74,7 +83,7 @@ function JobActions({ job, onChanged }: { job: Job; onChanged: () => void }) {
   if (job.nextStep === "replay") {
     const resolveProblem = outcome ? noteError(note) : "Choose what happened.";
     return (
-      <div className="space-y-2 rounded border border-amber-200 bg-amber-50 p-3">
+      <div className="space-y-2 rounded border border-warning/40 bg-warning/10 p-3">
         <Button size="sm" disabled={busy} onClick={() => void run("replay_job", { p_job_id: job.id }, "The job could not be replayed.")}>
           Replay
         </Button>
@@ -82,11 +91,9 @@ function JobActions({ job, onChanged }: { job: Job; onChanged: () => void }) {
           <details>
             <summary className="cursor-pointer font-medium">Resolve by hand</summary>
             <div className="mt-2 space-y-2">
-              <select aria-label="Outcome" className={field} value={outcome} onChange={(e) => setOutcome(e.target.value)}>
-                <option value="">What happened?</option>
-                {Object.entries(OUTCOME_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
-              <textarea aria-label="Resolution note" className={field} placeholder="What you checked in the outside service" value={note} onChange={(e) => setNote(e.target.value)} />
+              <SelectField label="Outcome" hideLabel value={outcome} placeholder="What happened?" onChange={(e) => setOutcome(e.target.value)}
+                options={Object.entries(OUTCOME_LABEL).map(([value, label]) => ({ value, label }))} />
+              <TextareaField label="Resolution note" hideLabel placeholder="What you checked in the outside service" value={note} onChange={(e) => setNote(e.target.value)} />
               {note && resolveProblem ? <p className="text-[12px] text-muted-foreground">{resolveProblem}</p> : null}
               <Button
                 size="sm"
@@ -99,7 +106,7 @@ function JobActions({ job, onChanged }: { job: Job; onChanged: () => void }) {
             </div>
           </details>
         ) : null}
-        {error ? <p role="alert" className="text-red-700">{error}</p> : null}
+        {error ? <p role="alert" className="text-destructive">{error}</p> : null}
       </div>
     );
   }
@@ -110,13 +117,13 @@ function JobActions({ job, onChanged }: { job: Job; onChanged: () => void }) {
       <details>
         <summary className="cursor-pointer font-medium">Cancel this job</summary>
         <div className="mt-2 space-y-2">
-          <input aria-label="Cancel reason" className={field} placeholder="Why it should not run" value={reason} onChange={(e) => setReason(e.target.value)} />
+          <TextField label="Cancel reason" hideLabel placeholder="Why it should not run" value={reason} onChange={(e) => setReason(e.target.value)} />
           {reason && problem ? <p className="text-[12px] text-muted-foreground">{problem}</p> : null}
           <Button size="sm" variant="outline" disabled={busy || !!problem}
             onClick={() => void run("cancel_queued_job", { p_job_id: job.id, p_reason: reason.trim() }, "The job could not be canceled.")}>
             Cancel job
           </Button>
-          {error ? <p role="alert" className="text-red-700">{error}</p> : null}
+          {error ? <p role="alert" className="text-destructive">{error}</p> : null}
         </div>
       </details>
     );
@@ -131,18 +138,18 @@ function JobCard({ job, names, clientName, onChanged }: { job: Job; names: Recor
     <li aria-label={`Job ${kindLabel(job.kind)} ${job.id.slice(0, 8)}`} className="space-y-2 rounded-lg border border-input bg-background p-4 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-semibold">{kindLabel(job.kind)}</p>
-        <span data-testid={`job-state-${job.id}`} className="rounded border px-2 py-0.5 text-[12px]">{STATE_LABEL[job.state]}</span>
+        <span data-testid={`job-state-${job.id}`}><StatusBadge status={JOB_STATUS[job.state]} label={STATE_LABEL[job.state]} /></span>
       </div>
       <p className="text-[12px] text-muted-foreground">
-        {clientName ? `${clientName} · ` : ""}Try {job.attempts} of {job.max_attempts} · queued {formatWhen(job.created_at)} · updated {formatWhen(job.updated_at)}
-        {job.state === "queued" ? ` · due ${formatWhen(job.available_at)}` : ""}
-        {job.state === "leased" ? ` · running now, retries at ${formatWhen(job.lease_until)} if it does not finish` : ""}
+        {clientName ? `${clientName} · ` : ""}Try {job.attempts} of {job.max_attempts} · queued {fmtWhen(job.created_at)} · updated {fmtWhen(job.updated_at)}
+        {job.state === "queued" ? ` · due ${fmtWhen(job.available_at)}` : ""}
+        {job.state === "leased" ? ` · running now, retries at ${fmtWhen(job.lease_until)} if it does not finish` : ""}
       </p>
-      {cause ? <p className="text-amber-900">Cause: {cause}</p> : null}
+      {cause ? <p className="text-warning-foreground">Cause: {cause}</p> : null}
       {receipt ? <p className="text-muted-foreground">Receipt: {Object.entries(receipt).map(([k, v]) => `${k} ${v}`).join(" · ")}</p> : null}
       {job.manualResolution ? (
         <p className="text-muted-foreground">
-          {OUTCOME_LABEL[job.manualResolution.outcome] ?? job.manualResolution.outcome} · {actorLabel(job.manualResolution.actor, names)}, {formatWhen(job.manualResolution.at)}: {job.manualResolution.note}
+          {OUTCOME_LABEL[job.manualResolution.outcome] ?? job.manualResolution.outcome} · {actorLabel(job.manualResolution.actor, names)}, {fmtWhen(job.manualResolution.at)}: {job.manualResolution.note}
         </p>
       ) : null}
       <p className="text-muted-foreground" data-testid={`job-next-${job.id}`}>{NEXT_STEP_LABEL[job.nextStep]}</p>
@@ -155,7 +162,7 @@ function JobCard({ job, names, clientName, onChanged }: { job: Job; names: Recor
               const d = auditDetail(a);
               return (
                 <li key={a.id}>
-                  {formatWhen(a.created_at)} · {actionLabel(a.action)} · {actorLabel(a.actor, names)}{d ? ` · ${d}` : ""}
+                  {fmtWhen(a.created_at)} · {actionLabel(a.action)} · {actorLabel(a.actor, names)}{d ? ` · ${d}` : ""}
                 </li>
               );
             })}
@@ -207,26 +214,28 @@ export default function OperationsPage() {
   const clientName = (slug: string | null) => (slug ? clients.find((c) => c.slug === slug)?.name ?? slug : null);
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4" data-testid="operations">
+    <PageShell data-testid="operations">
       <PageHeader
         title="Operations"
         description="The work queue: reminders, owner alerts and other outside work. Replay or resolve a job that needs recovery, or cancel a queued job that never ran."
         actions={
           <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
-            <RefreshCw className="mr-1 h-4 w-4" /> Reload
+            <RefreshCw className="mr-1 h-4 w-4" aria-hidden="true" /> Reload
           </Button>
         }
       />
-      <div className="grid gap-2 sm:grid-cols-2">
-        <select aria-label="Jobs to show" className={field} value={filter} onChange={(e) => setFilter(e.target.value as StateFilter)}>
-          {STATE_FILTERS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
-        </select>
-        <p className="self-center text-sm text-muted-foreground" data-testid="operations-scope">
-          {clientSlug ? `Showing jobs for ${clientName(clientSlug)}.` : "Showing every client and the company-wide jobs."}
-        </p>
-      </div>
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
-      {jobs && jobs.length === 0 ? <p className="text-sm text-muted-foreground">No jobs match.</p> : null}
+      <FilterBar
+        trailing={
+          <p className="text-sm text-muted-foreground" data-testid="operations-scope">
+            {clientSlug ? `Showing jobs for ${clientName(clientSlug)}.` : "Showing every client and the company-wide jobs."}
+          </p>
+        }
+      >
+        <SelectField label="Jobs to show" hideLabel value={filter} onChange={(e) => setFilter(e.target.value as StateFilter)} options={STATE_FILTERS.map((f) => ({ value: f.value, label: f.label }))} />
+      </FilterBar>
+      {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      {jobs === null && !error ? <LoadingState label="Loading jobs" /> : null}
+      {jobs && jobs.length === 0 && !error ? <EmptyState title="No jobs match." /> : null}
       {jobs && jobs.length === JOB_LIMIT ? <p className="text-[12px] text-muted-foreground">Showing the {JOB_LIMIT} most recently updated jobs.</p> : null}
       <ul className="space-y-3">
         {(jobs ?? []).map((j) => (
@@ -237,6 +246,6 @@ export default function OperationsPage() {
         Replaying sends the job again the next time jobs run, so first check the outside service for the earlier attempt. Nothing is sent from staging.
         Connector and queue status is on <Link className="underline" to={`${prefix}/integration-health`}>Integration health</Link>.
       </p>
-    </div>
+    </PageShell>
   );
 }

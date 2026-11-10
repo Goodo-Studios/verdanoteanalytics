@@ -13,12 +13,14 @@
  * - model rules.
  * The database rules are in supabase/tests/staff_team_reconciliation_test.sql.
  */
+import { acceptConfirm, confirmDialogText, declineConfirm } from "./adminConfirm";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   auth: { isBuilder: true, role: "builder" } as Record<string, unknown>,
   preview: { isClientPreview: false, isEmployeePreview: false },
+  failTeam: false,
 }));
 const rpc = vi.fn();
 const data: Record<string, unknown[]> = {};
@@ -28,7 +30,7 @@ function chain(table: string) {
   const q = {
     order: () => q,
     limit: () => q,
-    then: (resolve: (v: unknown) => unknown) => Promise.resolve({ data: data[table] ?? [], error: null }).then(resolve),
+    then: (resolve: (v: unknown) => unknown) => Promise.resolve(h.failTeam && table === "app_users" ? { data: null, error: { message: "down" } } : { data: data[table] ?? [], error: null }).then(resolve),
   };
   return q;
 }
@@ -75,6 +77,7 @@ const RECON: ReconRow[] = [
 beforeEach(() => {
   h.auth = { isBuilder: true, role: "builder" };
   h.preview = { isClientPreview: false, isEmployeePreview: false };
+  h.failTeam = false;
   rpc.mockReset();
   rpc.mockImplementation((name: string) => Promise.resolve(name === "staff_reconciliation" ? { data: RECON, error: null } : { data: null, error: null }));
   data.app_users = [
@@ -95,6 +98,18 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("TeamPage", () => {
+  it("shows a skeleton while loading, then says the list could not load and can try again", async () => {
+    h.failTeam = true;
+    render(<TeamPage />);
+    expect(screen.getByRole("status", { name: "Loading the team" })).toBeInTheDocument();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The team list could not load.");
+    h.failTeam = false;
+    fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+    expect((await screen.findAllByTestId("team-member")).length).toBe(3);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("shows an employee the team list and the mapping only, and never asks for the reconciliation", async () => {
     h.auth = { isBuilder: false, role: "employee" };
     render(<TeamPage />);
@@ -137,27 +152,28 @@ describe("TeamPage", () => {
   });
 
   it("runs each row action through its checked function, with a confirm for team list and role changes", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<TeamPage />);
     const rows = await screen.findAllByTestId("recon-row");
     const byName = (n: string) => rows.find((r) => r.textContent?.includes(n))!;
     fireEvent.click(within(byName("No Login")).getByRole("button", { name: "Prepare invite (not sent)" }));
     await waitFor(() => expect(rpc).toHaveBeenCalledWith("prepare_staff_invite", { p_team_member_id: "t-nl" }));
     fireEvent.click(within(byName("Sam Staff")).getByRole("button", { name: "Add to team list" }));
+    expect(rpc).not.toHaveBeenCalledWith("add_login_to_team_list", expect.anything());
+    expect(await confirmDialogText()).toContain("Add Sam Staff to the team list?");
+    await acceptConfirm();
     await waitFor(() => expect(rpc).toHaveBeenCalledWith("add_login_to_team_list", { p_user_id: "u-s1", p_name: "Sam Staff" }));
     fireEvent.click(within(byName("No Role")).getByRole("button", { name: "Set role to Employee" }));
+    expect(await confirmDialogText()).toContain("This changes what they can open.");
+    await acceptConfirm();
     await waitFor(() => expect(rpc).toHaveBeenCalledWith("set_staff_role", { p_user_id: "u-n1", p_role: "employee" }));
-    expect(confirm).toHaveBeenCalledTimes(2);
-    confirm.mockRestore();
   });
 
   it("does nothing when the builder declines the confirm", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<TeamPage />);
     const rows = await screen.findAllByTestId("recon-row");
     fireEvent.click(within(rows.find((r) => r.textContent?.includes("No Role"))!).getByRole("button", { name: "Set role to Employee" }));
+    await declineConfirm();
     expect(rpc).not.toHaveBeenCalledWith("set_staff_role", expect.anything());
-    confirm.mockRestore();
   });
 
   it("shows a refusal from the database in plain words", async () => {
@@ -182,18 +198,18 @@ describe("TeamPage", () => {
   });
 
   it("asks before clearing the owner flag on a mapping, and saves only when confirmed", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
     render(<TeamPage />);
     const group = await screen.findByRole("group", { name: "Change the viewer mapping" });
     fireEvent.click(within(group).getByLabelText("Still waits on the owner"));
     fireEvent.click(within(group).getByRole("button", { name: "Save mapping" }));
+    await declineConfirm();
     expect(rpc).not.toHaveBeenCalledWith("set_staff_role_mapping", expect.anything());
     fireEvent.click(within(group).getByRole("button", { name: "Save mapping" }));
+    await acceptConfirm();
     await waitFor(() =>
       expect(rpc).toHaveBeenCalledWith("set_staff_role_mapping", {
         p_dashboard_role: "viewer", p_verdanote_role: "employee", p_needs_owner_decision: false, p_note: "Owner decision 2 is open.",
       }));
-    confirm.mockRestore();
   });
 
   it("a prepared invite can be sent by email: it fills the invite form, and nothing is sent until the builder confirms", async () => {

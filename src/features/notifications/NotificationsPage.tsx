@@ -7,7 +7,8 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
-import { PageHeader } from "@/components/PageHeader";
+import { ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextareaField, TextField, useConfirm, type ConfirmCopy } from "@/components/page-kit";
+import { fmtDateTime } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 import { CLIENT_SWITCHER_COLUMNS } from "@/lib/pageQueries";
 import { TEAM_SELECT, type TeamMember } from "@/features/team/model";
@@ -60,7 +61,6 @@ interface Untyped {
   functions: { invoke(name: string, options: { method: "GET" }): Promise<{ data: unknown; error: unknown }> };
 }
 const db = supabase as unknown as Untyped;
-const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 const CARD = "rounded-lg border border-border bg-card p-4 space-y-2";
 
 interface ClientOption { slug: string; name: string }
@@ -72,14 +72,15 @@ interface Loaded {
   clients: ClientOption[];
 }
 
-const when = (iso: string) => new Date(iso).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+const when = (iso: string) => fmtDateTime(iso);
 
 function SendingSection({ send, builder, keyState, onChanged }: { send: SendSwitch | null; builder: boolean; keyState: SlackKeyState; onChanged: () => void }) {
   const enabled = send?.enabled === true;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { confirm, dialog } = useConfirm();
   const set = async (next: boolean) => {
-    if (next && !window.confirm("Turn Slack sending on? Confirmed channels will get reminders and owner alerts, from production.")) return;
+    if (next && !(await confirm({ title: "Turn Slack sending on?", description: "Confirmed channels will get reminders and owner alerts, from production.", actionLabel: "Turn on", tone: "default" }))) return;
     setBusy(true);
     setError(null);
     const { error: e } = await db.from("outbound_switches").upsert({ name: SEND_SWITCH, enabled: next, note: next ? "Turned on from the Notifications page" : "Turned off from the Notifications page" });
@@ -101,6 +102,7 @@ function SendingSection({ send, builder, keyState, onChanged }: { send: SendSwit
         <p className="text-xs text-muted-foreground">Only a builder can turn sending on or off.</p>
       )}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+      {dialog}
     </section>
   );
 }
@@ -108,8 +110,9 @@ function SendingSection({ send, builder, keyState, onChanged }: { send: SendSwit
 function DestinationRow({ d, builder, clientName, onChanged }: { d: Destination; builder: boolean; clientName: string | null; onChanged: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const change = async (patch: Record<string, unknown>, confirmText?: string) => {
-    if (confirmText && !window.confirm(confirmText)) return;
+  const { confirm, dialog } = useConfirm();
+  const change = async (patch: Record<string, unknown>, copy?: ConfirmCopy) => {
+    if (copy && !(await confirm(copy))) return;
     setBusy(true);
     setError(null);
     const { error: e } = await db.from("slack_destinations").update(patch).eq("id", d.id);
@@ -127,14 +130,15 @@ function DestinationRow({ d, builder, clientName, onChanged }: { d: Destination;
       {builder ? (
         <div className="mt-2 flex flex-wrap gap-2">
           {!d.owner_confirmed ? (
-            <Button size="sm" disabled={busy} onClick={() => void change({ owner_confirmed: true }, `Confirm ${d.label}? Once sending is on, reminders and alerts can be posted there.`)}>Confirm channel</Button>
+            <Button size="sm" disabled={busy} onClick={() => void change({ owner_confirmed: true }, { title: `Confirm ${d.label}?`, description: "Once sending is on, reminders and alerts can be posted there.", actionLabel: "Confirm channel", tone: "default" })}>Confirm channel</Button>
           ) : null}
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => void change({ active: !d.active }, d.active ? `Pause ${d.label}? Nothing is posted there until it is resumed.` : undefined)}>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => void change({ active: !d.active }, d.active ? { title: `Pause ${d.label}?`, description: "Nothing is posted there until it is resumed.", actionLabel: "Pause", tone: "default" } : undefined)}>
             {d.active ? "Pause" : "Resume"}
           </Button>
         </div>
       ) : null}
       {error ? <p role="alert" className="mt-1 text-destructive">{error}</p> : null}
+      {dialog}
     </li>
   );
 }
@@ -164,16 +168,13 @@ function DestinationsSection({ data, builder, onChanged }: { data: Loaded; build
       </ul>
       {builder ? (
         <div role="group" aria-label="Add a Slack channel" className="grid gap-2 sm:grid-cols-2">
-          <input aria-label="Channel name" className={field} placeholder="#team-reminders" value={form.label} maxLength={120} onChange={(e) => setForm({ ...form, label: e.target.value })} />
-          <input aria-label="Channel id" className={field} placeholder="C0123ABCD" value={form.channelId} onChange={(e) => setForm({ ...form, channelId: e.target.value })} />
-          <select aria-label="What it is for" className={field} value={form.purpose} onChange={(e) => setForm({ ...form, purpose: e.target.value as Purpose, clientSlug: "" })}>
-            {PURPOSE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
+          <TextField label="Channel name" hideLabel placeholder="#team-reminders" value={form.label} maxLength={120} onChange={(e) => setForm({ ...form, label: e.target.value })} />
+          <TextField label="Channel id" hideLabel placeholder="C0123ABCD" value={form.channelId} onChange={(e) => setForm({ ...form, channelId: e.target.value })} />
+          <SelectField label="What it is for" hideLabel value={form.purpose} onChange={(e) => setForm({ ...form, purpose: e.target.value as Purpose, clientSlug: "" })}
+            options={PURPOSE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))} />
           {form.purpose === "client_reminders" ? (
-            <select aria-label="Client for this channel" className={field} value={form.clientSlug} onChange={(e) => setForm({ ...form, clientSlug: e.target.value })}>
-              <option value="">Choose a client</option>
-              {data.clients.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
-            </select>
+            <SelectField label="Client for this channel" hideLabel value={form.clientSlug} onChange={(e) => setForm({ ...form, clientSlug: e.target.value })}
+              placeholder="Choose a client" options={data.clients.map((c) => ({ value: c.slug, label: c.name }))} />
           ) : <div />}
           {problem && (form.label || form.channelId) ? <p className="text-xs text-muted-foreground sm:col-span-2">{problem}</p> : <p className="text-xs text-muted-foreground sm:col-span-2">{CHANNEL_ID_HELP}</p>}
           <div className="sm:col-span-2"><Button size="sm" disabled={!!problem} onClick={() => void add()}>Add channel</Button></div>
@@ -210,8 +211,9 @@ function RemindersSection({ data, selfMember, selfName, onChanged }: { data: Loa
     setNotice("Reminder saved. It goes out at that time only if Slack sending is on and the channel is confirmed.");
     onChanged();
   };
+  const { confirm, dialog } = useConfirm();
   const cancel = async (r: Reminder) => {
-    if (!window.confirm("Cancel this reminder? It will not be sent.")) return;
+    if (!(await confirm({ title: "Cancel this reminder?", description: "It will not be sent.", actionLabel: "Cancel the reminder" }))) return;
     const { error: e } = await db.from("reminders").update({ state: "canceled", cancel_reason: "Canceled on the Notifications page" }).eq("id", r.id);
     if (e) return setError(errorText(e));
     onChanged();
@@ -226,16 +228,12 @@ function RemindersSection({ data, selfMember, selfName, onChanged }: { data: Loa
         </p>
       ) : (
         <div role="group" aria-label="New reminder" className="grid gap-2 sm:grid-cols-2">
-          <textarea aria-label="What" className={`${field} sm:col-span-2`} placeholder="What should the reminder say?" value={form.what} onChange={(e) => setForm({ ...form, what: e.target.value })} />
-          <input aria-label="When" type="datetime-local" className={field} value={form.when} onChange={(e) => setForm({ ...form, when: e.target.value })} />
-          <select aria-label="Who" className={field} value={form.who} onChange={(e) => setForm({ ...form, who: e.target.value })}>
-            <option value="self">Me</option>
-            {data.members.filter((m) => m.active && m.id !== selfMember?.id).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
-          <select aria-label="Where" className={field} value={destinationId} onChange={(e) => setForm({ ...form, destinationId: e.target.value })}>
-            <option value="">Choose a channel</option>
-            {usable.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
-          </select>
+          <TextareaField label="What" hideLabel className="sm:col-span-2" placeholder="What should the reminder say?" value={form.what} onChange={(e) => setForm({ ...form, what: e.target.value })} />
+          <TextField label="When" hideLabel type="datetime-local" value={form.when} onChange={(e) => setForm({ ...form, when: e.target.value })} />
+          <SelectField label="Who" hideLabel value={form.who} onChange={(e) => setForm({ ...form, who: e.target.value })}
+            options={[{ value: "self", label: "Me" }, ...data.members.filter((m) => m.active && m.id !== selfMember?.id).map((m) => ({ value: m.id, label: m.name }))]} />
+          <SelectField label="Where" hideLabel value={destinationId} onChange={(e) => setForm({ ...form, destinationId: e.target.value })}
+            placeholder="Choose a channel" options={usable.map((d) => ({ value: d.id, label: d.label }))} />
           <div className="flex items-center gap-2">
             <Button size="sm" disabled={!!problem} onClick={() => void create()}>Save reminder</Button>
           </div>
@@ -258,6 +256,7 @@ function RemindersSection({ data, selfMember, selfName, onChanged }: { data: Loa
           </li>
         ))}
       </ul>
+      {dialog}
     </section>
   );
 }
@@ -310,14 +309,12 @@ export default function NotificationsPage() {
   const selfName = selfMember?.name ?? (email.split("@")[0] || "me");
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6" data-testid="notifications-page">
+    <PageShell className="space-y-6" data-testid="notifications-page">
       <PageHeader title="Notifications" description="Slack channels, the switch that lets Verdanote post to Slack, and reminders for you or a teammate." />
       {error ? (
-        <div role="alert" className="rounded-lg border border-destructive/40 p-4 text-sm">
-          {error} <button type="button" className="underline" onClick={() => void load()}>Try again</button>
-        </div>
+        <ErrorState message={error} onRetry={() => void load()} />
       ) : !data ? (
-        <p role="status" className="text-sm text-muted-foreground">Loading notifications...</p>
+        <LoadingState label="Loading notifications" />
       ) : (
         <>
           <SendingSection send={data.send} builder={builder} keyState={keyState} onChanged={() => void load()} />
@@ -325,6 +322,6 @@ export default function NotificationsPage() {
           <RemindersSection data={data} selfMember={selfMember} selfName={selfName} onChanged={() => void load()} />
         </>
       )}
-    </div>
+    </PageShell>
   );
 }
