@@ -302,3 +302,97 @@ export function stageCounts(assignments: { stage: string }[]): { stage: string; 
 export function serviceLines(c: Pick<DashboardClient, "does_creators" | "does_production">): string[] {
   return [c.does_creators ? "Creators" : null, c.does_production ? "Production" : null].filter((x): x is string => x !== null);
 }
+
+// --------------------------------------------------------------- Creator pipeline
+//
+// The old dashboard's Pipeline page: creators assigned to a brand
+// (creator_assignments), moved through the stages. Not the Content Pipeline
+// (/pipeline), which shows ClickUp asset tasks.
+
+export interface AppUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  active: boolean;
+}
+
+export interface Assignment {
+  id: string;
+  creator_id: string;
+  client_slug: string;
+  stage: string;
+  owner_id: string | null;
+  next_follow_up_at: string | null;
+  next_follow_up_source: string | null;
+  tracking_number: string | null;
+  product_delivered_at: string | null;
+  brief_name: string | null;
+  notes: string | null;
+  dashboard_creators: { name: string; scale: number | null; do_not_use_again: boolean } | null;
+}
+
+export interface CreatorOption {
+  id: string;
+  name: string;
+  scale: number | null;
+  do_not_use_again: boolean;
+}
+
+export const ALL_BRANDS = "all";
+export const ACTIVE_STAGES: readonly string[] = STAGES.map((s) => s.value as string).filter((v) => !TERMINAL_STAGES.includes(v));
+/** What the all-brands board opens on: the production stretch. */
+export const PRODUCTION_STAGES: readonly string[] = ["product_shipped", "brief_sent", "product_delivered", "shooting", "footage_delivered", "invoice_received"];
+/** Stages where shipping and delivery details matter. */
+export const DELIVERY_STAGES: readonly string[] = ["product_shipped", "brief_sent", "product_delivered"];
+
+export type StageScope = "production" | "all";
+
+/** One brand: every stage, terminal ones last. All brands: production or all active stages. */
+export function boardColumns(brand: string, scope: StageScope): readonly string[] {
+  if (brand !== ALL_BRANDS) return STAGES.map((s) => s.value as string);
+  return scope === "all" ? ACTIVE_STAGES : PRODUCTION_STAGES;
+}
+
+export function creatorName(a: Pick<Assignment, "dashboard_creators">): string {
+  return a.dashboard_creators?.name ?? "Unknown creator";
+}
+
+export function groupByStage(rows: Assignment[], columns: readonly string[]): Map<string, Assignment[]> {
+  const out = new Map<string, Assignment[]>(columns.map((c) => [c, []]));
+  for (const r of rows) out.get(r.stage)?.push(r);
+  for (const list of out.values()) list.sort((a, b) => creatorName(a).localeCompare(creatorName(b)));
+  return out;
+}
+
+export function searchAssignments(rows: Assignment[], query: string, brandNames: Map<string, string>): Assignment[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return rows;
+  return rows.filter((r) =>
+    [creatorName(r), brandNames.get(r.client_slug) ?? r.client_slug, stageLabel(r.stage), r.brief_name ?? ""].some((v) => v.toLowerCase().includes(q)),
+  );
+}
+
+/** Creators that can be added to a brand: not on it already and not marked do-not-use. */
+export function addableCreators(creators: CreatorOption[], onBrand: Assignment[], query: string): CreatorOption[] {
+  const taken = new Set(onBrand.map((a) => a.creator_id));
+  const q = query.trim().toLowerCase();
+  return creators.filter((c) => !taken.has(c.id) && !c.do_not_use_again && (!q || c.name.toLowerCase().includes(q)));
+}
+
+export function ownerName(users: AppUser[], id: string | null): string {
+  if (!id) return "No owner";
+  return users.find((u) => u.id === id)?.name ?? "Unknown owner";
+}
+
+/** Owners a card can be given: active people, plus the current owner even if deactivated. */
+export function ownerOptions(users: AppUser[], currentId: string | null): AppUser[] {
+  return users.filter((u) => u.active || u.id === currentId).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** The staff member's own app_users row, matched by the Verdanote login email. */
+export function currentAppUser(users: AppUser[], email: string | null | undefined): AppUser | null {
+  if (!email) return null;
+  const e = email.toLowerCase();
+  return users.find((u) => u.email.toLowerCase() === e) ?? null;
+}

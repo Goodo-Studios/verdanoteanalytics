@@ -313,7 +313,10 @@ export default function ClientDetailPage() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <section aria-label="Creators" className={CARD}>
-          <h2 className={H2}>Creators</h2>
+          <div className="flex items-center justify-between">
+            <h2 className={H2}>Creators</h2>
+            <Link to={`${prefix}/creator-pipeline?brand=${encodeURIComponent(client.slug)}`} className="text-xs underline">Open in Creator pipeline</Link>
+          </div>
           {stages.length === 0 ? (
             <p className="mt-2 text-sm text-muted-foreground">No creators on this client yet.</p>
           ) : (

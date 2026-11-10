@@ -4,7 +4,16 @@
 // functions decide what happens. The dashboard tables are not in the
 // generated types, hence the small untyped wrapper.
 import { supabase } from "@/integrations/supabase/client";
-import type { ActiveEngagement, BoardCard, DashboardClient, Deliverable } from "./model";
+import {
+  ALL_BRANDS,
+  type ActiveEngagement,
+  type AppUser,
+  type Assignment,
+  type BoardCard,
+  type CreatorOption,
+  type DashboardClient,
+  type Deliverable,
+} from "./model";
 
 export interface DbError {
   code?: string;
@@ -152,4 +161,68 @@ export function saveClientScope(slug: string, scope: string | null) {
 /** Builder only: whether the client shows on the Client overview. */
 export function saveClientActive(slug: string, active: boolean) {
   return unwrap(db.rpc("set_client_active", { p_slug: slug, p_active: active }));
+}
+
+// --------------------------------------------------------------- Creator pipeline and Follow-ups
+
+export const ASSIGNMENT_COLUMNS =
+  "id, creator_id, client_slug, stage, owner_id, next_follow_up_at, next_follow_up_source, tracking_number, product_delivered_at, brief_name, notes, dashboard_creators(name, scale, do_not_use_again)";
+
+export interface BrandOption {
+  slug: string;
+  name: string;
+  active: boolean;
+  does_creators: boolean;
+}
+
+export async function loadBrandsAndTeam(): Promise<{ brands: BrandOption[]; users: AppUser[] }> {
+  const [brands, users] = await Promise.all([
+    unwrap(db.from("clients").select<BrandOption[]>("slug, name, active, does_creators").order("name")),
+    unwrap(db.from("app_users").select<AppUser[]>("id, name, email, role, active").order("name")),
+  ]);
+  return { brands, users };
+}
+
+/** One brand's assignments, or every brand's with ALL_BRANDS. */
+export function loadAssignments(brand: string): Promise<Assignment[]> {
+  const q = db.from("creator_assignments").select<Assignment[]>(ASSIGNMENT_COLUMNS);
+  return unwrap(brand === ALL_BRANDS ? q : q.eq("client_slug", brand));
+}
+
+export function loadCreatorOptions(): Promise<CreatorOption[]> {
+  return unwrap(db.from("dashboard_creators").select<CreatorOption[]>("id, name, scale, do_not_use_again").order("name"));
+}
+
+export interface AssignmentPatch {
+  stage?: string;
+  owner_id?: string | null;
+  next_follow_up_at?: string | null;
+}
+
+/**
+ * creator_assignments has no updated_at trigger, so every write sets it. The
+ * select turns a write that matched no row (deleted, or refused by the row
+ * rules) into an error instead of a silent success. Moving the stage lets the
+ * database stage rule set the next follow-up.
+ */
+export async function updateAssignment(id: string, patch: AssignmentPatch): Promise<void> {
+  const row = await unwrapOne(
+    db.from("creator_assignments").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id).select("id").maybeSingle(),
+  );
+  if (!row) throw new DashboardError({ message: "That creator row no longer exists or cannot be changed." });
+}
+
+export async function addCreatorsToBrand(slug: string, creatorIds: string[]): Promise<void> {
+  if (!creatorIds.length) return;
+  await unwrap(db.from("creator_assignments").insert(creatorIds.map((creator_id) => ({ creator_id, client_slug: slug, stage: "sourced" }))).select("id"));
+}
+
+export async function removeAssignment(id: string): Promise<void> {
+  const rows = await unwrap(db.from("creator_assignments").delete<{ id: string }[]>().eq("id", id).select("id"));
+  if (!rows.length) throw new DashboardError({ message: "That creator row no longer exists or cannot be removed." });
+}
+
+/** Staff only (set_creator_assignment_delivery checks the role). */
+export function saveDelivery(id: string, tracking: string | null, deliveredAt: string | null) {
+  return unwrap(db.rpc("set_creator_assignment_delivery", { p_assignment_id: id, p_tracking_number: tracking, p_product_delivered_at: deliveredAt }));
 }
