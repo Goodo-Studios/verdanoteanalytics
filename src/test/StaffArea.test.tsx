@@ -72,6 +72,7 @@ vi.mock("@/features/operations/OperationsPage", () => pageMock("operations"));
 vi.mock("@/features/operating-costs/OperatingCostsPage", () => pageMock("operating-costs"));
 vi.mock("@/features/support/SupportInboxPage", () => pageMock("support"));
 vi.mock("@/features/bids/BidViewerPage", () => pageMock("bids"));
+vi.mock("@/features/team/TeamPage", () => pageMock("team"));
 vi.mock("@/features/learning/LearningPage", () => pageMock("learning"));
 vi.mock("@/features/scope-changes/ScopeChangesPage", () => pageMock("scope-changes"));
 vi.mock("@/features/recommendations/RecommendationsPage", () => pageMock("recommendations"));
@@ -174,6 +175,7 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean }
   { path: "/operating-costs", marker: "operating-costs", builderOnly: true },
   { path: "/support", marker: "support" },
   { path: "/bids", marker: "bids" },
+  { path: "/team", marker: "team" },
   { path: "/learning", marker: "learning" },
   { path: "/scope-changes", marker: "scope-changes" },
   { path: "/recommendations", marker: "recommendations" },

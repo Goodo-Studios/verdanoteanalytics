@@ -6,6 +6,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Users, UserPlus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useRolePrefix } from "@/hooks/useRolePath";
 
 interface UserManagementSectionProps {
   users: any[] | undefined;
@@ -16,12 +17,18 @@ interface UserManagementSectionProps {
 }
 
 export function UserManagementSection({ users, accounts, onCreateUser, onDeleteUser, onUpdateRole }: UserManagementSectionProps) {
+  const prefix = useRolePrefix();
   return (
     <section className="glass-panel p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="font-heading text-[22px] text-forest">User Management</h2>
           <p className="font-body text-[13px] text-slate font-light mt-0.5">Create and manage users. Assign roles and link clients to accounts.</p>
+          <p className="font-body text-[13px] text-slate mt-1" data-testid="team-page-pointer">
+            Staff are managed on <a className="underline" href={`${prefix}/team`}>Team and settings</a>: the team list, the role
+            mapping, the check against logins and roles, and prepared invites. This list keeps every login, including client logins
+            and their linked accounts.
+          </p>
         </div>
         <Button size="sm" className="bg-verdant text-white hover:bg-verdant-light font-body text-[13px] font-semibold rounded-[6px]" onClick={onCreateUser}>
           <UserPlus className="h-3.5 w-3.5 mr-1.5" />Create User

@@ -1027,6 +1027,12 @@ for (const row of recon.data ?? []) for (const i of row.issues ?? []) issueCount
 check("builder reads the staff reconciliation", !recon.error && Array.isArray(recon.data), `error=${recon.error?.message ?? "none"} people=${recon.data?.length ?? "error"} issues=${JSON.stringify(issueCounts)}`);
 const prepNone = await staff.c.rpc("prepare_staff_invite", { p_team_member_id: ZERO });
 check("builder passes the role check in prepare_staff_invite (no such member)", prepNone.error?.code === "P0002", `code=${prepNone.error?.code ?? "none"}`);
+// The Team page (/team, step 5d PR 2) loads these as the builder.
+const invPage = await staff.c.from("staff_invites").select("id, team_member_id, email, name, proposed_role, mapping_flagged, status, prepared_at, cancelled_at, cancel_reason").order("prepared_at", { ascending: false }).limit(200);
+check("builder loads the Team page invites query", !invPage.error, `error=${invPage.error?.code ?? ""} ${invPage.error?.message ?? "none"}`);
+check("no staging invite was ever sent (prepared or cancelled only)", (invPage.data ?? []).every((i) => ["prepared", "cancelled"].includes(i.status)), `statuses=${[...new Set((invPage.data ?? []).map((i) => i.status))]}`);
+const evPage = await staff.c.from("staff_admin_events").select("id, kind, subject, detail, created_at").order("created_at", { ascending: false }).limit(20);
+check("builder loads the Team page recent changes query", !evPage.error, `error=${evPage.error?.code ?? ""} ${evPage.error?.message ?? "none"}`);
 
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
