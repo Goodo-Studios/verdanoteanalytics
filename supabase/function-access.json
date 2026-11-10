@@ -5,7 +5,8 @@
       "class": "staff"
     },
     "accounts": {
-      "class": "account-scoped"
+      "class": "account-scoped",
+      "note": "Clients get only the client-safe columns in _shared/client-account-fields.ts; staff get full rows."
     },
     "ad-preview": {
       "class": "account-scoped"
