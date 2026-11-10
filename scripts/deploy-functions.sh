@@ -63,6 +63,7 @@ FUNCTIONS=(
   fireflies-transcript
   push-brief-to-clickup
   meeting-recaps
+  agent-evaluations
   integration-health
   system-health-check
   transcribe-ad

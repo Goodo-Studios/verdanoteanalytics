@@ -59,6 +59,7 @@ INSERT INTO allow
     'resolve_deliverable_qa_return', 'record_deliverable_signoff', 'mark_deliverable_final_ready',
     'handoff_staff_options', 'create_handoff_packet', 'acknowledge_handoff', 'reassign_handoff',
     'handoff_source_status',
+    'add_agent_evaluation_sample', 'record_agent_evaluation_outcome', 'approve_agent_config',
     'create_learning_module', 'save_learning_draft', 'review_learning_version', 'publish_learning_version', 'withdraw_learning_module', 'record_learning_support_week', 'snapshot_learning_self_service',
     'request_scope_change', 'evaluate_scope_change',
     'propose_recommendation', 'decide_recommendation', 'link_recommendation_execution', 'record_recommendation_outcome', 'review_recommendation_learning', 'recommendation_ad_options',

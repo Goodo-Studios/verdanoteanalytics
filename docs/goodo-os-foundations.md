@@ -314,6 +314,22 @@ Staff read all six; clients read none. Checked functions (`staff_area` allow-lis
 
 Differences from Goodo OS: per-client learning capability grants are replaced by "another staff member reviews, a builder publishes and withdraws". The client learning library, grounded how-to answers, helpfulness responses and usage clicks are client-facing (phase 2), so publishing records the decision and no client reads anything. Template attachments and the Goodo OS lesson content are not copied in. Tests in `supabase/tests/learning_test.sql` and `src/test/learningPage.test.tsx`.
 
+### AI agents and evaluations
+
+Page `/agent-evaluations` (builder and employee), edge function `agent-evaluations` and migration `20261110200006_agent_evaluations.sql`. Port of the Goodo OS evaluation runner and gate (US-058: `backend/agents/evaluation.ts`, `backend/services/evaluationGate.ts`; migrations `034_agent_evaluation.sql` and `048_agent_evaluation_quality.sql`).
+
+| Table | Purpose |
+|---|---|
+| `agent_evaluation_samples` | staff-written test requests per agent (today `meeting-recaps`): dimension (grounding, escalation, prompt injection, permission isolation, action postconditions), made up or real with permission, the request, the expected decision (allow, escalate, deny) and where it came from. Immutable |
+| `agent_evaluation_runs` | one run against a model and prompt version (a fingerprint of the agent's instructions): passed, blocked or failed, counts, dimensions covered, failures, limitation. Immutable |
+| `agent_evaluation_results` | per sample: the observed decision and the quote from the request given as the reason. Immutable |
+| `agent_evaluation_outcomes` | a person's record of human approval counts and the business outcome of a run, once. Immutable |
+| `agent_config_approvals` | a builder approves an agent's model and prompt version from a passed run; the latest approval is the one in force. Immutable |
+
+The function sends each sample to the model (`ANTHROPIC_EVAL_MODEL`, default `claude-sonnet-5-5`, the Goodo OS model) with the agent's own instructions and asks for a decision and the exact words of the request that decide it. `record_agent_evaluation_run` (service role only) decides grounding: a decision is kept only when its quote is an exact part of the sample, otherwise the result is stored with no decision and no quote and the sample fails. The run passes only when every sample of the agent ran, every result passed and all five dimensions are covered. A provider failure part way records a failed run with no results. Without `ANTHROPIC_API_KEY` the function answers 503 before any read or request (staging has no key). Checked functions: `add_agent_evaluation_sample`, `record_agent_evaluation_outcome` (builder or employee) and `approve_agent_config` (builder only; passed run with five dimensions).
+
+Differences from Goodo OS: samples belong to an agent instead of a client engagement, and the `agent.tool.review` capability becomes "any builder or employee writes samples and outcomes, a builder approves". The approval is recorded and shown; it does not yet stop `meeting-recaps` from running. Agent runs, tool proposals and their human evaluations (031) and durable agent jobs (035) are not ported: no Verdanote agent proposes tool actions. Tests in `supabase/tests/agent_evaluations_test.sql`, `supabase/functions/agent-evaluations/index.test.ts` and `src/test/agentEvaluationsPage.test.tsx`.
+
 ## Alternatives rejected
 
 **A new `os_clients` table with a uuid id, and the dashboard `clients` folded into it.** Gives a cleaner id, but the eight dashboard tables and the dashboard staff functions (`create_client`, `set_client_*`, `create_shoot` and others) already key on `clients.slug`, so it means either two client ids side by side or rewriting all of them. Not the smallest change.
