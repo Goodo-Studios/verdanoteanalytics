@@ -81,6 +81,18 @@ At most once: a worker calls `mark_job_sending` right before it posts to an outs
 
 `enqueue_due_reminders` queues only reminders whose destination is active, confirmed by a builder and outside quiet hours (an unknown time zone counts as quiet). It writes to the database only. Nothing in this PR is scheduled: the worker that sends, and the pg_cron entries that call it and `enqueue_due_reminders`, come with the Slack connector behind an off-by-default switch. `scripts/staging-lockdown.sql` removes every cron job after each staging push whatever its name, so later schedules are covered.
 
+## Connectors
+
+### Fireflies (PR 3)
+
+`fireflies-transcript` (staff). POST `{ transcript_id, include_excerpts? }` returns one transcript's metadata (start time, organiser, participants, a content-hash `source_version`) and, when asked, its excerpts: consecutive sentences of one speaker, at most 2,000 characters. Each excerpt is classed clean, personnel, legal or financial by the same word rules Goodo OS uses; only clean excerpts carry text. Shared code in `_shared/fireflies.ts`, a port of Goodo OS `connectors/fireflies`.
+
+Read-only: the only request is the single-transcript GraphQL `query` for the id given. The account's transcript list is never browsed, no mutation is sent, and nothing is stored. Goodo OS's transcript authorization records and meeting recaps are not part of this step; they come with the meeting recap page (wave 4a), which will store what it needs. Without `FIREFLIES_API_KEY` the function answers 503 and makes no request. Staging has no key.
+
+### Verdanote data
+
+Goodo OS reads ad performance from Verdanote over HTTP (`connectors/verdanote/performance.ts`: spend, impressions, clicks and conversions for one ad account, ad and date window). Inside Verdanote that is the same database, so it collapses to direct queries on `creatives` and `creative_daily_metrics`, or the existing `get_period_metrics` and `get_daily_trends` functions, which already check staff role or account membership. No connector function is added.
+
 ## Alternatives rejected
 
 **A new `os_clients` table with a uuid id, and the dashboard `clients` folded into it.** Gives a cleaner id, but the eight dashboard tables and the dashboard staff functions (`create_client`, `set_client_*`, `create_shoot` and others) already key on `clients.slug`, so it means either two client ids side by side or rewriting all of them. Not the smallest change.

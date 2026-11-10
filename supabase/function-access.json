@@ -108,6 +108,15 @@
         "query": "account_id=act_demo_glowdrip"
       }
     },
+    "fireflies-transcript": {
+      "class": "staff",
+      "note": "Goodo OS Fireflies connector. Read-only, one transcript per call. Answers 503 with no request when FIREFLIES_API_KEY is not set (staging has none).",
+      "probe": {
+        "body": {
+          "transcript_id": "wall_probe"
+        }
+      }
+    },
     "ingest-reviews": {
       "class": "secret"
     },

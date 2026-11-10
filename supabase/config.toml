@@ -379,3 +379,7 @@ verify_jwt = true
 # [functions.api]).
 [functions.webhooks-dispatch]
 verify_jwt = false
+
+# Fireflies transcript reader for staff (Goodo OS connector). Read-only; gated inside the function.
+[functions.fireflies-transcript]
+verify_jwt = false

@@ -60,6 +60,7 @@ FUNCTIONS=(
   spend-diagnostic
   sync
   sync-clickup-tasks
+  fireflies-transcript
   sync-coda-tasks
   sync-coda-names
   system-health-check

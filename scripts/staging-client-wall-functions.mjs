@@ -95,6 +95,8 @@ const controls = [
   ["employee refused by user-management (builder only)", "user-management", employee, { method: "GET" }, refused],
   ["employee refused by settings (builder only)", "settings", employee, { method: "GET" }, refused],
   ["client A accepted by accounts (its own list)", "accounts", clientA, { method: "GET" }, (s) => s < 400],
+  // Staging has no FIREFLIES_API_KEY: staff pass the gate and the function fails closed with 503.
+  ["employee passes the fireflies-transcript gate and it fails closed without a key", "fireflies-transcript", employee, { body: { transcript_id: "wall_probe" } }, (s) => s === 503],
 ];
 for (const [label, name, token, opts, ok] of controls) {
   const status = await call(name, token, opts);
