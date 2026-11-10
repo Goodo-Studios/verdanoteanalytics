@@ -60,8 +60,9 @@ describe("ContentPipeline (US-007)", () => {
     expect(container.querySelector("input")).toBeNull();
     expect(container.querySelector("textarea")).toBeNull();
     expect(container.querySelector("form")).toBeNull();
-    // No element advertises itself as clickable.
-    expect(container.querySelector(".cursor-pointer")).toBeNull();
+    // No element advertises itself as clickable, except the cycle header that opens and closes
+    // a cycle (a native <summary>, not a button or a link).
+    expect(container.querySelector(".cursor-pointer:not(summary)")).toBeNull();
 
     // No approve / comment / request-changes / upload labels.
     const text = container.textContent ?? "";

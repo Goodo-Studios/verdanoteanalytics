@@ -6,6 +6,11 @@ import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { Button } from "@/components/ui/button";
 import { WaitingOnYouLine } from "@/components/client/WaitingOnYouLine";
 import { RefreshCw } from "lucide-react";
+import { Navigate } from "react-router-dom";
+import { useAccountContext } from "@/contexts/AccountContext";
+import { useRolePrefix } from "@/hooks/useRolePath";
+import { useOwnClientLinks } from "@/hooks/usePipelineTasks";
+import { clientLanding } from "@/lib/pipelineCycles";
 import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
 import { fmt$, fmtN, fmtPct, delta, deltaInverse } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
@@ -54,15 +59,32 @@ const OverviewPage = () => {
     selectedAccountId,
   } = useOverviewPageState();
 
+  // A client with no ad account but a link to a client has no metrics to show: it lands on its pipeline.
+  // The links are read only for a real client login with no ad account (the answer is not needed otherwise).
+  const prefix = useRolePrefix();
+  const { accounts, isLoading: accountsLoading } = useAccountContext();
+  const links = useOwnClientLinks(isClient && !accountsLoading && accounts.length === 0);
+  const landing = clientLanding({
+    isClient,
+    accountsLoading,
+    accountCount: accounts.length,
+    linksLoading: links.isLoading,
+    linkCount: links.data?.length ?? 0,
+  });
+
   const subtitle = [
     dateFrom && dateTo ? `${dateFrom} → ${dateTo}` : "All time",
     lastSyncedAgo ? `Synced ${lastSyncedAgo}` : null,
     !isLoading ? `${fmtN(creatives.length)} creatives` : null,
   ].filter(Boolean).join(" · ");
 
+  if (landing === "pipeline") return <Navigate to={`${prefix}/pipeline`} replace />;
+  if (landing === "wait") return <MetricCardSkeletonRow />;
+
   return (
     <div className="space-y-8">
-      {/* A client's first line: what is waiting on them. Real client logins only. */}
+      {/* A client's first screen: what is waiting on them, then the current cycle count, then the
+          metrics below. Real client logins only. */}
       {isClient ? <WaitingOnYouLine /> : null}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">

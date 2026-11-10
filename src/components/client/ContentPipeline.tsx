@@ -1,4 +1,4 @@
-import { usePipelineTasks, PipelineTask } from "@/hooks/usePipelineTasks";
+import { useClientCycles, PipelineTask } from "@/hooks/usePipelineTasks";
 import { parseISO, format } from "date-fns";
 import { CloudOff, PackageOpen } from "lucide-react";
 import { ClientEmptyState } from "@/components/client/ClientEmptyState";
@@ -6,6 +6,19 @@ import { Button } from "@/components/ui/button";
 import { waitingOnYou } from "@/lib/pipelineSummary";
 import { fmtTimeAgo } from "@/lib/formatters";
 import { dueDateLabel, lastSyncedAt } from "@/lib/pipelineBoard";
+import {
+  BOARD_STAGES,
+  DELIVERED_STAGE,
+  cardTitle,
+  deliveredCountText,
+  deliveredLine,
+  formatCycleDates,
+  groupByCycle,
+  stageOf,
+  type CycleEngagement,
+  type CycleGroup,
+  type CycleTask,
+} from "@/lib/pipelineCycles";
 
 const STAGE_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
   "Preparing Content": { color: "text-amber-500", bg: "bg-amber-500", label: "Preparing Content" },
@@ -21,22 +34,18 @@ const STAGE_CONFIG: Record<string, { color: string; bg: string; label: string }>
  * the sync-clickup-tasks edge function's STAGE_MAP, so this component just buckets
  * by the already-mapped value. A task whose stage is null defaults to the first
  * column ("Preparing Content"); a task whose stage is any unmapped/drifted raw
- * string falls into no column and is omitted from the board. "Ready to Launch"
- * IS a column, but the sync only feeds it recently-shipped work, so it stays a
- * "just launched" lane rather than an all-time archive. If bucketing leaves
- * nothing to show, the section degrades to the same calm onboarding state as a
- * truly empty pipeline.
+ * string falls into no column and is omitted from the board.
+ *
+ * Since phase 5 the work is grouped by cycle (the month named in the task). The current
+ * cycle is open and shows the five columns; earlier and later cycles are collapsed and
+ * show a plain list: delivered items with their delivery day, then what is still in
+ * progress. Delivered work stays after 30 days (see pipeline_delivered), so a finished
+ * cycle keeps its tasks. If nothing is left to show, the section degrades to the same
+ * calm onboarding state as a truly empty pipeline.
  */
-const COLUMN_ORDER = [
-  "Preparing Content",
-  "Production",
-  "Editing",
-  "Client Review",
-  "Ready to Launch",
-] as const;
 
 /** "Updated 2 hours ago". Omitted when there are no rows (or no sync time). */
-function LastUpdated({ tasks }: { tasks?: PipelineTask[] }) {
+function LastUpdated({ tasks }: { tasks?: CycleTask[] }) {
   const ago = fmtTimeAgo(lastSyncedAt(tasks));
   if (!ago) return null;
   return (
@@ -47,14 +56,16 @@ function LastUpdated({ tasks }: { tasks?: PipelineTask[] }) {
 }
 
 /**
- * A single pipeline card in its stage column, framed in client language: what it
- * is (content type) and roughly when it lands. Intentionally READ-ONLY: no
- * click handler, no link-out, no internal task IDs or strategist-only fields
- * (US-007 AC2/AC3). No link to the task in ClickUp is stored or surfaced. The
- * card is a plain <div> with no interactive affordances.
+ * A single pipeline card in its stage column, framed in client language: a clean title, the
+ * asset number and content type as a small label, and roughly when it lands (or when it was
+ * delivered). Intentionally READ-ONLY: no click handler, no link-out, no internal task IDs or
+ * strategist-only fields (US-007 AC2/AC3). The card is a plain <div> with no interactive affordances.
  */
-function TaskCard({ task, stage }: { task: PipelineTask; stage: string }) {
-  const dueInfo = dueDateLabel(task.due_date, stage);
+function TaskCard({ task, stage }: { task: CycleTask; stage: string }) {
+  const { title, label } = cardTitle(task);
+  const dueInfo = stage === DELIVERED_STAGE ? null : dueDateLabel(task.due_date, stage);
+  // A delivered card shows the day it was delivered when that day is stored, and no date otherwise.
+  const delivered = stage === DELIVERED_STAGE ? deliveredLine(task) : null;
 
   return (
     <div
@@ -62,21 +73,20 @@ function TaskCard({ task, stage }: { task: PipelineTask; stage: string }) {
       data-testid="pipeline-task"
       data-stage={stage}
     >
-      {task.content_type && (
+      {label && (
         <span className="font-label text-[10px] uppercase tracking-wide text-muted-foreground">
-          {task.content_type}
+          {label}
         </span>
       )}
 
-      <p className="font-body text-[13px] text-foreground mt-0.5">
-        {task.task_name || "Untitled task"}
-      </p>
+      <p className="font-body text-[13px] text-foreground mt-0.5">{title}</p>
 
       {dueInfo && (
         <p className={`font-body text-[11px] mt-1 ${dueInfo.urgent ? "text-blue-500 font-medium" : "text-muted-foreground"}`}>
           {dueInfo.text}
         </p>
       )}
+      {delivered && <p className="font-body text-[11px] mt-1 text-muted-foreground">{delivered}</p>}
     </div>
   );
 }
@@ -86,7 +96,7 @@ function TaskCard({ task, stage }: { task: PipelineTask; stage: string }) {
  * date among them. Read-only text, no buttons or links. Derived from the rows
  * the board already has.
  */
-function WaitingOnYouSummary({ tasks }: { tasks: PipelineTask[] }) {
+function WaitingOnYouSummary({ tasks }: { tasks: CycleTask[] }) {
   const { count, nextDueDate } = waitingOnYou(tasks);
 
   if (count === 0) {
@@ -122,41 +132,178 @@ function WaitingOnYouSummary({ tasks }: { tasks: PipelineTask[] }) {
   );
 }
 
-/** Group tasks into the active board columns, preserving incoming order. */
-function bucketByColumn(tasks: PipelineTask[]): Record<string, PipelineTask[]> {
-  const buckets: Record<string, PipelineTask[]> = {};
-  for (const col of COLUMN_ORDER) buckets[col] = [];
-  for (const task of tasks) {
-    const stage = task.stage || "Preparing Content";
-    if (buckets[stage]) buckets[stage].push(task);
-    // Any unmapped/drifted stage falls into no column → omitted from the board.
-  }
+/** Group a cycle's tasks into the board columns, preserving incoming order. */
+function bucketByColumn(tasks: CycleTask[]): Record<string, CycleTask[]> {
+  const buckets: Record<string, CycleTask[]> = {};
+  for (const col of BOARD_STAGES) buckets[col] = [];
+  for (const task of tasks) buckets[stageOf(task)]?.push(task);
   return buckets;
+}
+
+/** Horizontal-scroll kanban board for one cycle: one column per stage. */
+function CycleBoard({ tasks }: { tasks: CycleTask[] }) {
+  const columns = bucketByColumn(tasks);
+  return (
+    <div className="flex gap-4 overflow-x-auto pb-2 -mx-1 px-1 snap-x">
+      {BOARD_STAGES.map((col) => {
+        const cfg = STAGE_CONFIG[col];
+        const colTasks = columns[col];
+        return (
+          <div key={col} className="flex-shrink-0 w-[240px] snap-start">
+            <div className="flex items-center justify-between mb-3 px-1">
+              <span className={`flex items-center gap-1.5 font-label text-[10px] uppercase tracking-wide font-medium ${cfg.color}`}>
+                <span className={`h-2 w-2 rounded-full ${cfg.bg}`} />
+                {cfg.label}
+              </span>
+              <span className="font-label text-[10px] tracking-wide text-muted-foreground">
+                {colTasks.length}
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              {colTasks.length > 0 ? (
+                colTasks.map((t) => <TaskCard key={t.id} task={t} stage={col} />)
+              ) : (
+                <p className="font-body text-[12px] text-muted-foreground/60 px-3 py-2">
+                  Nothing here yet
+                </p>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** One timeline row: what was made, and the day it was delivered when that day is stored. */
+function TimelineRow({ task, delivered }: { task: CycleTask; delivered: boolean }) {
+  const { title, label } = cardTitle(task);
+  const when = delivered ? deliveredLine(task) : `In ${stageOf(task)}`;
+  return (
+    <li className="flex items-start gap-3 py-2" data-testid="pipeline-timeline-row" data-delivered={delivered ? "yes" : "no"}>
+      <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${delivered ? "bg-green-500" : "bg-muted-foreground/40"}`} />
+      <div className="min-w-0 flex-1">
+        {label && <span className="font-label text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>}
+        <p className="font-body text-[13px] text-foreground">{title}</p>
+      </div>
+      {when && <span className="shrink-0 font-body text-[11px] text-muted-foreground">{when}</span>}
+    </li>
+  );
+}
+
+/** Delivered first, oldest delivery first (undated last), then what is still in progress. */
+function CycleTimeline({ tasks }: { tasks: CycleTask[] }) {
+  const done = tasks
+    .filter((t) => stageOf(t) === DELIVERED_STAGE)
+    .sort((a, b) => (a.delivered_at ?? "9999").localeCompare(b.delivered_at ?? "9999"));
+  const open = tasks.filter((t) => stageOf(t) !== DELIVERED_STAGE);
+  return (
+    <div>
+      {done.length > 0 && (
+        <ul className="divide-y divide-border/60" aria-label="Delivered">
+          {done.map((t) => <TimelineRow key={t.id} task={t} delivered />)}
+        </ul>
+      )}
+      {open.length > 0 && (
+        <>
+          <p className="font-label text-[10px] uppercase tracking-wide text-muted-foreground mt-3 mb-1">Still in progress</p>
+          <ul className="divide-y divide-border/60" aria-label="Still in progress">
+            {open.map((t) => <TimelineRow key={t.id} task={t} delivered={false} />)}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** The header facts of a cycle, shared by the page and the landing summary. */
+export function CycleProgress({ group }: { group: CycleGroup }) {
+  return (
+    <div className="h-1.5 w-full rounded-full bg-muted/60 overflow-hidden" role="progressbar"
+      aria-label={`${group.label}: ${deliveredCountText(group)}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={group.percent}>
+      <div className="h-full rounded-full bg-green-500" style={{ width: `${group.percent}%` }} />
+    </div>
+  );
+}
+
+function CycleSection({ group }: { group: CycleGroup }) {
+  const dates = formatCycleDates(group.dates);
+  const notes = [
+    group.waiting > 0 ? `${group.waiting} waiting on you` : null,
+    group.status !== "current" && group.inProgress > 0 && group.waiting < group.inProgress
+      ? `${group.inProgress - group.waiting} still in progress`
+      : null,
+  ].filter(Boolean);
+
+  return (
+    <details
+      open={group.defaultOpen}
+      className="group rounded-[8px] border border-input bg-background/30 mb-4"
+      data-testid="pipeline-cycle"
+      data-cycle={group.key}
+      data-status={group.status}
+    >
+      <summary className="cursor-pointer list-none px-4 py-3 [&::-webkit-details-marker]:hidden">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <div className="flex items-baseline gap-2">
+            <h3 className="font-heading text-[16px] text-foreground" data-testid="pipeline-cycle-label">{group.label}</h3>
+            {group.status === "current" && group.key !== "other" && (
+              <span className="font-label text-[10px] uppercase tracking-wide text-green-600">Current</span>
+            )}
+            {group.status === "upcoming" && (
+              <span className="font-label text-[10px] uppercase tracking-wide text-muted-foreground">Coming up</span>
+            )}
+          </div>
+          <span className="font-body text-[13px] text-foreground" data-testid="pipeline-cycle-count">{deliveredCountText(group)}</span>
+        </div>
+        {(dates || notes.length > 0) && (
+          <p className="font-body text-[12px] text-muted-foreground mt-0.5" data-testid="pipeline-cycle-meta">
+            {[dates, ...notes].filter(Boolean).join(" · ")}
+          </p>
+        )}
+        <div className="mt-2">
+          <CycleProgress group={group} />
+        </div>
+      </summary>
+      <div className="px-4 pb-4 pt-1">
+        {group.status === "current" ? <CycleBoard tasks={group.tasks} /> : <CycleTimeline tasks={group.tasks} />}
+      </div>
+    </details>
+  );
 }
 
 /**
  * Pure, READ-ONLY presentational view of the content pipeline (US-007).
  *
- * Renders a transparency-only "what we're making next" surface. There are NO
+ * Renders a transparency-only "what we're making next" surface, grouped by cycle. There are NO
  * comment / approve / request-changes / upload affordances and no link-out /
  * click-to-open interaction controls on the board (out of scope for Phase C,
- * AC2). Loading shows placeholders. A failed load shows its own message with a
- * Try again button, so a client never mistakes a load problem for an empty
- * pipeline. Nothing in production degrades to a friendly onboarding state (AC4).
+ * AC2). The only controls are the cycle headers that open and close a cycle. Loading shows
+ * placeholders. A failed load shows its own message with a Try again button, so a client never
+ * mistakes a load problem for an empty pipeline. Nothing in production degrades to a friendly
+ * onboarding state (AC4).
  *
  * Takes its data as plain props so it can be rendered (and tested) without a
- * QueryClient. The exported `ContentPipeline` wraps it with `usePipelineTasks`.
+ * QueryClient. The exported `ContentPipeline` wraps it with `useClientCycles`.
  */
 export function ContentPipelineView({
   tasks,
   isLoading,
   isError,
   onRetry,
+  engagements,
+  pastCyclesFailed,
+  now,
 }: {
   tasks?: PipelineTask[];
   isLoading?: boolean;
   isError?: boolean;
   onRetry?: () => void;
+  engagements?: CycleEngagement[];
+  /** The earlier-cycles list failed to load while the board did load. */
+  pastCyclesFailed?: boolean;
+  now?: Date;
 }) {
   if (isLoading) {
     return (
@@ -192,14 +339,13 @@ export function ContentPipelineView({
     );
   }
 
-  // Bucket into the board columns. Unmapped/drifted-stage tasks fall out here,
-  // so a pipeline of only-unmapped work reads as empty for board purposes.
-  const columns = bucketByColumn(tasks ?? []);
-  const hasBoardTasks = COLUMN_ORDER.some((col) => columns[col].length > 0);
+  // Group into cycles. Unmapped/drifted-stage tasks fall out here, so a pipeline of
+  // only-unmapped work reads as empty for board purposes.
+  const groups = groupByCycle(tasks ?? [], engagements ?? [], now);
 
   // AC4: nothing synced, or only completed/unmapped work, degrades to the calm,
   // first-class onboarding state (US-006).
-  if (!hasBoardTasks) {
+  if (groups.length === 0) {
     return (
       <div className="glass-panel p-7" data-testid="pipeline-empty">
         <h2 className="font-heading text-[20px] text-foreground mb-4">Content Pipeline</h2>
@@ -209,6 +355,11 @@ export function ContentPipelineView({
           heading="Nothing in production right now. Your strategist will queue up the next round soon."
           subcopy="When new creative is planned and underway, you'll see exactly what's coming next right here."
         />
+        {pastCyclesFailed && (
+          <p className="mt-3 text-center font-body text-[12px] text-muted-foreground" data-testid="pipeline-past-failed">
+            Earlier cycles could not load just now. Refresh in a moment to try again.
+          </p>
+        )}
       </div>
     );
   }
@@ -220,50 +371,31 @@ export function ContentPipelineView({
 
       <WaitingOnYouSummary tasks={tasks ?? []} />
 
-      {/* Horizontal-scroll kanban board: one column per active stage. */}
-      <div className="flex gap-4 overflow-x-auto pb-2 -mx-1 px-1 snap-x">
-        {COLUMN_ORDER.map((col) => {
-          const cfg = STAGE_CONFIG[col];
-          const colTasks = columns[col];
-          return (
-            <div key={col} className="flex-shrink-0 w-[240px] snap-start">
-              <div className="flex items-center justify-between mb-3 px-1">
-                <span className={`flex items-center gap-1.5 font-label text-[10px] uppercase tracking-wide font-medium ${cfg.color}`}>
-                  <span className={`h-2 w-2 rounded-full ${cfg.bg}`} />
-                  {cfg.label}
-                </span>
-                <span className="font-label text-[10px] tracking-wide text-muted-foreground">
-                  {colTasks.length}
-                </span>
-              </div>
+      {groups.map((group) => (
+        <CycleSection key={group.key} group={group} />
+      ))}
 
-              <div className="space-y-2">
-                {colTasks.length > 0 ? (
-                  colTasks.map((t) => <TaskCard key={t.id} task={t} stage={col} />)
-                ) : (
-                  <p className="font-body text-[12px] text-muted-foreground/60 px-3 py-2">
-                    Nothing here yet
-                  </p>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      {pastCyclesFailed && (
+        <p className="font-body text-[12px] text-muted-foreground" data-testid="pipeline-past-failed">
+          Earlier cycles could not load just now. Refresh in a moment to try again.
+        </p>
+      )}
     </div>
   );
 }
 
 /**
- * Read-only client view of in-flight + upcoming creative (US-007). Self-fetches
- * via `usePipelineTasks` and delegates rendering to `ContentPipelineView`.
+ * Read-only client view of in-flight + upcoming creative, by cycle (US-007, phase 5). Self-fetches
+ * via `useClientCycles` and delegates rendering to `ContentPipelineView`.
  * `own` loads the signed-in client's own rows (see `usePipelineTasks`).
  */
 export function ContentPipeline({ accountId, own }: { accountId?: string; own?: boolean }) {
-  const { data: tasks, isLoading, isError, refetch } = usePipelineTasks(accountId, own);
+  const { tasks, engagements, isLoading, isError, pastCyclesFailed, refetch } = useClientCycles(accountId, own);
   return (
     <ContentPipelineView
       tasks={tasks}
+      engagements={engagements}
+      pastCyclesFailed={pastCyclesFailed}
       isLoading={isLoading}
       isError={isError}
       onRetry={() => void refetch()}

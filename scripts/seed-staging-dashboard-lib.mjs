@@ -56,6 +56,7 @@ export const SEED_ORDER = [
   ['dashboard_creators', 'id'],
   ['creator_assignments', 'id'],
   ['pipeline_tasks', 'clickup_task_id'],
+  ['pipeline_delivered', 'clickup_task_id'],
   ['actors', 'id'],
   ['shoots', 'id'],
   ['actor_assignments', 'id'],
@@ -171,15 +172,38 @@ export function buildDashboardSeed(now = new Date()) {
     a(9, 0, 'demo-pinecrest', 'shortlisted', 6, B),
   ];
 
+  // Phase 5: work by cycle. The cycle is the month in the task name; cycle_month and delivered_at are
+  // what the sync stores. This month's cycle sits on the board; two earlier cycles are delivered work
+  // older than the 30 day window (pipeline_delivered), for demo-glowdrip and, so a client wall check can
+  // prove it does not see them, for demo-northwind.
+  const monthStart = (back) => new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - back, 1));
+  const monthName = (back) => monthStart(back).toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
+  const cycleOf = (back) => `${monthKey(monthStart(back))}-01`;
+
   const pipeline_tasks = [
-    ['Preparing Content', 'Glowdrip demo asset 1', 'UGC Video', 4],
-    ['Production', 'Glowdrip demo asset 2', 'UGC Video', 6],
-    ['Editing', 'Glowdrip demo asset 3', 'Static', 2],
-    ['Client Review', 'Glowdrip demo asset 4', 'UGC Video', 1],
-    ['Ready to Launch', 'Glowdrip demo asset 5', 'Static', null],
-  ].map(([stage, task_name, content_type, due], i) => ({
+    ['Preparing Content', `${monthName(0)} Asset 1 - Demo founder story`, 'UGC Video', 4, null],
+    ['Production', `${monthName(0)} Asset 2 - Demo gifting angle`, 'UGC Video', 6, null],
+    ['Editing', `${monthName(0)} Asset 3`, 'Static', 2, null],
+    ['Client Review', `${monthName(0)} Asset 4 - Demo unboxing cut`, 'UGC Video', 1, null],
+    ['Ready to Launch', `${monthName(0)} Asset 5 - Demo lifestyle still`, 'Static', null, -3],
+  ].map(([stage, task_name, content_type, due, delivered], i) => ({
     clickup_task_id: `demo-seed-${i + 1}`, client_slug: 'demo-glowdrip', account_id: DEMO_ACCOUNT,
     stage, task_name, content_type, due_date: due === null ? null : day(due), synced_at: stamp(0),
+    cycle_month: cycleOf(0), delivered_at: delivered === null ? null : day(delivered),
+  }));
+
+  const pipeline_delivered = [
+    ['demo-glowdrip', DEMO_ACCOUNT, 1, 'UGC Video', 1, -41],
+    ['demo-glowdrip', DEMO_ACCOUNT, 1, 'Static', 2, -38],
+    ['demo-glowdrip', DEMO_ACCOUNT, 1, 'UGC Video', 3, -35],
+    ['demo-glowdrip', DEMO_ACCOUNT, 2, 'UGC Video', 1, -72],
+    ['demo-glowdrip', DEMO_ACCOUNT, 2, 'Static', 2, -69],
+    ['demo-northwind', null, 1, 'UGC Video', 1, -40],
+    ['demo-northwind', null, 1, 'Static', 2, -36],
+  ].map(([client_slug, account_id, back, content_type, n, delivered], i) => ({
+    clickup_task_id: `demo-seed-done-${i + 1}`, client_slug, account_id,
+    task_name: `${monthName(back)} Asset ${n} - Demo ${client_slug.replace('demo-', '')} piece ${i + 1}`,
+    content_type, cycle_month: cycleOf(back), delivered_at: day(delivered), synced_at: stamp(0),
   }));
 
   // Step 5b: production talent. Phone numbers use the 555-01xx range kept for fiction.
@@ -329,5 +353,5 @@ export function buildDashboardSeed(now = new Date()) {
     { call_sheet_id: id(985), actor_assignment_id: id(600), call_time: '09:00', wardrobe: 'Two plain tops, no logos', talent_notes: 'Bring your own sneakers.', rate_note: 'Demo rate, made up', internal_note: null },
   ];
 
-  return { clients, app_users, client_ad_accounts, engagements, deliverables, dashboard_creators, creator_assignments, pipeline_tasks, actors, actor_assignments, creator_applications, actor_applications, approval_boards, approval_votes, actor_approval_votes, shoots, shoot_schedule_blocks, shoot_schedule_block_talent, shoot_schedule_block_crew, call_sheets, call_sheet_crew, call_sheet_talent_entries, studio_shipments, crew_members, props, locations, location_boards, location_board_items };
+  return { clients, app_users, client_ad_accounts, engagements, deliverables, dashboard_creators, creator_assignments, pipeline_tasks, pipeline_delivered, actors, actor_assignments, creator_applications, actor_applications, approval_boards, approval_votes, actor_approval_votes, shoots, shoot_schedule_blocks, shoot_schedule_block_talent, shoot_schedule_block_crew, call_sheets, call_sheet_crew, call_sheet_talent_entries, studio_shipments, crew_members, props, locations, location_boards, location_board_items };
 }

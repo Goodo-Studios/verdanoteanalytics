@@ -11,7 +11,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { PAGE_QUERIES } from "@/lib/pageQueries";
+import { CLIENT_BOARD_COLUMNS, CLIENT_DELIVERED_COLUMNS, PAGE_QUERIES } from "@/lib/pageQueries";
 
 const script = readFileSync(path.resolve(__dirname, "../../scripts/staging-client-wall-check.mjs"), "utf8");
 const sources = import.meta.glob("../contexts/ClientSelectionProvider.tsx", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
@@ -55,6 +55,24 @@ describe("page queries are run by the staging wall check", () => {
     expect(script).toContain("reads only its own clients' cards with the Home page query");
     expect(script).toContain("reads no rows of ${table} with the Home page query");
     for (const f of ['handoff_packets: ["status", "ready"]', 'support_requests: ["status", "open"]', 'operating_budget_alerts: ["period_month"']) expect(script).toContain(f);
+  });
+
+  it("the client cycle reads are run as client A, client B and staff, with the exact select strings the client pages send", () => {
+    const hook = readFileSync(path.resolve(__dirname, "../hooks/usePipelineTasks.ts"), "utf8");
+    for (const c of ["CLIENT_BOARD_COLUMNS", "CLIENT_DELIVERED_COLUMNS", "CLIENT_ENGAGEMENT_COLUMNS", "CLIENT_LINK_COLUMNS"]) expect(hook).toContain(c);
+    expect(hook).not.toMatch(/select\("[a-z_, ]+"\)/);
+    for (const q of ["client A loads the cycle board query", "client A loads the delivered-work query", "client A loads the cycle dates query", "client A loads the client link query"]) expect(script).toContain(q);
+    expect(script).toContain("reads no ${table} rows with the cycle page query");
+    expect(script).toContain("reads no pipeline_tasks column beyond the client-safe ones, even with select *");
+    expect(script).toContain("reads no pipeline_delivered column beyond the client-safe ones, even with select *");
+    expect(script).toContain("cannot add a delivered row");
+    // The strings in the script are the strings in the list, not a second copy that can drift.
+    expect(script).toContain('const BOARD = "' + CLIENT_BOARD_COLUMNS + '";');
+    expect(script).toContain('const DONE = "' + CLIENT_DELIVERED_COLUMNS + '";');
+    for (const t of ["pipeline_tasks", "pipeline_delivered", "engagements", "client_members"]) {
+      const listed = PAGE_QUERIES.filter((q) => q.table === t && q.usedBy.startsWith("client "));
+      expect(listed.length, t).toBeGreaterThan(0);
+    }
   });
 
   it("the Home hooks send the listed columns, not their own copy", () => {

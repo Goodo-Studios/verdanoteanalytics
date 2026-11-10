@@ -1069,6 +1069,12 @@ const SHELL_QUERIES = [
   ["client_ad_accounts", "account_id, client_slug"],
   // Client hub Work tab: the cards of one client, read by client_slug (the third item).
   ["pipeline_tasks", "id, task_name, stage, due_date, content_type, updated_at", "client_slug"],
+  // The client's own board by cycle (phase 5): board cards, delivered work older than 30 days, cycle
+  // dates from engagements, and the client link that decides the landing page.
+  ["pipeline_tasks", "id, task_name, stage, due_date, content_type, updated_at, cycle_month, delivered_at", "client_slug"],
+  ["pipeline_delivered", "id, task_name, content_type, cycle_month, delivered_at, updated_at", "client_slug"],
+  ["engagements", "start_date, day45_date, status", "client_slug"],
+  ["client_members", "client_slug", "client_slug"],
   // Last run line on Operating costs and Integration health (phase 4 PR 3).
   ["check_runs", "check_key, trigger, outcome, created_at", "check_key"],
   // Client hub Setup tab (phase 4): the ad accounts to pick from and the client's ClickUp links.
@@ -1099,6 +1105,81 @@ for (const [table, select, filter] of SHELL_QUERIES) {
   const mine = await slugsOf(clientA);
   const rows = await clientA.c.from("clients").select("slug, name, active");
   check("client A loads only its own clients with the shell page query", !rows.error && (rows.data ?? []).every((r) => mine.includes(r.slug)), `error=${rows.error?.message ?? "none"} rows=${rows.data?.length ?? "error"} own=${mine}`);
+}
+
+// Client view by cycle (phase 5, migration 20261113000001). A client login sends the board reads with
+// no filter (the row rules decide), so this runs the exact select strings the client pages send
+// (src/lib/pageQueries.ts: CLIENT_BOARD_COLUMNS, CLIENT_DELIVERED_COLUMNS, CLIENT_ENGAGEMENT_COLUMNS,
+// CLIENT_LINK_COLUMNS) as client A and client B. A must see its own cycles and no other client's, with
+// rows to prove it (the seed gives demo-glowdrip two earlier cycles and demo-northwind two delivered
+// tasks), and nothing beyond the client-safe fields. B must see nothing. Nobody writes from the browser.
+{
+  const BOARD = "id, task_name, stage, due_date, content_type, updated_at, cycle_month, delivered_at";
+  const DONE = "id, task_name, content_type, cycle_month, delivered_at, updated_at";
+  const BOARD_FIELDS = ["id", "clickup_task_id", "client_slug", "account_id", "task_name", "stage", "due_date", "content_type", "cycle_month", "delivered_at", "synced_at", "updated_at"];
+  const DONE_FIELDS = ["id", "clickup_task_id", "client_slug", "account_id", "task_name", "content_type", "cycle_month", "delivered_at", "synced_at", "updated_at"];
+  // Names that would mean a staff-only field has reached a client-readable table.
+  const STAFF_FIELD = /status|assign|owner|link|url|brief|hour|qa_|email|note|internal|token|secret|created_by/i;
+  const mine = await slugsOf(clientA);
+  const firstOfMonth = (v) => v === null || /^\d{4}-\d{2}-01$/.test(v);
+  const isDay = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v ?? "");
+
+  // The page reads, exactly as sent.
+  const boardA = await clientA.c.from("pipeline_tasks").select(BOARD);
+  check("client A loads the cycle board query with no filter, and gets cards", !boardA.error && (boardA.data ?? []).length > 0, `error=${boardA.error?.message ?? "none"} rows=${boardA.data?.length ?? "error"}`);
+  const doneA = await clientA.c.from("pipeline_delivered").select(DONE);
+  check("client A loads the delivered-work query with no filter, and gets rows", !doneA.error && (doneA.data ?? []).length > 0, `error=${doneA.error?.message ?? "none"} rows=${doneA.data?.length ?? "error"}`);
+  const engA = await clientA.c.from("engagements").select("start_date, day45_date, status");
+  check("client A loads the cycle dates query", !engA.error && (engA.data ?? []).length > 0, `error=${engA.error?.message ?? "none"} rows=${engA.data?.length ?? "error"}`);
+  const linkA = await clientA.c.from("client_members").select("client_slug");
+  check("client A loads the client link query and gets only its own clients", !linkA.error && (linkA.data ?? []).every((r) => mine.includes(r.client_slug)), `error=${linkA.error?.message ?? "none"} rows=${linkA.data?.length ?? "error"} own=${mine}`);
+
+  // Own cycles only: the same rows with the owner and cycle named.
+  const boardOwn = await clientA.c.from("pipeline_tasks").select("client_slug, stage, cycle_month, delivered_at");
+  check("client A's board cards all belong to its own clients", !boardOwn.error && (boardOwn.data ?? []).every((r) => mine.includes(r.client_slug)), `clients=${[...new Set((boardOwn.data ?? []).map((r) => r.client_slug))]} own=${mine}`);
+  check("client A's board cards carry a first-of-month cycle, and a delivery day only when delivered", !boardOwn.error && (boardOwn.data ?? []).length > 0 && (boardOwn.data ?? []).every((r) => firstOfMonth(r.cycle_month) && (r.stage === "Ready to Launch" ? r.delivered_at === null || isDay(r.delivered_at) : r.delivered_at === null)), `rows=${boardOwn.data?.length ?? "error"}`);
+  const doneOwn = await clientA.c.from("pipeline_delivered").select("client_slug, cycle_month, delivered_at");
+  check("client A's delivered work all belongs to its own clients", !doneOwn.error && (doneOwn.data ?? []).every((r) => mine.includes(r.client_slug)), `clients=${[...new Set((doneOwn.data ?? []).map((r) => r.client_slug))]} own=${mine}`);
+  check("client A sees at least two earlier cycles, each a first-of-month with a delivery day", !doneOwn.error && new Set((doneOwn.data ?? []).map((r) => r.cycle_month)).size >= 2 && (doneOwn.data ?? []).every((r) => firstOfMonth(r.cycle_month) && isDay(r.delivered_at)), `cycles=${[...new Set((doneOwn.data ?? []).map((r) => r.cycle_month))]}`);
+  const engOwn = await clientA.c.from("engagements").select("client_slug");
+  check("client A's cycle dates come from its own clients only", !engOwn.error && (engOwn.data ?? []).every((r) => mine.includes(r.client_slug)), `clients=${[...new Set((engOwn.data ?? []).map((r) => r.client_slug))]} own=${mine}`);
+
+  // The wall has something to hold back: staff see delivered work of another client that A does not.
+  const staffDone = await staff.c.from("pipeline_delivered").select("client_slug");
+  const others = [...new Set((staffDone.data ?? []).map((r) => r.client_slug))].filter((s) => !mine.includes(s));
+  check("staff see delivered work of another client (so the wall check is not hollow)", !staffDone.error && others.length > 0, `error=${staffDone.error?.message ?? "none"} other clients=${others}`);
+  for (const other of others) {
+    const leak = await clientA.c.from("pipeline_delivered").select("id").eq("client_slug", other);
+    check(`client A reads no delivered work of ${other} even when it asks for it by name`, !leak.error && (leak.data ?? []).length === 0, `rows=${leak.data?.length ?? "error"}`);
+  }
+
+  // Field level: a client may ask for every column, and still gets only the client-safe ones.
+  const boardAll = await clientA.c.from("pipeline_tasks").select("*").limit(5);
+  const boardKeys = [...new Set((boardAll.data ?? []).flatMap((r) => Object.keys(r)))];
+  check("client A reads no pipeline_tasks column beyond the client-safe ones, even with select *", !boardAll.error && boardKeys.length > 0 && boardKeys.every((k) => BOARD_FIELDS.includes(k) && !STAFF_FIELD.test(k)), `columns=${boardKeys}`);
+  const doneAll = await clientA.c.from("pipeline_delivered").select("*").limit(5);
+  const doneKeys = [...new Set((doneAll.data ?? []).flatMap((r) => Object.keys(r)))];
+  check("client A reads no pipeline_delivered column beyond the client-safe ones, even with select *", !doneAll.error && doneKeys.length > 0 && doneKeys.every((k) => DONE_FIELDS.includes(k) && !STAFF_FIELD.test(k)), `columns=${doneKeys}`);
+  const engAll = await clientA.c.from("engagement_notes").select("*").limit(5);
+  check("client A reads no engagement notes (purchase references stay staff only)", !engAll.error && (engAll.data ?? []).length === 0, `rows=${engAll.data?.length ?? "error"}`);
+
+  // Client B: no links, no cycles.
+  for (const [table, select] of [["pipeline_tasks", BOARD], ["pipeline_delivered", DONE], ["engagements", "start_date, day45_date, status"], ["client_members", "client_slug"]]) {
+    const r = await clientB.c.from(table).select(select);
+    check(`client B reads no ${table} rows with the cycle page query`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+
+  // Nobody writes from the browser: clients, and staff too, since the sync is the only writer.
+  for (const [label, s] of [["client A", clientA], ["client B", clientB], ["builder", staff]]) {
+    const ins = await s.c.from("pipeline_delivered").insert({ clickup_task_id: "wall-check-none", client_slug: "demo-glowdrip", delivered_at: "2026-01-01" });
+    check(`${label} cannot add a delivered row`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+    const upd = await s.c.from("pipeline_delivered").update({ task_name: "changed by wall check" }).eq("client_slug", "demo-glowdrip");
+    check(`${label} cannot change a delivered row`, !!upd.error, `error=${upd.error?.message ?? "none (write accepted)"}`);
+    const del = await s.c.from("pipeline_delivered").delete().eq("client_slug", "demo-glowdrip");
+    check(`${label} cannot delete a delivered row`, !!del.error, `error=${del.error?.message ?? "none (write accepted)"}`);
+  }
+  const stillThere = await staff.c.from("pipeline_delivered").select("id").eq("client_slug", "demo-glowdrip");
+  check("the delivered rows are all still there after the write attempts", !stillThere.error && (stillThere.data ?? []).length >= 5, `rows=${stillThere.data?.length ?? "error"}`);
 }
 
 // Staff Home and the cross-client Work page (restructure phase 2b). The same four reads the pages send
