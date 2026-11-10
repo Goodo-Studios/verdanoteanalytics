@@ -109,6 +109,26 @@ for (const table of ["engagements", "engagement_notes", "source_mappings", "clie
 const gosEmployee = await employee.c.from("goodo_os_workspace_users").select("id");
 check("employee reads no Goodo OS users (builder only)", !gosEmployee.error && (gosEmployee.data ?? []).length === 0, `rows=${gosEmployee.data?.length ?? "error"}`);
 
+// Job queue and reminders (migration 20261109000005): staff only. Clients read nothing,
+// cannot write, and cannot replay a job. The employee reads but cannot add a Slack
+// destination (builder only). Read-only for staff here.
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of ["durable_jobs", "job_audit", "slack_destinations", "reminders"]) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const insJob = await s.c.from("durable_jobs").insert({ kind: "wall.check", dedupe_key: `wall-check-${label}` });
+  check(`${label} cannot write durable_jobs`, !!insJob.error, `error=${insJob.error?.message ?? "none (write accepted)"}`);
+  const replay = await s.c.rpc("replay_job", { p_job_id: "00000000-0000-4000-8000-000000000000" });
+  check(`${label} is refused replay_job`, replay.error?.code === "42501", `code=${replay.error?.code ?? "none"}`);
+}
+for (const table of ["durable_jobs", "job_audit", "slack_destinations", "reminders"]) {
+  const r = await staff.c.from(table).select("*").limit(1);
+  check(`builder can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
+}
+const destEmployee = await employee.c.from("slack_destinations").insert({ label: "wall check", channel_id: "C0WALLCHECK", purpose: "internal" });
+check("employee cannot add a Slack destination (builder only)", !!destEmployee.error, `error=${destEmployee.error?.message ?? "none (write accepted)"}`);
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {
