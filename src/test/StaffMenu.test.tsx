@@ -48,7 +48,14 @@ describe("staff menu content", () => {
   it("has a slot for each tool that is moving in, shown but not clickable", () => {
     renderAs("builder");
     const slots = allStaffMenuItems.filter((i) => i.status === "slot");
-    expect(slots.length).toBeGreaterThanOrEqual(8);
+    // Each slot is a tool still to move in. A slot leaves this list only when its pages are live
+    // (step 5a: Client overview, client pages, Creator pipeline and Follow-ups replaced "dashboard-pipeline").
+    expect(slots.map((s) => s.id).sort()).toEqual(
+      ["bid-viewer", "content-leaderboard", "dashboard-creators", "dashboard-production", "dashboard-settings", "goodo-os", "wideframe"],
+    );
+    for (const id of ["client-overview", "creator-pipeline", "follow-ups"]) {
+      expect(allStaffMenuItems.find((i) => i.id === id)?.status, id).toBe("live");
+    }
     for (const slot of slots) {
       const el = screen.getByTestId(`staff-menu-${slot.id}`);
       expect(el.tagName).not.toBe("A");
