@@ -129,8 +129,8 @@ describe("Creator pipeline page", () => {
     fireEvent.click(within(picker).getByRole("checkbox"));
     fireEvent.click(within(picker).getByRole("button", { name: "Add 1 creator" }));
     await waitFor(() => expect(api.addCreatorsToBrand).toHaveBeenCalledWith("glow", ["c-9"]));
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     fireEvent.click(screen.getByRole("button", { name: "Remove from client" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(api.removeAssignment).toHaveBeenCalledWith("1"));
   });
 

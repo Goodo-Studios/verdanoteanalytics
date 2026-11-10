@@ -6,14 +6,14 @@
 // application shows who decided it, when, and the reason.
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { ErrorState, LoadingState, PageHeader, PageShell, TextField, useConfirm } from "@/components/page-kit";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { DashboardError } from "./api";
 import { approveApplication, loadApplicationDetail, rejectApplication, type ApplicationDetail } from "./applicationsApi";
 import { formatSubmitted, parseKind, reviewErrorText, socialLines, type Application } from "./applicationsModel";
 import { safeHref } from "./rosterModel";
 
-const CTRL = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
 const yesNo = (v: boolean | null) => (v === null ? "Not answered" : v ? "Yes" : "No");
 
 function fields(a: Application): [string, string][] {
@@ -50,6 +50,7 @@ export default function ApplicationDetailPage() {
   const kind = parseKind(kindParam);
   const prefix = useRolePrefix();
   const navigate = useNavigate();
+  const { confirm, dialog } = useConfirm();
   const [detail, setDetail] = useState<ApplicationDetail | null>(null);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -68,16 +69,22 @@ export default function ApplicationDetailPage() {
 
   const back = <Link to={`${prefix}/applications${kind === "actors" ? "?kind=actors" : ""}`} className="text-sm underline">Back to Applications</Link>;
   if (!detail) {
-    return <div className="p-6 space-y-2" data-testid="application-detail-page">{back}{error ? <p role="alert" className="text-sm text-destructive">{error}</p> : <p role="status" className="text-sm text-muted-foreground">Loading the application...</p>}</div>;
+    return <PageShell data-testid="application-detail-page">{back}{error ? <ErrorState message={error} onRetry={() => { setError(null); void load(); }} /> : <LoadingState label="Loading the application" />}</PageShell>;
   }
   const a = detail.application;
   if (!a) {
-    return <div className="p-6 space-y-2" data-testid="application-detail-page">{back}<p className="text-sm">No application with this id.</p></div>;
+    return <PageShell data-testid="application-detail-page">{back}<p className="text-sm">No application with this id.</p></PageShell>;
   }
 
   const fail = (e: unknown) => setError(e instanceof DashboardError ? reviewErrorText(e.code, e.message) : e instanceof Error ? e.message : "The change could not be saved.");
   const approve = async () => {
-    if (!window.confirm(`Approve ${a.name}? They are added to the ${kind === "creators" ? "creator" : "actor"} roster with their headshot and videos.`)) return;
+    const ok = await confirm({
+      title: `Approve ${a.name}?`,
+      description: `They are added to the ${kind === "creators" ? "creator" : "actor"} roster with their headshot and videos.`,
+      actionLabel: "Approve",
+      tone: "default",
+    });
+    if (!ok) return;
     setBusy(true);
     setError(null);
     try {
@@ -108,7 +115,7 @@ export default function ApplicationDetailPage() {
 
   const headshot = a.headshot_path ? detail.links.get(a.headshot_path) : undefined;
   return (
-    <div className="p-6 space-y-4" data-testid="application-detail-page">
+    <PageShell data-testid="application-detail-page">
       {back}
       <PageHeader title={a.name} description={`${kind === "creators" ? "Creator" : "Actor"} application, submitted ${formatSubmitted(a.submitted_at)}`} />
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
@@ -156,10 +163,10 @@ export default function ApplicationDetailPage() {
         <h2 className="font-semibold">Decision</h2>
         {a.status === "pending" ? (
           <div className="mt-2 space-y-2">
-            <button type="button" className={CTRL} disabled={busy} onClick={() => void approve()}>Approve</button>
-            <div className="flex flex-wrap items-center gap-2">
-              <input aria-label="Rejection reason" placeholder="Reason, kept on the application" className={`${CTRL} min-w-[18rem]`} value={reason} onChange={(e) => setReason(e.target.value)} />
-              <button type="button" className={CTRL} disabled={busy} onClick={() => void reject()}>Reject</button>
+            <Button type="button" variant="outline" disabled={busy} onClick={() => void approve()}>Approve</Button>
+            <div className="flex flex-wrap items-end gap-2">
+              <TextField label="Rejection reason" hideLabel className="min-w-[18rem]" placeholder="Reason, kept on the application" value={reason} onChange={(e) => setReason(e.target.value)} />
+              <Button type="button" variant="outline" disabled={busy} onClick={() => void reject()}>Reject</Button>
             </div>
           </div>
         ) : (
@@ -171,6 +178,7 @@ export default function ApplicationDetailPage() {
           </p>
         )}
       </section>
-    </div>
+      {dialog}
+    </PageShell>
   );
 }

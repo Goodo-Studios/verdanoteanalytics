@@ -62,7 +62,6 @@ const CREATOR_ROWS = [
   capp("c4", "Already In", { status: "approved" }),
 ];
 
-let confirmSpy: { mockReturnValue: (v: boolean) => unknown; mockRestore: () => void };
 beforeEach(() => {
   for (const f of [loadApplications, loadApplicationDetail, approveApplication, rejectApplication]) f.mockReset();
   loadApplications.mockImplementation((kind: string) => Promise.resolve(kind === "actors"
@@ -70,9 +69,8 @@ beforeEach(() => {
     : { rows: CREATOR_ROWS, roster: [{ id: "r1", name: "Avery Stone", email: "avery@example.test" }] }));
   rejectApplication.mockResolvedValue(undefined);
   approveApplication.mockResolvedValue("new-creator");
-  confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
 });
-afterEach(() => confirmSpy.mockRestore());
+const answerDialog = async (name: string) => fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name }));
 
 const renderList = (url = "/applications") => render(
   <MemoryRouter initialEntries={[url]}><Routes><Route path="/applications" element={<ApplicationsPage />} /></Routes></MemoryRouter>,
@@ -125,6 +123,7 @@ describe("Applications page", () => {
     expect(rejectApplication).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText("Rejection reason"), { target: { value: "Not a fit this round" } });
     fireEvent.click(screen.getByRole("button", { name: "Reject 2" }));
+    await answerDialog("Reject");
     await waitFor(() => expect(rejectApplication).toHaveBeenCalledTimes(2));
     expect(rejectApplication).toHaveBeenCalledWith("creators", "c1", "Not a fit this round");
     expect(await screen.findByRole("status")).toHaveTextContent("Rejected 1 of 2 applications. Failed: Avery Stone.");
@@ -146,15 +145,17 @@ describe("Application page", () => {
     expect(screen.getByRole("link", { name: "https://morgan.example.test" })).toBeTruthy();
     expect(within(screen.getByRole("region", { name: "Videos" })).getByRole("link", { name: "Play" }).getAttribute("href")).toBe("https://signed.example.test/v1");
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await answerDialog("Approve");
     await waitFor(() => expect(approveApplication).toHaveBeenCalledWith("creators", "c1"));
     expect(await screen.findByTestId("creator-opened")).toBeTruthy();
   });
 
   it("does not approve when the confirm is cancelled", async () => {
-    confirmSpy.mockReturnValue(false);
     loadApplicationDetail.mockResolvedValue({ application: capp("c1", "Morgan Ellis"), videos: [], roster: [], links: new Map() });
     renderDetail();
     fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    await answerDialog("Cancel");
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
     expect(approveApplication).not.toHaveBeenCalled();
   });
 

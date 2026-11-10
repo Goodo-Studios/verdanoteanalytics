@@ -11,8 +11,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
-import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { DataTable, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField, TextField, useConfirm, type DataColumn } from "@/components/page-kit";
 import { useRolePrefix } from "@/hooks/useRolePath";
+import { fmtDate } from "@/lib/formatters";
 import {
   DashboardError,
   addCreatorsToBrand,
@@ -34,7 +36,6 @@ import {
   boardColumns,
   creatorName,
   errorText,
-  formatDay,
   groupByStage,
   ownerName,
   ownerOptions,
@@ -47,7 +48,7 @@ import {
   type StageScope,
 } from "./model";
 
-const SELECT = "rounded-md border border-input bg-background px-2 py-1 text-xs";
+const COMPACT = "h-8 text-xs";
 
 function messageOf(e: unknown, fallback: string): string {
   if (e instanceof DashboardError) return e.code === "22023" ? e.message : errorText(e.code, e.message || fallback);
@@ -67,9 +68,9 @@ function DeliveryFields({ a, onSaved, onError }: { a: Assignment; onSaved: () =>
   };
   return (
     <div className="mt-2 space-y-1 border-t pt-2">
-      <input aria-label={`Tracking number for ${creatorName(a)}`} className={`${SELECT} w-full`} placeholder="Tracking number" value={tracking} onChange={(e) => setTracking(e.target.value)} />
-      <input aria-label={`Delivered on for ${creatorName(a)}`} type="date" className={`${SELECT} w-full`} value={delivered} onChange={(e) => setDelivered(e.target.value)} />
-      <button type="button" className="text-xs underline" onClick={() => void save()}>Save delivery</button>
+      <TextField label={`Tracking number for ${creatorName(a)}`} hideLabel inputClassName={COMPACT} placeholder="Tracking number" value={tracking} onChange={(e) => setTracking(e.target.value)} />
+      <TextField label={`Delivered on for ${creatorName(a)}`} hideLabel type="date" inputClassName={COMPACT} value={delivered} onChange={(e) => setDelivered(e.target.value)} />
+      <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => void save()}>Save delivery</Button>
     </div>
   );
 }
@@ -91,19 +92,13 @@ function AssignmentCard({ a, users, brandName, canRemove, onPatch, onRemove, onS
       {brandName && <div className="text-muted-foreground">{brandName}</div>}
       {a.brief_name && <div className="text-muted-foreground">Brief: {a.brief_name}</div>}
       <div className="mt-2 space-y-1">
-        <select aria-label={`Stage for ${name}`} className={`${SELECT} w-full`} value={a.stage} onChange={(e) => onPatch(a, { stage: e.target.value })}>
-          {STAGES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-        </select>
-        <select aria-label={`Owner for ${name}`} className={`${SELECT} w-full`} value={a.owner_id ?? ""} onChange={(e) => onPatch(a, { owner_id: e.target.value || null })}>
-          <option value="">No owner</option>
-          {ownerOptions(users, a.owner_id).map((u) => <option key={u.id} value={u.id}>{u.name}{u.active ? "" : " (inactive)"}</option>)}
-        </select>
-        <input aria-label={`Follow-up for ${name}`} type="date" className={`${SELECT} w-full`} value={a.next_follow_up_at ?? ""}
-          onChange={(e) => onPatch(a, { next_follow_up_at: e.target.value || null })} />
+        <SelectField label={`Stage for ${name}`} hideLabel inputClassName={COMPACT} value={a.stage} onChange={(e) => onPatch(a, { stage: e.target.value })} options={STAGES.map((s) => ({ value: s.value, label: s.label }))} />
+        <SelectField label={`Owner for ${name}`} hideLabel inputClassName={COMPACT} value={a.owner_id ?? ""} onChange={(e) => onPatch(a, { owner_id: e.target.value || null })} placeholder="No owner" options={ownerOptions(users, a.owner_id).map((u) => ({ value: u.id, label: `${u.name}${u.active ? "" : " (inactive)"}` }))} />
+        <TextField label={`Follow-up for ${name}`} hideLabel type="date" inputClassName={COMPACT} value={a.next_follow_up_at ?? ""} onChange={(e) => onPatch(a, { next_follow_up_at: e.target.value || null })} />
       </div>
       {DELIVERY_STAGES.includes(a.stage) && <DeliveryFields key={`${a.tracking_number}-${a.product_delivered_at}`} a={a} onSaved={onSaved} onError={onError} />}
       {canRemove && (
-        <button type="button" className="mt-2 text-xs text-destructive underline" onClick={() => onRemove(a)}>Remove from client</button>
+        <Button type="button" variant="link" size="sm" className="mt-2 h-auto p-0 text-xs text-destructive" onClick={() => onRemove(a)}>Remove from client</Button>
       )}
     </li>
   );
@@ -113,7 +108,7 @@ function AddCreators({ creators, onBrand, onAdd }: { creators: CreatorOption[] |
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const options = useMemo(() => addableCreators(creators ?? [], onBrand, query).slice(0, 50), [creators, onBrand, query]);
-  if (!creators) return <p role="status" className="text-sm text-muted-foreground">Loading the roster...</p>;
+  if (!creators) return <LoadingState label="Loading the roster" count={3} />;
   const toggle = (id: string) => {
     const next = new Set(picked);
     if (next.has(id)) next.delete(id);
@@ -122,7 +117,7 @@ function AddCreators({ creators, onBrand, onAdd }: { creators: CreatorOption[] |
   };
   return (
     <div className="rounded-lg border p-3 space-y-2" role="group" aria-label="Add creators">
-      <input aria-label="Search the roster" className="w-full rounded-md border px-2 py-1 text-sm" placeholder="Search creators" value={query} onChange={(e) => setQuery(e.target.value)} />
+      <TextField label="Search the roster" hideLabel placeholder="Search creators" value={query} onChange={(e) => setQuery(e.target.value)} />
       <ul className="max-h-64 overflow-y-auto text-sm">
         {options.map((c) => (
           <li key={c.id}>
@@ -134,16 +129,17 @@ function AddCreators({ creators, onBrand, onAdd }: { creators: CreatorOption[] |
         ))}
         {options.length === 0 && <li className="text-muted-foreground">No creators match.</li>}
       </ul>
-      <button type="button" className="rounded-md bg-primary px-3 py-1 text-sm text-primary-foreground disabled:opacity-50" disabled={picked.size === 0}
+      <Button type="button" size="sm" disabled={picked.size === 0}
         onClick={() => { onAdd([...picked]); setPicked(new Set()); }}>
         Add {picked.size} {picked.size === 1 ? "creator" : "creators"}
-      </button>
+      </Button>
     </div>
   );
 }
 
 export default function CreatorPipelinePage() {
   const prefix = useRolePrefix();
+  const { confirm, dialog } = useConfirm();
   // The client comes from the one switcher at the top of the app. "All clients" shows every client's creators.
   const selected = useSelectedClientSlug();
   const brand = selected || ALL_BRANDS;
@@ -199,47 +195,54 @@ export default function CreatorPipelinePage() {
   };
   const patch = (a: Assignment, p: AssignmentPatch) =>
     void run(() => updateAssignment(a.id, p), `${creatorName(a)} updated.`, "The change could not be saved.");
-  const remove = (a: Assignment) => {
-    if (!window.confirm(`Take ${creatorName(a)} off ${brandNames.get(a.client_slug) ?? a.client_slug}? Their stage, owner and dates for this client are deleted.`)) return;
+  const remove = async (a: Assignment) => {
+    const ok = await confirm({
+      title: `Take ${creatorName(a)} off ${brandNames.get(a.client_slug) ?? a.client_slug}?`,
+      description: "Their stage, owner and dates for this client are deleted.",
+      actionLabel: "Remove",
+    });
+    if (!ok) return;
     void run(() => removeAssignment(a.id), `${creatorName(a)} removed.`, "The creator could not be removed.");
   };
   const add = (ids: string[]) => void run(() => addCreatorsToBrand(brand, ids), `${ids.length} added as Sourced.`, "The creators could not be added.");
+  const listColumns: DataColumn<Assignment>[] = [
+    { key: "creator", header: "Creator", cell: (a) => creatorName(a) },
+    ...(isAll ? [{ key: "client", header: "Client", cell: (a: Assignment) => brandNames.get(a.client_slug) ?? a.client_slug }] : []),
+    { key: "stage", header: "Stage", cell: (a) => stageLabel(a.stage) },
+    { key: "owner", header: "Owner", cell: (a) => ownerName(users, a.owner_id) },
+    { key: "followup", header: "Follow-up", cell: (a) => (a.next_follow_up_at ? fmtDate(a.next_follow_up_at) : "") },
+    { key: "brief", header: "Brief", cell: (a) => a.brief_name ?? "" },
+  ];
   const card = (a: Assignment) => (
     <AssignmentCard key={a.id} a={a} users={users} brandName={isAll ? brandNames.get(a.client_slug) ?? a.client_slug : null} canRemove={!isAll}
-      onPatch={patch} onRemove={remove} onSaved={() => void run(async () => {}, "Delivery saved.", "")} onError={setError} />
+      onPatch={patch} onRemove={(x) => void remove(x)} onSaved={() => void run(async () => {}, "Delivery saved.", "")} onError={setError} />
   );
 
   return (
-    <div className="p-6 space-y-4" data-testid="creator-pipeline-page">
+    <PageShell wide data-testid="creator-pipeline-page">
       <PageHeader title="Creator pipeline" description="Creators per client, from sourcing to payment. The ClickUp asset board is the Work tab on each client." />
-      <div className="flex flex-wrap items-center gap-2">
-        {brand && (
-          <>
-            <div role="group" aria-label="View" className="flex rounded-md border text-sm">
-              {(["board", "list"] as const).map((v) => (
-                <button key={v} type="button" aria-pressed={view === v} className={`px-3 py-1 ${view === v ? "bg-accent font-medium" : ""}`} onClick={() => setView(v)}>
-                  {v === "board" ? "Board" : "List"}
-                </button>
-              ))}
-            </div>
-            {isAll && view === "board" && (
-              <select aria-label="Stages shown" className="rounded-md border px-2 py-1.5 text-sm" value={scope} onChange={(e) => setScope(e.target.value as StageScope)}>
-                <option value="production">Production stages</option>
-                <option value="all">All active stages</option>
-              </select>
-            )}
-            <input aria-label="Search the pipeline" className="rounded-md border px-2 py-1.5 text-sm" placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} />
-            {!isAll && <button type="button" className="rounded-md border px-3 py-1.5 text-sm" onClick={() => setAdding(!adding)}>{adding ? "Close" : "Add creators"}</button>}
-            {!isAll && <Link to={`${prefix}/clients/${encodeURIComponent(brand)}`} className="text-sm underline">Client page</Link>}
-          </>
-        )}
-      </div>
+      {brand && (
+        <FilterBar search={{ value: query, onChange: setQuery, label: "Search the pipeline", placeholder: "Search" }}>
+          <div role="group" aria-label="View" className="flex h-10 gap-1">
+            {(["board", "list"] as const).map((v) => (
+              <Button key={v} type="button" size="sm" variant={view === v ? "secondary" : "outline"} className="h-10" aria-pressed={view === v} onClick={() => setView(v)}>
+                {v === "board" ? "Board" : "List"}
+              </Button>
+            ))}
+          </div>
+          {isAll && view === "board" && (
+            <SelectField label="Stages shown" hideLabel className="w-52" value={scope} onChange={(e) => setScope(e.target.value as StageScope)} options={[{ value: "production", label: "Production stages" }, { value: "all", label: "All active stages" }]} />
+          )}
+          {!isAll && <Button type="button" variant="outline" onClick={() => setAdding(!adding)}>{adding ? "Close" : "Add creators"}</Button>}
+          {!isAll && <Link to={`${prefix}/clients/${encodeURIComponent(brand)}`} className="flex h-10 items-center text-sm underline">Client page</Link>}
+        </FilterBar>
+      )}
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
-      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      {error && (!rows && brand ? <ErrorState message={error} onRetry={() => { setError(null); void loadRows(); }} /> : <p role="alert" className="text-sm text-destructive">{error}</p>)}
       {adding && !isAll && <AddCreators creators={creators} onBrand={rows ?? []} onAdd={add} />}
 
       {!rows ? (
-        <p role="status" className="text-sm text-muted-foreground">Loading creators...</p>
+        error ? null : <LoadingState label="Loading creators" />
       ) : view === "board" ? (
         <>
           <div className="flex gap-3 overflow-x-auto pb-2" aria-label="Board">
@@ -253,28 +256,19 @@ export default function CreatorPipelinePage() {
           {offBoard > 0 && <p className="text-xs text-muted-foreground">{offBoard} creators are in stages not shown. Switch to all active stages or open one client.</p>}
         </>
       ) : (
-        <table className="w-full text-sm" aria-label="Creator list">
-          <thead>
-            <tr className="text-left text-xs text-muted-foreground"><th>Creator</th>{isAll && <th>Client</th>}<th>Stage</th><th>Owner</th><th>Follow-up</th><th>Brief</th></tr>
-          </thead>
-          <tbody>
-            {[...visible].sort((a, b) => stageIndex(a.stage) - stageIndex(b.stage) || creatorName(a).localeCompare(creatorName(b))).map((a) => (
-              <tr key={a.id} className="border-t">
-                <td>{creatorName(a)}</td>
-                {isAll && <td>{brandNames.get(a.client_slug) ?? a.client_slug}</td>}
-                <td>{stageLabel(a.stage)}</td>
-                <td>{ownerName(users, a.owner_id)}</td>
-                <td>{a.next_follow_up_at ? formatDay(a.next_follow_up_at) : ""}</td>
-                <td>{a.brief_name ?? ""}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <DataTable
+          label="Creator list"
+          columns={listColumns}
+          rows={[...visible].sort((a, b) => stageIndex(a.stage) - stageIndex(b.stage) || creatorName(a).localeCompare(creatorName(b)))}
+          rowKey={(a) => a.id}
+          empty="No creators on this client yet."
+        />
       )}
       <p className="text-xs text-muted-foreground">
         Client approval links and the client&apos;s votes are on{" "}
         <Link to={brand && !isAll ? `${prefix}/approval-boards?brand=${encodeURIComponent(brand)}` : `${prefix}/approval-boards`} className="underline">Approval boards</Link>.
       </p>
-    </div>
+      {dialog}
+    </PageShell>
   );
 }

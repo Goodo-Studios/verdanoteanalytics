@@ -9,7 +9,8 @@
 // sortable column headers.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { DataTable, EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField, TextField, type DataColumn } from "@/components/page-kit";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { DashboardError, loadBrandsAndTeam, type BrandOption } from "./api";
 import { createCreator, loadCreatorRoster, type RosterAssignment } from "./rosterApi";
@@ -25,8 +26,6 @@ import {
   type RosterCreator,
 } from "./rosterModel";
 import { errorText, stageLabel } from "./model";
-
-const CTRL = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
 
 export default function CreatorsPage() {
   const prefix = useRolePrefix();
@@ -86,86 +85,78 @@ export default function CreatorsPage() {
     }
   };
 
+  const columns: DataColumn<RosterCreator>[] = [
+    {
+      key: "creator",
+      header: "Creator",
+      cell: (c) => (
+        <>
+          <Link to={`${prefix}/creators/${c.id}`} className="font-medium underline">{c.name}</Link>
+          {c.do_not_use_again && <span className="ml-2 rounded bg-destructive/10 px-1 text-xs text-destructive">Do not use</span>}
+          {c.trialed && <span className="ml-2 rounded bg-muted px-1 text-xs">Trialed</span>}
+        </>
+      ),
+    },
+    { key: "scale", header: "Scale", cell: (c) => c.scale ?? "" },
+    { key: "categories", header: "Categories", cell: (c) => `${c.categories.join(", ")}${c.categories_needs_review ? " (needs review)" : ""}` },
+    { key: "location", header: "Location", cell: (c) => c.location ?? "" },
+    {
+      key: "clients",
+      header: "Clients",
+      cell: (c) =>
+        (byCreator.get(c.id) ?? []).map((a) => (
+          <Link key={a.id} to={`${prefix}/creator-pipeline?brand=${encodeURIComponent(a.client_slug)}`} className="mr-2 underline">
+            {brandNames.get(a.client_slug) ?? a.client_slug} ({stageLabel(a.stage)})
+          </Link>
+        )),
+    },
+  ];
+
+  const check = (label: string, checked: boolean, onChange: (v: boolean) => void) => (
+    <label className="flex h-10 items-center gap-1.5 text-sm"><input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} /> {label}</label>
+  );
+
   return (
-    <div className="p-6 space-y-4" data-testid="creators-page">
+    <PageShell wide data-testid="creators-page">
       <PageHeader title="Creators" description="The creator roster. Open a creator to edit their profile and see their clients and media." />
-      <form className="flex flex-wrap items-end gap-2 rounded-lg border p-3" onSubmit={(e) => { e.preventDefault(); void add(); }}>
-        <label className="text-xs">Name<input aria-label="New creator name" className={`${CTRL} ml-1`} value={newName} onChange={(e) => setNewName(e.target.value)} /></label>
-        <label className="text-xs">Email<input aria-label="New creator email" type="email" className={`${CTRL} ml-1`} value={newEmail} onChange={(e) => setNewEmail(e.target.value)} /></label>
-        <button type="submit" className={CTRL} disabled={adding}>{adding ? "Adding..." : "Add creator"}</button>
+      <form className="flex flex-wrap items-end gap-2 rounded-card border bg-card p-3" onSubmit={(e) => { e.preventDefault(); void add(); }}>
+        <TextField label="Name" aria-label="New creator name" value={newName} onChange={(e) => setNewName(e.target.value)} />
+        <TextField label="Email" aria-label="New creator email" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+        <Button type="submit" variant="outline" disabled={adding}>{adding ? "Adding..." : "Add creator"}</Button>
       </form>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <input aria-label="Search creators" placeholder="Search name, email, location, category" className={`${CTRL} min-w-[16rem]`} value={filters.search} onChange={(e) => set({ search: e.target.value })} />
-        <select aria-label="Category" className={CTRL} value={filters.category} onChange={(e) => set({ category: e.target.value })}>
-          <option value="">Any category</option>
-          {CREATOR_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select aria-label="Minimum scale" className={CTRL} value={filters.minScale ?? ""} onChange={(e) => set({ minScale: e.target.value ? Number(e.target.value) : null })}>
-          <option value="">Any scale</option>
-          {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}+</option>)}
-        </select>
-        <select aria-label="Gender" className={CTRL} value={filters.gender} onChange={(e) => set({ gender: e.target.value })}>
-          <option value="">Any gender</option>
-          {genders.map((g) => <option key={g} value={g}>{g}</option>)}
-        </select>
-        <select aria-label="Sort" className={CTRL} value={filters.sort} onChange={(e) => set({ sort: e.target.value as CreatorFilters["sort"] })}>
-          <option value="name">Name</option>
-          <option value="scale">Scale, highest first</option>
-          <option value="newest">Newest first</option>
-        </select>
-        <label className="text-sm"><input type="checkbox" checked={filters.trialedOnly} onChange={(e) => set({ trialedOnly: e.target.checked })} /> Trialed only</label>
-        <label className="text-sm"><input type="checkbox" checked={filters.needsReviewOnly} onChange={(e) => set({ needsReviewOnly: e.target.checked })} /> Categories need review</label>
-        <label className="text-sm"><input type="checkbox" checked={filters.showDoNotUse} onChange={(e) => set({ showDoNotUse: e.target.checked })} /> Show do not use</label>
-      </div>
+      <FilterBar search={{ value: filters.search, onChange: (v) => set({ search: v }), label: "Search creators", placeholder: "Search name, email, location, category" }}>
+        <SelectField label="Category" hideLabel value={filters.category} onChange={(e) => set({ category: e.target.value })} placeholder="Any category" options={CREATOR_CATEGORIES.map((c) => ({ value: c, label: c }))} />
+        <SelectField label="Minimum scale" hideLabel value={filters.minScale === null ? "" : String(filters.minScale)} onChange={(e) => set({ minScale: e.target.value ? Number(e.target.value) : null })} placeholder="Any scale" options={[1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: `${n}+` }))} />
+        <SelectField label="Gender" hideLabel value={filters.gender} onChange={(e) => set({ gender: e.target.value })} placeholder="Any gender" options={genders.map((g) => ({ value: g, label: g }))} />
+        <SelectField label="Sort" hideLabel value={filters.sort} onChange={(e) => set({ sort: e.target.value as CreatorFilters["sort"] })} options={[{ value: "name", label: "Name" }, { value: "scale", label: "Scale, highest first" }, { value: "newest", label: "Newest first" }]} />
+        {check("Trialed only", filters.trialedOnly, (v) => set({ trialedOnly: v }))}
+        {check("Categories need review", filters.needsReviewOnly, (v) => set({ needsReviewOnly: v }))}
+        {check("Show do not use", filters.showDoNotUse, (v) => set({ showDoNotUse: v }))}
+      </FilterBar>
 
-      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      {error && !creators ? <ErrorState message={error} onRetry={() => { setError(null); void load(); }} /> : error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       {!creators ? (
-        error ? null : <p role="status" className="text-sm text-muted-foreground">Loading creators...</p>
+        error ? null : <LoadingState label="Loading creators" />
       ) : (
         <>
           <p className="text-sm text-muted-foreground" data-testid="creators-count">
             {visible.length === creators.length ? `${creators.length} creators` : `${visible.length} of ${creators.length} creators`}
           </p>
           {visible.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No creators match these filters.</p>
+            <EmptyState title="No creators match these filters." />
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-muted-foreground"><th>Creator</th><th>Scale</th><th>Categories</th><th>Location</th><th>Clients</th></tr>
-              </thead>
-              <tbody>
-                {paged.rows.map((c) => (
-                  <tr key={c.id} className="border-t align-top" data-testid={`creator-row-${c.id}`}>
-                    <td className="py-1.5">
-                      <Link to={`${prefix}/creators/${c.id}`} className="font-medium underline">{c.name}</Link>
-                      {c.do_not_use_again && <span className="ml-2 rounded bg-destructive/10 px-1 text-xs text-destructive">Do not use</span>}
-                      {c.trialed && <span className="ml-2 rounded bg-muted px-1 text-xs">Trialed</span>}
-                    </td>
-                    <td>{c.scale ?? ""}</td>
-                    <td className="text-xs">{c.categories.join(", ")}{c.categories_needs_review ? " (needs review)" : ""}</td>
-                    <td className="text-xs">{c.location ?? ""}</td>
-                    <td className="text-xs">
-                      {(byCreator.get(c.id) ?? []).map((a) => (
-                        <Link key={a.id} to={`${prefix}/creator-pipeline?brand=${encodeURIComponent(a.client_slug)}`} className="mr-2 underline">
-                          {brandNames.get(a.client_slug) ?? a.client_slug} ({stageLabel(a.stage)})
-                        </Link>
-                      ))}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable label="Creators" columns={columns} rows={paged.rows} rowKey={(c) => c.id} rowTestId={(c) => `creator-row-${c.id}`} />
           )}
           {paged.pages > 1 && (
             <nav aria-label="Pages" className="flex items-center gap-2 text-sm">
-              <button type="button" className={CTRL} disabled={paged.page <= 1} onClick={() => set({ page: paged.page - 1 })}>Previous</button>
+              <Button type="button" variant="outline" size="sm" disabled={paged.page <= 1} onClick={() => set({ page: paged.page - 1 })}>Previous</Button>
               <span>Page {paged.page} of {paged.pages}</span>
-              <button type="button" className={CTRL} disabled={paged.page >= paged.pages} onClick={() => set({ page: paged.page + 1 })}>Next</button>
+              <Button type="button" variant="outline" size="sm" disabled={paged.page >= paged.pages} onClick={() => set({ page: paged.page + 1 })}>Next</Button>
             </nav>
           )}
         </>
       )}
-    </div>
+    </PageShell>
   );
 }
