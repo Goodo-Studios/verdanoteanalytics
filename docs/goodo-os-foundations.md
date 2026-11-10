@@ -297,6 +297,23 @@ Differences from Goodo OS: the client portal is dropped, so staff record the req
 
 Not ported: the ClickUp scope lock effects and their delivery records, the ClickUp task links of an approval version (outward writes), approval sync events, command receipts. Tests in `supabase/tests/scope_changes_test.sql` and `src/test/scopeChangesPage.test.tsx`.
 
+### Learning and self-service
+
+Page `/learning` (builder and employee) with two tabs, and migration `20261110200005_learning.sql`, no edge function. Port of the Goodo OS staff learning pages (`LearningEditor`, `LearningReview`, `LearningWithdraw`, `LearningSelfService`; `backend/services/learningModules.ts` and `learningReview.ts`; migrations `007_learning.sql`, `007a_learning_integrity.sql`, `054_learning_self_service.sql`).
+
+| Table | Purpose |
+|---|---|
+| `learning_modules` | one lesson per client: key, title, current draft version, published version, active |
+| `learning_module_versions` | every draft: summary, steps, checklist, source links, applicability (standard, custom), source clearance, client use rights, blocking gaps, assigned reviewer. Immutable |
+| `learning_reviews` | the assigned reviewer accepts a version for review, then approves or rejects it once. Immutable |
+| `learning_history` | publications and withdrawals (a withdrawal has a reason). Immutable |
+| `learning_support_weeks` | staff weekly tally (Mondays) of recurring how-to questions that reached people, per engagement, observed, missing or unknown, real or made up. One row per week. Immutable |
+| `learning_self_service_snapshots` | a baseline window against a pilot window computed from the weekly tallies: questions, observed and missing weeks, questions per observed week, better, same, worse or missing. Immutable |
+
+Staff read all six; clients read none. Checked functions (`staff_area` allow-list, role tested in the body): `create_learning_module`, `save_learning_draft` (version on screen; the reviewer must be another builder or employee), `review_learning_version` (assigned reviewer only, accepted first, one final decision), `publish_learning_version` (builder only; approved by the assigned reviewer, sources cleared, client approved rights, no blocking gaps, at least one step, checklist item, applicability and https source link), `withdraw_learning_module` (builder only, with a reason), `record_learning_support_week` and `snapshot_learning_self_service`. A missing week never enters a rate; lesson usage is reported as not measured, not zero.
+
+Differences from Goodo OS: per-client learning capability grants are replaced by "another staff member reviews, a builder publishes and withdraws". The client learning library, grounded how-to answers, helpfulness responses and usage clicks are client-facing (phase 2), so publishing records the decision and no client reads anything. Template attachments and the Goodo OS lesson content are not copied in. Tests in `supabase/tests/learning_test.sql` and `src/test/learningPage.test.tsx`.
+
 ## Alternatives rejected
 
 **A new `os_clients` table with a uuid id, and the dashboard `clients` folded into it.** Gives a cleaner id, but the eight dashboard tables and the dashboard staff functions (`create_client`, `set_client_*`, `create_shoot` and others) already key on `clients.slug`, so it means either two client ids side by side or rewriting all of them. Not the smallest change.
