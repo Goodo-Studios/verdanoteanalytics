@@ -144,6 +144,7 @@ The Vault is a creative-inspiration library: paste a TikTok, Instagram, YouTube,
 | Function | Trigger | Purpose |
 |---|---|---|
 | `system-health-check` | Cron / Manual | Runs sanity checks on data freshness, sync status, and edge function reachability. Returns a JSON health report. |
+| `meeting-recaps` | Staff (Meeting recaps page, `/meeting-recaps`) | Builder or employee login only. Reads one named Fireflies transcript, sends only clean excerpts to the model (`ANTHROPIC_RECAP_MODEL`, default `claude-sonnet-5-5`), keeps items whose citations are exact quotes and records the outcome through `record_meeting_recap`. Writes nothing outside Verdanote. Answers 503 without `FIREFLIES_API_KEY` or `ANTHROPIC_API_KEY`. Rules in `_shared/meeting-recaps.ts`. |
 | `integration-health` | Staff (Integration health page, `/integration-health`) | Builder or employee login only. Read-only status of the ClickUp, Fireflies, Slack and Verdanote data connectors, the `durable_jobs` queue and the latest owner alert jobs (port of the Goodo OS Integration health page). Says whether each secret is set, never its value. Calls no outside service. Rules in `_shared/integration-health.ts`. |
 | `spend-diagnostic` | Manual | Diagnoses discrepancies between Meta-reported spend and spend stored in `creative_daily_metrics`. |
 | `cleanup-stuck-syncs` | Cron | Clears sync locks that have been held for over 30 minutes (stuck syncs). |

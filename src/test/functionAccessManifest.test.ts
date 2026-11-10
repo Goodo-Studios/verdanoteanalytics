@@ -45,8 +45,8 @@ describe("function access manifest", () => {
     expect(Object.keys(manifest).sort()).toEqual(deployed);
   });
 
-  it("covers all 75 functions today", () => {
-    expect(deployed).toHaveLength(75);
+  it("covers all 76 functions today", () => {
+    expect(deployed).toHaveLength(76);
   });
 
   it("uses only known classes", () => {

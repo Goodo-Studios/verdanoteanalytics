@@ -92,6 +92,7 @@ OTHER_FUNCTIONS=(
   run-slack-jobs
   fireflies-transcript
   push-brief-to-clickup
+  meeting-recaps
   integration-health
   system-health-check
   transcribe-ad

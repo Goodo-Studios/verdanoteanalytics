@@ -34,6 +34,7 @@ const STAFF_PATHS = [
   "/growth-dashboard",
   "/ad-name-generator",
   "/integration-health",
+  "/meeting-recaps",
   "/ad-library",
   "/ad-library/boards",
   "/ad-library/hooks",
