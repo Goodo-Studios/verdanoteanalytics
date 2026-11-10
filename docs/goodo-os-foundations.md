@@ -208,6 +208,22 @@ Client rounds: `deliverable_client_round_limit` reads the `clientRevisionRounds`
 
 Not ported: the Air connector (staff paste the review link and nothing is fetched), Air health observations, command receipts, approval sync events and the client portal screens. Tests in `supabase/tests/deliverables_approvals_test.sql` and `src/test/deliverablesPage.test.tsx`.
 
+### QA gates
+
+Page `/qa-gates` (builder and employee) and migration `20261110120003_qa_gates.sql`, no edge function. Port of the Goodo OS QA inbox and version-bound release gate (`QaInbox.tsx`, `QaGateReview.tsx`, `backend/services/qaGate.ts`, migrations `022_qa_release_gate.sql` and `025_deliverable_release_signoffs.sql`, plus the team confirmations of `021_deliverables.sql`).
+
+| Table | Purpose |
+|---|---|
+| `engagement_deliverable_confirmations` | the team's confirmation of one exact revision. One per revision. Immutable |
+| `engagement_deliverable_qa_returns` | a revision returned to the strategist with feedback; open until resolved once with a note |
+| `engagement_deliverable_signoffs` | strategist congruency and QA release signoffs on one exact revision. Append-only |
+
+The release rule is `deliverable_release_blockers` (service role only; the checked functions call it as owner). For the current revision it lists what is missing: `client_not_approved`, `team_not_confirmed`, `qa_return_open`, `strategist_signoff_missing`, `qa_signoff_missing`, `same_person_signed_both`; an empty list means ready to send. Signoffs count only when recorded after the last resolved QA return on that revision. Two deliberate differences from Goodo OS: client approval of the exact revision is required (Goodo OS left it to the client portal, which is dropped), and the strategist and QA signoffs must come from two different staff members, because Verdanote has no bound strategist per engagement and no QA capability grant (see "Needs the owner" in the plan).
+
+Checked functions (`staff_area` allow-list, role tested in the body): `deliverable_release_status` (the gate for the page), `confirm_deliverable_revision`, `return_deliverable_to_strategist` (the deliverable goes to internal QA), `resolve_deliverable_qa_return` (back to where the client left it once no return is open), `record_deliverable_signoff` (not while a return is open, not both kinds by one person) and `mark_deliverable_final_ready` (every check passed and a https download link). Each acts on the current revision only.
+
+Not ported: ClickUp release contradictions and their resolutions, Air health observation generations, the QA inbox's editor binding and handoff queue (they write to ClickUp and Slack), command receipts. Tests in `supabase/tests/qa_gates_test.sql` and `src/test/qaGatesPage.test.tsx`.
+
 ## Alternatives rejected
 
 **A new `os_clients` table with a uuid id, and the dashboard `clients` folded into it.** Gives a cleaner id, but the eight dashboard tables and the dashboard staff functions (`create_client`, `set_client_*`, `create_shoot` and others) already key on `clients.slug`, so it means either two client ids side by side or rewriting all of them. Not the smallest change.

@@ -38,6 +38,7 @@ const STAFF_PATHS = [
   "/knowledge",
   "/engagements",
   "/deliverables",
+  "/qa-gates",
   "/ad-library",
   "/ad-library/boards",
   "/ad-library/hooks",

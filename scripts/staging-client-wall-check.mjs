@@ -293,6 +293,35 @@ for (const table of batch1Tables) {
 const b1Employee = await employee.c.rpc("set_client_details", { p_slug: "demo-northwind", p_strategist: "wall" });
 check("employee is refused set_client_details (builder only)", b1Employee.error?.code === "42501", `code=${b1Employee.error?.code ?? "none"}`);
 
+// QA gates (migration 20261110120003, step 4b): staff only. Clients read none of the three
+// tables, cannot write them and are refused every checked function, the gate read included.
+const qaTables = ["engagement_deliverable_confirmations", "engagement_deliverable_qa_returns", "engagement_deliverable_signoffs"];
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of qaTables) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const ins = await s.c.from("engagement_deliverable_signoffs").insert({ deliverable_id: ZERO, revision: 1, signoff_kind: "qa_release", signed_by: s.userId });
+  check(`${label} cannot write engagement_deliverable_signoffs`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  for (const [fn, args] of [
+    ["deliverable_release_status", { p_deliverable_id: ZERO }],
+    ["confirm_deliverable_revision", { p_deliverable_id: ZERO, p_revision: 1 }],
+    ["return_deliverable_to_strategist", { p_deliverable_id: ZERO, p_revision: 1, p_feedback: "wall" }],
+    ["resolve_deliverable_qa_return", { p_return_id: ZERO, p_note: "wall" }],
+    ["record_deliverable_signoff", { p_deliverable_id: ZERO, p_revision: 1, p_signoff_kind: "qa_release" }],
+    ["mark_deliverable_final_ready", { p_deliverable_id: ZERO, p_revision: 1, p_final_download_url: "https://example.test/wall" }],
+  ]) {
+    const r = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, r.error?.code === "42501", `code=${r.error?.code ?? "none"}`);
+  }
+}
+for (const table of qaTables) {
+  const r = await employee.c.from(table).select("*").limit(1);
+  check(`employee can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
+}
+const qGate = await employee.c.rpc("deliverable_release_status", { p_deliverable_id: ZERO });
+check("employee passes the staff check in deliverable_release_status", qGate.error?.code === "P0002", `code=${qGate.error?.code ?? "none"}`);
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {
