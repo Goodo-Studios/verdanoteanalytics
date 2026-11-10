@@ -166,6 +166,30 @@ A source has a title, a topic, a scope (all clients or one client) and numbered 
 
 Not ported: the Goodo OS source provider and its sync (never wired in production), so sources are added on the page and no Goodo OS data is copied. Client-classified sources stay staff-only until the client portal phase. Tests in `supabase/tests/knowledge_pages_test.sql` and `src/test/knowledgePage.test.tsx`.
 
+## Wave B pages (step 4b)
+
+### Engagements
+
+Page `/engagements` (builder and employee) and migration `20261110120001_engagement_setup.sql`, no edge function. Port of the Goodo OS engagement setup and closeout pages (`EngagementSetup.tsx`, `CloseoutReview`; migrations `002_engagements.sql`, `023_engagement_template_versions.sql`, `032_engagement_closeout.sql`), built on the `engagements` table from step 3 rather than a second engagement table.
+
+| Table | Purpose |
+|---|---|
+| `engagement_templates` | a named template: type, milestones (each with its required evidence and whether the client sees it) and agreed deliverables, for all clients or one client. Every save is a new version row; rows never change |
+| `engagement_terms` | the template snapshot an engagement was created from, and when its kickoff was recorded. Kept off `engagements` because clients of the same client read `engagements`, and agreed deliverables are commercial terms |
+| `engagement_milestones` | the milestones of one engagement, copied from the template at creation. Immutable |
+| `engagement_closeouts` | closeout readouts (testing window, evidence limit, delivered assets, supported conclusions, outstanding actions), versioned and append-only |
+
+Staff read all four through row rules; clients read none of them, including their own engagement's terms. The client read rule on `engagements` is unchanged, so a client still sees its own cycle dates. Signed-in users hold no write grants on the new tables. Checked functions, each testing the role in its body and on the `staff_area` allow-list:
+
+- `save_engagement_template`: builder only. A new name starts at version 1; a later save names the version on screen (40001 when stale) and keeps the type. Milestones are checked by `normalize_engagement_milestone_template`, a port of Goodo OS `parseMilestoneTemplate`: a bare key needs a source handoff, `delivery` keeps its three release gates (strategist congruency, QA release, delivery receipt), keys and evidence are distinct lower-case words.
+- `create_engagement_from_template`: builder or employee. The client must be active and the template must be for all clients or this client. The engagement is the next `cycle_number`, planned, with no dates; the template's milestones and agreed deliverables are copied and never follow later versions. A purchase reference goes to `engagement_notes`.
+- `record_engagement_kickoff`: builder or employee, once, on a planned engagement. Sets the start date (day 30 and day 45 follow for a standard sprint) and makes it active; the one-active-sprint index refuses a second active sprint (23505). After that a trigger refuses any change to the start date, type or client of the engagement, including a direct table write by staff.
+- `save_engagement_closeout`: builder or employee, naming the version on screen. Earlier versions stay.
+
+Closing or cancelling an engagement is a direct status update under the existing staff rule on `engagements`.
+
+Not ported: the command receipt and idempotency tables (each function checks the version on screen instead), the job enqueued on creation, closeout publication to the client and the client-facing engagement timeline (client views are phase 2), and the per-engagement capability grants (any builder or employee may act; see "Needs the owner" in the plan). The old dashboard Client Detail page (step 5a) shows the same clients and its monthly `deliverables` checklist; the two pages should be merged when 5a lands. Tests in `supabase/tests/engagement_setup_test.sql` and `src/test/engagementsPage.test.tsx`.
+
 ## Alternatives rejected
 
 **A new `os_clients` table with a uuid id, and the dashboard `clients` folded into it.** Gives a cleaner id, but the eight dashboard tables and the dashboard staff functions (`create_client`, `set_client_*`, `create_shoot` and others) already key on `clients.slug`, so it means either two client ids side by side or rewriting all of them. Not the smallest change.

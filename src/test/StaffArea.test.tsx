@@ -45,6 +45,7 @@ vi.mock("@/features/ad-name-generator/AdNameGeneratorPage", () => pageMock("ad-n
 vi.mock("@/features/integration-health/IntegrationHealthPage", () => pageMock("integration-health"));
 vi.mock("@/features/meeting-recaps/MeetingRecapsPage", () => pageMock("meeting-recaps"));
 vi.mock("@/features/knowledge/KnowledgePage", () => pageMock("knowledge"));
+vi.mock("@/features/engagements/EngagementsPage", () => pageMock("engagements"));
 vi.mock("@/features/vault/LibraryPage", () => pageMock("ad-library"));
 vi.mock("@/features/vault/ItemDetailPage", () => pageMock("vault-item"));
 vi.mock("@/features/vault/BoardsPage", () => pageMock("boards"));
@@ -116,6 +117,7 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean }
   { path: "/integration-health", marker: "integration-health" },
   { path: "/meeting-recaps", marker: "meeting-recaps" },
   { path: "/knowledge", marker: "knowledge" },
+  { path: "/engagements", marker: "engagements" },
   { path: "/ad-library", marker: "ad-library" },
   { path: "/ad-library/boards", marker: "boards" },
   { path: "/ad-library/boards/b1", marker: "board-detail" },

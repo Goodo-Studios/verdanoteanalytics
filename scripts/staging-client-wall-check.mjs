@@ -197,6 +197,36 @@ check("employee passes the staff check in submit_knowledge_correction", kEmploye
 const kCreate = await employee.c.rpc("create_knowledge_source", { p_title: "wall", p_body: "wall", p_classification: "staff", p_release_scope: "global" });
 check("employee is refused create_knowledge_source (builder only)", kCreate.error?.code === "42501", `code=${kCreate.error?.code ?? "none"}`);
 
+// Engagement setup (migration 20261110120001, step 4b): staff only. Clients read none of the
+// four tables, cannot write them and are refused every checked function. Nothing here
+// writes for staff: the employee calls fail on the role check or on a missing row.
+const engagementTables = ["engagement_templates", "engagement_terms", "engagement_milestones", "engagement_closeouts"];
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of engagementTables) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const ins = await s.c.from("engagement_closeouts").insert({ engagement_id: ZERO, client_slug: "x", version: 1, evidence_limit: "wall", authored_by: s.userId });
+  check(`${label} cannot write engagement_closeouts`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  for (const [fn, args] of [
+    ["save_engagement_template", { p_template_key: "wall", p_client_slug: null, p_expected_version: 0, p_template_type: "custom", p_milestone_template: ["kickoff"], p_agreed_deliverables: [], p_source_reference: "wall" }],
+    ["create_engagement_from_template", { p_client_slug: "wall", p_template_id: ZERO }],
+    ["record_engagement_kickoff", { p_engagement_id: ZERO, p_start_date: "2026-01-01" }],
+    ["save_engagement_closeout", { p_engagement_id: ZERO, p_expected_version: 0, p_evidence_limit: "wall" }],
+  ]) {
+    const r = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, r.error?.code === "42501", `code=${r.error?.code ?? "none"}`);
+  }
+}
+for (const table of engagementTables) {
+  const r = await employee.c.from(table).select("*").limit(1);
+  check(`employee can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
+}
+const eKickoff = await employee.c.rpc("record_engagement_kickoff", { p_engagement_id: ZERO, p_start_date: "2026-01-01" });
+check("employee passes the staff check in record_engagement_kickoff", eKickoff.error?.code === "P0002", `code=${eKickoff.error?.code ?? "none"}`);
+const eTemplate = await employee.c.rpc("save_engagement_template", { p_template_key: "wall", p_client_slug: null, p_expected_version: 0, p_template_type: "custom", p_milestone_template: ["kickoff"], p_agreed_deliverables: [], p_source_reference: "wall" });
+check("employee is refused save_engagement_template (builder only)", eTemplate.error?.code === "42501", `code=${eTemplate.error?.code ?? "none"}`);
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {
