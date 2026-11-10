@@ -31,6 +31,10 @@ export const SEED_MARKERS = {
   actor_applications: { sql: "email like '%@example.test'", match: (r) => r.email.endsWith('@example.test') },
   approval_boards: { sql: "client_slug like 'demo-%'", match: (r) => r.client_slug.startsWith('demo-') },
   approval_votes: { sql: "board_id::text like 'de5a0000-%'", match: (r) => r.board_id.startsWith('de5a0000-') },
+  shoots: { sql: "client_slug like 'demo-%'", match: (r) => r.client_slug.startsWith('demo-') },
+  shoot_schedule_blocks: { sql: "id::text like 'de5a0000-%'", match: (r) => r.id.startsWith('de5a0000-') },
+  shoot_schedule_block_talent: { sql: "block_id::text like 'de5a0000-%'", match: (r) => r.block_id.startsWith('de5a0000-') },
+  shoot_schedule_block_crew: { sql: "block_id::text like 'de5a0000-%'", match: (r) => r.block_id.startsWith('de5a0000-') },
   studio_shipments: { sql: "client_slug like 'demo-%'", match: (r) => r.client_slug.startsWith('demo-') },
   crew_members: { sql: "email like '%@example.test'", match: (r) => r.email.endsWith('@example.test') },
   props: { sql: "id::text like 'de5a0000-%'", match: (r) => r.id.startsWith('de5a0000-') },
@@ -50,6 +54,7 @@ export const SEED_ORDER = [
   ['creator_assignments', 'id'],
   ['pipeline_tasks', 'clickup_task_id'],
   ['actors', 'id'],
+  ['shoots', 'id'],
   ['actor_assignments', 'id'],
   ['creator_applications', 'id'],
   ['actor_applications', 'id'],
@@ -61,6 +66,9 @@ export const SEED_ORDER = [
   ['locations', 'id'],
   ['location_boards', 'id'],
   ['location_board_items', 'id'],
+  ['shoot_schedule_blocks', 'id'],
+  ['shoot_schedule_block_talent', 'block_id,actor_assignment_id'],
+  ['shoot_schedule_block_crew', 'block_id,crew_member_id'],
 ];
 
 export function assertStagingUrl(url) {
@@ -180,9 +188,9 @@ export function buildDashboardSeed(now = new Date()) {
     notes: null, social_url: null, additional_social_url: null,
   }));
   const actor_assignments = [
-    { id: id(600), actor_id: id(500), client_slug: 'demo-harbor', stage: 'booked', scheduled_shoot_date: day(9), shoot_location: 'Test Studio A' },
-    { id: id(601), actor_id: id(501), client_slug: 'demo-harbor', stage: 'shortlisted', scheduled_shoot_date: null, shoot_location: null },
-    { id: id(602), actor_id: id(502), client_slug: 'demo-pinecrest', stage: 'interested', scheduled_shoot_date: null, shoot_location: null },
+    { id: id(600), actor_id: id(500), client_slug: 'demo-harbor', stage: 'booked', scheduled_shoot_date: day(9), shoot_location: 'Test Studio A', shoot_id: id(980) },
+    { id: id(601), actor_id: id(501), client_slug: 'demo-harbor', stage: 'shortlisted', scheduled_shoot_date: null, shoot_location: null, shoot_id: null },
+    { id: id(602), actor_id: id(502), client_slug: 'demo-pinecrest', stage: 'interested', scheduled_shoot_date: null, shoot_location: null, shoot_id: null },
   ];
 
   // Step 5b: applications waiting for review, no files. One applicant shares an
@@ -276,5 +284,21 @@ export function buildDashboardSeed(now = new Date()) {
       shipped_at: day(-10), expected_delivery_at: day(-6), delivered_at: day(-6), delivery_notes: 'Arrived fine (made up)' },
   ];
 
-  return { clients, app_users, client_ad_accounts, engagements, deliverables, dashboard_creators, creator_assignments, pipeline_tasks, actors, actor_assignments, creator_applications, actor_applications, approval_boards, approval_votes, studio_shipments, crew_members, props, locations, location_boards, location_board_items };
+  // Step 5c: one demo shoot for demo-harbor on the booked casting's date, with two
+  // schedule blocks. The typed location matches the casting, as the shoot functions keep it.
+  const shoots = [
+    { id: id(980), client_slug: 'demo-harbor', shoot_date: day(9), location: 'Test Studio A', location_id: null, notes: 'Demo shoot (made up)' },
+  ];
+  const shoot_schedule_blocks = [
+    { id: id(981), shoot_id: id(980), label: 'Setup and lighting', start_time: '08:00', end_time: '09:30', location: null, notes: null },
+    { id: id(982), shoot_id: id(980), label: 'Kitchen scenes', start_time: '09:30', end_time: '12:00', location: 'Kitchen', notes: 'Demo props from bin D1' },
+  ];
+  const shoot_schedule_block_talent = [{ block_id: id(982), actor_assignment_id: id(600) }];
+  const shoot_schedule_block_crew = [
+    { block_id: id(981), crew_member_id: id(960) },
+    { block_id: id(982), crew_member_id: id(960) },
+    { block_id: id(982), crew_member_id: id(961) },
+  ];
+
+  return { clients, app_users, client_ad_accounts, engagements, deliverables, dashboard_creators, creator_assignments, pipeline_tasks, actors, actor_assignments, creator_applications, actor_applications, approval_boards, approval_votes, shoots, shoot_schedule_blocks, shoot_schedule_block_talent, shoot_schedule_block_crew, studio_shipments, crew_members, props, locations, location_boards, location_board_items };
 }

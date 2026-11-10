@@ -194,3 +194,19 @@ test('demo studio shipments: demo clients only, a linked casting of the same cli
     if (s.actor_assignment_id) assert.equal(castings.get(s.actor_assignment_id)?.client_slug, s.client_slug);
   }
 });
+
+test('demo shoot: blocks in order, talent confirmed onto the shoot, crew from the demo crew', () => {
+  const order = SEED_ORDER.map(([t]) => t);
+  assert.ok(order.indexOf('shoots') < order.indexOf('actor_assignments'), 'shoots are written before the castings that point at them');
+  assert.ok(order.indexOf('crew_members') < order.indexOf('shoot_schedule_block_crew'));
+  const shoot = seed.shoots[0];
+  for (const b of seed.shoot_schedule_blocks) {
+    assert.equal(b.shoot_id, shoot.id);
+    assert.ok(b.end_time > b.start_time, b.label);
+  }
+  const confirmed = new Set(seed.actor_assignments.filter((a) => a.shoot_id === shoot.id).map((a) => a.id));
+  for (const t of seed.shoot_schedule_block_talent) assert.ok(confirmed.has(t.actor_assignment_id), 'only talent confirmed onto the shoot is called');
+  const crew = new Set(seed.crew_members.map((c) => c.id));
+  for (const c of seed.shoot_schedule_block_crew) assert.ok(crew.has(c.crew_member_id));
+  for (const a of seed.actor_assignments.filter((x) => x.shoot_id)) assert.equal(a.scheduled_shoot_date, shoot.shoot_date);
+});

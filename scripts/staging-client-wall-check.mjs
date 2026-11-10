@@ -557,6 +557,45 @@ for (const [fn, args] of [
   check(`employee passes the staff check in ${fn}`, res.error?.code === "P0002", `code=${res.error?.code ?? "none"}`);
 }
 
+// Old dashboard batch 3, Production calendar (step 5c): a shoot names where talent and crew
+// will be and when. Clients read no shoots, blocks or block talent and crew, cannot write
+// shoots and are refused the eight shoot, block and confirm functions. The employee runs the
+// page query and passes the staff check with ids that match nothing.
+const shootTables = ["shoots", "shoot_schedule_blocks", "shoot_schedule_block_talent", "shoot_schedule_block_crew"];
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of shootTables) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const ins = await s.c.from("shoots").insert({ client_slug: "demo-harbor", shoot_date: "2030-01-01" });
+  check(`${label} cannot write shoots`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  for (const [fn, args] of [
+    ["create_shoot", { p_client_slug: "demo-harbor", p_shoot_date: "2030-01-01" }],
+    ["update_shoot", { p_id: ZERO, p_shoot_date: "2030-01-01" }],
+    ["delete_shoot", { p_id: ZERO }],
+    ["create_shoot_schedule_block", { p_shoot_id: ZERO, p_label: "wall", p_start_time: "10:00", p_end_time: "11:00" }],
+    ["update_shoot_schedule_block", { p_id: ZERO, p_label: "wall", p_start_time: "10:00", p_end_time: "11:00" }],
+    ["delete_shoot_schedule_block", { p_id: ZERO }],
+    ["confirm_actor_for_shoot", { p_assignment_id: ZERO, p_shoot_id: ZERO }],
+    ["unconfirm_actor_from_shoot", { p_assignment_id: ZERO }],
+  ]) {
+    const res = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, res.error?.code === "42501", `code=${res.error?.code ?? "none"}`);
+  }
+}
+const calPage = await employee.c.from("shoots")
+  .select("id, client_slug, shoot_date, location, location_id, notes, shoot_schedule_blocks(id, label, start_time, end_time, location, notes, shoot_schedule_block_talent(actor_assignment_id), shoot_schedule_block_crew(crew_member_id)), call_sheets(id, revoked)")
+  .limit(5);
+check("employee loads the production calendar page query", !calPage.error && (calPage.data ?? []).length > 0, `error=${calPage.error?.code ?? ""} ${calPage.error?.message ?? "none"} rows=${calPage.data?.length ?? "error"}`);
+for (const [fn, args] of [
+  ["update_shoot", { p_id: ZERO, p_shoot_date: "2030-01-01" }],
+  ["delete_shoot", { p_id: ZERO }],
+  ["unconfirm_actor_from_shoot", { p_assignment_id: ZERO }],
+]) {
+  const res = await employee.c.rpc(fn, args);
+  check(`employee passes the staff check in ${fn}`, res.error?.code === "P0002", `code=${res.error?.code ?? "none"}`);
+}
+
 // QA gates (migration 20261110120003, step 4b): staff only. Clients read none of the three
 // tables, cannot write them and are refused every checked function, the gate read included.
 const qaTables = ["engagement_deliverable_confirmations", "engagement_deliverable_qa_returns", "engagement_deliverable_signoffs"];

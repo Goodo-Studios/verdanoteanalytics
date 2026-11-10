@@ -49,6 +49,7 @@ import {
   Package,
   HardHat,
   Truck,
+  CalendarDays,
 } from "lucide-react";
 import { ATTIO_URL, GOODO_TIME_URL } from "@/lib/staffMenu";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
@@ -132,6 +133,7 @@ export const builderSections: NavSection[] = [
       { title: "Props", url: "/props", icon: Package },
       { title: "Crew", url: "/crew", icon: HardHat },
       { title: "Shipments", url: "/shipments", icon: Truck },
+      { title: "Production calendar", url: "/production-calendar", icon: CalendarDays },
       { title: "Engagements", url: "/engagements", icon: CalendarRange },
       { title: "Deliverables", url: "/deliverables", icon: PackageCheck },
       { title: "QA gates", url: "/qa-gates", icon: ShieldCheck },
