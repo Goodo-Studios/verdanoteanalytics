@@ -243,3 +243,185 @@ export function safeHref(value: string | null | undefined): string | null {
   if (/^[a-z][a-z0-9+.-]*:/i.test(v) || v.startsWith("//")) return null;
   return `https://${v}`;
 }
+
+// --------------------------------------------------------------- actors
+//
+// Actors are the production talent roster (actors table). Their bookings on a
+// client (actor_assignments, the casting board) move with step 5c; the actor
+// page only lists them.
+
+export interface RosterActor {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  gender: string | null;
+  age_range: string[];
+  skills: string[];
+  dog_owner: boolean | null;
+  kids_in_videos: string | null;
+  do_not_use_again: boolean;
+  headshot_path: string | null;
+  source: string;
+  created_at: string;
+}
+
+export const ROSTER_ACTOR_COLUMNS =
+  "id, name, email, phone, gender, age_range, skills, dog_owner, kids_in_videos, do_not_use_again, headshot_path, source, created_at";
+
+export interface ActorRecord extends RosterActor {
+  notes: string | null;
+  social_url: string | null;
+  additional_social_url: string | null;
+  import_notes: string | null;
+  updated_at: string;
+}
+
+export const ACTOR_RECORD_COLUMNS = `${ROSTER_ACTOR_COLUMNS}, notes, social_url, additional_social_url, import_notes, updated_at`;
+
+/** actor_assignments.stage in casting order (old dashboard src/lib/casting.ts). */
+export const ACTOR_STAGES = [
+  { value: "sourced", label: "Sourced" },
+  { value: "outreach_sent", label: "Outreach Sent" },
+  { value: "interested", label: "Interested" },
+  { value: "shortlisted", label: "Shortlisted" },
+  { value: "client_approved", label: "Client Approved" },
+  { value: "booked", label: "Booked" },
+  { value: "shooting", label: "Shooting" },
+  { value: "wrapped", label: "Wrapped" },
+  { value: "declined", label: "Declined" },
+  { value: "passed", label: "Passed" },
+] as const;
+
+export function actorStageLabel(stage: string): string {
+  return ACTOR_STAGES.find((s) => s.value === stage)?.label ?? stage;
+}
+
+export type ActorSort = "name" | "newest";
+export type DogFilter = "" | "yes" | "no";
+
+export interface ActorFilters {
+  search: string;
+  gender: string;
+  skill: string;
+  dog: DogFilter;
+  showDoNotUse: boolean;
+  sort: ActorSort;
+  page: number;
+}
+
+export const DEFAULT_ACTOR_FILTERS: ActorFilters = { search: "", gender: "", skill: "", dog: "", showDoNotUse: false, sort: "name", page: 1 };
+
+export function actorFiltersFromParams(p: URLSearchParams): ActorFilters {
+  const page = Number(p.get("page"));
+  const dog = p.get("dog");
+  return {
+    search: p.get("q") ?? "",
+    gender: p.get("gender") ?? "",
+    skill: p.get("skill") ?? "",
+    dog: dog === "yes" || dog === "no" ? dog : "",
+    showDoNotUse: p.get("dnu") === "1",
+    sort: p.get("sort") === "newest" ? "newest" : "name",
+    page: Number.isInteger(page) && page > 1 ? page : 1,
+  };
+}
+
+export function actorFiltersToParams(f: ActorFilters): URLSearchParams {
+  const p = new URLSearchParams();
+  if (f.search.trim()) p.set("q", f.search);
+  if (f.gender) p.set("gender", f.gender);
+  if (f.skill) p.set("skill", f.skill);
+  if (f.dog) p.set("dog", f.dog);
+  if (f.showDoNotUse) p.set("dnu", "1");
+  if (f.sort !== "name") p.set("sort", f.sort);
+  if (f.page > 1) p.set("page", String(f.page));
+  return p;
+}
+
+/** Search matches name, email, phone and skills. An unknown dog answer fails both yes and no. */
+export function filterActors<T extends RosterActor>(rows: T[], f: ActorFilters): T[] {
+  const q = norm(f.search);
+  const gender = norm(f.gender);
+  const skill = norm(f.skill);
+  return rows.filter((a) => {
+    if (!f.showDoNotUse && a.do_not_use_again) return false;
+    if (gender && norm(a.gender) !== gender) return false;
+    if (skill && !a.skills.some((s) => norm(s) === skill)) return false;
+    if (f.dog === "yes" && a.dog_owner !== true) return false;
+    if (f.dog === "no" && a.dog_owner !== false) return false;
+    if (q) {
+      const hay = [a.name, a.email, a.phone, ...a.skills].map(norm).join(" ");
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+export function sortActors<T extends RosterActor>(rows: T[], sort: ActorSort): T[] {
+  const out = [...rows];
+  if (sort === "newest") out.sort((a, b) => b.created_at.localeCompare(a.created_at) || a.name.localeCompare(b.name));
+  else out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
+/** Distinct skills across the roster, for the filter menu. */
+export function skillOptions(rows: { skills: string[] }[]): string[] {
+  const seen = new Map<string, string>();
+  for (const r of rows) for (const s of r.skills) {
+    const t = s.trim();
+    if (t && !seen.has(t.toLowerCase())) seen.set(t.toLowerCase(), t);
+  }
+  return [...seen.values()].sort((a, b) => a.localeCompare(b));
+}
+
+export interface ActorForm {
+  name: string;
+  email: string;
+  phone: string;
+  gender: string;
+  age_range: string;
+  skills: string;
+  dog_owner: "" | "yes" | "no";
+  kids_in_videos: string;
+  social_url: string;
+  additional_social_url: string;
+  notes: string;
+  do_not_use_again: boolean;
+}
+
+export function actorToForm(a: ActorRecord): ActorForm {
+  return {
+    name: a.name, email: a.email ?? "", phone: a.phone ?? "", gender: a.gender ?? "", age_range: a.age_range.join(", "),
+    skills: a.skills.join(", "), dog_owner: a.dog_owner === null ? "" : a.dog_owner ? "yes" : "no",
+    kids_in_videos: a.kids_in_videos ?? "", social_url: a.social_url ?? "", additional_social_url: a.additional_social_url ?? "",
+    notes: a.notes ?? "", do_not_use_again: a.do_not_use_again,
+  };
+}
+
+export interface ActorPatch {
+  name: string;
+  email: string | null;
+  phone: string | null;
+  gender: string | null;
+  age_range: string[];
+  skills: string[];
+  dog_owner: boolean | null;
+  kids_in_videos: string | null;
+  social_url: string | null;
+  additional_social_url: string | null;
+  notes: string | null;
+  do_not_use_again: boolean;
+}
+
+export function actorFormToPatch(f: ActorForm): { patch: ActorPatch } | { error: string } {
+  const name = f.name.trim();
+  if (!name) return { error: "A name is required." };
+  return {
+    patch: {
+      name, email: blankToNull(f.email), phone: blankToNull(f.phone), gender: blankToNull(f.gender), age_range: parseList(f.age_range),
+      skills: parseList(f.skills), dog_owner: f.dog_owner === "" ? null : f.dog_owner === "yes", kids_in_videos: blankToNull(f.kids_in_videos),
+      social_url: blankToNull(f.social_url), additional_social_url: blankToNull(f.additional_social_url), notes: blankToNull(f.notes),
+      do_not_use_again: f.do_not_use_again,
+    },
+  };
+}

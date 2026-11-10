@@ -1,5 +1,6 @@
 // Made-up test data for the old dashboard pages in Verdanote STAGING (step 5a:
-// Overview, Client Detail, Creator pipeline, Follow-ups). Decision 10 in the
+// Overview, Client Detail, Creator pipeline, Follow-ups; step 5b: Creators,
+// Actors, Applications, approval boards). Decision 10 in the
 // consolidation plan: staging gets made-up test clients by default, never a copy
 // of real client data unless the owner says so.
 //
@@ -24,6 +25,8 @@ export const SEED_MARKERS = {
   creator_assignments: { sql: "client_slug like 'demo-%'", match: (r) => r.client_slug.startsWith('demo-') },
   dashboard_creators: { sql: "source = 'staging_seed'", match: (r) => r.source === 'staging_seed' },
   app_users: { sql: "email like '%@staging.verdanote.test'", match: (r) => r.email.endsWith('@staging.verdanote.test') },
+  actors: { sql: "source = 'staging_seed'", match: (r) => r.source === 'staging_seed' },
+  actor_assignments: { sql: "client_slug like 'demo-%'", match: (r) => r.client_slug.startsWith('demo-') },
 };
 
 // Upsert order (parents first) and the conflict key of each table.
@@ -36,6 +39,8 @@ export const SEED_ORDER = [
   ['dashboard_creators', 'id'],
   ['creator_assignments', 'id'],
   ['pipeline_tasks', 'clickup_task_id'],
+  ['actors', 'id'],
+  ['actor_assignments', 'id'],
 ];
 
 export function assertStagingUrl(url) {
@@ -142,5 +147,23 @@ export function buildDashboardSeed(now = new Date()) {
     stage, task_name, content_type, due_date: due === null ? null : day(due), synced_at: stamp(0),
   }));
 
-  return { clients, app_users, client_ad_accounts, engagements, deliverables, dashboard_creators, creator_assignments, pipeline_tasks };
+  // Step 5b: production talent. Phone numbers use the 555-01xx range kept for fiction.
+  const actorRows = [
+    ['Indigo Reyes', 'Female', ['25-34'], ['Comedy', 'Improv'], true],
+    ['Jules Carter', 'Male', ['35-44'], ['Voiceover'], false],
+    ['Kai Morgan', 'Non-binary', ['18-24'], ['Dance', 'Comedy'], null],
+    ['Lane Foster', 'Female', ['45-54'], [], true],
+  ];
+  const actors = actorRows.map(([name, gender, age_range, skills, dog_owner], i) => ({
+    id: id(500 + i), name, email: `${name.split(' ')[0].toLowerCase()}.actor@example.test`, phone: `555-01${String(10 + i)}`,
+    gender, age_range, skills, dog_owner, kids_in_videos: null, do_not_use_again: i === 3, source: 'staging_seed',
+    notes: null, social_url: null, additional_social_url: null,
+  }));
+  const actor_assignments = [
+    { id: id(600), actor_id: id(500), client_slug: 'demo-harbor', stage: 'booked', scheduled_shoot_date: day(9), shoot_location: 'Test Studio A' },
+    { id: id(601), actor_id: id(501), client_slug: 'demo-harbor', stage: 'shortlisted', scheduled_shoot_date: null, shoot_location: null },
+    { id: id(602), actor_id: id(502), client_slug: 'demo-pinecrest', stage: 'interested', scheduled_shoot_date: null, shoot_location: null },
+  ];
+
+  return { clients, app_users, client_ad_accounts, engagements, deliverables, dashboard_creators, creator_assignments, pipeline_tasks, actors, actor_assignments };
 }

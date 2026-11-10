@@ -324,6 +324,28 @@ for (const table of creatorMediaTables) {
   check(`employee can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
 }
 
+// Old dashboard batch 2, Actors (step 5b): the actor roster, castings and actor media are staff
+// only. Actor emails and phone numbers never reach a client login.
+const actorTables = ["actors", "actor_assignments", "actor_videos", "actor_photos"];
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of actorTables) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const ins = await s.c.from("actors").insert({ name: "wall check" });
+  check(`${label} cannot write actors`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  const upd = await s.c.from("actors").update({ do_not_use_again: true }).neq("id", ZERO).select("id");
+  check(`${label} changes no actors row`, !!upd.error || (upd.data ?? []).length === 0, `rows=${upd.data?.length ?? "error"}`);
+  const files = await s.c.storage.from("actor-headshots").list("", { limit: 10 });
+  check(`${label} lists no actor headshot files`, !!files.error || (files.data ?? []).length === 0, `files=${files.data?.length ?? "error"}`);
+}
+for (const table of actorTables) {
+  const r = await employee.c.from(table).select("*").limit(1);
+  check(`employee can read ${table}`, !r.error && (r.data ?? []).length > 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+}
+const actorFiles = await employee.c.storage.from("actor-headshots").list("", { limit: 10 });
+check("employee lists actor headshot files", !actorFiles.error && (actorFiles.data ?? []).length > 0, `error=${actorFiles.error?.message ?? "none"}`);
+
 // QA gates (migration 20261110120003, step 4b): staff only. Clients read none of the three
 // tables, cannot write them and are refused every checked function, the gate read included.
 const qaTables = ["engagement_deliverable_confirmations", "engagement_deliverable_qa_returns", "engagement_deliverable_signoffs"];
