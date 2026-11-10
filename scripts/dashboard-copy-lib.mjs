@@ -2,6 +2,8 @@
 // See docs/dashboard-copy.md. Pure functions plus two small API clients so the
 // safety rules can be tested without a network.
 
+import { SEED_MARKERS } from './seed-staging-dashboard-lib.mjs';
+
 export const DASHBOARD_REF = 'qlvdvpchriyrsjtewwxx'; // old dashboard (read only)
 export const STAGING_REF = 'mnvcksbhbvypuiwozvct'; // verdanote-staging (write)
 export const PRODUCTION_REF = 'gwyxaqoaldnaavkjqquv'; // Verdanote production (never touched)
@@ -64,7 +66,88 @@ export function assertTargets({ sourceRef, targetRef, confirmSource }) {
   }
 }
 
-export const isReadOnlySql = (sql) => /^\s*(with\b[\s\S]*?\bselect\b|select\b)/i.test(sql) && !/\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|copy|call|do)\b/i.test(sql.replace(/'[^']*'/g, "''"));
+// ------------------------------------------------------------------ arguments
+//
+// Dry run by default. With no flags the script prints the plan and touches no
+// network. --confirm-source alone reads row counts and checksums from both
+// sides and writes nothing. Writing needs --write, --confirm-source AND
+// --real-client-data-approved: copying real client data into staging is the
+// owner's decision 10 in the consolidation plan (default: made-up test clients
+// only), so the flag is only passed once Matthew has said yes.
+
+const VALUE_FLAGS = new Set(['confirm-source', 'report', 'page']);
+const BOOL_FLAGS = new Set(['write', 'replace', 'real-client-data-approved']);
+
+export function parseArgs(argv) {
+  const out = { write: false, replace: false, realClientDataApproved: false, confirmSource: undefined, report: undefined, page: 400 };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (!a.startsWith('--')) throw new Error(`unexpected argument ${a}`);
+    const name = a.slice(2);
+    if (BOOL_FLAGS.has(name)) {
+      if (name === 'write') out.write = true;
+      if (name === 'replace') out.replace = true;
+      if (name === 'real-client-data-approved') out.realClientDataApproved = true;
+      continue;
+    }
+    if (!VALUE_FLAGS.has(name)) throw new Error(`unknown option --${name}`);
+    const v = argv[++i];
+    if (v === undefined || v.startsWith('--')) throw new Error(`--${name} needs a value`);
+    if (name === 'confirm-source') out.confirmSource = v;
+    if (name === 'report') out.report = v;
+    if (name === 'page') {
+      out.page = Number(v);
+      if (!Number.isInteger(out.page) || out.page < 1 || out.page > 5000) throw new Error('--page must be a whole number from 1 to 5000');
+    }
+  }
+  // A production or old-dashboard ref may only appear as the read confirmation.
+  for (const v of [out.report].filter(Boolean)) {
+    if (v.includes(PRODUCTION_REF) || v.includes(DASHBOARD_REF)) throw new Error('a project ref is not accepted here');
+  }
+  if (out.replace && !out.write) throw new Error('--replace only makes sense with --write');
+  return out;
+}
+
+export function runMode(args) {
+  if (args.write) return 'write';
+  if (args.confirmSource) return 'counts';
+  return 'plan';
+}
+
+export function assertWriteAllowed(args) {
+  if (!args.write) return;
+  if (args.confirmSource !== DASHBOARD_REF) throw new Error(`--write needs --confirm-source ${DASHBOARD_REF}`);
+  if (!args.realClientDataApproved) {
+    throw new Error('--write copies real client data into staging. Decision 10 (owner): made-up test clients only unless Matthew says otherwise. Pass --real-client-data-approved only after he has.');
+  }
+}
+
+// Rows the made-up staging seed owns (scripts/seed-staging-dashboard-lib.mjs).
+// Checksums on the staging side leave them out so a seeded staging can still
+// match the source.
+export const seedFilter = (table) => SEED_MARKERS[table]?.sql ?? null;
+
+// --replace never empties `clients`: since the one client model (PR 143) other
+// tables (engagements, client_ad_accounts, pipeline_tasks, knowledge, meeting
+// recaps) point at clients.slug, and with triggers off a delete would leave
+// them orphaned. Client rows are only ever added (on conflict do nothing).
+export const REPLACE_SKIP = new Set(['clients']);
+
+export function renderPlan() {
+  const lines = ['Dashboard copy plan (dry run, nothing read or written).', ''];
+  lines.push(`Source, read only: old dashboard ${DASHBOARD_REF} (Management API read-only endpoint).`);
+  lines.push(`Target: verdanote-staging ${STAGING_REF}. Production ${PRODUCTION_REF} is refused.`);
+  lines.push('', 'Tables in load order:');
+  for (const [t, pk] of TABLES) {
+    const src = sourceName(t);
+    const notes = [src !== t ? `from ${src}` : null, seedFilter(t) ? `seed rows left out of checksum: ${seedFilter(t)}` : null, REPLACE_SKIP.has(t) ? 'never emptied by --replace' : null].filter(Boolean);
+    lines.push(`  ${t} (key ${pk.join(', ')})${notes.length ? '  ' + notes.join('; ') : ''}`);
+  }
+  lines.push('', 'Next: --confirm-source <ref> reads counts and checksums only. --write also needs --real-client-data-approved (owner decision 10).');
+  return lines.join('\n') + '\n';
+}
+
+export const isReadOnlySql =(sql) => /^\s*(with\b[\s\S]*?\bselect\b|select\b)/i.test(sql) && !/\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|copy|call|do)\b/i.test(sql.replace(/'[^']*'/g, "''"));
 
 // ------------------------------------------------------------------ clients
 
@@ -112,9 +195,10 @@ export function makeTargetClient({ token, ref = STAGING_REF, fetchImpl = fetch }
 
 export const countSql = (schemaTable) => `select count(*)::int as n from public.${ident(schemaTable)}`;
 
-export function checksumSql(table, pk) {
+export function checksumSql(table, pk, where = null) {
   const order = pk.map(ident).join(', ');
-  return `select count(*)::int as n, coalesce(md5(string_agg(to_jsonb(t)::text, '|' order by ${order})), 'empty') as sum from public.${ident(table)} t`;
+  const filter = where ? ` where not (${where})` : '';
+  return `select count(*)::int as n, coalesce(md5(string_agg(to_jsonb(t)::text, '|' order by ${order})), 'empty') as sum from public.${ident(table)} t${filter}`;
 }
 
 export function pageSql(table, pk, limit, offset) {
@@ -142,7 +226,7 @@ commit;`;
 }
 
 export const clearSql = (tables) =>
-  `begin;\nset local session_replication_role = replica;\n${[...tables].reverse().map((t) => `delete from public.${ident(t)};`).join('\n')}\ncommit;`;
+  `begin;\nset local session_replication_role = replica;\n${[...tables].reverse().filter((t) => !REPLACE_SKIP.has(t)).map((t) => `delete from public.${ident(t)};`).join('\n')}\ncommit;`;
 
 export const counterSql = (value) =>
   `insert into public.ad_name_counter (id, value) values (1, ${Number(value)})
