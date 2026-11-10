@@ -160,51 +160,97 @@ export const ACCOUNT_NAME_ALIASES: Record<string, string> = {
   "Miracle": "Miracle Brand",
 };
 
-export interface AccountRow {
-  id: string;
+/**
+ * One client from the `clients` list (key: slug), with the ad accounts linked to
+ * it in `client_ad_accounts`. `accountIds` holds every linked ad account;
+ * `accountNames` holds the names of the linked ad accounts that are active, which
+ * are matched against folder names alongside the client's own name.
+ */
+export interface ClientRow {
+  slug: string;
   name: string;
+  accountIds: string[];
+  accountNames: string[];
 }
 
+export type FolderResolution =
+  | { kind: "client"; slug: string; via: "mapping" | "name" }
+  | { kind: "none"; reason: "unmatched" | "ambiguous" | "stale_mapping" };
+
 /**
- * Resolve a ClickUp client folder to an ad_accounts.id. Returns null rather
- * than guess: a wrong match would show one client another client's work.
+ * Resolve a ClickUp client folder to a client (`clients.slug`). Returns no
+ * client rather than guess: a wrong match would show one client another
+ * client's work.
  *
  * Order:
- *   1. An explicit row in clickup_client_folders (staff-set override).
- *   2. Exact normalised name match.
- *   3. Alias (ACCOUNT_NAME_ALIASES).
- *   4. Constrained fuzzy: an account name of 4+ characters fully contained in
- *      the folder name, and only if exactly one account matches.
+ *   1. An active `source_mappings` row (provider clickup, kind folder), set by
+ *      staff. A mapping to a client that is missing or inactive is not followed
+ *      and not replaced by a name guess.
+ *   2. Exact normalised name match against client names and the names of their
+ *      linked active ad accounts.
+ *   3. Alias (ACCOUNT_NAME_ALIASES), looked up the same way.
+ *   4. Constrained fuzzy: a client or ad account name of 4+ characters fully
+ *      contained in the folder name.
+ * Steps 2 to 4 resolve only when every matching name belongs to one client.
+ * Names of two different clients matching is reported as ambiguous.
  */
-export function resolveAccountId(
+export function resolveClientSlug(
   folder: { id: string; name: string },
-  accounts: AccountRow[],
-  overrides: Record<string, string>,
-): string | null {
-  const accountIds = new Set(accounts.map((a) => a.id));
-  const override = overrides[folder.id];
-  // An override that points at a missing or inactive account is ignored, not followed.
-  if (override) return accountIds.has(override) ? override : null;
+  clients: ClientRow[],
+  mappings: Record<string, string>,
+): FolderResolution {
+  const known = new Set(clients.map((c) => c.slug));
+  const mapped = mappings[folder.id];
+  if (mapped) {
+    return known.has(mapped)
+      ? { kind: "client", slug: mapped, via: "mapping" }
+      : { kind: "none", reason: "stale_mapping" };
+  }
 
-  const lookup: Record<string, string> = {};
-  for (const a of accounts) lookup[normalise(a.name)] = a.id;
+  // normalised name -> every client that carries it (own name or an ad account name)
+  const lookup = new Map<string, Set<string>>();
+  for (const c of clients) {
+    for (const n of [c.name, ...c.accountNames]) {
+      const k = normalise(n ?? "");
+      if (!k) continue;
+      if (!lookup.has(k)) lookup.set(k, new Set());
+      lookup.get(k)!.add(c.slug);
+    }
+  }
+
+  const decide = (slugs: Set<string>): FolderResolution | null => {
+    if (slugs.size === 1) return { kind: "client", slug: [...slugs][0], via: "name" };
+    if (slugs.size > 1) return { kind: "none", reason: "ambiguous" };
+    return null;
+  };
 
   const key = normalise(cleanFolderName(folder.name));
-  if (!key) return null;
-  if (lookup[key]) return lookup[key];
+  if (!key) return { kind: "none", reason: "unmatched" };
+
+  const exact = lookup.get(key);
+  if (exact) return decide(exact)!;
 
   for (const [label, accountName] of Object.entries(ACCOUNT_NAME_ALIASES)) {
     if (normalise(label) === key) {
-      const id = lookup[normalise(accountName)];
-      if (id) return id;
+      const aliased = lookup.get(normalise(accountName));
+      if (aliased) return decide(aliased)!;
     }
   }
 
   const candidates = new Set<string>();
-  for (const [k, id] of Object.entries(lookup)) {
-    if (k.length >= 4 && key.includes(k)) candidates.add(id);
+  for (const [k, slugs] of lookup) {
+    if (k.length >= 4 && key.includes(k)) for (const s of slugs) candidates.add(s);
   }
-  return candidates.size === 1 ? [...candidates][0] : null;
+  return decide(candidates) ?? { kind: "none", reason: "unmatched" };
+}
+
+/**
+ * The ad account written on a client's board rows. Only when the client has
+ * exactly one linked ad account: the /pipeline page filters by ad account, and
+ * with two or more there is no single right one, so none is written.
+ */
+export function boardAccountId(client: ClientRow): string | null {
+  return client.accountIds.length === 1 ? client.accountIds[0] : null;
 }
 
 /** The one "{Client} Project View" list in a client folder, or null if there is not exactly one. */
@@ -225,9 +271,16 @@ export interface ClickUpTask {
   custom_fields?: ClickUpCustomField[];
 }
 
+/** Who a board row belongs to: always a client, and an ad account when there is exactly one. */
+export interface BoardOwner {
+  client_slug: string;
+  account_id: string | null;
+}
+
 export interface PipelineRecord {
   clickup_task_id: string;
-  account_id: string;
+  client_slug: string;
+  account_id: string | null;
   task_name: string | null;
   stage: string;
   due_date: string | null;
@@ -244,7 +297,7 @@ export type TaskOutcome =
 /** Turn one ClickUp task into a client-safe pipeline row, or say why it is left out. */
 export function toPipelineRecord(
   task: ClickUpTask,
-  accountId: string,
+  owner: BoardOwner,
   nowMs: number,
 ): TaskOutcome {
   if (!task?.id || !isAssetTask(task.name)) return { kind: "skip" };
@@ -265,7 +318,8 @@ export function toPipelineRecord(
     kind: "record",
     record: {
       clickup_task_id: task.id,
-      account_id: accountId,
+      client_slug: owner.client_slug,
+      account_id: owner.account_id,
       task_name: cleanTaskName(task.name),
       stage: decision.stage,
       due_date: toIsoDate(task.due_date),

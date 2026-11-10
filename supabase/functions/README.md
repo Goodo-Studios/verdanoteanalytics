@@ -98,7 +98,7 @@ supabase secrets set WRITE_BRIEF_SECRET=<random-secret>  # write-brief
 | Function | Trigger | Purpose |
 |---|---|---|
 | `create-coda-brief` | User action | Creates a creative brief row in a Coda doc via the Coda API. |
-| `sync-clickup-tasks` | Cron (every 4h) | Reads asset tasks from every client folder in ClickUp (GET only) into the `pipeline_tasks` table, mapping each ClickUp status to one of five client-facing columns (Preparing Content / Production / Editing / Client Review / Ready to Launch) and storing client-safe fields only. Powers the `/pipeline` board for staff and clients. Rules live in `_shared/clickup-pipeline.ts`. Needs the `CLICKUP_API_TOKEN` secret. |
+| `sync-clickup-tasks` | Cron (every 4h) | Reads asset tasks from every client folder in ClickUp (GET only) into the `pipeline_tasks` table, mapping each ClickUp status to one of five client-facing columns (Preparing Content / Production / Editing / Client Review / Ready to Launch) and storing client-safe fields only. Each folder resolves to a client (`source_mappings` folder row first, then name rules against clients and their ad accounts); rows carry `client_slug`, and `account_id` when the client has exactly one ad account. Powers the `/pipeline` board for staff and clients. Rules live in `_shared/clickup-pipeline.ts`. Needs the `CLICKUP_API_TOKEN` secret. |
 | `sync-coda-tasks` | Retired | Coda was retired on 2026-10-09. Its cron is unscheduled by migration `20261109000002`; the function and `coda_tasks` are kept until cleanup. |
 
 ### Creative Vault

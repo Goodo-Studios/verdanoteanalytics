@@ -62,14 +62,20 @@ check("client A sees only linked accounts", (accA.data ?? []).every((a) => a.id 
 const accB = await clientB.c.from("ad_accounts").select("id");
 check("client B sees no accounts", (accB.data ?? []).length === 0, `rows=${accB.data?.length ?? "error"}`);
 
-// Content Pipeline board (pipeline_tasks, fed from ClickUp): a client reads rows of linked
-// accounts only, and never the staff-only ClickUp folder mapping.
-const pipeA = await clientA.c.from("pipeline_tasks").select("account_id");
-check("client A reads pipeline rows of its own account only", !pipeA.error && (pipeA.data ?? []).every((r) => r.account_id === "act_demo_glowdrip"), `error=${pipeA.error?.message ?? "none"} accounts=${[...new Set((pipeA.data ?? []).map((r) => r.account_id))]}`);
-const pipeB = await clientB.c.from("pipeline_tasks").select("account_id");
+// Content Pipeline board (pipeline_tasks, fed from ClickUp): a client reads rows of its
+// linked ad accounts or of its own clients (get_user_client_slugs), nothing else. The
+// ClickUp folder mappings live in source_mappings (staff only, checked further down);
+// the old clickup_client_folders table is gone.
+const ownSlugs = async (s) => ((await s.c.rpc("get_user_client_slugs")).data ?? []).map((r) => (typeof r === "string" ? r : Object.values(r)[0]));
+const pipeA = await clientA.c.from("pipeline_tasks").select("account_id, client_slug");
+const slugsA = await ownSlugs(clientA);
+check("client A reads pipeline rows of its own account or own clients only", !pipeA.error && (pipeA.data ?? []).every((r) => r.account_id === "act_demo_glowdrip" || slugsA.includes(r.client_slug)), `error=${pipeA.error?.message ?? "none"} accounts=${[...new Set((pipeA.data ?? []).map((r) => r.account_id))]} clients=${[...new Set((pipeA.data ?? []).map((r) => r.client_slug))]} own=${slugsA}`);
+const pipeB = await clientB.c.from("pipeline_tasks").select("account_id, client_slug");
 check("client B reads no pipeline rows", !pipeB.error && (pipeB.data ?? []).length === 0, `rows=${pipeB.data?.length ?? "error"}`);
-const foldersA = await clientA.c.from("clickup_client_folders").select("folder_id");
-check("client A cannot read the ClickUp folder mapping", (foldersA.data ?? []).length === 0, `rows=${foldersA.data?.length ?? "error"}`);
+const pipeStaff = await staff.c.from("pipeline_tasks").select("client_slug").limit(1);
+check("builder can read pipeline rows (client_slug column present)", !pipeStaff.error, `error=${pipeStaff.error?.message ?? "none"}`);
+const retired = await staff.c.from("clickup_client_folders").select("folder_id").limit(1);
+check("clickup_client_folders is retired", !!retired.error, `error=${retired.error?.message ?? "none (table still answers)"}`);
 
 // Growth Dashboard (growth_dashboard_data): builder only. Clients and the employee read
 // nothing and cannot insert. The builder can read. Read-only for the builder here, so the

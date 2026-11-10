@@ -9,8 +9,10 @@ import {
   isAssetTask,
   isClearedTask,
   LAUNCH_WINDOW_DAYS,
+  boardAccountId,
+  type ClientRow,
   pickProjectList,
-  resolveAccountId,
+  resolveClientSlug,
   STAGE_MAP,
   toIsoDate,
   toPipelineRecord,
@@ -146,34 +148,87 @@ Deno.test("folder names drop the commercial suffix", () => {
   assertEquals(cleanFolderName("The Flatpack Company"), "The Flatpack Company");
 });
 
-Deno.test("account resolution prefers no match over a wrong match", () => {
-  const accounts = [
-    { id: "act_bearaby", name: "Bearaby" },
-    { id: "act_flatpack", name: "Flatpack" },
-    { id: "act_miracle", name: "Miracle Brand" },
-    { id: "act_miracle2", name: "Miracle Brand Secondary Ad Account" },
-    { id: "act_holy", name: "Holy" },
-  ];
-  const r = (id: string, name: string, overrides: Record<string, string> = {}) =>
-    resolveAccountId({ id, name }, accounts, overrides);
-
-  assertEquals(r("f1", "Bearaby"), "act_bearaby"); // exact
-  assertEquals(r("f2", "The Flatpack Company"), "act_flatpack"); // account name inside folder name
-  assertEquals(r("f3", "Miracle - Ending October"), "act_miracle"); // alias, not the secondary account
-  assertEquals(r("f4", "Osmo"), null); // no account
-  assertEquals(r("f5", "Holy Cow Canvas"), "act_holy"); // only one account matches
-  // An override wins over the name.
-  assertEquals(r("f1", "Bearaby", { f1: "act_flatpack" }), "act_flatpack");
-  // An override pointing at an unknown account is not followed and not replaced by a guess.
-  assertEquals(r("f1", "Bearaby", { f1: "act_gone" }), null);
+// Clients as the sync builds them: own name, linked ad account ids, and the names of
+// the linked active ad accounts.
+const client = (slug: string, name: string, accounts: [string, string][] = []): ClientRow => ({
+  slug,
+  name,
+  accountIds: accounts.map(([id]) => id),
+  accountNames: accounts.map(([, n]) => n),
 });
 
-Deno.test("an ambiguous fuzzy match resolves to nothing", () => {
-  const accounts = [
-    { id: "act_holycow", name: "Holy Cow" },
-    { id: "act_canvas", name: "Canvas" },
+Deno.test("client resolution prefers no match over a wrong match", () => {
+  const clients = [
+    client("bearaby", "Bearaby", [["act_bearaby", "Bearaby"]]),
+    client("flatpack", "Flatpack Co", [["act_flatpack", "Flatpack"]]),
+    client("miracle", "Miracle Health", [
+      ["act_miracle", "Miracle Brand"],
+      ["act_miracle2", "Miracle Brand Secondary Ad Account"],
+    ]),
+    client("holy", "Holy", [["act_holy", "Holy"]]),
+    client("tea", "Pretty Tasty Tea"), // no ad account
   ];
-  assertEquals(resolveAccountId({ id: "f", name: "Holy Cow Canvas" }, accounts, {}), null);
+  const r = (id: string, name: string, mappings: Record<string, string> = {}) =>
+    resolveClientSlug({ id, name }, clients, mappings);
+
+  assertEquals(r("f1", "Bearaby"), { kind: "client", slug: "bearaby", via: "name" }); // exact
+  // matched through a linked ad account name inside the folder name
+  assertEquals(r("f2", "The Flatpack Company"), { kind: "client", slug: "flatpack", via: "name" });
+  // alias to an ad account name; both Miracle accounts belong to one client
+  assertEquals(r("f3", "Miracle - Ending October"), { kind: "client", slug: "miracle", via: "name" });
+  assertEquals(r("f4", "Osmo"), { kind: "none", reason: "unmatched" }); // no client
+  assertEquals(r("f5", "Holy Cow Canvas"), { kind: "client", slug: "holy", via: "name" }); // one candidate
+  // a client with no ad account is matched by its own name
+  assertEquals(r("f6", "Pretty Tasty Tea - Ending December"), { kind: "client", slug: "tea", via: "name" });
+});
+
+Deno.test("a staff source mapping wins over the name rules", () => {
+  const clients = [client("bearaby", "Bearaby"), client("flatpack", "Flatpack")];
+  // The folder is named Bearaby, but staff mapped it to Flatpack.
+  assertEquals(
+    resolveClientSlug({ id: "f1", name: "Bearaby" }, clients, { f1: "flatpack" }),
+    { kind: "client", slug: "flatpack", via: "mapping" },
+  );
+  // A mapping for another folder does not change this one.
+  assertEquals(
+    resolveClientSlug({ id: "f1", name: "Bearaby" }, clients, { f9: "flatpack" }),
+    { kind: "client", slug: "bearaby", via: "name" },
+  );
+});
+
+Deno.test("a mapping to a missing or inactive client is not followed and not replaced by a guess", () => {
+  const clients = [client("bearaby", "Bearaby")];
+  assertEquals(
+    resolveClientSlug({ id: "f1", name: "Bearaby" }, clients, { f1: "gone" }),
+    { kind: "none", reason: "stale_mapping" },
+  );
+});
+
+Deno.test("names of two different clients matching resolve to nothing", () => {
+  // fuzzy: both names are inside the folder name
+  assertEquals(
+    resolveClientSlug(
+      { id: "f", name: "Holy Cow Canvas" },
+      [client("holycow", "Holy Cow"), client("canvas", "Canvas")],
+      {},
+    ),
+    { kind: "none", reason: "ambiguous" },
+  );
+  // exact: one client's name equals another client's ad account name
+  assertEquals(
+    resolveClientSlug(
+      { id: "f", name: "Osmo" },
+      [client("osmo", "Osmo"), client("other", "Other Co", [["act_x", "Osmo"]])],
+      {},
+    ),
+    { kind: "none", reason: "ambiguous" },
+  );
+});
+
+Deno.test("the board account is written only when a client has exactly one ad account", () => {
+  assertEquals(boardAccountId(client("a", "A", [["act_1", "A"]])), "act_1");
+  assertEquals(boardAccountId(client("a", "A")), null);
+  assertEquals(boardAccountId(client("a", "A", [["act_1", "A"], ["act_2", "A2"]])), null);
 });
 
 Deno.test("the project list is picked only when there is exactly one", () => {
@@ -195,6 +250,19 @@ Deno.test("the project list is picked only when there is exactly one", () => {
   );
 });
 
+const OWNER = { client_slug: "a", account_id: null };
+
+Deno.test("a client with no single ad account still gets rows, keyed by client only", () => {
+  const out = toPipelineRecord(
+    { id: "t9", name: "November Asset 2", status: { status: "client review" }, date_updated: String(NOW) },
+    { client_slug: "tea", account_id: null },
+    NOW,
+  );
+  assert(out.kind === "record");
+  assertEquals(out.record.client_slug, "tea");
+  assertEquals(out.record.account_id, null);
+});
+
 Deno.test("a task becomes a row holding only client-safe fields", () => {
   const out = toPipelineRecord(
     {
@@ -205,12 +273,13 @@ Deno.test("a task becomes a row holding only client-safe fields", () => {
       date_updated: String(NOW - DAY),
       custom_fields: [TYPE_FIELD(0), CLEAR_FIELD(1)],
     },
-    "act_bearaby",
+    { client_slug: "bearaby", account_id: "act_bearaby" },
     NOW,
   );
   assert(out.kind === "record");
   assertEquals(out.record, {
     clickup_task_id: "86bcpujx2",
+    client_slug: "bearaby",
     account_id: "act_bearaby",
     task_name: "November Asset 8 - Softcurve Pillow Pregnancy",
     stage: "Editing",
@@ -231,31 +300,31 @@ Deno.test("delivered work shows for the launch window only", () => {
     date_updated: String(touched),
     date_closed: closed ? String(touched) : null,
   });
-  assertEquals(toPipelineRecord(task(NOW - 5 * DAY), "a", NOW).kind, "record");
-  assertEquals(toPipelineRecord(task(NOW - 5 * DAY, true), "a", NOW).kind, "record");
-  assertEquals(toPipelineRecord(task(NOW - (LAUNCH_WINDOW_DAYS + 1) * DAY), "a", NOW).kind, "skip");
+  assertEquals(toPipelineRecord(task(NOW - 5 * DAY), OWNER, NOW).kind, "record");
+  assertEquals(toPipelineRecord(task(NOW - 5 * DAY, true), OWNER, NOW).kind, "record");
+  assertEquals(toPipelineRecord(task(NOW - (LAUNCH_WINDOW_DAYS + 1) * DAY), OWNER, NOW).kind, "skip");
   assertEquals(
-    toPipelineRecord(task(NOW - (LAUNCH_WINDOW_DAYS + 1) * DAY, true), "a", NOW).kind,
+    toPipelineRecord(task(NOW - (LAUNCH_WINDOW_DAYS + 1) * DAY, true), OWNER, NOW).kind,
     "skip",
   );
 });
 
 Deno.test("stuck, cleared, non-asset and unknown-status tasks are left out", () => {
   const base = { id: "t", name: "November Asset 3", date_updated: String(NOW) };
-  assertEquals(toPipelineRecord({ ...base, status: { status: "stuck" } }, "a", NOW).kind, "skip");
+  assertEquals(toPipelineRecord({ ...base, status: { status: "stuck" } }, OWNER, NOW).kind, "skip");
   assertEquals(
     toPipelineRecord(
       { ...base, status: { status: "editing" }, custom_fields: [CLEAR_FIELD(0)] },
-      "a",
+      OWNER,
       NOW,
     ).kind,
     "skip",
   );
   assertEquals(
-    toPipelineRecord({ ...base, name: "Nov Shoot Day", status: { status: "assigned" } }, "a", NOW).kind,
+    toPipelineRecord({ ...base, name: "Nov Shoot Day", status: { status: "assigned" } }, OWNER, NOW).kind,
     "skip",
   );
-  assertEquals(toPipelineRecord({ ...base, status: { status: "brand new" } }, "a", NOW), {
+  assertEquals(toPipelineRecord({ ...base, status: { status: "brand new" } }, OWNER, NOW), {
     kind: "unknown",
     status: "brand new",
   });

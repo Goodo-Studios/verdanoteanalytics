@@ -41,11 +41,7 @@ Linking an ad account to a client in `client_ad_accounts` therefore lets every l
 
 ### ClickUp folder
 
-The ClickUp folder of a client is a `source_mappings` row (`provider = 'clickup'`, `kind = 'folder'`, `external_id` = folder id). `clickup_client_folders` (folder to ad account, staff-set override) stays as it is until the ClickUp connector pull request, which:
-
-- switches `sync-clickup-tasks` to resolve a folder to a client through `source_mappings`, then to the client's ad account,
-- adds `client_slug` to `pipeline_tasks` with a client rule `account_id IN (SELECT get_user_account_ids(auth.uid())) OR client_slug IN (SELECT get_user_client_slugs())`, and makes `account_id` optional, so the board works for a client with no ad account,
-- converts any `clickup_client_folders` rows to `source_mappings` rows and drops the table. Staging has none (no ClickUp token).
+The ClickUp folder of a client is a `source_mappings` row (`provider = 'clickup'`, `kind = 'folder'`, `external_id` = folder id). See "ClickUp (PR 5)" under Connectors for how the sync uses it.
 
 ### Engagements
 
@@ -102,6 +98,21 @@ It sends only when all three locks hold:
 Each send is marked first (`mark_job_sending`). A rejection (bad channel, missing scope) or an unclear answer (timeout, 5xx) puts the job in recovery for staff, so a message is never posted twice automatically; a rate limit retries after Retry-After. The destination is checked again just before sending. Goodo OS's reminder proof by reading channel history is not ported (it needs channel read scopes).
 
 To turn it on in production after the release: a builder adds the Slack channel in `slack_destinations` and confirms it, the bot token is set as `SLACK_BOT_TOKEN`, and a builder inserts `outbound_switches ('slack_sends', true)`. Staging never sends: the cron entry is removed after each push and the function refuses outside production.
+
+### ClickUp (PR 5)
+
+Migration `20261109000007_clickup_client_model.sql`. `sync-clickup-tasks` (service role, GET only against ClickUp) now resolves each ClickUp client folder to a client, not an ad account:
+
+1. An active `source_mappings` row (`provider = 'clickup'`, `kind = 'folder'`), set by staff. A mapping to a missing or inactive client is not followed and not replaced by a name guess.
+2. Otherwise the name rules from before (exact, alias, then a 4+ character name contained in the folder name), matched against the names of active clients and of their linked active ad accounts. A folder resolves only when every matching name belongs to one client.
+
+A folder that does not resolve, resolves to two clients, or has a stale mapping is skipped, never read, and listed in the result (`unmatchedFolders`, with `ambiguousFolders` and `staleMappingFolders` saying why). Other result fields: `matchedByMapping`, `matchedByName`, and `clientsWithoutBoardAccount`.
+
+`pipeline_tasks.client_slug` is required. `account_id` is optional and written only when the client has exactly one linked ad account, so the `/pipeline` page, which still filters by ad account (`src/hooks/usePipelineTasks.ts`), keeps working for those clients. Rows of a client with no ad account, or with two or more, carry only `client_slug`; the page does not show them until it reads by client, which needs page code and a bundle budget decision. `clientsWithoutBoardAccount` lists those clients.
+
+The client read rule is `has_role(auth.uid(), 'client') AND (account_id IN (SELECT get_user_account_ids(auth.uid())) OR client_slug IN (SELECT get_user_client_slugs()))`. The staff rule is unchanged. Tests: `supabase/tests/clickup_client_model_test.sql` (client A through both rules, client B none, a `client_members`-only client its own client's rows only, employee and builder all).
+
+`clickup_client_folders` is dropped. The migration first copies its rows into `source_mappings` through `client_ad_accounts`, and stops with an error instead of dropping when a row's ad account belongs to no client, when a row disagrees with an existing folder mapping, or when anything else in the database still references the table. Existing `pipeline_tasks` rows take the client of their ad account; rows whose ad account belongs to no client are removed (the next sync rewrites the table). Before the release, every ad account whose board is in use needs a `client_ad_accounts` row, or a `source_mappings` folder row has to point at its client, otherwise its folder is listed as unmatched.
 
 ### Verdanote data
 

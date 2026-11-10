@@ -1088,38 +1088,6 @@ export type Database = {
           },
         ]
       }
-      clickup_client_folders: {
-        Row: {
-          account_id: string
-          created_at: string
-          folder_id: string
-          folder_name: string | null
-          updated_at: string
-        }
-        Insert: {
-          account_id: string
-          created_at?: string
-          folder_id: string
-          folder_name?: string | null
-          updated_at?: string
-        }
-        Update: {
-          account_id?: string
-          created_at?: string
-          folder_id?: string
-          folder_name?: string | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "clickup_client_folders_account_id_fkey"
-            columns: ["account_id"]
-            isOneToOne: false
-            referencedRelation: "ad_accounts"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       coda_tasks: {
         Row: {
           account_id: string | null
@@ -2797,8 +2765,9 @@ export type Database = {
       }
       pipeline_tasks: {
         Row: {
-          account_id: string
+          account_id: string | null
           clickup_task_id: string
+          client_slug: string
           content_type: string | null
           due_date: string | null
           id: string
@@ -2808,8 +2777,9 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          account_id: string
+          account_id?: string | null
           clickup_task_id: string
+          client_slug: string
           content_type?: string | null
           due_date?: string | null
           id?: string
@@ -2819,8 +2789,9 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          account_id?: string
+          account_id?: string | null
           clickup_task_id?: string
+          client_slug?: string
           content_type?: string | null
           due_date?: string | null
           id?: string
@@ -2836,6 +2807,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "ad_accounts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pipeline_tasks_client_slug_fkey"
+            columns: ["client_slug"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["slug"]
           },
         ]
       }
