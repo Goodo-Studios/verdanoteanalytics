@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Plus, LayoutGrid, Loader2 } from "lucide-react";
-import { PageHeader } from "@/components/PageHeader";
+import { Plus, LayoutGrid } from "lucide-react";
+import { EmptyState, LoadingState, PageHeader, PageShell } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -53,7 +53,7 @@ export default function BoardsPage() {
 
   return (
     <>
-      <div className="p-6 max-w-7xl mx-auto">
+      <PageShell wide>
         <PageHeader
           title="Boards"
           description="Organize saved inspiration into named collections."
@@ -66,21 +66,17 @@ export default function BoardsPage() {
         />
 
         {isLoading ? (
-          <div className="text-center py-20 text-muted-foreground">
-            <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
-            Loading…
-          </div>
+          <LoadingState label="Loading boards" variant="cards" count={4} />
         ) : boards.length === 0 ? (
-          <div className="text-center py-20 space-y-3">
-            <LayoutGrid className="w-12 h-12 text-muted-foreground mx-auto" />
-            <p className="text-muted-foreground">No boards yet.</p>
-            <button
-              onClick={() => setCreateOpen(true)}
-              className="text-primary text-sm font-medium hover:underline"
-            >
-              Create your first board
-            </button>
-          </div>
+          <EmptyState
+            icon={<LayoutGrid className="w-10 h-10" />}
+            title="No boards yet."
+            action={
+              <Button variant="link" size="sm" onClick={() => setCreateOpen(true)}>
+                Create your first board
+              </Button>
+            }
+          />
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {boards.map((board) => (
@@ -114,7 +110,7 @@ export default function BoardsPage() {
         )}
 
         <CreateBoardModal open={createOpen} onOpenChange={setCreateOpen} />
-      </div>
+      </PageShell>
     </>
   );
 }

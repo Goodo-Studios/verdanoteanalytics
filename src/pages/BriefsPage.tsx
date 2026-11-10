@@ -1,14 +1,12 @@
 import { useState, useMemo } from "react";
-import { PageHeader } from "@/components/PageHeader";
+import { ConfirmDialog, DataTable, EmptyState, FilterBar, LoadingState, PageHeader, PageShell, type DataColumn } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBriefs, useBriefTemplates, useCreateBrief, useDeleteBrief, type Brief } from "@/hooks/useBriefsApi";
 import { useAccounts } from "@/hooks/useAccountsApi";
 import { BriefEditorModal } from "@/components/briefs/BriefEditorModal";
-import { ConfirmDeleteDialog } from "@/components/user-settings/ConfirmDeleteDialog";
-import { Plus, Search, Trash2, Copy } from "lucide-react";
+import { Plus, Trash2, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -78,69 +76,60 @@ const BriefsPage = () => {
     toast.success("Share link copied");
   };
 
-  return (
-    <>
-      <PageHeader title="Briefs" description="Create a brief from the data, share it or push it to ClickUp." />
-
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-3 mb-6">
-        <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input
-            placeholder="Search briefs…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-8 h-9 font-body text-[13px]"
-          />
+  const columns: DataColumn<Brief>[] = [
+    { key: "name", header: "Name", cell: (b) => <span className="font-medium text-charcoal">{b.name}</span>, sortValue: (b) => b.name },
+    { key: "account", header: "Account", cell: (b) => <span className="text-slate">{accountName(b.account_id)}</span>, sortValue: (b) => accountName(b.account_id) },
+    {
+      key: "actions",
+      header: "Actions",
+      srOnlyHeader: true,
+      cell: (b) => (
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => b.share_token && copyShareLink(b.share_token)}
+            title="Copy share link"
+            aria-label={`Copy share link for ${b.name}`}
+            disabled={!b.share_token}
+          >
+            <Copy className={cn("h-3.5 w-3.5", b.share_token ? "text-muted-foreground" : "text-muted-foreground/30")} />
+          </Button>
+          <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPendingDelete(b)} title="Delete" aria-label={`Delete ${b.name}`}>
+            <Trash2 className="h-3.5 w-3.5 text-destructive" />
+          </Button>
         </div>
-        <Button size="sm" className="bg-verdant hover:bg-verdant/90 text-white font-body text-[12px] gap-1.5" onClick={() => handleNew()} disabled={createBrief.isPending}>
-          <Plus className="h-3.5 w-3.5" /> New Brief
-        </Button>
-      </div>
+      ),
+    },
+  ];
+
+  return (
+    <PageShell>
+      <PageHeader
+        title="Briefs"
+        description="Create a brief from the data, share it or push it to ClickUp."
+        actions={
+          <Button size="sm" className="gap-1.5" onClick={() => handleNew()} disabled={createBrief.isPending}>
+            <Plus className="h-3.5 w-3.5" /> New Brief
+          </Button>
+        }
+      />
+
+      <FilterBar search={{ value: search, onChange: setSearch, label: "Search briefs", placeholder: "Search briefs" }} />
 
       {isLoading ? (
-        <div className="text-center py-12 text-muted-foreground font-body text-[13px]">Loading briefs…</div>
+        <LoadingState label="Loading briefs" />
       ) : (
-        <div className="border border-border-light rounded-lg overflow-hidden bg-card">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="border-b border-border-light bg-muted/30">
-                {["Name", "Account", ""].map((h) => (
-                  <th key={h} className="px-4 py-2.5 font-label text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((brief) => (
-                <tr
-                  key={brief.id}
-                  className="border-b border-border-light last:border-0 hover:bg-muted/20 cursor-pointer"
-                  onClick={() => { setEditorBrief(brief); setEditorIsNew(false); setEditorOpen(true); }}
-                >
-                  <td className="px-4 py-3 font-body text-[13px] font-medium text-charcoal">{brief.name}</td>
-                  <td className="px-4 py-3 font-body text-[12px] text-slate">{accountName(brief.account_id)}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                      <button onClick={() => brief.share_token && copyShareLink(brief.share_token)} className="p-1 rounded hover:bg-muted" title="Copy share link" disabled={!brief.share_token}>
-                        <Copy className={cn("h-3.5 w-3.5", brief.share_token ? "text-muted-foreground" : "text-muted-foreground/30")} />
-                      </button>
-                      <button onClick={() => setPendingDelete(brief)} className="p-1 rounded hover:bg-destructive/10" title="Delete" aria-label={`Delete ${brief.name}`}>
-                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={3} className="px-4 py-8 text-center font-body text-[13px] text-muted-foreground">
-                    No briefs yet. Create your first brief to get started.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          label="Briefs"
+          columns={columns}
+          rows={filtered}
+          rowKey={(b) => b.id}
+          onRowClick={(b) => { setEditorBrief(b); setEditorIsNew(false); setEditorOpen(true); }}
+          empty={<EmptyState title="No briefs yet." description="Create your first brief to get started." className="border-0" />}
+        />
       )}
 
       {/* Editor modal */}
@@ -152,7 +141,7 @@ const BriefsPage = () => {
         isNew={editorIsNew}
       />
 
-      <ConfirmDeleteDialog
+      <ConfirmDialog
         open={pendingDelete !== null}
         onOpenChange={(open) => { if (!open) setPendingDelete(null); }}
         title="Delete this brief?"
@@ -163,7 +152,7 @@ const BriefsPage = () => {
           setPendingDelete(null);
         }}
       />
-    </>
+    </PageShell>
   );
 };
 
