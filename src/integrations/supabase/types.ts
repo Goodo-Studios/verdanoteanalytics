@@ -1836,6 +1836,69 @@ export type Database = {
           },
         ]
       }
+      durable_jobs: {
+        Row: {
+          attempts: number
+          available_at: string
+          client_slug: string | null
+          created_at: string
+          dedupe_key: string
+          engagement_id: string | null
+          fence: number
+          id: string
+          kind: string
+          last_error: string | null
+          lease_owner: string | null
+          lease_until: string | null
+          max_attempts: number
+          payload: Json
+          receipt: Json | null
+          send_started_fence: number | null
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          available_at?: string
+          client_slug?: string | null
+          created_at?: string
+          dedupe_key: string
+          engagement_id?: string | null
+          fence?: number
+          id?: string
+          kind: string
+          last_error?: string | null
+          lease_owner?: string | null
+          lease_until?: string | null
+          max_attempts?: number
+          payload?: Json
+          receipt?: Json | null
+          send_started_fence?: number | null
+          state?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          available_at?: string
+          client_slug?: string | null
+          created_at?: string
+          dedupe_key?: string
+          engagement_id?: string | null
+          fence?: number
+          id?: string
+          kind?: string
+          last_error?: string | null
+          lease_owner?: string | null
+          lease_until?: string | null
+          max_attempts?: number
+          payload?: Json
+          receipt?: Json | null
+          send_started_fence?: number | null
+          state?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       engagement_notes: {
         Row: {
           engagement_id: string
@@ -2268,6 +2331,34 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      job_audit: {
+        Row: {
+          action: string
+          actor: string
+          created_at: string
+          detail: Json
+          fence: number
+          id: number
+          job_id: string
+        }
+        Insert: {
+          action: string
+          actor: string
+          created_at?: string
+          detail?: Json
+          fence: number
+          job_id: string
+        }
+        Update: {
+          action?: string
+          actor?: string
+          created_at?: string
+          detail?: Json
+          fence?: number
+          job_id?: string
+        }
+        Relationships: []
       }
       media_refresh_logs: {
         Row: {
@@ -2751,6 +2842,57 @@ export type Database = {
         }
         Relationships: []
       }
+      reminders: {
+        Row: {
+          body: string
+          cancel_reason: string | null
+          client_slug: string | null
+          created_at: string
+          created_by: string | null
+          dedupe_key: string | null
+          destination_id: string
+          due_at: string
+          engagement_id: string | null
+          id: string
+          job_id: string | null
+          kind: string
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          body: string
+          cancel_reason?: string | null
+          client_slug?: string | null
+          created_at?: string
+          created_by?: string | null
+          dedupe_key?: string | null
+          destination_id: string
+          due_at: string
+          engagement_id?: string | null
+          id?: string
+          job_id?: string | null
+          kind: string
+          state?: string
+          updated_at?: string
+        }
+        Update: {
+          body?: string
+          cancel_reason?: string | null
+          client_slug?: string | null
+          created_at?: string
+          created_by?: string | null
+          dedupe_key?: string | null
+          destination_id?: string
+          due_at?: string
+          engagement_id?: string | null
+          id?: string
+          job_id?: string | null
+          kind?: string
+          state?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       report_schedules: {
         Row: {
           account_id: string
@@ -3104,6 +3246,54 @@ export type Database = {
           team_id?: string
           team_name?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      slack_destinations: {
+        Row: {
+          active: boolean
+          channel_id: string
+          client_slug: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          label: string
+          owner_confirmed: boolean
+          purpose: string
+          quiet_end_minute: number
+          quiet_start_minute: number
+          quiet_timezone: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          channel_id: string
+          client_slug?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          label: string
+          owner_confirmed?: boolean
+          purpose: string
+          quiet_end_minute?: number
+          quiet_start_minute?: number
+          quiet_timezone?: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          channel_id?: string
+          client_slug?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          label?: string
+          owner_confirmed?: boolean
+          purpose?: string
+          quiet_end_minute?: number
+          quiet_start_minute?: number
+          quiet_timezone?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -3762,6 +3952,14 @@ export type Database = {
       owns_ad_library_ad: { Args: { _ad_id: string }; Returns: boolean }
       owns_ad_library_board: { Args: { _board_id: string }; Returns: boolean }
       peek_ad_code: { Args: never; Returns: number }
+      replay_job: {
+        Args: { p_job_id: string }
+        Returns: Database["public"]["Tables"]["durable_jobs"]["Row"]
+      }
+      resolve_job_manually: {
+        Args: { p_job_id: string; p_note: string; p_outcome: string }
+        Returns: Database["public"]["Tables"]["durable_jobs"]["Row"]
+      }
       rpc_account_taxonomy: {
         Args: { p_account_id: string }
         Returns: Json

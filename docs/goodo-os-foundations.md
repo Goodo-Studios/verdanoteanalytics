@@ -2,7 +2,7 @@
 
 Step 3 of the consolidation plan moves the base that Goodo OS's pages stand on into Verdanote: one client model, engagements, source mappings, Goodo OS users mapped onto Verdanote roles, a job queue with reminders, and the outside connectors (ClickUp, Fireflies, Slack) as Verdanote server functions. The Goodo OS waves (4a to 4d) build on it. Staging only.
 
-This note records the client model and why. The later sections are filled in as each pull request lands.
+This note records the client model and why, then the job queue. The later sections are filled in as each pull request lands.
 
 ## The problem: three client lists
 
@@ -63,6 +63,23 @@ An engagement belongs to one client. `cycle_number` is unique per client. A stan
 There is no read-only staff role and none is added (that is Matthew's open decision). Goodo OS users sign in through the old dashboard's login pool, so a person is matched to a Verdanote login by email: the row's own `email`, or the email of the dashboard `app_users` row whose `auth_user_id` equals the Goodo OS `auth_subject`. `goodo_os_user_role_mapping()` (builder only) shows what would happen for each person. `apply_goodo_os_user_role_mapping()` (service role only) adds a role only to a login that has no role yet, and never removes or changes one. A login that already holds a role in the other group (a staff role for a Goodo OS client, or the client role for Goodo OS staff) is reported as a conflict and left alone, so the mapping can never turn a client login into staff. A Goodo OS client membership is resolved to a Verdanote client through a `source_mappings` row (`provider = 'goodo_os'`, `kind = 'client'`). Goodo OS has no client users today, so in practice only staff rows map.
 
 The legacy `clients.verdanote_account_id` column is copied once into `client_ad_accounts` (where the ad account exists) and is not read by anything new. It goes when the dashboard client pages are ported.
+
+## Job queue and reminders (PR 2)
+
+Migration `20261109000005_durable_jobs_and_reminders.sql`. Goodo OS's queue is kept in shape (lease, fence, attempts, recovery, append-only audit, manual resolution) and its multi-company authority layer (runtime identities, capability grants, command receipts) is dropped: in Verdanote only the service role runs jobs.
+
+| Table | Purpose | Who reads | Who writes |
+|---|---|---|---|
+| `durable_jobs` | one row per unit of outside work. `dedupe_key` makes enqueueing idempotent | staff | queue functions only (service role) |
+| `job_audit` | append-only history of every transition | staff | queue functions only |
+| `slack_destinations` | Slack channels reminders and owner alerts may go to, with quiet hours | staff | builder (adding or confirming a channel is the owner's call) |
+| `reminders` | a message due at a time for one destination; its state follows its job | staff | staff |
+
+Service-role functions: `enqueue_job`, `claim_jobs` (skip locked, lease and fence), `mark_job_sending`, `finish_job`, `fail_job` (retry, or recovery when permanent or out of attempts), `cancel_job`, `enqueue_due_reminders`. Staff functions, each checking `has_role(auth.uid(), ...)`: `replay_job` (recovery back to queued) and `resolve_job_manually` (closes a job after a manual check, never as delivered).
+
+At most once: a worker calls `mark_job_sending` right before it posts to an outside service. If its lease then runs out without a finish or fail, the next claim moves the job to recovery instead of running it again, because the message may already be out. Goodo OS instead reads the Slack channel history to prove absence; that needs channel read scopes and is not ported.
+
+`enqueue_due_reminders` queues only reminders whose destination is active, confirmed by a builder and outside quiet hours (an unknown time zone counts as quiet). It writes to the database only. Nothing in this PR is scheduled: the worker that sends, and the pg_cron entries that call it and `enqueue_due_reminders`, come with the Slack connector behind an off-by-default switch. `scripts/staging-lockdown.sql` removes every cron job after each staging push whatever its name, so later schedules are covered.
 
 ## Alternatives rejected
 

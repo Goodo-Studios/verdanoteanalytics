@@ -98,6 +98,10 @@ The Ad Name Generator page (`/ad-name-generator`) is the old generator's screen 
 
 One client list: the dashboard `clients` table, keyed by `slug`. `client_ad_accounts` links a client to zero or more ad accounts, `client_members` links a client login to a client that has no ad account, `engagements` holds one row per 45-day cycle (clients read their own client's rows through `get_user_client_slugs()`), and `engagement_notes`, `source_mappings` and `goodo_os_workspace_users` are staff only (the last builder only). Goodo OS roles map owner to builder, staff to employee, client to client; `apply_goodo_os_user_role_mapping()` (service role) adds a role only to a login with no role. Design and rejected alternatives: `docs/goodo-os-foundations.md`. Tests: `supabase/tests/goodo_os_foundations_test.sql`, plus lines in both staging wall scripts. Nothing real is seeded.
 
+### Job queue and reminders (step 3)
+
+`durable_jobs`, `job_audit`, `slack_destinations` and `reminders` (migration 20261109000005) are staff only. Jobs are written only through the service-role queue functions; staff can replay or close a job in recovery. Only a builder can add or confirm a Slack destination. Nothing is scheduled and nothing sends in this step; the worker that sends arrives with the Slack connector, behind a switch that is off by default and refuses to run on staging. Tests: `supabase/tests/durable_jobs_test.sql`, plus lines in both staging wall scripts.
+
 ### Roles from the old dashboard
 
 The dashboard role `admin` becomes `builder` and `producer` becomes `employee`. `user-management` accepts `dashboard_role` in place of `role` when creating or updating a user, using `supabase/functions/_shared/dashboard-role-map.ts`. A dashboard `viewer` is refused: Verdanote has no read-only staff role, and adding one is Matthew's decision (see the role mapping research note in the consolidation project).

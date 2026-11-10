@@ -185,5 +185,12 @@ check("client B is refused the Goodo OS role mapping (check inside the function)
 const mapBuilder = await rpc("goodo_os_user_role_mapping", builder, {});
 check("builder reads the Goodo OS role mapping", mapBuilder.status === 200, show(mapBuilder));
 
+// Job queue: the service role can claim (a kind nothing uses, so nothing changes), and a
+// builder gets past the staff check in replay_job (refused only because no such job exists).
+const claim = await rpc("claim_jobs", service, { p_kinds: ["wall.probe"], p_owner: "wall-check", p_lease_seconds: 1, p_limit: 1 });
+check("service_role can claim jobs", claim.status === 200 && Array.isArray(claim.body) && claim.body.length === 0, show(claim));
+const replayBuilder = await rpc("replay_job", builder, { p_job_id: ZERO_UUID });
+check("builder passes the staff check in replay_job", replayBuilder.code === "55000", show(replayBuilder));
+
 console.log(failed ? `\n${failed} check(s) failed` : "\nAll database function grant checks passed");
 process.exit(failed ? 1 : 0);
