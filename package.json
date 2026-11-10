@@ -20,6 +20,7 @@
     "test:scripts": "node --test scripts/*.test.mjs",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:staging": "playwright test -c playwright.staging.config.ts",
     "check:e2e-env": "node scripts/require-e2e-env.mjs"
   },
   "dependencies": {

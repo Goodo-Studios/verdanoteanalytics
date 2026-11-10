@@ -21,7 +21,8 @@ Nothing in staging reaches real people or real outside accounts:
 - **Production URLs are rewritten.** Some migrations hard-code the production function URL inside database functions. The same script rewrites them to the staging project and fails the run if any reference to production is left.
 - **Outside accounts are not connected.** The staging project has no Meta, Slack, Resend (email), Apify, Deepgram, Anthropic or OpenRouter secrets. Server functions that need them fail or skip. Verdanote has no Coda code any more (Coda was retired on 2026-10-09; `coda_tasks` and the Coda functions were removed by migration 20261110000001). Attio has no Verdanote server function today. Fireflies has one, `fireflies-transcript` (staff, read-only); staging has no `FIREFLIES_API_KEY`, so it answers 503 there and makes no request. If a later change adds a key to staging, use a test workspace only, never a real one. ClickUp has two. `sync-clickup-tasks` only reads (GET). `push-brief-to-clickup` (staff) writes a brief into an empty asset task or a new one, from the "Push to ClickUp" and "Create brief in ClickUp" buttons. Staging has no `CLICKUP_API_TOKEN`, so `sync-clickup-tasks` answers 503 with the state `clickup.no_token` there (logged under that name, nothing read or written, the same name integration-health shows for the connector) and the `/pipeline` board stays empty unless rows are seeded by hand, and `push-brief-to-clickup` answers 503 and makes no request. Giving staging a real ClickUp token would copy real client task names into staging; that is a decision for Matthew.
 - **The site is behind a password.** `middleware.ts` asks for a shared password when the Vercel project has `STAGING_SITE=1`. If the password variable is missing it answers 503 instead of opening up. On production the file does nothing.
-- **Test accounts only.** Data is made up. The demo ad account `act_demo_glowdrip` comes from `scripts/seed-demo-account.mjs`. No production data is copied.
+- **Test logins only.** The four logins below are made up and exist only in staging. The demo ad account `act_demo_glowdrip` comes from `scripts/seed-demo-account.mjs`, and the `demo-` clients from `scripts/seed-staging-dashboard.mjs`.
+- **Staging holds real old-dashboard rows.** Before step 5a, rows were loaded from the old dashboard into staging, with no recorded run: 27 clients (the `demo-` ones included), 816 creators (796 email addresses), 253 creator assignments, 30 approval boards (their tokens still open live boards on the old dashboard), 80 applications, 20 shoots and 4 staff `app_users` rows, plus actor and applicant rows with emails, phone numbers and shipping addresses. They are staff only: client logins read none of them (pgTAP and both wall scripts check it). No Verdanote production data is copied into staging. Whether to keep these rows or remove them and keep only the `demo-` clients is open decision 10 in the plan; nothing has removed them.
 
 ## Test logins
 
@@ -46,7 +47,7 @@ The site password is `STAGING_GATE_PASSWORD` in the vault (user name `staging`).
 4. Check the piece on staging. Run the client wall check (below).
 5. Normal fixes keep going to `main`. Merge `main` into `staging` weekly so the two do not drift.
 
-`deploy-staging` reads only `STAGING_*` secrets. Before it does anything it stops if any of them is empty, if the project id equals the production id, or if the URL does not match the project id. Pushes to `main` still run `deploy-functions` against production exactly as before (server functions only, no migrations). The production E2E job does not run for `staging` pushes or for pull requests into `staging`.
+`deploy-staging` reads only `STAGING_*` secrets. Before it does anything it stops if any of them is empty, if the project id equals the production id, or if the URL does not match the project id. Pushes to `main` still run `deploy-functions` against production exactly as before (server functions only, no migrations). The production E2E job does not run for `staging` pushes or for pull requests into `staging`. A separate job, `e2e-staging`, runs browser tests against the deployed staging site after `deploy-staging` (see "Browser tests on staging").
 
 ## Client wall check
 
@@ -86,6 +87,24 @@ The browser check starts a local copy of the pages that talks to the staging pro
 
 Adding a function: add it to `supabase/function-access.json` with its class. Adding a staff page: add its path to `STAFF_PAGES` in `src/test/StaffArea.test.tsx` and to `STAFF_PATHS` in `e2e/staff-area.spec.ts`. Adding a staff table: enable row rules and write a policy that names `builder` or `employee` in the same migration. The three database tests then cover it with no edit.
 
+## Browser tests on staging
+
+`e2e-staging/` holds Playwright tests that run against the deployed staging site (`https://staging.verdanote.com`), not a local copy. They run after the staging deploy, never before it, in the CI job `e2e-staging` (`needs: [deploy-staging]`, staging pushes only), and by hand with `npm run test:e2e:staging`. They are separate from `e2e/`, which the production E2E job runs against a local build.
+
+| Spec | What it checks |
+|---|---|
+| `staff-menu.spec.ts` | As the builder: the seven menu items are there; every section opens, lists all its tabs; every tab (read from `src/lib/sections.ts`, so a new tab is covered without an edit) shows a page heading and logs no console error |
+| `staff-tools.spec.ts` | The client switcher changes the client and keeps it on the next page; Ctrl+K opens the search, finds a page and opens it; Escape closes it |
+| `client-view.spec.ts` | As client A: exactly the five client items, no switcher or search; every staff route (the clients list, a client hub, Work, the first tab of each section, Admin pages) lands on the client home; the pipeline page shows a cycle group (with "N of M delivered") or the empty state |
+
+Rules the tests follow: no fixed waits (they wait for a heading, a URL or a control), one worker, one retry in CI. Console errors count unless they are on the short allow-list at the top of `e2e-staging/support.ts` or `KNOWN_ON_TAB` in `staff-menu.spec.ts`, each with its reason. Two are listed today, both found by these tests: the CSP in `vercel.json` blocks the Google Fonts stylesheet that `index.html` loads (every page), and blocks a `data:` image fetch on Creative > Creatives. The browser's own "Failed to load resource ... 4xx/5xx" lines are ignored, because staging has no ClickUp, Slack, Fireflies or Resend keys on purpose and a few functions answer 503 there.
+
+The tests refuse to run against production (`playwright.staging.config.ts` throws if the address is `verdanote.com`, `www.verdanote.com` or a `verdanoteanalytics` host).
+
+Sign-in uses the fixed staging logins in the table above and one shared password. To run by hand: `hq secrets exec --company goodo-studios --only STAGING_TEST_PASSWORD,STAGING_GATE_PASSWORD -- npm run test:e2e:staging`. Without `STAGING_TEST_PASSWORD` every test skips with a message that names it.
+
+In CI the job reads two repository secrets that someone with access to the repository settings has to add: `STAGING_TEST_PASSWORD` and `STAGING_GATE_PASSWORD` (same values as the vault secrets of the same names). Until both exist the job passes with a warning, "Staging browser tests skipped", that names what is missing, and runs nothing. The staging pages are shipped by hand, so the job tests whatever pages are live when it runs; ship the pages first when the branch has page changes.
+
 ### Growth Dashboard numbers (builder only)
 
 The Growth Dashboard page (`/builder/growth-dashboard`) stores its numbers in `growth_dashboard_data`: the row `state` holds what the old app kept in the browser's localStorage under the key `goodo3m_v1`, the row `plan` holds the plan figures that the old app had written into its code. Only builders can read or write the table (`supabase/tests/growth_dashboard_wall_test.sql`). Nothing real is seeded. To move the numbers once, open goodo-growth-dashboard.vercel.app in the browser that holds them, open the developer console and run `copy(localStorage.getItem('goodo3m_v1'))`, then paste the result on the page's Import tab. Enter the plan figures on the Plan tab.
@@ -118,17 +137,156 @@ The mapping is data since migration 20261111040001: `staff_role_mappings` holds 
 
 ## Releasing staging to production
 
-This step is one-way for the database. Get Matthew's sign-off first.
+This is one-way for the database. Get Matthew's sign-off first, and do not start while any decision in "Owner decisions still open" below blocks a step you are about to run. Production is project `gwyxaqoaldnaavkjqquv`, site www.verdanote.com. At the time of writing `staging` is 71 commits and 42 migrations ahead of `main`, and `main` is not ahead of `staging`.
 
-1. Take a fresh backup of the production database.
-2. Rehearse: copy production into a scratch project, apply every staging migration to it, confirm nothing fails.
-3. Merge `staging` into `main`. CI ships the server functions to production. CI does not apply database changes to production (the `ciWorkflow` test enforces this until the production migration history is reconciled), so apply them by hand with `supabase db push` against `gwyxaqoaldnaavkjqquv` once the rehearsal passed. The staging lockdown script never runs against production.
-4. Ship the pages by hand: `vercel --prod` from `repos/private/verdanoteanalytics`, then confirm the live bundle changed.
-5. Run the client wall check and the main page checks against production.
-6. Ad code counter, in one step with no gap: copy the old dashboard database's counter into production `ad_name_counter` at its latest value (raise only, never lower: `scripts/dashboard-copy.mjs` does this with `greatest`, see `docs/dashboard-copy.md`), and at the same moment switch off the old Ad Name Generator (goodo-ad-name-generator) and the Goodo OS ad naming page. If either keeps issuing codes after the copy, two ads can get the same code. Until the release, staging's counter is a test copy and the old screens stay on.
-7. Staff list: run `staff_reconciliation()` on production and settle every row with the owner. Prepared invites in `staff_invites` are a list, not sent mail: send them by hand only after the owner has decided the role mapping (decision 2) and the staff list (decision 3).
+Each step has a rollback note. A database change does not roll back cleanly, so the rollback for most database steps is "fix forward with a new migration, or restore the step 1 backup". The pages roll back in Vercel within minutes.
 
-If the pages break, roll back in Vercel within minutes. Database changes do not roll back cleanly, which is why steps 1 and 2 exist.
+### Step 0. Release the client-data fix first, on its own (recommended)
+
+Migration `20261111060001_ad_accounts_client_column_wall.sql` closes a client-data hole: a client login could run `select * from ad_accounts` with its own token and read every column of its linked accounts (AI prompts, kill and scale thresholds, attribution notes, targets and the TikTok access token). It does not depend on the rest of staging, so do not wait for the full release.
+
+1. Put the fix on `main` by itself: cherry-pick the commit `f9e775c` (PR #192) onto a branch cut from `main` and open a PR into `main`. It carries the `accounts` function change (`_shared/client-account-fields.ts`, `accounts/index.ts`), `function-access.json`, the migration, its pgTAP test and the two wall script lines.
+2. Merge it. CI ships the `accounts` function to production. Confirm the deploy run concluded `success` before step 3.
+3. Only then apply the migration by hand: `supabase db push` against `gwyxaqoaldnaavkjqquv` with only this migration pending (or run the file). The order matters: the migration drops the client row rule, and the previous `accounts` function may read through the caller's own session, so a client could see an empty account list if the rule went first. The new function checks the `user_accounts` link and returns only the allow-listed columns.
+4. Check on production: sign in as a client, open Overview and Creatives (accounts still list), and run the client wall check (step 12) with a production client test login.
+
+Rollback: re-create the dropped policy `"Client can view linked accounts"` on `public.ad_accounts` (its definition is in the git history of the migration that created it), then redeploy the previous `accounts` function. Do this only if client pages break; the hole it re-opens is the reason for the fix.
+
+If step 0 was done, skip `20261111060001` in step 4 below (it is already applied).
+
+### Step 1. Backup
+
+Take a fresh backup of the production database and note its time. Confirm a restore point exists in the Supabase dashboard.
+
+Rollback: this is the rollback for every database step below.
+
+### Step 2. Rehearse
+
+Copy production into a scratch Supabase project, apply every staging migration to it in filename order, and confirm none fails. Run the pgTAP suite against it (`supabase test db`). Run the data copy (step 7) against the scratch project if the script has a scratch target.
+
+Rollback: delete the scratch project. Nothing touches production.
+
+### Step 3. Merge staging into main (functions ship)
+
+Merge `staging` into `main`. CI runs `deploy-functions`, which ships every server function to production and smoke-tests them. CI does not apply database changes and does not delete functions. Confirm with `gh run view <id> --json conclusion` that the run on the merge commit is `success`.
+
+Rollback: revert the merge on `main`; CI redeploys the previous versions of the functions that existed before. A function that is new in this release stays deployed after a revert: delete it by hand (`supabase functions delete <name> --project-ref gwyxaqoaldnaavkjqquv`).
+
+### Step 4. Apply the migrations in order
+
+Apply every migration newer than production's last, in filename order, with `supabase db push` against `gwyxaqoaldnaavkjqquv` after the rehearsal passed. Run `supabase migration list --linked` first: the production ledger has entries with no file, so read the pending list and stop on the first error instead of using flags that skip history. The `ciWorkflow` test keeps CI from pushing migrations to production until that ledger is reconciled.
+
+Migrations that need a decision or a check on the way:
+
+- `20261111060001_ad_accounts_client_column_wall.sql`: the client-data fix. Already applied if step 0 was done.
+- `20261111040001_staff_team_reconciliation.sql`: the role mapping as data. `viewer` stays flagged and unapplied until the owner decides (decision 2).
+- `20261112000003_scheduled_checks.sql`: creates the two production-only cron jobs (step 13).
+- `20261113000001_pipeline_cycles.sql`: `pipeline_tasks.cycle_month` and `delivered_at`, and the `pipeline_delivered` table. Safe to apply before the ClickUp token is set; the board stays as it was until the sync runs.
+- The migration that removes `coda_tasks` and the `sync-coda-names-daily` cron job (`20261110000001`): see step 14.
+
+Rollback: no clean rollback. Fix forward with a new migration. If data was damaged, restore the step 1 backup (this also loses writes made since).
+
+### Step 5. Confirm the functions
+
+Compare `supabase functions list --project-ref gwyxaqoaldnaavkjqquv` with the folders in `supabase/functions`. Run `scripts/smoke-test.sh` against production (CI did this at step 3). Functions that need a secret answer 503 until step 6 sets it; that is expected.
+
+Rollback: as step 3.
+
+### Step 6. Set the secrets
+
+Set each from the vault, never typed into a chat or a file. Names only here. After each `supabase secrets set`, force a redeploy of the functions that read it (`supabase functions deploy <name>`): running containers do not pick up a new secret on their own.
+
+| Secret | Read by | What breaks quietly without it |
+|---|---|---|
+| `CLICKUP_API_TOKEN` | `sync-clickup-tasks`, `push-brief-to-clickup`, `clickup-folders` | The sync answers 503 `clickup.no_token` and Integration health shows it, but a client keeps the last good board with an "Updated ... ago" line, so a client sees a board that is going stale without being told. The ClickUp folder picker and the Push to ClickUp buttons fail (a pasted folder id still works). |
+| `FIREFLIES_API_KEY` | `fireflies-transcript`, `meeting-recaps` | Meeting recaps cannot pull transcripts (503). No recap appears and nothing else says why. |
+| `ANTHROPIC_API_KEY` | `client-insights`, `meeting-recaps`, `reports`, `vault-analyze`, `agent-evaluations` | `client-insights` answers an empty list with `reason: "ai_key_missing"`, so the client page shows no insights and no error. The other functions fail their AI step. |
+| `SLACK_BOT_TOKEN` | `run-slack-jobs`, `integration-health` | `run-slack-jobs` answers 503 and the queue grows; no Slack message goes out. Sending also needs the `slack_sends` switch on and a confirmed channel. |
+| Resend, for `send-digest`: `RESEND_API_KEY` | `send-digest` | The weekly digest is generated, returned as HTML, marked as sent, and never emailed. |
+| Auth email setup (Supabase Auth, no new secret) | `invite-user` | Invites fail with "The invite email could not be sent" and leave no login. Also needed for password reset mail. Set the project's email sending (SMTP or the built-in provider) and send one test invite to yourself. |
+| Storage signing, as database vault secrets `storage_signing_project_url` and `storage_signing_service_role_key` | `approve_application`, `approve_actor_application`, `delete location` photo removal | Approving an application that has files fails with the storage error and changes nothing; deleting a location leaves its photos in storage. |
+
+Also read by some functions and worth checking at the same time: `SLACK_WEBHOOK_URL` (health check and report alerts: without it a failing health check posts nothing) and `META_ACCESS_TOKEN` (the ad sync).
+
+Rollback: `supabase secrets unset <name>` and redeploy the functions that read it. The functions fall back to the missing-key behavior in the table.
+
+### Step 7. Copy the old dashboard data
+
+Run `node scripts/dashboard-copy.mjs` as a dry run first, then the copy, and compare row counts with the old app. Run it again as the final copy after the HQ writers are paused (step 10). Details: `docs/dashboard-copy.md`.
+
+Known gap: the script's write target is hard wired to the staging project and refuses production, so it cannot do this step as it stands. A reviewed change that adds a production target (with its own confirmation flag, a dry run and a test that staging stays refused for production writes) has to land before the release. It also needs decision 10 and the read confirmation of the old dashboard database (`qlvdvpchriyrsjtewwxx`).
+
+Rollback: the load is safe to repeat (`on conflict do nothing`). To undo, empty the copied tables (only those the script created; never `clients`, which other tables point at) or restore the step 1 backup.
+
+### Step 8. Copy the storage files
+
+Run `node scripts/dashboard-storage-copy.mjs` after the row copy, headshots and photos first, then videos, then the four application buckets. Check object counts and bytes per bucket and open 10 creators and 10 actors with media. Anything submitted through the public forms after the copy needs another run. Plan and credential choice (a read-only viewer login is recommended): `docs/dashboard-storage-copy-plan.md`. The two storage vault secrets from step 6 must be set first.
+
+Known gap: like the row copy, the script targets staging only today, so it needs the same production-target change.
+
+Rollback: delete the copied objects (the script report lists them). The old project is only read.
+
+### Step 9. Ad code counter, in one step with no gap
+
+Copy the old dashboard database's counter into production `ad_name_counter` at its latest value (raise only, never lower: `scripts/dashboard-copy.mjs` does this with `greatest`, see `docs/dashboard-copy.md`), and at the same moment switch off the old Ad Name Generator (goodo-ad-name-generator) and the Goodo OS ad naming page. If either keeps issuing codes after the copy, two ads can get the same code. Until the release, staging's counter is a test copy and the old screens stay on.
+
+Rollback: switch the old generator back on only after setting its counter above Verdanote's current value; never let two generators issue codes at once.
+
+### Step 10. Re-point the HQ processes that write client progress
+
+Five HQ worker processes write into the old dashboard database today. Pause them, run the final copy (step 7), point each at Verdanote, resume, and confirm a write from each lands in Verdanote and not in the old database. `clients.origin = 'coda'` is the legacy name for the clients these processes sync; those clients stay read only on the client page because of it.
+
+Rollback: point each process back at the old database. Rows written to Verdanote in between are copied back by hand, so keep a note of when each process was switched.
+
+### Step 11. Ship the pages
+
+From `repos/private/verdanoteanalytics`: `vercel --prod --yes`. Then verify the live bundle changed (the served JS chunk or the asset hash differs from before). Do not report the pages live off the merge alone: CI ships functions, not pages.
+
+Rollback: promote the previous deployment in Vercel (instant rollback).
+
+### Step 12. Check production
+
+Run the client wall check and the main page checks against production with a production client test login and a staff login. The browser tests in `e2e-staging/` refuse production by design; check the same list by hand (every menu item and tab, the switcher, Ctrl+K, a client login sees five items and is sent away from staff routes, the client pipeline page). Run `staff_reconciliation()` (step 15).
+
+Rollback: if the wall check fails, roll the pages back first, then investigate. A wall failure is a stop.
+
+### Step 13. Cron jobs (production only)
+
+Two scheduled jobs exist only in production because they need `pg_cron`, `pg_net` and the vault service role key. Migration `20261112000003` creates them: `check-operating-budgets-daily` (13:15 UTC daily) and `check-integration-alerts-30m` (every 30 minutes). Confirm with `select jobname, schedule, active from cron.job order by jobname;` and that the first run shows in the "last run" line on Operating costs and Integration health (`check_runs`). `run-slack-jobs` (every 5 minutes) is also created by an earlier migration and does nothing until the `slack_sends` switch is on. The staging lockdown script never runs against production.
+
+Rollback: `select cron.unschedule('<jobname>');`.
+
+### Step 14. Delete the three Coda functions and the Coda secret
+
+Verdanote has no Coda code any more. The plan's last record (build log for PR 152, 2026-11-09) says `sync-coda-tasks`, `sync-coda-names` and `create-coda-brief` are still deployed in production and staging, that CI does not delete functions, that migration `20261110000001` removes `coda_tasks` and unschedules `sync-coda-names-daily` on production when applied, and that removing `CODA_API_KEY` is Matthew's call. The plan does not record that any of this ran on production. Check the current state read only first (`supabase functions list`, `supabase secrets list`, `select jobname from cron.job where jobname ilike '%coda%'`), then delete the three functions with `supabase functions delete` and, with Matthew's word, unset the Coda secret. Do not write to Coda for any reason.
+
+Rollback: a deleted function comes back by redeploying it from the git history before PR 150. The secret value comes back from the vault copy if one exists.
+
+### Step 15. Staff list
+
+Run `staff_reconciliation()` on production and settle every row with the owner. Prepared invites in `staff_invites` are a list, not sent mail: send them by hand only after the owner has decided the role mapping (decision 2) and the staff list (decision 3). Staff who are not on the dashboard team list see every owner's follow-ups until they are added on `/team`.
+
+Rollback: invites can be revoked on `/team` (removes a login that never accepted).
+
+### Step 16. Redirects from the old dashboard
+
+Turn the redirects on only after step 12 passes. The old apps stay up, read-only, for a while in case anything was missed. Public links (approval boards, casting, location boards, call sheets, application forms) stay on the old address unless decision 4 moves them with permanent redirects; if they move, the old links must keep redirecting forever. The Goodo OS site redirects page by page once each page is checked; after the release its server on Railway and its database are retired.
+
+Rollback: remove the redirect rule. The old pages are still there.
+
+### Owner decisions still open
+
+From the plan's "Decisions for you". Decision 1 (port everything) is decided. The rest are open as of the plan's last update:
+
+- 2. Roles: producers and viewers become employee, or get new roles. A builder records it on `/team`.
+- 3. Staff list: who gets builder or employee (15 people). Needed before invites go out.
+- 4. Public links stay on the old address (recommended) or move with permanent redirects. Decides whether step 16 and the public forms need work.
+- 5. Growth Dashboard audience (you, or leadership).
+- 6, 7, 8. Creative Vault, Content Leaderboard and Keep-in-Touch CRM: fold in, link, or drop.
+- 9. Retire old pages as each new page is checked, or leave both up for a set time.
+- 10. Real client data in staging: keep the real rows already there, or remove them and keep only `demo-` clients. Blocks the production-target change for the copy scripts and the real BIDs.
+- 11. One release (the stated direction) or batches. Step 0 is the first batch if you choose batches, and is recommended either way.
+- Also open: whether `CODA_API_KEY` is removed (step 14), whether `.env` should leave git (it is tracked and uploaded with every `vercel deploy`), and the read confirmation of the old dashboard database.
 
 ## One-time setup (already done)
 
