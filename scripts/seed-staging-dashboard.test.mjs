@@ -164,3 +164,13 @@ test('demo locations: made up, host contacts at example.test, one live link on a
   const pairs = seed.location_board_items.map((i) => `${i.board_id}|${i.location_id}`);
   assert.equal(new Set(pairs).size, pairs.length, 'a location is on a link once');
 });
+
+test('demo props: valid outcomes, demo client names, no negative prices', () => {
+  const names = new Set(seed.clients.map((c) => c.name));
+  for (const p of seed.props) {
+    assert.ok(p.return_status === null || ['Returned', 'Thrown away', 'Kept'].includes(p.return_status), p.id);
+    assert.ok(p.client === null || names.has(p.client), p.client);
+    assert.ok(p.price === null || p.price >= 0);
+    assert.match(p.name, /^Demo /);
+  }
+});
