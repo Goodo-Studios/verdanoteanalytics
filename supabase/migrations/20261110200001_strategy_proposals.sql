@@ -71,7 +71,7 @@ create table public.strategy_proposal_versions (
 
 create table public.strategy_proposal_reviews (
   id uuid primary key default gen_random_uuid(),
-  proposal_id uuid not null,
+  proposal_id uuid not null references public.strategy_proposals(id) on delete restrict,
   version integer not null,
   decision text not null check (decision in ('reviewed', 'changes_requested')),
   note text not null check (length(btrim(note)) between 1 and 4000),
@@ -83,7 +83,7 @@ create index strategy_proposal_reviews_version_idx on public.strategy_proposal_r
 
 create table public.strategy_proposal_acceptances (
   id uuid primary key default gen_random_uuid(),
-  proposal_id uuid not null,
+  proposal_id uuid not null references public.strategy_proposals(id) on delete restrict,
   version integer not null,
   accepted_by uuid not null,
   created_at timestamptz not null default now(),
@@ -93,7 +93,7 @@ create table public.strategy_proposal_acceptances (
 
 create table public.strategy_proposal_publications (
   id uuid primary key default gen_random_uuid(),
-  proposal_id uuid not null,
+  proposal_id uuid not null references public.strategy_proposals(id) on delete restrict,
   version integer not null,
   engagement_id uuid not null,
   published_by uuid not null,
