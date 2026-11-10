@@ -470,6 +470,35 @@ check("employee passes the staff check in published_strategy_for_engagement", !s
 const spAccept = await employee.c.rpc("accept_strategy_proposal", { p_proposal_id: ZERO, p_version: 1 });
 check("employee passes the staff check in accept_strategy_proposal", spAccept.error?.code === "P0002", `code=${spAccept.error?.code ?? "none"}`);
 
+// Recommendations (migration 20261110200003, step 4c): staff only. Clients read none of the
+// six tables, cannot write them and are refused every checked function, the ad list included.
+const recTables = ["recommendations", "recommendation_decisions", "recommendation_execution_links", "recommendation_outcomes", "recommendation_outcome_evidence", "recommendation_learnings"];
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of recTables) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const ins = await s.c.from("recommendation_learnings").insert({ recommendation_id: ZERO, recommendation_version: 2, outcome_id: ZERO, conclusion: "supported", learning: "wall", reviewed_by: s.userId });
+  check(`${label} cannot write recommendation_learnings`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  for (const [fn, args] of [
+    ["propose_recommendation", { p_engagement_id: ZERO, p_category: "creative", p_title: "wall", p_proposal: "wall" }],
+    ["decide_recommendation", { p_recommendation_id: ZERO, p_expected_version: 1, p_decision: "rejected", p_reason: "wall", p_hypothesis: null, p_final_action: null, p_evidence: [] }],
+    ["link_recommendation_execution", { p_recommendation_id: ZERO, p_expected_version: 1, p_ad_ids: ["wall"], p_pipeline_task_id: null, p_accountable_owner_id: ZERO, p_review_window_start: "2026-01-01", p_review_window_end: "2026-01-02" }],
+    ["record_recommendation_outcome", { p_recommendation_id: ZERO, p_expected_version: 1 }],
+    ["review_recommendation_learning", { p_recommendation_id: ZERO, p_expected_version: 1, p_outcome_id: ZERO, p_conclusion: "supported", p_learning: "wall" }],
+    ["recommendation_ad_options", { p_client_slug: "demo-glowdrip" }],
+  ]) {
+    const r = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, r.error?.code === "42501", `code=${r.error?.code ?? "none"}`);
+  }
+}
+for (const table of recTables) {
+  const r = await employee.c.from(table).select("*").limit(1);
+  check(`employee can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
+}
+const recOutcome = await employee.c.rpc("record_recommendation_outcome", { p_recommendation_id: ZERO, p_expected_version: 1 });
+check("employee passes the staff check in record_recommendation_outcome", recOutcome.error?.code === "P0002", `code=${recOutcome.error?.code ?? "none"}`);
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

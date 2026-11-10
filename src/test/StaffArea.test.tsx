@@ -59,6 +59,7 @@ vi.mock("@/features/engagements/EngagementsPage", () => pageMock("engagements"))
 vi.mock("@/features/deliverables/DeliverablesPage", () => pageMock("deliverables"));
 vi.mock("@/features/qa-gates/QaGatesPage", () => pageMock("qa-gates"));
 vi.mock("@/features/handoffs/HandoffsPage", () => pageMock("handoffs"));
+vi.mock("@/features/recommendations/RecommendationsPage", () => pageMock("recommendations"));
 vi.mock("@/features/strategy/StrategyPage", () => pageMock("strategy"));
 vi.mock("@/features/vault/LibraryPage", () => pageMock("ad-library"));
 vi.mock("@/features/vault/ItemDetailPage", () => pageMock("vault-item"));
@@ -145,6 +146,7 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean }
   { path: "/deliverables", marker: "deliverables" },
   { path: "/qa-gates", marker: "qa-gates" },
   { path: "/handoffs", marker: "handoffs" },
+  { path: "/recommendations", marker: "recommendations" },
   { path: "/strategy", marker: "strategy" },
   { path: "/ad-library", marker: "ad-library" },
   { path: "/ad-library/boards", marker: "boards" },
