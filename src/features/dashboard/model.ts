@@ -327,6 +327,7 @@ export interface Assignment {
   next_follow_up_source: string | null;
   tracking_number: string | null;
   product_delivered_at: string | null;
+  delivery_notes: string | null;
   brief_name: string | null;
   notes: string | null;
   dashboard_creators: { name: string; scale: number | null; do_not_use_again: boolean } | null;

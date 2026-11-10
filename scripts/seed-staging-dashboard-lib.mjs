@@ -31,6 +31,7 @@ export const SEED_MARKERS = {
   actor_applications: { sql: "email like '%@example.test'", match: (r) => r.email.endsWith('@example.test') },
   approval_boards: { sql: "client_slug like 'demo-%'", match: (r) => r.client_slug.startsWith('demo-') },
   approval_votes: { sql: "board_id::text like 'de5a0000-%'", match: (r) => r.board_id.startsWith('de5a0000-') },
+  studio_shipments: { sql: "client_slug like 'demo-%'", match: (r) => r.client_slug.startsWith('demo-') },
   crew_members: { sql: "email like '%@example.test'", match: (r) => r.email.endsWith('@example.test') },
   props: { sql: "id::text like 'de5a0000-%'", match: (r) => r.id.startsWith('de5a0000-') },
   locations: { sql: "id::text like 'de5a0000-%'", match: (r) => r.id.startsWith('de5a0000-') },
@@ -54,6 +55,7 @@ export const SEED_ORDER = [
   ['actor_applications', 'id'],
   ['approval_boards', 'id'],
   ['approval_votes', 'id'],
+  ['studio_shipments', 'id'],
   ['crew_members', 'id'],
   ['props', 'id'],
   ['locations', 'id'],
@@ -262,5 +264,17 @@ export function buildDashboardSeed(now = new Date()) {
     id: id(960 + i), name, role, rate_notes, phone: `555-01${30 + i}`, email: `${name.split(' ')[1].toLowerCase()}.crew@example.test`, notes: null, active,
   }));
 
-  return { clients, app_users, client_ad_accounts, engagements, deliverables, dashboard_creators, creator_assignments, pipeline_tasks, actors, actor_assignments, creator_applications, actor_applications, approval_boards, approval_votes, crew_members, props, locations, location_boards, location_board_items };
+  // Step 5c: made-up studio shipments for the demo production clients. One is late
+  // against its expected date, one is tied to the booked demo casting, one arrived.
+  // Tracking numbers are invented; nothing calls a carrier.
+  const studio_shipments = [
+    { id: id(970), client_slug: 'demo-harbor', actor_assignment_id: id(600), description: 'Demo: six candles and two throws', carrier: 'UPS', tracking_number: 'DEMO-UPS-0001',
+      shipped_at: day(-4), expected_delivery_at: day(-1), delivered_at: null, delivery_notes: null },
+    { id: id(971), client_slug: 'demo-harbor', actor_assignment_id: null, description: 'Demo: replacement lamp shade', carrier: 'USPS', tracking_number: 'DEMO-USPS-0002',
+      shipped_at: day(-1), expected_delivery_at: day(3), delivered_at: null, delivery_notes: null },
+    { id: id(972), client_slug: 'demo-pinecrest', actor_assignment_id: null, description: 'Demo: dog treats and toys', carrier: null, tracking_number: null,
+      shipped_at: day(-10), expected_delivery_at: day(-6), delivered_at: day(-6), delivery_notes: 'Arrived fine (made up)' },
+  ];
+
+  return { clients, app_users, client_ad_accounts, engagements, deliverables, dashboard_creators, creator_assignments, pipeline_tasks, actors, actor_assignments, creator_applications, actor_applications, approval_boards, approval_votes, studio_shipments, crew_members, props, locations, location_boards, location_board_items };
 }

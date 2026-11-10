@@ -58,7 +58,7 @@ function DeliveryFields({ a, onSaved, onError }: { a: Assignment; onSaved: () =>
   const [delivered, setDelivered] = useState(a.product_delivered_at ?? "");
   const save = async () => {
     try {
-      await saveDelivery(a.id, tracking.trim() || null, delivered || null);
+      await saveDelivery(a.id, tracking.trim() || null, delivered || null, a.delivery_notes);
       onSaved();
     } catch (e) {
       onError(messageOf(e, "Tracking could not be saved."));

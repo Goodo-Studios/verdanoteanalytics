@@ -99,6 +99,8 @@ const LocationsPage = lazy(routeImports.locations);
 const PropsPage = lazy(routeImports.props);
 // Crew (consolidation step 5c, old dashboard Production): builder and employee.
 const CrewPage = lazy(routeImports.crew);
+// Shipments (consolidation step 5c, old dashboard Production): builder and employee.
+const ShipmentsPage = lazy(routeImports.shipments);
 // Applications (consolidation step 5b, old dashboard): builder and employee.
 const ApplicationsPage = lazy(routeImports.applications);
 const ApplicationDetailPage = lazy(routeImports.applicationDetail);
@@ -254,6 +256,7 @@ export function RoleGuardedRoutes() {
           <Route path="/locations" element={staffPage ? <LocationsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/props" element={staffPage ? <PropsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/crew" element={staffPage ? <CrewPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/shipments" element={staffPage ? <ShipmentsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/applications/:kind/:id" element={staffPage ? <ApplicationDetailPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/applications" element={staffPage ? <ApplicationsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/actors/:id" element={staffPage ? <ActorDetailPage /> : <Navigate to={`${prefix}/`} replace />} />

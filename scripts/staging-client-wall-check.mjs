@@ -505,6 +505,45 @@ for (const [fn, args] of [
   check(`employee passes the staff check in ${fn}`, res.error?.code === "P0002", `code=${res.error?.code ?? "none"}`);
 }
 
+// Old dashboard batch 3, Shipments (step 5c): studio shipments say what is in a client's
+// boxes and where product is. Clients read none, cannot write them and are refused the five
+// checked studio shipment functions and set_creator_assignment_delivery. The employee runs
+// the page queries and passes the staff check with an id that matches nothing.
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  const r = await s.c.from("studio_shipments").select("*").limit(1000);
+  check(`${label} reads no studio_shipments rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  const ins = await s.c.from("studio_shipments").insert({ client_slug: "demo-harbor", description: "wall check" });
+  check(`${label} cannot write studio_shipments`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  for (const [fn, args] of [
+    ["create_studio_shipment", { p_client_slug: "demo-harbor", p_description: "wall check" }],
+    ["update_studio_shipment", { p_id: ZERO, p_client_slug: "demo-harbor", p_description: "wall check" }],
+    ["set_studio_shipment_delivered", { p_id: ZERO, p_delivered_at: null }],
+    ["set_studio_shipment_notes", { p_id: ZERO, p_delivery_notes: null }],
+    ["delete_studio_shipment", { p_id: ZERO }],
+    ["set_creator_assignment_delivery", { p_assignment_id: ZERO }],
+  ]) {
+    const res = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, res.error?.code === "42501", `code=${res.error?.code ?? "none"}`);
+  }
+}
+for (const [table, select, extra] of [
+  ["studio_shipments", "id, client_slug, actor_assignment_id, description, carrier, tracking_number, shipped_at, expected_delivery_at, delivered_at, delivery_notes, actor_assignments(scheduled_shoot_date, actors(name))", null],
+  ["creator_assignments", "id, creator_id, client_slug, stage, tracking_number, product_delivered_at, delivery_notes, next_follow_up_at, next_follow_up_source, dashboard_creators(name)", "tracking_number.not.is.null,product_delivered_at.not.is.null,delivery_notes.not.is.null"],
+]) {
+  let q = employee.c.from(table).select(select).limit(5);
+  if (extra) q = q.or(extra);
+  const r = await q;
+  check(`employee loads the shipments page query on ${table}`, !r.error, `error=${r.error?.code ?? ""} ${r.error?.message ?? "none"}`);
+}
+for (const [fn, args] of [
+  ["set_studio_shipment_delivered", { p_id: ZERO, p_delivered_at: null }],
+  ["delete_studio_shipment", { p_id: ZERO }],
+  ["set_creator_assignment_delivery", { p_assignment_id: ZERO }],
+]) {
+  const res = await employee.c.rpc(fn, args);
+  check(`employee passes the staff check in ${fn}`, res.error?.code === "P0002", `code=${res.error?.code ?? "none"}`);
+}
+
 // QA gates (migration 20261110120003, step 4b): staff only. Clients read none of the three
 // tables, cannot write them and are refused every checked function, the gate read included.
 const qaTables = ["engagement_deliverable_confirmations", "engagement_deliverable_qa_returns", "engagement_deliverable_signoffs"];

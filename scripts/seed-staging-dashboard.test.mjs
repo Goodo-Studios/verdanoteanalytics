@@ -184,3 +184,13 @@ test('demo crew: example.test emails, 555-01xx phones, one archived', () => {
   assert.equal(seed.crew_members.filter((c) => !c.active).length, 1);
   assert.equal(new Set(seed.crew_members.map((c) => c.email)).size, seed.crew_members.length);
 });
+
+test('demo studio shipments: demo clients only, a linked casting of the same client, invented tracking', () => {
+  const castings = new Map(seed.actor_assignments.map((a) => [a.id, a]));
+  for (const s of seed.studio_shipments) {
+    assert.match(s.client_slug, /^demo-/);
+    assert.ok(s.description.trim().length <= 300);
+    assert.ok(s.tracking_number === null || s.tracking_number.startsWith('DEMO-'));
+    if (s.actor_assignment_id) assert.equal(castings.get(s.actor_assignment_id)?.client_slug, s.client_slug);
+  }
+});
