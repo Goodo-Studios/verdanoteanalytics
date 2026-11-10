@@ -224,6 +224,22 @@ Checked functions (`staff_area` allow-list, role tested in the body): `deliverab
 
 Not ported: ClickUp release contradictions and their resolutions, Air health observation generations, the QA inbox's editor binding and handoff queue (they write to ClickUp and Slack), command receipts. Tests in `supabase/tests/qa_gates_test.sql` and `src/test/qaGatesPage.test.tsx`.
 
+### Handoffs
+
+Page `/handoffs` (builder and employee) and migration `20261110120004_handoffs.sql`, no edge function. Port of the Goodo OS handoff packets (`HandoffPacket.tsx`, `backend/services/handoffs.ts`, migration `037_handoffs.sql`).
+
+| Table | Purpose |
+|---|---|
+| `handoff_packets` | one handoff: engagement, receiving role (strategist, editor, QA reviewer, delivery owner), receiver, accountable owner, due date, status (ready, acknowledged, returned) and current revision |
+| `handoff_packet_versions` | every revision: brief, angle, goal, required inputs, a snapshot of the engagement's deliverables (title, revision, stage, review and final links) and a sha256 fingerprint. Immutable |
+| `handoff_acknowledgements` | the receiver acknowledging or returning (with a reason) one exact revision. Immutable |
+
+Staff read all three; clients read none. Checked functions (`staff_area` allow-list, role tested in the body): `handoff_staff_options` (the builder and employee logins for the pickers), `create_handoff_packet`, `acknowledge_handoff` (only the receiver, on the revision on screen, while it waits; a return needs a reason), `reassign_handoff` (the accountable owner, the creator or a builder; a new revision with the same brief and a fresh deliverable snapshot, waiting for the new receiver) and `handoff_source_status` (`current` when the snapshot still matches the engagement, `stale` when a deliverable moved on, `blocked` when the deliverables no longer fit the role). Source rules from Goodo OS: a QA reviewer packet needs every deliverable in internal QA and a delivery owner packet needs every deliverable final. The receiver and owner must be builder or employee logins. Acknowledging does not complete a ClickUp task.
+
+Differences from Goodo OS: the brief, angle, goal and required inputs are typed by the strategist, because Goodo OS copied them from the published strategy proposal (wave 4c, not built). Per-role capability grants are replaced by "any builder or employee". A strategist or editor packet may be written before any deliverable has a revision (Goodo OS refused a packet with no deliverables).
+
+Not ported: the bounded handoff automation (`038_bounded_handoffs.sql`: rules that queue a ClickUp task action and a Slack reminder when a handoff completes; both send outward), command receipts. Tests in `supabase/tests/handoffs_test.sql` and `src/test/handoffsPage.test.tsx`.
+
 ## Alternatives rejected
 
 **A new `os_clients` table with a uuid id, and the dashboard `clients` folded into it.** Gives a cleaner id, but the eight dashboard tables and the dashboard staff functions (`create_client`, `set_client_*`, `create_shoot` and others) already key on `clients.slug`, so it means either two client ids side by side or rewriting all of them. Not the smallest change.

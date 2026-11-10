@@ -322,6 +322,37 @@ for (const table of qaTables) {
 const qGate = await employee.c.rpc("deliverable_release_status", { p_deliverable_id: ZERO });
 check("employee passes the staff check in deliverable_release_status", qGate.error?.code === "P0002", `code=${qGate.error?.code ?? "none"}`);
 
+// Handoffs (migration 20261110120004, step 4b): staff only. Clients read none of the three
+// tables, cannot write them and are refused every checked function, the staff list included.
+const handoffTables = ["handoff_packets", "handoff_packet_versions", "handoff_acknowledgements"];
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of handoffTables) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const ins = await s.c.from("handoff_acknowledgements").insert({ packet_id: ZERO, revision: 1, action: "acknowledged", actor_id: s.userId });
+  check(`${label} cannot write handoff_acknowledgements`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  for (const [fn, args] of [
+    ["handoff_staff_options", {}],
+    ["create_handoff_packet", { p_engagement_id: ZERO, p_receiving_role: "editor", p_receiver_id: ZERO, p_accountable_owner_id: ZERO, p_due_date: "2026-01-01", p_brief: "wall", p_angle: "wall", p_goal: "wall", p_required_inputs: ["wall"] }],
+    ["acknowledge_handoff", { p_packet_id: ZERO, p_expected_revision: 1, p_action: "acknowledged" }],
+    ["reassign_handoff", { p_packet_id: ZERO, p_expected_revision: 1, p_receiver_id: ZERO, p_receiving_role: "editor", p_due_date: "2026-01-01", p_reason: "wall" }],
+    ["handoff_source_status", { p_packet_id: ZERO }],
+  ]) {
+    const r = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, r.error?.code === "42501", `code=${r.error?.code ?? "none"}`);
+  }
+}
+for (const table of handoffTables) {
+  const r = await employee.c.from(table).select("*").limit(1);
+  check(`employee can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
+}
+const hStatus = await employee.c.rpc("handoff_source_status", { p_packet_id: ZERO });
+check("employee passes the staff check in handoff_source_status", hStatus.error?.code === "P0002", `code=${hStatus.error?.code ?? "none"}`);
+const hStaff = await employee.c.rpc("handoff_staff_options", {});
+check("employee lists staff logins and no client", !hStaff.error && (hStaff.data ?? []).length > 0 && !(hStaff.data ?? []).some((u) => u.user_id === clientA.userId || u.user_id === clientB.userId),
+  `error=${hStaff.error?.message ?? "none"} rows=${hStaff.data?.length ?? "error"}`);
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

@@ -67,6 +67,8 @@ const AdNameGeneratorPage = lazy(routeImports.adNameGenerator);
 const DeliverablesPage = lazy(routeImports.deliverables);
 // QA gates (consolidation step 4b, Goodo OS): builder and employee.
 const QaGatesPage = lazy(routeImports.qaGates);
+// Handoffs (consolidation step 4b, Goodo OS): builder and employee.
+const HandoffsPage = lazy(routeImports.handoffs);
 // Engagements (consolidation step 4b, Goodo OS): builder and employee.
 const EngagementsPage = lazy(routeImports.engagements);
 // Knowledge (consolidation step 4a, Goodo OS): builder and employee.
@@ -224,6 +226,7 @@ export function RoleGuardedRoutes() {
           <Route path="/engagements" element={staffPage ? <EngagementsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/deliverables" element={staffPage ? <DeliverablesPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/qa-gates" element={staffPage ? <QaGatesPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/handoffs" element={staffPage ? <HandoffsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/user-settings" element={<Navigate to={`${prefix}/settings`} replace />} />
           
