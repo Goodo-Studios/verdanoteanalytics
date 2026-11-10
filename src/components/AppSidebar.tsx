@@ -46,6 +46,7 @@ import {
   ThumbsUp,
   MapPin,
   Package,
+  HardHat,
 } from "lucide-react";
 import { ATTIO_URL, GOODO_TIME_URL } from "@/lib/staffMenu";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
@@ -127,6 +128,7 @@ export const builderSections: NavSection[] = [
       { title: "Approval boards", url: "/approval-boards", icon: ThumbsUp },
       { title: "Locations", url: "/locations", icon: MapPin },
       { title: "Props", url: "/props", icon: Package },
+      { title: "Crew", url: "/crew", icon: HardHat },
       { title: "Engagements", url: "/engagements", icon: CalendarRange },
       { title: "Deliverables", url: "/deliverables", icon: PackageCheck },
       { title: "QA gates", url: "/qa-gates", icon: ShieldCheck },

@@ -473,6 +473,38 @@ for (const [fn, args] of [
   check(`employee passes the staff check in ${fn}`, res.error?.code === "P0002", `code=${res.error?.code ?? "none"}`);
 }
 
+// Old dashboard batch 3, Crew (step 5c): crew rows hold phone numbers, emails and rates.
+// Clients read no crew and no call sheet crew, cannot write crew and are refused the three
+// checked crew functions. The employee reads both tables and passes the staff check with an
+// id that matches no crew member, which changes nothing.
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of ["crew_members", "call_sheet_crew"]) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const ins = await s.c.from("crew_members").insert({ name: "wall check", role: "PA" });
+  check(`${label} cannot write crew_members`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  for (const [fn, args] of [
+    ["create_crew_member", { p_name: "wall check", p_role: "PA" }],
+    ["update_crew_member", { p_id: ZERO, p_name: "wall check", p_role: "PA" }],
+    ["archive_crew_member", { p_id: ZERO, p_active: true }],
+  ]) {
+    const res = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, res.error?.code === "42501", `code=${res.error?.code ?? "none"}`);
+  }
+}
+for (const table of ["crew_members", "call_sheet_crew"]) {
+  const r = await employee.c.from(table).select("*").limit(1);
+  check(`employee can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
+}
+for (const [fn, args] of [
+  ["update_crew_member", { p_id: ZERO, p_name: "wall check", p_role: "PA" }],
+  ["archive_crew_member", { p_id: ZERO, p_active: true }],
+]) {
+  const res = await employee.c.rpc(fn, args);
+  check(`employee passes the staff check in ${fn}`, res.error?.code === "P0002", `code=${res.error?.code ?? "none"}`);
+}
+
 // QA gates (migration 20261110120003, step 4b): staff only. Clients read none of the three
 // tables, cannot write them and are refused every checked function, the gate read included.
 const qaTables = ["engagement_deliverable_confirmations", "engagement_deliverable_qa_returns", "engagement_deliverable_signoffs"];
