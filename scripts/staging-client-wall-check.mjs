@@ -859,6 +859,36 @@ check("employee can read alert_exceptions", !aeRead.error, `error=${aeRead.error
 const aeBad = await employee.c.rpc("record_alert_exception", { p_connector: "queue", p_pattern: "queue.recovery", p_kind: "idle_testing", p_reason: "wall", p_hours: 1 });
 check("employee passes the staff check in record_alert_exception (wrong kind refused)", aeBad.error?.code === "22023", `code=${aeBad.error?.code ?? "none"}`);
 
+// Operating costs (migration 20261111000003, step 4d): builder only. Clients and the
+// employee read none of the four tables and are refused every checked function. The builder
+// loads the page queries. Nothing here writes.
+const costTables = ["operating_cost_entries", "operating_budgets", "operating_cost_events", "operating_budget_alerts"];
+for (const [label, s] of [["client A", clientA], ["client B", clientB], ["employee", employee]]) {
+  for (const table of costTables) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const ins = await s.c.from("operating_cost_entries").insert({ entry_key: "wall-check", label: "Wall check", category: "other", monthly_usd: 1, basis: "proposed", source_reference: "wall", updated_by: s.userId });
+  check(`${label} cannot write operating_cost_entries`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  for (const [fn, args] of [
+    ["record_operating_cost_entry", { p_entry_key: "wall-check", p_label: "Wall check", p_category: "other", p_monthly_usd: 1, p_basis: "proposed", p_source_reference: "wall", p_active: true, p_expected_version: 0 }],
+    ["record_operating_budget", { p_budget_key: "total", p_monthly_limit_usd: 10, p_warning_usd: 5, p_expected_version: 0 }],
+    ["evaluate_operating_budgets", {}],
+  ]) {
+    const r = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, r.error?.code === "42501", `code=${r.error?.code ?? "none"}`);
+  }
+}
+for (const [table, select] of [
+  ["operating_cost_entries", "*"],
+  ["operating_budgets", "*"],
+  ["operating_cost_events", "*"],
+  ["operating_budget_alerts", "*, durable_jobs!operating_budget_alerts_job_id_fkey(state)"],
+]) {
+  const r = await staff.c.from(table).select(select).limit(50);
+  check(`builder loads the operating costs page query on ${table}`, !r.error, `error=${r.error?.code ?? ""} ${r.error?.message ?? "none"}`);
+}
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

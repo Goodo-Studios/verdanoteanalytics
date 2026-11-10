@@ -73,6 +73,8 @@ const HandoffsPage = lazy(routeImports.handoffs);
 const AgentEvaluationsPage = lazy(routeImports.agentEvaluations);
 // Operations (consolidation step 4d, Goodo OS): builder and employee.
 const OperationsPage = lazy(routeImports.operations);
+// Operating costs (consolidation step 4d, Goodo OS): builder only.
+const OperatingCostsPage = lazy(routeImports.operatingCosts);
 // Learning (consolidation step 4c, Goodo OS): builder and employee.
 const LearningPage = lazy(routeImports.learning);
 // Scope changes (consolidation step 4c, Goodo OS): builder and employee.
@@ -277,6 +279,7 @@ export function RoleGuardedRoutes() {
           <Route path="/handoffs" element={staffPage ? <HandoffsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/agent-evaluations" element={staffPage ? <AgentEvaluationsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/operations" element={staffPage ? <OperationsPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/operating-costs" element={effectiveBuilder ? <OperatingCostsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/learning" element={staffPage ? <LearningPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/scope-changes" element={staffPage ? <ScopeChangesPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/recommendations" element={staffPage ? <RecommendationsPage /> : <Navigate to={`${prefix}/`} replace />} />

@@ -348,6 +348,21 @@ The `integration-health` function reads active exceptions and moves covered prob
 
 Not ported: the stored evaluations, incidents and incident scopes (Verdanote evaluates on read), command receipts, per-engagement source scopes and capability grants. Nothing schedules the evaluate action; it runs when a builder presses the button. Tests in `supabase/tests/alert_exceptions_test.sql`, `supabase/functions/integration-health/index.test.ts` and `src/test/integrationHealth.test.tsx`.
 
+### Operating costs
+
+Page `/operating-costs` (builder only) and migration `20261111000003_operating_costs.sql`, no edge function. Port of the Goodo OS owner page (`src/pages/staff/OperatingCosts.tsx`, `backend/services/operatingCosts.ts`, migration `058_operating_costs.sql`).
+
+| Table | Purpose |
+|---|---|
+| `operating_cost_entries` | fixed monthly costs: key, label, category, monthly USD, basis (proposed, quoted, invoiced), source of the figure, counted or not, version |
+| `operating_budgets` | the monthly budget (`total`): limit and a warning amount below it, version |
+| `operating_cost_events` | every recorded entry, budget and budget check. Immutable |
+| `operating_budget_alerts` | one row per threshold crossing (budget, month, level, budget version) with the owner alert job it queued. Immutable |
+
+Builders read all four; employees and clients read none. Checked functions (builder tested in the body): `record_operating_cost_entry` and `record_operating_budget` (both against the version on screen, 40001 when stale) and `evaluate_operating_budgets` (current UTC month; records each new crossing once and queues an owner alert through `enqueue_owner_alert`, which queues only for a builder-confirmed owner alert channel; `run-slack-jobs` sends only from production with `slack_sends` on).
+
+Differences from Goodo OS: Verdanote's meeting recaps and agent evaluations do not record token usage, so model spend is not measured and the one budget covers the active fixed entries; the forecast level (a month-end projection of variable spend) is therefore not ported. The separate Goodo OS alert outbox is replaced by the shared job queue. Budget checks run when a builder presses "Check budgets now"; nothing is scheduled. Tests in `supabase/tests/operating_costs_test.sql` and `src/test/operatingCostsPage.test.tsx`.
+
 ## Alternatives rejected
 
 **A new `os_clients` table with a uuid id, and the dashboard `clients` folded into it.** Gives a cleaner id, but the eight dashboard tables and the dashboard staff functions (`create_client`, `set_client_*`, `create_shoot` and others) already key on `clients.slug`, so it means either two client ids side by side or rewriting all of them. Not the smallest change.
