@@ -239,3 +239,11 @@ test('demo call sheet: on the demo shoot, demo crew, talent lines only for talen
     assert.equal(casting?.shoot_id, sheets.get(e.call_sheet_id).shoot_id, 'the talent is confirmed onto the sheet\'s shoot');
   }
 });
+
+test('rows of one table all carry the same columns (a bulk upsert writes null for a missing column)', () => {
+  for (const [table] of SEED_ORDER) {
+    const rows = seed[table];
+    const keys = JSON.stringify(Object.keys(rows[0]).sort());
+    for (const r of rows) assert.equal(JSON.stringify(Object.keys(r).sort()), keys, `${table} row ${r.id ?? ''} has different columns`);
+  }
+});

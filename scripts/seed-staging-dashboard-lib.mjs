@@ -209,10 +209,10 @@ export function buildDashboardSeed(now = new Date()) {
     review_notes: status === 'rejected' ? 'Demo: outside the current categories' : null, ...extra,
   });
   const creator_applications = [
-    app(0, 'Morgan Ellis', 'morgan.applicant@example.test', 'pending', { categories: ['Skincare'], location: 'Testville', socials: { instagram: '@morgan.demo' } }),
-    app(1, 'Noa Bennett', 'noa.applicant@example.test', 'pending', { categories: ['Pet', 'Dog'], location: 'Sampletown', website: 'noa.example.test' }),
-    app(2, 'Avery Stone', 'avery@example.test', 'pending', { categories: ['Food/Beverage'], location: 'Testville' }),
-    app(3, 'Oakley Price', 'oakley.applicant@example.test', 'rejected', { categories: ['Tech'], location: 'Testville' }),
+    app(0, 'Morgan Ellis', 'morgan.applicant@example.test', 'pending', { categories: ['Skincare'], location: 'Testville', socials: { instagram: '@morgan.demo' }, website: null }),
+    app(1, 'Noa Bennett', 'noa.applicant@example.test', 'pending', { categories: ['Pet', 'Dog'], location: 'Sampletown', website: 'noa.example.test', socials: null }),
+    app(2, 'Avery Stone', 'avery@example.test', 'pending', { categories: ['Food/Beverage'], location: 'Testville', socials: null, website: null }),
+    app(3, 'Oakley Price', 'oakley.applicant@example.test', 'rejected', { categories: ['Tech'], location: 'Testville', socials: null, website: null }),
   ];
   const actor_applications = [
     app(50, 'Parker Lane', 'parker.actor-applicant@example.test', 'pending', { phone: '555-0150', gender: 'Male', dog_owner: true }),
@@ -309,7 +309,7 @@ export function buildDashboardSeed(now = new Date()) {
 
   // Step 5c: a live casting link for demo-harbor (an actor approval board) with the
   // client's two votes. The token exists only in staging.
-  approval_boards.push({ id: id(990), client_slug: 'demo-harbor', board_type: 'actors', month: null, token: 'demoCastingLinkHarbor'.padEnd(48, '0'), expires_at: stamp(10), revoked: false });
+  approval_boards.push({ id: id(990), client_slug: 'demo-harbor', board_type: 'actors', month: null, token: 'demoCastingLinkHarbor'.padEnd(48, '0'), expires_at: stamp(10), revoked: false, created_at: stamp(-2) });
   const actor_approval_votes = [
     { id: id(991), board_id: id(990), assignment_id: id(600), vote: 'up', voted_at: stamp(-1), voted_by: 'Demo reviewer' },
     { id: id(992), board_id: id(990), assignment_id: id(601), vote: 'down', voted_at: stamp(-1), voted_by: null },
