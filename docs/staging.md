@@ -86,6 +86,10 @@ The browser check starts a local copy of the pages that talks to the staging pro
 
 Adding a function: add it to `supabase/function-access.json` with its class. Adding a staff page: add its path to `STAFF_PAGES` in `src/test/StaffArea.test.tsx` and to `STAFF_PATHS` in `e2e/staff-area.spec.ts`. Adding a staff table: enable row rules and write a policy that names `builder` or `employee` in the same migration. The three database tests then cover it with no edit.
 
+### Growth Dashboard numbers (builder only)
+
+The Growth Dashboard page (`/builder/growth-dashboard`) stores its numbers in `growth_dashboard_data`: the row `state` holds what the old app kept in the browser's localStorage under the key `goodo3m_v1`, the row `plan` holds the plan figures that the old app had written into its code. Only builders can read or write the table (`supabase/tests/growth_dashboard_wall_test.sql`). Nothing real is seeded. To move the numbers once, open goodo-growth-dashboard.vercel.app in the browser that holds them, open the developer console and run `copy(localStorage.getItem('goodo3m_v1'))`, then paste the result on the page's Import tab. Enter the plan figures on the Plan tab.
+
 ### Roles from the old dashboard
 
 The dashboard role `admin` becomes `builder` and `producer` becomes `employee`. `user-management` accepts `dashboard_role` in place of `role` when creating or updating a user, using `supabase/functions/_shared/dashboard-role-map.ts`. A dashboard `viewer` is refused: Verdanote has no read-only staff role, and adding one is Matthew's decision (see the role mapping research note in the consolidation project).

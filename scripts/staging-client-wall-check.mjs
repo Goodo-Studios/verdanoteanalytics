@@ -71,6 +71,19 @@ check("client B reads no pipeline rows", !pipeB.error && (pipeB.data ?? []).leng
 const foldersA = await clientA.c.from("clickup_client_folders").select("folder_id");
 check("client A cannot read the ClickUp folder mapping", (foldersA.data ?? []).length === 0, `rows=${foldersA.data?.length ?? "error"}`);
 
+// Growth Dashboard (growth_dashboard_data): builder only. Clients and the employee read
+// nothing and cannot insert. The builder can read. Read-only for the builder here, so the
+// check never changes stored numbers.
+const employee = await signIn("employee@staging.verdanote.test");
+for (const [label, s] of [["client A", clientA], ["client B", clientB], ["employee", employee]]) {
+  const g = await s.c.from("growth_dashboard_data").select("key");
+  check(`${label} reads no Growth Dashboard rows`, !g.error && (g.data ?? []).length === 0, `error=${g.error?.message ?? "none"} rows=${g.data?.length ?? "error"}`);
+  const ins = await s.c.from("growth_dashboard_data").insert({ key: `wall-check-${label.replace(/\s/g, "-")}`, data: {} });
+  check(`${label} cannot write Growth Dashboard rows`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+}
+const gStaff = await staff.c.from("growth_dashboard_data").select("key");
+check("builder can read Growth Dashboard rows", !gStaff.error, `error=${gStaff.error?.message ?? "none"} rows=${gStaff.data?.length ?? "error"}`);
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

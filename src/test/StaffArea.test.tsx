@@ -40,6 +40,7 @@ vi.mock("@/pages/CreativeRotationPage", () => pageMock("creative-rotation"));
 vi.mock("@/pages/EntityReportPage", () => pageMock("entities"));
 vi.mock("@/features/creative-library/CreativeLibraryPage", () => pageMock("creative-library"));
 vi.mock("@/features/matrix/board/MatrixBoardPage", () => pageMock("matrix"));
+vi.mock("@/features/growth-dashboard/GrowthDashboardPage", () => pageMock("growth-dashboard"));
 vi.mock("@/features/vault/LibraryPage", () => pageMock("ad-library"));
 vi.mock("@/features/vault/ItemDetailPage", () => pageMock("vault-item"));
 vi.mock("@/features/vault/BoardsPage", () => pageMock("boards"));
@@ -106,6 +107,7 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean }
   { path: "/creative-rotation", marker: "creative-rotation" },
   { path: "/entities", marker: "entities" },
   { path: "/matrix", marker: "matrix", builderOnly: true },
+  { path: "/growth-dashboard", marker: "growth-dashboard", builderOnly: true },
   { path: "/ad-library", marker: "ad-library" },
   { path: "/ad-library/boards", marker: "boards" },
   { path: "/ad-library/boards/b1", marker: "board-detail" },
@@ -164,10 +166,14 @@ describe("staff reach the staff pages", () => {
     expect(await screen.findByTestId(`page-${marker}`)).toBeTruthy();
   });
 
-  it("an employee is sent away from the builder-only Matrix page", async () => {
+  it.each(STAFF_PAGES.filter((p) => p.builderOnly))("an employee is sent away from the builder-only page $path", async ({ path, marker }) => {
     setRole("employee");
-    renderAt("/employee/matrix");
+    renderAt(`/employee${path}`);
     expect(await screen.findByTestId("page-overview")).toBeTruthy();
-    expect(screen.queryByTestId("page-matrix")).toBeNull();
+    expect(screen.queryByTestId(`page-${marker}`)).toBeNull();
+  });
+
+  it("the builder-only list holds the Matrix and the Growth Dashboard", () => {
+    expect(STAFF_PAGES.filter((p) => p.builderOnly).map((p) => p.path)).toEqual(["/matrix", "/growth-dashboard"]);
   });
 });
