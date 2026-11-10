@@ -42,6 +42,7 @@ export const routeImports = {
   clientHub: () => import("@/features/clients/ClientHubPage"),
   clientWork: () => import("@/features/clients/ClientWorkTab"),
   clientPerformance: () => import("@/features/clients/ClientPerformanceTab"),
+  clientSetup: () => import("@/features/clients/ClientSetupTab"),
   engagements: () => import("@/features/engagements/EngagementsPage"),
   deliverables: () => import("@/features/deliverables/DeliverablesPage"),
   qaGates: () => import("@/features/qa-gates/QaGatesPage"),

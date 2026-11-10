@@ -378,3 +378,7 @@ verify_jwt = false
 # Slack reminders and owner alerts (Goodo OS connector). Service-role only; gated inside the function.
 [functions.run-slack-jobs]
 verify_jwt = false
+
+# ClickUp folder picker for the client Setup tab. Builder only; gated inside the function.
+[functions.clickup-folders]
+verify_jwt = false

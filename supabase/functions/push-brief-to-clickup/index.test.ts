@@ -248,6 +248,10 @@ Deno.test("a client with no ClickUp folder is refused and nothing is written", a
   const r = await run({ ...PUSH, client_slug: "nofolder", target: "new" });
   assertEquals(r.res.status, 404);
   assertStringIncludes(r.json.error, "no ClickUp folder");
+  assertStringIncludes(r.json.error, "Setup tab");
+  assert(!/source_mappings/.test(r.json.error), "the message names no table");
+  assertEquals(r.json.needs_setup, true);
+  assertEquals(r.json.client_slug, "nofolder");
   assertEquals(writes(r.seen).length, 0);
 });
 

@@ -63,6 +63,14 @@
       "class": "staff",
       "minRole": "builder"
     },
+    "clickup-folders": {
+      "class": "staff",
+      "minRole": "builder",
+      "note": "Client Setup tab folder picker. Builder only, read-only: one GET for the client space, ids and names back. Answers 503 with no request when CLICKUP_API_TOKEN is not set (staging has none).",
+      "probe": {
+        "method": "GET"
+      }
+    },
     "client-insights": {
       "class": "account-scoped",
       "rls": true,

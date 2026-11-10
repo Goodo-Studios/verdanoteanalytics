@@ -68,6 +68,33 @@ describe("ClientsSettings", () => {
     expect(screen.getAllByTestId("client-setting").map((i) => i.querySelector("a")?.textContent)).toEqual(["Harbor Home"]);
   });
 
+  it("shows each client's setup checklist, with a Set up link for a builder only", async () => {
+    rpc.mockImplementation((name: string) =>
+      Promise.resolve(name === "client_setup_status"
+        ? { data: [{ client_slug: "glow", ad_account_count: 1, clickup_folder_count: 0, member_count: 2, last_clickup_sync: null }], error: null }
+        : { data: {}, error: null }));
+    const { unmount } = renderWithRouter(<ClientsSettings builder={false} />);
+    const lines = await screen.findAllByTestId("client-setup-line");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toHaveTextContent("2 of 4 set up");
+    expect(lines[0]).toHaveTextContent("✓ Ad account linked");
+    expect(lines[0]).toHaveTextContent("○ ClickUp folder linked");
+    expect(within(lines[0]).queryByRole("link", { name: "Set up" })).toBeNull();
+    unmount();
+    h.auth = { isBuilder: true, role: "builder" };
+    renderWithRouter(<ClientsSettings builder />);
+    const builderLines = await screen.findAllByTestId("client-setup-line");
+    expect(within(builderLines[0]).getByRole("link", { name: "Set up" }).getAttribute("href")).toBe("/builder/clients/glow/setup");
+  });
+
+  it("still lists the clients when the setup status cannot load", async () => {
+    rpc.mockImplementation((name: string) =>
+      Promise.resolve(name === "client_setup_status" ? { data: null, error: { code: "XX000", message: "down" } } : { data: {}, error: null }));
+    renderWithRouter(<ClientsSettings builder={false} />);
+    expect((await screen.findAllByTestId("client-setting")).length).toBe(2);
+    expect(screen.queryByTestId("client-setup-line")).toBeNull();
+  });
+
   it("gives an employee no show, hide or edit controls", async () => {
     renderWithRouter(<ClientsSettings builder={false} />);
     const items = await screen.findAllByTestId("client-setting");

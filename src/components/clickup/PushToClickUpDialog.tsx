@@ -36,17 +36,26 @@ interface Props {
 const FN = "push-brief-to-clickup";
 export const NEW_TASK = "new";
 
-async function errorMessage(error: unknown, fallback: string): Promise<string> {
+interface ErrorInfo {
+  message: string;
+  /** Set when the client has no (single) ClickUp folder linked: the client whose Setup tab fixes it. */
+  setupSlug: string | null;
+}
+
+async function errorInfo(error: unknown, fallback: string): Promise<ErrorInfo> {
   const context = (error as { context?: unknown })?.context;
   if (context instanceof Response) {
     try {
       const body = await context.clone().json();
-      if (body && typeof body.error === "string") return body.error;
+      if (body && typeof body.error === "string") {
+        const setupSlug = body.needs_setup === true && typeof body.client_slug === "string" ? body.client_slug : null;
+        return { message: body.error, setupSlug };
+      }
     } catch {
       // not JSON
     }
   }
-  return error instanceof Error && error.message ? error.message : fallback;
+  return { message: error instanceof Error && error.message ? error.message : fallback, setupSlug: null };
 }
 
 export function PushToClickUpDialog({
@@ -59,6 +68,7 @@ export function PushToClickUpDialog({
   const [body, setBody] = useState("");
   const [pushing, setPushing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [setupSlug, setSetupSlug] = useState<string | null>(null);
   const [result, setResult] = useState<{ url: string; task_name: string } | null>(null);
 
   useEffect(() => {
@@ -68,6 +78,7 @@ export function PushToClickUpDialog({
     setTarget(NEW_TASK);
     setTasks([]);
     setError(null);
+    setSetupSlug(null);
     setResult(null);
     if (!accountId) return;
     let cancelled = false;
@@ -77,8 +88,12 @@ export function PushToClickUpDialog({
         body: { action: "list", account_id: accountId },
       });
       if (cancelled) return;
-      if (invokeError) setError(await errorMessage(invokeError, "Could not load ClickUp tasks"));
-      else setTasks(Array.isArray(data?.tasks) ? data.tasks : []);
+      if (invokeError) {
+        const info = await errorInfo(invokeError, "Could not load ClickUp tasks");
+        if (cancelled) return;
+        setError(info.message);
+        setSetupSlug(info.setupSlug);
+      } else setTasks(Array.isArray(data?.tasks) ? data.tasks : []);
       setLoading(false);
     })();
     return () => {
@@ -92,6 +107,7 @@ export function PushToClickUpDialog({
     if (!accountId) return;
     setPushing(true);
     setError(null);
+    setSetupSlug(null);
     try {
       if (beforePush) await beforePush();
       const { data, error: invokeError } = await supabase.functions.invoke(FN, {
@@ -107,7 +123,9 @@ export function PushToClickUpDialog({
       if (invokeError) throw invokeError;
       setResult({ url: data.url, task_name: data.task_name });
     } catch (err) {
-      setError(await errorMessage(err, "Push to ClickUp failed"));
+      const info = await errorInfo(err, "Push to ClickUp failed");
+      setError(info.message);
+      setSetupSlug(info.setupSlug);
     } finally {
       setPushing(false);
     }
@@ -178,7 +196,17 @@ export function PushToClickUpDialog({
               <label htmlFor="clickup-body" className="font-body text-[12px] font-medium text-foreground">Brief</label>
               <Textarea id="clickup-body" value={body} onChange={(e) => setBody(e.target.value)} className="min-h-[120px] font-body text-[13px]" />
             </div>
-            {error && <p role="alert" className="font-body text-[12px] text-destructive">{error}</p>}
+            {error && (
+              <p role="alert" className="font-body text-[12px] text-destructive">
+                {error}
+                {setupSlug && (
+                  <>
+                    {" "}
+                    <a href={`/builder/clients/${encodeURIComponent(setupSlug)}/setup`} className="underline">Open the Setup tab</a>
+                  </>
+                )}
+              </p>
+            )}
             <div className="flex justify-end gap-2">
               <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={pushing}>Cancel</Button>
               <Button size="sm" onClick={push} disabled={!canPush} className="gap-1.5">

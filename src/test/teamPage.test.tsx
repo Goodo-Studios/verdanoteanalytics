@@ -108,7 +108,8 @@ describe("TeamPage", () => {
     expect(screen.queryByText("Invites")).toBeNull();
     expect(screen.queryByText("Edit")).toBeNull();
     expect(screen.queryByText("Change")).toBeNull();
-    expect(rpc).not.toHaveBeenCalled();
+    // The only call an employee makes is the checklist counts (open to staff); no builder-only function.
+    expect(rpc.mock.calls.map((c) => c[0]).filter((n) => n !== "client_setup_status")).toEqual([]);
     expect(selects.app_users).toBe("id, name, email, role, active");
   });
 
@@ -116,7 +117,8 @@ describe("TeamPage", () => {
     h.preview = { isClientPreview: false, isEmployeePreview: true };
     render(<TeamPage />);
     await screen.findAllByTestId("team-member");
-    expect(rpc).not.toHaveBeenCalled();
+    // The only call an employee makes is the checklist counts (open to staff); no builder-only function.
+    expect(rpc.mock.calls.map((c) => c[0]).filter((n) => n !== "client_setup_status")).toEqual([]);
   });
 
   it("shows a builder the staff list check with counts, issues and proposed changes", async () => {

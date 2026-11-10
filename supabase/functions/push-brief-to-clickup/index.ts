@@ -92,7 +92,7 @@ class ClickUpError extends Error {
 }
 
 class Refusal extends Error {
-  constructor(readonly status: number, message: string) {
+  constructor(readonly status: number, message: string, readonly extra: Record<string, unknown> = {}) {
     super(message);
   }
 }
@@ -232,13 +232,19 @@ async function resolveProjectList(clickup: ClickUp, slug: string, clients: Clien
   const byMapping = matches.filter((m) => m.resolution.kind === "client" && m.resolution.via === "mapping");
   const chosen = byMapping.length > 0 ? byMapping : matches;
   if (chosen.length === 0) {
+    // The page turns needs_setup into a link to the client's Setup tab, where a builder links a folder.
     throw new Refusal(
       404,
-      "This client has no ClickUp folder. Add a source_mappings row (provider clickup, kind folder) for it.",
+      "This client has no ClickUp folder linked yet. A builder can link one on the client's Setup tab.",
+      { needs_setup: true, client_slug: slug },
     );
   }
   if (chosen.length > 1) {
-    throw new Refusal(409, "More than one ClickUp folder matches this client. Pin one with a source_mappings row.");
+    throw new Refusal(
+      409,
+      "More than one ClickUp folder matches this client. A builder can pick the right one on the client's Setup tab.",
+      { needs_setup: true, client_slug: slug },
+    );
   }
   const list = pickProjectList(chosen[0].folder.lists);
   if (!list) throw new Refusal(409, "The client's ClickUp folder has no single Project View list.");
@@ -343,7 +349,7 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
       created: false,
     });
   } catch (error) {
-    if (error instanceof Refusal) return json({ error: error.message }, error.status);
+    if (error instanceof Refusal) return json({ error: error.message, ...error.extra }, error.status);
     if (error instanceof ClickUpError) {
       if (error.status === 401) return json({ error: "ClickUp rejected CLICKUP_API_TOKEN." }, 503);
       return json({ error: `ClickUp request failed (${error.status})` }, 502);
