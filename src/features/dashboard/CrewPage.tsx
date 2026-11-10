@@ -4,7 +4,20 @@
 // through the checked crew functions. Each row shows how many call sheets the
 // person is on; call sheets themselves are on the Call sheets page.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import {
+  DataTable,
+  EmptyState,
+  ErrorState,
+  FilterBar,
+  LoadingState,
+  PageHeader,
+  PageShell,
+  SelectField,
+  TextField,
+  useConfirm,
+  type DataColumn,
+} from "@/components/page-kit";
 import { DashboardError } from "./api";
 import { createCrewMember, loadCrew, setCrewActive, updateCrewMember, type CrewData } from "./crewApi";
 import {
@@ -22,8 +35,6 @@ import {
   type CrewMember,
 } from "./crewModel";
 import { errorText } from "./model";
-
-const CTRL = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
 
 function messageOf(e: unknown, fallback: string): string {
   if (e instanceof DashboardError) return e.code === "P0002" ? "That crew member no longer exists." : errorText(e.code, e.message || fallback);
@@ -46,16 +57,20 @@ function CrewEditor({ initial, title, busy, onSave, onCancel }: { initial: CrewF
       <h2 className="text-sm font-semibold">{title}</h2>
       <div className="grid gap-2 sm:grid-cols-3">
         {FIELDS.map((f) => (
-          <label key={f.key} className="text-xs">
-            {f.label}
-            <input aria-label={f.label} type={f.type ?? "text"} list={f.key === "role" ? "crew-role-suggestions" : undefined} className={`${CTRL} mt-0.5 w-full`} value={form[f.key]} onChange={(e) => setForm((x) => ({ ...x, [f.key]: e.target.value }))} />
-          </label>
+          <TextField
+            key={f.key}
+            label={f.label}
+            type={f.type ?? "text"}
+            list={f.key === "role" ? "crew-role-suggestions" : undefined}
+            value={form[f.key]}
+            onChange={(e) => setForm((x) => ({ ...x, [f.key]: e.target.value }))}
+          />
         ))}
         <datalist id="crew-role-suggestions">{SUGGESTED_CREW_ROLES.map((r) => <option key={r} value={r} />)}</datalist>
       </div>
       <div className="flex gap-2">
-        <button type="submit" className={CTRL} disabled={busy}>{busy ? "Saving..." : "Save"}</button>
-        <button type="button" className={CTRL} onClick={onCancel}>Cancel</button>
+        <Button type="submit" size="sm" disabled={busy}>{busy ? "Saving..." : "Save"}</Button>
+        <Button type="button" size="sm" variant="outline" onClick={onCancel}>Cancel</Button>
       </div>
     </form>
   );
@@ -67,13 +82,16 @@ export default function CrewPage() {
   const [editing, setEditing] = useState<CrewMember | "new" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const { confirm, dialog } = useConfirm();
 
   const load = useCallback(async () => {
     try {
       setData(await loadCrew());
+      setLoadError(null);
     } catch (e) {
-      setError(messageOf(e, "Could not load crew."));
+      setLoadError(messageOf(e, "Could not load crew."));
     }
   }, []);
   useEffect(() => {
@@ -121,16 +139,54 @@ export default function CrewPage() {
     }).then((ok) => { if (ok) setEditing(null); });
   };
 
-  const toggleActive = (c: CrewMember) => {
-    if (c.active && !window.confirm(`Archive ${c.name}? They stay on past call sheets but are not offered for new ones.`)) return;
+  const toggleActive = async (c: CrewMember) => {
+    if (c.active && !(await confirm({ title: `Archive ${c.name}?`, description: `${c.name} stays on past call sheets but is not offered for new ones.`, actionLabel: "Archive" }))) return;
     void run(async () => {
       await setCrewActive(c.id, !c.active);
       return c.active ? `Archived ${c.name}.` : `Restored ${c.name}.`;
     });
   };
 
+  const columns: DataColumn<CrewMember>[] = [
+    {
+      key: "name",
+      header: "Name",
+      cell: (c) => (
+        <>
+          <div className="font-medium">{c.name}</div>
+          {!c.active && <span className="rounded bg-muted px-1 text-xs">Archived</span>}
+          {c.notes && <div className="text-xs text-muted-foreground">{c.notes}</div>}
+        </>
+      ),
+    },
+    { key: "role", header: "Role", cell: (c) => c.role },
+    {
+      key: "phone",
+      header: "Phone",
+      cell: (c) => { const tel = telHref(c.phone); return tel ? <a href={tel} className="underline">{c.phone}</a> : c.phone ?? ""; },
+    },
+    {
+      key: "email",
+      header: "Email",
+      cell: (c) => { const mail = mailHref(c.email); return mail ? <a href={mail} className="underline">{c.email}</a> : c.email ?? ""; },
+    },
+    { key: "rate", header: "Rate notes", cell: (c) => c.rate_notes ?? "" },
+    { key: "sheets", header: "Call sheets", cell: (c) => data?.sheets.get(c.id) ?? 0 },
+    {
+      key: "actions",
+      header: "Actions",
+      srOnlyHeader: true,
+      cell: (c) => (
+        <div className="flex gap-1">
+          <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => { setEditing(c); setError(null); setNotice(null); }}>Edit</Button>
+          <Button type="button" variant="link" size="sm" className="h-auto p-0" disabled={busy} onClick={() => void toggleActive(c)}>{c.active ? "Archive" : "Restore"}</Button>
+        </div>
+      ),
+    },
+  ];
+
   return (
-    <div className="p-6 space-y-4" data-testid="crew-page">
+    <PageShell wide data-testid="crew-page">
       <PageHeader title="Crew" description="The people Goodo books for shoots: role, rates and how to reach them." />
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
@@ -145,62 +201,32 @@ export default function CrewPage() {
           onCancel={() => setEditing(null)}
         />
       ) : (
-        <button type="button" className={CTRL} onClick={() => { setEditing("new"); setError(null); setNotice(null); }}>Add crew member</button>
+        <Button type="button" size="sm" variant="outline" onClick={() => { setEditing("new"); setError(null); setNotice(null); }}>Add crew member</Button>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <input aria-label="Search crew" placeholder="Search name, role, phone, email, notes" className={`${CTRL} min-w-[16rem]`} value={filters.search} onChange={(e) => set({ search: e.target.value })} />
-        <select aria-label="Role filter" className={CTRL} value={filters.role} onChange={(e) => set({ role: e.target.value })}>
-          <option value="">Any role</option>
-          {roles.map((r) => <option key={r} value={r}>{r}</option>)}
-        </select>
-        <select aria-label="Sort" className={CTRL} value={filters.sort} onChange={(e) => set({ sort: e.target.value as CrewFilters["sort"] })}>
-          <option value="name">Name</option>
-          <option value="role">Role</option>
-        </select>
-        <label className="text-sm"><input type="checkbox" checked={filters.showArchived} onChange={(e) => set({ showArchived: e.target.checked })} /> Show archived</label>
-      </div>
+      <FilterBar search={{ value: filters.search, onChange: (v) => set({ search: v }), label: "Search crew", placeholder: "Search name, role, phone, email, notes" }}>
+        <SelectField label="Role filter" hideLabel value={filters.role} onChange={(e) => set({ role: e.target.value })} placeholder="Any role" options={roles.map((r) => ({ value: r, label: r }))} />
+        <SelectField label="Sort" hideLabel value={filters.sort} onChange={(e) => set({ sort: e.target.value as CrewFilters["sort"] })} options={[{ value: "name", label: "Name" }, { value: "role", label: "Role" }]} />
+        <label className="flex items-center gap-1 pb-2 text-sm"><input type="checkbox" checked={filters.showArchived} onChange={(e) => set({ showArchived: e.target.checked })} /> Show archived</label>
+      </FilterBar>
 
-      {!data ? (
-        error ? null : <p role="status" className="text-sm text-muted-foreground">Loading crew...</p>
+      {loadError ? (
+        <ErrorState message={loadError} onRetry={() => void load()} />
+      ) : !data ? (
+        <LoadingState label="Loading crew" />
       ) : (
         <>
           <p className="text-sm text-muted-foreground" data-testid="crew-count">
             {shown.length} shown · {activeCount} active, {crew.length - activeCount} archived
           </p>
-          {shown.length === 0 ? <p className="text-sm text-muted-foreground">No crew match these filters.</p> : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-muted-foreground"><th>Name</th><th>Role</th><th>Phone</th><th>Email</th><th>Rate notes</th><th>Call sheets</th><th /></tr>
-              </thead>
-              <tbody>
-                {shown.map((c) => {
-                  const tel = telHref(c.phone);
-                  const mail = mailHref(c.email);
-                  return (
-                    <tr key={c.id} className="border-t align-top" data-testid={`crew-row-${c.id}`}>
-                      <td className="py-1.5">
-                        <div className="font-medium">{c.name}</div>
-                        {!c.active && <span className="rounded bg-muted px-1 text-xs">Archived</span>}
-                        {c.notes && <div className="text-xs text-muted-foreground">{c.notes}</div>}
-                      </td>
-                      <td className="text-xs">{c.role}</td>
-                      <td className="text-xs">{tel ? <a href={tel} className="underline">{c.phone}</a> : c.phone ?? ""}</td>
-                      <td className="text-xs">{mail ? <a href={mail} className="underline">{c.email}</a> : c.email ?? ""}</td>
-                      <td className="text-xs">{c.rate_notes ?? ""}</td>
-                      <td className="text-xs">{data.sheets.get(c.id) ?? 0}</td>
-                      <td className="space-x-2 text-xs">
-                        <button type="button" className="underline" onClick={() => { setEditing(c); setError(null); setNotice(null); }}>Edit</button>
-                        <button type="button" className="underline" disabled={busy} onClick={() => toggleActive(c)}>{c.active ? "Archive" : "Restore"}</button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          {shown.length === 0 ? (
+            <EmptyState title="No crew match these filters." />
+          ) : (
+            <DataTable label="Crew" columns={columns} rows={shown} rowKey={(c) => c.id} rowTestId={(c) => `crew-row-${c.id}`} />
           )}
         </>
       )}
-    </div>
+      {dialog}
+    </PageShell>
   );
 }

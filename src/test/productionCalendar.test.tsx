@@ -31,6 +31,7 @@ vi.mock("@/hooks/useRolePath", () => ({ useRolePrefix: () => "/employee" }));
 vi.mock("@/features/dashboard/api", () => ({ DashboardError: FakeDashboardError, loadBrandsAndTeam: () => loadBrandsAndTeam() }));
 vi.mock("@/features/dashboard/productionApi", () => api);
 
+import { answerConfirm } from "@/test/productionConfirm";
 import ProductionCalendarPage from "@/features/dashboard/ProductionCalendarPage";
 import { EMPTY_BLOCK_FORM, EMPTY_SHOOT_FORM, formToBlockArgs, formToShootArgs, formatTime, groupByDate, monthRange, parseMonth, shiftMonth } from "@/features/dashboard/productionModel";
 
@@ -79,7 +80,6 @@ describe("Production calendar page", () => {
     api.loadCalendar.mockResolvedValue({ shoots: [S1, S2], castings: CASTINGS, locations: [{ id: "l1", name: "Demo Loft" }], crew: [{ id: "c1", name: "Rob Lens", role: "Videographer" }] });
     loadBrandsAndTeam.mockResolvedValue({ brands: [{ slug: "harbor", name: "Harbor Home", active: true, does_creators: false }, { slug: "pine", name: "Pinecrest", active: true, does_creators: true }], users: [] });
     for (const [k, f] of Object.entries(api)) if (k !== "loadCalendar") f.mockResolvedValue(k === "createShoot" ? "new" : undefined);
-    vi.spyOn(window, "confirm").mockImplementation(() => true);
   });
 
   const renderAt = (q = "?month=2026-12") => render(<MemoryRouter initialEntries={[`/x${q}`]}><Routes><Route path="/x" element={<ProductionCalendarPage />} /></Routes></MemoryRouter>);
@@ -143,6 +143,7 @@ describe("Production calendar page", () => {
     api.deleteShoot.mockRejectedValue(new FakeDashboardError({ code: "P0001", message: "This shoot still has 1 confirmed actor(s) - remove them before deleting it." }));
     renderAt();
     fireEvent.click(within(await screen.findByTestId("shoot-s1")).getByText("Delete shoot"));
+    await answerConfirm("Delete");
     expect((await screen.findByRole("alert")).textContent).toMatch(/confirmed actor/);
   });
 

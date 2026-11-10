@@ -13,7 +13,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { PickClientPrompt } from "@/components/PickClientPrompt";
-import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { EmptyState, ErrorState, LoadingState, PageHeader, PageShell, TextField, useConfirm } from "@/components/page-kit";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { DashboardError, loadBrandsAndTeam, type BrandOption } from "./api";
 import { applyVotes, createBoard, loadBoards, loadVotes, revokeBoard } from "./approvalBoardsApi";
@@ -30,8 +31,6 @@ import {
   type ApprovalVote,
 } from "./approvalBoardsModel";
 import { errorText, formatDay } from "./model";
-
-const CTRL = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
 
 function messageOf(e: unknown, fallback: string): string {
   if (e instanceof DashboardError) return e.code === "P0002" ? "A creator on this board is no longer on the client. Nothing was applied." : errorText(e.code, e.message || fallback);
@@ -67,7 +66,9 @@ export default function ApprovalBoardsPage() {
   const [expiry, setExpiry] = useState(() => defaultExpiry(new Date()));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const { confirm, dialog } = useConfirm();
 
   useEffect(() => {
     loadBrandsAndTeam().then((b) => setBrands(b.brands), (e) => setError(e instanceof Error ? e.message : "Could not load clients."));
@@ -84,8 +85,9 @@ export default function ApprovalBoardsPage() {
       setBoards(b);
       const live = activeBoard(b, new Date());
       setVotes(live ? await loadVotes(live.id) : []);
+      setLoadError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load approval boards.");
+      setLoadError(e instanceof Error ? e.message : "Could not load approval boards.");
     }
   }, [brand]);
   useEffect(() => {
@@ -122,17 +124,17 @@ export default function ApprovalBoardsPage() {
       return `New link created for ${brandName}.`;
     });
   };
-  const revoke = (b: ApprovalBoard) => {
-    if (!window.confirm(`Revoke the ${brandName} approval link? It stops working, and a new one can be made after.`)) return;
+  const revoke = async (b: ApprovalBoard) => {
+    if (!(await confirm({ title: `Revoke the ${brandName} approval link?`, description: "It stops working, and a new one can be made after.", actionLabel: "Revoke" }))) return;
     void run(async () => {
       await revokeBoard(b.id);
       return "Link revoked.";
     });
   };
-  const apply = () => {
+  const apply = async () => {
     const up = responses.approved.length;
     const down = responses.passed.length;
-    if (!window.confirm(`Apply the client's decisions for ${brandName}? ${up} move to Client Approved and ${down} to Declined in the Creator pipeline.`)) return;
+    if (!(await confirm({ title: `Apply the client's decisions for ${brandName}?`, description: `${up} move to Client Approved and ${down} to Declined in the Creator pipeline.`, actionLabel: "Apply", tone: "default" }))) return;
     void run(async () => {
       const n = await applyVotes(brand, votesPayload(votes));
       return `Applied ${n} decision${n === 1 ? "" : "s"}: ${up} approved, ${down} declined.`;
@@ -143,7 +145,7 @@ export default function ApprovalBoardsPage() {
   };
 
   return (
-    <div className="p-6 space-y-4" data-testid="approval-boards-page">
+    <PageShell data-testid="approval-boards-page">
       <PageHeader title="Approval boards" description="Client links for approving shortlisted creators, and what each client decided." />
       <div className="flex flex-wrap items-center gap-2 text-sm">
         {brand && <Link to={`${prefix}/talent/pipeline`} className="underline">Creator pipeline</Link>}
@@ -155,8 +157,10 @@ export default function ApprovalBoardsPage() {
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
-      {!brand ? <PickClientPrompt what="its approval link" /> : !boards ? (
-        error ? null : <p role="status" className="text-sm text-muted-foreground">Loading approval boards...</p>
+      {!brand ? <PickClientPrompt what="its approval link" /> : loadError ? (
+        <ErrorState message={loadError} onRetry={() => void load()} />
+      ) : !boards ? (
+        <LoadingState label="Loading approval boards" />
       ) : (
         <>
           <section aria-label="Client link" className="rounded-lg border p-3 text-sm">
@@ -165,14 +169,14 @@ export default function ApprovalBoardsPage() {
               <div className="mt-1 flex flex-wrap items-center gap-2" data-testid="live-link">
                 <a href={approvalUrl(live.token)} target="_blank" rel="noopener noreferrer" className="break-all underline">{approvalUrl(live.token)}</a>
                 <span className="text-xs text-muted-foreground">expires {formatDay(live.expires_at)}</span>
-                <button type="button" className={CTRL} onClick={() => copy(approvalUrl(live.token))}>Copy link</button>
-                <button type="button" className={CTRL} disabled={busy} onClick={() => revoke(live)}>Revoke</button>
+                <Button type="button" size="sm" variant="outline" onClick={() => copy(approvalUrl(live.token))}>Copy link</Button>
+                <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void revoke(live)}>Revoke</Button>
               </div>
             ) : (
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <span className="text-muted-foreground">No live link for {brandName}.</span>
-                <label className="text-xs">Expires<input aria-label="Expiry date" type="date" className={`${CTRL} ml-1`} value={expiry} onChange={(e) => setExpiry(e.target.value)} /></label>
-                <button type="button" className={CTRL} disabled={busy} onClick={create}>Create link</button>
+                <TextField label="Expiry date" type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} />
+                <Button type="button" size="sm" variant="outline" disabled={busy} onClick={create}>Create link</Button>
               </div>
             )}
           </section>
@@ -186,7 +190,7 @@ export default function ApprovalBoardsPage() {
                     <VoteList title="Approved" votes={responses.approved} prefix={prefix} />
                     <VoteList title="Passed on" votes={responses.passed} prefix={prefix} />
                   </div>
-                  <button type="button" className={CTRL} disabled={busy} onClick={apply}>Apply decisions</button>
+                  <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void apply()}>Apply decisions</Button>
                 </>
               )}
             </section>
@@ -194,7 +198,7 @@ export default function ApprovalBoardsPage() {
 
           <section aria-label="Past links" className="rounded-lg border p-3 text-sm">
             <h2 className="font-semibold">Past links ({past.length})</h2>
-            {past.length === 0 ? <p className="mt-1 text-muted-foreground">None.</p> : (
+            {past.length === 0 ? <EmptyState className="mt-2 py-4" title="None." /> : (
               <ul className="mt-1">
                 {past.map((b) => (
                   <li key={b.id} className="border-t py-1" data-testid={`past-${b.id}`}>
@@ -206,6 +210,7 @@ export default function ApprovalBoardsPage() {
           </section>
         </>
       )}
-    </div>
+      {dialog}
+    </PageShell>
   );
 }

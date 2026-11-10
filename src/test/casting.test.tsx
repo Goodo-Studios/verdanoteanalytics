@@ -35,6 +35,7 @@ vi.mock("@/hooks/useRolePath", () => ({ useRolePrefix: () => "/employee" }));
 vi.mock("@/features/dashboard/api", () => ({ DashboardError: FakeDashboardError, loadBrandsAndTeam: () => loadBrandsAndTeam() }));
 vi.mock("@/features/dashboard/castingApi", () => api);
 
+import { answerConfirm } from "@/test/productionConfirm";
 import CastingPage from "@/features/dashboard/CastingPage";
 import { addableActors, castingUrl, sortCastings, splitActorVotes } from "@/features/dashboard/castingModel";
 
@@ -80,7 +81,6 @@ describe("Casting page", () => {
     api.loadCasting.mockResolvedValue({ castings: ROWS, boards: [LIVE, OLD], votes: VOTES });
     for (const k of ["updateCasting", "addActors", "removeCasting", "createCastingLink", "revokeCastingLink"] as const) api[k].mockResolvedValue(undefined);
     api.applyActorVotes.mockResolvedValue(2);
-    vi.spyOn(window, "confirm").mockImplementation(() => true);
   });
 
   const renderAt = (slug = "harbor") => render(<WithClient slug={slug}><MemoryRouter initialEntries={["/x"]}><Routes><Route path="/x" element={<CastingPage />} /></Routes></MemoryRouter></WithClient>);
@@ -130,6 +130,7 @@ describe("Casting page", () => {
     fireEvent.click(screen.getByText("Add"));
     await waitFor(() => expect(api.addActors).toHaveBeenCalledWith("harbor", ["act-new"]));
     fireEvent.click(within(screen.getByTestId("casting-c2")).getByText("Remove"));
+    await answerConfirm("Remove");
     await waitFor(() => expect(api.removeCasting).toHaveBeenCalledWith("c2"));
   });
 
@@ -140,6 +141,7 @@ describe("Casting page", () => {
     expect(within(screen.getByLabelText("Passed on")).getByText("Indigo Reyes")).toBeTruthy();
     expect(screen.queryByTestId("vote-v3")).toBeNull();
     fireEvent.click(screen.getByText("Apply decisions"));
+    await answerConfirm("Apply");
     await waitFor(() => expect(api.applyActorVotes).toHaveBeenCalledWith("harbor", [{ assignment_id: "c2", vote: "up" }, { assignment_id: "c1", vote: "down" }]));
     expect((await screen.findByRole("status")).textContent).toBe("Applied 2 decisions: 1 approved, 1 declined.");
   });
@@ -147,6 +149,7 @@ describe("Casting page", () => {
   it("revokes the live link and makes a new one when none is live", async () => {
     renderAt();
     fireEvent.click(within(await screen.findByTestId("live-link")).getByText("Revoke"));
+    await answerConfirm("Revoke");
     await waitFor(() => expect(api.revokeCastingLink).toHaveBeenCalledWith("b1"));
     api.loadCasting.mockResolvedValue({ castings: ROWS, boards: [OLD], votes: [] });
     renderAt();

@@ -46,6 +46,7 @@ vi.mock("@/features/dashboard/shipmentsApi", () => ({
   deleteStudioShipment: (...a: unknown[]) => api.deleteStudioShipment(...a),
 }));
 
+import { answerConfirm } from "@/test/productionConfirm";
 import ShipmentsPage from "@/features/dashboard/ShipmentsPage";
 import { EMPTY_STUDIO_FORM, filterShipments, formToStudioArgs, fromCreator, fromStudio, isCreatorShipment, shipmentStatus, trackingUrl, DEFAULT_SHIPMENT_FILTERS } from "@/features/dashboard/shipmentsModel";
 import { todayValue } from "@/features/dashboard/model";
@@ -111,7 +112,6 @@ describe("Shipments page", () => {
     api.loadShipments.mockResolvedValue({ creators: [ON_WAY, OVERDUE, NOT_SHIPMENT], studio: [BOX], shoots: [{ id: "aa1", client_slug: "harbor", scheduled_shoot_date: day(9), actors: { name: "Indigo Reyes" } }] });
     loadBrandsAndTeam.mockResolvedValue({ brands: [{ slug: "glow", name: "Glow Co", active: true, does_creators: true }, { slug: "harbor", name: "Harbor Home", active: true, does_creators: false }], users: [] });
     for (const f of Object.values(api)) if (f !== api.loadShipments) f.mockResolvedValue(undefined);
-    vi.spyOn(window, "confirm").mockImplementation(() => true);
   });
 
   const renderPage = () => render(<MemoryRouter><ShipmentsPage /></MemoryRouter>);
@@ -162,6 +162,7 @@ describe("Shipments page", () => {
     fireEvent.click(within(screen.getByTestId("shipment-studio:s1")).getByText("Delivered today"));
     await waitFor(() => expect(api.setStudioDelivered).toHaveBeenCalledWith("s1", TODAY));
     fireEvent.click(within(screen.getByTestId("shipment-studio:s1")).getByText("Delete"));
+    await answerConfirm("Delete");
     await waitFor(() => expect(api.deleteStudioShipment).toHaveBeenCalledWith("s1"));
   });
 

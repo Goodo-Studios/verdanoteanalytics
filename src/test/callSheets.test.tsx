@@ -31,6 +31,7 @@ vi.mock("@/hooks/useRolePath", () => ({ useRolePrefix: () => "/employee" }));
 vi.mock("@/features/dashboard/api", () => ({ DashboardError: FakeDashboardError, loadBrandsAndTeam: () => loadBrandsAndTeam() }));
 vi.mock("@/features/dashboard/callSheetsApi", () => api);
 
+import { answerConfirm } from "@/test/productionConfirm";
 import CallSheetsPage from "@/features/dashboard/CallSheetsPage";
 import {
   EMPTY_SHEET_FORM,
@@ -110,7 +111,6 @@ describe("call sheets page", () => {
     api.loadCallSheets.mockResolvedValue(DATA);
     loadBrandsAndTeam.mockReset();
     loadBrandsAndTeam.mockResolvedValue({ brands: [{ slug: "harbor", name: "Demo Harbor", active: true }, { slug: "pine", name: "Demo Pine", active: true }], users: [] });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -151,6 +151,7 @@ describe("call sheets page", () => {
     fireEvent.click(within(card).getByText("Save call sheet"));
     await waitFor(() => expect(api.updateCallSheet).toHaveBeenCalledWith("cs1", { p_call_time: "08:30", p_wrap_time_estimate: "6 PM", p_general_notes: "Park on the street.", p_crew_member_ids: ["c1"] }));
     fireEvent.click(await within(await screen.findByTestId("call-sheet-shoot-s1")).findByText("Revoke link"));
+    await answerConfirm("Revoke");
     await waitFor(() => expect(api.setCallSheetRevoked).toHaveBeenCalledWith("cs1", true));
   });
 
@@ -165,6 +166,7 @@ describe("call sheets page", () => {
     const stale = screen.getByTestId("talent-line-a9");
     expect(within(stale).queryByText("Edit line")).toBeNull();
     fireEvent.click(within(stale).getByText("Remove line"));
+    await answerConfirm("Remove");
     await waitFor(() => expect(api.removeTalentLine).toHaveBeenCalledWith("cs1", "a9"));
   });
 

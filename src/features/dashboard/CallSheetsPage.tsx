@@ -9,7 +9,8 @@
 // Not ported: Goodo OS's immutable published versions and the talent portal.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { EmptyState, ErrorState, LoadingState, PageHeader, PageShell, TextField, TextareaField, useConfirm } from "@/components/page-kit";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { DashboardError, loadBrandsAndTeam } from "./api";
 import { createCallSheet, loadCallSheets, removeTalentLine, saveTalentLine, setCallSheetRevoked, updateCallSheet, type CallSheetsData } from "./callSheetsApi";
@@ -33,7 +34,7 @@ import {
 import { formatTime } from "./productionModel";
 import { errorText, formatDay } from "./model";
 
-const CTRL = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
+const LINK_BTN = "h-auto p-0 text-xs";
 /** Past shoots shown: the last 60 days. */
 const PAST_DAYS = 60;
 
@@ -56,9 +57,9 @@ function SheetEditor({ initial, title, busy, crew, onSave, onCancel }: {
     <form aria-label={title} className="space-y-2 rounded-lg border p-3" onSubmit={(e) => { e.preventDefault(); onSave(form); }}>
       <h3 className="text-sm font-semibold">{title}</h3>
       <div className="grid gap-2 sm:grid-cols-3">
-        <label className="text-xs">Call time<input aria-label="Call time" type="time" className={`${CTRL} mt-0.5 w-full`} value={form.call_time} onChange={(e) => set({ call_time: e.target.value })} /></label>
-        <label className="text-xs">Wrap estimate<input aria-label="Wrap estimate" className={`${CTRL} mt-0.5 w-full`} placeholder="About 5 PM" value={form.wrap_time_estimate} onChange={(e) => set({ wrap_time_estimate: e.target.value })} /></label>
-        <label className="text-xs sm:col-span-3">General notes<textarea aria-label="General notes" rows={3} className={`${CTRL} mt-0.5 w-full`} value={form.general_notes} onChange={(e) => set({ general_notes: e.target.value })} /></label>
+        <TextField label="Call time" type="time" value={form.call_time} onChange={(e) => set({ call_time: e.target.value })} />
+        <TextField label="Wrap estimate" placeholder="About 5 PM" value={form.wrap_time_estimate} onChange={(e) => set({ wrap_time_estimate: e.target.value })} />
+        <TextareaField label="General notes" className="sm:col-span-3" rows={3} value={form.general_notes} onChange={(e) => set({ general_notes: e.target.value })} />
       </div>
       <fieldset className="text-xs">
         <legend className="font-medium">Crew on this call sheet</legend>
@@ -73,8 +74,8 @@ function SheetEditor({ initial, title, busy, crew, onSave, onCancel }: {
         )}
       </fieldset>
       <div className="flex gap-2">
-        <button type="submit" className={CTRL} disabled={busy}>{busy ? "Saving..." : "Save call sheet"}</button>
-        <button type="button" className={CTRL} onClick={onCancel}>Cancel</button>
+        <Button type="submit" size="sm" disabled={busy}>{busy ? "Saving..." : "Save call sheet"}</Button>
+        <Button type="button" size="sm" variant="outline" onClick={onCancel}>Cancel</Button>
       </div>
     </form>
   );
@@ -86,15 +87,15 @@ function TalentEditor({ line, busy, onSave, onCancel }: { line: TalentLine; busy
   return (
     <form aria-label={`Talent line for ${line.name}`} className="space-y-2 rounded border p-2" onSubmit={(e) => { e.preventDefault(); onSave(form); }}>
       <div className="grid gap-2 sm:grid-cols-2">
-        <label className="text-xs">Talent call time<input aria-label="Talent call time" type="time" className={`${CTRL} mt-0.5 w-full`} value={form.call_time} onChange={(e) => set({ call_time: e.target.value })} /></label>
-        <label className="text-xs">Wardrobe<input aria-label="Wardrobe" className={`${CTRL} mt-0.5 w-full`} value={form.wardrobe} onChange={(e) => set({ wardrobe: e.target.value })} /></label>
-        <label className="text-xs sm:col-span-2">Notes for the talent<input aria-label="Notes for the talent" className={`${CTRL} mt-0.5 w-full`} value={form.talent_notes} onChange={(e) => set({ talent_notes: e.target.value })} /></label>
-        <label className="text-xs">Rate note (staff only)<input aria-label="Rate note" className={`${CTRL} mt-0.5 w-full`} value={form.rate_note} onChange={(e) => set({ rate_note: e.target.value })} /></label>
-        <label className="text-xs">Internal note (staff only)<input aria-label="Internal note" className={`${CTRL} mt-0.5 w-full`} value={form.internal_note} onChange={(e) => set({ internal_note: e.target.value })} /></label>
+        <TextField label="Talent call time" type="time" value={form.call_time} onChange={(e) => set({ call_time: e.target.value })} />
+        <TextField label="Wardrobe" value={form.wardrobe} onChange={(e) => set({ wardrobe: e.target.value })} />
+        <TextField label="Notes for the talent" className="sm:col-span-2" value={form.talent_notes} onChange={(e) => set({ talent_notes: e.target.value })} />
+        <TextField label="Rate note" hint="Staff only" value={form.rate_note} onChange={(e) => set({ rate_note: e.target.value })} />
+        <TextField label="Internal note" hint="Staff only" value={form.internal_note} onChange={(e) => set({ internal_note: e.target.value })} />
       </div>
       <div className="flex gap-2">
-        <button type="submit" className={CTRL} disabled={busy}>{busy ? "Saving..." : "Save line"}</button>
-        <button type="button" className={CTRL} onClick={onCancel}>Cancel</button>
+        <Button type="submit" size="sm" disabled={busy}>{busy ? "Saving..." : "Save line"}</Button>
+        <Button type="button" size="sm" variant="outline" onClick={onCancel}>Cancel</Button>
       </div>
     </form>
   );
@@ -109,15 +110,18 @@ export default function CallSheetsPage() {
   const [editingLine, setEditingLine] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const { confirm, dialog } = useConfirm();
   const today = useMemo(() => isoDay(new Date()), []);
   const from = useMemo(() => isoDay(new Date(Date.now() - PAST_DAYS * 86_400_000)), []);
 
   const load = useCallback(async () => {
     try {
       setData(await loadCallSheets(from));
+      setLoadError(null);
     } catch (e) {
-      setError(messageOf(e, "Could not load call sheets."));
+      setLoadError(messageOf(e, "Could not load call sheets."));
     }
   }, [from]);
   useEffect(() => {
@@ -165,8 +169,8 @@ export default function CallSheetsPage() {
     }).then((ok) => { if (ok) setEditingSheet(null); });
   };
 
-  const toggleRevoked = (sheet: CallSheet) => {
-    if (!sheet.revoked && !window.confirm("Revoke this call sheet link? Anyone holding it can no longer open it once the public page reads this database.")) return;
+  const toggleRevoked = async (sheet: CallSheet) => {
+    if (!sheet.revoked && !(await confirm({ title: "Revoke this call sheet link?", description: "Anyone holding it can no longer open it once the public page reads this database.", actionLabel: "Revoke" }))) return;
     void run(async () => {
       await setCallSheetRevoked(sheet.id, !sheet.revoked);
       return sheet.revoked ? "Link restored." : "Link revoked.";
@@ -191,8 +195,8 @@ export default function CallSheetsPage() {
     }).then((ok) => { if (ok) setEditingLine(null); });
   };
 
-  const removeLine = (sheet: CallSheet, line: TalentLine) => {
-    if (!window.confirm(`Remove the call sheet line for ${line.name}?`)) return;
+  const removeLine = async (sheet: CallSheet, line: TalentLine) => {
+    if (!(await confirm({ title: `Remove the call sheet line for ${line.name}?`, description: "The line is deleted from this call sheet.", actionLabel: "Remove" }))) return;
     void run(async () => {
       await removeTalentLine(sheet.id, line.assignmentId);
       return `Removed the line for ${line.name}.`;
@@ -225,7 +229,7 @@ export default function CallSheetsPage() {
         ) : !sheet ? (
           <div className="text-sm">
             <p className="text-muted-foreground">No call sheet yet.</p>
-            <button type="button" className={CTRL} onClick={() => { setEditingSheet(s.id); setError(null); setNotice(null); }}>Make a call sheet</button>
+            <Button type="button" size="sm" variant="outline" onClick={() => { setEditingSheet(s.id); setError(null); setNotice(null); }}>Make a call sheet</Button>
           </div>
         ) : (
           <div className="space-y-1 text-sm">
@@ -238,12 +242,12 @@ export default function CallSheetsPage() {
               Crew: {sheet.call_sheet_crew.length === 0 ? "none yet" : sheet.call_sheet_crew.map((c) => crewNames.get(c.crew_member_id) ?? "Removed crew member").join(", ")}
             </p>
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <button type="button" className="underline" onClick={() => { setEditingSheet(s.id); setError(null); setNotice(null); }}>Edit</button>
-              <button type="button" className="underline" disabled={busy} onClick={() => toggleRevoked(sheet)}>{sheet.revoked ? "Restore link" : "Revoke link"}</button>
+              <Button type="button" variant="link" size="sm" className={LINK_BTN} onClick={() => { setEditingSheet(s.id); setError(null); setNotice(null); }}>Edit</Button>
+              <Button type="button" variant="link" size="sm" className={LINK_BTN} disabled={busy} onClick={() => void toggleRevoked(sheet)}>{sheet.revoked ? "Restore link" : "Revoke link"}</Button>
               {url && !sheet.revoked && (
                 <>
                   <a href={url} target="_blank" rel="noreferrer" className="underline">Open public call sheet</a>
-                  <button type="button" className="underline" onClick={() => copy(url)}>Copy link</button>
+                  <Button type="button" variant="link" size="sm" className={LINK_BTN} onClick={() => copy(url)}>Copy link</Button>
                 </>
               )}
             </div>
@@ -269,7 +273,7 @@ export default function CallSheetsPage() {
                       ) : (
                         <div className="flex flex-wrap items-baseline gap-2">
                           <span className="font-medium">{line.name}</span>
-                          {line.stale && <span className="rounded bg-destructive/10 px-1 text-destructive">No longer on this shoot</span>}
+                          {line.stale && <span className="rounded bg-muted px-1 font-medium">No longer on this shoot</span>}
                           {e ? (
                             <span className="text-muted-foreground">
                               {e.call_time ? `Call ${formatTime(e.call_time)}` : "Call time from the sheet"}
@@ -279,8 +283,8 @@ export default function CallSheetsPage() {
                               {e.internal_note && ` · Internal: ${e.internal_note}`}
                             </span>
                           ) : <span className="text-muted-foreground">No line saved yet</span>}
-                          {!line.stale && <button type="button" className="underline" onClick={() => { setEditingLine(key); setError(null); setNotice(null); }}>{e ? "Edit line" : "Add line"}</button>}
-                          {e && <button type="button" className="underline" disabled={busy} onClick={() => removeLine(sheet, line)}>Remove line</button>}
+                          {!line.stale && <Button type="button" variant="link" size="sm" className={LINK_BTN} onClick={() => { setEditingLine(key); setError(null); setNotice(null); }}>{e ? "Edit line" : "Add line"}</Button>}
+                          {e && <Button type="button" variant="link" size="sm" className={LINK_BTN} disabled={busy} onClick={() => void removeLine(sheet, line)}>Remove line</Button>}
                         </div>
                       )}
                     </li>
@@ -295,7 +299,7 @@ export default function CallSheetsPage() {
   };
 
   return (
-    <div className="p-6 space-y-4" data-testid="call-sheets-page">
+    <PageShell data-testid="call-sheets-page">
       <PageHeader title="Call sheets" description="One call sheet per shoot: call time, wrap, notes, crew, and a line for each confirmed talent." />
       <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900" data-testid="call-sheets-old-dashboard-note">
         Public links still open on the old dashboard for now. Call sheets you make, change or revoke here reach crew and clients once the public pages move over. Talent lines, rate notes and internal notes are staff only and never appear on the public page.
@@ -308,23 +312,26 @@ export default function CallSheetsPage() {
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
-      {!data ? (
-        error ? null : <p role="status" className="text-sm text-muted-foreground">Loading call sheets...</p>
+      {loadError ? (
+        <ErrorState message={loadError} onRetry={() => void load()} />
+      ) : !data ? (
+        <LoadingState label="Loading call sheets" variant="cards" count={2} />
       ) : (
         <>
           <section aria-label="Upcoming shoots" className="space-y-2">
             <h2 className="text-sm font-semibold">Upcoming shoots</h2>
-            {upcoming.length === 0 ? <p className="text-sm text-muted-foreground">No upcoming shoots. Schedule one on the Production calendar.</p> : upcoming.map(renderShoot)}
+            {upcoming.length === 0 ? <EmptyState title="No upcoming shoots." description="Schedule one on the Production calendar." /> : upcoming.map(renderShoot)}
           </section>
           <label className="text-sm"><input type="checkbox" checked={showPast} onChange={(e) => setShowPast(e.target.checked)} /> Show shoots from the last {PAST_DAYS} days</label>
           {showPast && (
             <section aria-label="Past shoots" className="space-y-2">
               <h2 className="text-sm font-semibold">Past shoots</h2>
-              {past.length === 0 ? <p className="text-sm text-muted-foreground">No shoots in the last {PAST_DAYS} days.</p> : past.map(renderShoot)}
+              {past.length === 0 ? <EmptyState title={`No shoots in the last ${PAST_DAYS} days.`} /> : past.map(renderShoot)}
             </section>
           )}
         </>
       )}
-    </div>
+      {dialog}
+    </PageShell>
   );
 }

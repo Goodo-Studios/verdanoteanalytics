@@ -41,6 +41,7 @@ vi.mock("@/features/dashboard/propsApi", () => ({
   deleteProp: (...a: unknown[]) => api.deleteProp(...a),
 }));
 
+import { answerConfirm } from "@/test/productionConfirm";
 import PropsPage from "@/features/dashboard/PropsPage";
 import { DEFAULT_PROP_FILTERS, EMPTY_PROP_FORM, filterProps, formToPropArgs, formatPrice, spentTotal } from "@/features/dashboard/propsModel";
 
@@ -77,13 +78,10 @@ describe("props model", () => {
 });
 
 describe("Props page", () => {
-  let confirmReturn = true;
   beforeEach(() => {
     for (const f of Object.values(api)) f.mockReset();
     api.loadProps.mockResolvedValue([LAMP, RUG, MUG]);
     for (const f of [api.createProp, api.updateProp, api.setAtStudio, api.setClientSupplied, api.setReturnStatus, api.deleteProp]) f.mockResolvedValue(undefined);
-    confirmReturn = true;
-    vi.spyOn(window, "confirm").mockImplementation(() => confirmReturn);
   });
 
   it("lists props with price, bin and outcome, and the total spent", async () => {
@@ -131,12 +129,12 @@ describe("Props page", () => {
   it("deletes only after a confirm, and says when the prop is gone", async () => {
     render(<PropsPage />);
     const mug = await screen.findByTestId("prop-row-p3");
-    confirmReturn = false;
     fireEvent.click(within(mug).getByText("Delete"));
+    await answerConfirm("Cancel");
     expect(api.deleteProp).not.toHaveBeenCalled();
-    confirmReturn = true;
     api.deleteProp.mockRejectedValue(new FakeDashboardError({ code: "P0002", message: "Prop not found." }));
     fireEvent.click(within(mug).getByText("Delete"));
+    await answerConfirm("Delete");
     expect((await screen.findByRole("alert")).textContent).toBe("That prop no longer exists.");
   });
 });
