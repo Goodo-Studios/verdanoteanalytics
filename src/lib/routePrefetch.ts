@@ -33,6 +33,7 @@ export const routeImports = {
   adNameGenerator: () => import("@/features/ad-name-generator/AdNameGeneratorPage"),
   integrationHealth: () => import("@/features/integration-health/IntegrationHealthPage"),
   meetingRecaps: () => import("@/features/meeting-recaps/MeetingRecapsPage"),
+  knowledge: () => import("@/features/knowledge/KnowledgePage"),
 } as const;
 
 type Loader = () => Promise<unknown>;
@@ -59,6 +60,7 @@ const PATH_PREFETCH: Record<string, Loader[]> = {
   "/ad-name-generator": [routeImports.adNameGenerator],
   "/integration-health": [routeImports.integrationHealth],
   "/meeting-recaps": [routeImports.meetingRecaps],
+  "/knowledge": [routeImports.knowledge],
   "/ad-library": [routeImports.adLibrary, routeImports.vaultItemDetail],
   "/ad-library/boards": [routeImports.boards, routeImports.boardDetail],
   "/ad-library/hooks": [routeImports.hooks],

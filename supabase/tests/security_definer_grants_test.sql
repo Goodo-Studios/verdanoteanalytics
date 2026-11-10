@@ -48,6 +48,8 @@ INSERT INTO allow
     'create_prop', 'create_shoot', 'create_shoot_schedule_block',
     'create_studio_shipment', 'delete_location', 'goodo_os_user_role_mapping',
     'replay_job', 'resolve_job_manually', 'delete_prop', 'delete_shoot',
+    'create_knowledge_source', 'submit_knowledge_correction', 'review_knowledge_correction',
+    'publish_knowledge_correction', 'rollback_knowledge_source',
     'delete_shoot_schedule_block', 'delete_studio_shipment', 'peek_ad_code',
     'reject_actor_application', 'reject_application', 'revoke_call_sheet',
     'set_actor_shoot_schedule', 'set_client_active', 'set_client_details',

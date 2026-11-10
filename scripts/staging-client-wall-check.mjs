@@ -165,6 +165,38 @@ for (const table of ["meeting_recaps", "meeting_recap_items", "meeting_recap_rev
   check(`employee can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
 }
 
+// Knowledge pages (migration 20261110000003): staff only. Clients read nothing, cannot
+// write directly and are refused by every checked function. Nothing here writes for staff.
+const knowledgeTables = ["knowledge_sources", "knowledge_source_versions", "knowledge_corrections", "knowledge_correction_reviews"];
+const ZERO = "00000000-0000-4000-8000-000000000000";
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of knowledgeTables) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const ins = await s.c.from("knowledge_sources").insert({ title: "wall check", classification: "staff", release_scope: "global", created_by: s.userId });
+  check(`${label} cannot write knowledge_sources`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  for (const [fn, args] of [
+    ["create_knowledge_source", { p_title: "wall", p_body: "wall", p_classification: "staff", p_release_scope: "global" }],
+    ["submit_knowledge_correction", { p_source_id: ZERO, p_source_version: 1, p_proposed_body: "x", p_reason: "x", p_classification: "content" }],
+    ["review_knowledge_correction", { p_correction_id: ZERO, p_decision: "accepted", p_reason: "x" }],
+    ["publish_knowledge_correction", { p_correction_id: ZERO }],
+    ["rollback_knowledge_source", { p_source_id: ZERO, p_to_version: 1, p_expected_version: 2, p_reason: "x" }],
+  ]) {
+    const r = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, r.error?.code === "42501", `code=${r.error?.code ?? "none"}`);
+  }
+}
+for (const table of knowledgeTables) {
+  const r = await employee.c.from(table).select("*").limit(1);
+  check(`employee can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
+}
+// The employee passes the staff check and is refused only because the source does not exist.
+const kEmployee = await employee.c.rpc("submit_knowledge_correction", { p_source_id: ZERO, p_source_version: 1, p_proposed_body: "x", p_reason: "x", p_classification: "content" });
+check("employee passes the staff check in submit_knowledge_correction", kEmployee.error?.code === "P0002", `code=${kEmployee.error?.code ?? "none"}`);
+const kCreate = await employee.c.rpc("create_knowledge_source", { p_title: "wall", p_body: "wall", p_classification: "staff", p_release_scope: "global" });
+check("employee is refused create_knowledge_source (builder only)", kCreate.error?.code === "42501", `code=${kCreate.error?.code ?? "none"}`);
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {
