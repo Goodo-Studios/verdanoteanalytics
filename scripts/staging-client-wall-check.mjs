@@ -262,6 +262,37 @@ check("employee passes the staff check in add_deliverable_revision", dRevision.e
 const dException = await employee.c.rpc("decide_deliverable_round_exception", { p_exception_id: ZERO, p_approve: true, p_reason: "wall" });
 check("employee is refused decide_deliverable_round_exception (builder only)", dException.error?.code === "42501", `code=${dException.error?.code ?? "none"}`);
 
+// Old dashboard batch 1 (step 5a: Overview, Client Detail, Creator pipeline, Follow-ups).
+// The five tables those pages read are staff only, even for a client login linked to the
+// client (client A owns the demo account, which the made-up seed links to demo-glowdrip).
+// Clients cannot write and are refused the client functions.
+const batch1Tables = ["clients", "deliverables", "creator_assignments", "dashboard_creators", "app_users"];
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of batch1Tables) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const insA = await s.c.from("creator_assignments").insert({ creator_id: ZERO, client_slug: "demo-glowdrip" });
+  check(`${label} cannot write creator_assignments`, !!insA.error, `error=${insA.error?.message ?? "none (write accepted)"}`);
+  const insC = await s.c.from("dashboard_creators").insert({ name: "wall check" });
+  check(`${label} cannot write dashboard_creators`, !!insC.error, `error=${insC.error?.message ?? "none (write accepted)"}`);
+  for (const [fn, args] of [
+    ["set_client_details", { p_slug: "demo-northwind", p_strategist: "wall" }],
+    ["set_client_scope", { p_slug: "demo-northwind", p_scope: "wall" }],
+    ["set_client_active", { p_slug: "demo-northwind", p_active: false }],
+    ["update_client", { p_slug: "demo-northwind", p_name: "wall" }],
+  ]) {
+    const r = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, r.error?.code === "42501", `code=${r.error?.code ?? "none"}`);
+  }
+}
+for (const table of batch1Tables) {
+  const r = await employee.c.from(table).select("*").limit(1);
+  check(`employee can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
+}
+const b1Employee = await employee.c.rpc("set_client_details", { p_slug: "demo-northwind", p_strategist: "wall" });
+check("employee is refused set_client_details (builder only)", b1Employee.error?.code === "42501", `code=${b1Employee.error?.code ?? "none"}`);
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

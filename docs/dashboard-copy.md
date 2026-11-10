@@ -63,28 +63,49 @@ The public application forms and board links stay on the old dashboard, so they 
 
 The ad name generator calls `peek_ad_code` and `claim_ad_code` without signing in today. After the move it has to sign in as Verdanote staff.
 
+## Made-up test clients (default)
+
+Decision 10 in the consolidation plan: staging gets made-up test clients, not real client data, unless Matthew decides otherwise. `scripts/seed-staging-dashboard.mjs` writes them (four `demo-` clients, deliverables, engagements, eight made-up creators with `@example.test` addresses, creator assignments with overdue, due and later follow-ups, `app_users` rows for the two staging staff logins, and Content Pipeline cards for `demo-glowdrip`). Every row has a fixed id, so a re-run updates the same rows. It refuses any project but `verdanote-staging`.
+
+```bash
+hq secrets exec --company goodo-studios --only STAGING_SUPABASE_URL,STAGING_SUPABASE_SERVICE_ROLE_KEY -- node scripts/seed-staging-dashboard.mjs
+```
+
+Run `scripts/seed-demo-account.mjs` and `scripts/seed-staging-users.mjs` first. `demo-glowdrip` is linked to the demo ad account in `client_ad_accounts`, so test client A reads its engagements and its Content Pipeline cards, and nothing from the staff tables.
+
+Status 2026-11-10: staging already holds rows from the real dashboard (23 clients, 816 creators, 253 creator assignments and more, no deliverables). They were loaded before this note was written and no build log entry records the run. Whether they stay or are removed is Matthew's call (decision 10); nothing here removes them.
+
 ## Running the data copy
 
-The script `scripts/dashboard-copy.mjs` reads the old dashboard and writes into staging.
+The script `scripts/dashboard-copy.mjs` reads the old dashboard and writes into staging. It is a dry run unless told otherwise.
 
-Safety rules built in and covered by `scripts/dashboard-copy-lib.test.mjs`:
+| Command | What it does |
+|---|---|
+| `node scripts/dashboard-copy.mjs` | prints the plan. No network, no credentials |
+| `... --confirm-source qlvdvpchriyrsjtewwxx` | reads row counts and checksums from both sides and writes the report. Writes nothing to either project |
+| `... --confirm-source qlvdvpchriyrsjtewwxx --write --real-client-data-approved` | copies. Only after Matthew decides to put real client data in staging |
 
-- The old dashboard is only read, through the Supabase read only query endpoint, which the database runs as `supabase_read_only_user`. The script also refuses anything that is not a select.
+Safety rules built in and covered by `scripts/dashboard-copy-lib.test.mjs` and `scripts/dashboard-copy-dryrun.test.mjs` (run with `npm run test:scripts`):
+
+- Dry run by default. `--write` is refused without `--confirm-source` and `--real-client-data-approved`, before any network call. Unknown options are refused.
+- The old dashboard is only read, through the Supabase read only query endpoint, which the database runs as `supabase_read_only_user`. The script also refuses anything that is not a select. It uses `SUPABASE_ACCESS_TOKEN` for that endpoint; no dashboard service role key is used.
 - The write target is hard wired to the `verdanote-staging` project (`mnvcksbhbvypuiwozvct`). Production and the old dashboard are refused as targets.
-- It will not start without `--confirm-source qlvdvpchriyrsjtewwxx`, which is passed only after Matthew confirms the read.
+- It will not read the old dashboard without `--confirm-source qlvdvpchriyrsjtewwxx`, which is passed only after Matthew confirms the read.
 - Credentials come from the vault through `hq secrets exec`. They are never printed or written.
 - Triggers are switched off during the load, so values such as `stage_changed_at` are copied, not recomputed.
-- Loading is safe to repeat (`on conflict do nothing`). `--replace` empties the copied staging tables first.
+- Loading is safe to repeat (`on conflict do nothing`). `--replace` (with `--write`) empties the copied staging tables first, except `clients`, which other tables now point at (engagements, client ad accounts, Content Pipeline cards, knowledge, meeting recaps).
+- The staging side of each checksum leaves out the made-up seed rows (`SEED_MARKERS` in `scripts/seed-staging-dashboard-lib.mjs`), so a seeded staging can still match the source.
 
 Order of work:
 
 1. Merge the migration PR into `staging` and wait for the `deploy-staging` job to apply it.
 2. Set the two vault secrets above in the staging project.
-3. Matthew confirms the read of the production dashboard database (project `qlvdvpchriyrsjtewwxx`, read only, through the vault).
-4. Run:
+3. Matthew decides decision 10 (real client data in staging or not) and confirms the read of the production dashboard database (project `qlvdvpchriyrsjtewwxx`, read only, through the vault).
+4. Run the dry run first, then the copy:
 
 ```bash
-hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN,VERDANOTE_STAGING_SUPABASE_ACCESS_TOKEN -- node scripts/dashboard-copy.mjs --confirm-source qlvdvpchriyrsjtewwxx --report dashboard-copy-report.md
+hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN,VERDANOTE_STAGING_SUPABASE_ACCESS_TOKEN -- node scripts/dashboard-copy.mjs --confirm-source qlvdvpchriyrsjtewwxx --report dashboard-copy-dry-run.md
+hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN,VERDANOTE_STAGING_SUPABASE_ACCESS_TOKEN -- node scripts/dashboard-copy.mjs --confirm-source qlvdvpchriyrsjtewwxx --write --real-client-data-approved --report dashboard-copy-report.md
 ```
 
 5. Read the report. Every table must show the same row count and a matching checksum of its rows. The script exits with an error if any table differs.
@@ -97,3 +118,6 @@ The report also lists, as counts only, how many people hold each dashboard role 
 
 - `supabase/tests/dashboard_data_foundation_test.sql` (pgTAP, runs in CI): row rules, no anon or client access, client refused by the staff functions, ad counter, role mapping.
 - `scripts/dashboard-copy-lib.test.mjs`: table list and load order agree with the migration, target and source guards, read only enforcement, SQL building.
+- `scripts/dashboard-copy-dryrun.test.mjs`: dry run by default, the owner approval gate, refused options, seed rows left out of checksums, `clients` kept by `--replace`.
+- `scripts/seed-staging-dashboard.test.mjs`: the seed is made up, refuses non-staging projects, respects the dashboard constraints and carries its seed markers.
+- `supabase/tests/dashboard_batch1_test.sql` (pgTAP): the batch 1 tables are staff only, even for a client login linked to the client; the stage follow-up rule; the reworded refusals.
