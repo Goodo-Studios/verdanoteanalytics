@@ -1,8 +1,8 @@
-// Client overview: staff page (consolidation step 5a, port of the old
-// dashboard's Overview). Active creator clients, lowest completion first, with
-// the At risk and Stale tiles. Each card also shows the client's Content
-// Pipeline cards (pipeline_tasks, fed from ClickUp; the board itself stays on
-// /pipeline) and its active 45-day cycle (engagements, PR 143). Read only.
+// Clients: staff page (consolidation step 5a, port of the old dashboard's Overview). Every client,
+// whatever service line it is on, lowest completion first, with a search box and the At risk and
+// Stale tiles. Clients hidden from the list show only when asked for. Each card opens the client
+// hub (/clients/:slug) and shows the client's Content Pipeline cards (pipeline_tasks, fed from
+// ClickUp) and its active 45-day cycle (engagements). Read only.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertOctagon, AlertTriangle, Users } from "lucide-react";
@@ -12,12 +12,12 @@ import { loadOverview, type OverviewData } from "./api";
 import {
   boardSummary,
   clientHealth,
-  creatorClients,
   cycleDay,
   formatAgo,
   formatDay,
   groupBySlug,
   overviewCounts,
+  serviceLines,
   sortByProgress,
   type ActiveEngagement,
   type BoardCard,
@@ -55,6 +55,7 @@ function ClientCard({ client, cards, engagement, now, prefix }: {
     <Link to={`${prefix}/clients/${encodeURIComponent(client.slug)}`} className={`${CARD} block hover:bg-accent`} data-testid={`overview-client-${client.slug}`}>
       <div className="flex items-start justify-between gap-2">
         <h2 className="font-medium">{client.name}</h2>
+        {!client.active && <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">Hidden</span>}
         {HEALTH_LABEL[health] && (
           <span className={`rounded px-2 py-0.5 text-xs ${health === "stale" ? "bg-destructive/10 text-destructive" : "bg-amber-500/10 text-amber-700"}`}>
             {HEALTH_LABEL[health]}
@@ -66,6 +67,8 @@ function ClientCard({ client, cards, engagement, now, prefix }: {
       </div>
       <p className="mt-1 text-xs text-muted-foreground">{pct === null ? "No progress recorded" : `${pct}% complete`}</p>
       <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+        <dt className="text-muted-foreground">Service</dt>
+        <dd>{serviceLines(client).join(", ") || "None set"}</dd>
         <dt className="text-muted-foreground">Strategist</dt>
         <dd>{client.strategist ?? "Unassigned"}</dd>
         <dt className="text-muted-foreground">Contract end</dt>
@@ -87,6 +90,8 @@ export default function OverviewPage() {
   const now = useMemo(() => new Date(), []);
   const [data, setData] = useState<OverviewData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [showHidden, setShowHidden] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -100,14 +105,18 @@ export default function OverviewPage() {
     void load();
   }, [load]);
 
-  const clients = useMemo(() => (data ? sortByProgress(creatorClients(data.clients)) : []), [data]);
+  const clients = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return sortByProgress((data?.clients ?? []).filter((c) => (showHidden || c.active) && (!q || c.name.toLowerCase().includes(q) || c.slug.toLowerCase().includes(q))));
+  }, [data, query, showHidden]);
+  const hiddenCount = useMemo(() => (data?.clients ?? []).filter((c) => !c.active).length, [data]);
   const counts = useMemo(() => overviewCounts(clients, now), [clients, now]);
   const cardsBySlug = useMemo(() => groupBySlug(data?.cards ?? []), [data]);
   const cycleBySlug = useMemo(() => new Map((data?.engagements ?? []).map((e) => [e.client_slug, e])), [data]);
 
   return (
     <div className="p-6 space-y-6" data-testid="client-overview-page">
-      <PageHeader title="Client overview" description="Active creator clients, lowest completion first." />
+      <PageHeader title="Clients" description="Every client. Open one for its work, briefs, performance, brand document, meetings and scope." />
       {error ? (
         <div role="alert" className="rounded-lg border border-destructive/40 p-4 text-sm">
           Could not load clients: {error}{" "}
@@ -115,20 +124,39 @@ export default function OverviewPage() {
         </div>
       ) : !data ? (
         <p role="status" className="text-sm text-muted-foreground">Loading clients...</p>
-      ) : clients.length === 0 ? (
-        <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">No active creator clients.</p>
       ) : (
         <>
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              type="search"
+              aria-label="Search clients"
+              placeholder="Search clients"
+              className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            {hiddenCount > 0 && (
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} /> Show hidden clients ({hiddenCount})
+              </label>
+            )}
+          </div>
           <section aria-label="Summary" className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Tile label="Creator clients" value={counts.total} Icon={Users} tone="text-primary" />
+            <Tile label="Clients" value={counts.total} Icon={Users} tone="text-primary" />
             <Tile label="At risk" value={counts.atRisk} Icon={AlertTriangle} tone="text-amber-700" />
             <Tile label="Stale" value={counts.stale} Icon={AlertOctagon} tone="text-destructive" />
           </section>
-          <section aria-label="Active clients" className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {clients.map((c) => (
-              <ClientCard key={c.slug} client={c} cards={cardsBySlug.get(c.slug) ?? []} engagement={cycleBySlug.get(c.slug)} now={now} prefix={prefix} />
-            ))}
-          </section>
+          {clients.length === 0 ? (
+            <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+              {query.trim() ? "No clients match that search." : "No clients yet."}
+            </p>
+          ) : (
+            <section aria-label="Clients" className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {clients.map((c) => (
+                <ClientCard key={c.slug} client={c} cards={cardsBySlug.get(c.slug) ?? []} engagement={cycleBySlug.get(c.slug)} now={now} prefix={prefix} />
+              ))}
+            </section>
+          )}
           <p className="text-xs text-muted-foreground">
             At risk: under half done and no sync update in 14 days. Stale: no sync update in 21 days. Clients added by hand are not counted in either.
           </p>

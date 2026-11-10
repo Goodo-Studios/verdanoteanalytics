@@ -48,6 +48,8 @@ vi.mock("@/features/knowledge/KnowledgePage", () => pageMock("knowledge"));
 vi.mock("@/features/dashboard/FollowUpsPage", () => pageMock("follow-ups"));
 vi.mock("@/features/dashboard/CreatorPipelinePage", () => pageMock("creator-pipeline"));
 vi.mock("@/features/dashboard/ClientDetailPage", () => pageMock("clientDetail"));
+vi.mock("@/features/clients/ClientWorkTab", () => pageMock("client-work"));
+vi.mock("@/features/clients/ClientPerformanceTab", () => pageMock("client-performance"));
 vi.mock("@/features/dashboard/OverviewPage", () => pageMock("client-overview"));
 vi.mock("@/features/dashboard/ApprovalBoardsPage", () => pageMock("approval-boards"));
 vi.mock("@/features/dashboard/LocationsPage", () => pageMock("locations"));
@@ -111,6 +113,7 @@ import { RoleGuardedRoutes } from "@/App";
 import { clientNavItems, staffNavItems } from "@/components/AppSidebar";
 import { SECTIONS, type PageKey } from "@/lib/sections";
 import { LEGACY_REDIRECTS } from "@/lib/legacyRoutes";
+import { CLIENT_SCOPED_LEGACY, HUB_TABS, SCOPE_SUBTABS, STAFF_PIPELINE_LEGACY } from "@/lib/clientHub";
 
 function setRole(role: Role, opts: { clientPreview?: boolean } = {}) {
   authValue = {
@@ -168,10 +171,6 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean }
   { path: "/actors/de5a0000-0000-4000-8000-000000000500", marker: "actorDetail" },
   { path: "/creators", marker: "creators" },
   { path: "/creators/de5a0000-0000-4000-8000-000000000300", marker: "creatorDetail" },
-  { path: "/engagements", marker: "engagements" },
-  { path: "/deliverables", marker: "deliverables" },
-  { path: "/qa-gates", marker: "qa-gates" },
-  { path: "/handoffs", marker: "handoffs" },
   { path: "/agent-evaluations", marker: "agent-evaluations" },
   { path: "/operations", marker: "operations" },
   { path: "/operating-costs", marker: "operating-costs", builderOnly: true },
@@ -179,9 +178,6 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean }
   { path: "/bids", marker: "bids" },
   { path: "/team", marker: "team" },
   { path: "/learning", marker: "learning" },
-  { path: "/scope-changes", marker: "scope-changes" },
-  { path: "/recommendations", marker: "recommendations" },
-  { path: "/strategy", marker: "strategy" },
   { path: "/ad-library", marker: "ad-library" },
   { path: "/viral-feed", marker: "ad-library" },
   { path: "/ad-library/viral", marker: "ad-library" },
@@ -203,12 +199,29 @@ const PAGE_MARKER: Record<string, string> = {
   meetingRecaps: "meeting-recaps", bidViewer: "bids", team: "team", integrationHealth: "integration-health", operations: "operations",
   operatingCosts: "operating-costs", agentEvaluations: "agent-evaluations", growthDashboard: "growth-dashboard",
   adNameGenerator: "ad-name-generator", supportInbox: "support",
+  clientDetail: "clientDetail", clientWork: "client-work", clientPerformance: "client-performance",
+  engagements: "engagements", deliverables: "deliverables", qaGates: "qa-gates", handoffs: "handoffs", scopeChanges: "scope-changes",
+  strategy: "strategy", recommendations: "recommendations",
 };
 
 /** Every section tab address, with the page it shows. */
 const TAB_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean }> = SECTIONS.flatMap((section) =>
   section.tabs.map((tab) => ({ path: `/${section.id}/${tab.slug}`, marker: PAGE_MARKER[tab.page], builderOnly: tab.builderOnly })),
 );
+
+/** The client hub: every tab and every scope sub-tab, with the client in the address. */
+const HUB_PAGES: Array<{ path: string; marker: string }> = [
+  ...HUB_TABS.filter((t) => t.slug !== "scope").map((t) => ({ path: t.slug === "overview" ? "/clients/demo-glowdrip" : `/clients/demo-glowdrip/${t.slug}`, marker: PAGE_MARKER[t.page] })),
+  { path: "/clients/demo-glowdrip/scope", marker: "engagements" },
+  ...SCOPE_SUBTABS.map((t) => ({ path: `/clients/demo-glowdrip/scope/${t.slug}`, marker: PAGE_MARKER[t.page] })),
+];
+
+/** Old addresses of the pages that moved into the hub, opened for a client the old way (?client=). */
+const MOVED_INTO_HUB = [...CLIENT_SCOPED_LEGACY, STAFF_PIPELINE_LEGACY].map((r) => ({
+  path: `${r.from}?client=demo-glowdrip`,
+  from: r.from,
+  marker: r.sub ? PAGE_MARKER[SCOPE_SUBTABS.find((t) => t.slug === r.sub)!.page] : PAGE_MARKER.clientWork,
+}));
 
 /** Old staff addresses a client also uses for its own pages: staff are sent to the tab, clients keep the page. */
 const SHARED_OLD_PAGES = [
@@ -229,8 +242,14 @@ describe("every menu item, tab and old address is covered", () => {
     expect(missing, `tabs with no page marker: ${missing.join(", ")}`).toEqual([]);
   });
 
+  it("has a check for every client hub tab and every old address that moved into the hub", () => {
+    expect(HUB_PAGES.map((p) => p.path)).toHaveLength(HUB_TABS.length + SCOPE_SUBTABS.length);
+    expect(HUB_PAGES.every((p) => !!p.marker)).toBe(true);
+    expect(MOVED_INTO_HUB).toHaveLength(8);
+  });
+
   it("has a STAFF_PAGES row for each old address that redirects", () => {
-    const covered = new Set([...STAFF_PAGES.map((p) => p.path), ...SHARED_OLD_PAGES.map((p) => p.path)]);
+    const covered = new Set([...STAFF_PAGES.map((p) => p.path), ...SHARED_OLD_PAGES.map((p) => p.path), ...MOVED_INTO_HUB.map((p) => p.from)]);
     const missing = LEGACY_REDIRECTS.map((r) => r.from).filter((u) => !covered.has(u));
     expect(missing, `old addresses with no page check: ${missing.join(", ")}`).toEqual([]);
   });
@@ -264,6 +283,21 @@ describe("a client cannot load any staff page", () => {
     });
   });
 
+  describe.each([
+    ["client", false],
+    ["builder previewing the client view", true],
+  ] as const)("the client hub and the pages that moved into it, signed in as %s", (label, preview) => {
+    const role: Role = label === "client" ? "client" : "builder";
+    // /pipeline is a client's own page (its Content Pipeline), so it is not in this list.
+    it.each([...HUB_PAGES, ...MOVED_INTO_HUB.filter((p) => p.from !== "/pipeline")])("$path does not mount the page", async ({ path, marker }) => {
+      setRole(role, { clientPreview: preview });
+      renderAt(`/client${path}`);
+      expect(await screen.findByTestId("page-overview")).toBeTruthy();
+      expect(screen.queryByTestId(`page-${marker}`)).toBeNull();
+      expect(screen.queryByTestId("client-hub")).toBeNull();
+    });
+  });
+
   it("a client opening the Home or section roots lands on the index", async () => {
     for (const path of ["/production", "/talent", "/creative", "/knowledge", "/admin"]) {
       setRole("client");
@@ -286,7 +320,7 @@ describe("a client cannot load any staff page", () => {
 });
 
 describe("staff reach the staff pages", () => {
-  const ALL = [...STAFF_PAGES, ...TAB_PAGES, ...SHARED_OLD_PAGES];
+  const ALL = [...STAFF_PAGES, ...TAB_PAGES, ...SHARED_OLD_PAGES, ...HUB_PAGES, ...MOVED_INTO_HUB];
   it.each(ALL.filter((p) => !("builderOnly" in p && p.builderOnly)))("an employee reaches $path", async ({ path, marker }) => {
     setRole("employee");
     renderAt(`/employee${path}`);

@@ -1,8 +1,8 @@
 /**
  * Client overview (consolidation step 5a, port of the old dashboard Overview).
  *
- * - Lists active creator clients, lowest completion first; production-only and
- *   inactive clients are left out.
+ * - Lists every client, whatever its service line, lowest completion first; clients
+ *   hidden from the list show only on request, and a search box filters by name.
  * - At risk and Stale tiles count synced clients only (origin is not 'manual');
  *   a hand-made client is never flagged.
  * - Each card shows the Content Pipeline card count from pipeline_tasks and the
@@ -10,7 +10,7 @@
  * - No "Coda" wording anywhere.
  * The row rules are in supabase/tests/dashboard_batch1_test.sql.
  */
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OverviewData } from "@/features/dashboard/api";
@@ -65,14 +65,16 @@ beforeEach(() => {
 const renderPage = () => render(<MemoryRouter><OverviewPage /></MemoryRouter>);
 
 describe("Client overview page", () => {
-  it("shows the tiles and the creator clients lowest completion first", async () => {
+  it("shows the tiles and every client, production-only ones too, lowest completion first", async () => {
     loadOverview.mockResolvedValue(DATA);
     renderPage();
     const cards = await screen.findAllByTestId(/^overview-client-/);
     expect(cards.map((c) => c.getAttribute("data-testid"))).toEqual([
-      "overview-client-handmade", "overview-client-risky", "overview-client-stale", "overview-client-fresh",
+      "overview-client-handmade", "overview-client-risky", "overview-client-shoots", "overview-client-stale", "overview-client-fresh",
     ]);
-    expect(within(screen.getByTestId("overview-tile-creator-clients")).getByText("4")).toBeTruthy();
+    expect(screen.getByTestId("overview-client-shoots")).toHaveTextContent("Production");
+    expect(screen.queryByTestId("overview-client-gone")).toBeNull();
+    expect(within(screen.getByTestId("overview-tile-clients")).getByText("5")).toBeTruthy();
     expect(within(screen.getByTestId("overview-tile-at-risk")).getByText("1")).toBeTruthy();
     expect(within(screen.getByTestId("overview-tile-stale")).getByText("1")).toBeTruthy();
   });
@@ -91,10 +93,28 @@ describe("Client overview page", () => {
     expect(document.body.textContent).not.toMatch(/coda/i);
   });
 
+  it("searches by name or slug and offers the hidden clients on request", async () => {
+    loadOverview.mockResolvedValue(DATA);
+    renderPage();
+    await screen.findByTestId("overview-client-risky");
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search clients" }), { target: { value: "co" } });
+    expect(screen.getAllByTestId(/^overview-client-/).map((c) => c.getAttribute("data-testid"))).toEqual([
+      "overview-client-handmade", "overview-client-risky", "overview-client-stale", "overview-client-fresh",
+    ]);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search clients" }), { target: { value: "shoots" } });
+    expect(screen.getAllByTestId(/^overview-client-/)).toHaveLength(1);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search clients" }), { target: { value: "nothing like this" } });
+    expect(screen.getByText("No clients match that search.")).toBeTruthy();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search clients" }), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /Show hidden clients \(1\)/ }));
+    expect(screen.getByTestId("overview-client-gone")).toHaveTextContent("Hidden");
+    expect(within(screen.getByTestId("overview-tile-clients")).getByText("6")).toBeTruthy();
+  });
+
   it("shows an empty state and an error with a retry", async () => {
     loadOverview.mockResolvedValueOnce({ clients: [], cards: [], engagements: [] });
     const { unmount } = renderPage();
-    expect(await screen.findByText("No active creator clients.")).toBeTruthy();
+    expect(await screen.findByText("No clients yet.")).toBeTruthy();
     unmount();
     loadOverview.mockRejectedValueOnce(new Error("permission denied"));
     renderPage();

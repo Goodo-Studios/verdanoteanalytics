@@ -10,12 +10,16 @@ export interface PageQuery {
   select: string;
   /** Where the query is sent from. */
   usedBy: string;
+  /** Column the page filters on (equals one client slug). The wall check runs it for a real client. */
+  filter?: string;
 }
 
 export const CLIENT_SWITCHER_COLUMNS = "slug, name, active";
 export const CLIENT_SWITCHER_LINK_COLUMNS = "account_id, client_slug";
+export const PIPELINE_TASK_COLUMNS = "id, task_name, stage, due_date, content_type, updated_at";
 
 export const PAGE_QUERIES: PageQuery[] = [
   { table: "clients", select: CLIENT_SWITCHER_COLUMNS, usedBy: "client switcher (ClientSelectionContext)" },
   { table: "client_ad_accounts", select: CLIENT_SWITCHER_LINK_COLUMNS, usedBy: "client switcher (ClientSelectionContext)" },
+  { table: "pipeline_tasks", select: PIPELINE_TASK_COLUMNS, usedBy: "client hub Work tab (useClientWork)", filter: "client_slug" },
 ];

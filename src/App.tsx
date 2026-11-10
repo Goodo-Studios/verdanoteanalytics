@@ -20,6 +20,8 @@ import { routeImports } from "@/lib/routePrefetch";
 import { SectionPage } from "@/components/sections/SectionPage";
 import { LEGACY_REDIRECTS } from "@/lib/legacyRoutes";
 import { SECTIONS } from "@/lib/sections";
+import { CLIENT_SCOPED_LEGACY, STAFF_PIPELINE_LEGACY } from "@/lib/clientHub";
+import { ClientScopedRedirect } from "@/components/ClientScopedRedirect";
 
 // Critical pages — loaded eagerly (auth flow)
 import LoginPage from "./pages/LoginPage";
@@ -46,17 +48,9 @@ const HomePage = lazy(routeImports.home);
 const ContentPipelinePage = lazy(routeImports.contentPipeline);
 const VaultItemDetailPage = lazy(routeImports.vaultItemDetail);
 const BoardDetailPage = lazy(routeImports.boardDetail);
-// Pages that move into the client hub (builder and employee).
-const DeliverablesPage = lazy(routeImports.deliverables);
-const QaGatesPage = lazy(routeImports.qaGates);
-const HandoffsPage = lazy(routeImports.handoffs);
-const ScopeChangesPage = lazy(routeImports.scopeChanges);
-const RecommendationsPage = lazy(routeImports.recommendations);
-const StrategyPage = lazy(routeImports.strategy);
-const EngagementsPage = lazy(routeImports.engagements);
-// Client page and client list (builder and employee).
-const ClientDetailPage = lazy(routeImports.clientDetail);
+// Client list and client hub (builder and employee). The hub renders the pages inside its tabs.
 const ClientOverviewPage = lazy(routeImports.clientOverview);
+const ClientHubPage = lazy(routeImports.clientHub);
 // Detail pages for the Talent tabs (builder and employee).
 const ApplicationDetailPage = lazy(routeImports.applicationDetail);
 const ActorDetailPage = lazy(routeImports.actorDetail);
@@ -194,21 +188,23 @@ export function RoleGuardedRoutes() {
           <Route path="/reports/:id" element={<ReportDetailPage />} />
           {/* The report builder is a staff page. Clients read finished reports only. */}
           <Route path="/reports/:id/build" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <ReportBuilderPage />} />
-          <Route path="/clients/:slug" element={staffPage ? <ClientDetailPage /> : <Navigate to={`${prefix}/`} replace />} />
+          {/* Clients: the list, and the client hub (tabs) with the client in the address. */}
           <Route path="/clients" element={staffPage ? <ClientOverviewPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/clients/:slug" element={staffPage ? <ClientHubPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/clients/:slug/:tab" element={staffPage ? <ClientHubPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/clients/:slug/:tab/:sub" element={staffPage ? <ClientHubPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/applications/:kind/:id" element={staffPage ? <ApplicationDetailPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/actors/:id" element={staffPage ? <ActorDetailPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/creators/:id" element={staffPage ? <CreatorDetailPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/engagements" element={staffPage ? <EngagementsPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/deliverables" element={staffPage ? <DeliverablesPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/qa-gates" element={staffPage ? <QaGatesPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/handoffs" element={staffPage ? <HandoffsPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/scope-changes" element={staffPage ? <ScopeChangesPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/recommendations" element={staffPage ? <RecommendationsPage /> : <Navigate to={`${prefix}/`} replace />} />
-          <Route path="/strategy" element={staffPage ? <StrategyPage /> : <Navigate to={`${prefix}/`} replace />} />
+          {/* Pages that moved into the client hub. The old address goes to the same page for the
+              client in ?client= / ?brand= or the switcher, or to the client list. */}
+          {CLIENT_SCOPED_LEGACY.map((r) => (
+            <Route key={r.from} path={r.from} element={staffPage ? <ClientScopedRedirect from={r.from} /> : <Navigate to={`${prefix}/`} replace />} />
+          ))}
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/user-settings" element={<Navigate to={`${prefix}/settings`} replace />} />
-          <Route path="/pipeline" element={<ContentPipelinePage />} />
+          {/* A client login keeps its board here. Staff see it as the Work tab of the client. */}
+          <Route path="/pipeline" element={staffPage ? <ClientScopedRedirect from={STAFF_PIPELINE_LEGACY.from} /> : <ContentPipelinePage />} />
           {/* Vault pages that are not tabs. The tabs are under /creative; item and board
               detail pages keep their addresses. */}
           <Route path="/ad-library/boards/:id" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <BoardDetailPage />} />

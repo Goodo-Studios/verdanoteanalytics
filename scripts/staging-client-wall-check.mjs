@@ -1067,14 +1067,23 @@ check("builder passes the role check in update_client (no such client)", builder
 const SHELL_QUERIES = [
   ["clients", "slug, name, active"],
   ["client_ad_accounts", "account_id, client_slug"],
+  // Client hub Work tab: the cards of one client, read by client_slug (the third item).
+  ["pipeline_tasks", "id, task_name, stage, due_date, content_type, updated_at", "client_slug"],
 ];
-for (const [table, select] of SHELL_QUERIES) {
+for (const [table, select, filter] of SHELL_QUERIES) {
   for (const [label, s] of [["employee", employee], ["builder", staff]]) {
-    const r = await s.c.from(table).select(select);
-    check(`${label} loads the shell page query on ${table}`, !r.error && (r.data ?? []).length > 0, `error=${r.error?.code ?? ""} ${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+    let q = s.c.from(table).select(select);
+    if (filter) q = q.eq(filter, "demo-glowdrip");
+    const r = await q;
+    check(`${label} loads the shell page query on ${table}`, !r.error && (filter || (r.data ?? []).length > 0), `error=${r.error?.code ?? ""} ${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
   }
 }
 {
+  const WORK = "id, task_name, stage, due_date, content_type, updated_at";
+  const mineA = await clientA.c.from("pipeline_tasks").select(WORK).eq("client_slug", "demo-glowdrip");
+  check("client A loads its own client's cards with the Work tab query", !mineA.error, `error=${mineA.error?.message ?? "none"} rows=${mineA.data?.length ?? "error"}`);
+  const otherB = await clientB.c.from("pipeline_tasks").select(WORK).eq("client_slug", "demo-glowdrip");
+  check("client B loads no cards of a client it does not belong to with the Work tab query", !otherB.error && (otherB.data ?? []).length === 0, `error=${otherB.error?.message ?? "none"} rows=${otherB.data?.length ?? "error"}`);
   const links = await clientA.c.from("client_ad_accounts").select("account_id, client_slug");
   check("client A loads no client account links with the shell page query", !links.error && (links.data ?? []).length === 0, `error=${links.error?.message ?? "none"} rows=${links.data?.length ?? "error"}`);
   const mine = await slugsOf(clientA);

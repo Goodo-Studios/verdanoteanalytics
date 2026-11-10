@@ -28,6 +28,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 import QaGatesPage from "@/features/qa-gates/QaGatesPage";
+import { WithClient } from "./clientSelection";
 import { canSignOff, currentSignoffs, errorText, sortInbox, toQaItems } from "@/features/qa-gates/model";
 
 const base = {
@@ -68,6 +69,23 @@ describe("QaGatesPage", () => {
       "Static set · glow cycle 1 · revision 1 · internal qa · return open",
       "Hero video · glow cycle 1 · revision 2 · client approved",
     ]));
+  });
+
+  it("inside the client hub the inbox is the selected client's only", async () => {
+    data.engagement_deliverables = [HERO, { ...RETURNED, client_slug: "other", engagements: { client_slug: "other", cycle_number: 3 } }];
+    const { unmount } = render(<WithClient slug="glow"><QaGatesPage /></WithClient>);
+    const list = await screen.findByRole("list", { name: "QA inbox" });
+    await waitFor(() => expect(within(list).getAllByRole("button").map((b) => b.textContent)).toEqual(["Hero video · glow cycle 1 · revision 2 · client approved"]));
+    unmount();
+    render(<WithClient slug="nobody"><QaGatesPage /></WithClient>);
+    expect(await screen.findByText("Nothing is waiting for QA for this client.")).toBeTruthy();
+  });
+
+  it("on All clients it lists every client's deliverables", async () => {
+    data.engagement_deliverables = [HERO, { ...RETURNED, client_slug: "other", engagements: { client_slug: "other", cycle_number: 3 } }];
+    render(<WithClient slug=""><QaGatesPage /></WithClient>);
+    const list = await screen.findByRole("list", { name: "QA inbox" });
+    await waitFor(() => expect(within(list).getAllByRole("button")).toHaveLength(2));
   });
 
   it("shows what is missing and follows the two-person rule for signoffs", async () => {
