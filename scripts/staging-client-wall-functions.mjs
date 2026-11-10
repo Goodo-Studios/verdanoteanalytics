@@ -14,6 +14,8 @@
 //   - positive controls, so a gate that refuses everybody cannot pass: the
 //     builder is accepted by builder functions, the employee by employee
 //     functions and refused by builder-only ones.
+//   - the accounts list a client gets carries only the client-safe fields, and
+//     staff still get the full row.
 //
 // Exit code 1 if anything fails. Refuses to run against production.
 import { readFileSync } from "node:fs";
@@ -145,6 +147,44 @@ for (const [label, s] of [["builder", builder], ["employee", employee]]) {
   const r = await rpcStatus("peek_ad_code", s);
   check(`${label} can peek the next ad code`, r.status === 200 && Number(r.text) > 0, `status=${r.status}`);
 }
+
+// 5. Field check on the accounts list. A client gets only the allow-listed columns of its
+//    linked accounts; any other field fails the run. Copy of CLIENT_ACCOUNT_FIELDS and
+//    STAFF_ONLY_ACCOUNT_FIELDS in supabase/functions/_shared/client-account-fields.ts:
+//    change both together. Staff still get the full row (positive control).
+const CLIENT_ACCOUNT_FIELDS = [
+  "id", "name", "created_at", "last_synced_at", "optimization_goal",
+  "winner_kpi", "winner_kpi_direction", "winner_kpi_threshold", "winner_roas_threshold",
+  "iteration_spend_threshold",
+];
+const STAFF_ONLY_ACCOUNT_FIELDS = [
+  "client_responsiveness", "client_start_date", "attribution_notes", "attribution_model",
+  "creative_analysis_prompt", "insights_prompt", "company_description", "company_pdf_url",
+  "kill_threshold", "scale_threshold", "kill_scale_kpi", "kill_scale_kpi_direction",
+  "tiktok_access_token", "tiktok_advertiser_id", "target_roas", "target_cpa",
+  "target_monthly_spend", "primary_kpi", "secondary_kpis", "industry_category",
+];
+const accountsJson = async (token) => {
+  const res = await fetch(`${url}/functions/v1/accounts`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${token}`, apikey: anon },
+  });
+  let body = null;
+  try { body = await res.json(); } catch { /* not JSON */ }
+  return { status: res.status, body };
+};
+const listA = await accountsJson(clientA);
+const rowsA = Array.isArray(listA.body) ? listA.body : [];
+check("client A gets its linked account from the accounts function", listA.status === 200 && rowsA.some((r) => r.id === "act_demo_glowdrip"), `status=${listA.status} ids=${rowsA.map((r) => r.id)}`);
+const extra = [...new Set(rowsA.flatMap((r) => Object.keys(r).filter((k) => !CLIENT_ACCOUNT_FIELDS.includes(k))))];
+check("accounts function returns only allow-listed fields to client A", rowsA.length > 0 && extra.length === 0, `extra=${extra.join(",") || "none"}`);
+const leaked = [...new Set(rowsA.flatMap((r) => STAFF_ONLY_ACCOUNT_FIELDS.filter((k) => k in r)))];
+check("accounts function returns no staff-only field to client A", rowsA.length > 0 && leaked.length === 0, `leaked=${leaked.join(",") || "none"}`);
+const listB = await accountsJson(clientB);
+check("client B gets an empty list from the accounts function", listB.status === 200 && Array.isArray(listB.body) && listB.body.length === 0, `status=${listB.status} rows=${Array.isArray(listB.body) ? listB.body.length : "not a list"}`);
+const listStaff = await accountsJson(builder);
+const rowsStaff = Array.isArray(listStaff.body) ? listStaff.body : [];
+check("builder still gets full account rows from the accounts function", listStaff.status === 200 && rowsStaff.some((r) => r.id === "act_demo_glowdrip" && "kill_threshold" in r), `status=${listStaff.status} rows=${rowsStaff.length}`);
 
 console.log(failed ? `\n${failed} check(s) failed` : "\nAll server function wall checks passed");
 process.exit(failed ? 1 : 0);
