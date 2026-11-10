@@ -143,3 +143,24 @@ test('demo approval boards: one live creator board on a demo client, votes on it
   const pairs = seed.approval_votes.map((v) => `${v.board_id}|${v.assignment_id}`);
   assert.equal(new Set(pairs).size, pairs.length, 'one vote per board and assignment');
 });
+
+test('demo locations: made up, host contacts at example.test, one live link on a demo client', () => {
+  for (const l of seed.locations) {
+    assert.match(l.name, /made up/);
+    assert.ok(l.contact_email === null || l.contact_email.endsWith('@example.test'), l.contact_email);
+    assert.equal(l.wifi_password, null);
+    assert.ok(l.bathrooms === null || Number.isInteger(l.bathrooms * 2));
+  }
+  const ids = new Set(seed.locations.map((l) => l.id));
+  assert.equal(seed.location_boards.length, 1);
+  for (const b of seed.location_boards) {
+    assert.match(b.client_slug, /^demo-/);
+    assert.equal(b.token.length, 48);
+  }
+  for (const i of seed.location_board_items) {
+    assert.ok(ids.has(i.location_id), i.id);
+    assert.ok(seed.location_boards.some((b) => b.id === i.board_id), i.id);
+  }
+  const pairs = seed.location_board_items.map((i) => `${i.board_id}|${i.location_id}`);
+  assert.equal(new Set(pairs).size, pairs.length, 'a location is on a link once');
+});

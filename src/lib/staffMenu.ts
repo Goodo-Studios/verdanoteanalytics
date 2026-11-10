@@ -63,6 +63,7 @@ export const staffMenuSections: StaffMenuSection[] = [
       { id: "actors", title: "Actors", description: "The production talent roster: profiles, media and castings.", status: "live", to: "/actors" },
       { id: "applications", title: "Applications", description: "Review creator and actor applications: approve into the roster or reject with a reason.", status: "live", to: "/applications" },
       { id: "approval-boards", title: "Approval boards", description: "Client approval links per brand: copy, revoke, see the votes and apply them to the Creator pipeline.", status: "live", to: "/approval-boards" },
+      { id: "locations", title: "Locations", description: "Spaces to shoot in, with photos, and links that share a set of them with a client.", status: "live", to: "/locations" },
       { id: "client-overview", title: "Client overview", description: "Active creator clients by progress, with at-risk and stale counts.", status: "live", to: "/clients" },
       { id: "engagements", title: "Engagements", description: "45-day cycles per client: templates, kickoff and closeout.", status: "live", to: "/engagements" },
       { id: "deliverables", title: "Deliverables and approvals", description: "Revisions, client decisions and rounds, idea and shot list approvals.", status: "live", to: "/deliverables" },
@@ -82,7 +83,7 @@ export const staffMenuSections: StaffMenuSection[] = [
     blurb: "Tools from the other apps. Each slot opens when its page is built and checked in staging.",
     items: [
       { id: "goodo-os", title: "Goodo OS areas", description: "Waves C and D: learning and strategy, scope changes, AI agents, operations. Talent and call sheets move with step 5c.", status: "slot", step: "Steps 4c and 4d" },
-      { id: "dashboard-production", title: "Old dashboard: Production", description: "Casting, calendars, call sheets, locations, props, crew, shipments.", status: "slot", step: "Step 5c" },
+      { id: "dashboard-production", title: "Old dashboard: Production", description: "Casting, calendars, call sheets, props, crew, shipments. Locations are live.", status: "slot", step: "Step 5c" },
       { id: "dashboard-settings", title: "Old dashboard: Settings and team", description: "Team management, merged with Verdanote user management.", status: "slot", step: "Step 5d" },
       { id: "wideframe", title: "Wideframe Prompt Library", description: "Read-only prompt pages for editors.", status: "slot", step: "Step 6" },
       { id: "bid-viewer", title: "Client BIDs", description: "Read-only view of each client's finished BID.", status: "slot", step: "Step 6" },

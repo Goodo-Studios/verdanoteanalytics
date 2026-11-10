@@ -404,6 +404,43 @@ for (const table of boardTables) {
 const applyEmpty = await employee.c.rpc("apply_approval_votes", { p_client_slug: "demo-glowdrip", p_votes: [] });
 check("employee passes the staff check in apply_approval_votes (empty list, nothing moves)", !applyEmpty.error && applyEmpty.data === 0, `error=${applyEmpty.error?.message ?? "none"} data=${applyEmpty.data}`);
 
+// Old dashboard batch 3, Locations (step 5c): a location holds the host's contact email,
+// wifi and entry instructions, and a link token opens the public location page without a
+// login, so no client reads any of the four tables, writes them, or passes the checked
+// location functions. The employee reads them; the staff check is passed with an id that
+// matches no location, which changes nothing.
+const locationTables = ["locations", "location_photos", "location_boards", "location_board_items"];
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of locationTables) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const ins = await s.c.from("location_boards").insert({ client_slug: "demo-harbor", token: `wall-${label.replace(" ", "-")}-${Date.now()}` });
+  check(`${label} cannot make a location link`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  const rev = await s.c.from("location_boards").update({ revoked: true }).neq("id", ZERO).select("id");
+  check(`${label} revokes no location link`, !!rev.error || (rev.data ?? []).length === 0, `rows=${rev.data?.length ?? "error"}`);
+  for (const [fn, args] of [
+    ["create_location", { p_name: "wall check" }],
+    ["update_location", { p_id: ZERO, p_name: "wall check" }],
+    ["delete_location", { p_id: ZERO }],
+    ["set_location_capacity", { p_id: ZERO }],
+    ["set_location_entry_instructions", { p_id: ZERO }],
+  ]) {
+    const r = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, r.error?.code === "42501", `code=${r.error?.code ?? "none"}`);
+  }
+}
+for (const table of locationTables) {
+  const r = await employee.c.from(table).select("*").limit(1);
+  check(`employee can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
+}
+const locPage = await employee.c.from("location_boards").select("id, client_slug, label, token, revoked, created_at, location_board_items(location_id)").limit(1);
+check("employee loads the location links page query", !locPage.error, `error=${locPage.error?.code ?? ""} ${locPage.error?.message ?? "none"}`);
+for (const fn of ["update_location", "delete_location", "set_location_capacity", "set_location_entry_instructions"]) {
+  const r = await employee.c.rpc(fn, fn === "update_location" ? { p_id: ZERO, p_name: "wall check" } : { p_id: ZERO });
+  check(`employee passes the staff check in ${fn}`, r.error?.code === "P0002", `code=${r.error?.code ?? "none"}`);
+}
+
 // QA gates (migration 20261110120003, step 4b): staff only. Clients read none of the three
 // tables, cannot write them and are refused every checked function, the gate read included.
 const qaTables = ["engagement_deliverable_confirmations", "engagement_deliverable_qa_returns", "engagement_deliverable_signoffs"];

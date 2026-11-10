@@ -41,6 +41,7 @@ const STAFF_PATHS = [
   "/clients/demo-glowdrip",
   "/clients",
   "/approval-boards",
+  "/locations",
   "/applications",
   "/applications/creators/de5a0000-0000-4000-8000-000000000700",
   "/actors",
