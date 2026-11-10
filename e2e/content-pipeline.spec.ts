@@ -120,8 +120,9 @@ test.describe("Content Pipeline — live ClickUp sync (US-005)", () => {
       // accounts-loading window.
       const stages = await expectPopulatedPipeline(page);
 
-      // The client's single linked account auto-selects, so the "Select an
-      // account" prompt must NOT appear once the pipeline has rendered.
+      // A client login loads its own board without choosing an account (rows of
+      // its linked ad accounts or of its own clients by client_slug), so the
+      // "Select an account" prompt must NOT appear.
       await expect(
         page.getByText(/select an account to view the content pipeline/i)
       ).toHaveCount(0);

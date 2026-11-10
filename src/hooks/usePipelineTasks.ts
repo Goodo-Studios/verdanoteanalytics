@@ -24,16 +24,23 @@ const STAGE_ORDER: Record<string, number> = {
   "Ready to Launch": 5,
 };
 
-export function usePipelineTasks(accountId?: string) {
+/**
+ * Staff pass the selected ad account. A client login passes `own` instead: no
+ * filter is sent, and the row rules return only rows of the client's linked ad
+ * accounts or of its own clients (`client_slug IN get_user_client_slugs()`), so
+ * a client with no ad account, or with several, still gets its board. Only pass
+ * `own` for a real client session: staff have no row limit.
+ */
+export function usePipelineTasks(accountId?: string, own = false) {
   return useQuery<PipelineTask[]>({
-    queryKey: ["pipeline-tasks", accountId],
-    enabled: !!accountId && accountId !== "all",
+    queryKey: ["pipeline-tasks", own || accountId],
+    enabled: own || (!!accountId && accountId !== "all"),
     refetchInterval: 15 * 60 * 1000, // 15 minutes
     queryFn: async () => {
-      const { data, error } = await supabase
+      const query = supabase
         .from("pipeline_tasks")
-        .select("id, task_name, stage, due_date, content_type, updated_at")
-        .eq("account_id", accountId!);
+        .select("id, task_name, stage, due_date, content_type, updated_at");
+      const { data, error } = await (own ? query : query.eq("account_id", accountId!));
 
       if (error) throw error;
 
