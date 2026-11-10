@@ -13,9 +13,10 @@
  * The display stage on each task is computed upstream by sync-clickup-tasks'
  * STAGE_MAP; this view just buckets by the already-mapped value.
  */
-import { render, screen } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { ContentPipelineView } from "@/components/client/ContentPipeline";
+import { dueDateLabel, lastSyncedAt } from "@/lib/pipelineBoard";
 import type { PipelineTask } from "@/hooks/usePipelineTasks";
 
 const mockTasks: PipelineTask[] = [
@@ -138,10 +139,86 @@ describe("ContentPipeline (US-007)", () => {
     expect(screen.getByText(/Nothing in production right now/i)).toBeInTheDocument();
   });
 
-  it("degrades to the same onboarding state on fetch error rather than erroring (AC5)", () => {
+  it("shows a distinct error state with Try again on a failed load, not the empty state", () => {
+    const onRetry = vi.fn();
     render(
-      <ContentPipelineView tasks={undefined} isLoading={false} isError={true} />,
+      <ContentPipelineView tasks={undefined} isLoading={false} isError={true} onRetry={onRetry} />,
     );
-    expect(screen.getByText(/Nothing in production right now/i)).toBeInTheDocument();
+    expect(screen.getByTestId("pipeline-error")).toBeInTheDocument();
+    expect(screen.queryByTestId("pipeline-empty")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Nothing in production right now/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/couldn't load your pipeline/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("the empty state is not the error state", () => {
+    render(<ContentPipelineView tasks={[]} isLoading={false} isError={false} />);
+    expect(screen.getByTestId("pipeline-empty")).toBeInTheDocument();
+    expect(screen.queryByTestId("pipeline-error")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+  });
+});
+
+describe("Content pipeline last updated", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("shows the most recent sync time across the rows in plain words", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-10T12:00:00Z"));
+    const tasks: PipelineTask[] = [
+      { ...mockTasks[0], updated_at: "2026-11-10T07:00:00Z" },
+      { ...mockTasks[1], updated_at: "2026-11-10T10:00:00Z" },
+    ];
+    render(<ContentPipelineView tasks={tasks} isLoading={false} isError={false} />);
+    expect(screen.getByTestId("pipeline-last-updated")).toHaveTextContent("Updated 2 hours ago");
+  });
+
+  it("omits the line when there are no rows", () => {
+    render(<ContentPipelineView tasks={[]} isLoading={false} isError={false} />);
+    expect(screen.queryByTestId("pipeline-last-updated")).not.toBeInTheDocument();
+  });
+
+  it("lastSyncedAt picks the latest timestamp and ignores missing ones", () => {
+    expect(lastSyncedAt([])).toBeNull();
+    expect(
+      lastSyncedAt([
+        { ...mockTasks[0], updated_at: null },
+        { ...mockTasks[1], updated_at: "2026-11-09T01:00:00Z" },
+        { ...mockTasks[0], updated_at: "2026-11-01T01:00:00Z" },
+      ]),
+    ).toBe("2026-11-09T01:00:00Z");
+  });
+});
+
+describe("Content pipeline overdue rule", () => {
+  const now = new Date(2026, 10, 10, 9, 0, 0);
+
+  it("never shows an overdue warning on columns Goodo owns, but keeps the date", () => {
+    for (const stage of ["Preparing Content", "Production", "Editing"]) {
+      const label = dueDateLabel("2026-11-03", stage, now);
+      expect(label).toEqual({ text: "Due Nov 3", urgent: false });
+    }
+  });
+
+  it("shows a gentle late note only in Client Review", () => {
+    const label = dueDateLabel("2026-11-03", "Client Review", now);
+    expect(label?.urgent).toBe(true);
+    expect(label?.text).toBe("Was due Nov 3. Take a look when you can.");
+    expect(label?.text).not.toMatch(/overdue/i);
+  });
+
+  it("renders no 'Overdue' text on a late Production card", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const tasks: PipelineTask[] = [
+      { ...mockTasks[0], id: "late-prod", stage: "Production", due_date: "2026-11-01" },
+      { ...mockTasks[0], id: "late-review", task_name: "Review cut", stage: "Client Review", due_date: "2026-11-01" },
+    ];
+    render(<ContentPipelineView tasks={tasks} isLoading={false} isError={false} />);
+    expect(screen.queryByText(/Overdue/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Due Nov 1")).toBeInTheDocument();
+    expect(screen.getByText("Was due Nov 1. Take a look when you can.")).toBeInTheDocument();
+    vi.useRealTimers();
   });
 });

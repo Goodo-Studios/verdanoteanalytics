@@ -8,12 +8,16 @@
 // decision. Every write goes through a checked database function (migration
 // 20261110120002); clients see none of it.
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
+import { ConfirmDeleteDialog } from "@/components/user-settings/ConfirmDeleteDialog";
+import { STATUS_LABEL, type EngagementStatus } from "@/features/engagements/model";
 import {
   type ApprovalSubject,
+  ASSET_KIND_LABEL,
   canAddRevision,
   canDecideApproval,
   canPublish,
@@ -59,7 +63,7 @@ interface ClientOption {
 interface EngagementOption {
   id: string;
   cycle_number: number;
-  status: string;
+  status: EngagementStatus;
 }
 
 function useCall(onDone: () => void) {
@@ -103,6 +107,7 @@ function DeliverableCard({ d, onChanged }: { d: Deliverable; onChanged: () => vo
   const [airId, setAirId] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [reason, setReason] = useState("");
+  const [confirmWithdraw, setConfirmWithdraw] = useState(false);
   const current = currentRevision(d);
   const exception = pendingException(d);
   const addRevision = async () => {
@@ -148,11 +153,22 @@ function DeliverableCard({ d, onChanged }: { d: Deliverable; onChanged: () => vo
       {canAddRevision(d) ? (
         <div className="grid gap-2 sm:grid-cols-4">
           <input aria-label="Review link" className={`${field} sm:col-span-2`} placeholder="Air review link (https://...)" value={link} onChange={(e) => setLink(e.target.value)} />
-          <input aria-label="Air revision id" className={field} placeholder="Air revision id (optional)" value={airId} onChange={(e) => setAirId(e.target.value)} />
+          <input aria-label="Air version" className={field} placeholder="Air version (optional)" value={airId} onChange={(e) => setAirId(e.target.value)} />
           <Button size="sm" disabled={!link.trim().startsWith("https://")} onClick={() => void addRevision()}>Add revision {d.current_revision + 1}</Button>
         </div>
       ) : null}
-      {canAddRevision(d) ? <Button size="sm" variant="ghost" onClick={() => void call("withdraw_engagement_deliverable", { p_deliverable_id: d.id }, "The deliverable could not be withdrawn.")}>Withdraw</Button> : null}
+      {canAddRevision(d) ? <Button size="sm" variant="ghost" onClick={() => setConfirmWithdraw(true)}>Withdraw</Button> : null}
+      <ConfirmDeleteDialog
+        open={confirmWithdraw}
+        onOpenChange={setConfirmWithdraw}
+        title="Withdraw this deliverable?"
+        description={`"${d.title}" will be withdrawn and you will not be able to add revisions to it again.`}
+        actionLabel="Withdraw"
+        onConfirm={() => {
+          setConfirmWithdraw(false);
+          void call("withdraw_engagement_deliverable", { p_deliverable_id: d.id }, "The deliverable could not be withdrawn.");
+        }}
+      />
       {message ? <p role="status">{message}</p> : null}
       {error ? <p role="alert" className="text-red-700">{error}</p> : null}
     </section>
@@ -188,8 +204,10 @@ function SubjectCard({ s, onChanged }: { s: ApprovalSubject; onChanged: () => vo
 }
 
 export default function DeliverablesPage() {
+  // Optional ?client=<slug> (from a client page) preselects that client.
+  const [searchParams] = useSearchParams();
   const [clients, setClients] = useState<ClientOption[]>([]);
-  const [clientSlug, setClientSlug] = useState("");
+  const [clientSlug, setClientSlug] = useState(() => searchParams.get("client") ?? "");
   const [engagements, setEngagements] = useState<EngagementOption[]>([]);
   const [engagementId, setEngagementId] = useState("");
   const [deliverables, setDeliverables] = useState<Deliverable[] | null>(null);
@@ -199,7 +217,12 @@ export default function DeliverablesPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    void db.from("clients").select("slug, name").order("name").then(({ data }) => setClients((data ?? []) as ClientOption[]));
+    void db.from("clients").select("slug, name").order("name").then(({ data }) => {
+      const list = (data ?? []) as ClientOption[];
+      setClients(list);
+      // Drop a preselected client that is not in the list (unknown or hidden slug).
+      setClientSlug((slug) => (slug && !list.some((c) => c.slug === slug) ? "" : slug));
+    });
   }, []);
   useEffect(() => {
     setEngagementId("");
@@ -232,7 +255,7 @@ export default function DeliverablesPage() {
         </select>
         <select aria-label="Engagement" className={field} value={engagementId} onChange={(e) => setEngagementId(e.target.value)} disabled={!clientSlug}>
           <option value="">Select an engagement</option>
-          {engagements.map((e) => <option key={e.id} value={e.id}>Cycle {e.cycle_number} ({e.status})</option>)}
+          {engagements.map((e) => <option key={e.id} value={e.id}>Cycle {e.cycle_number} ({STATUS_LABEL[e.status] ?? e.status})</option>)}
         </select>
       </div>
       {loadError ? <p role="alert" className="text-sm text-red-700">{loadError}</p> : null}
@@ -241,7 +264,7 @@ export default function DeliverablesPage() {
           <div className="grid gap-2 rounded-lg border border-input bg-background p-4 sm:grid-cols-4">
             <input aria-label="Deliverable title" className={`${field} sm:col-span-2`} placeholder="Deliverable title" value={newDeliverable.title} onChange={(e) => setNewDeliverable({ ...newDeliverable, title: e.target.value })} />
             <select aria-label="Deliverable kind" className={field} value={newDeliverable.kind} onChange={(e) => setNewDeliverable({ ...newDeliverable, kind: e.target.value })}>
-              {["video", "image", "design", "document", "other"].map((k) => <option key={k} value={k}>{k}</option>)}
+              {(Object.keys(ASSET_KIND_LABEL) as Deliverable["asset_kind"][]).map((k) => <option key={k} value={k}>{ASSET_KIND_LABEL[k]}</option>)}
             </select>
             <input aria-label="Agreed deliverable" className={field} placeholder="Agreed deliverable (optional)" value={newDeliverable.agreed} onChange={(e) => setNewDeliverable({ ...newDeliverable, agreed: e.target.value })} />
             <Button size="sm" disabled={!newDeliverable.title.trim()} onClick={() => void call("add_engagement_deliverable", { p_engagement_id: engagementId, p_title: newDeliverable.title.trim(), p_asset_kind: newDeliverable.kind, p_agreed_item: newDeliverable.agreed.trim() || null }, "The deliverable could not be added.").then((ok) => ok && setNewDeliverable({ title: "", kind: "video", agreed: "" }))}>Add deliverable</Button>

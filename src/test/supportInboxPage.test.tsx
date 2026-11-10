@@ -80,6 +80,9 @@ describe("SupportInboxPage", () => {
     const launch = items[1];
     expect(within(launch).getByText("Told them Thursday")).toBeTruthy();
     await waitFor(() => expect(within(launch).getByText(/owner Rae/)).toBeTruthy());
+    // Dates read as dates, not raw ISO strings, and no internal revision number.
+    expect(within(items[0]).getByText(/next update by Jan 1, 2020/)).toBeTruthy();
+    expect(items[0].textContent).not.toMatch(/2020-01-01|revision \d/);
   });
 
   it("records a staff update and a resolution against the revision on screen", async () => {

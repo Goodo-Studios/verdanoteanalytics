@@ -84,6 +84,9 @@ describe("OperationsPage", () => {
     expect(jobCall?.filters).toContainEqual(["in", "state", ["recovery"]]);
     expect(screen.getByText(/Cause: lease expired after an outside effect started/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "Integration health" })).toHaveAttribute("href", "/employee/integration-health");
+    // Plain wording, no queue jargon.
+    expect(screen.getByText(/Try 1 of 3/)).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/attempt \d of|lease until|worker pass/);
   });
 
   it("replays a job in recovery and reloads", async () => {

@@ -14,6 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
+import { fmtDate } from "@/lib/formatters";
 import {
   canAcknowledge,
   canReassign,
@@ -95,7 +96,7 @@ function PacketCard({ packet, staff, onChanged }: { packet: Packet; staff: Staff
 
   return (
     <section aria-label={`Handoff to ${ROLE_LABEL[packet.receiving_role]}`} className="space-y-2 rounded-lg border border-input bg-background p-4 text-sm">
-      <h3 className="text-base font-semibold">To {staffName(staff, packet.receiver_id)} as {ROLE_LABEL[packet.receiving_role]} · due {packet.due_date}</h3>
+      <h3 className="text-base font-semibold">To {staffName(staff, packet.receiver_id)} as {ROLE_LABEL[packet.receiving_role]} · due {fmtDate(packet.due_date)}</h3>
       <p className="text-[12px] text-muted-foreground" data-testid={`packet-${packet.id}`}>
         {STATUS_LABEL[packet.status]} · revision {packet.current_revision} · owner {staffName(staff, packet.accountable_owner_id)}{source ? ` · ${SOURCE_LABEL[source]}` : ""}
       </p>

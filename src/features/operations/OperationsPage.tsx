@@ -138,9 +138,9 @@ function JobCard({ job, names, clientName, onChanged }: { job: Job; names: Recor
         <span data-testid={`job-state-${job.id}`} className="rounded border px-2 py-0.5 text-[12px]">{STATE_LABEL[job.state]}</span>
       </div>
       <p className="text-[12px] text-muted-foreground">
-        {clientName ? `${clientName} · ` : ""}attempt {job.attempts} of {job.max_attempts} · queued {formatWhen(job.created_at)} · updated {formatWhen(job.updated_at)}
+        {clientName ? `${clientName} · ` : ""}Try {job.attempts} of {job.max_attempts} · queued {formatWhen(job.created_at)} · updated {formatWhen(job.updated_at)}
         {job.state === "queued" ? ` · due ${formatWhen(job.available_at)}` : ""}
-        {job.state === "leased" ? ` · lease until ${formatWhen(job.lease_until)}` : ""}
+        {job.state === "leased" ? ` · running now, retries at ${formatWhen(job.lease_until)} if it does not finish` : ""}
       </p>
       {cause ? <p className="text-amber-900">Cause: {cause}</p> : null}
       {receipt ? <p className="text-muted-foreground">Receipt: {Object.entries(receipt).map(([k, v]) => `${k} ${v}`).join(" · ")}</p> : null}
@@ -240,7 +240,7 @@ export default function OperationsPage() {
         ))}
       </ul>
       <p className="text-[12px] text-muted-foreground">
-        Replaying sends the job again on the next worker pass, so first check the outside service for the earlier attempt. Nothing is sent from staging.
+        Replaying sends the job again the next time jobs run, so first check the outside service for the earlier attempt. Nothing is sent from staging.
         Connector and queue status is on <Link className="underline" to={`${prefix}/integration-health`}>Integration health</Link>.
       </p>
     </div>

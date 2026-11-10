@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
+import { fmtDate } from "@/lib/formatters";
 import {
   CHANNELS,
   channelLabel,
@@ -109,8 +110,8 @@ function RequestCard({ request, names, staff, clientName, onChanged }: {
         </span>
       </div>
       <p className="text-[12px] text-muted-foreground">
-        {clientName} · via {channelLabel(request.channel)} · next update by {request.next_update_target} · owner {personLabel(request.accountable_user_id, names)}
-        {request.backup_user_id ? ` · backup ${personLabel(request.backup_user_id, names)}` : ""} · revision {request.revision}
+        {clientName} · via {channelLabel(request.channel)} · next update by {fmtDate(request.next_update_target)} · owner {personLabel(request.accountable_user_id, names)}
+        {request.backup_user_id ? ` · backup ${personLabel(request.backup_user_id, names)}` : ""}
       </p>
       <ol className="space-y-1">
         {request.history.map((h) => (

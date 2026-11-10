@@ -71,6 +71,7 @@ import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { Button } from "@/components/ui/button";
 import { prefetchRoute } from "@/lib/routePrefetch";
+import { sectionsForAgencyView } from "@/lib/agencyNav";
 
 export type NavItem = {
   title: string;
@@ -175,10 +176,6 @@ export const clientNavItems: NavItem[] = [
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
   { title: "Reports", url: "/reports", icon: FileText },
-];
-
-const agencyNavItems: NavItem[] = [
-  { title: "Overview", url: "/agency", icon: LayoutGrid },
 ];
 
 const STORAGE_KEY = "verdanote.sidebar.sectionsCollapsed";
@@ -317,12 +314,17 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
     readCollapsedFromStorage(),
   );
 
+  const staffSections = useMemo(
+    () => (isAgencyView ? sectionsForAgencyView(builderSections) : builderSections),
+    [isAgencyView],
+  );
+
   // Auto-expand a section if it contains the active route
   useEffect(() => {
-    if (effectiveClient || isAgencyView) return;
+    if (effectiveClient) return;
     const updates: Record<string, boolean> = {};
     let changed = false;
-    for (const section of builderSections) {
+    for (const section of staffSections) {
       if (
         collapsed[section.id] &&
         sectionContainsActiveRoute(section, prefix, location.pathname)
@@ -339,7 +341,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname, prefix, effectiveClient, isAgencyView]);
+  }, [location.pathname, prefix, effectiveClient, staffSections]);
 
   const toggleSection = (id: string) => {
     setCollapsed((prev) => {
@@ -378,12 +380,12 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
     navigate(`${newPrefix}/`);
   };
 
-  // Flat nav (client + agency views) — no section grouping
+  // Flat nav (client view only): no section grouping. Staff keep their
+  // sections on the Agency View too.
   const flatNavItems = useMemo<NavItem[] | null>(() => {
-    if (isAgencyView) return agencyNavItems;
     if (effectiveClient) return clientNavItems;
     return null;
-  }, [isAgencyView, effectiveClient]);
+  }, [effectiveClient]);
 
   return (
     <aside className="flex h-screen w-56 flex-col bg-background border-r border-input">
@@ -417,7 +419,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-3">
         {flatNavItems ? (
           <>
-            {/* Account switcher above flat nav (client / agency views) */}
+            {/* Account switcher above flat nav (client view) */}
             <div className="space-y-1.5 pb-1">
               {showSwitcher && accounts.length > 0 && (
                 <Select value={selectedAccountId || ""} onValueChange={handleAccountChange}>
@@ -457,7 +459,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
             </div>
           </>
         ) : (
-          builderSections.map((section) => (
+          staffSections.map((section) => (
             <SectionGroup
               key={section.id}
               section={section}

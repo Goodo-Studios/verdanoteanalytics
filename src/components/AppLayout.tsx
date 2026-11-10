@@ -42,8 +42,10 @@ export function AppLayout({ children }: AppLayoutProps) {
               size="sm"
               className="h-8 w-8 p-0"
               onClick={() => setMobileOpen(true)}
+              aria-label="Open menu"
+              aria-expanded={mobileOpen}
             >
-              <Menu className="h-5 w-5" />
+              <Menu className="h-5 w-5" aria-hidden="true" />
             </Button>
             <img src={verdanoteLogo} alt="Verdanote" className="h-5" />
           </div>

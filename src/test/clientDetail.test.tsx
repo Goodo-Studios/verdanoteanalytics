@@ -102,17 +102,18 @@ describe("Client page", () => {
     expect(within(deliverables).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Cycle briefComplete", "ProductionIn progress"]);
     fireEvent.change(within(deliverables).getByLabelText("Deliverables month"), { target: { value: "2026-10" } });
     expect(within(deliverables).getByText("Report")).toBeTruthy();
-    expect(screen.getByTestId("client-cycle-2")).toHaveTextContent("Cycle 2: active, day 12 of 45");
+    expect(screen.getByTestId("client-cycle-2")).toHaveTextContent("Cycle 2: Active, day 12 of 45");
     const board = screen.getByRole("region", { name: "Content Pipeline" });
     expect(board).toHaveTextContent("Waiting on the client: Asset 4");
     expect(within(board).getByRole("link", { name: "Open the board" }).getAttribute("href")).toBe("/builder/pipeline");
     expect(screen.getByRole("region", { name: "Creators" })).toHaveTextContent("Sourced: 2");
     expect(screen.getByRole("region", { name: "Linked accounts" })).toHaveTextContent("Ad account: Glow Meta");
     expect(screen.getByRole("region", { name: "Linked accounts" })).toHaveTextContent("clickup folder: Glow folder");
-    const slot = screen.getByTestId("client-detail-4b-slot");
-    expect(slot).toHaveTextContent("step 4b");
-    expect(within(slot).getByRole("link", { name: "Engagements page" }).getAttribute("href")).toBe("/builder/engagements");
-    expect(within(slot).getByRole("link", { name: "Deliverables page" }).getAttribute("href")).toBe("/builder/deliverables");
+    // Plain links that carry the client, in place of the old "step 4b" placeholder.
+    const links = screen.getByTestId("client-detail-engagement-links");
+    expect(links.textContent).not.toMatch(/step 4b|step \d/i);
+    expect(within(links).getByRole("link", { name: "Engagements page" }).getAttribute("href")).toBe("/builder/engagements?client=glow");
+    expect(within(links).getByRole("link", { name: "Deliverables page" }).getAttribute("href")).toBe("/builder/deliverables?client=glow");
     expect(screen.queryByRole("button", { name: /overview/ })).toBeNull();
     expect(document.body.textContent).not.toMatch(/coda/i);
   });
@@ -152,7 +153,9 @@ describe("Client page", () => {
   it("shows unknown slugs and load errors", async () => {
     loadClientDetail.mockResolvedValueOnce({ ...data(), client: null });
     const { unmount } = renderAt("nope");
-    expect(await screen.findByText(/No client with the id/)).toBeTruthy();
+    expect(await screen.findByText(/We couldn.t find this client/)).toBeTruthy();
+    expect(screen.queryByText(/nope/)).toBeNull();
+    expect(screen.getByRole("link", { name: "Go to Client overview" }).getAttribute("href")).toBe("/builder/clients");
     unmount();
     loadClientDetail.mockRejectedValueOnce(new Error("boom"));
     renderAt();

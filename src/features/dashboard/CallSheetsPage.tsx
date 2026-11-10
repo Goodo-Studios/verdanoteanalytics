@@ -298,7 +298,7 @@ export default function CallSheetsPage() {
     <div className="p-6 space-y-4" data-testid="call-sheets-page">
       <PageHeader title="Call sheets" description="One call sheet per shoot: call time, wrap, notes, crew, and a line for each confirmed talent." />
       <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900" data-testid="call-sheets-old-dashboard-note">
-        Crew and clients open call sheet links on the old dashboard, which reads its own database until the release. A call sheet made, changed or revoked here is this database's copy; people holding the link see the change after the release points the public page here. Talent lines, rate notes and internal notes are staff only and are never on the public page.
+        Public links still open on the old dashboard for now. Call sheets you make, change or revoke here reach crew and clients once the public pages move over. Talent lines, rate notes and internal notes are staff only and never appear on the public page.
       </p>
       <div className="flex flex-wrap gap-3 text-sm">
         <Link to={`${prefix}/production-calendar`} className="underline">Production calendar</Link>

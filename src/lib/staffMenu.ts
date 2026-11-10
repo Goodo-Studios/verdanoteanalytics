@@ -89,14 +89,6 @@ export const staffMenuSections: StaffMenuSection[] = [
     ],
   },
   {
-    id: "moving-in",
-    label: "Moving in",
-    blurb: "Tools from the other apps. Each slot opens when its page is built and checked in staging.",
-    items: [
-      { id: "content-leaderboard", title: "Content Leaderboard", description: "LinkedIn post log for the team.", status: "slot", step: "Step 8" },
-    ],
-  },
-  {
     id: "elsewhere",
     label: "Other apps",
     blurb: "These stay outside Verdanote and open in a new tab.",

@@ -6,6 +6,7 @@
 // (/clients/:slug) holds details, scope and linked ad accounts.
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { Link } from "react-router-dom";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { Button } from "@/components/ui/button";
 import { errorText } from "./model";
@@ -62,7 +63,7 @@ function ClientItem({ client, builder, onChanged }: { client: ClientRow; builder
     <li className="rounded border border-input p-3 text-sm" data-testid="client-setting">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
-          <a className="font-medium underline" href={`${prefix}/clients/${client.slug}`}>{client.name}</a>{" "}
+          <Link className="font-medium underline" to={`${prefix}/clients/${client.slug}`}>{client.name}</Link>{" "}
           <span className="text-muted-foreground">{client.slug}</span>
         </div>
         <div className="text-[12px] text-muted-foreground">

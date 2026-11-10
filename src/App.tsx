@@ -14,6 +14,7 @@ import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { lazy, Suspense, useState } from "react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppLayout } from "@/components/AppLayout";
+import { RequireOneAccount } from "@/components/RequireOneAccount";
 import { PageSkeleton } from "@/components/skeletons/PageSkeleton";
 import { routeImports } from "@/lib/routePrefetch";
 
@@ -246,13 +247,13 @@ export function RoleGuardedRoutes() {
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/tagging" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <TaggingPage />} />
           
-          <Route path="/landing-pages" element={staffPage ? <LandingPagesPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/landing-pages" element={staffPage ? <RequireOneAccount pageName="Landing Pages"><LandingPagesPage /></RequireOneAccount> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/reports" element={effectiveClient ? <ClientReportsPage /> : <ReportsPage />} />
-          <Route path="/entities" element={staffPage ? <EntityReportPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/entities" element={staffPage ? <RequireOneAccount pageName="Creative Diversity"><EntityReportPage /></RequireOneAccount> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/reports/:id" element={<ReportDetailPage />} />
           {/* The report builder is a staff page. Clients read finished reports only. */}
           <Route path="/reports/:id/build" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <ReportBuilderPage />} />
-          <Route path="/creative-rotation" element={staffPage ? <CreativeRotationPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/creative-rotation" element={staffPage ? <RequireOneAccount pageName="Creative Rotation"><CreativeRotationPage /></RequireOneAccount> : <Navigate to={`${prefix}/`} replace />} />
           {/* Creative Matrix board (US-007) — builder-only; employees, clients,
               and role-preview sessions are redirected to their index. */}
           <Route path="/matrix" element={effectiveBuilder ? <MatrixBoardPage /> : <Navigate to={`${prefix}/`} replace />} />

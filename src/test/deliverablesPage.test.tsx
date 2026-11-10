@@ -15,6 +15,7 @@
  */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 
 const rpc = vi.fn();
 const data: Record<string, unknown[]> = {};
@@ -69,11 +70,15 @@ beforeEach(() => {
   auth = { user: { id: "emp-1" }, isBuilder: false };
 });
 
+function renderPage(url = "/builder/deliverables") {
+  return render(<MemoryRouter initialEntries={[url]}><DeliverablesPage /></MemoryRouter>);
+}
+
 async function open() {
-  render(<DeliverablesPage />);
+  renderPage();
   await screen.findByRole("option", { name: "Glow Drip" });
   fireEvent.change(screen.getByLabelText("Client"), { target: { value: "glow" } });
-  await screen.findByRole("option", { name: "Cycle 1 (active)" });
+  await screen.findByRole("option", { name: "Cycle 1 (Active)" });
   fireEvent.change(screen.getByLabelText("Engagement"), { target: { value: "e1" } });
   return screen.findByRole("region", { name: "Hook video" });
 }
@@ -144,6 +149,39 @@ describe("DeliverablesPage", () => {
     fireEvent.change(within(group).getByLabelText("Decision note"), { target: { value: "Yes on the call" } });
     fireEvent.click(within(group).getByRole("button", { name: "Client approved" }));
     await waitFor(() => expect(rpc).toHaveBeenCalledWith("record_approval_decision", { p_subject_id: "s1", p_version: 1, p_decision: "approved", p_channel: "call", p_source_note: "Yes on the call" }));
+  });
+
+  it("asks before withdrawing a deliverable, and Cancel sends nothing", async () => {
+    rpc.mockResolvedValue({ data: true, error: null });
+    const card = await open();
+    fireEvent.click(within(card).getByRole("button", { name: "Withdraw" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("Withdraw this deliverable?");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(rpc).not.toHaveBeenCalled();
+    fireEvent.click(within(card).getByRole("button", { name: "Withdraw" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Withdraw" }));
+    await waitFor(() => expect(rpc).toHaveBeenCalledWith("withdraw_engagement_deliverable", { p_deliverable_id: "d1" }));
+  });
+
+  it("uses plain labels: Air version and readable deliverable kinds", async () => {
+    const card = await open();
+    expect(within(card).getByLabelText("Air version")).toBeTruthy();
+    expect(within(card).queryByLabelText("Air revision id")).toBeNull();
+    const kinds = within(screen.getByLabelText("Deliverable kind")).getAllByRole("option").map((o) => o.textContent);
+    expect(kinds).toEqual(["Video", "Image", "Design", "Document", "Other"]);
+  });
+
+  it("preselects the client from ?client= and ignores an unknown one", async () => {
+    const { unmount } = renderPage("/builder/deliverables?client=glow");
+    await screen.findByRole("option", { name: "Glow Drip" });
+    expect((screen.getByLabelText("Client") as HTMLSelectElement).value).toBe("glow");
+    expect(await screen.findByRole("option", { name: "Cycle 1 (Active)" })).toBeTruthy();
+    unmount();
+    renderPage("/builder/deliverables?client=nobody");
+    await screen.findByRole("option", { name: "Glow Drip" });
+    await waitFor(() => expect((screen.getByLabelText("Client") as HTMLSelectElement).value).toBe(""));
   });
 
   it("adds a deliverable to the engagement", async () => {
