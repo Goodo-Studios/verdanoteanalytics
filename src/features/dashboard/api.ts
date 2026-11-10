@@ -79,10 +79,10 @@ export interface OverviewData {
   engagements: ActiveEngagement[];
 }
 
-/** Active clients, their Content Pipeline cards and their active cycle. */
+/** Every client (hidden ones included, the page decides), their Content Pipeline cards and their active cycle. */
 export async function loadOverview(): Promise<OverviewData> {
   const [clients, cards, engagements] = await Promise.all([
-    unwrap(db.from("clients").select<DashboardClient[]>(CLIENT_COLUMNS).eq("active", true).order("name")),
+    unwrap(db.from("clients").select<DashboardClient[]>(CLIENT_COLUMNS).order("name")),
     unwrap(db.from("pipeline_tasks").select<BoardCard[]>("client_slug, stage, due_date")),
     unwrap(db.from("engagements").select<ActiveEngagement[]>("client_slug, cycle_number, start_date, day30_date, day45_date").eq("status", "active")),
   ]);

@@ -17,8 +17,15 @@ const script = readFileSync(path.resolve(__dirname, "../../scripts/staging-clien
 const sources = import.meta.glob("../contexts/ClientSelectionProvider.tsx", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
 
 describe("page queries are run by the staging wall check", () => {
-  it.each(PAGE_QUERIES.map((q) => [q.table, q.select, q.usedBy]))("%s (%s) is run live with the same select string", (table, select) => {
-    expect(script, `${table} select "${select}" is missing from scripts/staging-client-wall-check.mjs`).toContain(`["${table}", "${select}"]`);
+  it.each(PAGE_QUERIES.map((q) => [q.table, q.select, q.usedBy, q.filter ?? ""]))("%s (%s) is run live with the same select string", (table, select, _usedBy, filter) => {
+    const entry = filter ? `["${table}", "${select}", "${filter}"]` : `["${table}", "${select}"]`;
+    expect(script, `${table} select "${select}" is missing from scripts/staging-client-wall-check.mjs`).toContain(entry);
+  });
+
+  it("runs a query a page filters by client for a real client, as staff and as a client", () => {
+    expect(PAGE_QUERIES.some((q) => q.filter === "client_slug")).toBe(true);
+    expect(script).toContain("with the Work tab query");
+    expect(script).toContain("client B loads no cards of a client it does not belong to");
   });
 
   it("is run as a staff user and as a client", () => {
@@ -32,6 +39,13 @@ describe("page queries are run by the staging wall check", () => {
     expect(source).toContain("CLIENT_SWITCHER_COLUMNS");
     expect(source).toContain("CLIENT_SWITCHER_LINK_COLUMNS");
     expect(source).not.toMatch(/select\("slug, name, active"\)/);
+  });
+
+  it("the Work tab sends the listed columns, not its own copy", () => {
+    const hook = readFileSync(path.resolve(__dirname, "../hooks/useClientWork.ts"), "utf8");
+    expect(hook).toContain("PIPELINE_TASK_COLUMNS");
+    expect(hook).toContain('.eq("client_slug"');
+    expect(hook).not.toContain("task_name, stage");
   });
 
   it("lists no query twice", () => {

@@ -4,8 +4,8 @@
 // holds for the same clients.slug: linked ad accounts, 45-day cycles
 // (engagements), the Content Pipeline cards from ClickUp (pipeline_tasks; the
 // board stays on /pipeline), creator assignments and outside-system mappings.
-// Cycle setup and deliverable approvals live on the Engagements and Deliverables
-// pages; this page links to them with ?client=<slug> so the client is preselected.
+// This page is the Overview tab of the client hub (/clients/:slug). Cycle setup and
+// deliverable approvals are on the hub's Scope tab.
 //
 // Writes go through the checked functions: set_client_details (builder, manual
 // clients only), set_client_scope and set_client_active (builder).
@@ -14,6 +14,7 @@ import { Link, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { useAuth } from "@/contexts/AuthContext";
+import { hubPath } from "@/lib/clientHub";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { STATUS_LABEL as ENGAGEMENT_STATUS_LABEL, type EngagementStatus } from "@/features/engagements/model";
 import {
@@ -170,15 +171,15 @@ export default function ClientDetailPage() {
     setNotice(null);
     try {
       await saveClientActive(client.slug, !client.active);
-      saved(client.active ? "Hidden from the Client overview." : "Shown on the Client overview.");
+      saved(client.active ? "Hidden from the client list." : "Shown on the client list.");
     } catch (e) {
-      setError(messageOf(e, "Could not change the overview setting."));
+      setError(messageOf(e, "Could not change whether this client shows on the client list."));
     }
   };
 
   const back = (
     <Link to={`${prefix}/clients`} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-      <ArrowLeft className="h-4 w-4" aria-hidden /> Back to Client overview
+      <ArrowLeft className="h-4 w-4" aria-hidden /> Back to Clients
     </Link>
   );
 
@@ -200,7 +201,7 @@ export default function ClientDetailPage() {
         {back}
         <div className="rounded-lg border border-dashed p-8 text-center text-sm space-y-2">
           <p>We couldn&rsquo;t find this client. It may have been removed, or the link may be out of date.</p>
-          <Link to={`${prefix}/clients`} className="underline">Go to Client overview</Link>
+          <Link to={`${prefix}/clients`} className="underline">Go to Clients</Link>
         </div>
       </div>
     );
@@ -217,13 +218,12 @@ export default function ClientDetailPage() {
 
   return (
     <div className="p-6 space-y-6" data-testid="client-detail-page">
-      {back}
       <PageHeader
         title={client.name}
         description={[...serviceLines(client), sentenceCase(client.status), synced ? "Synced from its knowledge file" : "Added by hand"].join(" · ")}
         actions={isBuilder ? (
           <button type="button" className="rounded-md border px-3 py-1.5 text-sm" onClick={() => void toggleActive(client)}>
-            {client.active ? "Hide from overview" : "Show on overview"}
+            {client.active ? "Hide from client list" : "Show on client list"}
           </button>
         ) : undefined}
       />
@@ -302,7 +302,7 @@ export default function ClientDetailPage() {
         <section aria-label="Content Pipeline" className={CARD}>
           <div className="flex items-center justify-between">
             <h2 className={H2}>Content Pipeline (ClickUp)</h2>
-            <Link to={`${prefix}/pipeline`} className="text-xs underline">Open the board</Link>
+            <Link to={`${prefix}${hubPath(client.slug, "work")}`} className="text-xs underline">Open the board</Link>
           </div>
           {board.total === 0 ? (
             <p className="mt-2 text-sm text-muted-foreground">No cards. The board fills from this client&rsquo;s ClickUp folder.</p>
@@ -325,7 +325,7 @@ export default function ClientDetailPage() {
         <section aria-label="Creators" className={CARD}>
           <div className="flex items-center justify-between">
             <h2 className={H2}>Creators</h2>
-            <Link to={`${prefix}/creator-pipeline?brand=${encodeURIComponent(client.slug)}`} className="text-xs underline">Open in Creator pipeline</Link>
+            <Link to={`${prefix}/talent/pipeline`} className="text-xs underline">Open in Creator pipeline</Link>
           </div>
           {stages.length === 0 ? (
             <p className="mt-2 text-sm text-muted-foreground">No creators on this client yet.</p>
@@ -349,11 +349,11 @@ export default function ClientDetailPage() {
       <section aria-label="Cycles and deliverables" className={CARD} data-testid="client-detail-engagement-links">
         <h2 className={H2}>Cycles and deliverables</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Set up cycles, terms and milestones on the{" "}
-          <Link to={`${prefix}/engagements?client=${encodeURIComponent(client.slug)}`} className="underline">Engagements page</Link>. Track deliverable
-          rounds and approvals on the{" "}
-          <Link to={`${prefix}/deliverables?client=${encodeURIComponent(client.slug)}`} className="underline">Deliverables page</Link>. Both open with{" "}
-          {client.name} already picked.
+          Set up cycles, terms and milestones under{" "}
+          <Link to={`${prefix}${hubPath(client.slug, "scope", "engagements")}`} className="underline">Scope: Engagements</Link>. Track deliverable
+          rounds and approvals under{" "}
+          <Link to={`${prefix}${hubPath(client.slug, "scope", "deliverables")}`} className="underline">Scope: Deliverables</Link>. Both are for{" "}
+          {client.name}.
         </p>
       </section>
     </div>

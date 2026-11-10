@@ -2,7 +2,7 @@
 // top and the existing page for the open tab below it, rendered unchanged. Staff only: a
 // client, or a builder previewing the client view, goes to the index. A builder-only tab goes
 // to the index for anyone else, the same as its old route did.
-import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from "react";
+import { Suspense } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { RequireOneAccount } from "@/components/RequireOneAccount";
 import { PageSkeleton } from "@/components/skeletons/PageSkeleton";
@@ -10,18 +10,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { useRolePrefix } from "@/hooks/useRolePath";
-import { routeImports } from "@/lib/routePrefetch";
-import { sectionPath, tabsFor, type PageKey, type SectionDef, type TabDef } from "@/lib/sections";
-
-const LAZY = new Map<PageKey, LazyExoticComponent<ComponentType>>();
-function pageFor(key: PageKey): LazyExoticComponent<ComponentType> {
-  let component = LAZY.get(key);
-  if (!component) {
-    component = lazy(routeImports[key] as unknown as () => Promise<{ default: ComponentType }>);
-    LAZY.set(key, component);
-  }
-  return component;
-}
+import { pageFor, prefetchPage } from "@/components/sections/lazyPages";
+import { useAccountReady } from "@/hooks/useAccountReady";
+import { sectionPath, tabsFor, type SectionDef, type TabDef } from "@/lib/sections";
 
 function NoAccountNotice({ tab }: { tab: TabDef }) {
   const { selectedClient, selectedSlug } = useClientSelection();
@@ -44,6 +35,7 @@ export function SectionPage({ section }: { section: SectionDef }) {
   const { isClient, isBuilder, isEmployee } = useAuth();
   const { isClientPreview, isEmployeePreview } = useClientPreview();
   const { noAccount } = useClientSelection();
+  const accountReady = useAccountReady();
 
   const effectiveClient = isClient || isClientPreview;
   const staffPage = (isBuilder || isEmployee) && !effectiveClient;
@@ -86,7 +78,7 @@ export function SectionPage({ section }: { section: SectionDef }) {
                 <Link
                   to={`${prefix}${sectionPath(section, t)}`}
                   aria-current={active ? "page" : undefined}
-                  onMouseEnter={() => void (routeImports[t.page] as () => Promise<unknown>)().catch(() => {})}
+                  onMouseEnter={() => prefetchPage(t.page)}
                   className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors ${
                     active ? "border-verdant font-semibold text-forest" : "border-transparent text-slate hover:text-forest"
                   }`}
@@ -99,7 +91,13 @@ export function SectionPage({ section }: { section: SectionDef }) {
         </nav>
       </div>
       <Suspense fallback={<PageSkeleton />}>
-        {tab.needsAccount && noAccount ? <div className="p-6"><NoAccountNotice tab={tab} /></div> : body}
+        {tab.needsAccount && noAccount ? (
+          <div className="p-6"><NoAccountNotice tab={tab} /></div>
+        ) : tab.needsAccount && !accountReady ? (
+          <PageSkeleton />
+        ) : (
+          body
+        )}
       </Suspense>
     </div>
   );

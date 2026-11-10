@@ -10,6 +10,7 @@
 // ClickUp from here.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -119,6 +120,8 @@ function Gate({ item, onChanged }: { item: QaItem; onChanged: () => void }) {
 }
 
 export default function QaGatesPage() {
+  // Inside the client hub the inbox is that client's. On All clients it lists every client.
+  const clientSlug = useSelectedClientSlug();
   const [items, setItems] = useState<QaItem[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -132,7 +135,7 @@ export default function QaGatesPage() {
   }, []);
   useEffect(() => void load(), [load]);
 
-  const inbox = useMemo(() => sortInbox(items ?? []), [items]);
+  const inbox = useMemo(() => sortInbox(items ?? []).filter((i) => !clientSlug || i.client_slug === clientSlug), [items, clientSlug]);
   const active = inbox.find((i) => i.id === selected) ?? null;
 
   return (
@@ -140,7 +143,7 @@ export default function QaGatesPage() {
       <PageHeader title="QA gates" description="Version-bound release checks for each deliverable: client approval, team confirmation, strategist and QA signoffs." />
       {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
       {items === null ? <p role="status" className="text-sm text-muted-foreground">Loading the QA inbox...</p> : null}
-      {items && inbox.length === 0 ? <p className="text-sm text-muted-foreground">Nothing is waiting for QA.</p> : null}
+      {items && inbox.length === 0 ? <p className="text-sm text-muted-foreground">{clientSlug ? "Nothing is waiting for QA for this client." : "Nothing is waiting for QA."}</p> : null}
       <ul className="space-y-1" aria-label="QA inbox">
         {inbox.map((i) => (
           <li key={i.id}>

@@ -105,15 +105,15 @@ describe("Client page", () => {
     expect(screen.getByTestId("client-cycle-2")).toHaveTextContent("Cycle 2: Active, day 12 of 45");
     const board = screen.getByRole("region", { name: "Content Pipeline" });
     expect(board).toHaveTextContent("Waiting on the client: Asset 4");
-    expect(within(board).getByRole("link", { name: "Open the board" }).getAttribute("href")).toBe("/builder/pipeline");
+    expect(within(board).getByRole("link", { name: "Open the board" }).getAttribute("href")).toBe("/builder/clients/glow/work");
     expect(screen.getByRole("region", { name: "Creators" })).toHaveTextContent("Sourced: 2");
     expect(screen.getByRole("region", { name: "Linked accounts" })).toHaveTextContent("Ad account: Glow Meta");
     expect(screen.getByRole("region", { name: "Linked accounts" })).toHaveTextContent("clickup folder: Glow folder");
     // Plain links that carry the client, in place of the old "step 4b" placeholder.
     const links = screen.getByTestId("client-detail-engagement-links");
     expect(links.textContent).not.toMatch(/step 4b|step \d/i);
-    expect(within(links).getByRole("link", { name: "Engagements page" }).getAttribute("href")).toBe("/builder/engagements?client=glow");
-    expect(within(links).getByRole("link", { name: "Deliverables page" }).getAttribute("href")).toBe("/builder/deliverables?client=glow");
+    expect(within(links).getByRole("link", { name: "Scope: Engagements" }).getAttribute("href")).toBe("/builder/clients/glow/scope/engagements");
+    expect(within(links).getByRole("link", { name: "Scope: Deliverables" }).getAttribute("href")).toBe("/builder/clients/glow/scope/deliverables");
     expect(screen.queryByRole("button", { name: /overview/ })).toBeNull();
     expect(document.body.textContent).not.toMatch(/coda/i);
   });
@@ -134,7 +134,7 @@ describe("Client page", () => {
     fireEvent.change(screen.getByLabelText("Scope"), { target: { value: " 8 videos " } });
     fireEvent.click(screen.getByRole("button", { name: "Save scope" }));
     await waitFor(() => expect(saveClientScope).toHaveBeenCalledWith("glow", "8 videos"));
-    fireEvent.click(screen.getByRole("button", { name: "Hide from overview" }));
+    fireEvent.click(screen.getByRole("button", { name: "Hide from client list" }));
     await waitFor(() => expect(saveClientActive).toHaveBeenCalledWith("glow", false));
   });
 
@@ -155,7 +155,7 @@ describe("Client page", () => {
     const { unmount } = renderAt("nope");
     expect(await screen.findByText(/We couldn.t find this client/)).toBeTruthy();
     expect(screen.queryByText(/nope/)).toBeNull();
-    expect(screen.getByRole("link", { name: "Go to Client overview" }).getAttribute("href")).toBe("/builder/clients");
+    expect(screen.getByRole("link", { name: "Go to Clients" }).getAttribute("href")).toBe("/builder/clients");
     unmount();
     loadClientDetail.mockRejectedValueOnce(new Error("boom"));
     renderAt();
