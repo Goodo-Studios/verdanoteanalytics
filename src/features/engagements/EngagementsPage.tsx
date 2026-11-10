@@ -13,7 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { useAuth } from "@/contexts/AuthContext";
-import { PageHeader } from "@/components/PageHeader";
+import { ErrorState, LoadingState, PageHeader, PageShell, EmptyState, SelectField, TextField, TextareaField } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
 import { fmtDate } from "@/lib/formatters";
 import {
@@ -51,7 +51,6 @@ interface Untyped {
 }
 const db = supabase as unknown as Untyped;
 const SELECT = "*, engagement_terms(*), engagement_notes(purchase_reference), engagement_milestones(*), engagement_closeouts(*)";
-const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 function TemplateForm({ templates, clientSlug, onSaved }: { templates: EngagementTemplate[]; clientSlug: string; onSaved: () => void }) {
   const [form, setForm] = useState({ key: "standard-sprint", scope: "global", type: "standard_sprint", milestones: "kickoff\ndelivery", deliverables: "", source: "" });
@@ -79,26 +78,41 @@ function TemplateForm({ templates, clientSlug, onSaved }: { templates: Engagemen
       <div className="mt-3 space-y-2 text-sm">
         <p className="text-muted-foreground">Saving an existing name makes a new version for future engagements. Engagements already created keep their copy.</p>
         <div className="grid gap-2 sm:grid-cols-3">
-          <input aria-label="Template name" className={field} value={form.key} onChange={set("key")} />
-          <select aria-label="Template scope" className={field} value={form.scope} onChange={set("scope")}>
-            <option value="global">All clients</option>
-            <option value="client" disabled={!clientSlug}>This client only</option>
-          </select>
-          <select aria-label="Template type" className={field} value={form.type} onChange={set("type")}>
-            {(Object.keys(TYPE_LABEL) as EngagementType[]).map((t) => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
-          </select>
+          <TextField label="Template name" hideLabel value={form.key} onChange={set("key")} />
+          <SelectField
+            label="Template scope"
+            hideLabel
+            value={form.scope}
+            onChange={set("scope")}
+            options={[{ value: "global", label: "All clients" }, { value: "client", label: "This client only", disabled: !clientSlug }]}
+          />
+          <SelectField
+            label="Template type"
+            hideLabel
+            value={form.type}
+            onChange={set("type")}
+            options={(Object.keys(TYPE_LABEL) as EngagementType[]).map((t) => ({ value: t, label: TYPE_LABEL[t] }))}
+          />
         </div>
-        <label className="block">Milestones, one per line (<code>key</code>, or <code>key | evidence, evidence | client</code> or <code>| internal</code>)
-          <textarea aria-label="Milestones" className={`${field} min-h-[90px] font-mono`} value={form.milestones} onChange={set("milestones")} />
-        </label>
-        <label className="block">Agreed deliverables, one per line (<code>name | quantity | revision rounds</code>)
-          <textarea aria-label="Agreed deliverables" className={`${field} min-h-[70px] font-mono`} value={form.deliverables} onChange={set("deliverables")} />
-        </label>
-        <input aria-label="Template source reference" className={field} placeholder="Source reference (for example the signed agreement)" value={form.source} onChange={set("source")} />
+        <TextareaField
+          label="Milestones"
+          hint="One per line: key, or key | evidence, evidence | client, or | internal."
+          inputClassName="min-h-[90px] font-mono"
+          value={form.milestones}
+          onChange={set("milestones")}
+        />
+        <TextareaField
+          label="Agreed deliverables"
+          hint="One per line: name | quantity | revision rounds."
+          inputClassName="min-h-[70px] font-mono"
+          value={form.deliverables}
+          onChange={set("deliverables")}
+        />
+        <TextField label="Template source reference" hideLabel placeholder="Source reference (for example the signed agreement)" value={form.source} onChange={set("source")} />
         <Button size="sm" disabled={!TEMPLATE_KEY.test(form.key.trim()) || !form.source.trim()} onClick={() => void save()}>
           Save as version {expected + 1}
         </Button>
-        {error ? <p role="alert" className="text-red-700">{error}</p> : null}
+        {error ? <p role="alert" className="text-destructive">{error}</p> : null}
       </div>
     </details>
   );
@@ -129,16 +143,16 @@ function CloseoutForm({ engagement, onSaved }: { engagement: Engagement; onSaved
   return (
     <div className="space-y-2">
       <h4 className="text-sm font-semibold">Closeout readout{latest ? ` (version ${latest.version})` : ""}</h4>
-      <textarea aria-label="Evidence limit" className={`${field} min-h-[60px]`} placeholder="What the evidence can and cannot support" value={form.limit} onChange={set("limit")} />
+      <TextareaField label="Evidence limit" hideLabel inputClassName="min-h-[60px]" placeholder="What the evidence can and cannot support" value={form.limit} onChange={set("limit")} />
       <div className="grid gap-2 sm:grid-cols-2">
-        <label className="text-sm">Testing started<input aria-label="Testing started" type="date" className={field} value={form.started} onChange={set("started")} /></label>
-        <label className="text-sm">Testing ended<input aria-label="Testing ended" type="date" className={field} value={form.ended} onChange={set("ended")} /></label>
+        <TextField label="Testing started" type="date" value={form.started} onChange={set("started")} />
+        <TextField label="Testing ended" type="date" value={form.ended} onChange={set("ended")} />
       </div>
-      <textarea aria-label="Delivered assets" className={field} placeholder="Delivered assets, one per line" value={form.assets} onChange={set("assets")} />
-      <textarea aria-label="Supported conclusions" className={field} placeholder="Supported conclusions, one per line" value={form.conclusions} onChange={set("conclusions")} />
-      <textarea aria-label="Outstanding actions" className={field} placeholder="Outstanding actions, one per line" value={form.actions} onChange={set("actions")} />
+      <TextareaField label="Delivered assets" hideLabel placeholder="Delivered assets, one per line" value={form.assets} onChange={set("assets")} />
+      <TextareaField label="Supported conclusions" hideLabel placeholder="Supported conclusions, one per line" value={form.conclusions} onChange={set("conclusions")} />
+      <TextareaField label="Outstanding actions" hideLabel placeholder="Outstanding actions, one per line" value={form.actions} onChange={set("actions")} />
       <Button size="sm" disabled={!form.limit.trim()} onClick={() => void save()}>Save closeout version {(latest?.version ?? 0) + 1}</Button>
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </div>
   );
 }
@@ -172,7 +186,7 @@ function EngagementCard({ engagement, onChanged }: { engagement: Engagement; onC
       </div>
       {canKickoff(e) ? (
         <div className="flex flex-wrap items-end gap-2">
-          <label className="text-sm">Actual kickoff date<input aria-label="Kickoff date" type="date" className={field} value={start} onChange={(ev) => setStart(ev.target.value)} /></label>
+          <TextField label="Kickoff date" type="date" value={start} onChange={(ev) => setStart(ev.target.value)} />
           <Button size="sm" disabled={!start} onClick={() => void kickoff()}>Record kickoff</Button>
           <Button size="sm" variant="outline" onClick={() => void setStatus("cancelled")}>Cancel engagement</Button>
         </div>
@@ -189,7 +203,7 @@ function EngagementCard({ engagement, onChanged }: { engagement: Engagement; onC
         </div>
       ) : null}
       {e.status !== "planned" && e.status !== "cancelled" ? <CloseoutForm key={latestCloseout(e)?.id ?? "new"} engagement={e} onSaved={onChanged} /> : null}
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </section>
   );
 }
@@ -232,29 +246,34 @@ export default function EngagementsPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4" data-testid="engagements">
+    <PageShell data-testid="engagements">
       <PageHeader title="Engagements" description="45-day cycles per client: create from a template, record the kickoff, write the closeout." />
       {!clientSlug ? <PickClientPrompt what="its engagements" /> : null}
       {isBuilder ? <TemplateForm templates={templates} clientSlug={clientSlug} onSaved={() => void loadTemplates()} /> : null}
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+      {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
       {clientSlug && client?.active ? (
         <div className="space-y-2 rounded-lg border border-input bg-background p-4">
           <h2 className="text-sm font-semibold">New engagement for {client.name}</h2>
           {available.length ? (
             <div className="grid gap-2 sm:grid-cols-3">
-              <select aria-label="Template" className={`${field} sm:col-span-2`} value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
-                <option value="">Select a template</option>
-                {available.map((t) => <option key={t.id} value={t.id}>{templateLabel(t)}</option>)}
-              </select>
-              <input aria-label="Purchase reference" className={field} placeholder="Purchase reference" value={purchase} onChange={(e) => setPurchase(e.target.value)} />
+              <SelectField
+                label="Template"
+                hideLabel
+                className="sm:col-span-2"
+                value={templateId}
+                onChange={(e) => setTemplateId(e.target.value)}
+                placeholder="Select a template"
+                options={available.map((t) => ({ value: t.id, label: templateLabel(t) }))}
+              />
+              <TextField label="Purchase reference" hideLabel placeholder="Purchase reference" value={purchase} onChange={(e) => setPurchase(e.target.value)} />
             </div>
-          ) : <p className="text-sm text-muted-foreground">No template yet. A builder saves one above.</p>}
+          ) : <EmptyState title="No template yet" description="A builder saves one above." />}
           <Button size="sm" disabled={!templateId} onClick={() => void create()}>Create next cycle</Button>
         </div>
       ) : null}
-      {clientSlug && engagements === null ? <p role="status" className="text-sm text-muted-foreground">Loading engagements...</p> : null}
-      {engagements && engagements.length === 0 ? <p className="text-sm text-muted-foreground">No engagements for this client yet.</p> : null}
+      {clientSlug && engagements === null ? <LoadingState label="Loading engagements" /> : null}
+      {engagements && engagements.length === 0 && !error ? <EmptyState title="No engagements for this client yet" /> : null}
       {(engagements ?? []).map((e) => <EngagementCard key={e.id} engagement={e} onChanged={() => void load()} />)}
-    </div>
+    </PageShell>
   );
 }

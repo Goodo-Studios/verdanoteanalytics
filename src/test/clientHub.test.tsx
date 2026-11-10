@@ -311,8 +311,9 @@ describe("Work", () => {
     first.unmount();
     h.taskResult = { data: [], error: { message: "permission denied" } };
     renderHub("/builder/clients/glow/work");
-    const error = await screen.findByTestId("client-work-error");
+    const error = await screen.findByRole("alert");
     expect(error.textContent).toContain("could not load");
+    expect(within(error).getByRole("button", { name: "Try again" })).toBeTruthy();
     expect(screen.queryByTestId("client-work-empty")).toBeNull();
   });
 

@@ -7,6 +7,7 @@
 // the matching tab, so bookmarks and the ?client= links keep working.
 import { Suspense } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
+import { EmptyState, PageShell } from "@/components/page-kit";
 import { PageSkeleton } from "@/components/skeletons/PageSkeleton";
 import { pageFor, prefetchPage } from "@/components/sections/lazyPages";
 import { useAuth } from "@/contexts/AuthContext";
@@ -29,12 +30,13 @@ export default function ClientHubPage() {
   const known = clients.length === 0 || clients.some((c) => c.slug === slug);
   if (!isLoading && !known) {
     return (
-      <div className="p-6" data-testid="client-hub-not-found">
-        <div className="space-y-2 rounded-lg border border-dashed p-8 text-center text-sm">
-          <p>We couldn&rsquo;t find this client. It may have been removed, or the link may be out of date.</p>
-          <Link to={`${prefix}/clients`} className="underline">Go to Clients</Link>
-        </div>
-      </div>
+      <PageShell data-testid="client-hub-not-found">
+        <EmptyState
+          title="We couldn&rsquo;t find this client"
+          description="It may have been removed, or the link may be out of date."
+          action={<Link to={`${prefix}/clients`} className="underline text-sm">Go to Clients</Link>}
+        />
+      </PageShell>
     );
   }
 
@@ -84,12 +86,12 @@ export default function ClientHubPage() {
       </div>
       <Suspense fallback={<PageSkeleton />}>
         {active.needsAccount && noAccount ? (
-          <div className="p-6" data-testid="no-ad-account">
-            <div className="space-y-2 rounded-lg border border-dashed p-8 text-center text-sm">
-              <p className="font-medium">{name} has no ad account linked yet.</p>
-              <p className="text-muted-foreground">{active.label} reads a client&rsquo;s ad account, so there is nothing to show here.</p>
-            </div>
-          </div>
+          <PageShell data-testid="no-ad-account">
+            <EmptyState
+              title={`${name} has no ad account linked yet.`}
+              description={`${active.label} reads a client’s ad account, so there is nothing to show here.`}
+            />
+          </PageShell>
         ) : active.needsAccount && !accountReady ? (
           <PageSkeleton />
         ) : (

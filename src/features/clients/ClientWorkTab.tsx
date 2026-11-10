@@ -10,7 +10,7 @@ import { bucketWork, WORK_COLUMNS } from "@/lib/clientWork";
 import { useClientWork } from "@/hooks/useClientWork";
 import { dueDateLabel, lastSyncedAt } from "@/lib/pipelineBoard";
 import { CLIENT_REVIEW_STAGE, waitingOnYou } from "@/lib/pipelineSummary";
-import { PageHeader } from "@/components/PageHeader";
+import { PageHeader, PageShell, LoadingState, ErrorState, EmptyState } from "@/components/page-kit";
 
 export default function ClientWorkTab() {
   const prefix = useRolePrefix();
@@ -26,20 +26,27 @@ export default function ClientWorkTab() {
   const updated = fmtTimeAgo(lastSyncedAt(tasks));
 
   return (
-    <div className="space-y-4 p-6" data-testid="client-work">
+    <PageShell wide data-testid="client-work">
       <PageHeader title="Work" description={`The ClickUp content pipeline for ${name}. Cards fill from this client's ClickUp folder.`} />
       {isLoading ? (
-        <p role="status" className="text-sm text-muted-foreground">Loading the work board...</p>
+        <LoadingState label="Loading the work board" />
       ) : isError ? (
-        <div role="alert" className="rounded-lg border border-destructive/40 p-4 text-sm" data-testid="client-work-error">
-          The work board could not load, so this is not the same as an empty board.{" "}
-          <button type="button" className="underline" onClick={() => void refetch()}>Try again</button>
-        </div>
+        <ErrorState
+          message="The work board could not load, so this is not the same as an empty board."
+          onRetry={() => void refetch()}
+        />
       ) : shown === 0 ? (
-        <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground" data-testid="client-work-empty">
-          Nothing in production for {name}. If ClickUp has cards for this client, check that its ClickUp folder is linked on the{" "}
-          <Link className="underline" to={`${prefix}/clients/${encodeURIComponent(selectedSlug)}/setup`}>Setup tab</Link>.
-        </p>
+        <div data-testid="client-work-empty">
+          <EmptyState
+            title={`Nothing in production for ${name}`}
+            description={
+              <>
+                If ClickUp has cards for this client, check that its ClickUp folder is linked on the{" "}
+                <Link className="underline" to={`${prefix}/clients/${encodeURIComponent(selectedSlug)}/setup`}>Setup tab</Link>.
+              </>
+            }
+          />
+        </div>
       ) : (
         <>
           <p className="text-sm text-muted-foreground" data-testid="client-work-summary">
@@ -71,6 +78,6 @@ export default function ClientWorkTab() {
           </div>
         </>
       )}
-    </div>
+    </PageShell>
   );
 }

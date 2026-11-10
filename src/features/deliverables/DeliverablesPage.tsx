@@ -12,9 +12,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { useAuth } from "@/contexts/AuthContext";
-import { PageHeader } from "@/components/PageHeader";
+import { ConfirmDialog, EmptyState, ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
-import { ConfirmDeleteDialog } from "@/components/user-settings/ConfirmDeleteDialog";
 import { STATUS_LABEL, type EngagementStatus } from "@/features/engagements/model";
 import {
   type ApprovalSubject,
@@ -55,7 +54,6 @@ interface Untyped {
 const db = supabase as unknown as Untyped;
 const DELIVERABLES = "*, engagement_deliverable_revisions(*), engagement_deliverable_decisions(*), engagement_deliverable_round_exceptions(*)";
 const SUBJECTS = "*, approval_subject_versions(*), approval_subject_decisions(*)";
-const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 interface ClientOption {
   slug: string;
@@ -88,10 +86,14 @@ function DecisionForm({ label, onSubmit }: { label: string; onSubmit: (decision:
   return (
     <div className="space-y-2" aria-label={label} role="group">
       <div className="grid gap-2 sm:grid-cols-3">
-        <select aria-label="Where the decision came from" className={field} value={channel} onChange={(e) => setChannel(e.target.value as Channel)}>
-          {(Object.keys(CHANNEL_LABEL) as Channel[]).map((c) => <option key={c} value={c}>{CHANNEL_LABEL[c]}</option>)}
-        </select>
-        <input aria-label="Decision note" className={`${field} sm:col-span-2`} placeholder="What the client said, or a link to it" value={note} onChange={(e) => setNote(e.target.value)} />
+        <SelectField
+          label="Where the decision came from"
+          hideLabel
+          value={channel}
+          onChange={(e) => setChannel(e.target.value as Channel)}
+          options={(Object.keys(CHANNEL_LABEL) as Channel[]).map((c) => ({ value: c, label: CHANNEL_LABEL[c] }))}
+        />
+        <TextField label="Decision note" hideLabel className="sm:col-span-2" placeholder="What the client said, or a link to it" value={note} onChange={(e) => setNote(e.target.value)} />
       </div>
       <div className="flex gap-2">
         <Button size="sm" disabled={!note.trim()} onClick={() => onSubmit("approved", channel, note.trim())}>Client approved</Button>
@@ -144,7 +146,7 @@ function DeliverableCard({ d, onChanged }: { d: Deliverable; onChanged: () => vo
           <p>Extra client round requested on revision {exception.revision}: {exception.reason}</p>
           {isBuilder ? (
             <div className="flex flex-wrap gap-2">
-              <input aria-label="Exception reason" className={field} placeholder="Reason" value={reason} onChange={(e) => setReason(e.target.value)} />
+              <TextField label="Exception reason" hideLabel placeholder="Reason" value={reason} onChange={(e) => setReason(e.target.value)} />
               <Button size="sm" disabled={!reason.trim()} onClick={() => void call("decide_deliverable_round_exception", { p_exception_id: exception.id, p_approve: true, p_reason: reason.trim() }, "The exception could not be decided.")}>Approve one extra round</Button>
               <Button size="sm" variant="outline" disabled={!reason.trim()} onClick={() => void call("decide_deliverable_round_exception", { p_exception_id: exception.id, p_approve: false, p_reason: reason.trim() }, "The exception could not be decided.")}>Deny</Button>
             </div>
@@ -152,14 +154,14 @@ function DeliverableCard({ d, onChanged }: { d: Deliverable; onChanged: () => vo
         </div>
       ) : null}
       {canAddRevision(d) ? (
-        <div className="grid gap-2 sm:grid-cols-4">
-          <input aria-label="Review link" className={`${field} sm:col-span-2`} placeholder="Air review link (https://...)" value={link} onChange={(e) => setLink(e.target.value)} />
-          <input aria-label="Air version" className={field} placeholder="Air version (optional)" value={airId} onChange={(e) => setAirId(e.target.value)} />
+        <div className="grid items-end gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+          <TextField label="Review link" hideLabel className="sm:col-span-2" placeholder="Air review link (https://...)" value={link} onChange={(e) => setLink(e.target.value)} />
+          <TextField label="Air version" hideLabel placeholder="Air version (optional)" value={airId} onChange={(e) => setAirId(e.target.value)} />
           <Button size="sm" disabled={!link.trim().startsWith("https://")} onClick={() => void addRevision()}>Add revision {d.current_revision + 1}</Button>
         </div>
       ) : null}
       {canAddRevision(d) ? <Button size="sm" variant="ghost" onClick={() => setConfirmWithdraw(true)}>Withdraw</Button> : null}
-      <ConfirmDeleteDialog
+      <ConfirmDialog
         open={confirmWithdraw}
         onOpenChange={setConfirmWithdraw}
         title="Withdraw this deliverable?"
@@ -171,7 +173,7 @@ function DeliverableCard({ d, onChanged }: { d: Deliverable; onChanged: () => vo
         }}
       />
       {message ? <p role="status">{message}</p> : null}
-      {error ? <p role="alert" className="text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-destructive">{error}</p> : null}
     </section>
   );
 }
@@ -192,14 +194,14 @@ function SubjectCard({ s, onChanged }: { s: ApprovalSubject; onChanged: () => vo
       {canDecideApproval(s) && published ? (
         <DecisionForm label={`Client decision on version ${published.version}`} onSubmit={(decision, channel, note) => void call("record_approval_decision", { p_subject_id: s.id, p_version: published.version, p_decision: decision, p_channel: channel, p_source_note: note }, "The decision could not be recorded.")} />
       ) : null}
-      <textarea aria-label="Draft text" className={`${field} min-h-[80px]`} value={draft} onChange={(e) => setDraft(e.target.value)} />
+      <TextareaField label="Draft text" hideLabel inputClassName="min-h-[80px]" value={draft} onChange={(e) => setDraft(e.target.value)} />
       <div className="flex gap-2">
         <Button size="sm" disabled={!draft.trim() || draft === latest?.body} onClick={() => void call("save_approval_draft", { p_subject_id: s.id, p_expected_version: s.current_version, p_body: draft }, "The draft could not be saved.")}>
           Save as draft version {s.current_version + 1}
         </Button>
         {canPublish(s) ? <Button size="sm" variant="outline" onClick={() => void call("publish_approval_version", { p_subject_id: s.id, p_version: s.current_version }, "The version could not be published.")}>Publish version {s.current_version}</Button> : null}
       </div>
-      {error ? <p role="alert" className="text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-destructive">{error}</p> : null}
     </section>
   );
 }
@@ -237,42 +239,54 @@ export default function DeliverablesPage() {
   const { error, call } = useCall(() => void load());
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4" data-testid="deliverables">
+    <PageShell data-testid="deliverables">
       <PageHeader title="Deliverables and approvals" description="Each revision, the client's decision on it, and approvals of ideas and shot lists." />
       <div className="grid gap-2 sm:grid-cols-2">
         {!clientSlug ? <div className="sm:col-span-2"><PickClientPrompt what="deliverables and approvals" /></div> : null}
-        <select aria-label="Engagement" className={field} value={engagementId} onChange={(e) => setEngagementId(e.target.value)} disabled={!clientSlug}>
-          <option value="">Select an engagement</option>
-          {engagements.map((e) => <option key={e.id} value={e.id}>Cycle {e.cycle_number} ({STATUS_LABEL[e.status] ?? e.status})</option>)}
-        </select>
+        <SelectField
+          label="Engagement"
+          hideLabel
+          value={engagementId}
+          onChange={(e) => setEngagementId(e.target.value)}
+          disabled={!clientSlug}
+          placeholder="Select an engagement"
+          options={engagements.map((e) => ({ value: e.id, label: `Cycle ${e.cycle_number} (${STATUS_LABEL[e.status] ?? e.status})` }))}
+        />
       </div>
-      {loadError ? <p role="alert" className="text-sm text-red-700">{loadError}</p> : null}
+      {loadError ? <ErrorState message={loadError} onRetry={() => void load()} /> : null}
       {engagementId ? (
         <>
-          <div className="grid gap-2 rounded-lg border border-input bg-background p-4 sm:grid-cols-4">
-            <input aria-label="Deliverable title" className={`${field} sm:col-span-2`} placeholder="Deliverable title" value={newDeliverable.title} onChange={(e) => setNewDeliverable({ ...newDeliverable, title: e.target.value })} />
-            <select aria-label="Deliverable kind" className={field} value={newDeliverable.kind} onChange={(e) => setNewDeliverable({ ...newDeliverable, kind: e.target.value })}>
-              {(Object.keys(ASSET_KIND_LABEL) as Deliverable["asset_kind"][]).map((k) => <option key={k} value={k}>{ASSET_KIND_LABEL[k]}</option>)}
-            </select>
-            <input aria-label="Agreed deliverable" className={field} placeholder="Agreed deliverable (optional)" value={newDeliverable.agreed} onChange={(e) => setNewDeliverable({ ...newDeliverable, agreed: e.target.value })} />
+          <div className="grid items-end gap-2 rounded-lg border border-input bg-background p-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+            <TextField label="Deliverable title" hideLabel className="sm:col-span-2" placeholder="Deliverable title" value={newDeliverable.title} onChange={(e) => setNewDeliverable({ ...newDeliverable, title: e.target.value })} />
+            <SelectField
+              label="Deliverable kind"
+              hideLabel
+              value={newDeliverable.kind}
+              onChange={(e) => setNewDeliverable({ ...newDeliverable, kind: e.target.value })}
+              options={(Object.keys(ASSET_KIND_LABEL) as Deliverable["asset_kind"][]).map((k) => ({ value: k, label: ASSET_KIND_LABEL[k] }))}
+            />
+            <TextField label="Agreed deliverable" hideLabel placeholder="Agreed deliverable (optional)" value={newDeliverable.agreed} onChange={(e) => setNewDeliverable({ ...newDeliverable, agreed: e.target.value })} />
             <Button size="sm" disabled={!newDeliverable.title.trim()} onClick={() => void call("add_engagement_deliverable", { p_engagement_id: engagementId, p_title: newDeliverable.title.trim(), p_asset_kind: newDeliverable.kind, p_agreed_item: newDeliverable.agreed.trim() || null }, "The deliverable could not be added.").then((ok) => ok && setNewDeliverable({ title: "", kind: "video", agreed: "" }))}>Add deliverable</Button>
           </div>
-          {deliverables === null ? <p role="status" className="text-sm text-muted-foreground">Loading deliverables...</p> : null}
-          {deliverables && deliverables.length === 0 ? <p className="text-sm text-muted-foreground">No deliverables for this engagement yet.</p> : null}
+          {deliverables === null ? <LoadingState label="Loading deliverables" /> : null}
+          {deliverables && deliverables.length === 0 ? <EmptyState title="No deliverables for this engagement yet" /> : null}
           {(deliverables ?? []).map((d) => <DeliverableCard key={`${d.id}:${d.current_revision}:${d.stage}`} d={d} onChanged={() => void load()} />)}
           <h2 className="pt-2 text-base font-semibold">Ideas and shot lists</h2>
-          <div className="grid gap-2 rounded-lg border border-input bg-background p-4 sm:grid-cols-4">
-            <select aria-label="Approval kind" className={field} value={newSubject.kind} onChange={(e) => setNewSubject({ ...newSubject, kind: e.target.value })}>
-              <option value="idea">Idea</option>
-              <option value="shot_list">Shot list</option>
-            </select>
-            <input aria-label="Approval title" className={`${field} sm:col-span-2`} placeholder="Title" value={newSubject.title} onChange={(e) => setNewSubject({ ...newSubject, title: e.target.value })} />
+          <div className="grid items-end gap-2 rounded-lg border border-input bg-background p-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+            <SelectField
+              label="Approval kind"
+              hideLabel
+              value={newSubject.kind}
+              onChange={(e) => setNewSubject({ ...newSubject, kind: e.target.value })}
+              options={[{ value: "idea", label: "Idea" }, { value: "shot_list", label: "Shot list" }]}
+            />
+            <TextField label="Approval title" hideLabel className="sm:col-span-2" placeholder="Title" value={newSubject.title} onChange={(e) => setNewSubject({ ...newSubject, title: e.target.value })} />
             <Button size="sm" disabled={!newSubject.title.trim()} onClick={() => void call("create_approval_subject", { p_engagement_id: engagementId, p_subject_kind: newSubject.kind, p_title: newSubject.title.trim() }, "It could not be added.").then((ok) => ok && setNewSubject({ title: "", kind: "idea" }))}>Add</Button>
           </div>
           {subjects.map((s) => <SubjectCard key={`${s.id}:${s.current_version}:${s.published_version}`} s={s} onChanged={() => void load()} />)}
-          {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+          {error ? <ErrorState message={error} /> : null}
         </>
       ) : null}
-    </div>
+    </PageShell>
   );
 }

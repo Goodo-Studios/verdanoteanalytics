@@ -14,7 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { useAuth } from "@/contexts/AuthContext";
-import { PageHeader } from "@/components/PageHeader";
+import { EmptyState, ErrorState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
 import { fmtDate } from "@/lib/formatters";
 import {
@@ -51,7 +51,6 @@ interface Untyped {
 }
 const db = supabase as unknown as Untyped;
 const SELECT = "*, handoff_packet_versions(*), handoff_acknowledgements(*)";
-const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 const ROLES = Object.keys(ROLE_LABEL) as ReceivingRole[];
 
 interface ClientOption {
@@ -66,10 +65,14 @@ interface EngagementOption {
 
 function StaffSelect({ label, staff, value, onChange }: { label: string; staff: StaffOption[]; value: string; onChange: (v: string) => void }) {
   return (
-    <select aria-label={label} className={field} value={value} onChange={(e) => onChange(e.target.value)}>
-      <option value="">{label}</option>
-      {staff.map((s) => <option key={s.user_id} value={s.user_id}>{s.display_name || s.email}</option>)}
-    </select>
+    <SelectField
+      label={label}
+      hideLabel
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={label}
+      options={staff.map((s) => ({ value: s.user_id, label: s.display_name || s.email }))}
+    />
   );
 }
 
@@ -130,7 +133,7 @@ function PacketCard({ packet, staff, onChanged }: { packet: Packet; staff: Staff
       ))}
       {canAcknowledge(packet, user?.id) ? (
         <div className="space-y-2">
-          <input aria-label="Return reason" className={field} placeholder="What is missing (needed to return)" value={reason} onChange={(e) => setReason(e.target.value)} />
+          <TextField label="Return reason" hideLabel placeholder="What is missing (needed to return)" value={reason} onChange={(e) => setReason(e.target.value)} />
           <div className="flex gap-2">
             <Button size="sm" onClick={() => answer("acknowledged")}>Acknowledge</Button>
             <Button size="sm" variant="outline" onClick={() => answer("returned")}>Return with reason</Button>
@@ -140,20 +143,24 @@ function PacketCard({ packet, staff, onChanged }: { packet: Packet; staff: Staff
       {canReassign(packet, user?.id, isBuilder) ? (
         <details>
           <summary className="cursor-pointer font-medium">Reassign</summary>
-          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+          <div className="mt-2 grid items-end gap-2 grid-cols-1 sm:grid-cols-3">
             <StaffSelect label="New receiver" staff={staff} value={move.receiver} onChange={(receiver) => setMove({ ...move, receiver })} />
-            <select aria-label="New role" className={field} value={move.role} onChange={(e) => setMove({ ...move, role: e.target.value })}>
-              {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
-            </select>
-            <input aria-label="New due date" type="date" className={field} value={move.due} onChange={(e) => setMove({ ...move, due: e.target.value })} />
-            <input aria-label="Reassign reason" className={`${field} sm:col-span-2`} placeholder="Why" value={move.reason} onChange={(e) => setMove({ ...move, reason: e.target.value })} />
+            <SelectField
+              label="New role"
+              hideLabel
+              value={move.role}
+              onChange={(e) => setMove({ ...move, role: e.target.value })}
+              options={ROLES.map((r) => ({ value: r, label: ROLE_LABEL[r] }))}
+            />
+            <TextField label="New due date" hideLabel type="date" value={move.due} onChange={(e) => setMove({ ...move, due: e.target.value })} />
+            <TextField label="Reassign reason" hideLabel className="sm:col-span-2" placeholder="Why" value={move.reason} onChange={(e) => setMove({ ...move, reason: e.target.value })} />
             <Button size="sm" disabled={!move.receiver || !move.due || !move.reason.trim()} onClick={() => void call("reassign_handoff", {
               p_packet_id: packet.id, p_expected_revision: packet.current_revision, p_receiver_id: move.receiver, p_receiving_role: move.role, p_due_date: move.due, p_reason: move.reason.trim(),
             }, "The handoff could not be reassigned.")}>Reassign as revision {packet.current_revision + 1}</Button>
           </div>
         </details>
       ) : null}
-      {error ? <p role="alert" className="text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-destructive">{error}</p> : null}
     </section>
   );
 }
@@ -202,23 +209,27 @@ function CreateForm({ engagementId, staff, onCreated }: { engagementId: string; 
         {strategy ? (
           <p className="rounded bg-muted/40 p-2" data-testid="strategy-prefill">
             Prefilled from the published strategy proposal "{strategy.title}", version {strategy.version}. Edit anything before creating.{" "}
-            <button type="button" className="underline" onClick={startBlank}>Start blank</button>
+            <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={startBlank}>Start blank</Button>
           </p>
         ) : null}
-        <div className="grid gap-2 sm:grid-cols-4">
-          <select aria-label="Receiving role" className={field} value={form.role} onChange={set("role")}>
-            {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
-          </select>
+        <div className="grid items-end gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+          <SelectField
+            label="Receiving role"
+            hideLabel
+            value={form.role}
+            onChange={set("role")}
+            options={ROLES.map((r) => ({ value: r, label: ROLE_LABEL[r] }))}
+          />
           <StaffSelect label="Receiver" staff={staff} value={form.receiver} onChange={(receiver) => setForm({ ...form, receiver })} />
           <StaffSelect label="Accountable owner" staff={staff} value={form.owner} onChange={(owner) => setForm({ ...form, owner })} />
-          <input aria-label="Due date" type="date" className={field} value={form.due} onChange={set("due")} />
+          <TextField label="Due date" hideLabel type="date" value={form.due} onChange={set("due")} />
         </div>
-        <input aria-label="Goal" className={field} placeholder="Goal" value={form.goal} onChange={set("goal")} />
-        <input aria-label="Angle" className={field} placeholder="Angle" value={form.angle} onChange={set("angle")} />
-        <textarea aria-label="Brief" className={`${field} min-h-[100px]`} placeholder="Brief for the receiving role" value={form.brief} onChange={set("brief")} />
-        <textarea aria-label="Required inputs" className={field} placeholder="Required inputs, one per line" value={form.inputs} onChange={set("inputs")} />
+        <TextField label="Goal" hideLabel placeholder="Goal" value={form.goal} onChange={set("goal")} />
+        <TextField label="Angle" hideLabel placeholder="Angle" value={form.angle} onChange={set("angle")} />
+        <TextareaField label="Brief" hideLabel inputClassName="min-h-[100px]" placeholder="Brief for the receiving role" value={form.brief} onChange={set("brief")} />
+        <TextareaField label="Required inputs" hideLabel placeholder="Required inputs, one per line" value={form.inputs} onChange={set("inputs")} />
         <Button size="sm" disabled={!ready} onClick={() => void create()}>Create handoff</Button>
-        {error ? <p role="alert" className="text-red-700">{error}</p> : null}
+        {error ? <p role="alert" className="text-destructive">{error}</p> : null}
       </div>
     </details>
   );
@@ -257,7 +268,7 @@ export default function HandoffsPage() {
   useEffect(() => void load(), [load]);
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4" data-testid="handoffs">
+    <PageShell data-testid="handoffs">
       <PageHeader title="Handoffs" description="Packets that hand work to the next role. The receiver acknowledges or returns each exact revision." />
       <div className="flex gap-2">
         <Button size="sm" variant={mine ? "default" : "outline"} onClick={() => setMine(true)}>Waiting for me</Button>
@@ -266,16 +277,21 @@ export default function HandoffsPage() {
       {!mine ? (
         <div className="grid gap-2 sm:grid-cols-2">
           {!clientSlug ? <div className="sm:col-span-2"><PickClientPrompt what="its handoffs" /></div> : null}
-          <select aria-label="Engagement" className={field} value={engagementId} onChange={(e) => setEngagementId(e.target.value)} disabled={!clientSlug}>
-            <option value="">Select an engagement</option>
-            {engagements.map((e) => <option key={e.id} value={e.id}>Cycle {e.cycle_number} ({e.status})</option>)}
-          </select>
+          <SelectField
+            label="Engagement"
+            hideLabel
+            value={engagementId}
+            onChange={(e) => setEngagementId(e.target.value)}
+            disabled={!clientSlug}
+            placeholder="Select an engagement"
+            options={engagements.map((e) => ({ value: e.id, label: `Cycle ${e.cycle_number} (${e.status})` }))}
+          />
         </div>
       ) : null}
       {!mine && engagementId ? <CreateForm engagementId={engagementId} staff={staff} onCreated={() => void load()} /> : null}
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
-      {packets && packets.length === 0 ? <p className="text-sm text-muted-foreground">{mine ? "Nothing is waiting for you." : "No handoffs for this engagement yet."}</p> : null}
+      {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      {packets && packets.length === 0 && !error ? <EmptyState title={mine ? "Nothing is waiting for you." : "No handoffs for this engagement yet."} /> : null}
       {(packets ?? []).map((p) => <PacketCard key={`${p.id}:${p.current_revision}:${p.status}`} packet={p} staff={staff} onChanged={() => void load()} />)}
-    </div>
+    </PageShell>
   );
 }

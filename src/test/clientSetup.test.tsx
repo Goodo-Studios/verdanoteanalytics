@@ -102,6 +102,13 @@ function seed(over: { links?: unknown[]; mappings?: unknown[]; members?: unknown
 
 const renderTab = () => render(<MemoryRouter initialEntries={["/builder/clients/glow/setup"]}><ClientSetupTab /></MemoryRouter>);
 
+async function answerDialog(name: "Unlink" | "Cancel", text?: string) {
+  const dialog = await screen.findByRole("alertdialog");
+  if (text) expect(dialog).toHaveTextContent(text);
+  fireEvent.click(within(dialog).getByRole("button", { name }));
+  await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+}
+
 beforeEach(() => {
   h.isBuilder = true;
   h.inserts = [];
@@ -111,7 +118,6 @@ beforeEach(() => {
   h.insertResult = { data: null, error: null };
   h.invoke = { data: { folders: [] }, error: null };
   seed();
-  vi.spyOn(window, "confirm").mockReturnValue(true);
 });
 afterEach(() => {
   cleanup();
@@ -182,11 +188,11 @@ describe("ad accounts", () => {
   it("unlinks only after a confirm that names the effect", async () => {
     renderTab();
     const button = await screen.findByRole("button", { name: "Unlink Glow Meta" });
-    vi.mocked(window.confirm).mockReturnValueOnce(false);
     fireEvent.click(button);
+    await answerDialog("Cancel", "logins will stop seeing its numbers");
     expect(h.deletes).toHaveLength(0);
     fireEvent.click(button);
-    expect(window.confirm).toHaveBeenLastCalledWith(expect.stringContaining("logins will stop seeing its numbers"));
+    await answerDialog("Unlink", "logins will stop seeing its numbers");
     await waitFor(() => expect(h.deletes).toEqual([{ table: "client_ad_accounts", col: "account_id", val: "act_glow" }]));
   });
 });
@@ -242,6 +248,7 @@ describe("ClickUp folder", () => {
     expect(await screen.findByTestId("setup-mapping")).toHaveTextContent("Folder: Glow Folder (90170123)");
     expect(screen.queryByLabelText("ClickUp folder link or id")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Unlink Glow Folder" }));
+    await answerDialog("Unlink", "ClickUp board will stop filling");
     await waitFor(() => expect(h.deletes).toEqual([{ table: "source_mappings", col: "id", val: "m1" }]));
   });
 
@@ -274,11 +281,11 @@ describe("client logins", () => {
     seed({ members: [{ user_id: "u1", email: "pat@glow.test", display_name: null, added_at: "2026-11-01T00:00:00Z" }] });
     renderTab();
     const button = await screen.findByRole("button", { name: "Unlink pat@glow.test" });
-    vi.mocked(window.confirm).mockReturnValueOnce(false);
     fireEvent.click(button);
+    await answerDialog("Cancel", "Their login stays.");
     expect(h.rpcCalls.some((c) => c.name === "remove_client_member")).toBe(false);
     fireEvent.click(button);
-    expect(window.confirm).toHaveBeenLastCalledWith(expect.stringContaining("Their login stays."));
+    await answerDialog("Unlink", "Their login stays.");
     await waitFor(() => expect(h.rpcCalls.filter((c) => c.name === "remove_client_member")).toEqual([{ name: "remove_client_member", args: { p_slug: "glow", p_user_id: "u1" } }]));
   });
 });
