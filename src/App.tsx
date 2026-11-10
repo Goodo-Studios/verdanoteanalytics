@@ -71,6 +71,8 @@ const QaGatesPage = lazy(routeImports.qaGates);
 const EngagementsPage = lazy(routeImports.engagements);
 // Knowledge (consolidation step 4a, Goodo OS): builder and employee.
 const KnowledgePage = lazy(routeImports.knowledge);
+// Client page (consolidation step 5a, old dashboard): builder and employee.
+const ClientDetailPage = lazy(routeImports.clientDetail);
 // Client overview (consolidation step 5a, old dashboard): builder and employee.
 const ClientOverviewPage = lazy(routeImports.clientOverview);
 // Meeting recaps (consolidation step 4a, Goodo OS): builder and employee.
@@ -211,6 +213,7 @@ export function RoleGuardedRoutes() {
           <Route path="/integration-health" element={staffPage ? <IntegrationHealthPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/meeting-recaps" element={staffPage ? <MeetingRecapsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/knowledge" element={staffPage ? <KnowledgePage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/clients/:slug" element={staffPage ? <ClientDetailPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/clients" element={staffPage ? <ClientOverviewPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/engagements" element={staffPage ? <EngagementsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/deliverables" element={staffPage ? <DeliverablesPage /> : <Navigate to={`${prefix}/`} replace />} />

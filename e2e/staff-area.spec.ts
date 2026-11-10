@@ -36,6 +36,7 @@ const STAFF_PATHS = [
   "/integration-health",
   "/meeting-recaps",
   "/knowledge",
+  "/clients/demo-glowdrip",
   "/clients",
   "/engagements",
   "/deliverables",

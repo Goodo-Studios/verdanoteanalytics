@@ -34,6 +34,7 @@ export const routeImports = {
   integrationHealth: () => import("@/features/integration-health/IntegrationHealthPage"),
   meetingRecaps: () => import("@/features/meeting-recaps/MeetingRecapsPage"),
   knowledge: () => import("@/features/knowledge/KnowledgePage"),
+  clientDetail: () => import("@/features/dashboard/ClientDetailPage"),
   clientOverview: () => import("@/features/dashboard/OverviewPage"),
   engagements: () => import("@/features/engagements/EngagementsPage"),
   deliverables: () => import("@/features/deliverables/DeliverablesPage"),
