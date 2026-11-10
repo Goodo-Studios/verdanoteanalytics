@@ -90,6 +90,7 @@ OTHER_FUNCTIONS=(
   spend-diagnostic
   sync
   sync-clickup-tasks
+  run-slack-jobs
   fireflies-transcript
   sync-coda-tasks
   system-health-check

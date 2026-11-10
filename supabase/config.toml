@@ -383,3 +383,7 @@ verify_jwt = false
 # Fireflies transcript reader for staff (Goodo OS connector). Read-only; gated inside the function.
 [functions.fireflies-transcript]
 verify_jwt = false
+
+# Slack reminders and owner alerts (Goodo OS connector). Service-role only; gated inside the function.
+[functions.run-slack-jobs]
+verify_jwt = false

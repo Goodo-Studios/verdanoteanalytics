@@ -89,6 +89,20 @@ At most once: a worker calls `mark_job_sending` right before it posts to an outs
 
 Read-only: the only request is the single-transcript GraphQL `query` for the id given. The account's transcript list is never browsed, no mutation is sent, and nothing is stored. Goodo OS's transcript authorization records and meeting recaps are not part of this step; they come with the meeting recap page (wave 4a), which will store what it needs. Without `FIREFLIES_API_KEY` the function answers 503 and makes no request. Staging has no key.
 
+### Slack (PR 4)
+
+`run-slack-jobs` (service role, called by pg_cron every 5 minutes, migration `20261109000006_slack_sends.sql`) turns due reminders into jobs and sends `slack.reminder` and `slack.owner_alert` jobs with `chat.postMessage`. Shared client in `_shared/slack-web-api.ts`, a port of Goodo OS `connectors/slack/webApi.ts`. `enqueue_owner_alert(key, text)` (service role) queues one owner alert for the builder-confirmed `owner_alerts` destination, once per key; integration health (wave 4a) will call it.
+
+It sends only when all three locks hold:
+
+1. The function runs in the production project. Checked in the function code against `SUPABASE_URL`, not in the database, because `scripts/staging-lockdown.sql` rewrites the production ref inside database functions. Anywhere else it answers 409 before touching the database.
+2. `outbound_switches` has a row `slack_sends` with `enabled = true`. No row is inserted, so it is off. Only a builder can add or change a switch.
+3. `SLACK_BOT_TOKEN` is set. Without it the function answers 503 and sends nothing.
+
+Each send is marked first (`mark_job_sending`). A rejection (bad channel, missing scope) or an unclear answer (timeout, 5xx) puts the job in recovery for staff, so a message is never posted twice automatically; a rate limit retries after Retry-After. The destination is checked again just before sending. Goodo OS's reminder proof by reading channel history is not ported (it needs channel read scopes).
+
+To turn it on in production after the release: a builder adds the Slack channel in `slack_destinations` and confirms it, the bot token is set as `SLACK_BOT_TOKEN`, and a builder inserts `outbound_switches ('slack_sends', true)`. Staging never sends: the cron entry is removed after each push and the function refuses outside production.
+
 ### Verdanote data
 
 Goodo OS reads ad performance from Verdanote over HTTP (`connectors/verdanote/performance.ts`: spend, impressions, clicks and conversions for one ad account, ad and date window). Inside Verdanote that is the same database, so it collapses to direct queries on `creatives` and `creative_daily_metrics`, or the existing `get_period_metrics` and `get_daily_trends` functions, which already check staff role or account membership. No connector function is added.

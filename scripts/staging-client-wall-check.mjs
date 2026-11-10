@@ -129,6 +129,19 @@ for (const table of ["durable_jobs", "job_audit", "slack_destinations", "reminde
 const destEmployee = await employee.c.from("slack_destinations").insert({ label: "wall check", channel_id: "C0WALLCHECK", purpose: "internal" });
 check("employee cannot add a Slack destination (builder only)", !!destEmployee.error, `error=${destEmployee.error?.message ?? "none (write accepted)"}`);
 
+// Outbound switches (migration 20261109000006): clients read nothing; nobody but a builder
+// can turn a switch on. Staging has no switch rows. Nothing here writes for the builder.
+for (const [label, s] of [["client A", clientA], ["client B", clientB], ["employee", employee]]) {
+  const ins = await s.c.from("outbound_switches").insert({ name: "slack_sends", enabled: true });
+  check(`${label} cannot turn on an outbound switch`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+}
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  const r = await s.c.from("outbound_switches").select("name");
+  check(`${label} reads no outbound switches`, !r.error && (r.data ?? []).length === 0, `rows=${r.data?.length ?? "error"}`);
+}
+const switches = await staff.c.from("outbound_switches").select("name, enabled");
+check("staging has no outbound switch turned on", !switches.error && (switches.data ?? []).every((r) => r.enabled !== true), `error=${switches.error?.message ?? "none"} rows=${switches.data?.length ?? "error"}`);
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

@@ -2682,6 +2682,30 @@ export type Database = {
         }
         Relationships: []
       }
+      outbound_switches: {
+        Row: {
+          enabled: boolean
+          name: string
+          note: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          enabled?: boolean
+          name: string
+          note?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          enabled?: boolean
+          name?: string
+          note?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       performance_changelog: {
         Row: {
           account_id: string
