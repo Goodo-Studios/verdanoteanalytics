@@ -281,6 +281,22 @@ The evaluation (`recommendation_evaluation`, service role only) reads `creative_
 
 Differences from Goodo OS: Goodo OS read asset-to-ad mappings and performance evidence records; Verdanote holds the ad metrics, so a link names ad ids directly. The ClickUp task on a link is optional (Goodo OS required one) because the ClickUp sync does not run in staging. Any builder or employee stands in for the recommendation capabilities. Not ported: service improvement suggestions as a source, deliverable asset identities, command receipts. The page loads with explicit relationship names (`table!constraint(...)`), because the history tables point at the recommendation and at each other. Tests in `supabase/tests/recommendations_test.sql` and `src/test/recommendationsPage.test.tsx`.
 
+### Scope changes
+
+Page `/scope-changes` (builder and employee) and migration `20261110200002_scope_changes.sql`, no edge function. Port of the Goodo OS scope lock and scope change requests (`backend/services/scopeLock.ts`, migrations `013_scope_lock.sql` and `013a_scope_lock_delivery.sql`), on the shot list approvals of step 4b.
+
+| Table | Purpose |
+|---|---|
+| `scope_locks` | the client's approval of one exact published shot list version, which locks the scope at that version. Written by the trigger `lock_scope_on_shot_list_approval` on `approval_subject_decisions`; shot lists approved before the migration are locked by a backfill. Immutable |
+| `scope_change_requests` | a client request to change a locked shot list, recorded by staff against the locked version with the channel (call, Slack, email) and a source note. Immutable |
+| `scope_change_evaluations` | needs review, accepted or declined, with a rationale. Accepted and declined are final (one per request). Immutable |
+
+Staff read all three; clients read none. Checked functions (`staff_area` allow-list, role tested in the body): `request_scope_change` (the shot list must be locked and the base version must be the locked version now, 40001 otherwise) and `evaluate_scope_change` (any builder or employee marks needs review; only a builder accepts or declines; once decided, never again). An accepted change does not edit the shot list: staff publish a new version on `/deliverables`, and the client's approval of it moves the lock.
+
+Differences from Goodo OS: the client portal is dropped, so staff record the request. Only a builder accepts or declines, because it changes the agreed scope of a paid cycle (Goodo OS used the approval publish capability). The lock is written when the decision is recorded, as Goodo OS locked on the client approval itself.
+
+Not ported: the ClickUp scope lock effects and their delivery records, the ClickUp task links of an approval version (outward writes), approval sync events, command receipts. Tests in `supabase/tests/scope_changes_test.sql` and `src/test/scopeChangesPage.test.tsx`.
+
 ## Alternatives rejected
 
 **A new `os_clients` table with a uuid id, and the dashboard `clients` folded into it.** Gives a cleaner id, but the eight dashboard tables and the dashboard staff functions (`create_client`, `set_client_*`, `create_shoot` and others) already key on `clients.slug`, so it means either two client ids side by side or rewriting all of them. Not the smallest change.

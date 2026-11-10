@@ -59,6 +59,7 @@ INSERT INTO allow
     'resolve_deliverable_qa_return', 'record_deliverable_signoff', 'mark_deliverable_final_ready',
     'handoff_staff_options', 'create_handoff_packet', 'acknowledge_handoff', 'reassign_handoff',
     'handoff_source_status',
+    'request_scope_change', 'evaluate_scope_change',
     'propose_recommendation', 'decide_recommendation', 'link_recommendation_execution', 'record_recommendation_outcome', 'review_recommendation_learning', 'recommendation_ad_options',
     'create_strategy_proposal', 'revise_strategy_proposal', 'review_strategy_proposal', 'accept_strategy_proposal',
     'publish_strategy_proposal', 'published_strategy_for_engagement',
