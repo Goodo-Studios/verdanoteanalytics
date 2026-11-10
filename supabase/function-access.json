@@ -140,6 +140,16 @@
         "query": "account_id=act_demo_glowdrip"
       }
     },
+    "invite-user": {
+      "class": "staff",
+      "minRole": "builder",
+      "note": "Invite by email (phase 4). Builder only. Creates a login with Supabase Auth's own invite (no typed password, standard invite email), gives it its role and client, and logs who invited whom in user_invites. Also resends and revokes. The create-with-password path stays in user-management.",
+      "probe": {
+        "body": {
+          "action": "invite"
+        }
+      }
+    },
     "leaderboard": {
       "class": "account-scoped",
       "crossAccountProbe": {

@@ -80,7 +80,8 @@ INSERT INTO allow
     'update_client', 'update_crew_member', 'update_location', 'update_prop',
     'update_shoot', 'update_shoot_schedule_block', 'update_studio_shipment',
     'save_call_sheet_talent_entry', 'remove_call_sheet_talent_entry',
-    'client_setup_status', 'list_client_members', 'add_client_member', 'remove_client_member'
+    'client_setup_status', 'list_client_members', 'add_client_member', 'remove_client_member',
+    'list_user_invites'
   ]);
 
 -- SECURITY DEFINER functions in public (extension functions excluded).
