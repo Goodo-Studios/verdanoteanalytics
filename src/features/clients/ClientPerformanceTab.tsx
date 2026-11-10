@@ -3,7 +3,7 @@
 // ad account. A client with several ad accounts uses the "Ad account" chooser at the top; a client
 // with none is told so.
 import { Link } from "react-router-dom";
-import { PageHeader } from "@/components/PageHeader";
+import { PageHeader, PageShell } from "@/components/page-kit";
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
 
@@ -22,7 +22,7 @@ export default function ClientPerformanceTab() {
   const name = selectedClient?.name ?? selectedSlug;
 
   return (
-    <div className="space-y-4 p-6" data-testid="client-performance">
+    <PageShell data-testid="client-performance">
       <PageHeader title="Performance" description={`Ad performance for ${name}.`} />
       {noAccount ? (
         <p className="rounded-lg border border-dashed p-6 text-sm" data-testid="client-performance-no-account">
@@ -49,6 +49,6 @@ export default function ClientPerformanceTab() {
           </ul>
         </>
       )}
-    </div>
+    </PageShell>
   );
 }

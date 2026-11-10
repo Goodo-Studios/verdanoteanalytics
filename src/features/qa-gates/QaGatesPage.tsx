@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { PageHeader } from "@/components/PageHeader";
+import { EmptyState, ErrorState, LoadingState, PageHeader, PageShell, TextField, TextareaField } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
 import {
   blockerText,
@@ -43,7 +43,6 @@ interface Untyped {
 const db = supabase as unknown as Untyped;
 const SELECT =
   "*, engagements(client_slug, cycle_number), engagement_deliverable_revisions(revision, review_url), engagement_deliverable_qa_returns(*), engagement_deliverable_signoffs(*), engagement_deliverable_confirmations(revision)";
-const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 function Gate({ item, onChanged }: { item: QaItem; onChanged: () => void }) {
   const { user } = useAuth();
@@ -83,7 +82,7 @@ function Gate({ item, onChanged }: { item: QaItem; onChanged: () => void }) {
             {status.blockers.map((b) => <li key={b}>{blockerText(b)}</li>)}
           </ul>
         )
-      ) : <p className="text-muted-foreground">Loading the release gate...</p>}
+      ) : <LoadingState label="Loading the release gate" count={2} />}
 
       <div className="flex flex-wrap gap-2">
         {!item.confirmed ? <Button size="sm" variant="outline" onClick={() => void call("confirm_deliverable_revision", base, "The revision could not be confirmed.")}>Confirm team review</Button> : null}
@@ -98,23 +97,23 @@ function Gate({ item, onChanged }: { item: QaItem; onChanged: () => void }) {
       {open.map((r) => (
         <div key={r.id} className="space-y-2 rounded border border-amber-300 p-2" data-testid={`return-${r.id}`}>
           <p>Returned to the strategist: {r.feedback}</p>
-          <input aria-label="Resolution note" className={field} placeholder="What was fixed" value={note} onChange={(e) => setNote(e.target.value)} />
+          <TextField label="Resolution note" hideLabel placeholder="What was fixed" value={note} onChange={(e) => setNote(e.target.value)} />
           <Button size="sm" disabled={!note.trim()} onClick={() => void call("resolve_deliverable_qa_return", { p_return_id: r.id, p_note: note.trim() }, "The return could not be resolved.")}>Resolve return</Button>
         </div>
       ))}
 
       <div className="space-y-2">
-        <textarea aria-label="Return feedback" className={field} placeholder="What the strategist needs to fix on this exact revision" value={feedback} onChange={(e) => setFeedback(e.target.value)} />
+        <TextareaField label="Return feedback" hideLabel placeholder="What the strategist needs to fix on this exact revision" value={feedback} onChange={(e) => setFeedback(e.target.value)} />
         <Button size="sm" variant="outline" disabled={!feedback.trim()} onClick={() => void call("return_deliverable_to_strategist", { ...base, p_feedback: feedback.trim() }, "The revision could not be returned.")}>Return to strategist</Button>
       </div>
 
       {status?.ready ? (
         <div className="flex flex-wrap gap-2">
-          <input aria-label="Final download link" className={field} placeholder="Final download link (https://...)" value={link} onChange={(e) => setLink(e.target.value)} />
+          <TextField label="Final download link" hideLabel className="min-w-[14rem] flex-1" placeholder="Final download link (https://...)" value={link} onChange={(e) => setLink(e.target.value)} />
           <Button size="sm" disabled={!link.trim().startsWith("https://")} onClick={() => void call("mark_deliverable_final_ready", { ...base, p_final_download_url: link.trim() }, "The deliverable could not be released.")}>Mark final, ready to send</Button>
         </div>
       ) : null}
-      {error ? <p role="alert" className="text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-destructive">{error}</p> : null}
     </section>
   );
 }
@@ -139,22 +138,22 @@ export default function QaGatesPage() {
   const active = inbox.find((i) => i.id === selected) ?? null;
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4" data-testid="qa-gates">
+    <PageShell data-testid="qa-gates">
       <PageHeader title="QA gates" description="Version-bound release checks for each deliverable: client approval, team confirmation, strategist and QA signoffs." />
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
-      {items === null ? <p role="status" className="text-sm text-muted-foreground">Loading the QA inbox...</p> : null}
-      {items && inbox.length === 0 ? <p className="text-sm text-muted-foreground">{clientSlug ? "Nothing is waiting for QA for this client." : "Nothing is waiting for QA."}</p> : null}
+      {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      {items === null ? <LoadingState label="Loading the QA inbox" /> : null}
+      {items && inbox.length === 0 && !error ? <EmptyState title={clientSlug ? "Nothing is waiting for QA for this client." : "Nothing is waiting for QA."} /> : null}
       <ul className="space-y-1" aria-label="QA inbox">
         {inbox.map((i) => (
           <li key={i.id}>
-            <button type="button" className={`w-full rounded border px-3 py-2 text-left text-sm ${i.id === selected ? "border-foreground" : "border-input"}`} onClick={() => setSelected(i.id)}>
+            <Button type="button" variant="outline" className={`h-auto w-full justify-start whitespace-normal px-3 py-2 text-left text-sm font-normal ${i.id === selected ? "border-foreground" : ""}`} aria-pressed={i.id === selected} onClick={() => setSelected(i.id)}>
               <span className="font-medium">{i.title}</span>
               <span className="text-muted-foreground"> · {i.client_slug}{i.cycle_number ? ` cycle ${i.cycle_number}` : ""} · revision {i.current_revision} · {i.stage.replace(/_/g, " ")}{openReturns(i).length ? " · return open" : ""}</span>
-            </button>
+            </Button>
           </li>
         ))}
       </ul>
       {active ? <Gate key={`${active.id}:${active.current_revision}:${active.stage}:${active.signoffs.length}:${active.returns.length}:${String(active.confirmed)}`} item={active} onChanged={() => void load()} /> : null}
-    </div>
+    </PageShell>
   );
 }

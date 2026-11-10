@@ -13,7 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
-import { PageHeader } from "@/components/PageHeader";
+import { ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField, EmptyState, useConfirm } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
 import { SETUP_AD_ACCOUNT_COLUMNS, SETUP_MAPPING_COLUMNS, CLIENT_SWITCHER_LINK_COLUMNS } from "@/lib/pageQueries";
 import {
@@ -49,7 +49,6 @@ const db = supabase as unknown as Untyped;
 
 const CARD = "rounded-lg border border-border bg-card p-4";
 const H2 = "text-sm font-semibold";
-const FIELD = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 interface AdAccount { id: string; name: string | null }
 interface AdLink { account_id: string; client_slug: string }
@@ -110,6 +109,7 @@ function AdAccounts({ slug, data, clientName, nameOf, onChanged }: {
   const [pick, setPick] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { confirm, dialog } = useConfirm();
   const mine = data.links.filter((l) => l.client_slug === slug);
   const owner = new Map(data.links.map((l) => [l.account_id, l.client_slug]));
   const free = data.accounts.filter((a) => !owner.has(a.id));
@@ -126,7 +126,7 @@ function AdAccounts({ slug, data, clientName, nameOf, onChanged }: {
     onChanged();
   };
   const unlink = async (id: string) => {
-    if (!window.confirm(`Unlink ${nameFor(id)} from ${clientName}? ${clientName}'s logins will stop seeing its numbers.`)) return;
+    if (!(await confirm({ title: `Unlink ${nameFor(id)}?`, description: `Unlink ${nameFor(id)} from ${clientName}? ${clientName}'s logins will stop seeing its numbers.`, actionLabel: "Unlink" }))) return;
     setBusy(true);
     setError(null);
     const { error: e } = await db.from("client_ad_accounts").delete().eq("account_id", id);
@@ -154,10 +154,15 @@ function AdAccounts({ slug, data, clientName, nameOf, onChanged }: {
         </ul>
       )}
       <div className="flex flex-wrap gap-2">
-        <select aria-label="Ad account to link" className={`${FIELD} sm:max-w-xs`} value={pick} onChange={(e) => setPick(e.target.value)}>
-          <option value="">{free.length === 0 ? "Every ad account is already linked" : "Choose an ad account"}</option>
-          {free.map((a) => <option key={a.id} value={a.id}>{a.name ?? a.id}</option>)}
-        </select>
+        <SelectField
+          label="Ad account to link"
+          hideLabel
+          className="w-full sm:max-w-xs"
+          value={pick}
+          onChange={(e) => setPick(e.target.value)}
+          placeholder={free.length === 0 ? "Every ad account is already linked" : "Choose an ad account"}
+          options={free.map((a) => ({ value: a.id, label: a.name ?? a.id }))}
+        />
         <Button size="sm" disabled={busy || !pick} onClick={() => void link()}>Link ad account</Button>
       </div>
       {data.accounts.length > free.length ? (
@@ -166,6 +171,7 @@ function AdAccounts({ slug, data, clientName, nameOf, onChanged }: {
         </p>
       ) : null}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+      {dialog}
     </section>
   );
 }
@@ -182,6 +188,7 @@ function ClickUpLink({ slug, data, clientName, nameOf, onChanged }: {
   const [pickedFolder, setPickedFolder] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { confirm, dialog } = useConfirm();
 
   const mine = data.mappings.filter((m) => m.client_slug === slug);
   const takenBy = useMemo(() => new Map(data.mappings.filter((m) => m.kind === "folder").map((m) => [m.external_id, m.client_slug])), [data.mappings]);
@@ -228,7 +235,7 @@ function ClickUpLink({ slug, data, clientName, nameOf, onChanged }: {
     if (f) void save(f.id, "folder", f.name);
   };
   const remove = async (m: Mapping) => {
-    if (!window.confirm(`Unlink ${m.label ?? m.external_id} from ${clientName}? The ClickUp board will stop filling for this client until a folder is linked again.`)) return;
+    if (!(await confirm({ title: `Unlink ${m.label ?? m.external_id}?`, description: `Unlink ${m.label ?? m.external_id} from ${clientName}? The ClickUp board will stop filling for this client until a folder is linked again.`, actionLabel: "Unlink" }))) return;
     setBusy(true);
     setError(null);
     const { error: e } = await db.from("source_mappings").delete().eq("id", m.id);
@@ -273,30 +280,39 @@ function ClickUpLink({ slug, data, clientName, nameOf, onChanged }: {
               <p className="text-sm text-muted-foreground">ClickUp returned no folders.</p>
             ) : (
               <div className="flex flex-wrap gap-2">
-                <select aria-label="ClickUp folder to link" className={`${FIELD} sm:max-w-xs`} value={pickedFolder} onChange={(e) => setPickedFolder(e.target.value)}>
-                  <option value="">Choose a folder</option>
-                  {folders.map((f) => {
+                <SelectField
+                  label="ClickUp folder to link"
+                  hideLabel
+                  className="w-full sm:max-w-xs"
+                  value={pickedFolder}
+                  onChange={(e) => setPickedFolder(e.target.value)}
+                  placeholder="Choose a folder"
+                  options={folders.map((f) => {
                     const owner = takenBy.get(f.id);
-                    return <option key={f.id} value={f.id} disabled={!!owner}>{folderLabel(f, owner ? nameOf(owner) : undefined)}</option>;
+                    return { value: f.id, label: folderLabel(f, owner ? nameOf(owner) : undefined), disabled: !!owner };
                   })}
-                </select>
+                />
                 <Button size="sm" disabled={busy || !pickedFolder} onClick={savePicked}>Link folder</Button>
               </div>
             )
           ) : null}
-          <div role="group" aria-label="Paste a ClickUp folder" className="grid gap-2 sm:grid-cols-[1fr_9rem_1fr_auto]">
-            <input aria-label="ClickUp folder link or id" className={FIELD} placeholder="Folder link or id" value={pasted} onChange={(e) => setPasted(e.target.value)} />
-            <select aria-label="What the id is" className={FIELD} value={kind} onChange={(e) => setKind(e.target.value as "folder" | "list")}>
-              <option value="folder">Folder</option>
-              <option value="list">List</option>
-            </select>
-            <input aria-label="Name for this link (optional)" className={FIELD} placeholder="Name (optional)" value={label} maxLength={120} onChange={(e) => setLabel(e.target.value)} />
+          <div role="group" aria-label="Paste a ClickUp folder" className="grid items-end gap-2 sm:grid-cols-[1fr_9rem_1fr_auto]">
+            <TextField label="ClickUp folder link or id" hideLabel placeholder="Folder link or id" value={pasted} onChange={(e) => setPasted(e.target.value)} />
+            <SelectField
+              label="What the id is"
+              hideLabel
+              value={kind}
+              onChange={(e) => setKind(e.target.value as "folder" | "list")}
+              options={[{ value: "folder", label: "Folder" }, { value: "list", label: "List" }]}
+            />
+            <TextField label="Name for this link (optional)" hideLabel placeholder="Name (optional)" value={label} maxLength={120} onChange={(e) => setLabel(e.target.value)} />
             <Button size="sm" disabled={busy || !pasted.trim()} onClick={savePasted}>Link pasted id</Button>
           </div>
           <p className="text-xs text-muted-foreground">{CLICKUP_ID_HELP}</p>
         </div>
       )}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+      {dialog}
     </section>
   );
 }
@@ -306,6 +322,7 @@ function Logins({ slug, data, clientName, onChanged }: { slug: string; data: Loa
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { confirm, dialog } = useConfirm();
 
   const add = async () => {
     setBusy(true);
@@ -317,7 +334,7 @@ function Logins({ slug, data, clientName, onChanged }: { slug: string; data: Loa
     onChanged();
   };
   const remove = async (m: Member) => {
-    if (!window.confirm(`Unlink ${m.email} from ${clientName}? They will stop seeing ${clientName}'s work. Their login stays.`)) return;
+    if (!(await confirm({ title: `Unlink ${m.email}?`, description: `Unlink ${m.email} from ${clientName}? They will stop seeing ${clientName}'s work. Their login stays.`, actionLabel: "Unlink" }))) return;
     setBusy(true);
     setError(null);
     const { error: e } = await db.rpc("remove_client_member", { p_slug: slug, p_user_id: m.user_id });
@@ -346,10 +363,11 @@ function Logins({ slug, data, clientName, onChanged }: { slug: string; data: Loa
         </ul>
       )}
       <div className="flex flex-wrap gap-2">
-        <input aria-label="Email of an existing client login" type="email" className={`${FIELD} sm:max-w-xs`} placeholder="client@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <TextField label="Email of an existing client login" hideLabel type="email" className="w-full sm:max-w-xs" placeholder="client@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
         <Button size="sm" disabled={busy || !email.trim()} onClick={() => void add()}>Link login</Button>
       </div>
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+      {dialog}
     </section>
   );
 }
@@ -381,23 +399,22 @@ export default function ClientSetupTab() {
 
   if (!isBuilder) {
     return (
-      <div className="p-6" data-testid="client-setup-builders-only">
-        <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-          Only a builder can set up a client. Ask a builder to link {clientName}'s ad account, ClickUp folder or logins.
-        </p>
-      </div>
+      <PageShell data-testid="client-setup-builders-only">
+        <EmptyState
+          title="Only a builder can set up a client"
+          description={`Ask a builder to link ${clientName}'s ad account, ClickUp folder or logins.`}
+        />
+      </PageShell>
     );
   }
 
   return (
-    <div className="space-y-4 p-6" data-testid="client-setup">
+    <PageShell data-testid="client-setup">
       <PageHeader title="Setup" description={`Link ${clientName} to its ad accounts, its ClickUp folder and its logins.`} />
       {error ? (
-        <div role="alert" className="rounded-lg border border-destructive/40 p-4 text-sm">
-          {error} <button type="button" className="underline" onClick={() => void load()}>Try again</button>
-        </div>
+        <ErrorState message={error} onRetry={() => void load()} />
       ) : !data ? (
-        <p role="status" className="text-sm text-muted-foreground">Loading setup...</p>
+        <LoadingState label="Loading setup" />
       ) : (
         <>
           <Checklist status={data.status} now={now} />
@@ -408,6 +425,6 @@ export default function ClientSetupTab() {
           <Logins slug={slug} data={data} clientName={clientName} onChanged={() => void load()} />
         </>
       )}
-    </div>
+    </PageShell>
   );
 }

@@ -12,7 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { useAuth } from "@/contexts/AuthContext";
-import { PageHeader } from "@/components/PageHeader";
+import { EmptyState, ErrorState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
 import {
   type ChangeRequest,
@@ -41,7 +41,6 @@ interface Untyped {
   rpc(name: string, args: Record<string, unknown>): PromiseLike<DbResult>;
 }
 const db = supabase as unknown as Untyped;
-const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 interface ClientOption {
   slug: string;
@@ -76,7 +75,7 @@ function RequestRow({ request, onChanged }: { request: ChangeRequest; onChanged:
       ))}
       {!isDecided(request) ? (
         <div className="space-y-2">
-          <input aria-label="Rationale" className={field} placeholder="Rationale" value={rationale} onChange={(e) => setRationale(e.target.value)} />
+          <TextField label="Rationale" hideLabel placeholder="Rationale" value={rationale} onChange={(e) => setRationale(e.target.value)} />
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={() => void evaluate("needs_review")}>Needs review</Button>
             {isBuilder ? <Button size="sm" onClick={() => void evaluate("accepted")}>Accept</Button> : null}
@@ -84,7 +83,7 @@ function RequestRow({ request, onChanged }: { request: ChangeRequest; onChanged:
           </div>
         </div>
       ) : null}
-      {error ? <p role="alert" className="text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-destructive">{error}</p> : null}
     </li>
   );
 }
@@ -114,20 +113,22 @@ function ShotListCard({ shotList, requests, onChanged }: { shotList: ShotList; r
         <details>
           <summary className="cursor-pointer font-medium">Record a change request</summary>
           <div className="mt-2 space-y-2">
-            <textarea aria-label="Requested change" className={field} placeholder="What the client wants changed" value={form.change} onChange={(e) => setForm({ ...form, change: e.target.value })} />
-            <div className="grid gap-2 sm:grid-cols-3">
-              <select aria-label="Channel" className={field} value={form.channel} onChange={(e) => setForm({ ...form, channel: e.target.value })}>
-                <option value="call">Call</option>
-                <option value="slack">Slack</option>
-                <option value="email">Email</option>
-              </select>
-              <input aria-label="Source note" className={`${field} sm:col-span-2`} placeholder="Where it came from (call, thread, email)" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
+            <TextareaField label="Requested change" hideLabel placeholder="What the client wants changed" value={form.change} onChange={(e) => setForm({ ...form, change: e.target.value })} />
+            <div className="grid items-end gap-2 grid-cols-1 sm:grid-cols-3">
+              <SelectField
+                label="Channel"
+                hideLabel
+                value={form.channel}
+                onChange={(e) => setForm({ ...form, channel: e.target.value })}
+                options={[{ value: "call", label: "Call" }, { value: "slack", label: "Slack" }, { value: "email", label: "Email" }]}
+              />
+              <TextField label="Source note" hideLabel className="sm:col-span-2" placeholder="Where it came from (call, thread, email)" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
             </div>
             <Button size="sm" disabled={!form.change.trim() || !form.note.trim()} onClick={() => void record()}>Record against version {locked}</Button>
           </div>
         </details>
       ) : null}
-      {error ? <p role="alert" className="text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-destructive">{error}</p> : null}
     </section>
   );
 }
@@ -166,21 +167,26 @@ export default function ScopeChangesPage() {
   useEffect(() => void load(), [load]);
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4" data-testid="scope-changes">
+    <PageShell data-testid="scope-changes">
       <PageHeader title="Scope changes" description="The client's approved shot list is the locked scope. Record change requests against it; a builder accepts or declines each one." />
       <div className="grid gap-2 sm:grid-cols-2">
         {!clientSlug ? <div className="sm:col-span-2"><PickClientPrompt what="its scope changes" /></div> : null}
-        <select aria-label="Engagement" className={field} value={engagementId} onChange={(e) => setEngagementId(e.target.value)} disabled={!clientSlug}>
-          <option value="">Select an engagement</option>
-          {engagements.map((e) => <option key={e.id} value={e.id}>Cycle {e.cycle_number} ({e.status})</option>)}
-        </select>
+        <SelectField
+          label="Engagement"
+          hideLabel
+          value={engagementId}
+          onChange={(e) => setEngagementId(e.target.value)}
+          disabled={!clientSlug}
+          placeholder="Select an engagement"
+          options={engagements.map((e) => ({ value: e.id, label: `Cycle ${e.cycle_number} (${e.status})` }))}
+        />
       </div>
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
-      {shotLists && shotLists.length === 0 ? <p className="text-sm text-muted-foreground">No shot lists for this engagement yet. Add one on the Deliverables page.</p> : null}
+      {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      {shotLists && shotLists.length === 0 && !error ? <EmptyState title="No shot lists for this engagement yet" description="Add one on the Deliverables page." /> : null}
       {(shotLists ?? []).map((s) => (
         <ShotListCard key={s.id} shotList={s} requests={requests.filter((r) => r.subject_id === s.id)} onChanged={() => void load()} />
       ))}
       <p className="text-[12px] text-muted-foreground">An accepted change does not edit the shot list. Publish a new version on the Deliverables page; the client's approval of it locks the new scope.</p>
-    </div>
+    </PageShell>
   );
 }
