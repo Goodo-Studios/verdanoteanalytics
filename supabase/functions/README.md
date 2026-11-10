@@ -98,6 +98,7 @@ supabase secrets set WRITE_BRIEF_SECRET=<random-secret>  # write-brief
 | Function | Trigger | Purpose |
 |---|---|---|
 | `sync-clickup-tasks` | Cron (every 4h) | Reads asset tasks from every client folder in ClickUp (GET only) into the `pipeline_tasks` table, mapping each ClickUp status to one of five client-facing columns (Preparing Content / Production / Editing / Client Review / Ready to Launch) and storing client-safe fields only. Each folder resolves to a client (`source_mappings` folder row first, then name rules against clients and their ad accounts); rows carry `client_slug`, and `account_id` when the client has exactly one ad account. Powers the `/pipeline` board for staff and clients. Rules live in `_shared/clickup-pipeline.ts`. Needs the `CLICKUP_API_TOKEN` secret. |
+| `push-brief-to-clickup` | Staff ("Push to ClickUp" in the brief editor, "Create brief in ClickUp" in the creative detail modal) | Builder or employee login only. `list` returns the client's empty asset tasks in `assigned` or `brief creation`; `push` writes the brief (plain markdown, no HTML tags) into a picked empty asset task, or creates `{Month} Asset {next N} - {title}`, and sets status `brief creation`. Refuses a task that has a description, is in another list or is not an asset task. Writes nothing else. Folder resolved like `sync-clickup-tasks`. Rules in `_shared/clickup-brief.ts`. Answers 503 without `CLICKUP_API_TOKEN`. |
 
 ### Creative Vault
 

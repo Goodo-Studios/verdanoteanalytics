@@ -97,6 +97,10 @@ const controls = [
   ["client A accepted by accounts (its own list)", "accounts", clientA, { method: "GET" }, (s) => s < 400],
   // Staging has no FIREFLIES_API_KEY: staff pass the gate and the function fails closed with 503.
   ["employee passes the fireflies-transcript gate and it fails closed without a key", "fireflies-transcript", employee, { body: { transcript_id: "wall_probe" } }, (s) => s === 503],
+  // Staging has no CLICKUP_API_TOKEN: staff pass the gate and the function fails closed with 503, writing nothing.
+  ["employee passes the push-brief-to-clickup gate and it fails closed without a token", "push-brief-to-clickup", employee, { body: { action: "list", client_slug: "wall_probe" } }, (s) => s === 503],
+  ["builder passes the push-brief-to-clickup gate and it fails closed without a token", "push-brief-to-clickup", builder, { body: { action: "list", client_slug: "wall_probe" } }, (s) => s === 503],
+  ["client B refused by push-brief-to-clickup", "push-brief-to-clickup", clientB, { body: { action: "list", client_slug: "wall_probe" } }, refused],
 ];
 for (const [label, name, token, opts, ok] of controls) {
   const status = await call(name, token, opts);

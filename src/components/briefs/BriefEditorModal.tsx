@@ -8,8 +8,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useUpdateBrief, type Brief } from "@/hooks/useBriefsApi";
-import { Copy, Save, Plus, X } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useClientPreview } from "@/hooks/useClientPreviewMode";
+import { Copy, Save, Send, Plus, X } from "lucide-react";
 import { CreativePickerModal, type VisualItem } from "./CreativePickerModal";
+import { PushToClickUpDialog } from "@/components/clickup/PushToClickUpDialog";
 
 const SECTION_DEFS = [
   { key: "angle_goal", label: "Angle / Goal", type: "textarea", placeholder: "The strategic angle and what this ad needs to achieve…" },
@@ -30,6 +33,11 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
   const [refItems, setRefItems] = useState<VisualItem[]>([]);
   const [dirty, setDirty] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [clickUpOpen, setClickUpOpen] = useState(false);
+  const { isBuilder, isEmployee } = useAuth();
+  const { isClientPreview } = useClientPreview();
+  // Staff only, and hidden while a builder previews the client view.
+  const canPushToClickUp = (isBuilder || isEmployee) && !isClientPreview;
 
   useEffect(() => {
     if (brief) {
@@ -90,6 +98,21 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
     setDirty(false);
   };
 
+  // The brief as plain markdown for the ClickUp task description.
+  const buildBriefMarkdown = () => {
+    const lines: string[] = [];
+    for (const section of SECTION_DEFS) {
+      const value = (content[section.key] || "").toString().trim();
+      if (value) lines.push(`## ${section.label}`, value, "");
+    }
+    if (refItems.length > 0) {
+      lines.push("## Visual Inspiration");
+      for (const c of refItems) lines.push(`- ${c.unique_code || c.ad_name || c.ad_id}`);
+      lines.push("");
+    }
+    return lines.join("\n").trim();
+  };
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto p-0">
@@ -112,6 +135,11 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
             <Button size="sm" variant="outline" className="gap-1 font-body text-[11px]" onClick={save} disabled={!dirty || updateBrief.isPending}>
               <Save className="h-3 w-3" /> Save
             </Button>
+            {canPushToClickUp && (
+              <Button size="sm" className="gap-1 bg-verdant hover:bg-verdant/90 text-white font-body text-[11px]" onClick={() => setClickUpOpen(true)}>
+                <Send className="h-3 w-3" /> Push to ClickUp
+              </Button>
+            )}
           </div>
         </div>
 
@@ -176,6 +204,18 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
         selectedIds={new Set(refItems.map((i) => i.ad_id))}
         onToggle={toggleItem}
       />
+
+      {canPushToClickUp && (
+        <PushToClickUpDialog
+          open={clickUpOpen}
+          onOpenChange={setClickUpOpen}
+          heading="Push to ClickUp"
+          accountId={brief.account_id}
+          initialTitle={name}
+          initialBody={buildBriefMarkdown()}
+          beforePush={dirty ? save : undefined}
+        />
+      )}
     </Dialog>
   );
 }

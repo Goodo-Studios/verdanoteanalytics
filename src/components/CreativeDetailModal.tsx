@@ -4,7 +4,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { TagSourceBadge } from "@/components/TagSourceBadge";
 import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, ExternalLink, Loader2, BookmarkPlus, Bookmark, FileText, Layers, Sparkles } from "lucide-react";
+import { Image as ImageIcon, ExternalLink, FileEdit, Loader2, BookmarkPlus, Bookmark, FileText, Layers, Sparkles } from "lucide-react";
 import { useState, forwardRef, useEffect, useCallback } from "react";
 import { useCachedMedia } from "@/hooks/useCachedMedia";
 
@@ -17,6 +17,8 @@ import { GradeBadge } from "@/components/creatives/GradeBadge";
 
 import type { GradeInfo } from "@/lib/creativeGrading";
 import { useAuth } from "@/contexts/AuthContext";
+import { useClientPreview } from "@/hooks/useClientPreviewMode";
+import { PushToClickUpDialog } from "@/components/clickup/PushToClickUpDialog";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 
@@ -282,6 +284,10 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
   const { isBuilder, isEmployee } = useAuth();
   const queryClient = useQueryClient();
   const canEdit = isBuilder || isEmployee;
+  const { isClientPreview } = useClientPreview();
+  // "Create brief in ClickUp": staff only, hidden while a builder previews the client view.
+  const canPushToClickUp = canEdit && !isClientPreview;
+  const [clickUpOpen, setClickUpOpen] = useState(false);
   const [savingToVault, setSavingToVault] = useState(false);
   const [savedToVault, setSavedToVault] = useState(false);
   // true when the saved state came from a dedupe hit / pre-existing vault item,
@@ -532,6 +538,17 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
             {/* Save to Vault */}
             {(isBuilder || isEmployee) && (
               <div className="flex items-center gap-2 flex-wrap">
+                {canPushToClickUp && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 font-body text-[12px]"
+                    onClick={() => setClickUpOpen(true)}
+                  >
+                    <FileEdit className="h-3.5 w-3.5" />
+                    Create brief in ClickUp
+                  </Button>
+                )}
                 <Button
                   variant={savedToVault ? "default" : "outline"}
                   size="sm"
@@ -593,6 +610,17 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
         </div>
       </DialogContent>
 
+      {canPushToClickUp && (
+        <PushToClickUpDialog
+          open={clickUpOpen}
+          onOpenChange={setClickUpOpen}
+          heading="Create brief in ClickUp"
+          accountId={creative.account_id}
+          initialTitle=""
+          initialBody=""
+          creative={{ ad_id: creative.ad_id, ad_name: creative.ad_name }}
+        />
+      )}
     </Dialog>
   );
 });
