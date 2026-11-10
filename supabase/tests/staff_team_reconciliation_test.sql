@@ -74,7 +74,7 @@ SELECT is((SELECT string_agg(dashboard_role || '>' || verdanote_role || ':' || n
   'the seeded mapping is the conservative default with viewer flagged');
 SELECT is((SELECT string_agg(coalesce(public.dashboard_role_to_verdanote_role(x)::text, 'none'), ',' ORDER BY x)
              FROM unnest(ARRAY['admin', 'producer', 'viewer', 'other']) x),
-  'builder,employee,none,none', 'a flagged mapping is never applied: viewer gets no role');
+  'builder,none,employee,none', 'a flagged mapping is never applied: viewer (and an unknown role) gets no role');
 SELECT ok(NOT has_function_privilege('authenticated', 'public.prevent_staff_admin_event_rewrite()', 'EXECUTE'),
   'the immutability trigger function is not callable by signed-in users');
 
