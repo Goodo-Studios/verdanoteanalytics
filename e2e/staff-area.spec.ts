@@ -40,6 +40,8 @@ const STAFF_PATHS = [
   "/creator-pipeline",
   "/clients/demo-glowdrip",
   "/clients",
+  "/creators",
+  "/creators/de5a0000-0000-4000-8000-000000000300",
   "/engagements",
   "/deliverables",
   "/qa-gates",

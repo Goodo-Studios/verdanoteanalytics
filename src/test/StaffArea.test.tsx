@@ -49,6 +49,8 @@ vi.mock("@/features/dashboard/FollowUpsPage", () => pageMock("follow-ups"));
 vi.mock("@/features/dashboard/CreatorPipelinePage", () => pageMock("creator-pipeline"));
 vi.mock("@/features/dashboard/ClientDetailPage", () => pageMock("clientDetail"));
 vi.mock("@/features/dashboard/OverviewPage", () => pageMock("client-overview"));
+vi.mock("@/features/dashboard/CreatorsPage", () => pageMock("creators"));
+vi.mock("@/features/dashboard/CreatorDetailPage", () => pageMock("creatorDetail"));
 vi.mock("@/features/engagements/EngagementsPage", () => pageMock("engagements"));
 vi.mock("@/features/deliverables/DeliverablesPage", () => pageMock("deliverables"));
 vi.mock("@/features/qa-gates/QaGatesPage", () => pageMock("qa-gates"));
@@ -128,6 +130,8 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean }
   { path: "/creator-pipeline", marker: "creator-pipeline" },
   { path: "/clients/demo-glowdrip", marker: "clientDetail" },
   { path: "/clients", marker: "client-overview" },
+  { path: "/creators", marker: "creators" },
+  { path: "/creators/de5a0000-0000-4000-8000-000000000300", marker: "creatorDetail" },
   { path: "/engagements", marker: "engagements" },
   { path: "/deliverables", marker: "deliverables" },
   { path: "/qa-gates", marker: "qa-gates" },
