@@ -54,7 +54,7 @@ describe("staff menu content", () => {
     expect(slots.map((s) => s.id).sort()).toEqual(
       ["bid-viewer", "content-leaderboard", "dashboard-creators", "dashboard-production", "dashboard-settings", "goodo-os", "wideframe"],
     );
-    for (const id of ["client-overview", "creator-pipeline", "follow-ups", "creators", "actors"]) {
+    for (const id of ["client-overview", "creator-pipeline", "follow-ups", "creators", "actors", "applications"]) {
       expect(allStaffMenuItems.find((i) => i.id === id)?.status, id).toBe("live");
     }
     for (const slot of slots) {

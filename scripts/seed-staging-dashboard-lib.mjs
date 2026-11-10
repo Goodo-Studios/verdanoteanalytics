@@ -27,6 +27,8 @@ export const SEED_MARKERS = {
   app_users: { sql: "email like '%@staging.verdanote.test'", match: (r) => r.email.endsWith('@staging.verdanote.test') },
   actors: { sql: "source = 'staging_seed'", match: (r) => r.source === 'staging_seed' },
   actor_assignments: { sql: "client_slug like 'demo-%'", match: (r) => r.client_slug.startsWith('demo-') },
+  creator_applications: { sql: "email like '%@example.test'", match: (r) => r.email.endsWith('@example.test') },
+  actor_applications: { sql: "email like '%@example.test'", match: (r) => r.email.endsWith('@example.test') },
 };
 
 // Upsert order (parents first) and the conflict key of each table.
@@ -41,6 +43,8 @@ export const SEED_ORDER = [
   ['pipeline_tasks', 'clickup_task_id'],
   ['actors', 'id'],
   ['actor_assignments', 'id'],
+  ['creator_applications', 'id'],
+  ['actor_applications', 'id'],
 ];
 
 export function assertStagingUrl(url) {
@@ -165,5 +169,24 @@ export function buildDashboardSeed(now = new Date()) {
     { id: id(602), actor_id: id(502), client_slug: 'demo-pinecrest', stage: 'interested', scheduled_shoot_date: null, shoot_location: null },
   ];
 
-  return { clients, app_users, client_ad_accounts, engagements, deliverables, dashboard_creators, creator_assignments, pipeline_tasks, actors, actor_assignments };
+  // Step 5b: applications waiting for review, no files. One applicant shares an
+  // email with a demo creator so the roster match shows. A re-run sets every
+  // demo application back to its seeded status.
+  const app = (k, name, email, status, extra = {}) => ({
+    id: id(700 + k), status, name, email, gender: null, age_range: ['25-34'], headshot_path: null,
+    submitted_at: stamp(-k), reviewed_by: null, reviewed_at: status === 'pending' ? null : stamp(-1),
+    review_notes: status === 'rejected' ? 'Demo: outside the current categories' : null, ...extra,
+  });
+  const creator_applications = [
+    app(0, 'Morgan Ellis', 'morgan.applicant@example.test', 'pending', { categories: ['Skincare'], location: 'Testville', socials: { instagram: '@morgan.demo' } }),
+    app(1, 'Noa Bennett', 'noa.applicant@example.test', 'pending', { categories: ['Pet', 'Dog'], location: 'Sampletown', website: 'noa.example.test' }),
+    app(2, 'Avery Stone', 'avery@example.test', 'pending', { categories: ['Food/Beverage'], location: 'Testville' }),
+    app(3, 'Oakley Price', 'oakley.applicant@example.test', 'rejected', { categories: ['Tech'], location: 'Testville' }),
+  ];
+  const actor_applications = [
+    app(50, 'Parker Lane', 'parker.actor-applicant@example.test', 'pending', { phone: '555-0150', gender: 'Male', dog_owner: true }),
+    app(51, 'Quinn Avery', 'quinn.actor-applicant@example.test', 'pending', { phone: '555-0151', gender: 'Female', dog_owner: null }),
+  ];
+
+  return { clients, app_users, client_ad_accounts, engagements, deliverables, dashboard_creators, creator_assignments, pipeline_tasks, actors, actor_assignments, creator_applications, actor_applications };
 }

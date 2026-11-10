@@ -38,6 +38,7 @@ import {
   Contact,
   Compass,
   Drama,
+  Inbox,
 } from "lucide-react";
 import { ATTIO_URL, GOODO_TIME_URL } from "@/lib/staffMenu";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
@@ -115,6 +116,7 @@ export const builderSections: NavSection[] = [
       { title: "Client overview", url: "/clients", icon: Building2 },
       { title: "Creators", url: "/creators", icon: Contact },
       { title: "Actors", url: "/actors", icon: Drama },
+      { title: "Applications", url: "/applications", icon: Inbox },
       { title: "Engagements", url: "/engagements", icon: CalendarRange },
       { title: "Deliverables", url: "/deliverables", icon: PackageCheck },
       { title: "QA gates", url: "/qa-gates", icon: ShieldCheck },

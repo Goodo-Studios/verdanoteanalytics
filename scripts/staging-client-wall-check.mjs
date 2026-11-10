@@ -346,6 +346,39 @@ for (const table of actorTables) {
 const actorFiles = await employee.c.storage.from("actor-headshots").list("", { limit: 10 });
 check("employee lists actor headshot files", !actorFiles.error && (actorFiles.data ?? []).length > 0, `error=${actorFiles.error?.message ?? "none"}`);
 
+// Old dashboard batch 2, Applications (step 5b): applications, their videos and the
+// application buckets are staff only, so applicant emails, phone numbers and shipping addresses
+// never reach a client. Clients are refused the four decision functions. The employee calls use
+// an id that does not exist, so they pass the staff check and stop at no_data_found.
+const applicationTables = ["creator_applications", "application_videos", "actor_applications", "actor_application_videos"];
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of applicationTables) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const ins = await s.c.from("creator_applications").insert({ name: "wall", email: "wall@example.test" });
+  check(`${label} cannot write creator_applications`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  for (const [fn, args] of [
+    ["approve_application", { application_id: ZERO }],
+    ["reject_application", { application_id: ZERO, reason: "wall" }],
+    ["approve_actor_application", { application_id: ZERO }],
+    ["reject_actor_application", { application_id: ZERO, reason: "wall" }],
+  ]) {
+    const r = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, r.error?.code === "42501", `code=${r.error?.code ?? "none"}`);
+  }
+  const files = await s.c.storage.from("creator-application-headshots").list("", { limit: 10 });
+  check(`${label} lists no applicant headshot files`, !!files.error || (files.data ?? []).length === 0, `files=${files.data?.length ?? "error"}`);
+}
+for (const table of applicationTables) {
+  const r = await employee.c.from(table).select("*").limit(1);
+  check(`employee can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
+}
+for (const fn of ["approve_application", "reject_application", "approve_actor_application", "reject_actor_application"]) {
+  const r = await employee.c.rpc(fn, fn.startsWith("reject") ? { application_id: ZERO, reason: "wall" } : { application_id: ZERO });
+  check(`employee passes the staff check in ${fn}`, r.error?.code === "P0002", `code=${r.error?.code ?? "none"}`);
+}
+
 // QA gates (migration 20261110120003, step 4b): staff only. Clients read none of the three
 // tables, cannot write them and are refused every checked function, the gate read included.
 const qaTables = ["engagement_deliverable_confirmations", "engagement_deliverable_qa_returns", "engagement_deliverable_signoffs"];
