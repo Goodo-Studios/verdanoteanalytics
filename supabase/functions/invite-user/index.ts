@@ -226,7 +226,15 @@ async function invite(raw: Raw, caller: { userId: string }, store: Store, admin:
     data: { display_name: name },
     ...(origin ? { redirectTo: `${origin}/update-password` } : {}),
   });
-  if (sent.error) return sendFailure(sent.error);
+  if (sent.error) {
+    // Before this call there was no login for the email, so one that exists now was made by this
+    // attempt. Remove it, so a failed send leaves nothing behind and a retry starts clean.
+    if (sent.error.status !== 422 && sent.error.code !== "email_exists" && sent.error.code !== "user_already_exists") {
+      const left = await store.loginState(email);
+      if (left && !left.confirmed) await admin.deleteUser(left.userId);
+    }
+    return sendFailure(sent.error);
+  }
   const userId = sent.data?.user?.id;
   if (!userId) {
     console.error("invite-user: the invite answered without a login");

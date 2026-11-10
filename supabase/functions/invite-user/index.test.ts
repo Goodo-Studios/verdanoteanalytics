@@ -40,6 +40,8 @@ const row = (over: Partial<InviteRow> = {}): InviteRow => ({
 
 interface World {
   login?: { userId: string; confirmed: boolean } | null;
+  /** Answers of successive loginState calls, when the answer changes during one request. */
+  loginSequence?: ({ userId: string; confirmed: boolean } | null)[];
   open?: InviteRow | null;
   invite?: InviteRow | null;
   clients?: string[];
@@ -53,8 +55,9 @@ function setup(w: World = {}) {
   const inserted: Record<string, unknown>[] = [];
   const invites: { email: string; options: Record<string, unknown> }[] = [];
   const deleted: string[] = [];
+  let lookups = 0;
   const store = {
-    loginState: () => Promise.resolve(w.login ?? null),
+    loginState: () => Promise.resolve(w.loginSequence ? (w.loginSequence[lookups++] ?? null) : (w.login ?? null)),
     clientExists: (slug: string) => Promise.resolve((w.clients ?? ["glow"]).includes(slug)),
     findOpenInvite: () => Promise.resolve(w.open ?? null),
     getInvite: () => Promise.resolve(w.invite ?? null),
@@ -226,6 +229,23 @@ Deno.test("another send failure is a 502 that does not echo the provider's messa
   const none = setup({ inviteResult: { data: { user: null }, error: null } });
   assertEquals((await none.call(INVITE)).status, 502);
   assertEquals(none.log.length, 0);
+});
+
+Deno.test("a failed send leaves no half-made login behind, and an email-exists answer removes nothing", async () => {
+  const failing = setup({
+    loginSequence: [null, { userId: LOGIN, confirmed: false }],
+    inviteResult: { data: null, error: { message: "smtp down", status: 500 } },
+  });
+  assertEquals((await failing.call(INVITE)).status, 502);
+  assertEquals(failing.deleted, [LOGIN]);
+
+  const clean = setup({ loginSequence: [null, null], inviteResult: { data: null, error: { message: "smtp down", status: 500 } } });
+  assertEquals((await clean.call(INVITE)).status, 502);
+  assertEquals(clean.deleted.length, 0);
+
+  const exists = setup({ loginSequence: [null, { userId: LOGIN, confirmed: true }], inviteResult: { data: null, error: { message: "exists", status: 422, code: "email_exists" } } });
+  assertEquals((await exists.call(INVITE)).status, 409);
+  assertEquals(exists.deleted.length, 0);
 });
 
 Deno.test("if the login cannot be set up after the email went out, the half-made login is removed", async () => {
