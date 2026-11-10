@@ -26,7 +26,8 @@ vi.mock("@/integrations/supabase/client", () => ({
   },
 }));
 
-import { LastRunLine, lastRunText } from "@/components/LastRunLine";
+import { LastRunLine } from "@/components/LastRunLine";
+import { lastRunText } from "@/lib/lastRun";
 
 const NOW = new Date("2026-11-12T12:00:00Z");
 const run = (over = {}) => ({ check_key: "budget_check", trigger: "scheduled" as const, outcome: "ok" as const, created_at: "2026-11-12T09:00:00Z", ...over });

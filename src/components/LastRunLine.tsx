@@ -4,14 +4,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { CHECK_RUN_COLUMNS } from "@/lib/pageQueries";
-import { syncAgo } from "@/features/clients/setupModel";
-
-export interface CheckRun {
-  check_key: string;
-  trigger: "manual" | "scheduled";
-  outcome: "ok" | "failed";
-  created_at: string;
-}
+import { lastRunText, type CheckRun } from "@/lib/lastRun";
 
 interface Result {
   data: unknown;
@@ -23,14 +16,6 @@ interface Query extends PromiseLike<Result> {
   limit(n: number): Query;
 }
 const db = supabase as unknown as { from(table: string): { select(columns: string): Query } };
-
-/** The sentence shown for the newest run, or for none. */
-export function lastRunText(run: CheckRun | null, scheduleNote: string, now: Date): string {
-  if (!run) return `Not run yet. ${scheduleNote}`;
-  const who = run.trigger === "scheduled" ? "by the schedule" : "by hand";
-  const when = syncAgo(run.created_at, now);
-  return run.outcome === "failed" ? `Last run ${when} (${who}) did not finish. ${scheduleNote}` : `Last run ${when} (${who}). ${scheduleNote}`;
-}
 
 export function LastRunLine({ checkKey, scheduleNote, refresh }: { checkKey: "budget_check" | "alert_check"; scheduleNote: string; refresh?: unknown }) {
   const [state, setState] = useState<{ run: CheckRun | null } | "error" | null>(null);
