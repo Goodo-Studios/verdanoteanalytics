@@ -73,6 +73,7 @@ export const staffMenuSections: StaffMenuSection[] = [
       { id: "qa-gates", title: "QA gates", description: "Release checks per revision: confirmation, strategist and QA signoffs.", status: "live", to: "/qa-gates" },
       { id: "handoffs", title: "Handoffs", description: "Brief packets for the next role, acknowledged or returned by the receiver.", status: "live", to: "/handoffs" },
       { id: "agent-evaluations", title: "Agent evaluations", description: "Test requests for each AI agent, grounded results and the approved configuration.", status: "live", to: "/agent-evaluations" },
+      { id: "operations", title: "Operations", description: "The work queue: replay or resolve jobs that need recovery and cancel queued jobs that never ran.", status: "live", to: "/operations" },
       { id: "learning", title: "Learning", description: "Client lessons with a named reviewer and builder publication, and the weekly self-service tally.", status: "live", to: "/learning" },
       { id: "scope-changes", title: "Scope changes", description: "The approved shot list locks the scope; change requests are accepted or declined by a builder.", status: "live", to: "/scope-changes" },
       { id: "recommendations", title: "Recommendations", description: "Decisions with evidence, linked ads and outcomes measured from ad data.", status: "live", to: "/recommendations" },
@@ -85,7 +86,7 @@ export const staffMenuSections: StaffMenuSection[] = [
     label: "Moving in",
     blurb: "Tools from the other apps. Each slot opens when its page is built and checked in staging.",
     items: [
-      { id: "goodo-os", title: "Goodo OS areas", description: "Waves C and D: learning and strategy, scope changes, AI agents, operations. Talent and call sheets move with step 5c.", status: "slot", step: "Steps 4c and 4d" },
+      { id: "goodo-os", title: "Goodo OS areas", description: "Wave D: alerts, operating costs and the support inbox. Talent and call sheets move with step 5c.", status: "slot", step: "Step 4d" },
       { id: "dashboard-production", title: "Old dashboard: Production", description: "Casting, calendars, call sheets. Locations, props, crew and shipments are live.", status: "slot", step: "Step 5c" },
       { id: "dashboard-settings", title: "Old dashboard: Settings and team", description: "Team management, merged with Verdanote user management.", status: "slot", step: "Step 5d" },
       { id: "wideframe", title: "Wideframe Prompt Library", description: "Read-only prompt pages for editors.", status: "slot", step: "Step 6" },

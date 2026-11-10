@@ -47,7 +47,7 @@ INSERT INTO allow
     'create_call_sheet', 'create_client', 'create_crew_member', 'create_location',
     'create_prop', 'create_shoot', 'create_shoot_schedule_block',
     'create_studio_shipment', 'delete_location', 'goodo_os_user_role_mapping',
-    'replay_job', 'resolve_job_manually', 'delete_prop', 'delete_shoot',
+    'replay_job', 'resolve_job_manually', 'cancel_queued_job', 'delete_prop', 'delete_shoot',
     'create_knowledge_source', 'submit_knowledge_correction', 'review_knowledge_correction',
     'publish_knowledge_correction', 'rollback_knowledge_source',
     'save_engagement_template', 'create_engagement_from_template', 'record_engagement_kickoff',

@@ -330,6 +330,14 @@ The function sends each sample to the model (`ANTHROPIC_EVAL_MODEL`, default `cl
 
 Differences from Goodo OS: samples belong to an agent instead of a client engagement, and the `agent.tool.review` capability becomes "any builder or employee writes samples and outcomes, a builder approves". The approval is recorded and shown; it does not yet stop `meeting-recaps` from running. Agent runs, tool proposals and their human evaluations (031) and durable agent jobs (035) are not ported: no Verdanote agent proposes tool actions. Tests in `supabase/tests/agent_evaluations_test.sql`, `supabase/functions/agent-evaluations/index.test.ts` and `src/test/agentEvaluationsPage.test.tsx`.
 
+### Operations (job queue)
+
+Page `/operations` (builder and employee) and migration `20261111000001_operations.sql`, no edge function and no new table. Port of the Goodo OS operator recovery page (`src/pages/staff/Operations.tsx`, `backend/services/operatorRecovery.ts`, `backend/routes/operations.ts`).
+
+The page lists `durable_jobs` with their `job_audit` history (staff-only row rules from step 3), newest first, filtered by state (needs recovery, queued, running, finished, all) and client. It selects job columns only, never the payload, and shows only short scalar receipt fields. Each job shows its next step. Commands, each a checked function with the role tested in its body: `replay_job` and `resolve_job_manually` (step 3) for a job in recovery, and the new `cancel_queued_job` for a queued job that was never claimed, with a reason of 10 to 500 characters. A job that was ever claimed, retried, replayed or had a send started is refused (55000), so a cancellation never hides an outside effect that may have happened. The cancel is audited as `manual_cancel` with the staff member and the reason; a linked reminder follows the job to canceled.
+
+Merged with integration health: the Integration health page keeps the queue summary and links here. Not ported: the Goodo OS client release outbox and effect controls on this page (client releases are phase 2), per-engagement capability grants (any builder or employee acts). Tests in `supabase/tests/operations_test.sql` and `src/test/operationsPage.test.tsx`.
+
 ## Alternatives rejected
 
 **A new `os_clients` table with a uuid id, and the dashboard `clients` folded into it.** Gives a cleaner id, but the eight dashboard tables and the dashboard staff functions (`create_client`, `set_client_*`, `create_shoot` and others) already key on `clients.slug`, so it means either two client ids side by side or rewriting all of them. Not the smallest change.

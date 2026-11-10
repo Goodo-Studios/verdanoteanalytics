@@ -5,17 +5,20 @@
  *   connector's state, its problems and notes, the work queue and owner alerts.
  * - A refused or failed call shows the function's error and no overview.
  * - "Check again" calls the function again.
+ * - The work queue links to the Operations page (step 4d).
  * - describePattern / describeNote turn every server code into a sentence.
  * The client wall for the route is in StaffArea.test.tsx; the server side in
  * supabase/functions/integration-health/index.test.ts.
  */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const invoke = vi.fn();
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: { functions: { invoke: (...args: unknown[]) => invoke(...args) } },
 }));
+vi.mock("@/hooks/useRolePath", () => ({ useRolePrefix: () => "/builder" }));
 
 import IntegrationHealthPage from "@/features/integration-health/IntegrationHealthPage";
 import { describeNote, describePattern, type HealthOverview } from "@/features/integration-health/model";
@@ -37,10 +40,12 @@ beforeEach(() => {
   invoke.mockReset();
 });
 
+const renderPage = () => render(<MemoryRouter><IntegrationHealthPage /></MemoryRouter>);
+
 describe("IntegrationHealthPage", () => {
   it("loads with GET and shows connectors, queue and owner alerts", async () => {
     invoke.mockResolvedValue({ data: overview, error: null });
-    render(<IntegrationHealthPage />);
+    renderPage();
     expect(await screen.findByTestId("integration-health-state-clickup")).toHaveTextContent("Needs attention");
     expect(invoke).toHaveBeenCalledWith("integration-health", { method: "GET" });
     expect(screen.getByTestId("integration-health-state-fireflies")).toHaveTextContent("Not connected");
@@ -55,25 +60,26 @@ describe("IntegrationHealthPage", () => {
     expect(screen.getByText("Alert needs recovery")).toBeTruthy();
     expect(screen.getByText("Ad sync stuck for Glow Drip")).toBeTruthy();
     expect(screen.getByText(/staging, where outside services are not connected/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open Operations" })).toHaveAttribute("href", "/builder/operations");
   });
 
   it("shows the function's error and no overview when the call is refused", async () => {
     const context = new Response(JSON.stringify({ error: "Forbidden: staff only" }), { status: 403 });
     invoke.mockResolvedValue({ data: null, error: Object.assign(new Error("non-2xx"), { context }) });
-    render(<IntegrationHealthPage />);
+    renderPage();
     expect(await screen.findByRole("alert")).toHaveTextContent("Forbidden: staff only");
     expect(screen.queryByText("Connectors")).toBeNull();
   });
 
   it("treats an answer without connectors as a failure", async () => {
     invoke.mockResolvedValue({ data: { nope: true }, error: null });
-    render(<IntegrationHealthPage />);
+    renderPage();
     expect(await screen.findByRole("alert")).toHaveTextContent("Integration health could not load.");
   });
 
   it("says when no owner alert was queued, and checks again on request", async () => {
     invoke.mockResolvedValue({ data: { ...overview, ownerAlerts: [] }, error: null });
-    render(<IntegrationHealthPage />);
+    renderPage();
     expect(await screen.findByText("No owner alerts have been queued.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /check again/i }));
     await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));

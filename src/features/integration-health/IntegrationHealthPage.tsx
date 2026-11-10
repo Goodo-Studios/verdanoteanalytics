@@ -4,8 +4,10 @@
 // queue and the latest owner alert jobs. It never changes anything; switches and
 // Slack destinations stay builder actions in the database.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useRolePrefix } from "@/hooks/useRolePath";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { edgeFunctionError } from "@/lib/edgeFunctionError";
@@ -60,6 +62,7 @@ export default function IntegrationHealthPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const generation = useRef(0);
+  const prefix = useRolePrefix();
 
   const load = useCallback(async () => {
     const current = ++generation.current;
@@ -119,6 +122,9 @@ export default function IntegrationHealthPage() {
             {overview.queue.patterns.map((p) => (
               <p key={p} className="text-sm text-amber-900">{describePattern(p)}</p>
             ))}
+            <p className="text-sm">
+              <Link className="underline" to={`${prefix}/operations`}>Open Operations</Link> to replay, resolve or cancel jobs.
+            </p>
           </section>
           <section aria-labelledby="ih-alerts" className="space-y-2">
             <h2 id="ih-alerts" className="text-base font-semibold">Owner alerts</h2>
