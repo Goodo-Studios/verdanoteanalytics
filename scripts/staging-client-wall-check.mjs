@@ -499,6 +499,31 @@ for (const table of recTables) {
 const recOutcome = await employee.c.rpc("record_recommendation_outcome", { p_recommendation_id: ZERO, p_expected_version: 1 });
 check("employee passes the staff check in record_recommendation_outcome", recOutcome.error?.code === "P0002", `code=${recOutcome.error?.code ?? "none"}`);
 
+// Scope changes (migration 20261110200002, step 4c): staff only. Clients read none of the
+// three tables, cannot write them and are refused both checked functions.
+const scopeTables = ["scope_locks", "scope_change_requests", "scope_change_evaluations"];
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of scopeTables) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const ins = await s.c.from("scope_change_evaluations").insert({ request_id: ZERO, status: "accepted", rationale: "wall", evaluator_id: s.userId });
+  check(`${label} cannot write scope_change_evaluations`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  for (const [fn, args] of [
+    ["request_scope_change", { p_subject_id: ZERO, p_base_version: 1, p_requested_change: "wall", p_channel: "call", p_source_note: "wall" }],
+    ["evaluate_scope_change", { p_request_id: ZERO, p_status: "accepted", p_rationale: "wall" }],
+  ]) {
+    const r = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, r.error?.code === "42501", `code=${r.error?.code ?? "none"}`);
+  }
+}
+for (const table of scopeTables) {
+  const r = await employee.c.from(table).select("*").limit(1);
+  check(`employee can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
+}
+const scReq = await employee.c.rpc("request_scope_change", { p_subject_id: ZERO, p_base_version: 1, p_requested_change: "wall", p_channel: "call", p_source_note: "wall" });
+check("employee passes the staff check in request_scope_change", scReq.error?.code === "P0002", `code=${scReq.error?.code ?? "none"}`);
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

@@ -69,6 +69,8 @@ const DeliverablesPage = lazy(routeImports.deliverables);
 const QaGatesPage = lazy(routeImports.qaGates);
 // Handoffs (consolidation step 4b, Goodo OS): builder and employee.
 const HandoffsPage = lazy(routeImports.handoffs);
+// Scope changes (consolidation step 4c, Goodo OS): builder and employee.
+const ScopeChangesPage = lazy(routeImports.scopeChanges);
 // Recommendations (consolidation step 4c, Goodo OS): builder and employee.
 const RecommendationsPage = lazy(routeImports.recommendations);
 // Strategy proposals (consolidation step 4c, Goodo OS): builder and employee.
@@ -246,6 +248,7 @@ export function RoleGuardedRoutes() {
           <Route path="/deliverables" element={staffPage ? <DeliverablesPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/qa-gates" element={staffPage ? <QaGatesPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/handoffs" element={staffPage ? <HandoffsPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/scope-changes" element={staffPage ? <ScopeChangesPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/recommendations" element={staffPage ? <RecommendationsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/strategy" element={staffPage ? <StrategyPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/settings" element={<SettingsPage />} />
