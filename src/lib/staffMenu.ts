@@ -60,6 +60,7 @@ export const staffMenuSections: StaffMenuSection[] = [
       { id: "follow-ups", title: "Follow-ups", description: "Creators to chase today: snooze, reschedule, change the owner.", status: "live", to: "/follow-ups" },
       { id: "creator-pipeline", title: "Creator pipeline", description: "Creators per brand by stage: owners, follow-up dates, delivery.", status: "live", to: "/creator-pipeline" },
       { id: "creators", title: "Creators", description: "The creator roster: profiles, media and the brands each creator is on.", status: "live", to: "/creators" },
+      { id: "actors", title: "Actors", description: "The production talent roster: profiles, media and castings.", status: "live", to: "/actors" },
       { id: "client-overview", title: "Client overview", description: "Active creator clients by progress, with at-risk and stale counts.", status: "live", to: "/clients" },
       { id: "engagements", title: "Engagements", description: "45-day cycles per client: templates, kickoff and closeout.", status: "live", to: "/engagements" },
       { id: "deliverables", title: "Deliverables and approvals", description: "Revisions, client decisions and rounds, idea and shot list approvals.", status: "live", to: "/deliverables" },
@@ -75,7 +76,7 @@ export const staffMenuSections: StaffMenuSection[] = [
     blurb: "Tools from the other apps. Each slot opens when its page is built and checked in staging.",
     items: [
       { id: "goodo-os", title: "Goodo OS areas", description: "Waves C and D: learning and strategy, scope changes, AI agents, operations. Talent and call sheets move with step 5c.", status: "slot", step: "Steps 4c and 4d" },
-      { id: "dashboard-creators", title: "Old dashboard: Actors, Applications, approval boards", description: "Actor management, application review and the staff side of approval boards. Creators are live.", status: "slot", step: "Step 5b" },
+      { id: "dashboard-creators", title: "Old dashboard: Applications, approval boards", description: "Application review and the staff side of approval boards. Creators and Actors are live.", status: "slot", step: "Step 5b" },
       { id: "dashboard-production", title: "Old dashboard: Production", description: "Casting, calendars, call sheets, locations, props, crew, shipments.", status: "slot", step: "Step 5c" },
       { id: "dashboard-settings", title: "Old dashboard: Settings and team", description: "Team management, merged with Verdanote user management.", status: "slot", step: "Step 5d" },
       { id: "wideframe", title: "Wideframe Prompt Library", description: "Read-only prompt pages for editors.", status: "slot", step: "Step 6" },

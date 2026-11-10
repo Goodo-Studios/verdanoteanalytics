@@ -6,10 +6,15 @@
 import { supabase } from "@/integrations/supabase/client";
 import { DashboardError, db, unwrap, unwrapOne } from "./api";
 import {
+  ACTOR_RECORD_COLUMNS,
   CREATOR_RECORD_COLUMNS,
+  ROSTER_ACTOR_COLUMNS,
   ROSTER_CREATOR_COLUMNS,
+  type ActorPatch,
+  type ActorRecord,
   type CreatorPatch,
   type CreatorRecord,
+  type RosterActor,
   type RosterCreator,
 } from "./rosterModel";
 
@@ -117,5 +122,78 @@ export async function createCreator(name: string, email: string | null): Promise
     db.from("dashboard_creators").insert<{ id: string }[]>({ name, email, source: "manual" }).select("id").maybeSingle(),
   );
   if (!row) throw new DashboardError({ message: "The creator was not added." });
+  return row.id;
+}
+
+// --------------------------------------------------------------- actors
+
+export interface ActorCasting {
+  id: string;
+  actor_id: string;
+  client_slug: string;
+  stage: string;
+}
+
+export async function loadActorRoster(): Promise<{ actors: RosterActor[]; castings: ActorCasting[] }> {
+  const [actors, castings] = await Promise.all([
+    loadAll<RosterActor>("actors", ROSTER_ACTOR_COLUMNS, "name"),
+    loadAll<ActorCasting>("actor_assignments", "id, actor_id, client_slug, stage", "client_slug"),
+  ]);
+  return { actors, castings };
+}
+
+export interface ActorCastingRow {
+  id: string;
+  client_slug: string;
+  stage: string;
+  scheduled_shoot_date: string | null;
+  shoot_location: string | null;
+  clients: { name: string } | null;
+}
+export interface ActorVideo {
+  id: string;
+  storage_path: string;
+  thumbnail_path: string | null;
+  title: string | null;
+  sort_order: number;
+}
+export interface ActorDetail {
+  actor: ActorRecord | null;
+  castings: ActorCastingRow[];
+  videos: ActorVideo[];
+  photos: CreatorPhoto[];
+  links: Map<string, string>;
+}
+
+/** One actor with their castings and media. links maps a storage path to its signed link. */
+export async function loadActorDetail(id: string): Promise<ActorDetail> {
+  const [actor, castings, videos, photos] = await Promise.all([
+    unwrapOne(db.from("actors").select<ActorRecord[]>(ACTOR_RECORD_COLUMNS).eq("id", id).maybeSingle()),
+    unwrap(db.from("actor_assignments").select<ActorCastingRow[]>("id, client_slug, stage, scheduled_shoot_date, shoot_location, clients(name)").eq("actor_id", id).order("client_slug")),
+    unwrap(db.from("actor_videos").select<ActorVideo[]>("id, storage_path, thumbnail_path, title, sort_order").eq("actor_id", id).order("sort_order")),
+    unwrap(db.from("actor_photos").select<CreatorPhoto[]>("id, storage_path, caption").eq("actor_id", id).order("sort_order")),
+  ]);
+  const [heads, vids, pics] = await Promise.all([
+    signedUrls("actor-headshots", [actor?.headshot_path]),
+    signedUrls("actor-videos", videos.flatMap((v) => [v.storage_path, v.thumbnail_path])),
+    signedUrls("actor-photos", photos.map((p) => p.storage_path)),
+  ]);
+  return { actor, castings, videos, photos, links: new Map([...heads, ...vids, ...pics]) };
+}
+
+/** actors has no updated_at trigger, so the write sets it. A write that matched no row is an error. */
+export async function saveActor(id: string, patch: ActorPatch): Promise<void> {
+  const row = await unwrapOne(
+    db.from("actors").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id).select("id").maybeSingle(),
+  );
+  if (!row) throw new DashboardError({ message: "That actor no longer exists or cannot be changed." });
+}
+
+/** An actor added by hand. Returns the new id. */
+export async function createActor(name: string, email: string | null): Promise<string> {
+  const row = await unwrapOne(
+    db.from("actors").insert<{ id: string }[]>({ name, email, source: "manual" }).select("id").maybeSingle(),
+  );
+  if (!row) throw new DashboardError({ message: "The actor was not added." });
   return row.id;
 }

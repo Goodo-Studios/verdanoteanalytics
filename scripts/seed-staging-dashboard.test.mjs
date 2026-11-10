@@ -35,6 +35,10 @@ test('every seeded row of a copied table carries its seed marker', () => {
 test('the data is made up: demo slugs, example.test and staging.verdanote.test addresses only', () => {
   for (const c of seed.clients) assert.match(c.slug, /^demo-/);
   for (const c of seed.dashboard_creators) assert.match(c.email, /@example\.test$/);
+  for (const a of seed.actors) {
+    assert.match(a.email, /@example\.test$/);
+    assert.match(a.phone, /^555-01\d\d$/, 'fictional phone range');
+  }
   for (const u of seed.app_users) assert.match(u.email, /@staging\.verdanote\.test$/);
   for (const t of seed.pipeline_tasks) assert.match(t.clickup_task_id, /^demo-seed-/);
 });
@@ -65,6 +69,8 @@ test('references point at seeded rows', () => {
     assert.ok(creators.has(a.creator_id));
     assert.ok(a.owner_id === null || users.has(a.owner_id));
   }
+  const actorIds = new Set(seed.actors.map((a) => a.id));
+  for (const c of seed.actor_assignments) assert.ok(actorIds.has(c.actor_id) && slugs.has(c.client_slug), c.id);
   for (const t of ['deliverables', 'engagements', 'client_ad_accounts', 'pipeline_tasks']) {
     for (const r of seed[t]) assert.ok(slugs.has(r.client_slug), `${t} ${r.client_slug}`);
   }
@@ -81,4 +87,21 @@ test('at most one active sprint per client and active sprints have a start date'
   const active = seed.engagements.filter((e) => e.status === 'active');
   assert.equal(new Set(active.map((e) => e.client_slug)).size, active.length);
   for (const e of seed.engagements) if (e.status !== 'planned') assert.ok(e.start_date);
+});
+
+test('casting rows use the actor stages and sit on production clients', () => {
+  const stages = migration.match(/actor_assignments_stage_check CHECK \(\(stage = ANY \(ARRAY\[([^\]]*)\]/)[1].match(/'(\w+)'/g).map((s) => s.slice(1, -1));
+  const production = new Set(seed.clients.filter((c) => c.does_production).map((c) => c.slug));
+  for (const c of seed.actor_assignments) {
+    assert.ok(stages.includes(c.stage), c.stage);
+    assert.ok(production.has(c.client_slug), c.client_slug);
+  }
+  const pairs = seed.actor_assignments.map((c) => `${c.actor_id}|${c.client_slug}`);
+  assert.equal(new Set(pairs).size, pairs.length, 'one casting per actor and client');
+});
+
+test('every seeded table that the dashboard copy also copies has a seed marker', async () => {
+  const { TABLES } = await import('./dashboard-copy-lib.mjs');
+  const copied = new Set(TABLES.map(([t]) => t));
+  for (const [t] of SEED_ORDER) if (copied.has(t)) assert.ok(SEED_MARKERS[t], `${t} needs a seed marker so copy checksums leave it out`);
 });
