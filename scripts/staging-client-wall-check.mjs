@@ -1033,6 +1033,27 @@ check("builder loads the Team page invites query", !invPage.error, `error=${invP
 check("no staging invite was ever sent (prepared or cancelled only)", (invPage.data ?? []).every((i) => ["prepared", "cancelled"].includes(i.status)), `statuses=${[...new Set((invPage.data ?? []).map((i) => i.status))]}`);
 const evPage = await staff.c.from("staff_admin_events").select("id, kind, subject, detail, created_at").order("created_at", { ascending: false }).limit(20);
 check("builder loads the Team page recent changes query", !evPage.error, `error=${evPage.error?.code ?? ""} ${evPage.error?.message ?? "none"}`);
+// Clients section of the Team page (step 5d PR 3): every client for staff, add by hand
+// (staff), show or hide and edit (builder). Nothing is written: the calls that pass the role
+// check carry an empty name or a slug that matches nothing.
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const [fn, args] of [
+    ["create_client", { p_slug: "wall-probe", p_name: "Wall", p_does_creators: true, p_does_production: false }],
+    ["update_client", { p_slug: "wall-probe", p_name: "Wall" }],
+    ["set_client_active", { p_slug: "wall-probe", p_active: false }],
+  ]) {
+    const res = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, res.error?.code === "42501", `code=${res.error?.code ?? "none"}`);
+  }
+}
+const clientSettings = await employee.c.from("clients").select("slug, name, active, status, origin, does_creators, does_production").order("name");
+check("employee loads the client settings query", !clientSettings.error && (clientSettings.data ?? []).length > 0, `error=${clientSettings.error?.code ?? ""} ${clientSettings.error?.message ?? "none"} rows=${clientSettings.data?.length ?? "error"}`);
+const empCreate = await employee.c.rpc("create_client", { p_slug: "wall-probe", p_name: " ", p_does_creators: true, p_does_production: false });
+check("employee passes the staff check in create_client (empty name refused, nothing added)", empCreate.error?.code === "22023", `code=${empCreate.error?.code ?? "none"}`);
+const empActive = await employee.c.rpc("set_client_active", { p_slug: "wall-probe", p_active: false });
+check("employee is refused set_client_active (builder only)", empActive.error?.code === "42501", `code=${empActive.error?.code ?? "none"}`);
+const builderEdit = await staff.c.rpc("update_client", { p_slug: "wall-probe-no-such-client", p_name: "Wall" });
+check("builder passes the role check in update_client (no such client)", builderEdit.error?.code === "P0002", `code=${builderEdit.error?.code ?? "none"}`);
 
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>

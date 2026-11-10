@@ -5,12 +5,14 @@
 // checked database function (migration 20261111040001). Employees see the team list and the
 // mapping; the reconciliation, invites, edits and the record are builder only. Client logins
 // and their ad accounts stay in Settings > Admin. Nothing here sends an invite or an email.
+// The old Settings "Active clients" half is the Clients section (ClientsSettings.tsx).
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
+import { ClientsSettings } from "./ClientsSettings";
 import {
   canAddToTeam,
   canPrepareInvite,
@@ -349,6 +351,7 @@ export default function TeamPage() {
       {builder && recon ? <Reconciliation rows={recon} onChanged={reload} /> : null}
       {members ? <TeamList members={members} builder={builder} onChanged={reload} /> : null}
       <Mappings mappings={mappings} builder={builder} onChanged={reload} />
+      <ClientsSettings builder={builder} />
       {builder ? (
         <section aria-label="Invites" className="space-y-2">
           <h2 className="text-lg font-semibold">Invites</h2>
