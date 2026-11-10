@@ -92,3 +92,13 @@ export function fmtTimeAgo(value: string | null | undefined, now: Date = new Dat
   if (days < 7) return `${days} ${days === 1 ? "day" : "days"} ago`;
   return `on ${new Date(t).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}`;
 }
+
+/**
+ * When something happened, for job and sync lines: "never" for an empty value,
+ * "unknown" for an unreadable one, otherwise the date and time ("Nov 10, 2026, 3:04 PM").
+ */
+export function fmtWhen(value: string | null | undefined): string {
+  if (!value) return "never";
+  if (!Number.isFinite(Date.parse(value))) return "unknown";
+  return fmtDateTime(value);
+}

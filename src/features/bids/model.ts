@@ -77,8 +77,3 @@ export function originLabel(b: Pick<BidSummary, "data_origin" | "source">): stri
   return b.source === "bid-builder" ? "From the BID Builder" : b.source;
 }
 
-export function formatDay(iso: string): string {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return "unknown";
-  return new Date(t).toLocaleDateString("en-US", { dateStyle: "medium", timeZone: "UTC" });
-}

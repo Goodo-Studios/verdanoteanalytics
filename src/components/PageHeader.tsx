@@ -11,9 +11,9 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, description, badge, actions, className }: PageHeaderProps) {
   return (
-    <div className={cn("flex items-start justify-between mb-6", className)}>
-      <div>
-        <div className="flex items-center gap-3">
+    <div className={cn("flex flex-wrap items-start justify-between gap-3 mb-6", className)}>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
           {badge}
         </div>
@@ -22,7 +22,7 @@ export function PageHeader({ title, description, badge, actions, className }: Pa
         )}
       </div>
       {actions && (
-        <div className="flex items-center gap-2">{actions}</div>
+        <div className="flex flex-wrap items-center gap-2">{actions}</div>
       )}
     </div>
   );
