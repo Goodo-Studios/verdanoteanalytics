@@ -1,0 +1,16 @@
+{
+  "modules": {
+    "https://esm.sh/@supabase/supabase-js@2.98.0": {
+      "headers": {
+        "content-type": "application/javascript; charset=utf-8",
+        "x-typescript-types": "https://esm.sh/@supabase/supabase-js@2.98.0/dist/index.d.mts"
+      }
+    },
+    "https://esm.sh/iceberg-js@0.8.1?target=denonext": {
+      "headers": {
+        "content-type": "application/javascript; charset=utf-8",
+        "x-typescript-types": "https://esm.sh/iceberg-js@0.8.1/dist/index.d.ts"
+      }
+    }
+  }
+}
