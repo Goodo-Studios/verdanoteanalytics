@@ -5,6 +5,7 @@
 // of PR 143 (client_ad_accounts, engagements, pipeline_tasks). The rules here
 // are ports of the old dashboard's src/lib helpers; the database stays the
 // authority for every write.
+import { fmtDate } from "@/lib/formatters";
 
 export interface DashboardClient {
   slug: string;
@@ -91,14 +92,8 @@ export function formatAgo(iso: string | null | undefined, now: Date): string {
   return then.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
 }
 
-/** A date-only value ("2026-11-10") shown without a time-zone shift. */
-export function formatDay(value: string | null | undefined): string {
-  if (!value) return "Not set";
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
-  if (!m) return "Not set";
-  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
-}
+/** A date-only value ("2026-11-10") shown without a time-zone shift. One implementation: `fmtDate`. */
+export const formatDay = (value: string | null | undefined): string => fmtDate(value);
 
 export function todayValue(now: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");

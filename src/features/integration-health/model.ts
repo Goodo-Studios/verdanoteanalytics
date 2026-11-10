@@ -2,6 +2,7 @@
 // Integration health page). The integration-health server function returns
 // pattern and note codes; this file turns them into sentences.
 // Codes come from supabase/functions/_shared/integration-health.ts.
+import { fmtWhen } from "@/lib/formatters";
 
 export type ConnectorState = "healthy" | "needs_attention" | "not_connected";
 
@@ -156,9 +157,4 @@ export function describeNote(note: string): string {
   }
 }
 
-export function formatWhen(iso: string | null): string {
-  if (!iso) return "never";
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return "unknown";
-  return new Date(t).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
-}
+export const formatWhen = (iso: string | null): string => fmtWhen(iso);

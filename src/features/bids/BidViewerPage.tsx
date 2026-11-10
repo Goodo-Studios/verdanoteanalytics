@@ -9,12 +9,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { PageHeader } from "@/components/PageHeader";
+import { fmtDate } from "@/lib/formatters";
 import {
   type Bid,
   BID_LIST_SELECT,
   BID_SELECT,
   type BidSummary,
-  formatDay,
   latestByClient,
   originLabel,
   splitSections,
@@ -86,7 +86,7 @@ export default function BidViewerPage() {
         {!clientSlug ? <div className="sm:col-span-2"><PickClientPrompt what="its BID" /></div> : null}
         <select aria-label="Version" className={field} value={bidId} disabled={versions.length < 2} onChange={(e) => setBidId(e.target.value)}>
           {versions.map((v, i) => (
-            <option key={v.id} value={v.id}>Version {v.version}{i === 0 ? " (latest)" : ""} · {formatDay(v.generated_at)}</option>
+            <option key={v.id} value={v.id}>Version {v.version}{i === 0 ? " (latest)" : ""} · {fmtDate(v.generated_at, "unknown")}</option>
           ))}
         </select>
       </div>
@@ -102,7 +102,7 @@ export default function BidViewerPage() {
           </nav>
           <article aria-label={`BID ${bid.title}`} className="space-y-6">
             <div className="rounded border border-input bg-muted/40 p-3 text-[12px] text-muted-foreground" data-testid="bid-meta">
-              {bid.title} · version {bid.version} · generated {formatDay(bid.generated_at)} · loaded {formatDay(bid.imported_at)} · {originLabel(bid)}
+              {bid.title} · version {bid.version} · generated {fmtDate(bid.generated_at, "unknown")} · loaded {fmtDate(bid.imported_at, "unknown")} · {originLabel(bid)}
             </div>
             {sections.map((s) => (
               <section key={s.anchor} id={s.anchor} aria-label={s.heading || "Introduction"} className="prose prose-sm max-w-none dark:prose-invert">

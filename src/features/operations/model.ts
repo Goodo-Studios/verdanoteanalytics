@@ -6,6 +6,7 @@
 //
 // Like Goodo OS, the page never reads a job's payload (message text, channel ids) and
 // shows only bounded, scalar parts of a receipt.
+import { fmtWhen } from "@/lib/formatters";
 
 export const JOB_SELECT = [
   "id, kind, state, client_slug, engagement_id, attempts, max_attempts, available_at, lease_until, fence, send_started_fence, last_error, receipt, created_at, updated_at",
@@ -210,12 +211,7 @@ export function reasonError(reason: string): string | null {
   return null;
 }
 
-export function formatWhen(iso: string | null): string {
-  if (!iso) return "never";
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return "unknown";
-  return new Date(t).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
-}
+export const formatWhen = (iso: string | null): string => fmtWhen(iso);
 
 export function errorText(code: string | undefined, fallback: string): string {
   switch (code) {
