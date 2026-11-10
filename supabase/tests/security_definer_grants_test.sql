@@ -59,6 +59,8 @@ INSERT INTO allow
     'resolve_deliverable_qa_return', 'record_deliverable_signoff', 'mark_deliverable_final_ready',
     'handoff_staff_options', 'create_handoff_packet', 'acknowledge_handoff', 'reassign_handoff',
     'handoff_source_status',
+    'create_strategy_proposal', 'revise_strategy_proposal', 'review_strategy_proposal', 'accept_strategy_proposal',
+    'publish_strategy_proposal', 'published_strategy_for_engagement',
     'delete_shoot_schedule_block', 'delete_studio_shipment', 'peek_ad_code',
     'reject_actor_application', 'reject_application', 'revoke_call_sheet',
     'set_actor_shoot_schedule', 'set_client_active', 'set_client_details',

@@ -36,6 +36,7 @@ import {
   ShieldCheck,
   ArrowRightLeft,
   Contact,
+  Compass,
 } from "lucide-react";
 import { ATTIO_URL, GOODO_TIME_URL } from "@/lib/staffMenu";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
@@ -116,6 +117,7 @@ export const builderSections: NavSection[] = [
       { title: "Deliverables", url: "/deliverables", icon: PackageCheck },
       { title: "QA gates", url: "/qa-gates", icon: ShieldCheck },
       { title: "Handoffs", url: "/handoffs", icon: ArrowRightLeft },
+      { title: "Strategy", url: "/strategy", icon: Compass },
       { title: "Growth Dashboard", url: "/growth-dashboard", icon: TrendingUp, builderOnly: true },
     ],
     links: [

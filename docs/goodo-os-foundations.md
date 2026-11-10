@@ -236,9 +236,31 @@ Page `/handoffs` (builder and employee) and migration `20261110120004_handoffs.s
 
 Staff read all three; clients read none. Checked functions (`staff_area` allow-list, role tested in the body): `handoff_staff_options` (the builder and employee logins for the pickers), `create_handoff_packet`, `acknowledge_handoff` (only the receiver, on the revision on screen, while it waits; a return needs a reason), `reassign_handoff` (the accountable owner, the creator or a builder; a new revision with the same brief and a fresh deliverable snapshot, waiting for the new receiver) and `handoff_source_status` (`current` when the snapshot still matches the engagement, `stale` when a deliverable moved on, `blocked` when the deliverables no longer fit the role). Source rules from Goodo OS: a QA reviewer packet needs every deliverable in internal QA and a delivery owner packet needs every deliverable final. The receiver and owner must be builder or employee logins. Acknowledging does not complete a ClickUp task.
 
-Differences from Goodo OS: the brief, angle, goal and required inputs are typed by the strategist, because Goodo OS copied them from the published strategy proposal (wave 4c, not built). Per-role capability grants are replaced by "any builder or employee". A strategist or editor packet may be written before any deliverable has a revision (Goodo OS refused a packet with no deliverables).
+Differences from Goodo OS: the brief, angle, goal and required inputs are typed by the strategist; since step 4c the form starts from the published strategy proposal when there is one (see Strategy proposals below). Per-role capability grants are replaced by "any builder or employee". A strategist or editor packet may be written before any deliverable has a revision (Goodo OS refused a packet with no deliverables).
 
 Not ported: the bounded handoff automation (`038_bounded_handoffs.sql`: rules that queue a ClickUp task action and a Slack reminder when a handoff completes; both send outward), command receipts. Tests in `supabase/tests/handoffs_test.sql` and `src/test/handoffsPage.test.tsx`.
+
+## Wave C pages (step 4c)
+
+### Strategy proposals
+
+Page `/strategy` (builder and employee) and migration `20261110200001_strategy_proposals.sql`, no edge function. Port of the Goodo OS strategy proposals (`StrategyProposals.tsx`, `backend/services/strategyProposals.ts`, migrations `029_strategy_proposals.sql` and `030_strategy_proposal_publications.sql`), on the idea and shot list approvals of step 4b.
+
+| Table | Purpose |
+|---|---|
+| `strategy_proposals` | one proposal per engagement strategy with its current version |
+| `strategy_proposal_versions` | every version: the exact published idea or shot list version it is based on, title, summary, brief, angle, goal and required inputs. Immutable |
+| `strategy_proposal_reviews` | a review of one exact version (reviewed or changes requested) with a note. Immutable |
+| `strategy_proposal_acceptances` | acceptance of one exact reviewed version. Immutable |
+| `strategy_proposal_publications` | the accepted version published as the engagement strategy. Internal only. Immutable |
+
+Staff read all five; clients read none. Checked functions (`staff_area` allow-list, role tested in the body): `create_strategy_proposal`, `revise_strategy_proposal` (names the version on screen; an accepted version is not revised), `review_strategy_proposal`, `accept_strategy_proposal` (the latest review of that version must be "reviewed"), `publish_strategy_proposal` (accepted first) and `published_strategy_for_engagement` (the latest publication, for handoffs). Every review, acceptance and publication re-checks that the idea or shot list version is still the published one (40001 when it moved on), as Goodo OS did.
+
+Differences from Goodo OS: agents wrote proposals and the engagement's bound strategist reviewed and accepted them. Here any builder or employee writes one, and the reviewer and the person accepting must not be the author of that version. Goodo OS published to the client portal; here publication is internal and feeds handoff briefs.
+
+Handoffs: when the engagement has a published strategy, the create form on `/handoffs` starts with its brief, angle, goal and required inputs and says so; staff edit anything or start blank. `create_handoff_packet` takes two optional arguments, the proposal and version, and checks the version is published for the same engagement. The packet version keeps that reference (`handoff_packet_versions.strategy_proposal_id`, `strategy_proposal_version`), and a reassignment carries it to the next revision. The packet stores what staff saved, which may differ from the proposal.
+
+Not ported: command receipts, the client idea selection state (US-021, client portal), the client publication and client strategy page (phase 2). Tests in `supabase/tests/strategy_proposals_test.sql`, `src/test/strategyPage.test.tsx` and `src/test/handoffsPage.test.tsx`.
 
 ## Alternatives rejected
 

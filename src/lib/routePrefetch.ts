@@ -44,6 +44,7 @@ export const routeImports = {
   handoffs: () => import("@/features/handoffs/HandoffsPage"),
   creators: () => import("@/features/dashboard/CreatorsPage"),
   creatorDetail: () => import("@/features/dashboard/CreatorDetailPage"),
+  strategy: () => import("@/features/strategy/StrategyPage"),
 } as const;
 
 type Loader = () => Promise<unknown>;
@@ -79,6 +80,7 @@ const PATH_PREFETCH: Record<string, Loader[]> = {
   "/qa-gates": [routeImports.qaGates],
   "/handoffs": [routeImports.handoffs],
   "/creators": [routeImports.creators],
+  "/strategy": [routeImports.strategy],
   "/ad-library": [routeImports.adLibrary, routeImports.vaultItemDetail],
   "/ad-library/boards": [routeImports.boards, routeImports.boardDetail],
   "/ad-library/hooks": [routeImports.hooks],

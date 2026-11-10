@@ -65,6 +65,7 @@ export const staffMenuSections: StaffMenuSection[] = [
       { id: "deliverables", title: "Deliverables and approvals", description: "Revisions, client decisions and rounds, idea and shot list approvals.", status: "live", to: "/deliverables" },
       { id: "qa-gates", title: "QA gates", description: "Release checks per revision: confirmation, strategist and QA signoffs.", status: "live", to: "/qa-gates" },
       { id: "handoffs", title: "Handoffs", description: "Brief packets for the next role, acknowledged or returned by the receiver.", status: "live", to: "/handoffs" },
+      { id: "strategy", title: "Strategy proposals", description: "Engagement strategy on an approved idea or shot list, reviewed, accepted and published.", status: "live", to: "/strategy" },
       { id: "growth-dashboard", title: "Growth Dashboard", description: "Revenue and growth numbers. Builder only.", status: "live", to: "/growth-dashboard", builderOnly: true },
     ],
   },

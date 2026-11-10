@@ -17,6 +17,11 @@ const rpc = vi.fn();
 const data: Record<string, unknown[]> = {};
 let auth = { user: { id: "editor-1" }, isBuilder: false };
 let source = "current";
+let published: unknown[] = [];
+const STRATEGY = {
+  proposal_id: "sp1", version: 2, title: "Routine strategy", summary: "Lead with the routine", brief: "Film three routines",
+  angle: "Morning routine", goal: "Lower CPA", required_inputs: ["Raw footage", "Brand fonts"], published_at: "2026-11-10T00:00:00Z",
+};
 const STAFF = [
   { user_id: "strat-1", display_name: "Sam Strategist", email: "sam@example.test", role: "employee" },
   { user_id: "editor-1", display_name: "Eda Editor", email: "eda@example.test", role: "employee" },
@@ -38,6 +43,7 @@ vi.mock("@/integrations/supabase/client", () => ({
     rpc: (name: string, args: unknown) => {
       if (name === "handoff_staff_options") return Promise.resolve({ data: STAFF, error: null });
       if (name === "handoff_source_status") return Promise.resolve({ data: source, error: null });
+      if (name === "published_strategy_for_engagement") return Promise.resolve({ data: published, error: null });
       return rpc(name, args);
     },
     from: (table: string) => ({ select: () => chain(() => data[table] ?? []) }),
@@ -65,6 +71,7 @@ beforeEach(() => {
   data.engagements = [{ id: "e1", cycle_number: 1, status: "active" }];
   auth = { user: { id: "editor-1" }, isBuilder: false };
   source = "current";
+  published = [];
 });
 
 async function waitingForMe() {
@@ -141,7 +148,51 @@ describe("HandoffsPage", () => {
     await waitFor(() => expect(rpc).toHaveBeenCalledWith("create_handoff_packet", {
       p_engagement_id: "e1", p_receiving_role: "editor", p_receiver_id: "editor-1", p_accountable_owner_id: "strat-1", p_due_date: "2026-11-22",
       p_brief: "Cut it", p_angle: "Routine", p_goal: "Lower CPA", p_required_inputs: ["Footage", "Fonts"],
+      p_strategy_proposal_id: null, p_strategy_proposal_version: null,
     }));
+  });
+
+  async function openCreate() {
+    auth = { user: { id: "strat-1" }, isBuilder: false };
+    rpc.mockResolvedValue({ data: "p2", error: null });
+    render(<HandoffsPage />);
+    await screen.findByRole("option", { name: "Glow Drip" });
+    fireEvent.change(screen.getByLabelText("Client"), { target: { value: "glow" } });
+    await screen.findByRole("option", { name: "Cycle 1 (active)" });
+    fireEvent.change(screen.getByLabelText("Engagement"), { target: { value: "e1" } });
+    fireEvent.click(await screen.findByText("Create a handoff packet"));
+  }
+
+  it("prefills from the published strategy, keeps edits and sends the reference", async () => {
+    published = [STRATEGY];
+    await openCreate();
+    expect(await screen.findByTestId("strategy-prefill")).toHaveTextContent('Prefilled from the published strategy proposal "Routine strategy", version 2');
+    expect((screen.getByLabelText("Brief") as HTMLTextAreaElement).value).toBe("Film three routines");
+    expect((screen.getByLabelText("Required inputs") as HTMLTextAreaElement).value).toBe("Raw footage\nBrand fonts");
+    fireEvent.change(screen.getByLabelText("Brief"), { target: { value: "Film three routines, keep it short" } });
+    fireEvent.change(screen.getByLabelText("Receiver"), { target: { value: "editor-1" } });
+    fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-11-22" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create handoff" }));
+    await waitFor(() => expect(rpc).toHaveBeenCalledWith("create_handoff_packet", {
+      p_engagement_id: "e1", p_receiving_role: "editor", p_receiver_id: "editor-1", p_accountable_owner_id: "strat-1", p_due_date: "2026-11-22",
+      p_brief: "Film three routines, keep it short", p_angle: "Morning routine", p_goal: "Lower CPA", p_required_inputs: ["Raw footage", "Brand fonts"],
+      p_strategy_proposal_id: "sp1", p_strategy_proposal_version: 2,
+    }));
+  });
+
+  it("start blank clears the prefill and drops the reference", async () => {
+    published = [STRATEGY];
+    await openCreate();
+    fireEvent.click(await screen.findByRole("button", { name: "Start blank" }));
+    expect(screen.queryByTestId("strategy-prefill")).toBeNull();
+    expect((screen.getByLabelText("Brief") as HTMLTextAreaElement).value).toBe("");
+    expect(screen.getByRole("button", { name: "Create handoff" })).toBeDisabled();
+  });
+
+  it("shows where a packet brief started", async () => {
+    data.handoff_packets = [{ ...PACKET, handoff_packet_versions: [{ ...PACKET.handoff_packet_versions[0], strategy_proposal_id: "sp1", strategy_proposal_version: 2 }] }];
+    const card = await waitingForMe();
+    expect(within(card).getByText("Brief started from the published strategy proposal, version 2.")).toBeTruthy();
   });
 });
 
