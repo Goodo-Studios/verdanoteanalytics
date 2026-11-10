@@ -549,6 +549,21 @@ for (const table of scopeTables) {
 const scReq = await employee.c.rpc("request_scope_change", { p_subject_id: ZERO, p_base_version: 1, p_requested_change: "wall", p_channel: "call", p_source_note: "wall" });
 check("employee passes the staff check in request_scope_change", scReq.error?.code === "P0002", `code=${scReq.error?.code ?? "none"}`);
 
+// Staff page loads (fix 20261110200004): each page reads a parent row with its history in
+// one request. PostgREST refuses an embed with no foreign key to the parent (PGRST200),
+// which left the Deliverables, QA gates and Handoffs pages empty. The employee runs the
+// same select strings the pages use.
+for (const [table, select] of [
+  ["engagement_deliverables", "*, engagement_deliverable_revisions(*), engagement_deliverable_decisions(*), engagement_deliverable_round_exceptions(*)"],
+  ["approval_subjects", "*, approval_subject_versions(*), approval_subject_decisions(*)"],
+  ["engagement_deliverables", "*, engagements(client_slug, cycle_number), engagement_deliverable_revisions(revision, review_url), engagement_deliverable_qa_returns(*), engagement_deliverable_signoffs(*), engagement_deliverable_confirmations(revision)"],
+  ["handoff_packets", "*, handoff_packet_versions(*), handoff_acknowledgements(*)"],
+  ["strategy_proposals", "*, strategy_proposal_versions(*), strategy_proposal_reviews(*), strategy_proposal_acceptances(*), strategy_proposal_publications(*)"],
+]) {
+  const r = await employee.c.from(table).select(select).limit(1);
+  check(`employee loads the ${table} page query`, !r.error, `error=${r.error?.code ?? ""} ${r.error?.message ?? "none"}`);
+}
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {
