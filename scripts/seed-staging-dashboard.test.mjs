@@ -105,3 +105,19 @@ test('every seeded table that the dashboard copy also copies has a seed marker',
   const copied = new Set(TABLES.map(([t]) => t));
   for (const [t] of SEED_ORDER) if (copied.has(t)) assert.ok(SEED_MARKERS[t], `${t} needs a seed marker so copy checksums leave it out`);
 });
+
+test('demo applications: made-up addresses, valid status, one pending per email, one roster match', () => {
+  for (const t of ['creator_applications', 'actor_applications']) {
+    for (const a of seed[t]) {
+      assert.match(a.email, /@example\.test$/);
+      assert.ok(['pending', 'approved', 'rejected'].includes(a.status), a.status);
+      assert.equal(a.reviewed_by, null);
+      if (a.status === 'rejected') assert.ok(a.review_notes);
+    }
+    const pending = seed[t].filter((a) => a.status === 'pending').map((a) => a.email.toLowerCase());
+    assert.equal(new Set(pending).size, pending.length, `${t}: one pending application per email`);
+  }
+  for (const a of seed.actor_applications) assert.match(a.phone, /^555-01\d\d$/);
+  const creatorEmails = new Set(seed.dashboard_creators.map((c) => c.email));
+  assert.equal(seed.creator_applications.filter((a) => creatorEmails.has(a.email)).length, 1);
+});

@@ -31,6 +31,7 @@ type Query<T> = PromiseLike<DbResult<T>> & {
   lte(column: string, value: unknown): Query<T>;
   order(column: string, opts?: { ascending?: boolean }): Query<T>;
   range(from: number, to: number): Query<T>;
+  ilike(column: string, pattern: string): Query<T>;
   maybeSingle(): PromiseLike<DbResult<T extends (infer R)[] ? R : T>>;
   select(columns: string): Query<T>;
 };
