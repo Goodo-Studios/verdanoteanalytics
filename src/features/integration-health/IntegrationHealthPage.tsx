@@ -14,6 +14,7 @@ import { Link } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useRolePrefix } from "@/hooks/useRolePath";
+import { LastRunLine } from "@/components/LastRunLine";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { edgeFunctionError } from "@/lib/edgeFunctionError";
@@ -214,6 +215,7 @@ export default function IntegrationHealthPage() {
             {isBuilder ? (
               <div className="space-y-1">
                 <Button size="sm" onClick={() => void evaluate()}>Check and alert now</Button>
+                <LastRunLine checkKey="alert_check" scheduleNote="In production it also runs by itself every 30 minutes." refresh={overview.checkedAt} />
                 {evalError ? <p role="alert" className="text-sm text-red-700">{evalError}</p> : null}
                 {evaluated ? (
                   <ul aria-label="Check result" className="space-y-1 text-sm">

@@ -7,6 +7,7 @@
 // channel exists, and nothing is ever sent from staging.
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { LastRunLine } from "@/components/LastRunLine";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import {
@@ -219,6 +220,7 @@ export default function OperatingCostsPage() {
               <Button size="sm" variant="outline" disabled={!budget} onClick={() => void check()}>Check budgets now</Button>
               {checkMessage ? <p role="status" className="text-sm">{checkMessage}</p> : null}
             </div>
+            <LastRunLine checkKey="budget_check" scheduleNote="In production it also runs by itself every day." refresh={events.length} />
           </section>
 
           <section aria-labelledby="oc-alerts" className="space-y-2">
