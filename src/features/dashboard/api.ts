@@ -6,6 +6,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import {
   ALL_BRANDS,
+  FOLLOW_UP_TERMINAL_STAGES,
   type ActiveEngagement,
   type AppUser,
   type Assignment,
@@ -220,6 +221,16 @@ export async function addCreatorsToBrand(slug: string, creatorIds: string[]): Pr
 export async function removeAssignment(id: string): Promise<void> {
   const rows = await unwrap(db.from("creator_assignments").delete<{ id: string }[]>().eq("id", id).select("id"));
   if (!rows.length) throw new DashboardError({ message: "That creator row no longer exists or cannot be removed." });
+}
+
+/** Every assignment with a follow-up date in a stage that still needs chasing. */
+export function loadFollowUps(): Promise<Assignment[]> {
+  return unwrap(
+    db.from("creator_assignments").select<Assignment[]>(ASSIGNMENT_COLUMNS)
+      .not("next_follow_up_at", "is", null)
+      .not("stage", "in", `(${FOLLOW_UP_TERMINAL_STAGES.join(",")})`)
+      .order("next_follow_up_at"),
+  );
 }
 
 /** Staff only (set_creator_assignment_delivery checks the role). */

@@ -396,3 +396,59 @@ export function currentAppUser(users: AppUser[], email: string | null | undefine
   const e = email.toLowerCase();
   return users.find((u) => u.email.toLowerCase() === e) ?? null;
 }
+
+// --------------------------------------------------------------- Follow-ups
+//
+// The old dashboard's chase queue: creator assignments whose next follow-up is
+// today or earlier, in a stage that still needs chasing. Same terminal list as
+// the old src/lib/followUps.ts.
+
+export const FOLLOW_UP_TERMINAL_STAGES: readonly string[] = ["footage_delivered", "declined", "passed"];
+
+export function isFollowUpTerminal(stage: string): boolean {
+  return FOLLOW_UP_TERMINAL_STAGES.includes(stage);
+}
+
+const utcDay = (iso: string) => Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)));
+
+export function daysOverdue(date: string, today: string): number {
+  return Math.round((utcDay(today) - utcDay(date)) / 86_400_000);
+}
+
+export function formatOverdue(n: number): string {
+  if (n <= 0) return "Due today";
+  return `${n} day${n === 1 ? "" : "s"} overdue`;
+}
+
+/** today plus 1 or 3 days, as YYYY-MM-DD in UTC. */
+export function snoozeDate(today: string, days: 1 | 3): string {
+  return todayValue(new Date(utcDay(today) + days * 86_400_000));
+}
+
+type FollowUpRow = Pick<Assignment, "stage" | "next_follow_up_at" | "owner_id" | "dashboard_creators">;
+
+export function groupFollowUps<T extends FollowUpRow>(rows: T[], today: string): { overdue: T[]; dueToday: T[]; upcoming: T[] } {
+  const live = rows.filter((r) => r.next_follow_up_at && !isFollowUpTerminal(r.stage));
+  const byDate = (a: T, b: T) => (a.next_follow_up_at as string).localeCompare(b.next_follow_up_at as string) || creatorName(a).localeCompare(creatorName(b));
+  return {
+    overdue: live.filter((r) => (r.next_follow_up_at as string) < today).sort(byDate),
+    dueToday: live.filter((r) => r.next_follow_up_at === today).sort(byDate),
+    upcoming: live.filter((r) => (r.next_follow_up_at as string) > today).sort(byDate),
+  };
+}
+
+export function filterByOwner<T extends { owner_id: string | null }>(rows: T[], owner: string): T[] {
+  return owner === "all" ? rows : rows.filter((r) => r.owner_id === owner);
+}
+
+/**
+ * Whose follow-ups a person sees. A builder starts on their own and may switch
+ * to anyone or all; an employee sees only their own. A login with no matching
+ * app_users row cannot be scoped, so it sees all with the picker shown (the
+ * old dashboard did the same).
+ */
+export function ownerScope(me: AppUser | null, isBuilder: boolean, override: string | null): { owner: string; canPick: boolean } {
+  if (!me) return { owner: override ?? "all", canPick: true };
+  if (!isBuilder) return { owner: me.id, canPick: false };
+  return { owner: override ?? me.id, canPick: true };
+}
