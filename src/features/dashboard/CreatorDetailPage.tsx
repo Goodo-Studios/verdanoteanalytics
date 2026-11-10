@@ -3,17 +3,18 @@
 // dashboard_creators), the brands the creator is on with links to the client
 // page and the Creator pipeline, adding the creator to another brand, and
 // their headshot, videos, family and pet photos and filming locations through
-// signed links.
+// signed links. Staff add and delete those files here (phase 6b, ./media).
 //
-// Not ported: uploading or reordering media (the old dashboard keeps doing
-// that until the release), the shipment log and the calendar.
+// Not ported: reordering media, the shipment log and the calendar.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { DashboardError, addCreatorsToBrand, loadBrandsAndTeam, type BrandOption } from "./api";
-import { loadCreatorDetail, saveCreator, type CreatorDetail, type CreatorPhoto } from "./rosterApi";
+import { loadCreatorDetail, saveCreator, type CreatorDetail } from "./rosterApi";
+import { HeadshotControl, MediaSection } from "./media/MediaSection";
+import { MEDIA_KINDS } from "./media/mediaModel";
 import {
   CREATOR_CATEGORIES,
   creatorFormToPatch,
@@ -46,28 +47,6 @@ const TEXT_FIELDS: { key: keyof CreatorForm; label: string; type?: string }[] = 
 function messageOf(e: unknown, fallback: string): string {
   if (e instanceof DashboardError) return e.code === "23505" ? "This creator is already on that client." : errorText(e.code, e.message || fallback);
   return e instanceof Error ? e.message : fallback;
-}
-
-function Gallery({ title, items, links, caption }: { title: string; items: CreatorPhoto[]; links: Map<string, string>; caption: (p: CreatorPhoto) => string }) {
-  return (
-    <section aria-label={title} className="rounded-lg border p-3">
-      <h2 className="text-sm font-semibold">{title} ({items.length})</h2>
-      {items.length === 0 ? <p className="mt-1 text-sm text-muted-foreground">None yet.</p> : (
-        <ul className="mt-2 flex flex-wrap gap-2">
-          {items.map((p) => {
-            const url = links.get(p.storage_path);
-            return (
-              <li key={p.id} className="w-32 text-xs">
-                {url ? <a href={url} target="_blank" rel="noopener noreferrer"><img src={url} alt={caption(p)} className="h-24 w-32 rounded object-cover" /></a>
-                  : <div className="flex h-24 w-32 items-center justify-center rounded bg-muted text-muted-foreground">File not in storage</div>}
-                <div className="truncate">{caption(p)}</div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </section>
-  );
 }
 
 export default function CreatorDetailPage() {
@@ -170,6 +149,7 @@ export default function CreatorDetailPage() {
         <div className="w-40">
           {headshot ? <img src={headshot} alt={`Headshot of ${c.name}`} className="h-40 w-40 rounded object-cover" />
             : <div className="flex h-40 w-40 items-center justify-center rounded bg-muted text-xs text-muted-foreground">{c.headshot_path ? "Headshot not in storage" : "No headshot"}</div>}
+          <HeadshotControl cfg={MEDIA_KINDS["creator-headshot"]} ownerId={c.id} path={c.headshot_path} onChanged={load} onNotice={setNotice} />
           {portfolio && <a href={portfolio} target="_blank" rel="noopener noreferrer" className="mt-1 block text-xs underline">Portfolio</a>}
         </div>
 
@@ -219,27 +199,33 @@ export default function CreatorDetailPage() {
         </div>
       </section>
 
-      <section aria-label="Videos" className="rounded-lg border p-3">
-        <h2 className="text-sm font-semibold">Videos ({detail.videos.length})</h2>
-        {detail.videos.length === 0 ? <p className="mt-1 text-sm text-muted-foreground">None yet.</p> : (
-          <ul className="mt-2 flex flex-wrap gap-2">
-            {detail.videos.map((v, i) => {
-              const url = detail.links.get(v.storage_path);
-              const thumb = v.thumbnail_path ? detail.links.get(v.thumbnail_path) : undefined;
-              const label = v.title || `Video ${i + 1}`;
-              return (
-                <li key={v.id} className="w-32 text-xs">
-                  {thumb ? <img src={thumb} alt={label} className="h-24 w-32 rounded object-cover" /> : <div className="h-24 w-32 rounded bg-muted" />}
-                  <div className="truncate">{label}{v.format ? ` (${v.format.replace("_", " ")})` : ""}</div>
-                  {url ? <a href={url} target="_blank" rel="noopener noreferrer" className="underline">Play</a> : <span className="text-muted-foreground">File not in storage</span>}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
-      <Gallery title="Family and pet photos" items={detail.photos} links={detail.links} caption={(p) => p.caption || (p.category === "pet" ? "Pet" : "Family")} />
-      <Gallery title="Filming locations" items={detail.locations} links={detail.links} caption={(p) => p.label || "Filming location"} />
+      <MediaSection
+        cfg={MEDIA_KINDS["creator-video"]}
+        ownerId={c.id}
+        title="Videos"
+        items={detail.videos.map((v, i) => ({ id: v.id, storage_path: v.storage_path, thumbnail_path: v.thumbnail_path, label: v.title || `Video ${i + 1}`, sort_order: v.sort_order, extra: v.format?.replace("_", " ") }))}
+        links={detail.links}
+        onChanged={load}
+        onNotice={setNotice}
+      />
+      <MediaSection
+        cfg={MEDIA_KINDS["creator-photo"]}
+        ownerId={c.id}
+        title="Family and pet photos"
+        items={detail.photos.map((p) => ({ id: p.id, storage_path: p.storage_path, label: p.caption || (p.category === "pet" ? "Pet" : "Family") }))}
+        links={detail.links}
+        onChanged={load}
+        onNotice={setNotice}
+      />
+      <MediaSection
+        cfg={MEDIA_KINDS["creator-location"]}
+        ownerId={c.id}
+        title="Filming locations"
+        items={detail.locations.map((p) => ({ id: p.id, storage_path: p.storage_path, label: p.label || "Filming location" }))}
+        links={detail.links}
+        onChanged={load}
+        onNotice={setNotice}
+      />
     </PageShell>
   );
 }

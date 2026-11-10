@@ -3,6 +3,7 @@
 // creator_applications and actor_applications (migration 20261101000001,
 // staff-only row rules; clients read none). The public forms that fill them
 // stay on the old dashboard. Pure helpers only.
+import { storageSecretsText } from "./media/storageSecrets";
 
 export type ApplicationKind = "creators" | "actors";
 export type QueueStatus = "pending" | "rejected";
@@ -126,6 +127,8 @@ export function summarizeBulkReject(outcomes: BulkOutcome[]): string {
 
 /** Database refusals in plain words. */
 export function reviewErrorText(code: string | undefined, message: string): string {
+  const storage = storageSecretsText(code, message, "copying the applicant's files");
+  if (storage) return storage;
   if (code === "42501") return "You do not have permission to do that.";
   if (code === "55000") return "This application was already decided. Reload to see the outcome.";
   if (code === "P0002") return "This application no longer exists.";

@@ -9,6 +9,7 @@ import {
   OWNER_ALERT_LIMIT,
   ownerAlertsFor,
   QUEUE_OVERDUE_MINUTES,
+  vaultSecretsFrom,
 } from "../_shared/integration-health.ts";
 
 // Integration health for staff (consolidation step 4a, port of the Goodo OS
@@ -90,6 +91,8 @@ interface Query extends PromiseLike<QueryResult> {
 }
 export interface SupabaseLike {
   from(table: string): Query;
+  /** Optional so older test doubles still fit; the real client has it. */
+  rpc?(name: string, args: Record<string, unknown>): PromiseLike<QueryResult>;
 }
 interface RpcLike {
   rpc(name: string, args: Record<string, unknown>): PromiseLike<QueryResult>;
@@ -170,6 +173,18 @@ export async function loadSnapshotFromDatabase(
     must("alert_exceptions", sb.from("alert_exceptions").select("id, connector, pattern, kind, reason, expires_at").gt("expires_at", nowIso).order("expires_at", { ascending: false }).limit(200)),
   ]);
 
+  // Phase 6b: are the storage signing secrets in the database vault? Names and true or false
+  // only. A failed check is reported as "could not check" (present: null), never as missing.
+  let vaultSecrets: HealthSnapshot["vaultSecrets"];
+  if (sb.rpc) {
+    try {
+      const r = await sb.rpc("storage_signing_secrets_present", {});
+      vaultSecrets = vaultSecretsFrom(r.error ? null : r.data);
+    } catch {
+      vaultSecrets = vaultSecretsFrom(null);
+    }
+  }
+
   const rows = (r: QueryResult) => (Array.isArray(r.data) ? r.data : []) as Row[];
   const timeOrNull = (value: unknown) => (typeof value === "string" && value ? value : null);
   const alertText = (payload: unknown) => {
@@ -216,6 +231,7 @@ export async function loadSnapshotFromDatabase(
       reason: String(r.reason),
       expiresAt: String(r.expires_at),
     })),
+    vaultSecrets,
   };
 }
 

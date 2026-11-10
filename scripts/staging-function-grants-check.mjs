@@ -195,5 +195,21 @@ check("service_role can claim jobs", claim.status === 200 && Array.isArray(claim
 const replayBuilder = await rpc("replay_job", builder, { p_job_id: ZERO_UUID });
 check("builder passes the staff check in replay_job", replayBuilder.code === "55000", show(replayBuilder));
 
+// Phase 6b: which storage signing secrets are set. Service role only: it reads the vault. The
+// answer is names and true or false, never a value. Staff and clients are refused (section 2 above
+// covers anon and client B; the signed-in staff roles are checked here, since they are the ones a
+// loose grant would let through).
+const secretsSvc = await rpc("storage_signing_secrets_present", service, {});
+const secretKeys = secretsSvc.body && typeof secretsSvc.body === "object" ? Object.keys(secretsSvc.body).sort().join() : "";
+check(
+  "service_role reads which storage signing secrets are set, names and true or false only",
+  secretsSvc.status === 200 && secretKeys === "storage_signing_project_url,storage_signing_service_role_key" && Object.values(secretsSvc.body).every((v) => typeof v === "boolean"),
+  `${show(secretsSvc)} keys=${secretKeys}`,
+);
+for (const [label, token] of [["builder", builder], ["client A", clientA]]) {
+  const r = await rpc("storage_signing_secrets_present", token, {});
+  check(`${label} is refused storage_signing_secrets_present (service role only)`, denied(r), show(r));
+}
+
 console.log(failed ? `\n${failed} check(s) failed` : "\nAll database function grant checks passed");
 process.exit(failed ? 1 : 0);

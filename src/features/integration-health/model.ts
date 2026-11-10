@@ -39,6 +39,14 @@ export interface AlertException {
   expiresAt: string;
 }
 
+/** A database vault secret a feature depends on. Name and presence only, never the value. */
+export interface VaultSecretStatus {
+  name: string;
+  /** null = the check could not be made. */
+  present: boolean | null;
+  needed_for: string;
+}
+
 export interface HealthOverview {
   checkedAt: string;
   environment: "production" | "other";
@@ -46,6 +54,15 @@ export interface HealthOverview {
   queue: { state: "healthy" | "needs_attention"; patterns: string[]; suppressed?: string[]; pending: number };
   ownerAlerts: OwnerAlert[];
   exceptions?: AlertException[];
+  /** Phase 6b: the storage signing secrets (names only). */
+  vaultSecrets?: VaultSecretStatus[];
+}
+
+/** One line per vault secret: present, missing (and what stops working) or not checked. */
+export function describeVaultSecret(s: VaultSecretStatus): string {
+  if (s.present === true) return "Set";
+  if (s.present === false) return `Missing. Until it is set, ${s.needed_for} fail with a message asking for it.`;
+  return "Could not be checked right now.";
 }
 
 export interface EvaluatedAlert {

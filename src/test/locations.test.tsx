@@ -176,6 +176,32 @@ describe("Locations page", () => {
     await waitFor(() => expect(updateLocation).toHaveBeenCalledWith("l1", expect.objectContaining({ p_contact_email: "host@example.test", p_name: "Sunny Loft" })));
   });
 
+  it("lets staff add and delete a location's photos in the editor, and no longer sends them to the old dashboard", async () => {
+    renderPage();
+    const loft = await screen.findByTestId("location-row-l1");
+    fireEvent.click(within(loft).getByText("Edit"));
+    const photos = screen.getByLabelText("Photos");
+    expect(within(photos).getByRole("button", { name: "Add photos" })).toBeTruthy();
+    expect(within(photos).getByText("Main photo")).toBeTruthy();
+    fireEvent.click(within(photos).getByRole("button", { name: "Delete Living room" }));
+    expect(await screen.findByText("Delete Living room?")).toBeTruthy();
+    await answerConfirm("Cancel");
+    expect(screen.queryByText(/added on the old dashboard/)).toBeNull();
+    expect(screen.getByTestId("old-dashboard-note").textContent).not.toMatch(/Photos are still uploaded on the old dashboard/);
+  });
+
+  it("says plainly that the storage secrets are missing when a location with photos cannot be deleted", async () => {
+    deleteLocation.mockRejectedValue(new FakeDashboardError({ code: "F0000", message: "storage_signing_project_url is not present in vault.secrets" }));
+    renderPage();
+    const loft = await screen.findByTestId("location-row-l1");
+    fireEvent.click(within(loft).getByText("Delete"));
+    await answerConfirm("Delete");
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/Media storage is not connected on this site yet/);
+    expect(alert.textContent).toMatch(/removing the photo files could not be done. Nothing was changed/);
+    expect(alert.textContent).not.toMatch(/vault\.secrets/);
+  });
+
   it("deletes only after a confirm", async () => {
     renderPage();
     const house = await screen.findByTestId("location-row-l2");

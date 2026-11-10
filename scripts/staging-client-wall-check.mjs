@@ -1314,6 +1314,154 @@ check("employee cannot turn Slack sending on", !!empSw.error, `error=${empSw.err
 const staffNotify = await employee.c.from("slack_destinations").select("id, label, channel_id, purpose, client_slug, owner_confirmed, active").limit(5);
 check("employee reads the Slack destinations", !staffNotify.error, `error=${staffNotify.error?.message ?? "none"}`);
 
+// Media upload and delete (phase 6b). Staff upload with their own login: storage signs an upload
+// link (the staff write policy on the bucket), the file goes to that link, the row is added under
+// the staff row rules. A client must be refused at each step and must not be able to remove or
+// change what staff put there. The probe makes a throwaway creator, actor and location, uploads
+// one tiny file to each of the eight upload buckets, tries every client write against those
+// files and rows, then deletes all of it. Nothing real is touched: every client attempt names a
+// throwaway path or row id, never "all rows". Storage is checked in the bucket the file went to,
+// and the listing walks the folders (storage lists one level at a time).
+const listFiles = async (c, bucket, prefix) => {
+  const out = [];
+  for (let offset = 0; ; offset += 100) {
+    const { data, error } = await c.storage.from(bucket).list(prefix, { limit: 100, offset });
+    if (error) throw new Error(`list ${bucket}/${prefix}: ${error.message}`);
+    for (const it of data ?? []) {
+      const p = `${prefix}/${it.name}`;
+      if (it.id === null) out.push(...(await listFiles(c, bucket, p)));
+      else out.push(p);
+    }
+    if ((data ?? []).length < 100) break;
+  }
+  return out;
+};
+const mediaTag = `wall6b-${Date.now()}`;
+const tiny = (type) => new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type });
+const owners = { creator: null, actor: null, location: null };
+const uploaded = [];
+try {
+  const mkC = await employee.c.from("dashboard_creators").insert({ name: `Wall check ${mediaTag}`, source: "manual" }).select("id").maybeSingle();
+  const mkA = await employee.c.from("actors").insert({ name: `Wall check ${mediaTag}`, source: "manual" }).select("id").maybeSingle();
+  const mkL = await employee.c.rpc("create_location", { p_name: `Wall check ${mediaTag}`, p_listing_url: null, p_rental_type: null, p_neighborhood: null, p_cost: null, p_cost_period: null, p_rooms: [], p_attributes: [], p_notes: null });
+  owners.creator = mkC.data?.id ?? null;
+  owners.actor = mkA.data?.id ?? null;
+  owners.location = mkL.data?.id ?? null;
+  check("media probe: staff made a throwaway creator, actor and location", !!(owners.creator && owners.actor && owners.location), `creator=${mkC.error?.message ?? "ok"} actor=${mkA.error?.message ?? "ok"} location=${mkL.error?.message ?? "ok"}`);
+
+  if (owners.creator && owners.actor && owners.location) {
+    const plan = [
+      ["creator-videos", owners.creator, "video-wall.mp4", "video/mp4"],
+      ["creator-headshots", owners.creator, "headshot-wall.jpg", "image/jpeg"],
+      ["creator-family-pet-photos", owners.creator, "photo-wall.jpg", "image/jpeg"],
+      ["creator-filming-locations", owners.creator, "location-wall.jpg", "image/jpeg"],
+      ["actor-headshots", owners.actor, "headshot-wall.jpg", "image/jpeg"],
+      ["actor-videos", owners.actor, "video-wall.mp4", "video/mp4"],
+      ["actor-photos", owners.actor, "photo-wall.jpg", "image/jpeg"],
+      ["location-photos", owners.location, "photo-wall.jpg", "image/jpeg"],
+    ];
+    // Staff: sign, upload, and see the file in the bucket it went to (recursive listing).
+    for (const [bucket, owner, file, type] of plan) {
+      const path = `${owner}/${file}`;
+      const signed = await employee.c.storage.from(bucket).createSignedUploadUrl(path);
+      const sent = signed.error ? signed : await employee.c.storage.from(bucket).uploadToSignedUrl(path, signed.data.token, tiny(type), { contentType: type });
+      const found = !sent.error && (await listFiles(employee.c, bucket, owner)).includes(path);
+      if (found) uploaded.push([bucket, path]);
+      check(`staff upload to ${bucket} through a signed link, found by a recursive listing`, found, `error=${signed.error?.message ?? sent.error?.message ?? "none"}`);
+    }
+    // Storage itself refuses a file type the bucket does not take.
+    const badSign = await employee.c.storage.from("creator-videos").createSignedUploadUrl(`${owners.creator}/video-wall-bad.txt`);
+    const badSend = badSign.error ? badSign : await employee.c.storage.from("creator-videos").uploadToSignedUrl(`${owners.creator}/video-wall-bad.txt`, badSign.data.token, new Blob(["x"], { type: "text/plain" }), { contentType: "text/plain" });
+    check("storage refuses a text file in the creator video bucket", !!badSend.error, `error=${badSend.error?.message ?? "none (accepted)"}`);
+
+    // The rows, as staff.
+    const rowPlan = [
+      ["creator_videos", { creator_id: owners.creator, storage_path: `${owners.creator}/video-wall.mp4`, sort_order: 1, title: "wall", size_bytes: 4, mime_type: "video/mp4" }],
+      ["creator_photos", { creator_id: owners.creator, storage_path: `${owners.creator}/photo-wall.jpg`, category: "pet", sort_order: 0 }],
+      ["creator_filming_locations", { creator_id: owners.creator, storage_path: `${owners.creator}/location-wall.jpg`, sort_order: 0 }],
+      ["actor_videos", { actor_id: owners.actor, storage_path: `${owners.actor}/video-wall.mp4`, sort_order: 1, size_bytes: 4, mime_type: "video/mp4" }],
+      ["actor_photos", { actor_id: owners.actor, storage_path: `${owners.actor}/photo-wall.jpg`, sort_order: 0 }],
+      ["location_photos", { location_id: owners.location, storage_path: `${owners.location}/photo-wall.jpg`, sort_order: 0 }],
+    ];
+    const rowIds = {};
+    for (const [table, row] of rowPlan) {
+      const r = await employee.c.from(table).insert(row).select("id").maybeSingle();
+      rowIds[table] = r.data?.id ?? null;
+      check(`staff add a ${table} row`, !!rowIds[table], `error=${r.error?.message ?? "none"}`);
+    }
+
+    // Clients: refused at signing, at upload, at the row, and unable to remove or change what staff added.
+    for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+      for (const [bucket, owner] of plan) {
+        const path = `${owner}/client-${label.replace(" ", "-").toLowerCase()}.jpg`;
+        const sign = await s.c.storage.from(bucket).createSignedUploadUrl(path);
+        check(`${label} cannot get a signed upload link in ${bucket}`, !!sign.error || !sign.data?.signedUrl, `error=${sign.error?.message ?? "none (link given)"}`);
+        const up = await s.c.storage.from(bucket).upload(path, tiny("image/jpeg"), { contentType: "image/jpeg" });
+        check(`${label} cannot upload directly to ${bucket}`, !!up.error, `error=${up.error?.message ?? "none (upload accepted)"}`);
+      }
+      for (const [bucket, path] of uploaded) {
+        const rm = await s.c.storage.from(bucket).remove([path]);
+        check(`${label} removes no file from ${bucket}`, !!rm.error || (rm.data ?? []).length === 0, `removed=${rm.data?.length ?? "error"}`);
+      }
+      for (const [table, row] of rowPlan) {
+        const ins = await s.c.from(table).insert({ ...row, storage_path: `${row.storage_path}.client` });
+        check(`${label} cannot add a ${table} row`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+        if (!rowIds[table]) continue;
+        const upd = await s.c.from(table).update({ sort_order: 77 }).eq("id", rowIds[table]).select("id");
+        check(`${label} changes no ${table} row`, !!upd.error || (upd.data ?? []).length === 0, `rows=${upd.data?.length ?? "error"}`);
+        const del = await s.c.from(table).delete().eq("id", rowIds[table]).select("id");
+        check(`${label} deletes no ${table} row`, !!del.error || (del.data ?? []).length === 0, `rows=${del.data?.length ?? "error"}`);
+      }
+      const head = await s.c.from("dashboard_creators").update({ headshot_path: "client/headshot.jpg" }).eq("id", owners.creator).select("id");
+      check(`${label} cannot set a creator headshot`, !!head.error || (head.data ?? []).length === 0, `rows=${head.data?.length ?? "error"}`);
+    }
+    // Everything staff put there is still there after both clients tried.
+    let stillThere = 0;
+    for (const [bucket, path] of uploaded) if ((await listFiles(employee.c, bucket, path.split("/")[0])).includes(path)) stillThere++;
+    check("every file staff uploaded is still in storage after the client attempts", stillThere === uploaded.length && uploaded.length === plan.length, `${stillThere} of ${plan.length}`);
+    let rowsLeft = 0;
+    for (const [table] of rowPlan) {
+      const r = await employee.c.from(table).select("id, sort_order").eq("id", rowIds[table]).maybeSingle();
+      if (r.data && r.data.sort_order !== 77) rowsLeft++;
+    }
+    check("every row staff added is still there, unchanged, after the client attempts", rowsLeft === rowPlan.length, `${rowsLeft} of ${rowPlan.length}`);
+
+    // Staff delete, file first and row second as the page does.
+    for (const [table] of rowPlan) {
+      const del = await employee.c.from(table).delete().eq("id", rowIds[table]).select("id");
+      check(`staff delete a ${table} row`, !del.error && (del.data ?? []).length === 1, `error=${del.error?.message ?? "none"}`);
+    }
+  }
+} finally {
+  // Remove every throwaway file and owner, whatever happened above.
+  for (const [bucket, owner] of [
+    ["creator-videos", owners.creator], ["creator-headshots", owners.creator], ["creator-family-pet-photos", owners.creator], ["creator-filming-locations", owners.creator],
+    ["actor-headshots", owners.actor], ["actor-videos", owners.actor], ["actor-photos", owners.actor], ["location-photos", owners.location],
+  ]) {
+    if (!owner) continue;
+    try {
+      const left = await listFiles(employee.c, bucket, owner);
+      if (left.length) await employee.c.storage.from(bucket).remove(left);
+    } catch { /* reported by the check below */ }
+  }
+  if (owners.creator) await employee.c.from("dashboard_creators").delete().eq("id", owners.creator);
+  if (owners.actor) await employee.c.from("actors").delete().eq("id", owners.actor);
+  if (owners.location) await employee.c.rpc("delete_location", { p_id: owners.location });
+  let residue = 0;
+  for (const [bucket, owner] of [
+    ["creator-videos", owners.creator], ["creator-headshots", owners.creator], ["creator-family-pet-photos", owners.creator], ["creator-filming-locations", owners.creator],
+    ["actor-headshots", owners.actor], ["actor-videos", owners.actor], ["actor-photos", owners.actor], ["location-photos", owners.location],
+  ]) {
+    if (owner) residue += (await listFiles(employee.c, bucket, owner)).length;
+  }
+  const ownersLeft = [
+    owners.creator && (await employee.c.from("dashboard_creators").select("id").eq("id", owners.creator).maybeSingle()).data,
+    owners.actor && (await employee.c.from("actors").select("id").eq("id", owners.actor).maybeSingle()).data,
+    owners.location && (await employee.c.from("locations").select("id").eq("id", owners.location).maybeSingle()).data,
+  ].filter(Boolean).length;
+  check("media probe: every throwaway file, row and owner was deleted again", residue === 0 && ownersLeft === 0, `files left=${residue} owners left=${ownersLeft}`);
+}
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

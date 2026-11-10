@@ -152,6 +152,20 @@ describe("Creator page", () => {
     expect(screen.getByText("No headshot")).toBeTruthy();
   });
 
+  it("offers upload on the headshot, videos, family and pet photos and filming locations, and asks before a delete", async () => {
+    renderDetail();
+    await screen.findByRole("region", { name: "Clients" });
+    expect(screen.getByRole("button", { name: "Add main photo" })).toBeTruthy();
+    for (const title of ["Videos", "Family and pet photos", "Filming locations"]) {
+      expect(within(screen.getByRole("region", { name: title })).getByRole("button", { name: /^Add (videos|photos)$/ })).toBeTruthy();
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Delete Video 1" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText("Delete Video 1?")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  });
+
   it("saves the profile and keeps imported categories", async () => {
     renderDetail();
     await screen.findByRole("region", { name: "Clients" });

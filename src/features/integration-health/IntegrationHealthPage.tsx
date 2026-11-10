@@ -35,6 +35,7 @@ import {
   type HealthOverview,
   STATE_LABEL,
 } from "./model";
+import { StorageSecretsSection } from "./StorageSecretsSection";
 
 const FN = "integration-health";
 
@@ -198,6 +199,7 @@ export default function IntegrationHealthPage() {
               <Link className="underline" to={`${prefix}/operations`}>Open Operations</Link> to replay, resolve or cancel jobs.
             </p>
           </section>
+          <StorageSecretsSection secrets={overview.vaultSecrets} />
           <section aria-labelledby="ih-exceptions" className="space-y-2">
             <h2 id="ih-exceptions" className="text-base font-semibold">Alert exceptions</h2>
             {(overview.exceptions ?? []).length === 0 ? (

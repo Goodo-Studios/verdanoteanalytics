@@ -136,6 +136,19 @@ describe("Actor page", () => {
     expect(screen.getByRole("link", { name: "Social" }).getAttribute("href")).toBe("https://instagram.com/indigo");
   });
 
+  it("offers upload on the headshot, videos and photos, and asks before a delete", async () => {
+    renderDetail();
+    await screen.findByRole("region", { name: "Castings" });
+    expect(screen.getByRole("button", { name: "Add main photo" })).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Videos" })).getByRole("button", { name: "Add videos" })).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Photos" })).getByRole("button", { name: "Add photos" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Photo 1" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText("Delete Photo 1?")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  });
+
   it("saves the profile", async () => {
     renderDetail();
     await screen.findByRole("region", { name: "Castings" });

@@ -224,5 +224,28 @@ check(
   `connected=${clickupHealth?.connected} state=${clickupHealth?.state} notes=${(clickupHealth?.notes ?? []).join(",")} boardRows=${clickupHealth?.details?.boardRows}`,
 );
 
+// 7. Media storage secrets on Integration health (phase 6b). Staff see the two vault secrets the
+//    approve-with-files and delete-location paths need, by name, as present, missing or unknown,
+//    and nothing else: no value, and no other key. The client token is already refused by the
+//    function above. The database function behind it is service role only (see
+//    staging-function-grants-check.mjs).
+const vaultList = Array.isArray(health?.vaultSecrets) ? health.vaultSecrets : [];
+check(
+  "integration-health lists both storage signing secrets by name",
+  vaultList.map((s) => s.name).sort().join() === "storage_signing_project_url,storage_signing_service_role_key" && vaultList.every((s) => s.present === true || s.present === false || s.present === null),
+  `names=${vaultList.map((s) => `${s.name}:${s.present}`).join(" ")}`,
+);
+check(
+  "integration-health carries only the name, whether it is set and what it is for, never a value",
+  vaultList.length === 2 && vaultList.every((s) => Object.keys(s).sort().join() === "name,needed_for,present"),
+  `keys=${[...new Set(vaultList.flatMap((s) => Object.keys(s)))].join(",")}`,
+);
+for (const [label, token] of [["employee", employee], ["builder", builder]]) {
+  const res = await fetch(`${url}/functions/v1/integration-health`, { method: "GET", headers: { Authorization: `Bearer ${token}`, apikey: anon } });
+  let body = null;
+  try { body = await res.json(); } catch { /* not JSON */ }
+  check(`${label} sees the storage signing secrets on Integration health`, res.status === 200 && Array.isArray(body?.vaultSecrets) && body.vaultSecrets.length === 2, `status=${res.status}`);
+}
+
 console.log(failed ? `\n${failed} check(s) failed` : "\nAll server function wall checks passed");
 process.exit(failed ? 1 : 0);
