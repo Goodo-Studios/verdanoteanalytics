@@ -56,11 +56,16 @@ for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
   }
 }
 
-// Ad accounts: client A sees only the linked demo account, client B sees none, staff see all.
-const accA = await clientA.c.from("ad_accounts").select("id");
-check("client A sees only linked accounts", (accA.data ?? []).every((a) => a.id === "act_demo_glowdrip"), `ids=${(accA.data ?? []).map((a) => a.id)}`);
+// Ad accounts (migration 20261111060001): no client reads ad_accounts directly, not even
+// its own linked account, because that returns staff-only columns. Clients get their
+// accounts from the accounts function (field check in staging-client-wall-functions.mjs).
+// Staff still read the table directly.
+const accA = await clientA.c.from("ad_accounts").select("*");
+check("client A reads no ad_accounts rows directly (own account included)", !accA.error && (accA.data ?? []).length === 0, `error=${accA.error?.message ?? "none"} rows=${accA.data?.length ?? "error"}`);
 const accB = await clientB.c.from("ad_accounts").select("id");
 check("client B sees no accounts", (accB.data ?? []).length === 0, `rows=${accB.data?.length ?? "error"}`);
+const accStaff = await staff.c.from("ad_accounts").select("id, kill_threshold").eq("id", "act_demo_glowdrip");
+check("builder still reads ad_accounts directly, staff columns included", !accStaff.error && (accStaff.data ?? []).length === 1, `error=${accStaff.error?.message ?? "none"} rows=${accStaff.data?.length ?? "error"}`);
 
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
