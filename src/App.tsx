@@ -63,6 +63,8 @@ const MatrixBoardPage = lazy(routeImports.matrix);
 const GrowthDashboardPage = lazy(routeImports.growthDashboard);
 // Ad Name Generator (consolidation step 2): builder and employee.
 const AdNameGeneratorPage = lazy(routeImports.adNameGenerator);
+// Integration health (consolidation step 4a, Goodo OS): builder and employee.
+const IntegrationHealthPage = lazy(routeImports.integrationHealth);
 
 const SharedAdBoardPage = lazy(() => import("./pages/SharedAdBoardPage"));
 const PublicVaultItemPage = lazy(() => import("./pages/PublicVaultItemPage"));
@@ -194,6 +196,7 @@ export function RoleGuardedRoutes() {
           {/* Ad Name Generator: staff page. peek_ad_code and claim_ad_code also refuse
               anyone who is not builder or employee. */}
           <Route path="/ad-name-generator" element={staffPage ? <AdNameGeneratorPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/integration-health" element={staffPage ? <IntegrationHealthPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/user-settings" element={<Navigate to={`${prefix}/settings`} replace />} />
           

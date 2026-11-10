@@ -128,6 +128,18 @@ Only the description and status are written (and the name of a new task); assign
 
 Goodo OS reads ad performance from Verdanote over HTTP (`connectors/verdanote/performance.ts`: spend, impressions, clicks and conversions for one ad account, ad and date window). Inside Verdanote that is the same database, so it collapses to direct queries on `creatives` and `creative_daily_metrics`, or the existing `get_period_metrics` and `get_daily_trends` functions, which already check staff role or account membership. No connector function is added.
 
+## Wave A pages (step 4a)
+
+### Integration health
+
+Page `/integration-health` (builder and employee) and staff function `integration-health`. Port of the Goodo OS Integration health page (`src/pages/staff/IntegrationHealth.tsx`) and its overview route (`backend/monitoring/overview.ts`).
+
+Goodo OS stored health observations, incidents and baseline exceptions, written by an owner "evaluate" command run against configured engagement scopes. In Verdanote the connectors write to the same database the page reads, so the check runs on read instead and no table is added. The function reads, with the service role after the staff check: when `pipeline_tasks` was last synced and how many rows it holds, the `slack_sends` switch and confirmed owner alert destinations, the Meta ad sync log (`sync_logs`: runs still going after 30 minutes, failures in the last 24 hours, last completed run), active ad accounts not synced in 48 hours, the `durable_jobs` queue (queued jobs 15 minutes overdue, expired leases, jobs in recovery) and the last 10 owner alert jobs. For each connector secret (`CLICKUP_API_TOKEN`, `FIREFLIES_API_KEY`, `SLACK_BOT_TOKEN`) it reports only whether it is set. It calls no outside service and writes nothing.
+
+ClickUp counts as stale 8 hours after its last sync (the sync runs every 4 hours) and as unconfirmed when it has a token but no synced row. Slack sends being off, or the project not being production, are shown as notes, not problems, because both are expected in staging. Pattern codes keep the Goodo OS names where one exists (`connector.stale`, `connector.unconfirmed`, `queue.recovery`).
+
+Not ported: baseline exceptions (owner-set suppressions with an expiry) and the owner "evaluate" and "acknowledge" commands, because nothing is stored to suppress or acknowledge. Rules in `_shared/integration-health.ts`; tests in `supabase/functions/integration-health/index.test.ts` and `src/test/integrationHealth.test.tsx`.
+
 ## Alternatives rejected
 
 **A new `os_clients` table with a uuid id, and the dashboard `clients` folded into it.** Gives a cleaner id, but the eight dashboard tables and the dashboard staff functions (`create_client`, `set_client_*`, `create_shoot` and others) already key on `clients.slug`, so it means either two client ids side by side or rewriting all of them. Not the smallest change.
