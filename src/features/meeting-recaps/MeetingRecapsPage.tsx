@@ -6,6 +6,8 @@
 // Slack or the client.
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
+import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { edgeFunctionError } from "@/lib/edgeFunctionError";
@@ -24,14 +26,6 @@ import {
 const FN = "meeting-recaps";
 const SELECT = "*, meeting_recap_items(*, meeting_recap_reviews(*))";
 const input = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
-
-interface ClientOption {
-  slug: string;
-  name: string;
-}
-interface ClientsReader {
-  from(table: "clients"): { select(columns: string): { order(column: string): PromiseLike<{ data: unknown; error: unknown }> } };
-}
 
 function ItemCard({ item, onReviewed }: { item: RecapItem; onReviewed: () => void }) {
   const [note, setNote] = useState("");
@@ -93,23 +87,13 @@ function ItemCard({ item, onReviewed }: { item: RecapItem; onReviewed: () => voi
 }
 
 export default function MeetingRecapsPage() {
-  const [clients, setClients] = useState<ClientOption[] | null>(null);
-  const [clientSlug, setClientSlug] = useState("");
+  // The client comes from the one switcher at the top of the app (or the client hub address).
+  const clientSlug = useSelectedClientSlug();
   const [transcriptId, setTranscriptId] = useState("");
   const [recaps, setRecaps] = useState<Recap[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    void (async () => {
-      // clients (the one client list, step 3) is not in the generated types yet.
-      const untyped = supabase as unknown as ClientsReader;
-      const { data, error: e } = await untyped.from("clients").select("slug, name").order("name");
-      if (e) setError("Clients could not load.");
-      else setClients((data ?? []) as ClientOption[]);
-    })();
-  }, []);
 
   const loadRecaps = useCallback(async (slug: string) => {
     if (!slug) {
@@ -151,13 +135,7 @@ export default function MeetingRecapsPage() {
     <div className="mx-auto w-full max-w-3xl space-y-6" data-testid="meeting-recaps">
       <PageHeader title="Meeting recaps" description="Decisions, open questions and actions from a Fireflies call, each with the exact words said. A person confirms each one." />
       <section className="space-y-3 rounded-lg border border-input bg-background p-5">
-        <label className="block space-y-1 text-sm">
-          <span>Client</span>
-          <select aria-label="Client" className={input} value={clientSlug} onChange={(e) => setClientSlug(e.target.value)}>
-            <option value="">{clients ? "Select client" : "Loading clients..."}</option>
-            {(clients ?? []).map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
-          </select>
-        </label>
+        {!clientSlug ? <PickClientPrompt what="its meeting recaps" /> : null}
         <label className="block space-y-1 text-sm">
           <span>Fireflies transcript id</span>
           <input aria-label="Fireflies transcript id" className={input} value={transcriptId} onChange={(e) => setTranscriptId(e.target.value)} placeholder="From the Fireflies meeting link" />

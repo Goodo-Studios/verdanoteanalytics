@@ -17,12 +17,33 @@ import { test, expect } from "@playwright/test";
 const hasClientCreds = !!process.env.PLAYWRIGHT_CLIENT_EMAIL && !!process.env.PLAYWRIGHT_CLIENT_PASSWORD;
 const hasEmployeeCreds = !!process.env.PLAYWRIGHT_EMPLOYEE_EMAIL && !!process.env.PLAYWRIGHT_EMPLOYEE_PASSWORD;
 
-/** Staff pages, relative to the role prefix. Keep in step with STAFF_PAGES in src/test/StaffArea.test.tsx. */
+/**
+ * Staff pages, relative to the role prefix. Old addresses redirect to a tab of a section, so each
+ * one is checked and so is the new section address. Keep in step with STAFF_PAGES in
+ * src/test/StaffArea.test.tsx and the sections in src/lib/sections.ts.
+ */
 /** Builder-only pages: an employee is redirected to the index. */
-const BUILDER_ONLY_PATHS = ["/matrix", "/growth-dashboard", "/operating-costs"];
+const BUILDER_ONLY_PATHS = ["/matrix", "/growth-dashboard", "/operating-costs", "/creative/matrix", "/admin/growth", "/admin/operating-costs"];
+
+/** The new section addresses (one tab each is enough to show the section loads). */
+const SECTION_PATHS = [
+  "/production/calendar",
+  "/production/crew",
+  "/talent/creators",
+  "/talent/pipeline",
+  "/creative/overview",
+  "/creative/analytics",
+  "/creative/vault",
+  "/knowledge/shared",
+  "/knowledge/meetings",
+  "/admin/team",
+  "/admin/support",
+  "/creative/matrix",
+];
 
 const STAFF_PATHS = [
   "/staff",
+  ...SECTION_PATHS,
   "/agency",
   "/creative-library",
   "/tagging",
@@ -85,10 +106,13 @@ test.describe("client cannot load staff pages", () => {
         // The app corrects the prefix and redirects guarded pages to the client index.
         await page.waitForURL((u) => u.pathname.replace(/\/$/, "") === "/client", { timeout: 15_000 });
         // Whatever loaded, the staff menu and builder controls are not on screen.
-        await expect(page.getByRole("heading", { name: "Staff menu" })).toHaveCount(0);
+        await expect(page.getByRole("heading", { name: "Home", exact: true })).toHaveCount(0);
         await expect(page.getByText("Moving in", { exact: true })).toHaveCount(0);
-        // And a client never gets the staff sidebar entry.
-        await expect(page.getByRole("link", { name: "Staff menu" })).toHaveCount(0);
+        // And a client never gets the staff sidebar entries or the client switcher.
+        for (const name of ["Clients", "Production", "Talent", "Creative", "Knowledge", "Admin"]) {
+          await expect(page.getByRole("link", { name, exact: true })).toHaveCount(0);
+        }
+        await expect(page.getByTestId("client-switcher")).toHaveCount(0);
       });
     }
   }
@@ -98,27 +122,33 @@ test.describe("employee reaches staff pages", () => {
   test.use({ storageState: "e2e/.auth/employee.json" });
   test.skip(!hasEmployeeCreds, "Set PLAYWRIGHT_EMPLOYEE_EMAIL and PLAYWRIGHT_EMPLOYEE_PASSWORD to run");
 
-  test("staff menu loads with links and slots", async ({ page }) => {
+  test("Home loads with the other apps and no builder-only entries", async ({ page }) => {
     await page.goto("/employee/staff");
-    await expect(page.getByRole("heading", { name: "Staff menu" })).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByRole("link", { name: /Goodo Time/ })).toHaveAttribute("href", /goodo-time/);
-    await expect(page.getByRole("link", { name: /Attio/ })).toHaveAttribute("href", /attio\.com/);
-    await expect(page.getByRole("link", { name: /Old dashboard public pages/ })).toHaveAttribute("href", /goodostudios-production/);
+    await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible({ timeout: 30_000 });
+    expect(new URL(page.url()).pathname.replace(/\/$/, "")).toBe("/employee");
+    await expect(page.getByTestId("home-app-goodo-time")).toHaveAttribute("href", /goodo-time/);
+    await expect(page.getByTestId("home-app-attio")).toHaveAttribute("href", /attio\.com/);
+    await expect(page.getByTestId("home-app-old-dashboard-public")).toHaveAttribute("href", /goodostudios-production/);
     await expect(page.getByText("Growth Dashboard")).toHaveCount(0); // builder only
-    // Live now, so it is a link on the menu (the sidebar has one too, hence the test id).
-    await expect(page.getByTestId("staff-menu-ad-name-generator")).toHaveAttribute("href", "/employee/ad-name-generator");
   });
 
-  test("the sidebar offers the staff menu", async ({ page }) => {
+  test("the sidebar has the seven staff menu items and the client switcher", async ({ page }) => {
     await page.goto("/employee/");
-    await expect(page.getByRole("link", { name: "Staff menu" })).toBeVisible({ timeout: 30_000 });
+    for (const name of ["Home", "Clients", "Production", "Talent", "Creative", "Knowledge", "Admin"]) {
+      await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link", { name, exact: true })).toBeVisible({ timeout: 30_000 });
+    }
+    await expect(page.getByRole("link", { name: "Staff menu" })).toHaveCount(0);
+    await expect(page.getByRole("combobox", { name: "Client", exact: true })).toBeVisible();
   });
 
   for (const path of STAFF_PATHS.filter((p) => !BUILDER_ONLY_PATHS.includes(p) && !p.includes("/build"))) {
-    test(`/employee${path} stays on the staff page`, async ({ page }) => {
+    test(`/employee${path} loads a staff page`, async ({ page }) => {
       await page.goto(`/employee${path}`);
       await page.waitForLoadState("networkidle");
-      expect(new URL(page.url()).pathname.replace(/\/$/, "")).toBe(`/employee${path}`);
+      // Old addresses redirect to a section tab, so the address may differ; it is never the index or a 404.
+      const now = new URL(page.url()).pathname.replace(/\/$/, "");
+      if (path !== "/staff") expect(now).not.toBe("/employee");
+      expect(now.startsWith("/employee")).toBe(true);
       await expect(page.getByText(/page not found/i)).toHaveCount(0);
     });
   }

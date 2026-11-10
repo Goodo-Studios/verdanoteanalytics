@@ -6,6 +6,8 @@
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { supabase } from "@/integrations/supabase/client";
+import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
+import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { PageHeader } from "@/components/PageHeader";
 import {
   type Bid,
@@ -34,21 +36,15 @@ interface Untyped {
 const db = supabase as unknown as Untyped;
 const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
-interface ClientOption {
-  slug: string;
-  name: string;
-}
-
 export default function BidViewerPage() {
-  const [clients, setClients] = useState<ClientOption[]>([]);
   const [summaries, setSummaries] = useState<BidSummary[] | null>(null);
-  const [clientSlug, setClientSlug] = useState("");
+  // The client comes from the one switcher at the top of the app (or the client hub address).
+  const clientSlug = useSelectedClientSlug();
   const [bidId, setBidId] = useState("");
   const [bid, setBid] = useState<Bid | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void db.from("clients").select("slug, name").order("name").then(({ data }) => setClients((data ?? []) as ClientOption[]));
     void db.from("client_bids").select(BID_LIST_SELECT).order("version", { ascending: false }).limit(1000).then(({ data, error: e }) => {
       if (e) {
         setError("Client BIDs could not load.");
@@ -61,12 +57,10 @@ export default function BidViewerPage() {
 
   const byClient = useMemo(() => latestByClient(summaries ?? []), [summaries]);
   const versions = clientSlug ? byClient.get(clientSlug) ?? [] : [];
-  const name = (slug: string) => clients.find((c) => c.slug === slug)?.name ?? slug;
-  const clientsWithBids = [...byClient.keys()].sort((a, b) => name(a).localeCompare(name(b)));
-  const pickClient = (slug: string) => {
-    setClientSlug(slug);
-    setBidId(byClient.get(slug)?.[0]?.id ?? "");
-  };
+  // Show the newest version of the selected client's BID.
+  useEffect(() => {
+    setBidId(byClient.get(clientSlug)?.[0]?.id ?? "");
+  }, [clientSlug, byClient]);
 
   useEffect(() => {
     setBid(null);
@@ -89,10 +83,7 @@ export default function BidViewerPage() {
     <div className="mx-auto w-full max-w-5xl space-y-4" data-testid="bid-viewer">
       <PageHeader title="Client BIDs" description="Each client's Brand Intelligence Document from the BID Builder. Read only." />
       <div className="grid gap-2 sm:grid-cols-2">
-        <select aria-label="Client" className={field} value={clientSlug} onChange={(e) => pickClient(e.target.value)}>
-          <option value="">Select a client</option>
-          {clientsWithBids.map((slug) => <option key={slug} value={slug}>{name(slug)}</option>)}
-        </select>
+        {!clientSlug ? <div className="sm:col-span-2"><PickClientPrompt what="its BID" /></div> : null}
         <select aria-label="Version" className={field} value={bidId} disabled={versions.length < 2} onChange={(e) => setBidId(e.target.value)}>
           {versions.map((v, i) => (
             <option key={v.id} value={v.id}>Version {v.version}{i === 0 ? " (latest)" : ""} · {formatDay(v.generated_at)}</option>
@@ -100,6 +91,7 @@ export default function BidViewerPage() {
         </select>
       </div>
       {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+      {clientSlug && summaries && summaries.length > 0 && versions.length === 0 && !error ? <p className="text-sm text-muted-foreground">This client has no BID loaded yet.</p> : null}
       {summaries && summaries.length === 0 && !error ? <p className="text-sm text-muted-foreground">No client BIDs have been loaded yet.</p> : null}
       {bid ? (
         <div className="grid gap-6 lg:grid-cols-[14rem_1fr]">

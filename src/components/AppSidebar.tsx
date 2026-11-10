@@ -1,6 +1,5 @@
-
-import { ReactNode, useEffect, useMemo, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { NavLink } from "@/components/NavLink";
 import {
   Settings,
@@ -9,54 +8,19 @@ import {
   FileText,
   Zap,
   LogOut,
-  Tags,
   Eye,
   ListChecks,
-  Library,
-  ChevronRight,
-  Vault,
-  ClipboardList,
-  RefreshCw,
-  Layers,
-  Film,
-  Globe,
-  Grid3x3,
-  LayoutList,
-  TrendingUp,
-  Hash,
   ExternalLink,
-  Activity,
-  MessageSquareText,
-  BookOpen,
-  BellRing,
-  SquareKanban,
+  House,
   Building2,
-  CalendarRange,
-  PackageCheck,
-  ShieldCheck,
-  ArrowRightLeft,
-  FlaskConical,
-  Wrench,
-  Wallet,
-  LifeBuoy,
-  FileSearch,
-  UsersRound,
-  GraduationCap,
-  Lock,
-  Lightbulb,
-  Contact,
-  Compass,
-  Drama,
-  Inbox,
-  ThumbsUp,
-  MapPin,
-  Package,
-  HardHat,
-  Truck,
-  CalendarDays,
   Clapperboard,
+  Contact,
+  Palette,
+  BookOpen,
+  ShieldCheck,
 } from "lucide-react";
 import { ATTIO_URL, GOODO_TIME_URL } from "@/lib/staffMenu";
+import { STAFF_NAV, type StaffNavId } from "@/lib/sections";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
   Select,
@@ -71,99 +35,33 @@ import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { Button } from "@/components/ui/button";
 import { prefetchRoute } from "@/lib/routePrefetch";
-import { sectionsForAgencyView } from "@/lib/agencyNav";
 
 export type NavItem = {
   title: string;
   url: string;
   icon: typeof LayoutGrid;
-  /** Builder-only nav item — hidden from employees and role-preview sessions
-   *  (matches its route guard). Used by the US-007 Creative Matrix. */
-  builderOnly?: boolean;
 };
 
-export type NavSection = {
-  id: string;
-  label: string;
-  items: NavItem[];
-  /** Apps that stay outside Verdanote, opened in a new tab. Staff sections only. */
-  links?: { title: string; href: string }[];
+const STAFF_ICONS: Record<StaffNavId, typeof LayoutGrid> = {
+  home: House,
+  clients: Building2,
+  production: Clapperboard,
+  talent: Contact,
+  creative: Palette,
+  knowledge: BookOpen,
+  admin: ShieldCheck,
 };
 
-// Builder sections — Creative Analytics + Creative Vault
-export const builderSections: NavSection[] = [
-  {
-    id: "creative-analytics",
-    label: "Creative Analytics",
-    items: [
-      { title: "Overview", url: "/", icon: LayoutGrid },
-      { title: "Creatives", url: "/creatives", icon: Zap },
-      { title: "Creative Library", url: "/creative-library", icon: Film },
-      { title: "Analytics", url: "/analytics", icon: BarChart3 },
-      { title: "Matrix", url: "/matrix", icon: Grid3x3, builderOnly: true },
-      { title: "Tagging", url: "/tagging", icon: Tags },
-      { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
-      { title: "Briefs", url: "/briefs", icon: ClipboardList },
-      { title: "Reports", url: "/reports", icon: FileText },
-      { title: "Landing Pages", url: "/landing-pages", icon: Globe },
-      { title: "Creative Rotation", url: "/creative-rotation", icon: RefreshCw },
-      { title: "Creative Diversity", url: "/entities", icon: Layers },
-    ],
-  },
-  {
-    id: "creative-vault",
-    label: "Creative Vault",
-    items: [
-      { title: "Library", url: "/ad-library", icon: Library },
-      { title: "Boards", url: "/ad-library/boards", icon: Vault },
-      { title: "Hooks", url: "/ad-library/hooks", icon: Zap },
-    ],
-  },
-  {
-    id: "staff",
-    label: "Staff",
-    items: [
-      { title: "Staff menu", url: "/staff", icon: LayoutList },
-      { title: "Ad Name Generator", url: "/ad-name-generator", icon: Hash },
-      { title: "Integration health", url: "/integration-health", icon: Activity },
-      { title: "Meeting recaps", url: "/meeting-recaps", icon: MessageSquareText },
-      { title: "Knowledge", url: "/knowledge", icon: BookOpen },
-      { title: "Follow-ups", url: "/follow-ups", icon: BellRing },
-      { title: "Creator pipeline", url: "/creator-pipeline", icon: SquareKanban },
-      { title: "Client overview", url: "/clients", icon: Building2 },
-      { title: "Creators", url: "/creators", icon: Contact },
-      { title: "Actors", url: "/actors", icon: Drama },
-      { title: "Applications", url: "/applications", icon: Inbox },
-      { title: "Approval boards", url: "/approval-boards", icon: ThumbsUp },
-      { title: "Locations", url: "/locations", icon: MapPin },
-      { title: "Props", url: "/props", icon: Package },
-      { title: "Crew", url: "/crew", icon: HardHat },
-      { title: "Shipments", url: "/shipments", icon: Truck },
-      { title: "Production calendar", url: "/production-calendar", icon: CalendarDays },
-      { title: "Casting", url: "/casting", icon: Clapperboard },
-      { title: "Call sheets", url: "/call-sheets", icon: ClipboardList },
-      { title: "Engagements", url: "/engagements", icon: CalendarRange },
-      { title: "Deliverables", url: "/deliverables", icon: PackageCheck },
-      { title: "QA gates", url: "/qa-gates", icon: ShieldCheck },
-      { title: "Handoffs", url: "/handoffs", icon: ArrowRightLeft },
-      { title: "Agent evaluations", url: "/agent-evaluations", icon: FlaskConical },
-      { title: "Operations", url: "/operations", icon: Wrench },
-      { title: "Operating costs", url: "/operating-costs", icon: Wallet, builderOnly: true },
-      { title: "Support inbox", url: "/support", icon: LifeBuoy },
-      { title: "Client BIDs", url: "/bids", icon: FileSearch },
-      { title: "Team and settings", url: "/team", icon: UsersRound },
-      { title: "Learning", url: "/learning", icon: GraduationCap },
-      { title: "Scope changes", url: "/scope-changes", icon: Lock },
-      { title: "Recommendations", url: "/recommendations", icon: Lightbulb },
-      { title: "Strategy", url: "/strategy", icon: Compass },
-      { title: "Growth Dashboard", url: "/growth-dashboard", icon: TrendingUp, builderOnly: true },
-    ],
-    links: [
-      { title: "Goodo Time", href: GOODO_TIME_URL },
-      { title: "Attio", href: ATTIO_URL },
-    ],
-  },
-];
+/**
+ * Staff menu: seven items. Production, Talent, Creative, Knowledge and Admin are pages with
+ * tabs (see src/lib/sections.ts). Admin shows for builders and employees; the tabs inside it
+ * that are builder only stay hidden from employees.
+ */
+export const staffNavItems: NavItem[] = STAFF_NAV.map((entry) => ({
+  title: entry.label,
+  url: entry.url,
+  icon: STAFF_ICONS[entry.id],
+}));
 
 // Client surface: clients get the core analytics tabs — Overview, Creatives,
 // Analytics — alongside their Content Pipeline + Reports. Overview routes to the
@@ -178,188 +76,25 @@ export const clientNavItems: NavItem[] = [
   { title: "Reports", url: "/reports", icon: FileText },
 ];
 
-const STORAGE_KEY = "verdanote.sidebar.sectionsCollapsed";
-
-function readCollapsedFromStorage(): Record<string, boolean> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return typeof parsed === "object" && parsed !== null ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeCollapsedToStorage(state: Record<string, boolean>) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    /* ignore quota / privacy-mode errors */
-  }
-}
-
-/** Returns true if the current route path matches any item in the section. */
-function sectionContainsActiveRoute(
-  section: NavSection,
-  prefix: string,
-  pathname: string,
-): boolean {
-  return section.items.some((item) => {
-    const fullPath = `${prefix}${item.url}`;
-    if (item.url === "/") {
-      return pathname === fullPath || pathname === `${prefix}`;
-    }
-    return pathname === fullPath || pathname.startsWith(`${fullPath}/`);
-  });
-}
-
-interface SectionGroupProps {
-  section: NavSection;
-  prefix: string;
-  collapsed: boolean;
-  onToggle: () => void;
-  onNavigate?: () => void;
-  /** When false, builder-only items (item.builderOnly) are hidden. */
-  showBuilderOnly: boolean;
-  /** Optional content rendered between the section header and the nav items. */
-  children?: ReactNode;
-}
-
-function SectionGroup({
-  section,
-  prefix,
-  collapsed,
-  onToggle,
-  onNavigate,
-  showBuilderOnly,
-  children,
-}: SectionGroupProps) {
-  const items = showBuilderOnly
-    ? section.items
-    : section.items.filter((item) => !item.builderOnly);
-  return (
-    <div className="space-y-1">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={!collapsed}
-        aria-controls={`sidebar-section-${section.id}`}
-        className="flex items-center w-full px-2 py-1 font-label text-[9px] uppercase tracking-[0.1em] text-sage hover:text-forest transition-colors"
-      >
-        <ChevronRight
-          className={`h-3 w-3 mr-1.5 transition-transform duration-150 ${
-            collapsed ? "" : "rotate-90"
-          }`}
-        />
-        <span className="flex-1 text-left">{section.label}</span>
-      </button>
-      {!collapsed && (
-        <div id={`sidebar-section-${section.id}`} className="space-y-1">
-          {children}
-          {items.map((item) => (
-            <NavLink
-              key={item.url}
-              to={`${prefix}${item.url}`}
-              end={item.url === "/"}
-              className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent"
-              activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
-              onClick={onNavigate}
-              onMouseEnter={() => prefetchRoute(item.url)}
-              onFocus={() => prefetchRoute(item.url)}
-            >
-              <item.icon className="h-4 w-4 flex-shrink-0" />
-              {item.title}
-            </NavLink>
-          ))}
-          {section.links?.map((link) => (
-            <a
-              key={link.href}
-              href={link.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate hover:text-forest hover:bg-accent"
-            >
-              <ExternalLink className="h-4 w-4 flex-shrink-0" />
-              {link.title}
-            </a>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+const ITEM_CLASS =
+  "flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent";
+const ACTIVE_CLASS = "!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant";
+const SELECT_ITEM_CLASS =
+  "font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant";
 
 export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
-  const { accounts, selectedAccountId, setSelectedAccountId, isLoading } = useAccountContext();
-  const { role, isClient, isBuilder, isEmployee, user, signOut } = useAuth();
+  const { accounts, selectedAccountId, setSelectedAccountId } = useAccountContext();
+  const { role, isClient, isBuilder, signOut } = useAuth();
   const { isClientPreview, isEmployeePreview, previewRole, setPreviewRole } = useClientPreview();
   const navigate = useNavigate();
-  const location = useLocation();
   const prefix = useRolePrefix();
 
-  const isAgencyView = selectedAccountId === "all";
   const effectiveClient = isClient || isClientPreview;
   const effectiveEmployee = isEmployeePreview;
-  // Builder-only nav items (US-007 Matrix) show only for a real builder not
-  // previewing another role — mirrors the /matrix route guard in App.tsx.
-  const effectiveBuilder = isBuilder && !isClientPreview && !isEmployeePreview;
 
-  const showSwitcher = !effectiveClient || accounts.length > 1;
-
-  // Collapse state for sections — persisted to localStorage
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() =>
-    readCollapsedFromStorage(),
-  );
-
-  const staffSections = useMemo(
-    () => (isAgencyView ? sectionsForAgencyView(builderSections) : builderSections),
-    [isAgencyView],
-  );
-
-  // Auto-expand a section if it contains the active route
-  useEffect(() => {
-    if (effectiveClient) return;
-    const updates: Record<string, boolean> = {};
-    let changed = false;
-    for (const section of staffSections) {
-      if (
-        collapsed[section.id] &&
-        sectionContainsActiveRoute(section, prefix, location.pathname)
-      ) {
-        updates[section.id] = false;
-        changed = true;
-      }
-    }
-    if (changed) {
-      setCollapsed((prev) => {
-        const next = { ...prev, ...updates };
-        writeCollapsedToStorage(next);
-        return next;
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname, prefix, effectiveClient, staffSections]);
-
-  const toggleSection = (id: string) => {
-    setCollapsed((prev) => {
-      const next = { ...prev, [id]: !prev[id] };
-      writeCollapsedToStorage(next);
-      return next;
-    });
-  };
-
-
-  const handleAccountChange = (value: string) => {
-    setSelectedAccountId(value);
-    if (value === "all") {
-      navigate(`${prefix}/agency`);
-    } else if (location.pathname.includes("/agency")) {
-      navigate(`${prefix}/`);
-    }
-  };
+  // Client view only: a client with several accounts picks one here. Staff pick a client in
+  // the switcher at the top of the app instead.
+  const showAccountSelect = effectiveClient && accounts.length > 1;
 
   const effectiveRole = effectiveClient ? "client" : effectiveEmployee ? "employee" : role;
 
@@ -380,12 +115,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
     navigate(`${newPrefix}/`);
   };
 
-  // Flat nav (client view only): no section grouping. Staff keep their
-  // sections on the Agency View too.
-  const flatNavItems = useMemo<NavItem[] | null>(() => {
-    if (effectiveClient) return clientNavItems;
-    return null;
-  }, [effectiveClient]);
+  const navItems = useMemo<NavItem[]>(() => (effectiveClient ? clientNavItems : staffNavItems), [effectiveClient]);
 
   return (
     <aside className="flex h-screen w-56 flex-col bg-background border-r border-input">
@@ -416,85 +146,45 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
       )}
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-3">
-        {flatNavItems ? (
-          <>
-            {/* Account switcher above flat nav (client view) */}
-            <div className="space-y-1.5 pb-1">
-              {showSwitcher && accounts.length > 0 && (
-                <Select value={selectedAccountId || ""} onValueChange={handleAccountChange}>
-                  <SelectTrigger className="w-full h-9 font-body text-[13px] font-medium text-charcoal border border-input bg-background rounded-md [&>svg]:text-sage">
-                    <SelectValue placeholder="Select account" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white border border-border-light rounded-[8px] shadow-modal">
-                    {(isBuilder || isEmployee) && !effectiveClient && <SelectItem value="all" className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">Agency View</SelectItem>}
-                    {[...accounts].sort((a, b) => a.name.localeCompare(b.name)).map((acc) => (
-                      <SelectItem key={acc.id} value={acc.id} className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">
-                        {acc.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              {effectiveClient && accounts.length === 1 && (
-                <p className="font-body text-[13px] font-medium text-charcoal px-2 truncate">{accounts[0].name}</p>
-              )}
-            </div>
-            <div className="space-y-1">
-              {flatNavItems.map((item) => (
-                <NavLink
-                  key={item.url}
-                  to={`${prefix}${item.url}`}
-                  end={item.url === "/"}
-                  className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent"
-                  activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
-                  onClick={onNavigate}
-                  onMouseEnter={() => prefetchRoute(item.url)}
-                  onFocus={() => prefetchRoute(item.url)}
-                >
-                  <item.icon className="h-4 w-4 flex-shrink-0" />
-                  {item.title}
-                </NavLink>
-              ))}
-            </div>
-          </>
-        ) : (
-          staffSections.map((section) => (
-            <SectionGroup
-              key={section.id}
-              section={section}
-              prefix={prefix}
-              collapsed={!!collapsed[section.id]}
-              onToggle={() => toggleSection(section.id)}
-              onNavigate={onNavigate}
-              showBuilderOnly={effectiveBuilder}
-            >
-              {/* Account switcher lives inside the Creative Analytics fold */}
-              {section.id === "creative-analytics" && (
-                <div className="px-1 pb-2 pt-0.5">
-                  {showSwitcher && accounts.length > 0 && (
-                    <Select value={selectedAccountId || ""} onValueChange={handleAccountChange}>
-                      <SelectTrigger className="w-full h-9 font-body text-[13px] font-medium text-charcoal border border-input bg-background rounded-md [&>svg]:text-sage">
-                        <SelectValue placeholder="Select account" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-white border border-border-light rounded-[8px] shadow-modal">
-                        {(isBuilder || isEmployee) && !effectiveClient && <SelectItem value="all" className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">Agency View</SelectItem>}
-                        {[...accounts].sort((a, b) => a.name.localeCompare(b.name)).map((acc) => (
-                          <SelectItem key={acc.id} value={acc.id} className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">
-                            {acc.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  {effectiveClient && accounts.length === 1 && (
-                    <p className="font-body text-[13px] font-medium text-charcoal px-2 truncate">{accounts[0].name}</p>
-                  )}
-                </div>
-              )}
-            </SectionGroup>
-          ))
+      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-3" aria-label="Main">
+        {effectiveClient && (
+          <div className="space-y-1.5 pb-1">
+            {showAccountSelect && (
+              <Select value={selectedAccountId || ""} onValueChange={(v) => setSelectedAccountId(v)}>
+                <SelectTrigger className="w-full h-9 font-body text-[13px] font-medium text-charcoal border border-input bg-background rounded-md [&>svg]:text-sage">
+                  <SelectValue placeholder="Select account" />
+                </SelectTrigger>
+                <SelectContent className="bg-white border border-border-light rounded-[8px] shadow-modal">
+                  {[...accounts].sort((a, b) => a.name.localeCompare(b.name)).map((acc) => (
+                    <SelectItem key={acc.id} value={acc.id} className={SELECT_ITEM_CLASS}>
+                      {acc.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {accounts.length === 1 && (
+              <p className="font-body text-[13px] font-medium text-charcoal px-2 truncate">{accounts[0].name}</p>
+            )}
+          </div>
         )}
+        <div className="space-y-1">
+          {navItems.map((item) => (
+            <NavLink
+              key={item.url}
+              to={`${prefix}${item.url}`}
+              end={item.url === "/"}
+              className={ITEM_CLASS}
+              activeClassName={ACTIVE_CLASS}
+              onClick={onNavigate}
+              onMouseEnter={() => prefetchRoute(item.url)}
+              onFocus={() => prefetchRoute(item.url)}
+            >
+              <item.icon className="h-4 w-4 flex-shrink-0" />
+              {item.title}
+            </NavLink>
+          ))}
+        </div>
       </nav>
 
       <div className="mx-3 border-t border-input" />
@@ -510,13 +200,32 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
           </button>
         </div>
       )}
-      {/* Settings + logout */}
+      {/* Other apps (staff only), Settings and sign out */}
       <div className="px-3 pb-4 pt-1">
+        {!effectiveClient && (
+          <div className="pb-1">
+            {[
+              { title: "Goodo Time", href: GOODO_TIME_URL },
+              { title: "Attio", href: ATTIO_URL },
+            ].map((link) => (
+              <a
+                key={link.href}
+                href={link.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 rounded-md px-3 py-2 font-body text-[13px] font-medium text-slate hover:text-forest hover:bg-accent"
+              >
+                <ExternalLink className="h-3.5 w-3.5 flex-shrink-0" />
+                {link.title}
+              </a>
+            ))}
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <NavLink
             to={`${prefix}/settings`}
-            className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent flex-1"
-            activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
+            className={`${ITEM_CLASS} flex-1`}
+            activeClassName={ACTIVE_CLASS}
             onClick={onNavigate}
             onMouseEnter={() => prefetchRoute("/settings")}
             onFocus={() => prefetchRoute("/settings")}

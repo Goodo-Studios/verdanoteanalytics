@@ -38,6 +38,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 import LearningPage from "@/features/learning/LearningPage";
+import { WithClient } from "./clientSelection";
 import { canAccept, canDecide, mondayOf, publicationBlockers, reviewStage, toLessons } from "@/features/learning/model";
 
 const V1 = {
@@ -61,10 +62,15 @@ beforeEach(() => {
   auth = { user: { id: "rev-1" }, isBuilder: false };
 });
 
+const CLIENTS = [{ slug: "glow", name: "Glow Drip" }] as never[];
+const page = (slug: string) => (
+  <WithClient slug={slug} clients={CLIENTS}>
+    <LearningPage />
+  </WithClient>
+);
+
 async function openLesson() {
-  render(<LearningPage />);
-  await screen.findByRole("option", { name: "Glow Drip" });
-  fireEvent.change(screen.getByLabelText("Client"), { target: { value: "glow" } });
+  render(page("glow"));
   return screen.findByRole("region", { name: "Lesson Filming at home" });
 }
 
@@ -87,12 +93,13 @@ describe("LearningPage lessons", () => {
   it("a builder sees what blocks publication, then publishes an approved lesson", async () => {
     auth = { user: { id: "b-1" }, isBuilder: true };
     data.learning_modules = [{ ...LESSON, learning_module_versions: [{ ...V1, source_refs: ["http://example.test"] }], learning_reviews: [review("accepted"), review("approved")] }];
-    let card = await openLesson();
+    const { rerender } = render(page("glow"));
+    let card = await screen.findByRole("region", { name: "Lesson Filming at home" });
     expect(within(card).getByTestId("blockers-m1")).toHaveTextContent("source links must be https");
     expect(within(card).queryByRole("button", { name: "Publish version 1" })).toBeNull();
     data.learning_modules = [{ ...LESSON, learning_reviews: [review("accepted"), review("approved")] }];
-    fireEvent.change(screen.getByLabelText("Client"), { target: { value: "" } });
-    fireEvent.change(screen.getByLabelText("Client"), { target: { value: "glow" } });
+    rerender(page(""));
+    rerender(page("glow"));
     card = await screen.findByRole("region", { name: "Lesson Filming at home" });
     fireEvent.click(within(card).getByRole("button", { name: "Publish version 1" }));
     await waitFor(() => expect(rpc).toHaveBeenCalledWith("publish_learning_version", { p_module_id: "m1", p_version: 1 }));
@@ -124,10 +131,8 @@ describe("LearningPage lessons", () => {
 
 describe("LearningPage self-service", () => {
   async function openEngagement() {
-    render(<LearningPage />);
+    render(page("glow"));
     fireEvent.click(screen.getByRole("button", { name: "Self-service" }));
-    await screen.findByRole("option", { name: "Glow Drip" });
-    fireEvent.change(screen.getByLabelText("Self-service client"), { target: { value: "glow" } });
     await screen.findByRole("option", { name: "Cycle 1 (active)" });
     fireEvent.change(screen.getByLabelText("Engagement"), { target: { value: "e1" } });
   }
@@ -153,6 +158,16 @@ describe("LearningPage self-service", () => {
     const snap = await screen.findByTestId("snapshot-s1");
     expect(snap).toHaveTextContent("4 questions over 1 observed weeks (1 missing), rate 4 per week");
     expect(snap).toHaveTextContent("Repeat support: better · pilot complete · data synthetic fixture. Lesson opens are not measured.");
+  });
+});
+
+describe("LearningPage with no client selected", () => {
+  it("asks for a client on both tabs and loads no lessons", () => {
+    render(page(""));
+    expect(screen.getByText(/Pick a client in the switcher at the top of the page to see/)).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Lesson Filming at home" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Self-service" }));
+    expect(screen.getByText(/Pick a client in the switcher at the top of the page to see/)).toBeTruthy();
   });
 });
 

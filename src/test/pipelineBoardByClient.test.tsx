@@ -67,7 +67,7 @@ describe("Content Pipeline board by client", () => {
     expect(await screen.findByText("Slug-only card")).toBeInTheDocument();
     expect(from).toHaveBeenCalledWith("pipeline_tasks");
     expect(eq).not.toHaveBeenCalled();
-    expect(screen.queryByText(/select an account/i)).toBeNull();
+    expect(screen.queryByText(/pick a client/i)).toBeNull();
   });
 
   it("a client with an ad account selected still loads all its own rows, not one account", async () => {
@@ -97,7 +97,7 @@ describe("Content Pipeline board by client", () => {
   it("staff with no account selected are asked to pick one and load nothing", async () => {
     renderPage();
 
-    expect(screen.getByText(/select an account to view the content pipeline/i)).toBeInTheDocument();
+    expect(screen.getByText(/pick a client in the switcher.*content pipeline/i)).toBeInTheDocument();
     await new Promise((r) => setTimeout(r, 30));
     expect(from).not.toHaveBeenCalled();
   });
@@ -106,7 +106,7 @@ describe("Content Pipeline board by client", () => {
     account.selectedAccountId = "all";
     renderPage();
 
-    expect(screen.getByText(/select an account/i)).toBeInTheDocument();
+    expect(screen.getByText(/pick a client/i)).toBeInTheDocument();
     await new Promise((r) => setTimeout(r, 30));
     expect(from).not.toHaveBeenCalled();
   });

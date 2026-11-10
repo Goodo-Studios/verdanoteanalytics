@@ -45,6 +45,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 import OperationsPage from "@/features/operations/OperationsPage";
+import { WithClient } from "./clientSelection";
 import { boundedCause, boundedReceipt, nextStepOf, toJob, wasAttempted, type JobRow } from "@/features/operations/model";
 
 const base = {
@@ -71,7 +72,13 @@ beforeEach(() => {
   rows = [RECOVERY];
 });
 
-const renderPage = () => render(<MemoryRouter><OperationsPage /></MemoryRouter>);
+const CLIENTS = [{ slug: "glow", name: "Glow Drip" }] as never[];
+const renderPage = (slug = "") =>
+  render(
+    <WithClient slug={slug} clients={CLIENTS}>
+      <MemoryRouter><OperationsPage /></MemoryRouter>
+    </WithClient>,
+  );
 const jobRegion = (name: RegExp) => screen.findByRole("listitem", { name });
 
 describe("OperationsPage", () => {
@@ -134,15 +141,24 @@ describe("OperationsPage", () => {
 
   it("filters by client and shows a manual resolution with the staff name and a bounded receipt", async () => {
     rows = [RESOLVED];
-    renderPage();
-    await screen.findByRole("option", { name: "Glow Drip" });
+    renderPage("glow");
+    expect(screen.getByTestId("operations-scope")).toHaveTextContent("Showing jobs for Glow Drip.");
     fireEvent.change(screen.getByLabelText("Jobs to show"), { target: { value: "finished" } });
-    fireEvent.change(screen.getByLabelText("Client"), { target: { value: "glow" } });
     const card = await jobRegion(/Job Slack reminder dddddddd/);
     await waitFor(() => expect(calls.filter((c) => c.table === "durable_jobs").at(-1)?.filters).toContainEqual(["eq", "client_slug", "glow"]));
     expect(within(card).getByText(/Rae, .*Saw the message in Slack/)).toBeTruthy();
     expect(within(card).getByText("Receipt: ok true · ts 1731234567.000100")).toBeTruthy();
     expect(within(card).queryByText(/C0SECRET|secret body/)).toBeNull();
+  });
+});
+
+describe("OperationsPage with no client selected", () => {
+  it("shows every client and the company-wide jobs without a client filter", async () => {
+    renderPage("");
+    await jobRegion(/Job Slack reminder aaaaaaaa/);
+    expect(screen.getByTestId("operations-scope")).toHaveTextContent("Showing every client and the company-wide jobs.");
+    const jobCall = calls.find((c) => c.table === "durable_jobs");
+    expect(jobCall?.filters.some(([, column]) => column === "client_slug")).toBe(false);
   });
 });
 

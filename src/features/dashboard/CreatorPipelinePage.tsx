@@ -9,7 +9,8 @@
 // unchanged. Approval board links (public links sent to clients) are served by
 // the old dashboard; their staff side is the Approval boards page (step 5b).
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
+import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { PageHeader } from "@/components/PageHeader";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import {
@@ -102,7 +103,7 @@ function AssignmentCard({ a, users, brandName, canRemove, onPatch, onRemove, onS
       </div>
       {DELIVERY_STAGES.includes(a.stage) && <DeliveryFields key={`${a.tracking_number}-${a.product_delivered_at}`} a={a} onSaved={onSaved} onError={onError} />}
       {canRemove && (
-        <button type="button" className="mt-2 text-xs text-destructive underline" onClick={() => onRemove(a)}>Remove from brand</button>
+        <button type="button" className="mt-2 text-xs text-destructive underline" onClick={() => onRemove(a)}>Remove from client</button>
       )}
     </li>
   );
@@ -143,8 +144,9 @@ function AddCreators({ creators, onBrand, onAdd }: { creators: CreatorOption[] |
 
 export default function CreatorPipelinePage() {
   const prefix = useRolePrefix();
-  const [params, setParams] = useSearchParams();
-  const brand = params.get("brand") ?? "";
+  // The client comes from the one switcher at the top of the app. "All clients" shows every client's creators.
+  const selected = useSelectedClientSlug();
+  const brand = selected || ALL_BRANDS;
   const [view, setView] = useState<"board" | "list">("board");
   const [scope, setScope] = useState<StageScope>("production");
   const [query, setQuery] = useState("");
@@ -156,7 +158,7 @@ export default function CreatorPipelinePage() {
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    loadBrandsAndTeam().then(setBase, (e) => setError(messageOf(e, "Could not load brands.")));
+    loadBrandsAndTeam().then(setBase, (e) => setError(messageOf(e, "Could not load clients.")));
   }, []);
   const loadRows = useCallback(async () => {
     if (!brand) return setRows(null);
@@ -174,7 +176,6 @@ export default function CreatorPipelinePage() {
     if (adding && !creators) loadCreatorOptions().then(setCreators, (e) => setError(messageOf(e, "Could not load the roster.")));
   }, [adding, creators]);
 
-  const brands = useMemo(() => (base?.brands ?? []).filter((b) => b.active && b.does_creators), [base]);
   const brandNames = useMemo(() => new Map((base?.brands ?? []).map((b) => [b.slug, b.name])), [base]);
   const users = base?.users ?? [];
   const isAll = brand === ALL_BRANDS;
@@ -183,13 +184,8 @@ export default function CreatorPipelinePage() {
   const grouped = useMemo(() => groupByStage(visible, columns), [visible, columns]);
   const offBoard = isAll ? visible.filter((r) => !columns.includes(r.stage)).length : 0;
 
-  const pick = (slug: string) => {
-    const next = new URLSearchParams(params);
-    if (slug) next.set("brand", slug);
-    else next.delete("brand");
-    setParams(next);
-    setAdding(false);
-  };
+  // Switching client closes the add-creators panel.
+  useEffect(() => setAdding(false), [brand]);
   const run = async (fn: () => Promise<void>, ok: string, fallback: string) => {
     setError(null);
     setNotice(null);
@@ -204,7 +200,7 @@ export default function CreatorPipelinePage() {
   const patch = (a: Assignment, p: AssignmentPatch) =>
     void run(() => updateAssignment(a.id, p), `${creatorName(a)} updated.`, "The change could not be saved.");
   const remove = (a: Assignment) => {
-    if (!window.confirm(`Take ${creatorName(a)} off ${brandNames.get(a.client_slug) ?? a.client_slug}? Their stage, owner and dates for this brand are deleted.`)) return;
+    if (!window.confirm(`Take ${creatorName(a)} off ${brandNames.get(a.client_slug) ?? a.client_slug}? Their stage, owner and dates for this client are deleted.`)) return;
     void run(() => removeAssignment(a.id), `${creatorName(a)} removed.`, "The creator could not be removed.");
   };
   const add = (ids: string[]) => void run(() => addCreatorsToBrand(brand, ids), `${ids.length} added as Sourced.`, "The creators could not be added.");
@@ -215,13 +211,8 @@ export default function CreatorPipelinePage() {
 
   return (
     <div className="p-6 space-y-4" data-testid="creator-pipeline-page">
-      <PageHeader title="Creator pipeline" description="Creators per brand, from sourcing to payment. The ClickUp asset board is the Content Pipeline." />
+      <PageHeader title="Creator pipeline" description="Creators per client, from sourcing to payment. The ClickUp asset board is the Work tab on each client." />
       <div className="flex flex-wrap items-center gap-2">
-        <select aria-label="Brand" className="rounded-md border border-input bg-background px-2 py-1.5 text-sm" value={brand} onChange={(e) => pick(e.target.value)}>
-          <option value="">Choose a brand</option>
-          <option value={ALL_BRANDS}>All brands</option>
-          {brands.map((b) => <option key={b.slug} value={b.slug}>{b.name}</option>)}
-        </select>
         {brand && (
           <>
             <div role="group" aria-label="View" className="flex rounded-md border text-sm">
@@ -247,9 +238,7 @@ export default function CreatorPipelinePage() {
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       {adding && !isAll && <AddCreators creators={creators} onBrand={rows ?? []} onAdd={add} />}
 
-      {!brand ? (
-        <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">Choose a brand, or All brands, to see its creators.</p>
-      ) : !rows ? (
+      {!rows ? (
         <p role="status" className="text-sm text-muted-foreground">Loading creators...</p>
       ) : view === "board" ? (
         <>
@@ -261,12 +250,12 @@ export default function CreatorPipelinePage() {
               </section>
             ))}
           </div>
-          {offBoard > 0 && <p className="text-xs text-muted-foreground">{offBoard} creators are in stages not shown. Switch to all active stages or open one brand.</p>}
+          {offBoard > 0 && <p className="text-xs text-muted-foreground">{offBoard} creators are in stages not shown. Switch to all active stages or open one client.</p>}
         </>
       ) : (
         <table className="w-full text-sm" aria-label="Creator list">
           <thead>
-            <tr className="text-left text-xs text-muted-foreground"><th>Creator</th>{isAll && <th>Brand</th>}<th>Stage</th><th>Owner</th><th>Follow-up</th><th>Brief</th></tr>
+            <tr className="text-left text-xs text-muted-foreground"><th>Creator</th>{isAll && <th>Client</th>}<th>Stage</th><th>Owner</th><th>Follow-up</th><th>Brief</th></tr>
           </thead>
           <tbody>
             {[...visible].sort((a, b) => stageIndex(a.stage) - stageIndex(b.stage) || creatorName(a).localeCompare(creatorName(b))).map((a) => (

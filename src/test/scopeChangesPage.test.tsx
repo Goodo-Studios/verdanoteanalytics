@@ -33,6 +33,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 import ScopeChangesPage from "@/features/scope-changes/ScopeChangesPage";
+import { WithClient } from "./clientSelection";
 import { isDecided, lockStatus, lockedVersion, requestStatus } from "@/features/scope-changes/model";
 
 const SHOT_LIST = { id: "s1", title: "Kitchen shot list", published_version: 2, scope_locks: [{ version: 2, locked_at: "2026-11-10T00:00:00Z" }] };
@@ -52,13 +53,27 @@ beforeEach(() => {
 });
 
 async function open() {
-  render(<ScopeChangesPage />);
-  await screen.findByRole("option", { name: "Glow Drip" });
-  fireEvent.change(screen.getByLabelText("Client"), { target: { value: "glow" } });
+  render(
+    <WithClient slug="glow" clients={[{ slug: "glow", name: "Glow Drip" }] as never[]}>
+      <ScopeChangesPage />
+    </WithClient>,
+  );
   await screen.findByRole("option", { name: "Cycle 1 (active)" });
   fireEvent.change(screen.getByLabelText("Engagement"), { target: { value: "e1" } });
   return screen.findByRole("region", { name: "Shot list Kitchen shot list" });
 }
+
+describe("ScopeChangesPage with no client selected", () => {
+  it("asks for a client and offers no engagement", () => {
+    render(
+      <WithClient slug="">
+        <ScopeChangesPage />
+      </WithClient>,
+    );
+    expect(screen.getByText(/Pick a client in the switcher at the top of the page to see/)).toBeTruthy();
+    expect(screen.getByLabelText("Engagement")).toBeDisabled();
+  });
+});
 
 describe("ScopeChangesPage", () => {
   it("shows the lock and the requests", async () => {

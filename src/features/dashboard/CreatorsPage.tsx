@@ -88,7 +88,7 @@ export default function CreatorsPage() {
 
   return (
     <div className="p-6 space-y-4" data-testid="creators-page">
-      <PageHeader title="Creators" description="The creator roster. Open a creator to edit their profile and see their brands and media." />
+      <PageHeader title="Creators" description="The creator roster. Open a creator to edit their profile and see their clients and media." />
       <form className="flex flex-wrap items-end gap-2 rounded-lg border p-3" onSubmit={(e) => { e.preventDefault(); void add(); }}>
         <label className="text-xs">Name<input aria-label="New creator name" className={`${CTRL} ml-1`} value={newName} onChange={(e) => setNewName(e.target.value)} /></label>
         <label className="text-xs">Email<input aria-label="New creator email" type="email" className={`${CTRL} ml-1`} value={newEmail} onChange={(e) => setNewEmail(e.target.value)} /></label>
@@ -132,7 +132,7 @@ export default function CreatorsPage() {
           ) : (
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-muted-foreground"><th>Creator</th><th>Scale</th><th>Categories</th><th>Location</th><th>Brands</th></tr>
+                <tr className="text-left text-xs text-muted-foreground"><th>Creator</th><th>Scale</th><th>Categories</th><th>Location</th><th>Clients</th></tr>
               </thead>
               <tbody>
                 {paged.rows.map((c) => (

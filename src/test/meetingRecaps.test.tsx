@@ -46,6 +46,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 import MeetingRecapsPage from "@/features/meeting-recaps/MeetingRecapsPage";
+import { WithClient } from "./clientSelection";
 import { dateLabel, reviewable, toRecaps } from "@/features/meeting-recaps/model";
 
 const HASH = "a".repeat(64);
@@ -77,9 +78,11 @@ beforeEach(() => {
 });
 
 async function pickClient() {
-  render(<MeetingRecapsPage />);
-  await screen.findByRole("option", { name: "Glow Drip" });
-  fireEvent.change(screen.getByLabelText("Client"), { target: { value: "glow" } });
+  render(
+    <WithClient slug="glow" clients={[{ slug: "glow", name: "Glow Drip" }] as never[]}>
+      <MeetingRecapsPage />
+    </WithClient>,
+  );
 }
 
 describe("MeetingRecapsPage", () => {
@@ -146,6 +149,18 @@ describe("MeetingRecapsPage", () => {
     recapRows.current = [];
     await pickClient();
     expect(await screen.findByText("No recaps for this client yet.")).toBeTruthy();
+  });
+});
+
+describe("MeetingRecapsPage with no client selected", () => {
+  it("asks for a client and loads no recaps", () => {
+    render(
+      <WithClient slug="">
+        <MeetingRecapsPage />
+      </WithClient>,
+    );
+    expect(screen.getByText(/Pick a client in the switcher at the top of the page to see/)).toBeTruthy();
+    expect(calls.find((c) => c.table === "meeting_recaps")).toBeUndefined();
   });
 });
 

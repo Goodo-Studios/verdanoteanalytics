@@ -15,7 +15,7 @@
  */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { WithClient } from "./clientSelection";
 
 const rpc = vi.fn();
 const update = vi.fn();
@@ -74,34 +74,35 @@ const PLANNED = { ...ACTIVE, id: "e2", cycle_number: 2, status: "planned", start
 beforeEach(() => {
   rpc.mockReset();
   update.mockReset();
-  data.clients = [{ slug: "glow", name: "Glow Drip", active: true }, { slug: "old", name: "Old Co", active: false }];
   data.engagements = [ACTIVE, PLANNED];
   data.engagement_templates = TEMPLATES;
   auth = { user: { id: "emp-1" }, isBuilder: false };
 });
 
-function renderPage(url = "/builder/engagements") {
-  return render(<MemoryRouter initialEntries={[url]}><EngagementsPage /></MemoryRouter>);
+const CLIENTS = [{ slug: "glow", name: "Glow Drip", active: true }, { slug: "old", name: "Old Co", active: false }];
+
+function renderPage(slug = "glow") {
+  return render(<WithClient slug={slug} clients={CLIENTS}><EngagementsPage /></WithClient>);
 }
 
+// The client now comes from the shared switcher: render the page with it selected.
 async function pick(slug = "glow") {
-  renderPage();
-  await screen.findByRole("option", { name: "Glow Drip" });
-  fireEvent.change(screen.getByLabelText("Client"), { target: { value: slug } });
+  renderPage(slug);
 }
 
 describe("EngagementsPage", () => {
-  it("preselects the client from ?client= so a client page can link straight here", async () => {
-    renderPage("/builder/engagements?client=glow");
-    await screen.findByRole("option", { name: "Glow Drip" });
-    expect((screen.getByLabelText("Client") as HTMLSelectElement).value).toBe("glow");
+  it("shows the selected client's cycles without its own client dropdown", async () => {
+    renderPage("glow");
     expect(await screen.findByRole("region", { name: "Cycle 1" })).toBeTruthy();
+    expect(screen.queryByLabelText("Client")).toBeNull();
+    expect(screen.queryByTestId("pick-client-prompt")).toBeNull();
   });
 
-  it("ignores a ?client= that is not in the client list", async () => {
-    renderPage("/builder/engagements?client=nobody");
-    await screen.findByRole("option", { name: "Glow Drip" });
-    await waitFor(() => expect((screen.getByLabelText("Client") as HTMLSelectElement).value).toBe(""));
+  it("asks for a client when none is selected and loads no cycles", async () => {
+    renderPage("");
+    expect(await screen.findByText(/Pick a client in the switcher at the top of the page to see its engagements/)).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Cycle 1" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Create next cycle" })).toBeNull();
   });
 
   it("lists a client's cycles with dates, fixed kickoff and milestones in order", async () => {
@@ -170,7 +171,7 @@ describe("EngagementsPage", () => {
     fireEvent.change(screen.getByLabelText("Milestones"), { target: { value: "kickoff\nreview | strategist_signoff | internal\ndelivery" } });
     fireEvent.change(screen.getByLabelText("Agreed deliverables"), { target: { value: "Video ads | 12 | 2" } });
     fireEvent.change(screen.getByLabelText("Template source reference"), { target: { value: "SOW 2026" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save as version 3" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save as version 3" }));
     await waitFor(() => expect(rpc).toHaveBeenCalledWith("save_engagement_template", {
       p_template_key: "sprint", p_client_slug: null, p_expected_version: 2, p_template_type: "standard_sprint",
       p_milestone_template: ["kickoff", { key: "review", requiredEvidence: ["strategist_signoff"], clientVisible: false }, "delivery"],

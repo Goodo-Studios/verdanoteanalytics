@@ -14,7 +14,9 @@
 // the page says so. Not ported: the casting follow-ups list (removed from the
 // old dashboard) and the card board view.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
+import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
+import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { PageHeader } from "@/components/PageHeader";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { DashboardError, loadBrandsAndTeam, type BrandOption } from "./api";
@@ -33,8 +35,8 @@ function messageOf(e: unknown, fallback: string): string {
 
 export default function CastingPage() {
   const prefix = useRolePrefix();
-  const [params, setParams] = useSearchParams();
-  const brand = params.get("brand") ?? "";
+  // The client comes from the one switcher at the top of the app (or the client hub address).
+  const brand = useSelectedClientSlug();
   const [now] = useState(() => new Date());
   const [brands, setBrands] = useState<BrandOption[] | null>(null);
   const [users, setUsers] = useState<AppUser[]>([]);
@@ -68,7 +70,6 @@ export default function CastingPage() {
     void load();
   }, [load]);
 
-  const productionBrands = useMemo(() => (brands ?? []).filter((b) => (b.does_production ?? true) && (b.active || b.slug === brand)), [brands, brand]);
   const brandName = brands?.find((b) => b.slug === brand)?.name ?? brand;
   const rows = useMemo(() => sortCastings(data?.castings ?? [], showClosed), [data, showClosed]);
   const counts = useMemo(() => stageCounts(data?.castings ?? []), [data]);
@@ -97,13 +98,9 @@ export default function CastingPage() {
     <div className="p-6 space-y-4" data-testid="casting-page">
       <PageHeader title="Casting" description="Actors cast per production client, and the casting link the client uses to approve them." />
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <select aria-label="Client" className={CTRL} value={brand} onChange={(e) => { setParams(e.target.value ? { brand: e.target.value } : {}, { replace: true }); setNotice(null); setError(null); }}>
-          <option value="">Choose a production client</option>
-          {productionBrands.map((b) => <option key={b.slug} value={b.slug}>{b.name}</option>)}
-        </select>
         {brand && <Link to={`${prefix}/clients/${encodeURIComponent(brand)}`} className="underline">Client page</Link>}
-        <Link to={`${prefix}/production-calendar`} className="underline">Production calendar</Link>
-        <Link to={`${prefix}/actors`} className="underline">Actors</Link>
+        <Link to={`${prefix}/production/calendar`} className="underline">Production calendar</Link>
+        <Link to={`${prefix}/talent/actors`} className="underline">Actors</Link>
       </div>
       <p className="text-xs text-muted-foreground" data-testid="old-dashboard-note">
         Public links still open on the old dashboard for now. Links you make or revoke here, and the votes shown here, reach clients once the public pages move over.
@@ -111,7 +108,7 @@ export default function CastingPage() {
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
-      {!brand ? <p className="text-sm text-muted-foreground">Choose a client to see its castings.</p> : !data ? (
+      {!brand ? <PickClientPrompt what="its castings" /> : !data ? (
         error ? null : <p role="status" className="text-sm text-muted-foreground">Loading castings...</p>
       ) : (
         <>

@@ -1,0 +1,233 @@
+/**
+ * Old staff addresses. Walks the whole old route list (the old sidebar, the old staff directory
+ * and the old redirects) and checks that each address either redirects to its new tab, keeping
+ * the query string (?client=, ?brand=), or is a page that kept its address. A client, or a
+ * builder previewing the client view, is never sent to a staff tab.
+ *
+ * The expected targets are written out here, separately from src/lib/sections.ts, so a tab
+ * that moves or loses its redirect fails this test.
+ */
+import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+
+// The section page is stubbed to report where the redirect landed.
+vi.mock("@/components/sections/SectionPage", async () => {
+  const rr = await import("react-router-dom");
+  return {
+    SectionPage: ({ section }: { section: { id: string } }) => {
+      const { tab } = rr.useParams<{ tab?: string }>();
+      const loc = rr.useLocation();
+      return <div data-testid="landed">{`${section.id}/${tab ?? ""}${loc.search}`}</div>;
+    },
+  };
+});
+vi.mock("@/pages/OverviewPage", () => ({ default: () => <div data-testid="overview" /> }));
+vi.mock("@/pages/HomePage", () => ({ default: () => <div data-testid="home" /> }));
+vi.mock("@/pages/CreativesPage", () => ({ default: () => <div data-testid="client-creatives" /> }));
+vi.mock("@/pages/AnalyticsPage", () => ({ default: () => <div data-testid="client-analytics" /> }));
+vi.mock("@/pages/ClientReportsPage", () => ({ default: () => <div data-testid="client-reports" /> }));
+vi.mock("@/components/AppLayout", () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
+vi.mock("@/components/ClientPreviewBanner", () => ({ ClientPreviewBanner: () => null }));
+vi.mock("@/contexts/AccountContext", () => ({
+  AccountProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useAccountContext: () => ({}),
+}));
+vi.mock("@/contexts/DateRangeContext", () => ({
+  DateRangeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
+type Role = "builder" | "employee" | "client";
+let authValue: Record<string, unknown>;
+let previewValue: { isClientPreview: boolean; isEmployeePreview: boolean };
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => authValue,
+  AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+vi.mock("@/hooks/useClientPreviewMode", () => ({
+  useClientPreview: () => previewValue,
+  ClientPreviewContext: { Provider: ({ children }: { children: React.ReactNode }) => <>{children}</> },
+  useClientPreviewMode: () => previewValue,
+}));
+
+import { RoleGuardedRoutes } from "@/App";
+import { LEGACY_REDIRECTS, resolveLegacyRoute } from "@/lib/legacyRoutes";
+import { SECTIONS } from "@/lib/sections";
+
+function setRole(role: Role, clientPreview = false) {
+  authValue = {
+    user: { id: "u1", email: `${role}@test.com` },
+    role,
+    isLoading: false,
+    isBuilder: role === "builder",
+    isEmployee: role === "employee",
+    isClient: role === "client",
+  };
+  previewValue = { isClientPreview: clientPreview, isEmployeePreview: false };
+}
+
+function Where() {
+  const loc = useLocation();
+  return <div data-testid="where">{`${loc.pathname}${loc.search}`}</div>;
+}
+
+function renderAt(path: string) {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <Where />
+      <Routes>
+        <Route path="/:role/*" element={<RoleGuardedRoutes />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+/** Every address staff could use before the new menu, and the section tab it moved to. */
+const MOVED: Record<string, string> = {
+  "/production-calendar": "production/calendar",
+  "/call-sheets": "production/call-sheets",
+  "/casting": "production/casting",
+  "/crew": "production/crew",
+  "/locations": "production/locations",
+  "/props": "production/props",
+  "/shipments": "production/shipments",
+  "/creators": "talent/creators",
+  "/actors": "talent/actors",
+  "/applications": "talent/applications",
+  "/creator-pipeline": "talent/pipeline",
+  "/follow-ups": "talent/follow-ups",
+  "/approval-boards": "talent/approval-boards",
+  "/agency": "creative/agency",
+  "/creatives": "creative/creatives",
+  "/creative-library": "creative/library",
+  "/analytics": "creative/analytics",
+  "/matrix": "creative/matrix",
+  "/tagging": "creative/tagging",
+  "/briefs": "creative/briefs",
+  "/reports": "creative/reports",
+  "/landing-pages": "creative/landing-pages",
+  "/creative-rotation": "creative/rotation",
+  "/entities": "creative/diversity",
+  "/ad-library": "creative/vault",
+  "/ad-library/boards": "creative/vault-boards",
+  "/ad-library/hooks": "creative/vault-hooks",
+  "/viral-feed": "creative/vault",
+  "/ad-library/viral": "creative/vault",
+  "/learning": "knowledge/learning",
+  "/meeting-recaps": "knowledge/meetings",
+  "/bids": "knowledge/bids",
+  "/team": "admin/team",
+  "/integration-health": "admin/integration-health",
+  "/operations": "admin/operations",
+  "/operating-costs": "admin/operating-costs",
+  "/agent-evaluations": "admin/agent-evaluations",
+  "/growth-dashboard": "admin/growth",
+  "/ad-name-generator": "admin/ad-name-generator",
+  "/support": "admin/support",
+};
+
+/** Old addresses that are now a section root (the first tab opens) or the Home page. */
+const SECTION_ROOT = { "/knowledge": "knowledge/" };
+const TO_HOME = ["/staff"];
+
+/** Old addresses whose page kept its address (client menu, client list and hub pages). */
+const KEPT = ["/", "/clients", "/pipeline", "/settings", "/engagements", "/deliverables", "/qa-gates", "/handoffs", "/scope-changes", "/recommendations", "/strategy"];
+
+const CLIENT_OWN = ["/creatives", "/analytics", "/reports"];
+
+describe("the old route list", () => {
+  it("accounts for every address in the old staff menu", () => {
+    const old = [
+      ...Object.keys(MOVED),
+      ...Object.keys(SECTION_ROOT),
+      ...TO_HOME,
+      ...KEPT,
+    ];
+    // 49 menu items before the restructure, plus the old redirects and the agency page.
+    const menuBefore = [
+      "/", "/creatives", "/creative-library", "/analytics", "/matrix", "/tagging", "/pipeline", "/briefs", "/reports", "/landing-pages", "/creative-rotation", "/entities",
+      "/ad-library", "/ad-library/boards", "/ad-library/hooks",
+      "/staff", "/ad-name-generator", "/integration-health", "/meeting-recaps", "/knowledge", "/follow-ups", "/creator-pipeline", "/clients", "/creators", "/actors",
+      "/applications", "/approval-boards", "/locations", "/props", "/crew", "/shipments", "/production-calendar", "/casting", "/call-sheets", "/engagements",
+      "/deliverables", "/qa-gates", "/handoffs", "/agent-evaluations", "/operations", "/operating-costs", "/support", "/bids", "/team", "/learning", "/scope-changes",
+      "/recommendations", "/strategy", "/growth-dashboard",
+    ];
+    const unaccounted = menuBefore.filter((u) => !old.includes(u));
+    expect(unaccounted, `old menu addresses with no redirect or kept page: ${unaccounted.join(", ")}`).toEqual([]);
+  });
+
+  it("maps every moved address to its tab, in the redirect table", () => {
+    for (const [from, to] of Object.entries(MOVED)) {
+      expect(resolveLegacyRoute(from), from).toBe(`/${to}`);
+    }
+    expect(resolveLegacyRoute("/staff")).toBe("/");
+    expect(resolveLegacyRoute("/does-not-exist")).toBeNull();
+    expect(resolveLegacyRoute("/production-calendar/")).toBe("/production/calendar");
+  });
+
+  it("has no redirect that points at a missing tab", () => {
+    const tabs = new Set(SECTIONS.flatMap((s) => s.tabs.map((t) => `/${s.id}/${t.slug}`)));
+    for (const r of LEGACY_REDIRECTS) {
+      if (r.to === "/") continue;
+      expect(tabs.has(r.to), `${r.from} -> ${r.to}`).toBe(true);
+    }
+  });
+});
+
+describe("staff following an old address", () => {
+  it.each(Object.entries(MOVED))("%s lands on %s and keeps ?client=glow", async (from, to) => {
+    setRole("employee");
+    renderAt(`/employee${from}?client=glow`);
+    expect((await screen.findByTestId("landed")).textContent).toBe(`${to}?client=glow`);
+    expect(screen.getByTestId("where").textContent).toBe(`/employee/${to}?client=glow`);
+  });
+
+  it("/knowledge opens the Knowledge section", async () => {
+    setRole("builder");
+    renderAt("/builder/knowledge");
+    expect((await screen.findByTestId("landed")).textContent).toBe("knowledge/");
+  });
+
+  it("/staff goes to Home", async () => {
+    setRole("builder");
+    renderAt("/builder/staff");
+    expect(await screen.findByTestId("home")).toBeTruthy();
+    expect(screen.getByTestId("where").textContent).toBe("/builder/");
+  });
+
+  it("keeps ?brand= and ?account= links working", async () => {
+    setRole("builder");
+    renderAt("/builder/creator-pipeline?brand=glow&account=act_1");
+    expect((await screen.findByTestId("landed")).textContent).toBe("talent/pipeline?brand=glow&account=act_1");
+  });
+});
+
+describe("a client following an old address", () => {
+  const staffOnly = Object.keys(MOVED).filter((p) => !CLIENT_OWN.includes(p));
+
+  it.each(staffOnly)("%s sends a client to the index, never to a staff tab", async (from) => {
+    setRole("client");
+    renderAt(`/client${from}?client=glow`);
+    expect(await screen.findByTestId("overview")).toBeTruthy();
+    expect(screen.queryByTestId("landed")).toBeNull();
+    expect(screen.getByTestId("where").textContent).toBe("/client/");
+  });
+
+  it("a builder previewing the client view is treated the same way", async () => {
+    setRole("builder", true);
+    renderAt("/client/production-calendar");
+    expect(await screen.findByTestId("overview")).toBeTruthy();
+    expect(screen.queryByTestId("landed")).toBeNull();
+  });
+
+  it.each([
+    ["/creatives", "client-creatives"],
+    ["/analytics", "client-analytics"],
+    ["/reports", "client-reports"],
+  ])("%s stays the client's own page", async (path, marker) => {
+    setRole("client");
+    renderAt(`/client${path}`);
+    expect(await screen.findByTestId(marker)).toBeTruthy();
+    expect(screen.queryByTestId("landed")).toBeNull();
+  });
+});

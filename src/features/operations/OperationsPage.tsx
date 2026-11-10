@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -53,11 +54,6 @@ interface Untyped {
 }
 const db = supabase as unknown as Untyped;
 const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
-
-interface ClientOption {
-  slug: string;
-  name: string;
-}
 
 function JobActions({ job, onChanged }: { job: Job; onChanged: () => void }) {
   const [note, setNote] = useState("");
@@ -172,8 +168,8 @@ function JobCard({ job, names, clientName, onChanged }: { job: Job; names: Recor
 
 export default function OperationsPage() {
   const [filter, setFilter] = useState<StateFilter>("attention");
-  const [clientSlug, setClientSlug] = useState("");
-  const [clients, setClients] = useState<ClientOption[]>([]);
+  // The client comes from the one switcher at the top of the app. "All clients" shows every job, company-wide ones included.
+  const { clients, selectedSlug: clientSlug } = useClientSelection();
   const [names, setNames] = useState<Record<string, string>>({});
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -181,7 +177,6 @@ export default function OperationsPage() {
   const prefix = useRolePrefix();
 
   useEffect(() => {
-    void db.from("clients").select("slug, name").order("name").then(({ data }) => setClients((data ?? []) as ClientOption[]));
     void db.rpc("handoff_staff_options").then(({ data }) => {
       const map: Record<string, string> = {};
       for (const r of (data ?? []) as Array<{ user_id: string; display_name: string | null; email: string | null }>) {
@@ -226,10 +221,9 @@ export default function OperationsPage() {
         <select aria-label="Jobs to show" className={field} value={filter} onChange={(e) => setFilter(e.target.value as StateFilter)}>
           {STATE_FILTERS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
-        <select aria-label="Client" className={field} value={clientSlug} onChange={(e) => setClientSlug(e.target.value)}>
-          <option value="">All clients and company-wide jobs</option>
-          {clients.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
-        </select>
+        <p className="self-center text-sm text-muted-foreground" data-testid="operations-scope">
+          {clientSlug ? `Showing jobs for ${clientName(clientSlug)}.` : "Showing every client and the company-wide jobs."}
+        </p>
       </div>
       {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
       {jobs && jobs.length === 0 ? <p className="text-sm text-muted-foreground">No jobs match.</p> : null}

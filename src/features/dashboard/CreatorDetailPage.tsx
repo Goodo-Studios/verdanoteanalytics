@@ -44,7 +44,7 @@ const TEXT_FIELDS: { key: keyof CreatorForm; label: string; type?: string }[] = 
 ];
 
 function messageOf(e: unknown, fallback: string): string {
-  if (e instanceof DashboardError) return e.code === "23505" ? "This creator is already on that brand." : errorText(e.code, e.message || fallback);
+  if (e instanceof DashboardError) return e.code === "23505" ? "This creator is already on that client." : errorText(e.code, e.message || fallback);
   return e instanceof Error ? e.message : fallback;
 }
 
@@ -149,7 +149,7 @@ export default function CreatorDetailPage() {
       setAddBrand("");
       await load();
     } catch (e) {
-      setError(messageOf(e, "The creator was not added to the brand."));
+      setError(messageOf(e, "The creator was not added to the client."));
     }
   };
 
@@ -205,8 +205,8 @@ export default function CreatorDetailPage() {
         </form>
       </div>
 
-      <section aria-label="Brands" className="rounded-lg border p-3">
-        <h2 className="text-sm font-semibold">Brands ({detail.brands.length})</h2>
+      <section aria-label="Clients" className="rounded-lg border p-3">
+        <h2 className="text-sm font-semibold">Clients ({detail.brands.length})</h2>
         {detail.brands.length === 0 ? <p className="mt-1 text-sm text-muted-foreground">Not on any brand yet.</p> : (
           <ul className="mt-1 text-sm">
             {detail.brands.map((b) => (
@@ -220,11 +220,11 @@ export default function CreatorDetailPage() {
           </ul>
         )}
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <select aria-label="Add to brand" className={CTRL} value={addBrand} onChange={(e) => setAddBrand(e.target.value)}>
-            <option value="">Choose a brand</option>
+          <select aria-label="Add to client" className={CTRL} value={addBrand} onChange={(e) => setAddBrand(e.target.value)}>
+            <option value="">Choose a client</option>
             {addable.map((b) => <option key={b.slug} value={b.slug}>{b.name}</option>)}
           </select>
-          <button type="button" className={CTRL} disabled={!addBrand} onClick={() => void add()}>Add to brand</button>
+          <button type="button" className={CTRL} disabled={!addBrand} onClick={() => void add()}>Add to client</button>
         </div>
       </section>
 

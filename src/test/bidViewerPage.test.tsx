@@ -1,7 +1,7 @@
 /**
  * Client BIDs (consolidation step 6): read-only BID viewer.
  *
- * - The client list holds only clients that have a BID; the latest version opens first.
+ * - The selected client's latest BID version opens first; no client selected asks for one; a client without a BID says so.
  * - The BID renders as markdown with a section list, its metadata and a made-up label.
  * - An older version can be picked; the page has no inputs that write anything.
  * - Empty and failed loads say so.
@@ -10,6 +10,7 @@
  */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { WithClient } from "./clientSelection";
 
 const data: Record<string, unknown[]> = {};
 const errors: Record<string, { message: string } | null> = {};
@@ -43,6 +44,9 @@ vi.mock("@/integrations/supabase/client", () => ({
 import BidViewerPage from "@/features/bids/BidViewerPage";
 import { latestByClient, splitSections, type BidSummary } from "@/features/bids/model";
 
+const CLIENTS = [{ slug: "demo-glowdrip", name: "Glowdrip (demo)" }, { slug: "no-bid", name: "No BID client" }] as never[];
+const page = (slug: string) => <WithClient slug={slug} clients={CLIENTS}><BidViewerPage /></WithClient>;
+
 const v = (version: number, body: string, over: Record<string, unknown> = {}) => ({
   id: `b${version}`, client_slug: "demo-glowdrip", version, title: "Glowdrip (demo) BID", source: "staging-seed", data_origin: "made_up",
   generated_at: `2026-11-0${version}T00:00:00Z`, imported_at: "2026-11-10T00:00:00Z", body_markdown: body, body_sha256: "0".repeat(64), source_ref: "seed", ...over,
@@ -60,11 +64,8 @@ beforeEach(() => {
 });
 
 describe("BidViewerPage", () => {
-  it("lists only clients with a BID and opens the latest version as markdown with sections", async () => {
-    render(<BidViewerPage />);
-    await screen.findByRole("option", { name: "Glowdrip (demo)" });
-    expect(screen.queryByRole("option", { name: "No BID client" })).toBeNull();
-    fireEvent.change(screen.getByLabelText("Client"), { target: { value: "demo-glowdrip" } });
+  it("opens the latest version of the selected client's BID as markdown with sections", async () => {
+    render(page("demo-glowdrip"));
     const article = await screen.findByRole("article", { name: "BID Glowdrip (demo) BID" });
     expect(within(article).getByText("latest").tagName).toBe("STRONG");
     expect(within(article).getByRole("heading", { level: 2, name: "1. Company Analysis" })).toBeTruthy();
@@ -77,9 +78,7 @@ describe("BidViewerPage", () => {
   });
 
   it("switches to an older version and has nothing to edit", async () => {
-    render(<BidViewerPage />);
-    await screen.findByRole("option", { name: "Glowdrip (demo)" });
-    fireEvent.change(screen.getByLabelText("Client"), { target: { value: "demo-glowdrip" } });
+    render(page("demo-glowdrip"));
     await screen.findByRole("article");
     fireEvent.change(screen.getByLabelText("Version"), { target: { value: "b1" } });
     await waitFor(() => expect(screen.getByTestId("bid-meta")).toHaveTextContent("version 1"));
@@ -89,13 +88,21 @@ describe("BidViewerPage", () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
+  it("says when the selected client has no BID and asks for a client when none is selected", async () => {
+    const { unmount } = render(page("no-bid"));
+    expect(await screen.findByText("This client has no BID loaded yet.")).toBeTruthy();
+    unmount();
+    render(page(""));
+    expect(screen.getByText(/Pick a client in the switcher at the top of the page to see its BID/)).toBeTruthy();
+  });
+
   it("says when no BID is loaded and when loading fails", async () => {
     data.client_bids = [];
-    const { unmount } = render(<BidViewerPage />);
+    const { unmount } = render(page(""));
     expect(await screen.findByText("No client BIDs have been loaded yet.")).toBeTruthy();
     unmount();
     errors.client_bids = { message: "boom" };
-    render(<BidViewerPage />);
+    render(page(""));
     expect(await screen.findByRole("alert")).toHaveTextContent("Client BIDs could not load.");
   });
 });

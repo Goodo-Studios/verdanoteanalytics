@@ -15,6 +15,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CastingRow } from "@/features/dashboard/castingModel";
+import { WithClient } from "./clientSelection";
 
 const { FakeDashboardError } = vi.hoisted(() => ({
   FakeDashboardError: class extends Error {
@@ -82,14 +83,22 @@ describe("Casting page", () => {
     vi.spyOn(window, "confirm").mockImplementation(() => true);
   });
 
-  const renderAt = (q = "?brand=harbor") => render(<MemoryRouter initialEntries={[`/x${q}`]}><Routes><Route path="/x" element={<CastingPage />} /></Routes></MemoryRouter>);
+  const renderAt = (slug = "harbor") => render(<WithClient slug={slug}><MemoryRouter initialEntries={["/x"]}><Routes><Route path="/x" element={<CastingPage />} /></Routes></MemoryRouter></WithClient>);
 
-  it("offers only production clients and lists castings with the shoot date", async () => {
+  it("asks for a client when none is selected and has no client dropdown of its own", async () => {
     renderAt("");
-    const select = await screen.findByLabelText("Client");
-    await waitFor(() => expect(within(select).getByText("Harbor Home")).toBeTruthy());
-    expect(within(select).queryByText("Glow Co")).toBeNull();
-    expect(screen.getByText("Choose a client to see its castings.")).toBeTruthy();
+    expect(await screen.findByTestId("pick-client-prompt")).toHaveTextContent("Pick a client in the switcher at the top of the page to see its castings.");
+    expect(screen.queryByLabelText("Client")).toBeNull();
+    expect(api.loadCasting).not.toHaveBeenCalled();
+  });
+
+  it("loads the castings of the selected client", async () => {
+    renderAt("harbor");
+    await screen.findByTestId("casting-c1");
+    expect(api.loadCasting).toHaveBeenCalledWith("harbor");
+    expect(screen.queryByLabelText("Client")).toBeNull();
+    expect(screen.queryByTestId("pick-client-prompt")).toBeNull();
+    expect(screen.getByRole("link", { name: "Client page" }).getAttribute("href")).toBe("/employee/clients/harbor");
   });
 
   it("shows castings by stage, links actors, and says the link is served by the old dashboard", async () => {

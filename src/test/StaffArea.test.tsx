@@ -5,10 +5,10 @@
  * observes which page element mounts. A guarded route sends the client to the index
  * (the Overview marker) and never mounts the staff page marker.
  *
- * The list of staff paths comes from the nav model (AppSidebar's builderSections minus
- * what clientNavItems offers) plus the staff pages that have no nav entry. A staff
- * nav item added without a row in STAFF_PAGES fails the "every staff nav item is
- * covered" test, so a new page cannot ship unchecked.
+ * The list of staff paths is every old address (they redirect to a section tab), every
+ * section tab address (src/lib/sections.ts), and the detail pages that have no tab. A tab
+ * or redirect added without a row here fails the coverage tests, so a new page cannot
+ * ship unchecked.
  *
  * The same paths are checked in a real browser, signed in as the staging client and
  * employee accounts, by e2e/staff-area.spec.ts.
@@ -33,7 +33,7 @@ vi.mock("@/pages/ReportBuilderPage", () => pageMock("report-builder"));
 vi.mock("@/pages/SettingsPage", () => pageMock("settings"));
 vi.mock("@/pages/BriefsPage", () => pageMock("briefs"));
 vi.mock("@/pages/AgencyDashboardPage", () => pageMock("agency"));
-vi.mock("@/pages/StaffHomePage", () => pageMock("staff-home"));
+vi.mock("@/pages/HomePage", () => pageMock("staff-home"));
 vi.mock("@/pages/ContentPipelinePage", () => pageMock("pipeline"));
 vi.mock("@/pages/LandingPagesPage", () => pageMock("landing-pages"));
 vi.mock("@/pages/CreativeRotationPage", () => pageMock("creative-rotation"));
@@ -108,7 +108,9 @@ vi.mock("@/hooks/useClientPreviewMode", () => ({
 }));
 
 import { RoleGuardedRoutes } from "@/App";
-import { builderSections, clientNavItems } from "@/components/AppSidebar";
+import { clientNavItems, staffNavItems } from "@/components/AppSidebar";
+import { SECTIONS, type PageKey } from "@/lib/sections";
+import { LEGACY_REDIRECTS } from "@/lib/legacyRoutes";
 
 function setRole(role: Role, opts: { clientPreview?: boolean } = {}) {
   authValue = {
@@ -181,6 +183,8 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean }
   { path: "/recommendations", marker: "recommendations" },
   { path: "/strategy", marker: "strategy" },
   { path: "/ad-library", marker: "ad-library" },
+  { path: "/viral-feed", marker: "ad-library" },
+  { path: "/ad-library/viral", marker: "ad-library" },
   { path: "/ad-library/boards", marker: "boards" },
   { path: "/ad-library/boards/b1", marker: "board-detail" },
   { path: "/ad-library/hooks", marker: "hooks" },
@@ -188,13 +192,47 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean }
   { path: "/reports/r1/build", marker: "report-builder" },
 ];
 
-describe("every staff nav item is covered", () => {
-  it("has a STAFF_PAGES row for each nav item a client does not get", () => {
-    const clientUrls = new Set(clientNavItems.map((i) => i.url));
-    const staffNavUrls = builderSections.flatMap((s) => s.items.map((i) => i.url)).filter((u) => !clientUrls.has(u));
-    const covered = new Set(STAFF_PAGES.map((p) => p.path));
-    const missing = staffNavUrls.filter((u) => !covered.has(u));
-    expect(missing, `staff nav items with no page check: ${missing.join(", ")}`).toEqual([]);
+/** The marker each tab's page renders in these tests. A tab whose page has no marker fails below. */
+const PAGE_MARKER: Record<string, string> = {
+  productionCalendar: "production-calendar", callSheets: "call-sheets", casting: "casting", crew: "crew", locations: "locations",
+  props: "props", shipments: "shipments", creators: "creators", actors: "actors", applications: "applications",
+  creatorPipeline: "creator-pipeline", followUps: "follow-ups", approvalBoards: "approval-boards", overview: "overview",
+  agencyDashboard: "agency", creatives: "creatives", creativeLibrary: "creative-library", analytics: "analytics", matrix: "matrix",
+  tagging: "tagging", briefs: "briefs", reports: "reports", landingPages: "landing-pages", creativeRotation: "creative-rotation",
+  entityReport: "entities", adLibrary: "ad-library", boards: "boards", hooks: "hooks", knowledge: "knowledge", learning: "learning",
+  meetingRecaps: "meeting-recaps", bidViewer: "bids", team: "team", integrationHealth: "integration-health", operations: "operations",
+  operatingCosts: "operating-costs", agentEvaluations: "agent-evaluations", growthDashboard: "growth-dashboard",
+  adNameGenerator: "ad-name-generator", supportInbox: "support",
+};
+
+/** Every section tab address, with the page it shows. */
+const TAB_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean }> = SECTIONS.flatMap((section) =>
+  section.tabs.map((tab) => ({ path: `/${section.id}/${tab.slug}`, marker: PAGE_MARKER[tab.page], builderOnly: tab.builderOnly })),
+);
+
+/** Old staff addresses a client also uses for its own pages: staff are sent to the tab, clients keep the page. */
+const SHARED_OLD_PAGES = [
+  { path: "/creatives", marker: "creatives" },
+  { path: "/analytics", marker: "analytics" },
+  { path: "/reports", marker: "reports" },
+];
+
+describe("every menu item, tab and old address is covered", () => {
+  it("has seven staff menu items", () => {
+    expect(staffNavItems.map((i) => i.title)).toEqual(["Home", "Clients", "Production", "Talent", "Creative", "Knowledge", "Admin"]);
+    expect(staffNavItems).toHaveLength(7);
+    expect(clientNavItems).toHaveLength(5);
+  });
+
+  it("has a page marker for every page a tab shows", () => {
+    const missing = SECTIONS.flatMap((s) => s.tabs).filter((t) => !PAGE_MARKER[t.page as PageKey]).map((t) => t.page);
+    expect(missing, `tabs with no page marker: ${missing.join(", ")}`).toEqual([]);
+  });
+
+  it("has a STAFF_PAGES row for each old address that redirects", () => {
+    const covered = new Set([...STAFF_PAGES.map((p) => p.path), ...SHARED_OLD_PAGES.map((p) => p.path)]);
+    const missing = LEGACY_REDIRECTS.map((r) => r.from).filter((u) => !covered.has(u));
+    expect(missing, `old addresses with no page check: ${missing.join(", ")}`).toEqual([]);
   });
 });
 
@@ -213,6 +251,28 @@ describe("a client cannot load any staff page", () => {
     });
   });
 
+  describe.each([
+    ["client", false],
+    ["builder previewing the client view", true],
+  ] as const)("section tabs, signed in as %s", (label, preview) => {
+    const role: Role = label === "client" ? "client" : "builder";
+    it.each(TAB_PAGES.filter((p) => p.marker !== "overview"))("$path does not mount the tab page", async ({ path, marker }) => {
+      setRole(role, { clientPreview: preview });
+      renderAt(`/client${path}`);
+      expect(await screen.findByTestId("page-overview")).toBeTruthy();
+      expect(screen.queryByTestId(`page-${marker}`)).toBeNull();
+    });
+  });
+
+  it("a client opening the Home or section roots lands on the index", async () => {
+    for (const path of ["/production", "/talent", "/creative", "/knowledge", "/admin"]) {
+      setRole("client");
+      const { unmount } = renderAt(`/client${path}`);
+      expect(await screen.findByTestId("page-overview")).toBeTruthy();
+      unmount();
+    }
+  });
+
   it.each(STAFF_PAGES)("a client typing the builder or employee address for $path still does not reach it", async ({ path, marker }) => {
     setRole("client");
     for (const prefix of ["/builder", "/employee"]) {
@@ -226,26 +286,34 @@ describe("a client cannot load any staff page", () => {
 });
 
 describe("staff reach the staff pages", () => {
-  it.each(STAFF_PAGES.filter((p) => !p.builderOnly))("an employee reaches $path", async ({ path, marker }) => {
+  const ALL = [...STAFF_PAGES, ...TAB_PAGES, ...SHARED_OLD_PAGES];
+  it.each(ALL.filter((p) => !("builderOnly" in p && p.builderOnly)))("an employee reaches $path", async ({ path, marker }) => {
     setRole("employee");
     renderAt(`/employee${path}`);
     expect(await screen.findByTestId(`page-${marker}`)).toBeTruthy();
   });
 
-  it.each(STAFF_PAGES)("a builder reaches $path", async ({ path, marker }) => {
+  it.each(ALL)("a builder reaches $path", async ({ path, marker }) => {
     setRole("builder");
     renderAt(`/builder${path}`);
     expect(await screen.findByTestId(`page-${marker}`)).toBeTruthy();
   });
 
-  it.each(STAFF_PAGES.filter((p) => p.builderOnly))("an employee is sent away from the builder-only page $path", async ({ path, marker }) => {
+  it.each(ALL.filter((p) => "builderOnly" in p && p.builderOnly))("an employee is sent away from the builder-only page $path", async ({ path, marker }) => {
     setRole("employee");
     renderAt(`/employee${path}`);
-    expect(await screen.findByTestId("page-overview")).toBeTruthy();
+    expect(await screen.findByTestId("page-staff-home")).toBeTruthy();
     expect(screen.queryByTestId(`page-${marker}`)).toBeNull();
   });
 
-  it("the builder-only list holds the Matrix and the Growth Dashboard", () => {
-    expect(STAFF_PAGES.filter((p) => p.builderOnly).map((p) => p.path)).toEqual(["/matrix", "/growth-dashboard", "/operating-costs"]);
+  it("the builder-only list holds the Matrix, the Growth Dashboard and Operating costs, old and new addresses", () => {
+    const paths = ALL.filter((p) => "builderOnly" in p && p.builderOnly).map((p) => p.path).sort();
+    expect(paths).toEqual(["/admin/growth", "/admin/operating-costs", "/creative/matrix", "/growth-dashboard", "/matrix", "/operating-costs"]);
+  });
+
+  it("/staff goes to Home", async () => {
+    setRole("employee");
+    renderAt("/employee/staff");
+    expect(await screen.findByTestId("page-staff-home")).toBeTruthy();
   });
 });
