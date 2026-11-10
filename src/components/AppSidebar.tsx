@@ -24,7 +24,9 @@ import {
   LayoutList,
   TrendingUp,
   Hash,
+  ExternalLink,
 } from "lucide-react";
+import { ATTIO_URL, GOODO_TIME_URL } from "@/lib/staffMenu";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
   Select,
@@ -53,6 +55,8 @@ export type NavSection = {
   id: string;
   label: string;
   items: NavItem[];
+  /** Apps that stay outside Verdanote, opened in a new tab. Staff sections only. */
+  links?: { title: string; href: string }[];
 };
 
 // Builder sections — Creative Analytics + Creative Vault
@@ -91,6 +95,10 @@ export const builderSections: NavSection[] = [
       { title: "Staff menu", url: "/staff", icon: LayoutList },
       { title: "Ad Name Generator", url: "/ad-name-generator", icon: Hash },
       { title: "Growth Dashboard", url: "/growth-dashboard", icon: TrendingUp, builderOnly: true },
+    ],
+    links: [
+      { title: "Goodo Time", href: GOODO_TIME_URL },
+      { title: "Attio", href: ATTIO_URL },
     ],
   },
 ];
@@ -207,6 +215,18 @@ function SectionGroup({
               <item.icon className="h-4 w-4 flex-shrink-0" />
               {item.title}
             </NavLink>
+          ))}
+          {section.links?.map((link) => (
+            <a
+              key={link.href}
+              href={link.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate hover:text-forest hover:bg-accent"
+            >
+              <ExternalLink className="h-4 w-4 flex-shrink-0" />
+              {link.title}
+            </a>
           ))}
         </div>
       )}
