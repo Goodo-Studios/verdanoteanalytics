@@ -190,6 +190,24 @@ Closing or cancelling an engagement is a direct status update under the existing
 
 Not ported: the command receipt and idempotency tables (each function checks the version on screen instead), the job enqueued on creation, closeout publication to the client and the client-facing engagement timeline (client views are phase 2), and the per-engagement capability grants (any builder or employee may act; see "Needs the owner" in the plan). The old dashboard Client Detail page (step 5a) shows the same clients and its monthly `deliverables` checklist; the two pages should be merged when 5a lands. Tests in `supabase/tests/engagement_setup_test.sql` and `src/test/engagementsPage.test.tsx`.
 
+### Deliverables and approvals
+
+Page `/deliverables` (builder and employee) and migration `20261110120002_deliverables_approvals.sql`, no edge function. Port of the Goodo OS deliverables review (`DeliverablesReview.tsx`, migration `021_deliverables.sql`) and the exact-version approvals of ideas and shot lists (migration `008_approvals.sql`). Named `engagement_deliverables` because the old dashboard's monthly checklist already uses `deliverables` (step 5a).
+
+| Table | Purpose |
+|---|---|
+| `engagement_deliverables` | one deliverable of an engagement: title, kind, the agreed deliverable it counts against, current revision, stage (`not_started`, `client_review`, `changes_requested`, `client_approved`, `internal_qa`, `final_ready`, `withdrawn`) |
+| `engagement_deliverable_revisions` | every revision: the Air review link and an optional Air revision id. Immutable |
+| `engagement_deliverable_decisions` | the client's decision on one exact revision (approved or changes requested, with the round number), the channel it came through (call, Slack, email) and a note. One per revision. Immutable |
+| `engagement_deliverable_round_exceptions` | a client round beyond the included rounds; a builder approves or denies it once |
+| `approval_subjects`, `approval_subject_versions`, `approval_subject_decisions` | ideas and shot lists with numbered versions (draft, published, superseded; the text never changes) and the client's decision on the published version |
+
+Staff read all seven; clients read none. The Goodo OS client portal is dropped, so a client decision is recorded by staff from the call, Slack thread or email it arrived in. Checked functions (`staff_area` allow-list, role tested in the body): `add_engagement_deliverable` (not on a closed or cancelled engagement), `add_deliverable_revision` (names the revision on screen; the deliverable goes to client review), `record_deliverable_client_decision` (current revision only, while in client review), `decide_deliverable_round_exception` (builder only), `withdraw_engagement_deliverable`, `create_approval_subject`, `save_approval_draft`, `publish_approval_version` (latest draft only; the earlier published version is superseded) and `record_approval_decision` (published version only, once).
+
+Client rounds: `deliverable_client_round_limit` reads the `clientRevisionRounds` of the matching agreed deliverable in `engagement_terms`; without one it is 2, or 0 for a custom engagement (Goodo OS defaults). A changes request beyond the included rounds plus approved exceptions opens a pending exception and records nothing (the function answers `exception_pending`); after a builder approves it, the round can be recorded.
+
+Not ported: the Air connector (staff paste the review link and nothing is fetched), Air health observations, command receipts, approval sync events and the client portal screens. Tests in `supabase/tests/deliverables_approvals_test.sql` and `src/test/deliverablesPage.test.tsx`.
+
 ## Alternatives rejected
 
 **A new `os_clients` table with a uuid id, and the dashboard `clients` folded into it.** Gives a cleaner id, but the eight dashboard tables and the dashboard staff functions (`create_client`, `set_client_*`, `create_shoot` and others) already key on `clients.slug`, so it means either two client ids side by side or rewriting all of them. Not the smallest change.

@@ -227,6 +227,41 @@ check("employee passes the staff check in record_engagement_kickoff", eKickoff.e
 const eTemplate = await employee.c.rpc("save_engagement_template", { p_template_key: "wall", p_client_slug: null, p_expected_version: 0, p_template_type: "custom", p_milestone_template: ["kickoff"], p_agreed_deliverables: [], p_source_reference: "wall" });
 check("employee is refused save_engagement_template (builder only)", eTemplate.error?.code === "42501", `code=${eTemplate.error?.code ?? "none"}`);
 
+// Deliverables and approvals (migration 20261110120002, step 4b): staff only. Clients read none
+// of the seven tables, cannot write them and are refused every checked function.
+const deliverableTables = ["engagement_deliverables", "engagement_deliverable_revisions", "engagement_deliverable_decisions",
+  "engagement_deliverable_round_exceptions", "approval_subjects", "approval_subject_versions", "approval_subject_decisions"];
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of deliverableTables) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const ins = await s.c.from("approval_subject_decisions").insert({ subject_id: ZERO, version: 1, decision: "approved", channel: "call", source_note: "wall", recorded_by: s.userId });
+  check(`${label} cannot write approval_subject_decisions`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  for (const [fn, args] of [
+    ["add_engagement_deliverable", { p_engagement_id: ZERO, p_title: "wall", p_asset_kind: "video" }],
+    ["add_deliverable_revision", { p_deliverable_id: ZERO, p_expected_revision: 0, p_review_url: "https://example.test/wall" }],
+    ["record_deliverable_client_decision", { p_deliverable_id: ZERO, p_revision: 1, p_decision: "approved", p_channel: "call", p_source_note: "wall" }],
+    ["decide_deliverable_round_exception", { p_exception_id: ZERO, p_approve: true, p_reason: "wall" }],
+    ["withdraw_engagement_deliverable", { p_deliverable_id: ZERO }],
+    ["create_approval_subject", { p_engagement_id: ZERO, p_subject_kind: "idea", p_title: "wall" }],
+    ["save_approval_draft", { p_subject_id: ZERO, p_expected_version: 0, p_body: "wall" }],
+    ["publish_approval_version", { p_subject_id: ZERO, p_version: 1 }],
+    ["record_approval_decision", { p_subject_id: ZERO, p_version: 1, p_decision: "approved", p_channel: "call", p_source_note: "wall" }],
+  ]) {
+    const r = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, r.error?.code === "42501", `code=${r.error?.code ?? "none"}`);
+  }
+}
+for (const table of deliverableTables) {
+  const r = await employee.c.from(table).select("*").limit(1);
+  check(`employee can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
+}
+const dRevision = await employee.c.rpc("add_deliverable_revision", { p_deliverable_id: ZERO, p_expected_revision: 0, p_review_url: "https://example.test/wall" });
+check("employee passes the staff check in add_deliverable_revision", dRevision.error?.code === "P0002", `code=${dRevision.error?.code ?? "none"}`);
+const dException = await employee.c.rpc("decide_deliverable_round_exception", { p_exception_id: ZERO, p_approve: true, p_reason: "wall" });
+check("employee is refused decide_deliverable_round_exception (builder only)", dException.error?.code === "42501", `code=${dException.error?.code ?? "none"}`);
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

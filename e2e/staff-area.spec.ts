@@ -37,6 +37,7 @@ const STAFF_PATHS = [
   "/meeting-recaps",
   "/knowledge",
   "/engagements",
+  "/deliverables",
   "/ad-library",
   "/ad-library/boards",
   "/ad-library/hooks",
