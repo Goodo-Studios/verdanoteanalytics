@@ -139,6 +139,7 @@ export const builderSections: NavSection[] = [
       { title: "Shipments", url: "/shipments", icon: Truck },
       { title: "Production calendar", url: "/production-calendar", icon: CalendarDays },
       { title: "Casting", url: "/casting", icon: Clapperboard },
+      { title: "Call sheets", url: "/call-sheets", icon: ClipboardList },
       { title: "Engagements", url: "/engagements", icon: CalendarRange },
       { title: "Deliverables", url: "/deliverables", icon: PackageCheck },
       { title: "QA gates", url: "/qa-gates", icon: ShieldCheck },

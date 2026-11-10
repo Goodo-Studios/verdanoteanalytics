@@ -54,11 +54,11 @@ describe("staff menu content", () => {
     // step 4d: Operations, Operating costs and Support inbox replaced "goodo-os";
     // step 6: Client BIDs replaced "bid-viewer", and "wideframe" was dropped on 2026-11-10).
     expect(slots.map((s) => s.id).sort()).toEqual(
-      ["content-leaderboard", "dashboard-production", "dashboard-settings"],
+      ["content-leaderboard", "dashboard-settings"],
     );
     expect(allStaffMenuItems.find((i) => i.id === "wideframe")).toBeUndefined();
     expect(allStaffMenuItems.find((i) => i.id === "bid-viewer")?.to).toBe("/bids");
-    for (const id of ["client-overview", "creator-pipeline", "follow-ups", "creators", "actors", "applications", "approval-boards", "locations", "props", "crew", "shipments", "production-calendar", "casting", "operations", "operating-costs", "support", "bid-viewer"]) {
+    for (const id of ["client-overview", "creator-pipeline", "follow-ups", "creators", "actors", "applications", "approval-boards", "locations", "props", "crew", "shipments", "production-calendar", "casting", "call-sheets", "operations", "operating-costs", "support", "bid-viewer"]) {
       expect(allStaffMenuItems.find((i) => i.id === id)?.status, id).toBe("live");
     }
     for (const slot of slots) {
