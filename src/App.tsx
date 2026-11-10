@@ -85,6 +85,8 @@ const CreatorPipelinePage = lazy(routeImports.creatorPipeline);
 const ClientDetailPage = lazy(routeImports.clientDetail);
 // Client overview (consolidation step 5a, old dashboard): builder and employee.
 const ClientOverviewPage = lazy(routeImports.clientOverview);
+// Approval boards (consolidation step 5b, old dashboard): builder and employee.
+const ApprovalBoardsPage = lazy(routeImports.approvalBoards);
 // Applications (consolidation step 5b, old dashboard): builder and employee.
 const ApplicationsPage = lazy(routeImports.applications);
 const ApplicationDetailPage = lazy(routeImports.applicationDetail);
@@ -236,6 +238,7 @@ export function RoleGuardedRoutes() {
           <Route path="/creator-pipeline" element={staffPage ? <CreatorPipelinePage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/clients/:slug" element={staffPage ? <ClientDetailPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/clients" element={staffPage ? <ClientOverviewPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/approval-boards" element={staffPage ? <ApprovalBoardsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/applications/:kind/:id" element={staffPage ? <ApplicationDetailPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/applications" element={staffPage ? <ApplicationsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/actors/:id" element={staffPage ? <ActorDetailPage /> : <Navigate to={`${prefix}/`} replace />} />

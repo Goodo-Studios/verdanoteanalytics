@@ -50,11 +50,11 @@ describe("staff menu content", () => {
     const slots = allStaffMenuItems.filter((i) => i.status === "slot");
     // Each slot is a tool still to move in. A slot leaves this list only when its pages are live
     // (step 5a: Client overview, client pages, Creator pipeline and Follow-ups replaced "dashboard-pipeline";
-    // step 5b moves the old dashboard Creators, Actors, Applications and approval boards out of "dashboard-creators").
+    // step 5b: Creators, Actors, Applications and Approval boards replaced "dashboard-creators").
     expect(slots.map((s) => s.id).sort()).toEqual(
-      ["bid-viewer", "content-leaderboard", "dashboard-creators", "dashboard-production", "dashboard-settings", "goodo-os", "wideframe"],
+      ["bid-viewer", "content-leaderboard", "dashboard-production", "dashboard-settings", "goodo-os", "wideframe"],
     );
-    for (const id of ["client-overview", "creator-pipeline", "follow-ups", "creators", "actors", "applications"]) {
+    for (const id of ["client-overview", "creator-pipeline", "follow-ups", "creators", "actors", "applications", "approval-boards"]) {
       expect(allStaffMenuItems.find((i) => i.id === id)?.status, id).toBe("live");
     }
     for (const slot of slots) {

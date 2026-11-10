@@ -379,6 +379,31 @@ for (const fn of ["approve_application", "reject_application", "approve_actor_ap
   check(`employee passes the staff check in ${fn}`, r.error?.code === "P0002", `code=${r.error?.code ?? "none"}`);
 }
 
+// Old dashboard batch 2, Approval boards (step 5b): a board token opens the public approval
+// page without a login, so no client reads a board, even client A whose demo client
+// (demo-glowdrip) has one. Clients cannot make, revoke or vote, and are refused
+// apply_approval_votes. The employee call applies an empty list to a demo client, which
+// changes nothing.
+const boardTables = ["approval_boards", "approval_votes"];
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of boardTables) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const ins = await s.c.from("approval_boards").insert({ client_slug: "demo-glowdrip", token: `wall-${label.replace(" ", "-")}-${Date.now()}`, expires_at: new Date(Date.now() + 86400000).toISOString() });
+  check(`${label} cannot make an approval link`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  const rev = await s.c.from("approval_boards").update({ revoked: true }).neq("id", ZERO).select("id");
+  check(`${label} revokes no approval link`, !!rev.error || (rev.data ?? []).length === 0, `rows=${rev.data?.length ?? "error"}`);
+  const r = await s.c.rpc("apply_approval_votes", { p_client_slug: "demo-glowdrip", p_votes: [] });
+  check(`${label} is refused apply_approval_votes`, r.error?.code === "42501", `code=${r.error?.code ?? "none"}`);
+}
+for (const table of boardTables) {
+  const r = await employee.c.from(table).select("*").limit(1);
+  check(`employee can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
+}
+const applyEmpty = await employee.c.rpc("apply_approval_votes", { p_client_slug: "demo-glowdrip", p_votes: [] });
+check("employee passes the staff check in apply_approval_votes (empty list, nothing moves)", !applyEmpty.error && applyEmpty.data === 0, `error=${applyEmpty.error?.message ?? "none"} data=${applyEmpty.data}`);
+
 // QA gates (migration 20261110120003, step 4b): staff only. Clients read none of the three
 // tables, cannot write them and are refused every checked function, the gate read included.
 const qaTables = ["engagement_deliverable_confirmations", "engagement_deliverable_qa_returns", "engagement_deliverable_signoffs"];

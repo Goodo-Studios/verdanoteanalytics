@@ -6,8 +6,8 @@
 // the database stage rule set the next follow-up.
 //
 // Not the Content Pipeline: /pipeline shows the ClickUp asset board and is
-// unchanged. Approval board links (public links sent to clients) stay on the
-// old dashboard; their staff side moves with step 5b.
+// unchanged. Approval board links (public links sent to clients) are served by
+// the old dashboard; their staff side is the Approval boards page (step 5b).
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
@@ -46,7 +46,6 @@ import {
   type StageScope,
 } from "./model";
 
-export const OLD_DASHBOARD_URL = "https://goodostudios-production.vercel.app";
 const SELECT = "rounded-md border border-input bg-background px-2 py-1 text-xs";
 
 function messageOf(e: unknown, fallback: string): string {
@@ -284,8 +283,8 @@ export default function CreatorPipelinePage() {
         </table>
       )}
       <p className="text-xs text-muted-foreground">
-        Approval board links for clients are public links already sent out, so they stay on the{" "}
-        <a href={brand && !isAll ? `${OLD_DASHBOARD_URL}/pipeline?brand=${encodeURIComponent(brand)}` : `${OLD_DASHBOARD_URL}/pipeline`} target="_blank" rel="noopener noreferrer" className="underline">old dashboard</a>.
+        Client approval links and the client&apos;s votes are on{" "}
+        <Link to={brand && !isAll ? `${prefix}/approval-boards?brand=${encodeURIComponent(brand)}` : `${prefix}/approval-boards`} className="underline">Approval boards</Link>.
       </p>
     </div>
   );

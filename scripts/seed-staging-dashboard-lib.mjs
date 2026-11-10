@@ -29,6 +29,8 @@ export const SEED_MARKERS = {
   actor_assignments: { sql: "client_slug like 'demo-%'", match: (r) => r.client_slug.startsWith('demo-') },
   creator_applications: { sql: "email like '%@example.test'", match: (r) => r.email.endsWith('@example.test') },
   actor_applications: { sql: "email like '%@example.test'", match: (r) => r.email.endsWith('@example.test') },
+  approval_boards: { sql: "client_slug like 'demo-%'", match: (r) => r.client_slug.startsWith('demo-') },
+  approval_votes: { sql: "board_id::text like 'de5a0000-%'", match: (r) => r.board_id.startsWith('de5a0000-') },
 };
 
 // Upsert order (parents first) and the conflict key of each table.
@@ -45,6 +47,8 @@ export const SEED_ORDER = [
   ['actor_assignments', 'id'],
   ['creator_applications', 'id'],
   ['actor_applications', 'id'],
+  ['approval_boards', 'id'],
+  ['approval_votes', 'id'],
 ];
 
 export function assertStagingUrl(url) {
@@ -188,5 +192,18 @@ export function buildDashboardSeed(now = new Date()) {
     app(51, 'Quinn Avery', 'quinn.actor-applicant@example.test', 'pending', { phone: '555-0151', gender: 'Female', dog_owner: null }),
   ];
 
-  return { clients, app_users, client_ad_accounts, engagements, deliverables, dashboard_creators, creator_assignments, pipeline_tasks, actors, actor_assignments, creator_applications, actor_applications };
+  // Step 5b: a live creator approval link for demo-glowdrip with three votes, and
+  // an older revoked one. The tokens are made up and exist only in staging, so
+  // the old dashboard's public page does not know them.
+  const approval_boards = [
+    { id: id(800), client_slug: 'demo-glowdrip', board_type: 'creators', month: null, token: 'demoseedLiveBoardGlowdrip00000000000000000000001', expires_at: stamp(10), revoked: false, created_at: stamp(-4) },
+    { id: id(801), client_slug: 'demo-glowdrip', board_type: 'creators', month: null, token: 'demoseedOldBoardGlowdrip000000000000000000000002', expires_at: stamp(-20), revoked: true, created_at: stamp(-40) },
+  ];
+  const approval_votes = [
+    { id: id(810), board_id: id(800), assignment_id: id(401), vote: 'up', voted_at: stamp(-2), voted_by: 'Demo reviewer' },
+    { id: id(811), board_id: id(800), assignment_id: id(402), vote: 'up', voted_at: stamp(-1), voted_by: null },
+    { id: id(812), board_id: id(800), assignment_id: id(403), vote: 'down', voted_at: stamp(-1), voted_by: 'Demo reviewer' },
+  ];
+
+  return { clients, app_users, client_ad_accounts, engagements, deliverables, dashboard_creators, creator_assignments, pipeline_tasks, actors, actor_assignments, creator_applications, actor_applications, approval_boards, approval_votes };
 }
