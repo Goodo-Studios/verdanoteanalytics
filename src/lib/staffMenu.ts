@@ -69,6 +69,7 @@ export const staffMenuSections: StaffMenuSection[] = [
       { id: "shipments", title: "Shipments", description: "Product going out to creators and coming in to the studio: tracking, delivery and footage due.", status: "live", to: "/shipments" },
       { id: "production-calendar", title: "Production calendar", description: "Booked shoots by day: location, confirmed talent, schedule blocks with talent and crew.", status: "live", to: "/production-calendar" },
       { id: "casting", title: "Casting", description: "One client's castings by stage, with owner and follow-up, and the casting link the client votes on.", status: "live", to: "/casting" },
+      { id: "call-sheets", title: "Call sheets", description: "One call sheet per shoot: call time, wrap, notes, crew, and a staff-only line for each confirmed talent.", status: "live", to: "/call-sheets" },
       { id: "client-overview", title: "Client overview", description: "Active creator clients by progress, with at-risk and stale counts.", status: "live", to: "/clients" },
       { id: "engagements", title: "Engagements", description: "45-day cycles per client: templates, kickoff and closeout.", status: "live", to: "/engagements" },
       { id: "deliverables", title: "Deliverables and approvals", description: "Revisions, client decisions and rounds, idea and shot list approvals.", status: "live", to: "/deliverables" },
@@ -91,7 +92,6 @@ export const staffMenuSections: StaffMenuSection[] = [
     label: "Moving in",
     blurb: "Tools from the other apps. Each slot opens when its page is built and checked in staging.",
     items: [
-      { id: "dashboard-production", title: "Old dashboard: Production", description: "Call sheets. Locations, props, crew, shipments, the production calendar and casting are live.", status: "slot", step: "Step 5c" },
       { id: "dashboard-settings", title: "Old dashboard: Settings and team", description: "Team management, merged with Verdanote user management.", status: "slot", step: "Step 5d" },
       { id: "content-leaderboard", title: "Content Leaderboard", description: "LinkedIn post log for the team.", status: "slot", step: "Step 8" },
     ],

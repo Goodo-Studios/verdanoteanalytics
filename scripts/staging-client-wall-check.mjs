@@ -622,6 +622,44 @@ check("employee can read actor_approval_votes", !castVotes.error, `error=${castV
 const applyCast = await employee.c.rpc("apply_actor_approval_votes", { p_client_slug: "demo-harbor", p_votes: [] });
 check("employee passes the staff check in apply_actor_approval_votes (empty list, nothing moves)", !applyCast.error && applyCast.data === 0, `error=${applyCast.error?.message ?? "none"} data=${applyCast.data}`);
 
+// Old dashboard batch 3, Call sheets (step 5c, migration 20261110220001): a call sheet holds
+// the secret link token and its talent lines hold rate and internal notes. Clients read no
+// call sheets or talent lines, cannot write talent lines and are refused the five call sheet
+// functions. The employee runs the page query and passes the staff check with ids that match
+// nothing.
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of ["call_sheets", "call_sheet_talent_entries"]) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const ins = await s.c.from("call_sheet_talent_entries").insert({ call_sheet_id: ZERO, actor_assignment_id: ZERO, wardrobe: "wall" });
+  check(`${label} cannot write call_sheet_talent_entries`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  for (const [fn, args] of [
+    ["create_call_sheet", { p_shoot_id: ZERO, p_token: "wallCheckToken0000000000000000000000000000001" }],
+    ["update_call_sheet", { p_id: ZERO, p_call_time: "06:00" }],
+    ["revoke_call_sheet", { p_id: ZERO, p_revoked: true }],
+    ["save_call_sheet_talent_entry", { p_call_sheet_id: ZERO, p_actor_assignment_id: ZERO }],
+    ["remove_call_sheet_talent_entry", { p_call_sheet_id: ZERO, p_actor_assignment_id: ZERO }],
+  ]) {
+    const res = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, res.error?.code === "42501", `code=${res.error?.code ?? "none"}`);
+  }
+}
+const sheetPage = await employee.c.from("shoots")
+  .select("id, client_slug, shoot_date, location, location_id, notes, call_sheets(id, shoot_id, token, call_time, wrap_time_estimate, general_notes, revoked, created_at, updated_at, call_sheet_crew(crew_member_id), call_sheet_talent_entries(actor_assignment_id, call_time, wardrobe, talent_notes, rate_note, internal_note, updated_at))")
+  .limit(5);
+check("employee loads the call sheets page query", !sheetPage.error && (sheetPage.data ?? []).length > 0, `error=${sheetPage.error?.code ?? ""} ${sheetPage.error?.message ?? "none"} rows=${sheetPage.data?.length ?? "error"}`);
+const lines = await employee.c.from("call_sheet_talent_entries").select("call_sheet_id, rate_note").limit(5);
+check("employee reads call sheet talent lines", !lines.error && (lines.data ?? []).length > 0, `error=${lines.error?.message ?? "none"} rows=${lines.data?.length ?? "error"}`);
+for (const [fn, args] of [
+  ["revoke_call_sheet", { p_id: ZERO, p_revoked: true }],
+  ["save_call_sheet_talent_entry", { p_call_sheet_id: ZERO, p_actor_assignment_id: ZERO }],
+  ["remove_call_sheet_talent_entry", { p_call_sheet_id: ZERO, p_actor_assignment_id: ZERO }],
+]) {
+  const res = await employee.c.rpc(fn, args);
+  check(`employee passes the staff check in ${fn}`, res.error?.code === "P0002", `code=${res.error?.code ?? "none"}`);
+}
+
 // QA gates (migration 20261110120003, step 4b): staff only. Clients read none of the three
 // tables, cannot write them and are refused every checked function, the gate read included.
 const qaTables = ["engagement_deliverable_confirmations", "engagement_deliverable_qa_returns", "engagement_deliverable_signoffs"];

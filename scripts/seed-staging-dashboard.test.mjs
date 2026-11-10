@@ -223,3 +223,19 @@ test('demo casting link: one live actor board on demo-harbor, votes on its own c
     assert.ok(['up', 'down'].includes(v.vote));
   }
 });
+
+test('demo call sheet: on the demo shoot, demo crew, talent lines only for talent confirmed onto it', () => {
+  const order = SEED_ORDER.map(([t]) => t);
+  assert.ok(order.indexOf('shoots') < order.indexOf('call_sheets'));
+  assert.ok(order.indexOf('call_sheets') < order.indexOf('call_sheet_talent_entries'));
+  assert.ok(order.indexOf('actor_assignments') < order.indexOf('call_sheet_talent_entries'));
+  const shoots = new Map(seed.shoots.map((s) => [s.id, s]));
+  const sheets = new Map(seed.call_sheets.map((c) => [c.id, c]));
+  for (const c of seed.call_sheets) assert.ok(shoots.has(c.shoot_id), 'a call sheet sits on a demo shoot');
+  const crew = new Set(seed.crew_members.map((c) => c.id));
+  for (const c of seed.call_sheet_crew) assert.ok(crew.has(c.crew_member_id) && sheets.has(c.call_sheet_id));
+  for (const e of seed.call_sheet_talent_entries) {
+    const casting = seed.actor_assignments.find((a) => a.id === e.actor_assignment_id);
+    assert.equal(casting?.shoot_id, sheets.get(e.call_sheet_id).shoot_id, 'the talent is confirmed onto the sheet\'s shoot');
+  }
+});
