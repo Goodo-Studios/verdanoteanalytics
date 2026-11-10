@@ -6,7 +6,8 @@
 // signed-in person is matched to the dashboard team list (app_users) by email.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField } from "@/components/page-kit";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { DashboardError, loadBrandsAndTeam, loadFollowUps, updateAssignment, type AssignmentPatch, type BrandOption } from "./api";
@@ -29,8 +30,6 @@ import {
   type Assignment,
 } from "./model";
 
-const CTRL = "rounded-md border border-input bg-background px-2 py-1 text-xs";
-
 function Row({ a, today, users, brand, prefix, onPatch }: {
   a: Assignment;
   today: string;
@@ -50,14 +49,19 @@ function Row({ a, today, users, brand, prefix, onPatch }: {
           {late !== null ? ` · ${formatOverdue(late)}` : ` · ${formatDay(a.next_follow_up_at)}`}
         </div>
       </div>
-      <button type="button" className={CTRL} onClick={() => onPatch(a, { next_follow_up_at: snoozeDate(today, 1) })}>Snooze 1 day</button>
-      <button type="button" className={CTRL} onClick={() => onPatch(a, { next_follow_up_at: snoozeDate(today, 3) })}>Snooze 3 days</button>
-      <input aria-label={`Follow-up date for ${name}`} type="date" className={CTRL} value={a.next_follow_up_at ?? ""} onChange={(e) => onPatch(a, { next_follow_up_at: e.target.value || null })} />
-      <button type="button" className={CTRL} onClick={() => onPatch(a, { next_follow_up_at: null })}>Clear</button>
-      <select aria-label={`Owner for ${name}`} className={CTRL} value={a.owner_id ?? ""} onChange={(e) => onPatch(a, { owner_id: e.target.value || null })}>
-        <option value="">No owner</option>
-        {ownerOptions(users, a.owner_id).map((u) => <option key={u.id} value={u.id}>{u.name}{u.active ? "" : " (inactive)"}</option>)}
-      </select>
+      <Button type="button" variant="outline" size="sm" onClick={() => onPatch(a, { next_follow_up_at: snoozeDate(today, 1) })}>Snooze 1 day</Button>
+      <Button type="button" variant="outline" size="sm" onClick={() => onPatch(a, { next_follow_up_at: snoozeDate(today, 3) })}>Snooze 3 days</Button>
+      <TextField label={`Follow-up date for ${name}`} hideLabel type="date" className="w-40" value={a.next_follow_up_at ?? ""} onChange={(e) => onPatch(a, { next_follow_up_at: e.target.value || null })} />
+      <Button type="button" variant="outline" size="sm" onClick={() => onPatch(a, { next_follow_up_at: null })}>Clear</Button>
+      <SelectField
+        label={`Owner for ${name}`}
+        hideLabel
+        className="w-44"
+        value={a.owner_id ?? ""}
+        onChange={(e) => onPatch(a, { owner_id: e.target.value || null })}
+        placeholder="No owner"
+        options={ownerOptions(users, a.owner_id).map((u) => ({ value: u.id, label: `${u.name}${u.active ? "" : " (inactive)"}` }))}
+      />
     </li>
   );
 }
@@ -114,15 +118,19 @@ export default function FollowUpsPage() {
   );
 
   return (
-    <div className="p-6 space-y-4" data-testid="follow-ups-page">
+    <PageShell data-testid="follow-ups-page">
       <PageHeader title="Follow-ups" description="Creators to chase today, oldest first." />
       {rows && base && (
         <div className="flex flex-wrap items-center gap-2 text-sm">
           {canPick ? (
-            <select aria-label="Whose follow-ups" className="rounded-md border px-2 py-1.5" value={owner} onChange={(e) => setOverride(e.target.value)}>
-              <option value="all">All owners</option>
-              {users.filter((u) => u.active || u.id === owner).map((u) => <option key={u.id} value={u.id}>{u.id === me?.id ? `${u.name} (you)` : u.name}</option>)}
-            </select>
+            <SelectField
+              label="Whose follow-ups"
+              hideLabel
+              className="w-56"
+              value={owner}
+              onChange={(e) => setOverride(e.target.value)}
+              options={[{ value: "all", label: "All owners" }, ...users.filter((u) => u.active || u.id === owner).map((u) => ({ value: u.id, label: u.id === me?.id ? `${u.name} (you)` : u.name }))]}
+            />
           ) : (
             <span className="text-muted-foreground">Showing your follow-ups ({ownerName(users, owner)}).</span>
           )}
@@ -130,9 +138,9 @@ export default function FollowUpsPage() {
         </div>
       )}
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
-      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      {error && (!rows || !base ? <ErrorState message={error} onRetry={() => { setError(null); void load(); }} /> : <p role="alert" className="text-sm text-destructive">{error}</p>)}
       {!rows || !base ? (
-        error ? null : <p role="status" className="text-sm text-muted-foreground">Loading follow-ups...</p>
+        error ? null : <LoadingState label="Loading follow-ups" />
       ) : (
         <>
           {list(groups.overdue, "Overdue", "Nothing overdue.")}
@@ -140,6 +148,6 @@ export default function FollowUpsPage() {
           {list(groups.upcoming, "Coming up", "No later follow-ups set.")}
         </>
       )}
-    </div>
+    </PageShell>
   );
 }

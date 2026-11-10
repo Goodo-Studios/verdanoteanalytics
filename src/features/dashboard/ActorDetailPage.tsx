@@ -8,14 +8,14 @@
 // reordering media.
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { DashboardError } from "./api";
 import { loadActorDetail, saveActor, type ActorDetail } from "./rosterApi";
 import { actorFormToPatch, actorStageLabel, actorToForm, safeHref, type ActorForm } from "./rosterModel";
 import { errorText, formatDay } from "./model";
 
-const CTRL = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
 const TEXT_FIELDS: { key: keyof ActorForm; label: string; type?: string }[] = [
   { key: "name", label: "Name" },
   { key: "email", label: "Email", type: "email" },
@@ -77,18 +77,18 @@ export default function ActorDetailPage() {
 
   if (!detail) {
     return (
-      <div className="p-6" data-testid="actor-detail-page">
-        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : <p role="status" className="text-sm text-muted-foreground">Loading the actor...</p>}
-      </div>
+      <PageShell data-testid="actor-detail-page">
+        {error ? <ErrorState message={error} onRetry={() => { setError(null); void load(); }} /> : <LoadingState label="Loading the actor" />}
+      </PageShell>
     );
   }
   const a = detail.actor;
   if (!a || !form) {
     return (
-      <div className="p-6 space-y-2" data-testid="actor-detail-page">
+      <PageShell data-testid="actor-detail-page">
         <p className="text-sm">No actor with this id.</p>
         <Link to={`${prefix}/actors`} className="text-sm underline">Back to Actors</Link>
-      </div>
+      </PageShell>
     );
   }
 
@@ -116,7 +116,7 @@ export default function ActorDetailPage() {
   const socials = [safeHref(a.social_url), safeHref(a.additional_social_url)].filter((x): x is string => !!x);
 
   return (
-    <div className="p-6 space-y-4" data-testid="actor-detail-page">
+    <PageShell data-testid="actor-detail-page">
       <Link to={`${prefix}/actors`} className="text-sm underline">Back to Actors</Link>
       <PageHeader
         title={a.name}
@@ -134,23 +134,13 @@ export default function ActorDetailPage() {
         <form aria-label="Profile" className="flex-1 space-y-3 rounded-lg border p-3" onSubmit={(e) => { e.preventDefault(); void save(); }}>
           <div className="grid gap-2 sm:grid-cols-2">
             {TEXT_FIELDS.map((f) => (
-              <label key={f.key} className="text-xs">{f.label}
-                <input type={f.type ?? "text"} className={`${CTRL} block w-full`} value={form[f.key] as string} onChange={(e) => field(f.key, e.target.value)} />
-              </label>
+              <TextField key={f.key} label={f.label} type={f.type ?? "text"} value={form[f.key] as string} onChange={(e) => field(f.key, e.target.value)} />
             ))}
-            <label className="text-xs">Dog owner
-              <select className={`${CTRL} block w-full`} value={form.dog_owner} onChange={(e) => field("dog_owner", e.target.value)}>
-                <option value="">Not asked</option>
-                <option value="yes">Yes</option>
-                <option value="no">No</option>
-              </select>
-            </label>
+            <SelectField label="Dog owner" value={form.dog_owner} onChange={(e) => field("dog_owner", e.target.value)} placeholder="Not asked" options={[{ value: "yes", label: "Yes" }, { value: "no", label: "No" }]} />
           </div>
-          <label className="block text-xs">Notes
-            <textarea className={`${CTRL} block w-full`} rows={3} value={form.notes} onChange={(e) => field("notes", e.target.value)} />
-          </label>
+          <TextareaField label="Notes" rows={3} value={form.notes} onChange={(e) => field("notes", e.target.value)} />
           <label className="text-sm"><input type="checkbox" checked={form.do_not_use_again} onChange={(e) => field("do_not_use_again", e.target.checked)} /> Do not use again</label>
-          <div><button type="submit" className={CTRL} disabled={saving}>{saving ? "Saving..." : "Save profile"}</button></div>
+          <div><Button type="submit" variant="outline" disabled={saving}>{saving ? "Saving..." : "Save profile"}</Button></div>
         </form>
       </div>
 
@@ -173,6 +163,6 @@ export default function ActorDetailPage() {
 
       <MediaList title="Videos" items={detail.videos} links={detail.links} />
       <MediaList title="Photos" items={detail.photos} links={detail.links} />
-    </div>
+    </PageShell>
   );
 }

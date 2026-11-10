@@ -9,7 +9,8 @@
 // that until the release), the shipment log and the calendar.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { DashboardError, addCreatorsToBrand, loadBrandsAndTeam, type BrandOption } from "./api";
 import { loadCreatorDetail, saveCreator, type CreatorDetail, type CreatorPhoto } from "./rosterApi";
@@ -23,7 +24,6 @@ import {
 } from "./rosterModel";
 import { errorText, formatDay, stageLabel } from "./model";
 
-const CTRL = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
 const FLAGS: { key: keyof CreatorForm; label: string }[] = [
   { key: "trialed", label: "Trialed" },
   { key: "do_not_use_again", label: "Do not use again" },
@@ -101,18 +101,18 @@ export default function CreatorDetailPage() {
 
   if (!detail) {
     return (
-      <div className="p-6" data-testid="creator-detail-page">
-        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : <p role="status" className="text-sm text-muted-foreground">Loading the creator...</p>}
-      </div>
+      <PageShell data-testid="creator-detail-page">
+        {error ? <ErrorState message={error} onRetry={() => { setError(null); void load(); }} /> : <LoadingState label="Loading the creator" />}
+      </PageShell>
     );
   }
   const c = detail.creator;
   if (!c || !form) {
     return (
-      <div className="p-6 space-y-2" data-testid="creator-detail-page">
+      <PageShell data-testid="creator-detail-page">
         <p className="text-sm">No creator with this id.</p>
         <Link to={`${prefix}/creators`} className="text-sm underline">Back to Creators</Link>
-      </div>
+      </PageShell>
     );
   }
 
@@ -157,7 +157,7 @@ export default function CreatorDetailPage() {
   const portfolio = safeHref(c.portfolio_url) ?? safeHref(c.website);
 
   return (
-    <div className="p-6 space-y-4" data-testid="creator-detail-page">
+    <PageShell data-testid="creator-detail-page">
       <Link to={`${prefix}/creators`} className="text-sm underline">Back to Creators</Link>
       <PageHeader
         title={c.name}
@@ -176,17 +176,11 @@ export default function CreatorDetailPage() {
         <form aria-label="Profile" className="flex-1 space-y-3 rounded-lg border p-3" onSubmit={(e) => { e.preventDefault(); void save(); }}>
           <div className="grid gap-2 sm:grid-cols-2">
             {TEXT_FIELDS.map((f) => (
-              <label key={f.key} className="text-xs">{f.label}
-                <input type={f.type ?? "text"} className={`${CTRL} block w-full`} value={form[f.key] as string} onChange={(e) => field(f.key, e.target.value)} />
-              </label>
+              <TextField key={f.key} label={f.label} type={f.type ?? "text"} value={form[f.key] as string} onChange={(e) => field(f.key, e.target.value)} />
             ))}
           </div>
-          <label className="block text-xs">Shipping address
-            <textarea className={`${CTRL} block w-full`} rows={2} value={form.shipping_address} onChange={(e) => field("shipping_address", e.target.value)} />
-          </label>
-          <label className="block text-xs">Contact notes
-            <textarea className={`${CTRL} block w-full`} rows={3} value={form.contact_notes} onChange={(e) => field("contact_notes", e.target.value)} />
-          </label>
+          <TextareaField label="Shipping address" rows={2} value={form.shipping_address} onChange={(e) => field("shipping_address", e.target.value)} />
+          <TextareaField label="Contact notes" rows={3} value={form.contact_notes} onChange={(e) => field("contact_notes", e.target.value)} />
           <fieldset>
             <legend className="text-xs font-medium">Categories</legend>
             <div className="flex flex-wrap gap-x-3">
@@ -201,7 +195,7 @@ export default function CreatorDetailPage() {
               <label key={f.key} className="text-sm"><input type="checkbox" checked={form[f.key] as boolean} onChange={(e) => field(f.key, e.target.checked)} /> {f.label}</label>
             ))}
           </div>
-          <button type="submit" className={CTRL} disabled={saving}>{saving ? "Saving..." : "Save profile"}</button>
+          <Button type="submit" variant="outline" disabled={saving}>{saving ? "Saving..." : "Save profile"}</Button>
         </form>
       </div>
 
@@ -220,11 +214,8 @@ export default function CreatorDetailPage() {
           </ul>
         )}
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <select aria-label="Add to client" className={CTRL} value={addBrand} onChange={(e) => setAddBrand(e.target.value)}>
-            <option value="">Choose a client</option>
-            {addable.map((b) => <option key={b.slug} value={b.slug}>{b.name}</option>)}
-          </select>
-          <button type="button" className={CTRL} disabled={!addBrand} onClick={() => void add()}>Add to client</button>
+          <SelectField label="Add to client" hideLabel className="w-56" value={addBrand} onChange={(e) => setAddBrand(e.target.value)} placeholder="Choose a client" options={addable.map((b) => ({ value: b.slug, label: b.name }))} />
+          <Button type="button" variant="outline" disabled={!addBrand} onClick={() => void add()}>Add to client</Button>
         </div>
       </section>
 
@@ -249,6 +240,6 @@ export default function CreatorDetailPage() {
       </section>
       <Gallery title="Family and pet photos" items={detail.photos} links={detail.links} caption={(p) => p.caption || (p.category === "pet" ? "Pet" : "Family")} />
       <Gallery title="Filming locations" items={detail.locations} links={detail.links} caption={(p) => p.label || "Filming location"} />
-    </div>
+    </PageShell>
   );
 }

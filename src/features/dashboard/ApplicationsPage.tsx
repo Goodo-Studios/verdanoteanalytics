@@ -9,7 +9,8 @@
 // them so staff can copy the link.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, TextField, useConfirm } from "@/components/page-kit";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { DashboardError } from "./api";
 import { loadApplications, rejectApplication, type RosterContact } from "./applicationsApi";
@@ -29,7 +30,6 @@ import {
   type QueueStatus,
 } from "./applicationsModel";
 
-const CTRL = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
 const KIND_LABEL: Record<ApplicationKind, string> = { creators: "Creator applications", actors: "Actor applications" };
 
 function summaryOf(a: Application): string {
@@ -39,6 +39,7 @@ function summaryOf(a: Application): string {
 
 export default function ApplicationsPage() {
   const prefix = useRolePrefix();
+  const { confirm, dialog } = useConfirm();
   const [params, setParams] = useSearchParams();
   const kind = parseKind(params.get("kind"));
   const status = parseQueueStatus(params.get("status"));
@@ -95,7 +96,12 @@ export default function ApplicationsPage() {
       setError("A rejection reason is required.");
       return;
     }
-    if (!window.confirm(`Reject ${chosen.length} application${chosen.length === 1 ? "" : "s"} with this reason?`)) return;
+    const ok = await confirm({
+      title: `Reject ${chosen.length} application${chosen.length === 1 ? "" : "s"}?`,
+      description: "They are rejected with the reason you typed, and the reason is kept on each application.",
+      actionLabel: "Reject",
+    });
+    if (!ok) return;
     setBusy(true);
     setError(null);
     const outcomes: BulkOutcome[] = [];
@@ -119,41 +125,40 @@ export default function ApplicationsPage() {
   };
 
   return (
-    <div className="p-6 space-y-4" data-testid="applications-page">
+    <PageShell data-testid="applications-page">
       <PageHeader title="Applications" description="Review creator and actor applications. Approving adds the applicant to the roster." />
       <div className="flex flex-wrap items-center gap-2 text-sm">
         {(["creators", "actors"] as const).map((k) => (
-          <button key={k} type="button" aria-pressed={kind === k} className={`${CTRL} ${kind === k ? "bg-muted font-medium" : ""}`} onClick={() => go({ kind: k })}>{KIND_LABEL[k]}</button>
+          <Button key={k} type="button" variant={kind === k ? "secondary" : "outline"} size="sm" aria-pressed={kind === k} onClick={() => go({ kind: k })}>{KIND_LABEL[k]}</Button>
         ))}
         <span className="ml-2 text-xs text-muted-foreground">
           Public form (old dashboard): <a href={APPLY_LINKS[kind]} target="_blank" rel="noopener noreferrer" className="underline">{APPLY_LINKS[kind]}</a>
         </span>
-        <button type="button" className={CTRL} onClick={() => copy(APPLY_LINKS[kind])}>Copy form link</button>
+        <Button type="button" variant="outline" size="sm" onClick={() => copy(APPLY_LINKS[kind])}>Copy form link</Button>
       </div>
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <button type="button" aria-pressed={status === "pending"} className={`${CTRL} ${status === "pending" ? "bg-muted font-medium" : ""}`} onClick={() => go({ status: "pending" })}>Pending ({counts.pending})</button>
-        <button type="button" aria-pressed={status === "rejected"} className={`${CTRL} ${status === "rejected" ? "bg-muted font-medium" : ""}`} onClick={() => go({ status: "rejected" })}>Rejected ({counts.rejected})</button>
-        <span className="text-xs text-muted-foreground">{counts.approved} approved, now on the <Link to={`${prefix}/${kind}`} className="underline">{kind === "creators" ? "Creators" : "Actors"}</Link> page.</span>
-        <input aria-label="Search applications" placeholder="Search name, email, location" className={`${CTRL} ml-auto min-w-[14rem]`} value={search} onChange={(e) => setSearch(e.target.value)} />
-      </div>
+      <FilterBar search={{ value: search, onChange: setSearch, label: "Search applications", placeholder: "Search name, email, location" }}>
+        <Button type="button" variant={status === "pending" ? "secondary" : "outline"} size="sm" className="h-10" aria-pressed={status === "pending"} onClick={() => go({ status: "pending" })}>Pending ({counts.pending})</Button>
+        <Button type="button" variant={status === "rejected" ? "secondary" : "outline"} size="sm" className="h-10" aria-pressed={status === "rejected"} onClick={() => go({ status: "rejected" })}>Rejected ({counts.rejected})</Button>
+        <span className="flex h-10 items-center text-xs text-muted-foreground">{counts.approved} approved, now on the <Link to={`${prefix}/${kind}`} className="ml-1 underline">{kind === "creators" ? "Creators" : "Actors"}</Link>&nbsp;page.</span>
+      </FilterBar>
 
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
-      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      {error && (!rows ? <ErrorState message={error} onRetry={() => void load()} /> : <p role="alert" className="text-sm text-destructive">{error}</p>)}
 
       {status === "pending" && selected.size > 0 && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border p-3 text-sm">
-          <span>{selected.size} selected</span>
-          <input aria-label="Rejection reason" placeholder="Reason, kept on each application" className={`${CTRL} min-w-[18rem]`} value={reason} onChange={(e) => setReason(e.target.value)} />
-          <button type="button" className={CTRL} disabled={busy} onClick={() => void bulkReject()}>{busy ? "Rejecting..." : `Reject ${selected.size}`}</button>
+        <div className="flex flex-wrap items-end gap-2 rounded-card border bg-card p-3 text-sm">
+          <span className="flex h-10 items-center">{selected.size} selected</span>
+          <TextField label="Rejection reason" hideLabel className="min-w-[18rem]" placeholder="Reason, kept on each application" value={reason} onChange={(e) => setReason(e.target.value)} />
+          <Button type="button" variant="outline" disabled={busy} onClick={() => void bulkReject()}>{busy ? "Rejecting..." : `Reject ${selected.size}`}</Button>
         </div>
       )}
 
       {!rows ? (
-        error ? null : <p role="status" className="text-sm text-muted-foreground">Loading applications...</p>
+        error ? null : <LoadingState label="Loading applications" />
       ) : visible.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{status === "pending" ? "No applications waiting for review." : "No rejected applications."}</p>
+        <EmptyState title={status === "pending" ? "No applications waiting for review." : "No rejected applications."} />
       ) : (
-        <ul className="divide-y rounded-lg border">
+        <ul className="divide-y rounded-card border bg-card">
           {visible.map((a) => {
             const dupes = rosterMatches(a.email, roster);
             return (
@@ -178,6 +183,7 @@ export default function ApplicationsPage() {
           })}
         </ul>
       )}
-    </div>
+      {dialog}
+    </PageShell>
   );
 }

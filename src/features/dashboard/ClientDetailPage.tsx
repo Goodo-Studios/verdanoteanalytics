@@ -12,7 +12,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
-import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { EmptyState, ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField } from "@/components/page-kit";
 import { useAuth } from "@/contexts/AuthContext";
 import { hubPath } from "@/lib/clientHub";
 import { useRolePrefix } from "@/hooks/useRolePath";
@@ -50,7 +51,6 @@ import {
 
 const CARD = "rounded-lg border border-border bg-card p-4";
 const H2 = "text-sm font-semibold";
-const FIELD = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 /** "ending / transitioning" -> "Ending / transitioning". */
 function sentenceCase(value: string | null | undefined): string {
@@ -95,17 +95,15 @@ function DetailsForm({ client, onSaved }: { client: DashboardClient; onSaved: (m
   return (
     <div className={`${CARD} space-y-2`} aria-label="Edit details" role="group">
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-        <input aria-label="Service type" className={FIELD} placeholder="Service type" value={form.service_type ?? ""} onChange={set("service_type")} />
-        <input aria-label="Strategist" className={FIELD} placeholder="Strategist" value={form.strategist ?? ""} onChange={set("strategist")} />
-        <input aria-label="Contract start" type="date" className={FIELD} value={form.contract_start ?? ""} onChange={set("contract_start")} />
-        <input aria-label="Contract end" type="date" className={FIELD} value={form.contract_end ?? ""} onChange={set("contract_end")} />
-        <select aria-label="Status" className={FIELD} value={form.status ?? ""} onChange={set("status")}>
-          {CLIENT_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <TextField label="Service type" hideLabel placeholder="Service type" value={form.service_type ?? ""} onChange={set("service_type")} />
+        <TextField label="Strategist" hideLabel placeholder="Strategist" value={form.strategist ?? ""} onChange={set("strategist")} />
+        <TextField label="Contract start" hideLabel type="date" value={form.contract_start ?? ""} onChange={set("contract_start")} />
+        <TextField label="Contract end" hideLabel type="date" value={form.contract_end ?? ""} onChange={set("contract_end")} />
+        <SelectField label="Status" hideLabel value={form.status ?? ""} onChange={set("status")} options={CLIENT_STATUSES.map((s) => ({ value: s, label: s }))} />
       </div>
-      <button type="button" className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50" disabled={saving} onClick={() => void save()}>
+      <Button type="button" size="sm" disabled={saving} onClick={() => void save()}>
         Save details
-      </button>
+      </Button>
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     </div>
   );
@@ -127,9 +125,9 @@ function ScopeField({ client, canEdit, onSaved }: { client: DashboardClient; can
     <div className={CARD}>
       <h2 className={H2}>Scope</h2>
       {canEdit ? (
-        <div className="mt-2 flex gap-2">
-          <input aria-label="Scope" className={FIELD} maxLength={240} value={value} onChange={(e) => setValue(e.target.value)} placeholder="For example 4 UGC videos per month" />
-          <button type="button" className="rounded-md border px-3 text-sm" onClick={() => void save()}>Save scope</button>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <TextField label="Scope" hideLabel className="min-w-[14rem] flex-1" maxLength={240} value={value} onChange={(e) => setValue(e.target.value)} placeholder="For example 4 UGC videos per month" />
+          <Button type="button" variant="outline" onClick={() => void save()}>Save scope</Button>
         </div>
       ) : (
         <p className="mt-1 text-sm">{client.scope ?? "Not set"}</p>
@@ -185,25 +183,24 @@ export default function ClientDetailPage() {
 
   if (error && !data) {
     return (
-      <div className="p-6 space-y-4" data-testid="client-detail-page">
+      <PageShell wide data-testid="client-detail-page">
         {back}
-        <div role="alert" className="rounded-lg border border-destructive/40 p-4 text-sm">
-          {error} <button type="button" className="underline" onClick={() => void load()}>Try again</button>
-        </div>
-      </div>
+        <ErrorState message={error} onRetry={() => void load()} />
+      </PageShell>
     );
   }
-  if (!data) return <div className="p-6" data-testid="client-detail-page"><p role="status" className="text-sm text-muted-foreground">Loading client...</p></div>;
+  if (!data) return <PageShell wide data-testid="client-detail-page"><LoadingState label="Loading client" variant="cards" /></PageShell>;
   const { client } = data;
   if (!client) {
     return (
-      <div className="p-6 space-y-4" data-testid="client-detail-page">
+      <PageShell wide data-testid="client-detail-page">
         {back}
-        <div className="rounded-lg border border-dashed p-8 text-center text-sm space-y-2">
-          <p>We couldn&rsquo;t find this client. It may have been removed, or the link may be out of date.</p>
-          <Link to={`${prefix}/clients`} className="underline">Go to Clients</Link>
-        </div>
-      </div>
+        <EmptyState
+          title="We couldn't find this client."
+          description="It may have been removed, or the link may be out of date."
+          action={<Link to={`${prefix}/clients`} className="text-sm underline">Go to Clients</Link>}
+        />
+      </PageShell>
     );
   }
 
@@ -217,14 +214,14 @@ export default function ClientDetailPage() {
   const pct = typeof client.pct_complete === "number" ? Math.max(0, Math.min(100, client.pct_complete)) : null;
 
   return (
-    <div className="p-6 space-y-6" data-testid="client-detail-page">
+    <PageShell wide className="space-y-6" data-testid="client-detail-page">
       <PageHeader
         title={client.name}
         description={[...serviceLines(client), sentenceCase(client.status), synced ? "Synced from its knowledge file" : "Added by hand"].join(" · ")}
         actions={isBuilder ? (
-          <button type="button" className="rounded-md border px-3 py-1.5 text-sm" onClick={() => void toggleActive(client)}>
+          <Button type="button" variant="outline" size="sm" onClick={() => void toggleActive(client)}>
             {client.active ? "Hide from client list" : "Show on client list"}
-          </button>
+          </Button>
         ) : undefined}
       />
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
@@ -261,9 +258,7 @@ export default function ClientDetailPage() {
       <section aria-label="Deliverables" className={CARD}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className={H2}>Deliverables, {formatMonth(month)}</h2>
-          <select aria-label="Deliverables month" className="rounded-md border border-input bg-background px-2 py-1 text-sm" value={month} onChange={(e) => setMonth(e.target.value)}>
-            {months.map((m) => <option key={m} value={m}>{formatMonth(m)}</option>)}
-          </select>
+          <SelectField label="Deliverables month" hideLabel className="w-44" inputClassName="h-9" value={month} onChange={(e) => setMonth(e.target.value)} options={months.map((m) => ({ value: m, label: formatMonth(m) }))} />
         </div>
         {monthRows.length === 0 ? (
           <p className="mt-2 text-sm text-muted-foreground">No deliverables logged for {formatMonth(month)}.</p>
@@ -308,7 +303,7 @@ export default function ClientDetailPage() {
             <p className="mt-2 text-sm text-muted-foreground">No cards. The board fills from this client&rsquo;s ClickUp folder.</p>
           ) : (
             <>
-              <ul className="mt-2 grid grid-cols-5 gap-1 text-center text-xs" aria-label="Cards per column">
+              <ul className="mt-2 grid grid-cols-2 gap-1 text-center text-xs sm:grid-cols-3 lg:grid-cols-5" aria-label="Cards per column">
                 {BOARD_COLUMNS.map((col) => (
                   <li key={col} className="rounded bg-muted p-1"><div className="font-semibold">{board.byColumn[col]}</div>{col}</li>
                 ))}
@@ -356,6 +351,6 @@ export default function ClientDetailPage() {
           {client.name}.
         </p>
       </section>
-    </div>
+    </PageShell>
   );
 }

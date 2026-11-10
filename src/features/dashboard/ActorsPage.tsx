@@ -9,7 +9,8 @@
 // add-to-shoot dialog (casting moves with step 5c).
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { DataTable, EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField, TextField, type DataColumn } from "@/components/page-kit";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { DashboardError, loadBrandsAndTeam, type BrandOption } from "./api";
 import { createActor, loadActorRoster, type ActorCasting } from "./rosterApi";
@@ -26,8 +27,6 @@ import {
   type RosterActor,
 } from "./rosterModel";
 import { errorText } from "./model";
-
-const CTRL = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
 
 export default function ActorsPage() {
   const prefix = useRolePrefix();
@@ -85,81 +84,69 @@ export default function ActorsPage() {
     }
   };
 
+  const columns: DataColumn<RosterActor>[] = [
+    {
+      key: "actor",
+      header: "Actor",
+      cell: (a) => (
+        <>
+          <Link to={`${prefix}/actors/${a.id}`} className="font-medium underline">{a.name}</Link>
+          {a.do_not_use_again && <span className="ml-2 rounded bg-destructive/10 px-1 text-xs text-destructive">Do not use</span>}
+        </>
+      ),
+    },
+    { key: "gender", header: "Gender", cell: (a) => a.gender ?? "" },
+    { key: "age", header: "Age range", cell: (a) => a.age_range.join(", ") },
+    { key: "skills", header: "Skills", cell: (a) => a.skills.join(", ") },
+    {
+      key: "cast",
+      header: "Cast on",
+      cell: (a) =>
+        (byActor.get(a.id) ?? []).map((c) => (
+          <span key={c.id} className="mr-2">{brandNames.get(c.client_slug) ?? c.client_slug} ({actorStageLabel(c.stage)})</span>
+        )),
+    },
+  ];
+
   return (
-    <div className="p-6 space-y-4" data-testid="actors-page">
+    <PageShell wide data-testid="actors-page">
       <PageHeader title="Actors" description="The production talent roster. Open an actor to edit their profile and see their castings and media." />
-      <form className="flex flex-wrap items-end gap-2 rounded-lg border p-3" onSubmit={(e) => { e.preventDefault(); void add(); }}>
-        <label className="text-xs">Name<input aria-label="New actor name" className={`${CTRL} ml-1`} value={newName} onChange={(e) => setNewName(e.target.value)} /></label>
-        <label className="text-xs">Email<input aria-label="New actor email" type="email" className={`${CTRL} ml-1`} value={newEmail} onChange={(e) => setNewEmail(e.target.value)} /></label>
-        <button type="submit" className={CTRL} disabled={adding}>{adding ? "Adding..." : "Add actor"}</button>
+      <form className="flex flex-wrap items-end gap-2 rounded-card border bg-card p-3" onSubmit={(e) => { e.preventDefault(); void add(); }}>
+        <TextField label="Name" aria-label="New actor name" value={newName} onChange={(e) => setNewName(e.target.value)} />
+        <TextField label="Email" aria-label="New actor email" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+        <Button type="submit" variant="outline" disabled={adding}>{adding ? "Adding..." : "Add actor"}</Button>
       </form>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <input aria-label="Search actors" placeholder="Search name, email, phone, skill" className={`${CTRL} min-w-[16rem]`} value={filters.search} onChange={(e) => set({ search: e.target.value })} />
-        <select aria-label="Gender" className={CTRL} value={filters.gender} onChange={(e) => set({ gender: e.target.value })}>
-          <option value="">Any gender</option>
-          {genders.map((g) => <option key={g} value={g}>{g}</option>)}
-        </select>
-        <select aria-label="Skill" className={CTRL} value={filters.skill} onChange={(e) => set({ skill: e.target.value })}>
-          <option value="">Any skill</option>
-          {skills.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <select aria-label="Dog owner" className={CTRL} value={filters.dog} onChange={(e) => set({ dog: e.target.value as ActorFilters["dog"] })}>
-          <option value="">Dog owner: any</option>
-          <option value="yes">Dog owner: yes</option>
-          <option value="no">Dog owner: no</option>
-        </select>
-        <select aria-label="Sort" className={CTRL} value={filters.sort} onChange={(e) => set({ sort: e.target.value as ActorFilters["sort"] })}>
-          <option value="name">Name</option>
-          <option value="newest">Newest first</option>
-        </select>
-        <label className="text-sm"><input type="checkbox" checked={filters.showDoNotUse} onChange={(e) => set({ showDoNotUse: e.target.checked })} /> Show do not use</label>
-      </div>
+      <FilterBar search={{ value: filters.search, onChange: (v) => set({ search: v }), label: "Search actors", placeholder: "Search name, email, phone, skill" }}>
+        <SelectField label="Gender" hideLabel value={filters.gender} onChange={(e) => set({ gender: e.target.value })} placeholder="Any gender" options={genders.map((g) => ({ value: g, label: g }))} />
+        <SelectField label="Skill" hideLabel value={filters.skill} onChange={(e) => set({ skill: e.target.value })} placeholder="Any skill" options={skills.map((s) => ({ value: s, label: s }))} />
+        <SelectField label="Dog owner" hideLabel value={filters.dog} onChange={(e) => set({ dog: e.target.value as ActorFilters["dog"] })} placeholder="Dog owner: any" options={[{ value: "yes", label: "Dog owner: yes" }, { value: "no", label: "Dog owner: no" }]} />
+        <SelectField label="Sort" hideLabel value={filters.sort} onChange={(e) => set({ sort: e.target.value as ActorFilters["sort"] })} options={[{ value: "name", label: "Name" }, { value: "newest", label: "Newest first" }]} />
+        <label className="flex h-10 items-center gap-1.5 text-sm"><input type="checkbox" checked={filters.showDoNotUse} onChange={(e) => set({ showDoNotUse: e.target.checked })} /> Show do not use</label>
+      </FilterBar>
 
-      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      {error && !actors ? <ErrorState message={error} onRetry={() => { setError(null); void load(); }} /> : error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       {!actors ? (
-        error ? null : <p role="status" className="text-sm text-muted-foreground">Loading actors...</p>
+        error ? null : <LoadingState label="Loading actors" />
       ) : (
         <>
           <p className="text-sm text-muted-foreground" data-testid="actors-count">
             {visible.length === actors.length ? `${actors.length} actors` : `${visible.length} of ${actors.length} actors`}
           </p>
           {visible.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No actors match these filters.</p>
+            <EmptyState title="No actors match these filters." />
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-muted-foreground"><th>Actor</th><th>Gender</th><th>Age range</th><th>Skills</th><th>Cast on</th></tr>
-              </thead>
-              <tbody>
-                {paged.rows.map((a) => (
-                  <tr key={a.id} className="border-t align-top" data-testid={`actor-row-${a.id}`}>
-                    <td className="py-1.5">
-                      <Link to={`${prefix}/actors/${a.id}`} className="font-medium underline">{a.name}</Link>
-                      {a.do_not_use_again && <span className="ml-2 rounded bg-destructive/10 px-1 text-xs text-destructive">Do not use</span>}
-                    </td>
-                    <td className="text-xs">{a.gender ?? ""}</td>
-                    <td className="text-xs">{a.age_range.join(", ")}</td>
-                    <td className="text-xs">{a.skills.join(", ")}</td>
-                    <td className="text-xs">
-                      {(byActor.get(a.id) ?? []).map((c) => (
-                        <span key={c.id} className="mr-2">{brandNames.get(c.client_slug) ?? c.client_slug} ({actorStageLabel(c.stage)})</span>
-                      ))}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable label="Actors" columns={columns} rows={paged.rows} rowKey={(a) => a.id} rowTestId={(a) => `actor-row-${a.id}`} />
           )}
           {paged.pages > 1 && (
             <nav aria-label="Pages" className="flex items-center gap-2 text-sm">
-              <button type="button" className={CTRL} disabled={paged.page <= 1} onClick={() => set({ page: paged.page - 1 })}>Previous</button>
+              <Button type="button" variant="outline" size="sm" disabled={paged.page <= 1} onClick={() => set({ page: paged.page - 1 })}>Previous</Button>
               <span>Page {paged.page} of {paged.pages}</span>
-              <button type="button" className={CTRL} disabled={paged.page >= paged.pages} onClick={() => set({ page: paged.page + 1 })}>Next</button>
+              <Button type="button" variant="outline" size="sm" disabled={paged.page >= paged.pages} onClick={() => set({ page: paged.page + 1 })}>Next</Button>
             </nav>
           )}
         </>
       )}
-    </div>
+    </PageShell>
   );
 }
