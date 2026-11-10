@@ -94,6 +94,10 @@ The Growth Dashboard page (`/builder/growth-dashboard`) stores its numbers in `g
 
 The Ad Name Generator page (`/ad-name-generator`) is the old generator's screen with the same name format. Its codes come from `peek_ad_code` (shows the next code, spends nothing) and `claim_ad_code` (spends one, only when the name is copied) over `ad_name_counter`. Both refuse anyone who is not builder or employee, inside the function body; `scripts/staging-client-wall-functions.mjs` checks that clients are refused and staff can peek. Client and Theme / Persona lists come from `ad_accounts` and `angle_clusters` with the staff session. The old generator and the Goodo OS naming page keep running until the release (step 6 below).
 
+### Goodo OS client model (step 3)
+
+One client list: the dashboard `clients` table, keyed by `slug`. `client_ad_accounts` links a client to zero or more ad accounts, `client_members` links a client login to a client that has no ad account, `engagements` holds one row per 45-day cycle (clients read their own client's rows through `get_user_client_slugs()`), and `engagement_notes`, `source_mappings` and `goodo_os_workspace_users` are staff only (the last builder only). Goodo OS roles map owner to builder, staff to employee, client to client; `apply_goodo_os_user_role_mapping()` (service role) adds a role only to a login with no role. Design and rejected alternatives: `docs/goodo-os-foundations.md`. Tests: `supabase/tests/goodo_os_foundations_test.sql`, plus lines in both staging wall scripts. Nothing real is seeded.
+
 ### Roles from the old dashboard
 
 The dashboard role `admin` becomes `builder` and `producer` becomes `employee`. `user-management` accepts `dashboard_role` in place of `role` when creating or updating a user, using `supabase/functions/_shared/dashboard-role-map.ts`. A dashboard `viewer` is refused: Verdanote has no read-only staff role, and adding one is Matthew's decision (see the role mapping research note in the consolidation project).

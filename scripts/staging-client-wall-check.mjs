@@ -84,6 +84,31 @@ for (const [label, s] of [["client A", clientA], ["client B", clientB], ["employ
 const gStaff = await staff.c.from("growth_dashboard_data").select("key");
 check("builder can read Growth Dashboard rows", !gStaff.error, `error=${gStaff.error?.message ?? "none"} rows=${gStaff.data?.length ?? "error"}`);
 
+// Goodo OS client model (docs/goodo-os-foundations.md). engagements is client-readable for
+// the client's own clients only (get_user_client_slugs). The other five tables are staff
+// only (goodo_os_workspace_users builder only); a user may read its own client_members rows.
+const slugsOf = async (s) => ((await s.c.rpc("get_user_client_slugs")).data ?? []).map((r) => (typeof r === "string" ? r : Object.values(r)[0]));
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  const mine = await slugsOf(s);
+  const e = await s.c.from("engagements").select("client_slug");
+  check(`${label} reads engagements of its own clients only`, !e.error && (e.data ?? []).every((r) => mine.includes(r.client_slug)), `error=${e.error?.message ?? "none"} clients=${[...new Set((e.data ?? []).map((r) => r.client_slug))]} own=${mine}`);
+  for (const table of ["engagement_notes", "source_mappings", "client_ad_accounts", "goodo_os_workspace_users"]) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const m = await s.c.from("client_members").select("user_id");
+  check(`${label} reads only its own client_members rows`, !m.error && (m.data ?? []).every((r) => r.user_id === s.userId), `rows=${m.data?.length ?? "error"}`);
+  const ins = await s.c.from("engagements").insert({ client_slug: "wall-check-none", cycle_number: 1 });
+  check(`${label} cannot write engagements`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+}
+check("client B belongs to no client", (await slugsOf(clientB)).length === 0);
+for (const table of ["engagements", "engagement_notes", "source_mappings", "client_ad_accounts", "client_members"]) {
+  const r = await staff.c.from(table).select("*").limit(1);
+  check(`builder can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
+}
+const gosEmployee = await employee.c.from("goodo_os_workspace_users").select("id");
+check("employee reads no Goodo OS users (builder only)", !gosEmployee.error && (gosEmployee.data ?? []).length === 0, `rows=${gosEmployee.data?.length ?? "error"}`);
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

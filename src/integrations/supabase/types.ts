@@ -899,6 +899,27 @@ export type Database = {
           },
         ]
       }
+      client_ad_accounts: {
+        Row: {
+          account_id: string
+          client_slug: string
+          created_at: string
+          created_by: string | null
+        }
+        Insert: {
+          account_id: string
+          client_slug: string
+          created_at?: string
+          created_by?: string | null
+        }
+        Update: {
+          account_id?: string
+          client_slug?: string
+          created_at?: string
+          created_by?: string | null
+        }
+        Relationships: []
+      }
       client_highlights: {
         Row: {
           account_id: string
@@ -942,6 +963,27 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      client_members: {
+        Row: {
+          client_slug: string
+          created_at: string
+          created_by: string | null
+          user_id: string
+        }
+        Insert: {
+          client_slug: string
+          created_at?: string
+          created_by?: string | null
+          user_id: string
+        }
+        Update: {
+          client_slug?: string
+          created_at?: string
+          created_by?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       client_timeline_events: {
         Row: {
@@ -1793,6 +1835,101 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      engagement_notes: {
+        Row: {
+          engagement_id: string
+          notes: string | null
+          purchase_reference: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          engagement_id: string
+          notes?: string | null
+          purchase_reference?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          engagement_id?: string
+          notes?: string | null
+          purchase_reference?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      engagements: {
+        Row: {
+          client_slug: string
+          created_at: string
+          created_by: string | null
+          cycle_number: number
+          day30_date: string | null
+          day45_date: string | null
+          engagement_type: string
+          id: string
+          start_date: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          client_slug: string
+          created_at?: string
+          created_by?: string | null
+          cycle_number: number
+          engagement_type?: string
+          id?: string
+          start_date?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          client_slug?: string
+          created_at?: string
+          created_by?: string | null
+          cycle_number?: number
+          engagement_type?: string
+          id?: string
+          start_date?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      goodo_os_workspace_users: {
+        Row: {
+          active: boolean
+          auth_subject: string | null
+          client_ids: string[]
+          display_name: string | null
+          email: string | null
+          id: string
+          imported_at: string
+          role: string
+        }
+        Insert: {
+          active?: boolean
+          auth_subject?: string | null
+          client_ids?: string[]
+          display_name?: string | null
+          email?: string | null
+          id: string
+          imported_at?: string
+          role: string
+        }
+        Update: {
+          active?: boolean
+          auth_subject?: string | null
+          client_ids?: string[]
+          display_name?: string | null
+          email?: string | null
+          id?: string
+          imported_at?: string
+          role?: string
+        }
+        Relationships: []
       }
       growth_dashboard_data: {
         Row: {
@@ -2970,6 +3107,48 @@ export type Database = {
         }
         Relationships: []
       }
+      source_mappings: {
+        Row: {
+          active: boolean
+          client_slug: string
+          created_at: string
+          created_by: string | null
+          engagement_id: string | null
+          external_id: string
+          id: string
+          kind: string
+          label: string | null
+          provider: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          client_slug: string
+          created_at?: string
+          created_by?: string | null
+          engagement_id?: string | null
+          external_id: string
+          id?: string
+          kind: string
+          label?: string | null
+          provider: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          client_slug?: string
+          created_at?: string
+          created_by?: string | null
+          engagement_id?: string | null
+          external_id?: string
+          id?: string
+          kind?: string
+          label?: string | null
+          provider?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       split_test_variants: {
         Row: {
           ad_id: string
@@ -3400,6 +3579,7 @@ export type Database = {
     }
     Functions: {
       ad_is_on_public_board: { Args: { _ad_id: string }; Returns: boolean }
+      apply_goodo_os_user_role_mapping: { Args: never; Returns: Json }
       board_is_public: { Args: { _board_id: string }; Returns: boolean }
       bulk_update_creative_metadata: {
         Args: { payload: Json }
@@ -3538,9 +3718,28 @@ export type Database = {
         }[]
       }
       get_user_account_ids: { Args: { _user_id: string }; Returns: string[] }
+      get_user_client_slugs: { Args: never; Returns: string[] }
       get_user_role: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
+      }
+      goodo_os_role_to_verdanote_role: {
+        Args: { p_role: string }
+        Returns: Database["public"]["Enums"]["app_role"]
+      }
+      goodo_os_user_role_mapping: {
+        Args: never
+        Returns: {
+          action: string
+          active: boolean
+          client_ids: string[]
+          email: string
+          existing_roles: string[]
+          goodo_os_role: string
+          verdanote_role: Database["public"]["Enums"]["app_role"]
+          verdanote_user_id: string
+          workspace_user_id: string
+        }[]
       }
       has_role: {
         Args: {

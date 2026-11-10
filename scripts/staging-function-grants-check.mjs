@@ -42,6 +42,7 @@ const OPEN_BY_DESIGN = {
   has_role: { anon: false, why: "row rules" },
   get_user_role: { anon: false, why: "row rules and the browser" },
   get_user_account_ids: { anon: false, why: "row rules" },
+  get_user_client_slugs: { anon: false, why: "row rules, answers only for auth.uid()" },
   owns_ad_library_ad: { anon: false, why: "row rules" },
   owns_ad_library_board: { anon: false, why: "row rules" },
   vault_owns_board: { anon: false, why: "row rules" },
@@ -59,6 +60,7 @@ const OPEN_BY_DESIGN = {
 // not a data path. Listed so the refusal check does not flag them.
 const NOT_SECURITY_DEFINER = new Set([
   "dashboard_role_to_verdanote_role",
+  "goodo_os_role_to_verdanote_role",
   "matrix_creative_type_bucket",
   "stage_follow_up_offset_days",
   "show_limit",
@@ -174,6 +176,14 @@ check("client B is refused another account's period metrics (check inside the fu
 
 const role = await rpc("get_user_role", clientA, { _user_id: ZERO_UUID });
 check("signed-in callers can still run the row-rule helper get_user_role", role.status === 200, show(role));
+
+const slugsB = await rpc("get_user_client_slugs", clientB, {});
+check("client B runs get_user_client_slugs and belongs to no client", slugsB.status === 200 && Array.isArray(slugsB.body) && slugsB.body.length === 0, show(slugsB));
+
+const mapB = await rpc("goodo_os_user_role_mapping", clientB, {});
+check("client B is refused the Goodo OS role mapping (check inside the function)", denied(mapB), show(mapB));
+const mapBuilder = await rpc("goodo_os_user_role_mapping", builder, {});
+check("builder reads the Goodo OS role mapping", mapBuilder.status === 200, show(mapBuilder));
 
 console.log(failed ? `\n${failed} check(s) failed` : "\nAll database function grant checks passed");
 process.exit(failed ? 1 : 0);

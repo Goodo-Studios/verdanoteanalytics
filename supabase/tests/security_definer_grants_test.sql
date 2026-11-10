@@ -16,7 +16,8 @@
 --                (create_api_key stores the key against auth.uid(); get_user_role is the
 --                caller's own role lookup; the four get_* reports gate on staff or account)
 --   row_rules    used inside policies, which run as the caller (has_role, get_user_role,
---                get_user_account_ids, owns_ad_library_*, vault_*)
+--                get_user_account_ids, get_user_client_slugs (answers only for auth.uid()),
+--                owns_ad_library_*, vault_*)
 --   edge_user    called by an edge function through a user-token client: match_items
 --                (vault-search), which reads only vault_visible_item_ids()
 --   staff_area   the staff pages' functions; each must refuse non-staff in its own body
@@ -33,6 +34,7 @@ INSERT INTO allow VALUES
   ('browser','get_creative_window_aggregates'), ('browser','get_daily_trends'),
   ('browser','get_period_metrics'), ('browser','get_user_role'),
   ('row_rules','has_role'), ('row_rules','get_user_account_ids'),
+  ('row_rules','get_user_client_slugs'),
   ('row_rules','owns_ad_library_ad'), ('row_rules','owns_ad_library_board'),
   ('row_rules','vault_owns_board'), ('row_rules','vault_visible_item_ids'),
   ('edge_user','match_items'),
@@ -44,7 +46,7 @@ INSERT INTO allow
     'cast_actor_onto_shoot', 'claim_ad_code', 'confirm_actor_for_shoot',
     'create_call_sheet', 'create_client', 'create_crew_member', 'create_location',
     'create_prop', 'create_shoot', 'create_shoot_schedule_block',
-    'create_studio_shipment', 'delete_location', 'delete_prop', 'delete_shoot',
+    'create_studio_shipment', 'delete_location', 'goodo_os_user_role_mapping', 'delete_prop', 'delete_shoot',
     'delete_shoot_schedule_block', 'delete_studio_shipment', 'peek_ad_code',
     'reject_actor_application', 'reject_application', 'revoke_call_sheet',
     'set_actor_shoot_schedule', 'set_client_active', 'set_client_details',
