@@ -155,6 +155,15 @@
         }
       }
     },
+    "agent-evaluations": {
+      "class": "staff",
+      "note": "Goodo OS agent evaluations. Builder or employee login only. Runs an agent's staff-written samples against the model with the agent's own instructions and records the run through record_agent_evaluation_run, which keeps a decision only when its quote is an exact part of the sample. Answers 503 with no request when ANTHROPIC_API_KEY is not set (staging has none).",
+      "probe": {
+        "body": {
+          "agent_key": "meeting-recaps"
+        }
+      }
+    },
     "portfolio": {
       "class": "public",
       "note": "Public portfolio page looked up by slug; returns only aggregate numbers for accounts that switched portfolio_enabled on."

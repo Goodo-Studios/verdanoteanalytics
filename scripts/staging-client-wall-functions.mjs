@@ -109,6 +109,10 @@ const controls = [
   ["employee passes the meeting-recaps gate and it fails closed without keys", "meeting-recaps", employee, { body: { client_slug: "wall_probe", transcript_id: "wall_probe" } }, (s) => s === 503],
   ["builder passes the meeting-recaps gate and it fails closed without keys", "meeting-recaps", builder, { body: { client_slug: "wall_probe", transcript_id: "wall_probe" } }, (s) => s === 503],
   ["client B refused by meeting-recaps", "meeting-recaps", clientB, { body: { client_slug: "wall_probe", transcript_id: "wall_probe" } }, refused],
+  // Staging has no ANTHROPIC_API_KEY: staff pass the gate and agent-evaluations fails closed with 503 before any read.
+  ["employee passes the agent-evaluations gate and it fails closed without a key", "agent-evaluations", employee, { body: { agent_key: "meeting-recaps" } }, (s) => s === 503],
+  ["builder passes the agent-evaluations gate and it fails closed without a key", "agent-evaluations", builder, { body: { agent_key: "meeting-recaps" } }, (s) => s === 503],
+  ["client B refused by agent-evaluations", "agent-evaluations", clientB, { body: { agent_key: "meeting-recaps" } }, refused],
 ];
 for (const [label, name, token, opts, ok] of controls) {
   const status = await call(name, token, opts);

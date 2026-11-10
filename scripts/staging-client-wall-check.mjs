@@ -598,6 +598,35 @@ check("employee passes the staff check in save_learning_draft", lnDraft.error?.c
 const lnPage = await employee.c.from("learning_modules").select("*, learning_module_versions!learning_module_versions_module_id_fkey(*), learning_reviews!learning_reviews_module_id_fkey(*), learning_history!learning_history_module_id_fkey(*)").limit(1);
 check("employee loads the learning page query", !lnPage.error, `error=${lnPage.error?.code ?? ""} ${lnPage.error?.message ?? "none"}`);
 
+// Agent evaluations (migration 20261110200006, step 4c): staff only. Clients read none of the
+// five tables, cannot write them, are refused every checked function, and cannot record a run.
+const evalTables = ["agent_evaluation_samples", "agent_evaluation_runs", "agent_evaluation_results", "agent_evaluation_outcomes", "agent_config_approvals"];
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of evalTables) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const ins = await s.c.from("agent_evaluation_samples").insert({ agent_key: "meeting-recaps", sample_key: "wall_probe", dimension: "grounding", label: "synthetic", prompt: "wall", expected_decision: "deny", source_provenance: "wall", created_by: s.userId });
+  check(`${label} cannot write agent_evaluation_samples`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  for (const [fn, args] of [
+    ["add_agent_evaluation_sample", { p_agent_key: "meeting-recaps", p_sample_key: "wall_probe", p_dimension: "grounding", p_label: "synthetic", p_prompt: "wall", p_expected_decision: "deny", p_source_provenance: "wall" }],
+    ["record_agent_evaluation_outcome", { p_run_id: ZERO, p_approval_count: null, p_approval_total: null, p_business_outcome_status: "unrecorded", p_business_outcome_note: null, p_reason: "wall" }],
+    ["approve_agent_config", { p_run_id: ZERO }],
+  ]) {
+    const r = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, r.error?.code === "42501", `code=${r.error?.code ?? "none"}`);
+  }
+  const run = await s.c.rpc("record_agent_evaluation_run", { p_run: { agent_key: "meeting-recaps" }, p_results: [] });
+  check(`${label} cannot record an evaluation run`, !!run.error && run.error.code !== "22023", `code=${run.error?.code ?? "none (call accepted)"}`);
+}
+for (const table of evalTables) {
+  const r = await employee.c.from(table).select("*").limit(1);
+  check(`employee can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
+}
+const evalOutcome = await employee.c.rpc("record_agent_evaluation_outcome", { p_run_id: ZERO, p_approval_count: null, p_approval_total: null, p_business_outcome_status: "unrecorded", p_business_outcome_note: null, p_reason: "wall" });
+check("employee passes the staff check in record_agent_evaluation_outcome", evalOutcome.error?.code === "P0002", `code=${evalOutcome.error?.code ?? "none"}`);
+const evalApprove = await employee.c.rpc("approve_agent_config", { p_run_id: ZERO });
+check("employee is refused approve_agent_config (builder only)", evalApprove.error?.code === "42501", `code=${evalApprove.error?.code ?? "none"}`);
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {
