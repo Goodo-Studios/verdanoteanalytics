@@ -90,6 +90,10 @@ Adding a function: add it to `supabase/function-access.json` with its class. Add
 
 The Growth Dashboard page (`/builder/growth-dashboard`) stores its numbers in `growth_dashboard_data`: the row `state` holds what the old app kept in the browser's localStorage under the key `goodo3m_v1`, the row `plan` holds the plan figures that the old app had written into its code. Only builders can read or write the table (`supabase/tests/growth_dashboard_wall_test.sql`). Nothing real is seeded. To move the numbers once, open goodo-growth-dashboard.vercel.app in the browser that holds them, open the developer console and run `copy(localStorage.getItem('goodo3m_v1'))`, then paste the result on the page's Import tab. Enter the plan figures on the Plan tab.
 
+### Ad Name Generator (builder and employee)
+
+The Ad Name Generator page (`/ad-name-generator`) is the old generator's screen with the same name format. Its codes come from `peek_ad_code` (shows the next code, spends nothing) and `claim_ad_code` (spends one, only when the name is copied) over `ad_name_counter`. Both refuse anyone who is not builder or employee, inside the function body; `scripts/staging-client-wall-functions.mjs` checks that clients are refused and staff can peek. Client and Theme / Persona lists come from `ad_accounts` and `angle_clusters` with the staff session. The old generator and the Goodo OS naming page keep running until the release (step 6 below).
+
 ### Roles from the old dashboard
 
 The dashboard role `admin` becomes `builder` and `producer` becomes `employee`. `user-management` accepts `dashboard_role` in place of `role` when creating or updating a user, using `supabase/functions/_shared/dashboard-role-map.ts`. A dashboard `viewer` is refused: Verdanote has no read-only staff role, and adding one is Matthew's decision (see the role mapping research note in the consolidation project).
@@ -103,6 +107,7 @@ This step is one-way for the database. Get Matthew's sign-off first.
 3. Merge `staging` into `main`. CI ships the server functions to production. CI does not apply database changes to production (the `ciWorkflow` test enforces this until the production migration history is reconciled), so apply them by hand with `supabase db push` against `gwyxaqoaldnaavkjqquv` once the rehearsal passed. The staging lockdown script never runs against production.
 4. Ship the pages by hand: `vercel --prod` from `repos/private/verdanoteanalytics`, then confirm the live bundle changed.
 5. Run the client wall check and the main page checks against production.
+6. Ad code counter, in one step with no gap: copy the old dashboard database's counter into production `ad_name_counter` at its latest value (raise only, never lower: `scripts/dashboard-copy.mjs` does this with `greatest`, see `docs/dashboard-copy.md`), and at the same moment switch off the old Ad Name Generator (goodo-ad-name-generator) and the Goodo OS ad naming page. If either keeps issuing codes after the copy, two ads can get the same code. Until the release, staging's counter is a test copy and the old screens stay on.
 
 If the pages break, roll back in Vercel within minutes. Database changes do not roll back cleanly, which is why steps 1 and 2 exist.
 

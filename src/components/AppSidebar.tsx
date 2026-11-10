@@ -23,6 +23,7 @@ import {
   Grid3x3,
   LayoutList,
   TrendingUp,
+  Hash,
 } from "lucide-react";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
 import {
@@ -88,6 +89,7 @@ export const builderSections: NavSection[] = [
     label: "Staff",
     items: [
       { title: "Staff menu", url: "/staff", icon: LayoutList },
+      { title: "Ad Name Generator", url: "/ad-name-generator", icon: Hash },
       { title: "Growth Dashboard", url: "/growth-dashboard", icon: TrendingUp, builderOnly: true },
     ],
   },

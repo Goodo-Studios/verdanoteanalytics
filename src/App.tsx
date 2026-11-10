@@ -61,6 +61,8 @@ const HooksPage = lazy(routeImports.hooks);
 const MatrixBoardPage = lazy(routeImports.matrix);
 // Growth Dashboard (consolidation step 1): revenue figures, builder only like the Matrix.
 const GrowthDashboardPage = lazy(routeImports.growthDashboard);
+// Ad Name Generator (consolidation step 2): builder and employee.
+const AdNameGeneratorPage = lazy(routeImports.adNameGenerator);
 
 const SharedAdBoardPage = lazy(() => import("./pages/SharedAdBoardPage"));
 const PublicVaultItemPage = lazy(() => import("./pages/PublicVaultItemPage"));
@@ -189,6 +191,9 @@ export function RoleGuardedRoutes() {
           {/* Growth Dashboard: builder only, the same gate as the Matrix. The table's row
               rules also allow builders only, so this guard is not the only wall. */}
           <Route path="/growth-dashboard" element={effectiveBuilder ? <GrowthDashboardPage /> : <Navigate to={`${prefix}/`} replace />} />
+          {/* Ad Name Generator: staff page. peek_ad_code and claim_ad_code also refuse
+              anyone who is not builder or employee. */}
+          <Route path="/ad-name-generator" element={staffPage ? <AdNameGeneratorPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/user-settings" element={<Navigate to={`${prefix}/settings`} replace />} />
           

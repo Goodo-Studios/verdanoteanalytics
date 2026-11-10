@@ -3406,6 +3406,7 @@ export type Database = {
         Returns: number
       }
       bulk_update_creative_metrics: { Args: { payload: Json }; Returns: number }
+      claim_ad_code: { Args: never; Returns: number }
       check_api_rate_limit: {
         Args: { p_key_id: string; p_limit?: number; p_window_seconds?: number }
         Returns: boolean
@@ -3561,6 +3562,7 @@ export type Database = {
       }
       owns_ad_library_ad: { Args: { _ad_id: string }; Returns: boolean }
       owns_ad_library_board: { Args: { _board_id: string }; Returns: boolean }
+      peek_ad_code: { Args: never; Returns: number }
       rpc_account_taxonomy: {
         Args: { p_account_id: string }
         Returns: Json

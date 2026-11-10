@@ -30,6 +30,7 @@ export const routeImports = {
   taxonomyConfig: () => import("@/features/matrix/config/TaxonomyConfigSection"),
   matrix: () => import("@/features/matrix/board/MatrixBoardPage"),
   growthDashboard: () => import("@/features/growth-dashboard/GrowthDashboardPage"),
+  adNameGenerator: () => import("@/features/ad-name-generator/AdNameGeneratorPage"),
 } as const;
 
 type Loader = () => Promise<unknown>;
@@ -53,6 +54,7 @@ const PATH_PREFETCH: Record<string, Loader[]> = {
   "/settings": [routeImports.settings, routeImports.taxonomyConfig],
   "/matrix": [routeImports.matrix],
   "/growth-dashboard": [routeImports.growthDashboard],
+  "/ad-name-generator": [routeImports.adNameGenerator],
   "/ad-library": [routeImports.adLibrary, routeImports.vaultItemDetail],
   "/ad-library/boards": [routeImports.boards, routeImports.boardDetail],
   "/ad-library/hooks": [routeImports.hooks],
