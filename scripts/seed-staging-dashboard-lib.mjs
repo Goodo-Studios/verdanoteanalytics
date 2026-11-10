@@ -31,6 +31,7 @@ export const SEED_MARKERS = {
   actor_applications: { sql: "email like '%@example.test'", match: (r) => r.email.endsWith('@example.test') },
   approval_boards: { sql: "client_slug like 'demo-%'", match: (r) => r.client_slug.startsWith('demo-') },
   approval_votes: { sql: "board_id::text like 'de5a0000-%'", match: (r) => r.board_id.startsWith('de5a0000-') },
+  props: { sql: "id::text like 'de5a0000-%'", match: (r) => r.id.startsWith('de5a0000-') },
   locations: { sql: "id::text like 'de5a0000-%'", match: (r) => r.id.startsWith('de5a0000-') },
   location_boards: { sql: "id::text like 'de5a0000-%'", match: (r) => r.id.startsWith('de5a0000-') },
   location_board_items: { sql: "id::text like 'de5a0000-%'", match: (r) => r.id.startsWith('de5a0000-') },
@@ -52,6 +53,7 @@ export const SEED_ORDER = [
   ['actor_applications', 'id'],
   ['approval_boards', 'id'],
   ['approval_votes', 'id'],
+  ['props', 'id'],
   ['locations', 'id'],
   ['location_boards', 'id'],
   ['location_board_items', 'id'],
@@ -236,5 +238,16 @@ export function buildDashboardSeed(now = new Date()) {
     { id: id(912), board_id: id(910), location_id: id(901) },
   ];
 
-  return { clients, app_users, client_ad_accounts, engagements, deliverables, dashboard_creators, creator_assignments, pipeline_tasks, actors, actor_assignments, creator_applications, actor_applications, approval_boards, approval_votes, locations, location_boards, location_board_items };
+  // Step 5c: made-up props for the demo production clients. props.client is free
+  // text on the old dashboard, so it holds the demo client's name.
+  const prop = (k, name, extra) => ({ id: id(950 + k), name, store: null, price: null, return_status: null, client: null, at_studio: true,
+    client_supplied: false, bin_number: null, notes: null, ...extra });
+  const props = [
+    prop(0, 'Demo brass lamp', { store: 'Test Store', price: 39.99, client: 'Harbor Home (demo)', bin_number: 'D1' }),
+    prop(1, 'Demo round rug', { store: 'Test Store', price: 120, client: 'Harbor Home (demo)', return_status: 'Returned', at_studio: false }),
+    prop(2, 'Demo branded mug', { client: 'Pinecrest Pets (demo)', client_supplied: true, bin_number: 'D2' }),
+    prop(3, 'Demo dog bed', { store: 'Sample Pet Shop', price: 64.5, client: 'Pinecrest Pets (demo)', return_status: 'Kept', notes: 'Made-up seed row' }),
+  ];
+
+  return { clients, app_users, client_ad_accounts, engagements, deliverables, dashboard_creators, creator_assignments, pipeline_tasks, actors, actor_assignments, creator_applications, actor_applications, approval_boards, approval_votes, props, locations, location_boards, location_board_items };
 }

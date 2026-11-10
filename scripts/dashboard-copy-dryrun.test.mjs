@@ -66,9 +66,9 @@ test('every seed marker names a copied table and the checksum leaves those rows 
     assert.ok(copied.has(table), table);
     assert.match(checksumSql(table, ['id'], seedFilter(table)), new RegExp(`where not \\(${SEED_MARKERS[table].sql.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)$`));
   }
-  // A copied table the seed does not write (props) gets no filter.
-  assert.equal(SEED_MARKERS.props, undefined);
-  assert.ok(!checksumSql('props', ['id'], seedFilter('props')).includes('where'));
+  // A copied table the seed does not write (creator_videos) gets no filter.
+  assert.equal(SEED_MARKERS.creator_videos, undefined);
+  assert.ok(!checksumSql('creator_videos', ['id'], seedFilter('creator_videos')).includes('where'));
 });
 
 test('--replace never empties clients', () => {

@@ -441,6 +441,38 @@ for (const fn of ["update_location", "delete_location", "set_location_capacity",
   check(`employee passes the staff check in ${fn}`, r.error?.code === "P0002", `code=${r.error?.code ?? "none"}`);
 }
 
+// Old dashboard batch 3, Props (step 5c): props name the client a purchase was for and
+// what it cost. Clients read none, cannot write them and are refused the six checked prop
+// functions. The employee reads them and passes the staff check with an id that matches
+// no prop, which changes nothing.
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  const r = await s.c.from("props").select("*").limit(1000);
+  check(`${label} reads no props rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  const ins = await s.c.from("props").insert({ name: "wall check" });
+  check(`${label} cannot write props`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  for (const [fn, args] of [
+    ["create_prop", { p_name: "wall check" }],
+    ["update_prop", { p_id: ZERO, p_name: "wall check" }],
+    ["set_prop_at_studio", { p_id: ZERO, p_at_studio: true }],
+    ["set_prop_client_supplied", { p_id: ZERO, p_client_supplied: false }],
+    ["set_prop_return_status", { p_id: ZERO, p_return_status: null }],
+    ["delete_prop", { p_id: ZERO }],
+  ]) {
+    const res = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, res.error?.code === "42501", `code=${res.error?.code ?? "none"}`);
+  }
+}
+const propsStaff = await employee.c.from("props").select("id, name, store, price, return_status, client, at_studio, client_supplied, bin_number, notes, updated_at").limit(1);
+check("employee loads the props page query", !propsStaff.error, `error=${propsStaff.error?.message ?? "none"}`);
+for (const [fn, args] of [
+  ["set_prop_at_studio", { p_id: ZERO, p_at_studio: true }],
+  ["set_prop_return_status", { p_id: ZERO, p_return_status: null }],
+  ["delete_prop", { p_id: ZERO }],
+]) {
+  const res = await employee.c.rpc(fn, args);
+  check(`employee passes the staff check in ${fn}`, res.error?.code === "P0002", `code=${res.error?.code ?? "none"}`);
+}
+
 // QA gates (migration 20261110120003, step 4b): staff only. Clients read none of the three
 // tables, cannot write them and are refused every checked function, the gate read included.
 const qaTables = ["engagement_deliverable_confirmations", "engagement_deliverable_qa_returns", "engagement_deliverable_signoffs"];
