@@ -50,8 +50,15 @@ jobs:
         with:
           deno-version: v2.x
 
+      # --vendor reads esm.sh and deno.land modules from the checked-in vendor/
+      # directory. esm.sh served two different builds of the same exact-version
+      # URL from different CDN edges (tslib@2.8.1, 2026-11-10), which failed the
+      # lock check at random. src/test/denoVendor.test.ts checks every vendored
+      # file against deno.lock. --frozen fails the run if the lock would change.
+      # To add or upgrade a remote import, run the same command locally without
+      # --frozen and commit deno.lock and vendor/ together.
       - name: Test edge functions
-        run: deno test --allow-all --no-check supabase/functions/
+        run: deno test --vendor --frozen --allow-all --no-check supabase/functions/
 
   database-test:
     name: Database migrations & pgTAP
