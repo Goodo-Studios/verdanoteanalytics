@@ -31,6 +31,7 @@ export const SEED_MARKERS = {
   actor_applications: { sql: "email like '%@example.test'", match: (r) => r.email.endsWith('@example.test') },
   approval_boards: { sql: "client_slug like 'demo-%'", match: (r) => r.client_slug.startsWith('demo-') },
   approval_votes: { sql: "board_id::text like 'de5a0000-%'", match: (r) => r.board_id.startsWith('de5a0000-') },
+  actor_approval_votes: { sql: "board_id::text like 'de5a0000-%'", match: (r) => r.board_id.startsWith('de5a0000-') },
   shoots: { sql: "client_slug like 'demo-%'", match: (r) => r.client_slug.startsWith('demo-') },
   shoot_schedule_blocks: { sql: "id::text like 'de5a0000-%'", match: (r) => r.id.startsWith('de5a0000-') },
   shoot_schedule_block_talent: { sql: "block_id::text like 'de5a0000-%'", match: (r) => r.block_id.startsWith('de5a0000-') },
@@ -69,6 +70,7 @@ export const SEED_ORDER = [
   ['shoot_schedule_blocks', 'id'],
   ['shoot_schedule_block_talent', 'block_id,actor_assignment_id'],
   ['shoot_schedule_block_crew', 'block_id,crew_member_id'],
+  ['actor_approval_votes', 'id'],
 ];
 
 export function assertStagingUrl(url) {
@@ -300,5 +302,13 @@ export function buildDashboardSeed(now = new Date()) {
     { block_id: id(982), crew_member_id: id(961) },
   ];
 
-  return { clients, app_users, client_ad_accounts, engagements, deliverables, dashboard_creators, creator_assignments, pipeline_tasks, actors, actor_assignments, creator_applications, actor_applications, approval_boards, approval_votes, shoots, shoot_schedule_blocks, shoot_schedule_block_talent, shoot_schedule_block_crew, studio_shipments, crew_members, props, locations, location_boards, location_board_items };
+  // Step 5c: a live casting link for demo-harbor (an actor approval board) with the
+  // client's two votes. The token exists only in staging.
+  approval_boards.push({ id: id(990), client_slug: 'demo-harbor', board_type: 'actors', month: null, token: 'demoCastingLinkHarbor'.padEnd(48, '0'), expires_at: stamp(10), revoked: false });
+  const actor_approval_votes = [
+    { id: id(991), board_id: id(990), assignment_id: id(600), vote: 'up', voted_at: stamp(-1), voted_by: 'Demo reviewer' },
+    { id: id(992), board_id: id(990), assignment_id: id(601), vote: 'down', voted_at: stamp(-1), voted_by: null },
+  ];
+
+  return { clients, app_users, client_ad_accounts, engagements, deliverables, dashboard_creators, creator_assignments, pipeline_tasks, actors, actor_assignments, creator_applications, actor_applications, approval_boards, approval_votes, actor_approval_votes, shoots, shoot_schedule_blocks, shoot_schedule_block_talent, shoot_schedule_block_crew, studio_shipments, crew_members, props, locations, location_boards, location_board_items };
 }
