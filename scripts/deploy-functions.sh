@@ -39,7 +39,6 @@ FUNCTIONS=(
   refresh-media-queue
   competitor-ads
   entity-report
-  create-coda-brief
   creatives
   enrich-thumbnails
   ingest-reviews
@@ -62,8 +61,6 @@ FUNCTIONS=(
   sync-clickup-tasks
   run-slack-jobs
   fireflies-transcript
-  sync-coda-tasks
-  sync-coda-names
   system-health-check
   transcribe-ad
   user-management

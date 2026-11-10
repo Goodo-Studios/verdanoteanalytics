@@ -93,13 +93,11 @@ supabase secrets set WRITE_BRIEF_SECRET=<random-secret>  # write-brief
 | `send-digest` | User action / Cron | Sends a weekly performance summary email via Resend to users with digest enabled. |
 | `portfolio` | Public GET | Returns public-facing portfolio data for an account's `portfolio_slug`. No auth required. |
 
-### Briefs & Coda
+### Content pipeline
 
 | Function | Trigger | Purpose |
 |---|---|---|
-| `create-coda-brief` | User action | Creates a creative brief row in a Coda doc via the Coda API. |
 | `sync-clickup-tasks` | Cron (every 4h) | Reads asset tasks from every client folder in ClickUp (GET only) into the `pipeline_tasks` table, mapping each ClickUp status to one of five client-facing columns (Preparing Content / Production / Editing / Client Review / Ready to Launch) and storing client-safe fields only. Each folder resolves to a client (`source_mappings` folder row first, then name rules against clients and their ad accounts); rows carry `client_slug`, and `account_id` when the client has exactly one ad account. Powers the `/pipeline` board for staff and clients. Rules live in `_shared/clickup-pipeline.ts`. Needs the `CLICKUP_API_TOKEN` secret. |
-| `sync-coda-tasks` | Retired | Coda was retired on 2026-10-09. Its cron is unscheduled by migration `20261109000002`; the function and `coda_tasks` are kept until cleanup. |
 
 ### Creative Vault
 
@@ -138,7 +136,7 @@ The Vault is a creative-inspiration library: paste a TikTok, Instagram, YouTube,
 |---|---|---|
 | `user-management` | Admin action | Creates/updates user accounts, assigns roles (`builder`, `employee`, `client`), and links users to accounts. |
 | `settings` | User action | Reads and writes user preferences (digest settings, notification config). |
-| `webhooks-dispatch` | Webhook | Receives inbound webhooks (e.g. Meta, Coda) and routes them to the appropriate handler. |
+| `webhooks-dispatch` | Webhook | Receives inbound webhooks (e.g. Meta) and routes them to the appropriate handler. |
 
 ### Maintenance & Health
 

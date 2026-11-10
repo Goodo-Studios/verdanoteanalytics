@@ -147,7 +147,7 @@ Examples:
 
 ## Content Pipeline
 
-The **Content Pipeline** (`/pipeline`) shows the live status of creative briefs and their tasks — Planning, Production, Review, Your Review, Complete — synced automatically from Coda every few hours, so you don't need a Coda login. Clients see a read-only view of their own account; strategists and builders use the account selector to view any client's pipeline.
+The **Content Pipeline** (`/pipeline`) shows the live status of creative briefs and their tasks — Planning, Production, Review, Your Review, Complete — synced automatically from ClickUp every few hours, so you don't need a ClickUp login. Clients see a read-only view of their own account; strategists and builders use the account selector to view any client's pipeline.
 
 ---
 

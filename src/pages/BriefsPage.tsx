@@ -76,7 +76,7 @@ const BriefsPage = () => {
 
   return (
     <>
-      <PageHeader title="Briefs" description="Create a brief from the data and push it to Coda." />
+      <PageHeader title="Briefs" description="Create a brief from the data and share it." />
 
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3 mb-6">

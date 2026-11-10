@@ -103,17 +103,8 @@ verify_jwt = false
 [functions.scheduled-sync]
 verify_jwt = false
 
-[functions.create-coda-brief]
-verify_jwt = false
-
-[functions.sync-coda-tasks]
-verify_jwt = false
-
 # ClickUp -> pipeline_tasks. Service-role only; gated inside the function.
 [functions.sync-clickup-tasks]
-verify_jwt = false
-
-[functions.sync-coda-names]
 verify_jwt = false
 
 # US-005: one-time backfill re-tag of historical creatives. Invoked manually

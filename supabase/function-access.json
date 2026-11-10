@@ -73,9 +73,6 @@
     "competitor-ads": {
       "class": "staff"
     },
-    "create-coda-brief": {
-      "class": "staff"
-    },
     "creative-embed": {
       "class": "service"
     },
@@ -197,12 +194,6 @@
       "class": "staff"
     },
     "sync-clickup-tasks": {
-      "class": "service"
-    },
-    "sync-coda-names": {
-      "class": "service"
-    },
-    "sync-coda-tasks": {
       "class": "service"
     },
     "system-health-check": {

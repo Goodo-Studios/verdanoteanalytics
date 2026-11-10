@@ -14,7 +14,7 @@
     "build:dev": "vite build --mode development",
     "bundle:check": "node scripts/check-bundle-budget.mjs",
     "lint": "eslint .",
-    "lint:ci": "eslint . --max-warnings 986",
+    "lint:ci": "eslint . --max-warnings 976",
     "preview": "vite preview",
     "test": "vitest run",
     "test:scripts": "node --test scripts/*.test.mjs",
