@@ -8,7 +8,8 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ExternalLink } from "lucide-react";
-import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField } from "@/components/page-kit";
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { useAllWorkTasks } from "@/hooks/useHomeData";
@@ -17,8 +18,6 @@ import { ALL_STAGES, clickupTaskUrl, filterWork, isLate, shortDate, todayIso, ty
 import { HomeTabs } from "./HomeTabs";
 
 const PAGE_SIZE = 25;
-const SELECT =
-  "h-9 max-w-[220px] rounded-md border border-input bg-background px-2 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const VIEWS: Array<{ id: WorkView; label: string }> = [
   { id: "week", label: "Due this week" },
   { id: "overdue", label: "Overdue" },
@@ -51,13 +50,21 @@ export default function WorkPage() {
   const names = Object.fromEntries(clients.map((c) => [c.slug, c.name]));
   const rows = filterWork(tasks ?? [], { view, client, stage, query }, today);
   const visible = rows.slice(0, shown);
+  const emptyTitle =
+    (tasks ?? []).length === 0
+      ? "No ClickUp cards have come in yet."
+      : view === "overdue"
+        ? "Nothing is overdue with these filters."
+        : view === "week"
+          ? "Nothing is due in the next 7 days with these filters. Try All."
+          : "No cards match these filters.";
 
   return (
-    <div className="space-y-4 p-6" data-testid="work-page">
+    <PageShell data-testid="work-page">
       <PageHeader title="Work" description="Every client's ClickUp cards, soonest due date first." className="mb-2" />
       <HomeTabs active="work" />
 
-      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filters">
+      <FilterBar search={{ value: query, onChange: (v) => set("q", v), label: "Search task names", placeholder: "Search task names" }}>
         <div className="flex overflow-hidden rounded-md border border-input" role="group" aria-label="Which cards">
           {VIEWS.map((v) => (
             <button
@@ -65,56 +72,50 @@ export default function WorkPage() {
               type="button"
               aria-pressed={view === v.id}
               onClick={() => set("view", v.id === "week" ? "" : v.id)}
-              className={`px-3 py-1.5 text-[13px] transition-colors ${view === v.id ? "bg-forest text-white" : "bg-background hover:bg-accent"}`}
+              className={`px-3 py-2 text-[13px] transition-colors ${view === v.id ? "bg-forest text-white" : "bg-background hover:bg-accent"}`}
               data-testid={`work-view-${v.id}`}
             >
               {v.label}
             </button>
           ))}
         </div>
-        <select aria-label="Client" className={SELECT} value={client} onChange={(e) => set("for", e.target.value)} data-testid="work-filter-client">
-          <option value="">All clients</option>
-          {clients.map((c) => (
-            <option key={c.slug} value={c.slug}>{c.name}</option>
-          ))}
-        </select>
-        <select aria-label="Stage" className={SELECT} value={stage} onChange={(e) => set("stage", e.target.value)} data-testid="work-filter-stage">
-          <option value="">All stages</option>
-          {ALL_STAGES.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
-        <input
-          type="search"
-          aria-label="Search task names"
-          placeholder="Search task names"
-          value={query}
-          onChange={(e) => set("q", e.target.value)}
-          className="h-9 w-56 rounded-md border border-input bg-background px-3 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          data-testid="work-search"
+        <SelectField
+          label="Client"
+          hideLabel
+          value={client}
+          onChange={(e) => set("for", e.target.value)}
+          data-testid="work-filter-client"
+          placeholder="All clients"
+          options={clients.map((c) => ({ value: c.slug, label: c.name }))}
+          className="min-w-[10rem]"
         />
-      </div>
+        <SelectField
+          label="Stage"
+          hideLabel
+          value={stage}
+          onChange={(e) => set("stage", e.target.value)}
+          data-testid="work-filter-stage"
+          placeholder="All stages"
+          options={ALL_STAGES.map((s) => ({ value: s, label: s }))}
+          className="min-w-[10rem]"
+        />
+      </FilterBar>
       <p className="text-xs text-muted-foreground">
         The content board does not record who a card is assigned to, so there is no filter by person.
       </p>
 
       {isLoading ? (
-        <p role="status" className="text-sm text-muted-foreground" data-testid="work-loading">Loading cards...</p>
+        <div data-testid="work-loading">
+          <LoadingState label="Loading cards" />
+        </div>
       ) : isError ? (
-        <div role="alert" className="rounded-lg border border-destructive/40 p-4 text-sm" data-testid="work-error">
-          The cards could not load, so this is not the same as having none.{" "}
-          <button type="button" className="underline" onClick={() => void refetch()}>Try again</button>
+        <div data-testid="work-error">
+          <ErrorState message="The cards could not load, so this is not the same as having none." onRetry={() => void refetch()} />
         </div>
       ) : rows.length === 0 ? (
-        <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground" data-testid="work-empty">
-          {(tasks ?? []).length === 0
-            ? "No ClickUp cards have come in yet."
-            : view === "overdue"
-              ? "Nothing is overdue with these filters."
-              : view === "week"
-                ? "Nothing is due in the next 7 days with these filters. Try All."
-                : "No cards match these filters."}
-        </p>
+        <div data-testid="work-empty">
+          <EmptyState title={emptyTitle} />
+        </div>
       ) : (
         <>
           <p className="text-sm text-muted-foreground" data-testid="work-count">
@@ -150,17 +151,12 @@ export default function WorkPage() {
             })}
           </ul>
           {rows.length > visible.length ? (
-            <button
-              type="button"
-              className="text-sm underline"
-              onClick={() => setShown((n) => n + PAGE_SIZE)}
-              data-testid="work-show-more"
-            >
+            <Button type="button" variant="outline" size="sm" onClick={() => setShown((n) => n + PAGE_SIZE)} data-testid="work-show-more">
               Show more ({rows.length - visible.length} left)
-            </button>
+            </Button>
           ) : null}
         </>
       )}
-    </div>
+    </PageShell>
   );
 }

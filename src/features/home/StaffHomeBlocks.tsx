@@ -94,7 +94,7 @@ export function StaffHomeBlocks() {
   };
 
   return (
-    <div className="max-w-3xl space-y-6" data-testid="staff-home-blocks">
+    <div className="space-y-6" data-testid="staff-home-blocks">
       {isBuilder ? (
         <HomeBlock
           id="attention"

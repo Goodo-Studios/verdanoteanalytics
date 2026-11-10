@@ -5,6 +5,7 @@ import {
   type WindowPreset,
 } from "@/hooks/useWindowAggregates";
 import { cn } from "@/lib/utils";
+import { DataTable, EmptyState, ErrorState, LoadingState, type DataColumn } from "@/components/page-kit";
 
 // US-005: On-demand long-range view. Lets the operator request a common window
 // (30/90/180/365d) and renders the per-ad aggregates served from daily rows by
@@ -40,9 +41,18 @@ function fmtRatio(n: number, digits = 2): string {
 
 export function LongRangeAggregates({ accountId }: LongRangeAggregatesProps) {
   const [days, setDays] = useState<WindowPreset>(30);
-  const { data, isLoading, isError, error } = useWindowAggregates(accountId, days);
+  const { data, isLoading, isError, error, refetch } = useWindowAggregates(accountId, days);
 
   const rows = data ?? [];
+
+  const columns: DataColumn<(typeof rows)[number]>[] = [
+    { key: "ad", header: "Ad", cell: (r) => <span className="font-mono text-xs text-muted-foreground">{r.ad_id}</span> },
+    { key: "spend", header: "Spend", align: "right", cell: (r) => fmtMoney(r.spend) },
+    { key: "impr", header: "Impr.", align: "right", cell: (r) => fmtInt(r.impressions) },
+    { key: "purch", header: "Purch.", align: "right", cell: (r) => fmtInt(r.purchases) },
+    { key: "roas", header: "ROAS", align: "right", cell: (r) => fmtRatio(r.roas) },
+    { key: "cpa", header: "CPA", align: "right", cell: (r) => fmtMoney(r.cpa) },
+  ];
 
   return (
     <div className="space-y-4">
@@ -71,53 +81,18 @@ export function LongRangeAggregates({ accountId }: LongRangeAggregatesProps) {
       </div>
 
       {isError && (
-        <p className="font-body text-sm text-destructive">
-          Failed to load window aggregates
-          {error instanceof Error ? `: ${error.message}` : ""}.
-        </p>
+        <ErrorState
+          message={`Failed to load window aggregates${error instanceof Error ? `: ${error.message}` : ""}.`}
+          onRetry={() => void refetch()}
+        />
       )}
 
-      {isLoading && (
-        <div className="flex justify-center py-10">
-          <div className="h-5 w-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-        </div>
-      )}
+      {isLoading && <LoadingState label="Loading window aggregates" />}
 
-      {!isLoading && !isError && rows.length === 0 && (
-        <p className="font-body text-sm text-muted-foreground py-6">
-          No data for the last {WINDOW_LABELS[days]}.
-        </p>
-      )}
+      {!isLoading && !isError && rows.length === 0 && <EmptyState title={`No data for the last ${WINDOW_LABELS[days]}.`} />}
 
       {!isLoading && !isError && rows.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm font-body">
-            <thead>
-              <tr className="text-left text-muted-foreground border-b border-border-light">
-                <th className="py-2 pr-4 font-medium">Ad</th>
-                <th className="py-2 px-4 font-medium text-right">Spend</th>
-                <th className="py-2 px-4 font-medium text-right">Impr.</th>
-                <th className="py-2 px-4 font-medium text-right">Purch.</th>
-                <th className="py-2 px-4 font-medium text-right">ROAS</th>
-                <th className="py-2 pl-4 font-medium text-right">CPA</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.ad_id} className="border-b border-border-light/50">
-                  <td className="py-2 pr-4 font-mono text-xs text-muted-foreground">
-                    {r.ad_id}
-                  </td>
-                  <td className="py-2 px-4 text-right">{fmtMoney(r.spend)}</td>
-                  <td className="py-2 px-4 text-right">{fmtInt(r.impressions)}</td>
-                  <td className="py-2 px-4 text-right">{fmtInt(r.purchases)}</td>
-                  <td className="py-2 px-4 text-right">{fmtRatio(r.roas)}</td>
-                  <td className="py-2 pl-4 text-right">{fmtMoney(r.cpa)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable label="Ads in this window" columns={columns} rows={rows} rowKey={(r) => r.ad_id} />
       )}
     </div>
   );

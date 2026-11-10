@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
 import {
-  Building2, Zap, FileEdit, RefreshCw, TrendingUp, TrendingDown,
+  Zap, FileEdit, RefreshCw, TrendingUp, TrendingDown,
   AlertTriangle, Trophy,
 } from "lucide-react";
 import { useAccountContext } from "@/contexts/AccountContext";
@@ -16,6 +16,7 @@ import { selectWinners } from "@/lib/winnerSelection";
 import { cn } from "@/lib/utils";
 import { fmt$, fmtSignedPct } from "@/lib/formatters";
 import { useAgencyDashboardData } from "@/hooks/useAgencyDashboardData";
+import { PageHeader, PageShell } from "@/components/page-kit";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { useDateRangeContext } from "@/contexts/DateRangeContext";
 
@@ -95,22 +96,16 @@ export default function AgencyDashboardPage() {
 
   return (
     <>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-3">
-            <Building2 className="h-6 w-6 text-primary" />
-            <h1 className="font-heading text-[28px] text-foreground">Agency Dashboard</h1>
-          </div>
-          <DateRangeFilter
-            dateFrom={dateFrom}
-            dateTo={dateTo}
-            onChange={setDateRange}
-          />
-        </div>
+      <PageShell wide className="space-y-6">
+        <PageHeader
+          title="Agency Dashboard"
+          description="Spend, results and alerts across every account."
+          className="mb-0"
+          actions={<DateRangeFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDateRange} />}
+        />
 
         {/* ROW 1 — Agency Health Bar */}
-        <div className="grid grid-cols-4 gap-px bg-border-light rounded-card overflow-hidden shadow-card">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-border-light rounded-card overflow-hidden shadow-card">
           <HealthMetric label="Portfolio Spend (MTD)" value={fmt$(portfolioMetrics.mtdSpend)} />
           <HealthMetric label="Portfolio ROAS" value={portfolioMetrics.portfolioRoas.toFixed(2) + "x"} />
           <HealthMetric label="Active Creatives" value={String(portfolioMetrics.activeCreatives)} />
@@ -301,7 +296,7 @@ export default function AgencyDashboardPage() {
           </div>
           <p className="font-body text-[10px] text-muted-foreground mt-3">Connect Attio for live pipeline data.</p>
         </Card>
-      </div>
+      </PageShell>
     </>
   );
 }
