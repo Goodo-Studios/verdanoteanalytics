@@ -15,9 +15,10 @@ import { RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { LastRunLine } from "@/components/LastRunLine";
-import { PageHeader } from "@/components/PageHeader";
+import { ErrorState, LoadingState, PageHeader, PageShell, SelectField, StatusBadge, TextField } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
 import { edgeFunctionError } from "@/lib/edgeFunctionError";
+import { fmtWhen } from "@/lib/formatters";
 import {
   ALERT_STATE,
   type AlertConnector,
@@ -31,7 +32,6 @@ import {
   type ConnectorHealth,
   describeNote,
   describePattern,
-  formatWhen,
   type HealthOverview,
   STATE_LABEL,
 } from "./model";
@@ -39,10 +39,11 @@ import { StorageSecretsSection } from "./StorageSecretsSection";
 
 const FN = "integration-health";
 
-const STATE_STYLE: Record<ConnectorHealth["state"], string> = {
-  healthy: "bg-emerald-50 text-emerald-800 border-emerald-200",
-  needs_attention: "bg-amber-50 text-amber-900 border-amber-200",
-  not_connected: "bg-muted text-muted-foreground border-border",
+// Healthy reads as done, needs attention as waiting (amber), not connected as a plain grey.
+const STATE_STATUS: Record<ConnectorHealth["state"], string> = {
+  healthy: "done",
+  needs_attention: "waiting",
+  not_connected: "draft",
 };
 
 function ConnectorCard({ c }: { c: ConnectorHealth }) {
@@ -50,12 +51,12 @@ function ConnectorCard({ c }: { c: ConnectorHealth }) {
     <li aria-label={`${c.label} health`} className="space-y-2 rounded-lg border border-input bg-background p-4 text-sm">
       <div className="flex items-center justify-between gap-2">
         <p className="font-semibold">{c.label}</p>
-        <span data-testid={`integration-health-state-${c.key}`} className={`rounded border px-2 py-0.5 text-[12px] ${STATE_STYLE[c.state]}`}>
-          {STATE_LABEL[c.state]}
+        <span data-testid={`integration-health-state-${c.key}`}>
+          <StatusBadge status={STATE_STATUS[c.state]} label={STATE_LABEL[c.state]} />
         </span>
       </div>
       {c.key === "clickup" || c.key === "verdanote_data" ? (
-        <p className="text-muted-foreground">Last completed sync: {formatWhen(c.lastConfirmedAt)}</p>
+        <p className="text-muted-foreground">Last completed sync: {fmtWhen(c.lastConfirmedAt)}</p>
       ) : null}
       {c.key === "clickup" && typeof c.details.boardRows === "number" ? (
         <p className="text-muted-foreground">{c.details.boardRows} card{c.details.boardRows === 1 ? "" : "s"} on the content board</p>
@@ -77,7 +78,6 @@ function ConnectorCard({ c }: { c: ConnectorHealth }) {
 }
 
 const rpcDb = supabase as unknown as { rpc(name: string, args: Record<string, unknown>): PromiseLike<{ data: unknown; error: { code?: string; message: string } | null }> };
-const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 function ExceptionForm({ overview, onSaved }: { overview: HealthOverview; onSaved: () => void }) {
   const targets = exceptionTargets(overview);
@@ -102,18 +102,16 @@ function ExceptionForm({ overview, onSaved }: { overview: HealthOverview; onSave
   return (
     <div role="group" aria-label="Record an exception" className="space-y-2">
       <div className="grid gap-2 sm:grid-cols-2">
-        <select aria-label="Problem" className={field} value={target} onChange={(e) => { setTarget(e.target.value); setKind(kindsFor(e.target.value.split("|")[1] ?? "")[0] ?? "false_positive"); }}>
-          <option value="">Choose an open problem</option>
-          {targets.map((t) => <option key={`${t.connector}|${t.pattern}`} value={`${t.connector}|${t.pattern}`}>{CONNECTOR_LABEL[t.connector]}: {t.pattern}</option>)}
-        </select>
-        <select aria-label="Kind" className={field} value={kind} disabled={!pattern} onChange={(e) => setKind(e.target.value as ExceptionKind)}>
-          {(kinds.length ? kinds : (["false_positive"] as ExceptionKind[])).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
-        </select>
-        <input aria-label="Reason" className={field} placeholder="Why this is expected or wrong" value={reason} onChange={(e) => setReason(e.target.value)} />
-        <input aria-label="Hours (1 to 24)" className={field} inputMode="numeric" value={hours} onChange={(e) => setHours(e.target.value)} />
+        <SelectField label="Problem" hideLabel value={target} placeholder="Choose an open problem"
+          onChange={(e) => { setTarget(e.target.value); setKind(kindsFor(e.target.value.split("|")[1] ?? "")[0] ?? "false_positive"); }}
+          options={targets.map((t) => ({ value: `${t.connector}|${t.pattern}`, label: `${CONNECTOR_LABEL[t.connector]}: ${t.pattern}` }))} />
+        <SelectField label="Kind" hideLabel value={kind} disabled={!pattern} onChange={(e) => setKind(e.target.value as ExceptionKind)}
+          options={(kinds.length ? kinds : (["false_positive"] as ExceptionKind[])).map((k) => ({ value: k, label: KIND_LABEL[k] }))} />
+        <TextField label="Reason" hideLabel placeholder="Why this is expected or wrong" value={reason} onChange={(e) => setReason(e.target.value)} />
+        <TextField label="Hours (1 to 24)" hideLabel inputMode="numeric" value={hours} onChange={(e) => setHours(e.target.value)} />
       </div>
       <Button size="sm" variant="outline" disabled={!ready} onClick={() => void save()}>Record exception</Button>
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </div>
   );
 }
@@ -163,22 +161,22 @@ export default function IntegrationHealthPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6" data-testid="integration-health">
+    <PageShell className="space-y-6" data-testid="integration-health">
       <PageHeader
         title="Integration health"
         description="Connector status, the work queue and owner alerts, as of the last check. Expected problems can be marked so they do not alert."
         actions={
           <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
-            <RefreshCw className="mr-1 h-4 w-4" /> Check again
+            <RefreshCw className="mr-1 h-4 w-4" aria-hidden="true" /> Check again
           </Button>
         }
       />
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
-      {loading && !overview ? <p role="status" className="text-sm text-muted-foreground">Loading integration health...</p> : null}
+      {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      {loading && !overview ? <LoadingState label="Loading integration health" /> : null}
       {overview ? (
         <>
           <p className="text-[12px] text-muted-foreground">
-            Checked {formatWhen(overview.checkedAt)}
+            Checked {fmtWhen(overview.checkedAt)}
             {overview.environment === "production" ? "" : " · staging, where outside services are not connected"}
           </p>
           <section aria-labelledby="ih-connectors" className="space-y-3">
@@ -208,7 +206,7 @@ export default function IntegrationHealthPage() {
               <ul className="space-y-1 text-sm">
                 {(overview.exceptions ?? []).map((x) => (
                   <li key={x.id} className="rounded border border-input p-2">
-                    {CONNECTOR_LABEL[x.connector]}: {x.pattern} · {KIND_LABEL[x.kind]} · until {formatWhen(x.expiresAt)} · {x.reason}
+                    {CONNECTOR_LABEL[x.connector]}: {x.pattern} · {KIND_LABEL[x.kind]} · until {fmtWhen(x.expiresAt)} · {x.reason}
                   </li>
                 ))}
               </ul>
@@ -218,7 +216,7 @@ export default function IntegrationHealthPage() {
               <div className="space-y-1">
                 <Button size="sm" onClick={() => void evaluate()}>Check and alert now</Button>
                 <LastRunLine checkKey="alert_check" scheduleNote="In production it also runs by itself every 30 minutes." refresh={overview.checkedAt} />
-                {evalError ? <p role="alert" className="text-sm text-red-700">{evalError}</p> : null}
+                {evalError ? <p role="alert" className="text-sm text-destructive">{evalError}</p> : null}
                 {evaluated ? (
                   <ul aria-label="Check result" className="space-y-1 text-sm">
                     {evaluated.length === 0 ? <li>No open problem calls for an owner alert.</li> : null}
@@ -237,7 +235,7 @@ export default function IntegrationHealthPage() {
                 {overview.ownerAlerts.map((a) => (
                   <li key={a.id} className="rounded border border-input p-3 text-sm">
                     <p className="font-medium">{ALERT_STATE[a.state] ?? a.state}</p>
-                    <p className="text-muted-foreground">Queued {formatWhen(a.createdAt)} · updated {formatWhen(a.updatedAt)}</p>
+                    <p className="text-muted-foreground">Queued {fmtWhen(a.createdAt)} · updated {fmtWhen(a.updatedAt)}</p>
                     {a.text ? <p className="mt-1 whitespace-pre-wrap">{a.text}</p> : null}
                   </li>
                 ))}
@@ -246,6 +244,6 @@ export default function IntegrationHealthPage() {
           </section>
         </>
       ) : null}
-    </div>
+    </PageShell>
   );
 }

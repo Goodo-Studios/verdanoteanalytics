@@ -10,8 +10,11 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
-import { PageHeader } from "@/components/PageHeader";
+import { ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextareaField, TextField, useConfirm } from "@/components/page-kit";
+import { fmtDateTime } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import type { ConfirmCopy } from "@/components/page-kit/ConfirmAction";
 import { ClientsSettings } from "./ClientsSettings";
 import { InviteSection, type InvitePrefill } from "./InviteSection";
 import {
@@ -58,17 +61,17 @@ interface Untyped {
   rpc(name: string, args?: Record<string, unknown>): PromiseLike<DbResult>;
 }
 const db = supabase as unknown as Untyped;
-const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 function PersonRow({ row, onChanged }: { row: ReconRow; onChanged: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { confirm, dialog } = useConfirm();
   const role = roleActionFor(row);
   const proposal = proposedChange(row);
   const name = row.team_name ?? row.login_name ?? row.email;
 
-  const act = async (fn: string, args: Record<string, unknown>, confirmText?: string) => {
-    if (confirmText && !window.confirm(confirmText)) return;
+  const act = async (fn: string, args: Record<string, unknown>, confirmCopy?: ConfirmCopy) => {
+    if (confirmCopy && !(await confirm(confirmCopy))) return;
     setBusy(true);
     setError(null);
     const { error: e } = await db.rpc(fn, args);
@@ -108,18 +111,19 @@ function PersonRow({ row, onChanged }: { row: ReconRow; onChanged: () => void })
         ) : null}
         {canAddToTeam(row) ? (
           <Button size="sm" variant="outline" disabled={busy}
-            onClick={() => void act("add_login_to_team_list", { p_user_id: row.user_id, p_name: row.login_name }, `Add ${name} to the team list?`)}>
+            onClick={() => void act("add_login_to_team_list", { p_user_id: row.user_id, p_name: row.login_name }, { title: `Add ${name} to the team list?`, description: "They will be listed on the team and offered in owner dropdowns.", actionLabel: "Add to team list", tone: "default" })}>
             Add to team list
           </Button>
         ) : null}
         {role ? (
           <Button size="sm" variant="outline" disabled={busy}
-            onClick={() => void act("set_staff_role", { p_user_id: row.user_id, p_role: role }, `Set ${name}'s Verdanote role to ${roleLabel(role)}? This changes what they can open.`)}>
+            onClick={() => void act("set_staff_role", { p_user_id: row.user_id, p_role: role }, { title: `Set ${name}'s Verdanote role to ${roleLabel(role)}?`, description: "This changes what they can open.", actionLabel: "Set role", tone: "default" })}>
             Set role to {roleLabel(role)}
           </Button>
         ) : null}
       </div>
-      {error ? <p role="alert" className="mt-1 text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="mt-1 text-destructive">{error}</p> : null}
+      {dialog}
     </li>
   );
 }
@@ -154,26 +158,26 @@ function MemberEditor({ member, onChanged }: { member: TeamMember; onChanged: ()
   const [form, setForm] = useState({ name: member.name, role: member.role as string, active: member.active });
   const [error, setError] = useState<string | null>(null);
   const problem = memberFormProblem(form);
+  const { confirm, dialog } = useConfirm();
   const changed = form.name.trim() !== member.name || form.role !== member.role || form.active !== member.active;
   const save = async () => {
-    if (form.active !== member.active && !form.active && !window.confirm(`Deactivate ${member.name} on the team list? Their Verdanote login is not changed.`)) return;
+    if (form.active !== member.active && !form.active && !(await confirm({ title: `Deactivate ${member.name} on the team list?`, description: "Their Verdanote login is not changed.", actionLabel: "Deactivate" }))) return;
     setError(null);
     const { error: e } = await db.rpc("update_team_member", { p_team_member_id: member.id, p_name: form.name.trim(), p_dashboard_role: form.role, p_active: form.active });
     if (e) return setError(errorText(e));
     onChanged();
   };
   return (
-    <div role="group" aria-label={`Edit ${member.name}`} className="mt-2 grid gap-2 sm:grid-cols-4">
-      <input aria-label="Name" className={field} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-      <select aria-label="Dashboard role" className={field} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-        {DASHBOARD_ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
-      </select>
+    <div role="group" aria-label={`Edit ${member.name}`} className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <TextField label="Name" hideLabel value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+      <SelectField label="Dashboard role" hideLabel value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} options={DASHBOARD_ROLES.map((r) => ({ value: r, label: roleLabel(r) }))} />
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} /> Active
       </label>
       <Button size="sm" disabled={!!problem || !changed} onClick={() => void save()}>Save</Button>
-      {problem ? <p className="text-[12px] text-muted-foreground sm:col-span-4">{problem}</p> : null}
-      {error ? <p role="alert" className="text-sm text-red-700 sm:col-span-4">{error}</p> : null}
+      {problem ? <p className="text-[12px] text-muted-foreground sm:col-span-2 lg:col-span-4">{problem}</p> : null}
+      {error ? <p role="alert" className="text-sm text-destructive sm:col-span-2 lg:col-span-4">{error}</p> : null}
+      {dialog}
     </div>
   );
 }
@@ -209,9 +213,10 @@ function MappingRow({ mapping, builder, onChanged }: { mapping: RoleMapping; bui
   const [form, setForm] = useState({ verdanoteRole: mapping.verdanote_role as string, needsOwnerDecision: mapping.needs_owner_decision, note: mapping.note });
   const [error, setError] = useState<string | null>(null);
   const problem = mappingFormProblem(form);
+  const { confirm, dialog } = useConfirm();
   const save = async () => {
     const decides = mapping.needs_owner_decision && !form.needsOwnerDecision;
-    if (decides && !window.confirm(`Clear the owner flag on ${mapping.dashboard_role}? From then on ${mapping.dashboard_role} becomes ${form.verdanoteRole} when roles are applied. Only do this with the owner's decision.`)) return;
+    if (decides && !(await confirm({ title: `Clear the owner flag on ${mapping.dashboard_role}?`, description: `From then on ${mapping.dashboard_role} becomes ${form.verdanoteRole} when roles are applied. Only do this with the owner's decision.`, actionLabel: "Clear the flag" }))) return;
     setError(null);
     const { error: e } = await db.rpc("set_staff_role_mapping", {
       p_dashboard_role: mapping.dashboard_role,
@@ -223,31 +228,30 @@ function MappingRow({ mapping, builder, onChanged }: { mapping: RoleMapping; bui
     onChanged();
   };
   return (
-    <tr className="border-t border-input align-top" data-testid="mapping-row">
-      <td className="py-2 pr-2">{roleLabel(mapping.dashboard_role)}</td>
-      <td className="py-2 pr-2">{roleLabel(mapping.verdanote_role)}</td>
-      <td className="py-2 pr-2">{mapping.needs_owner_decision ? <span className="font-medium text-amber-800">Waits on the owner (not applied)</span> : "Applied"}</td>
-      <td className="py-2">
+    <TableRow className="align-top" data-testid="mapping-row">
+      <TableCell>{roleLabel(mapping.dashboard_role)}</TableCell>
+      <TableCell>{roleLabel(mapping.verdanote_role)}</TableCell>
+      <TableCell>{mapping.needs_owner_decision ? <span className="font-medium text-warning-foreground">Waits on the owner (not applied)</span> : "Applied"}</TableCell>
+      <TableCell>
         {mapping.note}
         {builder ? (
           <details>
             <summary className="cursor-pointer text-[12px] text-muted-foreground">Change</summary>
             <div role="group" aria-label={`Change the ${mapping.dashboard_role} mapping`} className="mt-2 space-y-2">
-              <select aria-label="Verdanote role" className={field} value={form.verdanoteRole} onChange={(e) => setForm({ ...form, verdanoteRole: e.target.value })}>
-                {STAFF_ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
-              </select>
+              <SelectField label="Verdanote role" hideLabel value={form.verdanoteRole} onChange={(e) => setForm({ ...form, verdanoteRole: e.target.value })} options={STAFF_ROLES.map((r) => ({ value: r, label: roleLabel(r) }))} />
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={form.needsOwnerDecision} onChange={(e) => setForm({ ...form, needsOwnerDecision: e.target.checked })} /> Still waits on the owner
               </label>
-              <textarea aria-label="Mapping note" className={field} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
+              <TextareaField label="Mapping note" hideLabel value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
               <Button size="sm" disabled={!!problem} onClick={() => void save()}>Save mapping</Button>
               {problem ? <p className="text-[12px] text-muted-foreground">{problem}</p> : null}
-              {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+              {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
             </div>
           </details>
         ) : null}
-      </td>
-    </tr>
+        {dialog}
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -259,16 +263,16 @@ function Mappings({ mappings, builder, onChanged }: { mappings: RoleMapping[]; b
         How a dashboard role becomes a Verdanote role. This is the owner's open decision on roles: until it is made, admin becomes
         builder, producer becomes employee, and viewer is proposed as employee but never applied.
       </p>
-      <table className="w-full text-left text-sm">
-        <thead>
-          <tr className="text-[12px] uppercase text-muted-foreground">
-            <th className="pr-2">Dashboard role</th><th className="pr-2">Verdanote role</th><th className="pr-2">Status</th><th>Note</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table aria-label="Role mapping table" className="min-w-[40rem]">
+        <TableHeader>
+          <TableRow>
+            <TableHead>Dashboard role</TableHead><TableHead>Verdanote role</TableHead><TableHead>Status</TableHead><TableHead>Note</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {mappings.map((m) => <MappingRow key={`${m.dashboard_role}:${m.updated_at}`} mapping={m} builder={builder} onChanged={onChanged} />)}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </section>
   );
 }
@@ -290,11 +294,11 @@ function InviteRow({ invite, onChanged, onSend }: { invite: StaffInvite; onChang
       {invite.status === "prepared" ? (
         <div className="mt-2 flex flex-wrap gap-2">
           <Button size="sm" onClick={() => onSend(invite)} aria-label={`Send the invite to ${invite.name}`}>Send invite by email</Button>
-          <input aria-label={`Reason to cancel the invite for ${invite.name}`} className={field} placeholder="Reason to cancel" value={reason} onChange={(e) => setReason(e.target.value)} />
+          <TextField label={`Reason to cancel the invite for ${invite.name}`} hideLabel placeholder="Reason to cancel" value={reason} onChange={(e) => setReason(e.target.value)} className="min-w-[12rem] flex-1" />
           <Button size="sm" variant="outline" disabled={!!problem} onClick={() => void cancel()}>Cancel invite</Button>
         </div>
       ) : null}
-      {error ? <p role="alert" className="mt-1 text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="mt-1 text-destructive">{error}</p> : null}
     </li>
   );
 }
@@ -310,6 +314,7 @@ export default function TeamPage() {
   const [events, setEvents] = useState<StaffEvent[]>([]);
   const [prefill, setPrefill] = useState<InvitePrefill | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const load = useCallback(async () => {
     const [team, map] = await Promise.all([
@@ -318,10 +323,12 @@ export default function TeamPage() {
     ]);
     if (team.error || map.error) {
       setError("The team list could not load.");
+      setLoadFailed(true);
       setMembers([]);
       return;
     }
     setError(null);
+    setLoadFailed(false);
     setMembers((team.data ?? []) as TeamMember[]);
     setMappings((map.data ?? []) as RoleMapping[]);
     if (!builder) return;
@@ -346,12 +353,13 @@ export default function TeamPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6" data-testid="team-page">
+    <PageShell className="space-y-6" data-testid="team-page">
       <PageHeader
         title="Team and settings"
         description="One place to manage staff: the team list, the role mapping, the check of the team list against Verdanote logins and roles, and invites by email. Linking a client login to its client is on the client's Setup tab."
       />
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+      {error ? (loadFailed ? <ErrorState message={error} onRetry={reload} /> : <p role="alert" className="text-sm text-destructive">{error}</p>) : null}
+      {members === null ? <LoadingState label="Loading the team" /> : null}
       {builder ? null : (
         <p className="rounded border border-input bg-muted/40 p-3 text-sm">
           Builders change the team list, the role mapping and staff roles here. You can see the team list and the mapping.
@@ -376,11 +384,11 @@ export default function TeamPage() {
           {events.length === 0 ? <p className="text-sm text-muted-foreground">No changes recorded yet.</p> : null}
           <ul className="text-[13px]">
             {events.map((e) => (
-              <li key={e.id}>{new Date(e.created_at).toLocaleString()}: {EVENT_LABEL[e.kind] ?? e.kind}, {e.subject}</li>
+              <li key={e.id}>{fmtDateTime(e.created_at)}: {EVENT_LABEL[e.kind] ?? e.kind}, {e.subject}</li>
             ))}
           </ul>
         </section>
       ) : null}
-    </div>
+    </PageShell>
   );
 }

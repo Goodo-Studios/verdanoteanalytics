@@ -12,6 +12,7 @@
  * The function's own rules are in supabase/functions/invite-user/index.test.ts and the database
  * rules in supabase/tests/user_invites_test.sql. No invite is sent: the function call is a mock.
  */
+import { acceptConfirm, confirmDialogText, declineConfirm } from "./adminConfirm";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -60,7 +61,6 @@ beforeEach(() => {
   h.clients = [{ slug: "glow", name: "Glow Drip", active: true }, { slug: "old", name: "Old Co", active: false }];
   h.invoke.mockReset();
   h.invoke.mockResolvedValue({ data: { invite: {} }, error: null });
-  vi.spyOn(window, "confirm").mockReturnValue(true);
 });
 afterEach(() => {
   cleanup();
@@ -208,11 +208,12 @@ describe("the log", () => {
     h.invites = { data: [log()], error: null };
     render(<InviteSection prefill={null} onSent={() => {}} />);
     const button = await screen.findByRole("button", { name: "Revoke the invite for pat@example.test" });
-    vi.mocked(window.confirm).mockReturnValueOnce(false);
     fireEvent.click(button);
+    await declineConfirm();
     expect(h.invoke).not.toHaveBeenCalled();
     fireEvent.click(button);
-    expect(window.confirm).toHaveBeenLastCalledWith(expect.stringContaining("Their login is removed and the link in their email stops working."));
+    expect(await confirmDialogText()).toContain("Their login is removed and the link in their email stops working.");
+    await acceptConfirm();
     await waitFor(() => expect(h.invoke).toHaveBeenCalledWith("invite-user", { body: { action: "revoke", invite_id: "i1", redirect_origin: window.location.origin } }));
   });
 });

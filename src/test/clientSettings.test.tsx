@@ -9,6 +9,7 @@
  * - model rules.
  * The database rules are in supabase/tests/dashboard_client_settings_test.sql.
  */
+import { acceptConfirm, confirmDialogText } from "./adminConfirm";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -119,12 +120,13 @@ describe("ClientsSettings", () => {
   });
 
   it("lets a builder hide a client after a confirm and edit a hand-made client; a synced client stays read only", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     renderWithRouter(<ClientsSettings builder />);
     const items = await screen.findAllByTestId("client-setting");
     fireEvent.click(within(items[0]).getByRole("button", { name: "Hide from overview" }));
+    expect(rpc).not.toHaveBeenCalledWith("set_client_active", expect.anything());
+    expect(await confirmDialogText()).toContain("Hide Glow Drip from the Client overview?");
+    await acceptConfirm();
     await waitFor(() => expect(rpc).toHaveBeenCalledWith("set_client_active", { p_slug: "glow", p_active: false }));
-    expect(confirm).toHaveBeenCalledTimes(1);
     expect(within(items[1]).queryByText("Edit name and service lines")).toBeNull();
     expect(items[1]).toHaveTextContent("come from the client knowledge file through the HQ sync");
     const group = within(items[0]).getByRole("group", { name: "Edit Glow Drip" });
@@ -132,15 +134,14 @@ describe("ClientsSettings", () => {
     fireEvent.click(within(group).getByRole("button", { name: "Save" }));
     await waitFor(() =>
       expect(rpc).toHaveBeenCalledWith("update_client", { p_slug: "glow", p_name: "Glow Drip Co", p_does_creators: true, p_does_production: false }));
-    confirm.mockRestore();
   });
 
   it("shows a refusal from the database", async () => {
     rpc.mockResolvedValue({ data: null, error: { code: "42501", message: "Only admins can change which clients are active." } });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     renderWithRouter(<ClientsSettings builder />);
     const items = await screen.findAllByTestId("client-setting");
     fireEvent.click(within(items[0]).getByRole("button", { name: "Hide from overview" }));
+    await acceptConfirm();
     expect(await within(items[0]).findByRole("alert")).toHaveTextContent("Not allowed: Only admins can change which clients are active.");
   });
 });

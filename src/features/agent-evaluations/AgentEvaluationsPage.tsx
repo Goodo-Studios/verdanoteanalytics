@@ -7,7 +7,8 @@
 // database decides that. Clients see none of it, and nothing is sent outside Verdanote.
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { PageHeader } from "@/components/PageHeader";
+import { EmptyState, ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
+import { fmtDate, fmtDateTime } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 import { edgeFunctionError } from "@/lib/edgeFunctionError";
 import {
@@ -48,7 +49,6 @@ interface Untyped {
   rpc(name: string, args: Record<string, unknown>): PromiseLike<DbResult>;
 }
 const db = supabase as unknown as Untyped;
-const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 function SampleForm({ agentKey, onAdded }: { agentKey: string; onAdded: () => void }) {
   const [sampleKey, setSampleKey] = useState("");
@@ -82,23 +82,19 @@ function SampleForm({ agentKey, onAdded }: { agentKey: string; onAdded: () => vo
   return (
     <section className="space-y-3 rounded-lg border border-input bg-background p-5" aria-label="Add a sample">
       <h2 className="text-sm font-semibold">Add a sample</h2>
-      <input aria-label="Sample key" className={field} value={sampleKey} onChange={(e) => setSampleKey(e.target.value)} placeholder="for example invented_budget" />
+      <TextField label="Sample key" hideLabel value={sampleKey} onChange={(e) => setSampleKey(e.target.value)} placeholder="for example invented_budget" />
       <div className="grid gap-2 sm:grid-cols-3">
-        <select aria-label="Dimension" className={field} value={dimension} onChange={(e) => setDimension(e.target.value as Dimension)}>
-          {DIMENSIONS.map((d) => <option key={d} value={d}>{DIMENSION_LABEL[d]}</option>)}
-        </select>
-        <select aria-label="Expected decision" className={field} value={expected} onChange={(e) => setExpected(e.target.value as Decision)}>
-          {(["allow", "escalate", "deny"] as Decision[]).map((d) => <option key={d} value={d}>{DECISION_LABEL[d]}</option>)}
-        </select>
-        <select aria-label="Label" className={field} value={label} onChange={(e) => setLabel(e.target.value as "synthetic" | "authorized")}>
-          <option value="synthetic">Made up</option>
-          <option value="authorized">Real, with permission</option>
-        </select>
+        <SelectField label="Dimension" hideLabel value={dimension} onChange={(e) => setDimension(e.target.value as Dimension)}
+          options={DIMENSIONS.map((d) => ({ value: d, label: DIMENSION_LABEL[d] }))} />
+        <SelectField label="Expected decision" hideLabel value={expected} onChange={(e) => setExpected(e.target.value as Decision)}
+          options={(["allow", "escalate", "deny"] as Decision[]).map((d) => ({ value: d, label: DECISION_LABEL[d] }))} />
+        <SelectField label="Label" hideLabel value={label} onChange={(e) => setLabel(e.target.value as "synthetic" | "authorized")}
+          options={[{ value: "synthetic", label: "Made up" }, { value: "authorized", label: "Real, with permission" }]} />
       </div>
-      <textarea aria-label="Request" className={`${field} h-24`} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="The request the agent receives" />
-      <input aria-label="Where it came from" className={field} value={provenance} onChange={(e) => setProvenance(e.target.value)} placeholder="Where this sample came from" />
+      <TextareaField label="Request" hideLabel inputClassName="h-24" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="The request the agent receives" />
+      <TextField label="Where it came from" hideLabel value={provenance} onChange={(e) => setProvenance(e.target.value)} placeholder="Where this sample came from" />
       <Button disabled={busy || !ready} onClick={() => void add()}>{busy ? "Saving..." : "Add sample"}</Button>
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </section>
   );
 }
@@ -130,16 +126,15 @@ function OutcomeForm({ runId, onSaved }: { runId: string; onSaved: () => void })
   return (
     <div className="space-y-2 border-t border-input pt-2" aria-label="Record the outcome">
       <div className="grid gap-2 sm:grid-cols-3">
-        <input aria-label="Approved without edits" className={field} value={count} onChange={(e) => setCount(e.target.value)} placeholder="Approved" />
-        <input aria-label="Reviewed" className={field} value={total} onChange={(e) => setTotal(e.target.value)} placeholder="Reviewed" />
-        <select aria-label="Business outcome" className={field} value={status} onChange={(e) => setStatus(e.target.value)}>
-          {Object.entries(OUTCOME_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
+        <TextField label="Approved without edits" hideLabel value={count} onChange={(e) => setCount(e.target.value)} placeholder="Approved" />
+        <TextField label="Reviewed" hideLabel value={total} onChange={(e) => setTotal(e.target.value)} placeholder="Reviewed" />
+        <SelectField label="Business outcome" hideLabel value={status} onChange={(e) => setStatus(e.target.value)}
+          options={Object.entries(OUTCOME_LABEL).map(([k, v]) => ({ value: k, label: v }))} />
       </div>
-      <input aria-label="Outcome note" className={field} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" />
-      <input aria-label="Reason" className={field} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="What the counts are based on" />
+      <TextField label="Outcome note" hideLabel value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" />
+      <TextField label="Reason" hideLabel value={reason} onChange={(e) => setReason(e.target.value)} placeholder="What the counts are based on" />
       <Button size="sm" disabled={busy || !counts || !reason.trim()} onClick={() => void save()}>Record outcome</Button>
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </div>
   );
 }
@@ -158,7 +153,7 @@ function RunCard({ run, approved, onChanged }: { run: Run; approved: boolean; on
         {RUN_STATUS_LABEL[run.status]} · {run.passed_samples} of {run.total_samples} samples passed · {run.model} · {run.prompt_version}
       </p>
       <p className="text-[12px] text-muted-foreground">
-        {new Date(run.created_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })} · dimensions covered:{" "}
+        {fmtDateTime(run.created_at)} · dimensions covered:{" "}
         {run.dimensions_covered.length ? run.dimensions_covered.map((d) => DIMENSION_LABEL[d as Dimension] ?? d).join(", ") : "none"}
       </p>
       {run.limitation ? <p className="text-sm text-muted-foreground">{run.limitation}</p> : null}
@@ -181,7 +176,7 @@ function RunCard({ run, approved, onChanged }: { run: Run; approved: boolean; on
       {approved ? <p className="text-sm font-medium">This run's configuration is the approved one.</p> : canApprove(run) ? (
         <Button size="sm" variant="outline" onClick={() => void approve()}>Approve this model and prompt version</Button>
       ) : null}
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </li>
   );
 }
@@ -192,6 +187,7 @@ export default function AgentEvaluationsPage() {
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -202,11 +198,12 @@ export default function AgentEvaluationsPage() {
       db.from("agent_config_approvals").select("*").eq("agent_key", key).order("created_at", { ascending: false }),
     ]);
     if (s.error || r.error || a.error) {
-      setError("Evaluations could not load.");
+      setLoadError("Evaluations could not load.");
       setSamples([]);
       setRuns([]);
       return;
     }
+    setLoadError(null);
     setSamples((s.data ?? []) as Sample[]);
     setRuns(toRuns(r.data));
     setApprovals((a.data ?? []) as Approval[]);
@@ -234,30 +231,27 @@ export default function AgentEvaluationsPage() {
   const missing = samples ? missingDimensions(samples) : [];
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6" data-testid="agent-evaluations">
+    <PageShell className="space-y-6" data-testid="agent-evaluations">
       <PageHeader title="Agent evaluations" description="Test requests for each AI agent, run against the model with the agent's own instructions. An answer counts only when its reason quotes the request exactly." />
       <section className="space-y-3 rounded-lg border border-input bg-background p-5">
-        <label className="block space-y-1 text-sm">
-          <span>Agent</span>
-          <select aria-label="Agent" className={field} value={agentKey} onChange={(e) => setAgentKey(e.target.value)}>
-            {AGENTS.map((a) => <option key={a.key} value={a.key}>{a.label}</option>)}
-          </select>
-        </label>
+        <SelectField label="Agent" value={agentKey} onChange={(e) => setAgentKey(e.target.value)} options={AGENTS.map((a) => ({ value: a.key, label: a.label }))} />
         <p className="text-sm">
-          {approval ? `Approved configuration: ${approval.model}, prompt ${approval.prompt_version}, since ${new Date(approval.created_at).toLocaleDateString("en-US", { dateStyle: "medium" })}.` : "No approved configuration yet."}
+          {approval ? `Approved configuration: ${approval.model}, prompt ${approval.prompt_version}, since ${fmtDate(approval.created_at)}.` : "No approved configuration yet."}
         </p>
         <p className="text-[12px] text-muted-foreground">The approval is recorded here; it does not yet stop the agent from running.</p>
         {missing.length ? <p className="text-sm text-muted-foreground">No sample yet for: {missing.map((d) => DIMENSION_LABEL[d]).join(", ")}. A run cannot pass until every dimension has one.</p> : null}
         <Button disabled={busy || !samples?.length} onClick={() => void run()}>{busy ? "Running..." : "Run evaluation"}</Button>
         {message ? <p role="status" className="text-sm">{message}</p> : null}
-        {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       </section>
+      {loadError ? <ErrorState message={loadError} onRetry={() => void load(agentKey)} /> : null}
+      {samples === null && !loadError ? <LoadingState label="Loading evaluations" /> : null}
 
       <SampleForm agentKey={agentKey} onAdded={() => void load(agentKey)} />
 
       <section className="space-y-2" aria-label="Samples">
         <h2 className="text-sm font-semibold">Samples</h2>
-        {samples === null ? null : samples.length === 0 ? <p className="text-sm text-muted-foreground">No samples for this agent yet.</p> : (
+        {samples === null ? null : samples.length === 0 ? <EmptyState title="No samples for this agent yet." /> : (
           <ul className="space-y-2">
             {samples.map((s) => (
               <li key={s.id} className="rounded-md border border-input p-3 text-sm">
@@ -271,12 +265,12 @@ export default function AgentEvaluationsPage() {
 
       <section className="space-y-2" aria-label="Runs">
         <h2 className="text-sm font-semibold">Runs</h2>
-        {runs === null ? null : runs.length === 0 ? <p className="text-sm text-muted-foreground">No runs yet.</p> : (
+        {runs === null ? null : runs.length === 0 ? <EmptyState title="No runs yet." /> : (
           <ul className="space-y-4">
             {runs.map((r) => <RunCard key={r.id} run={r} approved={approval?.run_id === r.id} onChanged={() => void load(agentKey)} />)}
           </ul>
         )}
       </section>
-    </div>
+    </PageShell>
   );
 }

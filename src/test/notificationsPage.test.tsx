@@ -10,6 +10,7 @@
  * The database rules are in supabase/tests/reminder_recipient_test.sql. Nothing is sent: every
  * write here is a mock of a row write, and the page has no call that posts to Slack.
  */
+import { acceptConfirm, confirmDialogText, declineConfirm } from "./adminConfirm";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -100,7 +101,6 @@ beforeEach(() => {
   h.writeError = null;
   h.health = { data: { connectors: [{ key: "slack", state: "connected" }] }, error: null };
   load();
-  vi.spyOn(window, "confirm").mockReturnValue(true);
 });
 afterEach(() => {
   cleanup();
@@ -128,10 +128,12 @@ describe("Slack sending", () => {
   it("lets a builder turn it on only after a confirm, and writes the switch row", async () => {
     render(<NotificationsPage />);
     const on = await screen.findByRole("button", { name: "Turn Slack sending on" });
-    vi.mocked(window.confirm).mockReturnValueOnce(false);
     fireEvent.click(on);
+    expect(await confirmDialogText()).toContain("Turn Slack sending on?");
+    await declineConfirm();
     expect(h.writes).toHaveLength(0);
     fireEvent.click(on);
+    await acceptConfirm();
     await waitFor(() => expect(h.writes).toHaveLength(1));
     expect(h.writes[0]).toMatchObject({ table: "outbound_switches", op: "upsert", row: { name: "slack_sends", enabled: true } });
   });
@@ -152,6 +154,7 @@ describe("Slack sending", () => {
     h.writeError = { code: "42501", message: "denied" };
     render(<NotificationsPage />);
     fireEvent.click(await screen.findByRole("button", { name: "Turn Slack sending on" }));
+    await acceptConfirm();
     expect((await screen.findByRole("alert")).textContent).toBe("Only a builder can change that.");
   });
 });
@@ -188,9 +191,12 @@ describe("Slack destinations", () => {
     expect(within(rows[0]).getByTestId("destination-state")).toHaveTextContent("Not confirmed yet");
     expect(within(rows[1]).getByTestId("destination-state")).toHaveTextContent("Paused");
     fireEvent.click(within(rows[0]).getByRole("button", { name: "Confirm channel" }));
+    expect(h.writes).toHaveLength(0);
+    await acceptConfirm();
     await waitFor(() => expect(h.writes).toHaveLength(1));
     expect(h.writes[0]).toMatchObject({ table: "slack_destinations", op: "update", row: { owner_confirmed: true }, id: "d1" });
     fireEvent.click(within(rows[1]).getByRole("button", { name: "Resume" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
     await waitFor(() => expect(h.writes).toHaveLength(2));
     expect(h.writes[1]).toMatchObject({ row: { active: true }, id: "d2" });
   });
@@ -282,6 +288,11 @@ describe("Reminders", () => {
     expect(within(rows[1]).getByTestId("reminder-state")).toHaveTextContent("Did not send");
     expect(within(rows[1]).queryByRole("button", { name: /Cancel/ })).toBeNull();
     fireEvent.click(within(rows[0]).getByRole("button", { name: /Cancel the reminder due/ }));
+    expect(await confirmDialogText()).toContain("It will not be sent.");
+    await declineConfirm();
+    expect(h.writes).toHaveLength(0);
+    fireEvent.click(within(rows[0]).getByRole("button", { name: /Cancel the reminder due/ }));
+    await acceptConfirm();
     await waitFor(() => expect(h.writes).toHaveLength(1));
     expect(h.writes[0]).toMatchObject({ table: "reminders", op: "update", row: { state: "canceled" }, id: "r1" });
   });
