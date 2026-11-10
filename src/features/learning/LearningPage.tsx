@@ -11,7 +11,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { useAuth } from "@/contexts/AuthContext";
-import { PageHeader } from "@/components/PageHeader";
+import { EmptyState, ErrorState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
+import { fmtDate } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 import {
   canAccept,
@@ -44,7 +45,6 @@ interface Untyped {
   rpc(name: string, args: Record<string, unknown>): PromiseLike<DbResult>;
 }
 const db = supabase as unknown as Untyped;
-const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 interface ClientOption {
   slug: string;
@@ -89,33 +89,22 @@ function DraftEditor({ lesson, staff, onSaved }: { lesson: Lesson; staff: StaffO
     <details>
       <summary className="cursor-pointer font-medium">Write version {lesson.current_version + 1}</summary>
       <div className="mt-2 space-y-2">
-        <input aria-label="Summary" className={field} placeholder="Summary" value={d.summary} onChange={set("summary")} />
-        <textarea aria-label="Steps" className={field} placeholder="Steps, one per line" value={d.steps} onChange={set("steps")} />
-        <textarea aria-label="Checklist" className={field} placeholder="Checklist, one per line" value={d.checklist} onChange={set("checklist")} />
-        <textarea aria-label="Source links" className={field} placeholder="Source links (https), one per line" value={d.sources} onChange={set("sources")} />
-        <textarea aria-label="Blocking gaps" className={field} placeholder="Blocking gaps, one per line (publication needs none)" value={d.gaps} onChange={set("gaps")} />
+        <TextField label="Summary" hideLabel placeholder="Summary" value={d.summary} onChange={set("summary")} />
+        <TextareaField label="Steps" hideLabel placeholder="Steps, one per line" value={d.steps} onChange={set("steps")} />
+        <TextareaField label="Checklist" hideLabel placeholder="Checklist, one per line" value={d.checklist} onChange={set("checklist")} />
+        <TextareaField label="Source links" hideLabel placeholder="Source links (https), one per line" value={d.sources} onChange={set("sources")} />
+        <TextareaField label="Blocking gaps" hideLabel placeholder="Blocking gaps, one per line (publication needs none)" value={d.gaps} onChange={set("gaps")} />
         <div className="flex flex-wrap gap-4">
           <label className="flex items-center gap-1"><input type="checkbox" checked={d.standard} onChange={(e) => setD({ ...d, standard: e.target.checked })} /> Standard engagements</label>
           <label className="flex items-center gap-1"><input type="checkbox" checked={d.custom} onChange={(e) => setD({ ...d, custom: e.target.checked })} /> Custom engagements</label>
         </div>
         <div className="grid gap-2 sm:grid-cols-3">
-          <select aria-label="Source clearance" className={field} value={d.clearance} onChange={set("clearance")}>
-            <option value="pending">Sources pending</option>
-            <option value="cleared">Sources cleared</option>
-            <option value="source_blocked">Source blocked</option>
-          </select>
-          <select aria-label="Client use rights" className={field} value={d.rights} onChange={set("rights")}>
-            <option value="internal_draft_only">Internal draft only</option>
-            <option value="client_approved">Client approved</option>
-            <option value="prohibited">Prohibited</option>
-          </select>
-          <select aria-label="Reviewer" className={field} value={d.reviewer} onChange={set("reviewer")}>
-            <option value="">No reviewer yet</option>
-            {staff.filter((s) => s.user_id !== user?.id).map((s) => <option key={s.user_id} value={s.user_id}>{s.display_name || s.email}</option>)}
-          </select>
+          <SelectField label="Source clearance" hideLabel value={d.clearance} onChange={set("clearance")} options={[{ value: "pending", label: "Sources pending" }, { value: "cleared", label: "Sources cleared" }, { value: "source_blocked", label: "Source blocked" }]} />
+          <SelectField label="Client use rights" hideLabel value={d.rights} onChange={set("rights")} options={[{ value: "internal_draft_only", label: "Internal draft only" }, { value: "client_approved", label: "Client approved" }, { value: "prohibited", label: "Prohibited" }]} />
+          <SelectField label="Reviewer" hideLabel value={d.reviewer} onChange={set("reviewer")} placeholder="No reviewer yet" options={staff.filter((s) => s.user_id !== user?.id).map((s) => ({ value: s.user_id, label: s.display_name || s.email }))} />
         </div>
         <Button size="sm" disabled={!d.summary.trim()} onClick={() => void save()}>Save version {lesson.current_version + 1}</Button>
-        {error ? <p role="alert" className="text-red-700">{error}</p> : null}
+        {error ? <p role="alert" className="text-destructive">{error}</p> : null}
       </div>
     </details>
   );
@@ -154,7 +143,7 @@ function LessonCard({ lesson, staff, onChanged }: { lesson: Lesson; staff: Staff
       {canAccept(lesson, user?.id) ? <Button size="sm" variant="outline" onClick={() => review("accepted")}>Accept for review</Button> : null}
       {canDecide(lesson, user?.id) ? (
         <div className="space-y-2">
-          <input aria-label="Review note" className={field} placeholder="Review note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
+          <TextField label="Review note" hideLabel placeholder="Review note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
           <div className="flex gap-2">
             <Button size="sm" onClick={() => review("approved")}>Approve</Button>
             <Button size="sm" variant="outline" onClick={() => review("rejected")}>Reject</Button>
@@ -167,12 +156,12 @@ function LessonCard({ lesson, staff, onChanged }: { lesson: Lesson; staff: Staff
       ) : null}
       {isBuilder && lesson.active ? (
         <div className="flex gap-2">
-          <input aria-label="Withdrawal reason" className={field} placeholder="Why it is withdrawn" value={reason} onChange={(e) => setReason(e.target.value)} />
+          <TextField label="Withdrawal reason" hideLabel placeholder="Why it is withdrawn" value={reason} onChange={(e) => setReason(e.target.value)} />
           <Button size="sm" variant="outline" disabled={!reason.trim()} onClick={() => void call("withdraw_learning_module", { p_module_id: lesson.id, p_reason: reason.trim() }, "It could not be withdrawn.")}>Withdraw</Button>
         </div>
       ) : null}
       <DraftEditor key={lesson.current_version} lesson={lesson} staff={staff} onSaved={onChanged} />
-      {error ? <p role="alert" className="text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-destructive">{error}</p> : null}
     </section>
   );
 }
@@ -205,13 +194,13 @@ function LessonsTab({ staff }: { staff: StaffOption[] }) {
       {!clientSlug ? <PickClientPrompt what="its lessons" /> : null}
       {clientSlug ? (
         <div className="grid gap-2 sm:grid-cols-3">
-          <input aria-label="Lesson key" className={field} placeholder="lesson-key" value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value })} />
-          <input aria-label="Lesson title" className={field} placeholder="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          <TextField label="Lesson key" hideLabel placeholder="lesson-key" value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value })} />
+          <TextField label="Lesson title" hideLabel placeholder="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
           <Button size="sm" disabled={!form.key.trim() || !form.title.trim()} onClick={() => void create()}>Add lesson</Button>
         </div>
       ) : null}
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
-      {lessons && lessons.length === 0 ? <p className="text-sm text-muted-foreground">No lessons for this client yet.</p> : null}
+      {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      {lessons && !error && lessons.length === 0 ? <EmptyState title="No lessons for this client yet." /> : null}
       {(lessons ?? []).map((l) => <LessonCard key={`${l.id}:${l.current_version}:${l.reviews.length}:${l.history.length}`} lesson={l} staff={staff} onChanged={() => void load()} />)}
     </div>
   );
@@ -252,56 +241,46 @@ function SelfServiceTab() {
     <div className="space-y-3">
       <div className="grid gap-2 sm:grid-cols-2">
         {!clientSlug ? <div className="sm:col-span-2"><PickClientPrompt what="its self-service tally" /></div> : null}
-        <select aria-label="Engagement" className={field} value={engagementId} onChange={(e) => setEngagementId(e.target.value)} disabled={!clientSlug}>
-          <option value="">Select an engagement</option>
-          {engagements.map((e) => <option key={e.id} value={e.id}>Cycle {e.cycle_number} ({e.status})</option>)}
-        </select>
+        <SelectField label="Engagement" hideLabel value={engagementId} onChange={(e) => setEngagementId(e.target.value)} disabled={!clientSlug} placeholder="Select an engagement" options={engagements.map((e) => ({ value: e.id, label: `Cycle ${e.cycle_number} (${e.status})` }))} />
       </div>
       {engagementId ? (
         <>
           <div className="space-y-2 rounded-lg border border-input p-4 text-sm">
             <p className="font-medium">Weekly tally of recurring how-to questions that reached people</p>
-            <div className="grid gap-2 sm:grid-cols-4">
-              <input aria-label="Week" type="date" className={field} value={week.date} onChange={(e) => setWeek({ ...week, date: e.target.value })} />
-              <select aria-label="Observation" className={field} value={week.status} onChange={(e) => setWeek({ ...week, status: e.target.value })}>
-                <option value="observed">Observed</option>
-                <option value="missing">Missing</option>
-                <option value="unknown">Unknown</option>
-              </select>
-              <input aria-label="Questions" type="number" min={0} className={field} value={week.count} disabled={week.status !== "observed"} onChange={(e) => setWeek({ ...week, count: e.target.value })} />
-              <select aria-label="Data origin" className={field} value={week.origin} onChange={(e) => setWeek({ ...week, origin: e.target.value })}>
-                <option value="pilot_observation">Pilot observation</option>
-                <option value="synthetic_fixture">Made-up test data</option>
-              </select>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <TextField label="Week" hideLabel type="date" value={week.date} onChange={(e) => setWeek({ ...week, date: e.target.value })} />
+              <SelectField label="Observation" hideLabel value={week.status} onChange={(e) => setWeek({ ...week, status: e.target.value })} options={[{ value: "observed", label: "Observed" }, { value: "missing", label: "Missing" }, { value: "unknown", label: "Unknown" }]} />
+              <TextField label="Questions" hideLabel type="number" min={0} value={week.count} disabled={week.status !== "observed"} onChange={(e) => setWeek({ ...week, count: e.target.value })} />
+              <SelectField label="Data origin" hideLabel value={week.origin} onChange={(e) => setWeek({ ...week, origin: e.target.value })} options={[{ value: "pilot_observation", label: "Pilot observation" }, { value: "synthetic_fixture", label: "Made-up test data" }]} />
             </div>
             <Button size="sm" disabled={!week.date} onClick={() => void call("record_learning_support_week", {
               p_engagement_id: engagementId, p_week_start: mondayOf(week.date), p_observation_status: week.status,
               p_recurring_how_to_questions: week.status === "observed" ? Number(week.count) : 0, p_data_origin: week.origin,
             }, "The week could not be recorded.")}>Record week of {week.date ? mondayOf(week.date) : "..."}</Button>
-            <ul className="text-[12px]">{weeks.map((w) => <li key={w.week_start}>{w.week_start}: {w.observation_status === "observed" ? `${w.recurring_how_to_questions} questions` : w.observation_status}{w.data_origin === "synthetic_fixture" ? " (made up)" : ""}</li>)}</ul>
+            <ul className="text-[12px]">{weeks.map((w) => <li key={w.week_start}>{fmtDate(w.week_start)}: {w.observation_status === "observed" ? `${w.recurring_how_to_questions} questions` : w.observation_status}{w.data_origin === "synthetic_fixture" ? " (made up)" : ""}</li>)}</ul>
           </div>
           <div className="space-y-2 rounded-lg border border-input p-4 text-sm">
             <p className="font-medium">Snapshot: baseline against pilot</p>
-            <div className="grid gap-2 sm:grid-cols-4">
-              <input aria-label="Baseline start" type="date" className={field} value={win.bs} onChange={(e) => setWin({ ...win, bs: e.target.value })} />
-              <input aria-label="Baseline end" type="date" className={field} value={win.be} onChange={(e) => setWin({ ...win, be: e.target.value })} />
-              <input aria-label="Pilot start" type="date" className={field} value={win.ps} onChange={(e) => setWin({ ...win, ps: e.target.value })} />
-              <input aria-label="Pilot end" type="date" className={field} value={win.pe} onChange={(e) => setWin({ ...win, pe: e.target.value })} />
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <TextField label="Baseline start" hideLabel type="date" value={win.bs} onChange={(e) => setWin({ ...win, bs: e.target.value })} />
+              <TextField label="Baseline end" hideLabel type="date" value={win.be} onChange={(e) => setWin({ ...win, be: e.target.value })} />
+              <TextField label="Pilot start" hideLabel type="date" value={win.ps} onChange={(e) => setWin({ ...win, ps: e.target.value })} />
+              <TextField label="Pilot end" hideLabel type="date" value={win.pe} onChange={(e) => setWin({ ...win, pe: e.target.value })} />
             </div>
             <Button size="sm" disabled={!win.bs || !win.be || !win.ps || !win.pe} onClick={() => void call("snapshot_learning_self_service", {
               p_engagement_id: engagementId, p_baseline_start: win.bs, p_baseline_end: win.be, p_pilot_start: win.ps, p_pilot_end: win.pe,
             }, "The snapshot could not be taken.")}>Take snapshot</Button>
             {snapshots.map((s) => (
               <div key={s.id} className="rounded bg-muted/40 p-2 text-[12px]" data-testid={`snapshot-${s.id}`}>
-                <p>Baseline {s.baseline_start} to {s.baseline_end}: {s.baseline_questions} questions over {s.baseline_weeks_observed} observed weeks ({s.baseline_weeks_missing} missing), rate {s.baseline_rate ?? "n/a"} per week.</p>
-                <p>Pilot {s.pilot_start} to {s.pilot_end}: {s.pilot_questions} questions over {s.pilot_weeks_observed} observed weeks ({s.pilot_weeks_missing} missing), rate {s.pilot_rate ?? "n/a"} per week.</p>
+                <p>Baseline {fmtDate(s.baseline_start)} to {fmtDate(s.baseline_end)}: {s.baseline_questions} questions over {s.baseline_weeks_observed} observed weeks ({s.baseline_weeks_missing} missing), rate {s.baseline_rate ?? "n/a"} per week.</p>
+                <p>Pilot {fmtDate(s.pilot_start)} to {fmtDate(s.pilot_end)}: {s.pilot_questions} questions over {s.pilot_weeks_observed} observed weeks ({s.pilot_weeks_missing} missing), rate {s.pilot_rate ?? "n/a"} per week.</p>
                 <p>Repeat support: {s.comparison} · pilot {s.pilot_status} · data {s.data_origin.replace("_", " ")}. {s.usage_note}</p>
               </div>
             ))}
           </div>
         </>
       ) : null}
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </div>
   );
 }
@@ -313,13 +292,13 @@ export default function LearningPage() {
     void db.rpc("handoff_staff_options", {}).then(({ data }) => setStaff((data ?? []) as StaffOption[]));
   }, []);
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4" data-testid="learning">
+    <PageShell data-testid="learning">
       <PageHeader title="Learning" description="Client lessons with a named reviewer and builder publication, and the weekly tally of recurring how-to questions. Clients see nothing here yet." />
       <div className="flex gap-2">
         <Button size="sm" variant={tab === "lessons" ? "default" : "outline"} onClick={() => setTab("lessons")}>Lessons</Button>
         <Button size="sm" variant={tab === "self-service" ? "default" : "outline"} onClick={() => setTab("self-service")}>Self-service</Button>
       </div>
       {tab === "lessons" ? <LessonsTab staff={staff} /> : <SelfServiceTab />}
-    </div>
+    </PageShell>
   );
 }

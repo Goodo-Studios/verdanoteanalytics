@@ -10,8 +10,10 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { PickClientPrompt } from "@/components/PickClientPrompt";
-import { PageHeader } from "@/components/PageHeader";
+import { EmptyState, ErrorState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
+import { fmtDate } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   canDecide,
   canLearn,
@@ -44,7 +46,6 @@ interface Untyped {
   rpc(name: string, args: Record<string, unknown>): PromiseLike<DbResult>;
 }
 const db = supabase as unknown as Untyped;
-const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 interface ClientOption {
@@ -74,10 +75,7 @@ interface TaskOption {
 
 function AdPicker({ label, ads, value, onChange }: { label: string; ads: AdOption[]; value: string[]; onChange: (v: string[]) => void }) {
   return (
-    <select aria-label={label} multiple className={`${field} h-28`} value={value}
-      onChange={(e) => onChange(Array.from(e.target.selectedOptions).map((o) => o.value))}>
-      {ads.map((a) => <option key={a.ad_id} value={a.ad_id}>{a.ad_name} ({a.ad_id})</option>)}
-    </select>
+    <SelectField label={label} hideLabel multiple inputClassName="h-28" value={value} onChange={(e) => onChange(Array.from(e.target.selectedOptions).map((o) => o.value))} options={ads.map((a) => ({ value: a.ad_id, label: `${a.ad_name} (${a.ad_id})` }))} />
   );
 }
 
@@ -123,20 +121,20 @@ function RecommendationCard({ rec, ads, staff, tasks, onChanged }: { rec: Recomm
           {decision.evidence.length ? <p><span className="font-medium">Evidence:</span> {decision.evidence.map((e) => (e.kind === "ad" ? adName(e.id) : `recap item ${e.id}`)).join(", ")}</p> : null}
         </div>
       ) : null}
-      {link ? <p><span className="font-medium">Executed by:</span> {link.ad_ids.map(adName).join(", ")} · review window {link.review_window_start} to {link.review_window_end}</p> : null}
+      {link ? <p><span className="font-medium">Executed by:</span> {link.ad_ids.map(adName).join(", ")} · review window {fmtDate(link.review_window_start)} to {fmtDate(link.review_window_end)}</p> : null}
       {outcome && totals ? (
         <div className="space-y-1" data-testid={`outcome-${rec.id}`}>
           <p><span className="font-medium">{OUTCOME_LABEL[outcome.status]}</span>: {REASON_LABEL[outcome.reason] ?? outcome.reason}</p>
           {outcome.recommendation_outcome_evidence.length ? (
-            <table className="w-full text-[12px]">
-              <thead><tr className="text-left"><th>Ad</th><th>Impressions</th><th>Spend</th><th>Clicks</th><th>Purchases</th><th>Purchase value</th><th>Days</th></tr></thead>
-              <tbody>
+            <Table aria-label="Outcome evidence" className="min-w-[40rem] text-[12px]">
+              <TableHeader><TableRow><TableHead>Ad</TableHead><TableHead>Impressions</TableHead><TableHead>Spend</TableHead><TableHead>Clicks</TableHead><TableHead>Purchases</TableHead><TableHead>Purchase value</TableHead><TableHead>Days</TableHead></TableRow></TableHeader>
+              <TableBody>
                 {outcome.recommendation_outcome_evidence.map((e) => (
-                  <tr key={e.ad_id}><td>{adName(e.ad_id)}</td><td>{Number(e.impressions).toLocaleString()}</td><td>{money(Number(e.spend))}</td><td>{Number(e.clicks).toLocaleString()}</td><td>{Number(e.purchases)}</td><td>{money(Number(e.purchase_value))}</td><td>{e.metric_days}</td></tr>
+                  <TableRow key={e.ad_id}><TableCell>{adName(e.ad_id)}</TableCell><TableCell>{Number(e.impressions).toLocaleString()}</TableCell><TableCell>{money(Number(e.spend))}</TableCell><TableCell>{Number(e.clicks).toLocaleString()}</TableCell><TableCell>{Number(e.purchases)}</TableCell><TableCell>{money(Number(e.purchase_value))}</TableCell><TableCell>{e.metric_days}</TableCell></TableRow>
                 ))}
-                <tr className="font-medium"><td>Total</td><td>{totals.impressions.toLocaleString()}</td><td>{money(totals.spend)}</td><td>{totals.clicks.toLocaleString()}</td><td>{totals.purchases}</td><td>{money(totals.purchase_value)}</td><td /></tr>
-              </tbody>
-            </table>
+                <TableRow className="font-medium"><TableCell>Total</TableCell><TableCell>{totals.impressions.toLocaleString()}</TableCell><TableCell>{money(totals.spend)}</TableCell><TableCell>{totals.clicks.toLocaleString()}</TableCell><TableCell>{totals.purchases}</TableCell><TableCell>{money(totals.purchase_value)}</TableCell><TableCell /></TableRow>
+              </TableBody>
+            </Table>
           ) : null}
         </div>
       ) : null}
@@ -146,14 +144,10 @@ function RecommendationCard({ rec, ads, staff, tasks, onChanged }: { rec: Recomm
         <details>
           <summary className="cursor-pointer font-medium">Decide</summary>
           <div className="mt-2 space-y-2">
-            <select aria-label="Decision" className={field} value={d.decision} onChange={(e) => setD({ ...d, decision: e.target.value })}>
-              <option value="accepted">Accept</option>
-              <option value="rejected">Reject</option>
-              <option value="deferred">Defer</option>
-            </select>
-            <input aria-label="Reason" className={field} placeholder="Reason" value={d.reason} onChange={(e) => setD({ ...d, reason: e.target.value })} />
-            <input aria-label="Hypothesis" className={field} placeholder="Hypothesis (needed to accept)" value={d.hypothesis} onChange={(e) => setD({ ...d, hypothesis: e.target.value })} />
-            <input aria-label="Final action" className={field} placeholder="Final action (needed to accept)" value={d.finalAction} onChange={(e) => setD({ ...d, finalAction: e.target.value })} />
+            <SelectField label="Decision" hideLabel value={d.decision} onChange={(e) => setD({ ...d, decision: e.target.value })} options={[{ value: "accepted", label: "Accept" }, { value: "rejected", label: "Reject" }, { value: "deferred", label: "Defer" }]} />
+            <TextField label="Reason" hideLabel placeholder="Reason" value={d.reason} onChange={(e) => setD({ ...d, reason: e.target.value })} />
+            <TextField label="Hypothesis" hideLabel placeholder="Hypothesis (needed to accept)" value={d.hypothesis} onChange={(e) => setD({ ...d, hypothesis: e.target.value })} />
+            <TextField label="Final action" hideLabel placeholder="Final action (needed to accept)" value={d.finalAction} onChange={(e) => setD({ ...d, finalAction: e.target.value })} />
             <AdPicker label="Cited ads" ads={ads} value={d.cited} onChange={(cited) => setD({ ...d, cited })} />
             <Button size="sm" onClick={decide}>Save decision</Button>
           </div>
@@ -165,16 +159,10 @@ function RecommendationCard({ rec, ads, staff, tasks, onChanged }: { rec: Recomm
           <div className="mt-2 space-y-2">
             <AdPicker label="Linked ads" ads={ads} value={l.ads} onChange={(v) => setL({ ...l, ads: v })} />
             <div className="grid gap-2 sm:grid-cols-2">
-              <select aria-label="Content Pipeline task" className={field} value={l.task} onChange={(e) => setL({ ...l, task: e.target.value })}>
-                <option value="">No Content Pipeline task</option>
-                {tasks.map((t) => <option key={t.id} value={t.id}>{t.task_name ?? t.id} ({t.stage})</option>)}
-              </select>
-              <select aria-label="Accountable owner" className={field} value={l.owner} onChange={(e) => setL({ ...l, owner: e.target.value })}>
-                <option value="">Accountable owner</option>
-                {staff.map((s) => <option key={s.user_id} value={s.user_id}>{s.display_name || s.email}</option>)}
-              </select>
-              <input aria-label="Window start" type="date" className={field} value={l.start} onChange={(e) => setL({ ...l, start: e.target.value })} />
-              <input aria-label="Window end" type="date" className={field} value={l.end} onChange={(e) => setL({ ...l, end: e.target.value })} />
+              <SelectField label="Content Pipeline task" hideLabel value={l.task} onChange={(e) => setL({ ...l, task: e.target.value })} placeholder="No Content Pipeline task" options={tasks.map((t) => ({ value: t.id, label: `${t.task_name ?? t.id} (${t.stage})` }))} />
+              <SelectField label="Accountable owner" hideLabel value={l.owner} onChange={(e) => setL({ ...l, owner: e.target.value })} placeholder="Accountable owner" options={staff.map((s) => ({ value: s.user_id, label: s.display_name || s.email }))} />
+              <TextField label="Window start" hideLabel type="date" value={l.start} onChange={(e) => setL({ ...l, start: e.target.value })} />
+              <TextField label="Window end" hideLabel type="date" value={l.end} onChange={(e) => setL({ ...l, end: e.target.value })} />
             </div>
             <Button size="sm" disabled={!l.ads.length || !l.owner || !l.start || !l.end} onClick={() => void call("link_recommendation_execution", {
               p_recommendation_id: rec.id, p_expected_version: rec.version, p_ad_ids: l.ads, p_pipeline_task_id: l.task || null,
@@ -191,18 +179,14 @@ function RecommendationCard({ rec, ads, staff, tasks, onChanged }: { rec: Recomm
       {canLearn(rec) && outcome ? (
         <div className="space-y-2 rounded border border-input p-3">
           <p className="font-medium">Review the measured outcome</p>
-          <select aria-label="Conclusion" className={field} value={lr.conclusion} onChange={(e) => setLr({ ...lr, conclusion: e.target.value })}>
-            <option value="supported">Supported</option>
-            <option value="not_supported">Not supported</option>
-            <option value="inconclusive">Inconclusive</option>
-          </select>
-          <textarea aria-label="Learning" className={field} placeholder="What we learned, in your words" value={lr.learning} onChange={(e) => setLr({ ...lr, learning: e.target.value })} />
+          <SelectField label="Conclusion" hideLabel value={lr.conclusion} onChange={(e) => setLr({ ...lr, conclusion: e.target.value })} options={[{ value: "supported", label: "Supported" }, { value: "not_supported", label: "Not supported" }, { value: "inconclusive", label: "Inconclusive" }]} />
+          <TextareaField label="Learning" hideLabel placeholder="What we learned, in your words" value={lr.learning} onChange={(e) => setLr({ ...lr, learning: e.target.value })} />
           <Button size="sm" disabled={!lr.learning.trim()} onClick={() => void call("review_recommendation_learning", {
             p_recommendation_id: rec.id, p_expected_version: rec.version, p_outcome_id: outcome.id, p_conclusion: lr.conclusion, p_learning: lr.learning.trim(),
           }, "The learning could not be saved.")}>Save learning</Button>
         </div>
       ) : null}
-      {error ? <p role="alert" className="text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-destructive">{error}</p> : null}
     </section>
   );
 }
@@ -221,14 +205,11 @@ function ProposeForm({ engagementId, onCreated }: { engagementId: string; onCrea
     <details className="rounded-lg border border-input bg-background p-4 text-sm">
       <summary className="cursor-pointer font-medium">Propose a recommendation</summary>
       <div className="mt-3 space-y-2">
-        <select aria-label="Category" className={field} value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}>
-          <option value="creative">Creative</option>
-          <option value="service">Service</option>
-        </select>
-        <input aria-label="Title" className={field} placeholder="Title" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} />
-        <textarea aria-label="Proposal" className={field} placeholder="The recommendation" value={f.proposal} onChange={(e) => setF({ ...f, proposal: e.target.value })} />
+        <SelectField label="Category" hideLabel value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} options={[{ value: "creative", label: "Creative" }, { value: "service", label: "Service" }]} />
+        <TextField label="Title" hideLabel placeholder="Title" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} />
+        <TextareaField label="Proposal" hideLabel placeholder="The recommendation" value={f.proposal} onChange={(e) => setF({ ...f, proposal: e.target.value })} />
         <Button size="sm" disabled={!f.title.trim() || !f.proposal.trim()} onClick={() => void propose()}>Propose</Button>
-        {error ? <p role="alert" className="text-red-700">{error}</p> : null}
+        {error ? <p role="alert" className="text-destructive">{error}</p> : null}
       </div>
     </details>
   );
@@ -276,19 +257,16 @@ export default function RecommendationsPage() {
   useEffect(() => void load(), [load]);
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4" data-testid="recommendations">
+    <PageShell data-testid="recommendations">
       <PageHeader title="Recommendations" description="From decision to measured outcome. Outcomes are computed from the client's ad data and are never a win by themselves; a person writes the learning." />
       <div className="grid gap-2 sm:grid-cols-2">
         {!clientSlug ? <div className="sm:col-span-2"><PickClientPrompt what="its recommendations" /></div> : null}
-        <select aria-label="Engagement" className={field} value={engagementId} onChange={(e) => setEngagementId(e.target.value)} disabled={!clientSlug}>
-          <option value="">Select an engagement</option>
-          {engagements.map((e) => <option key={e.id} value={e.id}>Cycle {e.cycle_number} ({e.status})</option>)}
-        </select>
+        <SelectField label="Engagement" hideLabel value={engagementId} onChange={(e) => setEngagementId(e.target.value)} disabled={!clientSlug} placeholder="Select an engagement" options={engagements.map((e) => ({ value: e.id, label: `Cycle ${e.cycle_number} (${e.status})` }))} />
       </div>
       {engagementId ? <ProposeForm engagementId={engagementId} onCreated={() => void load()} /> : null}
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
-      {recs && recs.length === 0 ? <p className="text-sm text-muted-foreground">No recommendations for this engagement yet.</p> : null}
+      {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      {recs && !error && recs.length === 0 ? <EmptyState title="No recommendations for this engagement yet." /> : null}
       {(recs ?? []).map((r) => <RecommendationCard key={`${r.id}:${r.version}`} rec={r} ads={ads} staff={staff} tasks={tasks} onChanged={() => void load()} />)}
-    </div>
+    </PageShell>
   );
 }

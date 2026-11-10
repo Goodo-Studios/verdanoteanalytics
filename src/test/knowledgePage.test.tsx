@@ -15,6 +15,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const rpc = vi.fn();
 const rows: { current: unknown[] } = { current: [] };
+const fail: { current: boolean } = { current: false };
 let auth = { user: { id: "emp-1" }, isBuilder: false };
 
 vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => auth }));
@@ -23,7 +24,7 @@ vi.mock("@/integrations/supabase/client", () => ({
     rpc: (...args: unknown[]) => rpc(...args),
     from: (table: string) => ({
       select: () => ({
-        order: () => Promise.resolve(table === "clients" ? { data: [{ slug: "glow", name: "Glow Drip" }], error: null } : { data: rows.current, error: null }),
+        order: () => Promise.resolve(table === "clients" ? { data: [{ slug: "glow", name: "Glow Drip" }], error: null } : fail.current && table !== "clients" ? { data: null, error: { message: "down" } } : { data: rows.current, error: null }),
       }),
     }),
   },
@@ -51,6 +52,7 @@ const OTHER = { ...SOURCE, id: "s2", title: "Glow brand voice", release_scope: "
 beforeEach(() => {
   rpc.mockReset();
   rows.current = [SOURCE, OTHER];
+  fail.current = false;
   auth = { user: { id: "emp-1" }, isBuilder: false };
 });
 
@@ -61,6 +63,17 @@ async function open(title = "Hook rules") {
 }
 
 describe("KnowledgePage", () => {
+  it("shows a skeleton while loading, and Try again after a load error", async () => {
+    fail.current = true;
+    render(<KnowledgePage />);
+    expect(screen.getByRole("status", { name: "Loading knowledge" })).toBeTruthy();
+    expect(await screen.findByText("Knowledge could not load.")).toBeTruthy();
+    fail.current = false;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("button", { name: /Hook rules/ })).toBeTruthy();
+    expect(screen.queryByText("Knowledge could not load.")).toBeNull();
+  });
+
   it("lists and searches sources, and shows the open review count", async () => {
     render(<KnowledgePage />);
     expect(await screen.findByRole("button", { name: /Hook rules · v2 · all clients · 3 to review/ })).toBeTruthy();

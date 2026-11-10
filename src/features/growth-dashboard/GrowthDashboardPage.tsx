@@ -7,7 +7,7 @@ import { CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
-import { PageHeader } from "@/components/PageHeader";
+import { ErrorState, LoadingState, PageHeader, PageShell } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -67,7 +67,7 @@ const SAVE_DELAY_MS = 700;
 // Repeated class names, kept once so the page chunk stays small (bundle budget).
 const KK0 = "w-full text-[14px]";
 const KK1 = "px-2 py-1.5 font-semibold";
-const KK2 = "list-disc pl-5 text-[13px] text-red-700";
+const KK2 = "list-disc pl-5 text-[13px] text-destructive";
 const KK3 = "flex flex-wrap items-center gap-2";
 const KK4 = "min-w-full text-center text-[14px]";
 const KK5 = "bg-muted/40 px-3 py-2";
@@ -119,7 +119,7 @@ async function saveRow(key: "state" | "plan", payload: GrowthState | GrowthPlan)
 const STATUS_CELL: Record<Status, string> = {
   good: "bg-emerald-50 text-emerald-700",
   warn: "bg-amber-50 text-amber-700",
-  crit: "bg-red-50 text-red-700",
+  crit: "bg-red-50 text-destructive",
   na: "text-muted-foreground",
 };
 const STRIPE: Record<Tile["cls"], string> = {
@@ -140,7 +140,7 @@ function Tiles({ tiles, testId }: { tiles: Tile[]; testId: string }) {
             className={cn(
               "mt-1 text-[26px] font-semibold tabular-nums text-forest",
               t.cls === "s-good" && "text-emerald-700",
-              t.cls === "s-crit" && "text-red-700",
+              t.cls === "s-crit" && "text-destructive",
             )}
           >
             {t.value}
@@ -602,7 +602,7 @@ function ProgressTab({
                       <button
                         type="button"
                         aria-label={`Delete deal ${d.client || d.date}`}
-                        className="rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-700"
+                        className="rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-destructive"
                         onClick={() => update((s) => ({ ...s, deals: s.deals.filter((x) => x.id !== d.id) }))}
                       >
                         <X className="h-4 w-4" />
@@ -857,7 +857,7 @@ function ImportTab({ hasData, onImport }: { hasData: boolean; onImport: (s: Grow
             <p key={w} className={KK8}>{w}</p>
           ))}
           {hasData && <p className={KK8}>Saving replaces the numbers already stored in Verdanote.</p>}
-          {saveError && <p className="text-red-700" role="alert">{saveError}</p>}
+          {saveError && <p className="text-destructive" role="alert">{saveError}</p>}
           <Button
             disabled={busy}
             onClick={async () => {
@@ -985,25 +985,23 @@ export default function GrowthDashboardPage({ now: nowProp }: { now?: Date } = {
 
   if (query.isLoading || (query.data && !initialised.current && !query.error)) {
     return (
-      <div>
+      <PageShell wide>
         {header}
-        <p className={K6}>Loading the numbers...</p>
-      </div>
+        <LoadingState label="Loading the numbers" />
+      </PageShell>
     );
   }
   if (query.error) {
     return (
-      <div>
+      <PageShell wide>
         {header}
-        <p className="text-[13px] text-red-700" role="alert">
-          Could not load the Growth Dashboard: {errorText(query.error)}
-        </p>
-      </div>
+        <ErrorState message={`Could not load the Growth Dashboard: ${errorText(query.error)}`} onRetry={() => void query.refetch()} />
+      </PageShell>
     );
   }
 
   return (
-    <div className="space-y-5">
+    <PageShell wide className="space-y-5">
       {header}
       <div className="flex flex-col gap-1 rounded-lg border border-input bg-sage-light px-5 py-3 sm:flex-row sm:items-center sm:gap-4">
         <span className="font-label text-[11px] uppercase tracking-[0.12em] text-verdant">Today's fuel</span>
@@ -1011,7 +1009,7 @@ export default function GrowthDashboardPage({ now: nowProp }: { now?: Date } = {
       </div>
 
       {loadError && (
-        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700" role="alert">
+        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-destructive" role="alert">
           Stored numbers failed the checks, so editing is off. Import a fresh export to replace them: {loadError}
         </p>
       )}
@@ -1046,8 +1044,8 @@ export default function GrowthDashboardPage({ now: nowProp }: { now?: Date } = {
         {saveStatus.kind === "saving" && "Saving..."}
         {saveStatus.kind === "saved" &&
           `Saved ${saveStatus.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`}
-        {saveStatus.kind === "error" && <span className="text-red-700">Not saved: {saveStatus.message}</span>}
+        {saveStatus.kind === "error" && <span className="text-destructive">Not saved: {saveStatus.message}</span>}
       </div>
-    </div>
+    </PageShell>
   );
 }

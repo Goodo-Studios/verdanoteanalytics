@@ -8,7 +8,8 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { PickClientPrompt } from "@/components/PickClientPrompt";
-import { PageHeader } from "@/components/PageHeader";
+import { EmptyState, ErrorState, PageHeader, PageShell, TextField } from "@/components/page-kit";
+import { fmtDate } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 import { edgeFunctionError } from "@/lib/edgeFunctionError";
 import {
@@ -25,7 +26,6 @@ import {
 
 const FN = "meeting-recaps";
 const SELECT = "*, meeting_recap_items(*, meeting_recap_reviews(*))";
-const input = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 function ItemCard({ item, onReviewed }: { item: RecapItem; onReviewed: () => void }) {
   const [note, setNote] = useState("");
@@ -72,12 +72,12 @@ function ItemCard({ item, onReviewed }: { item: RecapItem; onReviewed: () => voi
         </p>
       ) : reviewable(item) ? (
         <div className="space-y-2">
-          <input aria-label="Review note" className={input} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why (checked against the call)" />
+          <TextField label="Review note" hideLabel value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why (checked against the call)" />
           <div className="flex gap-2">
             <Button size="sm" disabled={busy} onClick={() => void review("confirmed")}>Confirm</Button>
             <Button size="sm" variant="outline" disabled={busy} onClick={() => void review("rejected")}>Reject</Button>
           </div>
-          {error ? <p role="alert" className="text-red-700">{error}</p> : null}
+          {error ? <p role="alert" className="text-destructive">{error}</p> : null}
         </div>
       ) : (
         <p className="text-muted-foreground">Questions stay open.</p>
@@ -132,30 +132,27 @@ export default function MeetingRecapsPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6" data-testid="meeting-recaps">
+    <PageShell data-testid="meeting-recaps">
       <PageHeader title="Meeting recaps" description="Decisions, open questions and actions from a Fireflies call, each with the exact words said. A person confirms each one." />
       <section className="space-y-3 rounded-lg border border-input bg-background p-5">
         {!clientSlug ? <PickClientPrompt what="its meeting recaps" /> : null}
-        <label className="block space-y-1 text-sm">
-          <span>Fireflies transcript id</span>
-          <input aria-label="Fireflies transcript id" className={input} value={transcriptId} onChange={(e) => setTranscriptId(e.target.value)} placeholder="From the Fireflies meeting link" />
-        </label>
+        <TextField label="Fireflies transcript id" value={transcriptId} onChange={(e) => setTranscriptId(e.target.value)} placeholder="From the Fireflies meeting link" />
         <p className="text-[12px] text-muted-foreground">Personnel, legal and financial parts of the call are withheld and never sent to the model.</p>
         <Button disabled={busy || !clientSlug || !/^[A-Za-z0-9_-]{1,200}$/.test(transcriptId.trim())} onClick={() => void prepare()}>
           {busy ? "Preparing..." : "Prepare recap"}
         </Button>
         {message ? <p role="status" className="text-sm">{message}</p> : null}
-        {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+        {error ? <ErrorState message={error} onRetry={recaps === null ? undefined : () => { setError(null); void loadRecaps(clientSlug); }} /> : null}
       </section>
       {recaps === null ? null : recaps.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No recaps for this client yet.</p>
+        <EmptyState title="No recaps for this client yet." />
       ) : (
         <ul className="space-y-4">
           {recaps.map((r) => (
             <li key={r.id} className="space-y-2 rounded-lg border border-input bg-background p-4">
               <p className="text-sm font-semibold">
                 {STATUS_LABEL[r.status]} · transcript {r.transcript_id}
-                {r.meeting_started_at ? ` · call on ${new Date(r.meeting_started_at).toLocaleDateString("en-US", { dateStyle: "medium" })}` : ""}
+                {r.meeting_started_at ? ` · call on ${fmtDate(r.meeting_started_at)}` : ""}
               </p>
               {r.limitation ? <p className="text-sm text-muted-foreground">{r.limitation}</p> : null}
               {r.items.length ? (
@@ -167,6 +164,6 @@ export default function MeetingRecapsPage() {
           ))}
         </ul>
       )}
-    </div>
+    </PageShell>
   );
 }
