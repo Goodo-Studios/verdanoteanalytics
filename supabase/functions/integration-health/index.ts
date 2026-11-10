@@ -38,6 +38,15 @@ export interface Deps {
   now?: () => Date;
   /** Queues one owner alert; returns the job id, or null when no confirmed owner channel exists. */
   enqueueOwnerAlert?: (env: (name: string) => string | undefined, key: string, text: string) => Promise<string | null>;
+  /** Records one run of the alert check in check_runs (shown as "last run"). A failure to record is logged, never fatal. */
+  recordRun?: (env: (name: string) => string | undefined, run: CheckRun) => Promise<void>;
+}
+
+export interface CheckRun {
+  trigger: "manual" | "scheduled";
+  outcome: "ok" | "failed";
+  actorId: string | null;
+  detail: Record<string, unknown>;
 }
 
 const json = (body: unknown, status = 200) =>
@@ -99,6 +108,22 @@ export async function enqueueOwnerAlertInDatabase(
   const result = await makeClient(url, serviceKey).rpc("enqueue_owner_alert", { p_key: key, p_text: text });
   if (result.error) throw new Error(`enqueue_owner_alert: ${result.error.message}`);
   return typeof result.data === "string" ? result.data : null;
+}
+
+/** Writes one check_runs row with the service role. */
+export async function recordRunInDatabase(
+  env: (name: string) => string | undefined,
+  run: CheckRun,
+  makeClient: (url: string, key: string) => { from(table: string): { insert(row: Record<string, unknown>): PromiseLike<QueryResult> } } =
+    (u, k) => createClient(u, k) as never,
+): Promise<void> {
+  const url = env("SUPABASE_URL");
+  const key = env("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !key) throw new Error("Server misconfigured");
+  const result = await makeClient(url, key).from("check_runs").insert({
+    check_key: "alert_check", trigger: run.trigger, outcome: run.outcome, actor_id: run.actorId, detail: run.detail,
+  });
+  if (result.error) throw new Error(`check_runs: ${result.error.message}`);
 }
 
 async function must(label: string, query: PromiseLike<QueryResult>): Promise<QueryResult> {
@@ -200,7 +225,9 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
 
   const caller = await (deps.resolveCaller ?? defaultResolveCaller)(req);
   if (caller instanceof Response) return caller;
-  if (!isStaffLogin(caller)) return json({ error: "Forbidden: staff only" }, 403);
+  // The service role (the 30-minute schedule) may only run the alert check, checked below.
+  const isService = caller.kind === "service";
+  if (!isService && !isStaffLogin(caller)) return json({ error: "Forbidden: staff only" }, 403);
 
   // A POST may carry {"action":"evaluate"}; no body (or {}) is the read.
   let action: string | null = null;
@@ -219,10 +246,27 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
       action = a === "evaluate" ? "evaluate" : null;
     }
   }
-  if (action === "evaluate" && !caller.roles.includes("builder")) return json({ error: "Forbidden: builder only" }, 403);
+  if (caller.kind === "service") {
+    if (action !== "evaluate") return json({ error: "Forbidden: staff only" }, 403);
+  } else if (action === "evaluate" && !caller.roles.includes("builder")) {
+    return json({ error: "Forbidden: builder only" }, 403);
+  }
 
   const env = deps.env ?? ((name: string) => Deno.env.get(name));
   const now = (deps.now ?? (() => new Date()))();
+  const record = async (outcome: "ok" | "failed", detail: Record<string, unknown>) => {
+    if (action !== "evaluate") return;
+    try {
+      await (deps.recordRun ?? recordRunInDatabase)(env, {
+        trigger: caller.kind === "service" ? "scheduled" : "manual",
+        outcome,
+        actorId: caller.userId,
+        detail,
+      });
+    } catch (error) {
+      console.error("integration-health could not record the run:", error instanceof Error ? error.message : error);
+    }
+  };
   try {
     const snapshot = await (deps.loadSnapshot ?? loadSnapshotFromDatabase)(env, now);
     const overview = evaluateIntegrationHealth(snapshot, now);
@@ -237,9 +281,11 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
       const jobId = await (deps.enqueueOwnerAlert ?? enqueueOwnerAlertInDatabase)(env, a.key, a.text);
       alerts.push({ ...a, enqueued: jobId !== null, jobId, reason: jobId === null ? "no_owner_destination" : null });
     }
+    await record("ok", { alerts: alerts.length, queued: alerts.filter((a) => a.enqueued).length, environment: overview.environment });
     return json({ evaluated: true, checkedAt: overview.checkedAt, environment: overview.environment, alerts });
   } catch (error) {
     console.error("integration-health:", error instanceof Error ? error.message : error);
+    await record("failed", { reason: "could_not_read" });
     return json({ error: "Integration health could not be read." }, 500);
   }
 }

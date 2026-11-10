@@ -410,3 +410,88 @@ Deno.test("alerts: enqueueOwnerAlertInDatabase calls enqueue_owner_alert with th
   const none = await enqueueOwnerAlertInDatabase((n) => ENV[n], "k", "t", () => ({ rpc: () => Promise.resolve({ data: null, error: null }) }));
   assertEquals(none, null);
 });
+
+// ── scheduled runs and the run record (phase 4 PR 3) ────────────────────────
+
+function evaluateRecording(caller: Caller, opts: { body?: string; failLoad?: boolean; failRecord?: boolean } = {}) {
+  const runs: Array<{ trigger: string; outcome: string; actorId: string | null; detail: Record<string, unknown> }> = [];
+  const queued: string[] = [];
+  const res = handler(new Request("http://x/integration-health", { method: "POST", body: opts.body ?? JSON.stringify({ action: "evaluate" }) }), {
+    resolveCaller: () => Promise.resolve(caller),
+    env: () => undefined,
+    now: () => NOW,
+    loadSnapshot: () => (opts.failLoad ? Promise.reject(new Error("db down")) : Promise.resolve({ ...problems(), environment: "production" as const })),
+    enqueueOwnerAlert: (_e, key) => { queued.push(key); return Promise.resolve(`job-${queued.length}`); },
+    recordRun: (_e, run) => {
+      if (opts.failRecord) return Promise.reject(new Error("check_runs: down"));
+      runs.push(run);
+      return Promise.resolve();
+    },
+  });
+  return { res, runs, queued };
+}
+
+Deno.test("scheduled: the service role may run the alert check, and it is recorded as scheduled with no person", async () => {
+  const r = evaluateRecording(service);
+  const res = await r.res;
+  assertEquals(res.status, 200);
+  assert(r.queued.length > 0);
+  assertEquals(r.runs.length, 1);
+  assertEquals([r.runs[0].trigger, r.runs[0].outcome, r.runs[0].actorId], ["scheduled", "ok", null]);
+  assertEquals(r.runs[0].detail.queued, r.queued.length);
+});
+
+Deno.test("scheduled: the service role still cannot read the overview or send another action", async () => {
+  for (const body of ["", "{}", JSON.stringify({ action: "send" })]) {
+    const r = evaluateRecording(service, { body });
+    const status = (await r.res).status;
+    assert(status === 403 || status === 400, `status ${status}`);
+    assertEquals(r.runs.length + r.queued.length, 0);
+  }
+});
+
+Deno.test("scheduled: a builder's check is recorded as manual with the builder", async () => {
+  const r = evaluateRecording(user(["builder"]));
+  assertEquals((await r.res).status, 200);
+  assertEquals([r.runs[0].trigger, r.runs[0].actorId], ["manual", "u1"]);
+});
+
+Deno.test("scheduled: a plain read records nothing", async () => {
+  const r = evaluateRecording(user(["employee"]), { body: "" });
+  assertEquals((await r.res).status, 200);
+  assertEquals(r.runs.length, 0);
+});
+
+Deno.test("scheduled: a check that cannot read is recorded as failed and answers 500 without the detail", async () => {
+  const r = evaluateRecording(service, { failLoad: true });
+  const res = await r.res;
+  assertEquals(res.status, 500);
+  assert(!(await res.text()).includes("db down"));
+  assertEquals([r.runs[0].trigger, r.runs[0].outcome], ["scheduled", "failed"]);
+});
+
+Deno.test("scheduled: failing to record the run does not fail the check", async () => {
+  const r = evaluateRecording(service, { failRecord: true });
+  assertEquals((await r.res).status, 200);
+  assert(r.queued.length > 0);
+});
+
+Deno.test("scheduled: recordRunInDatabase inserts one alert_check row with the service role", async () => {
+  const { recordRunInDatabase } = await import("./index.ts");
+  const rows: Record<string, unknown>[] = [];
+  const env = (n: string) => (n === "SUPABASE_URL" ? "http://db.test" : n === "SUPABASE_SERVICE_ROLE_KEY" ? "service-key-not-real" : undefined);
+  await recordRunInDatabase(env, { trigger: "scheduled", outcome: "ok", actorId: null, detail: { alerts: 1 } }, () => ({
+    from: (table: string) => ({ insert: (row: Record<string, unknown>) => { rows.push({ table, ...row }); return Promise.resolve({ data: null, error: null }); } }),
+  }));
+  assertEquals(rows, [{ table: "check_runs", check_key: "alert_check", trigger: "scheduled", outcome: "ok", actor_id: null, detail: { alerts: 1 } }]);
+  let message = "";
+  try {
+    await recordRunInDatabase(env, { trigger: "manual", outcome: "ok", actorId: "u1", detail: {} }, () => ({
+      from: () => ({ insert: () => Promise.resolve({ data: null, error: { message: "denied" } }) }),
+    }));
+  } catch (e) { message = (e as Error).message; }
+  assertEquals(message, "check_runs: denied");
+  let missing = "";
+  try { await recordRunInDatabase(() => undefined, { trigger: "manual", outcome: "ok", actorId: "u1", detail: {} }); } catch (e) { missing = (e as Error).message; }
+  assertEquals(missing, "Server misconfigured");
+});

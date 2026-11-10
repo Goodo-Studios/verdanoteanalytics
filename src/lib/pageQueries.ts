@@ -24,6 +24,7 @@ export const HOME_TASK_COLUMNS = "id, clickup_task_id, client_slug, task_name, s
 export const HOME_HANDOFF_COLUMNS = "id, client_slug, receiving_role, receiver_id, due_date, status";
 export const HOME_SUPPORT_COLUMNS = "id, client_slug, subject, status, next_update_target, accountable_user_id, backup_user_id";
 export const HOME_BUDGET_ALERT_COLUMNS = "id, level, period_month";
+export const CHECK_RUN_COLUMNS = "check_key, trigger, outcome, created_at";
 export const SETUP_AD_ACCOUNT_COLUMNS = "id, name";
 export const SETUP_MAPPING_COLUMNS = "id, client_slug, provider, kind, external_id, label, active";
 
@@ -35,6 +36,8 @@ export const PAGE_QUERIES: PageQuery[] = [
   { table: "handoff_packets", select: HOME_HANDOFF_COLUMNS, usedBy: "staff Home, My handoffs (useHomeData)", staffList: true },
   { table: "support_requests", select: HOME_SUPPORT_COLUMNS, usedBy: "staff Home, My support requests and Clients needing attention (useHomeData)", staffList: true },
   { table: "operating_budget_alerts", select: HOME_BUDGET_ALERT_COLUMNS, usedBy: "builder Home, Clients needing attention (useHomeData)", staffList: true },
+  // filter is the check name here: the wall check runs it with a value that matches no run, to prove the select is valid.
+  { table: "check_runs", select: CHECK_RUN_COLUMNS, usedBy: "Operating costs and Integration health, last run (LastRunLine)", filter: "check_key" },
   { table: "ad_accounts", select: SETUP_AD_ACCOUNT_COLUMNS, usedBy: "client hub Setup tab (ClientSetupTab)" },
   { table: "source_mappings", select: SETUP_MAPPING_COLUMNS, usedBy: "client hub Setup tab (ClientSetupTab)", filter: "client_slug" },
 ];

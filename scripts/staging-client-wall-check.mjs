@@ -1069,6 +1069,8 @@ const SHELL_QUERIES = [
   ["client_ad_accounts", "account_id, client_slug"],
   // Client hub Work tab: the cards of one client, read by client_slug (the third item).
   ["pipeline_tasks", "id, task_name, stage, due_date, content_type, updated_at", "client_slug"],
+  // Last run line on Operating costs and Integration health (phase 4 PR 3).
+  ["check_runs", "check_key, trigger, outcome, created_at", "check_key"],
   // Client hub Setup tab (phase 4): the ad accounts to pick from and the client's ClickUp links.
   ["ad_accounts", "id, name"],
   ["source_mappings", "id, client_slug, provider, kind, external_id, label, active", "client_slug"],
@@ -1183,6 +1185,26 @@ const inviteBuilderWrite = await staff.c.from("user_invites").insert({ email: "w
 check("even the builder cannot write user_invites from the browser", !!inviteBuilderWrite.error, `error=${inviteBuilderWrite.error?.message ?? "none (write accepted)"}`);
 const inviteList = await staff.c.rpc("list_user_invites");
 check("builder reads the invite list", !inviteList.error && Array.isArray(inviteList.data), `error=${inviteList.error?.message ?? "none"} rows=${inviteList.data?.length ?? "error"}`);
+
+// Scheduled checks (phase 4 PR 3, migration 20261112000003): the run record behind "last run".
+// A client reads no run and cannot write one; staff read them. The two check bodies are service
+// role only, so clients and staff are refused. Nothing is written: refused calls change nothing.
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  const r = await s.c.from("check_runs").select("check_key, trigger, outcome, created_at").eq("check_key", "budget_check");
+  check(`${label} reads no check runs`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  const ins = await s.c.from("check_runs").insert({ check_key: "alert_check", trigger: "scheduled", outcome: "ok" });
+  check(`${label} cannot write check_runs`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+}
+for (const [label, s] of [["client A", clientA], ["employee", employee], ["builder", staff]]) {
+  for (const [fn, args] of [["run_operating_budget_check", { p_actor: ZERO }], ["run_scheduled_budget_check", {}]]) {
+    const res = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn} (service role only)`, res.error?.code === "42501", `code=${res.error?.code ?? "none"}`);
+  }
+}
+const runsStaff = await employee.c.from("check_runs").select("check_key, trigger, outcome, created_at").order("created_at", { ascending: false }).limit(5);
+check("employee reads the check runs", !runsStaff.error, `error=${runsStaff.error?.message ?? "none"}`);
+const empBudget = await employee.c.rpc("evaluate_operating_budgets");
+check("employee is still refused the budget check button", empBudget.error?.code === "42501", `code=${empBudget.error?.code ?? "none"}`);
 
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
