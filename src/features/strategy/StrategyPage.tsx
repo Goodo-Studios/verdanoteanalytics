@@ -10,7 +10,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { useAuth } from "@/contexts/AuthContext";
-import { PageHeader } from "@/components/PageHeader";
+import { EmptyState, ErrorState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
+import { fmtDate } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 import {
   canAccept,
@@ -44,7 +45,6 @@ interface Untyped {
 }
 const db = supabase as unknown as Untyped;
 const SELECT = "*, strategy_proposal_versions(*), strategy_proposal_reviews(*), strategy_proposal_acceptances(*), strategy_proposal_publications(*)";
-const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 interface ClientOption {
   slug: string;
@@ -68,18 +68,13 @@ function DraftFields({ draft, setDraft, subjects }: { draft: Draft; setDraft: (d
   const published = subjects.filter((s) => s.published_version);
   return (
     <div className="space-y-2">
-      <select aria-label="Approved source" className={field} value={draft.source} onChange={set("source")}>
-        <option value="">Published idea or shot list it is based on</option>
-        {published.map((s) => (
-          <option key={s.id} value={`${s.id}:${s.published_version}`}>{s.subject_kind === "idea" ? "Idea" : "Shot list"}: {s.title} (version {s.published_version})</option>
-        ))}
-      </select>
-      <input aria-label="Title" className={field} placeholder="Title" value={draft.title} onChange={set("title")} />
-      <input aria-label="Summary" className={field} placeholder="One-line summary" value={draft.summary} onChange={set("summary")} />
-      <input aria-label="Goal" className={field} placeholder="Goal" value={draft.goal} onChange={set("goal")} />
-      <input aria-label="Angle" className={field} placeholder="Angle" value={draft.angle} onChange={set("angle")} />
-      <textarea aria-label="Brief" className={`${field} min-h-[100px]`} placeholder="Brief" value={draft.brief} onChange={set("brief")} />
-      <textarea aria-label="Required inputs" className={field} placeholder="Required inputs, one per line" value={draft.inputs} onChange={set("inputs")} />
+      <SelectField label="Approved source" hideLabel value={draft.source} onChange={set("source")} placeholder="Published idea or shot list it is based on" options={published.map((s) => ({ value: `${s.id}:${s.published_version}`, label: `${s.subject_kind === "idea" ? "Idea" : "Shot list"}: ${s.title} (version ${s.published_version})` }))} />
+      <TextField label="Title" hideLabel placeholder="Title" value={draft.title} onChange={set("title")} />
+      <TextField label="Summary" hideLabel placeholder="One-line summary" value={draft.summary} onChange={set("summary")} />
+      <TextField label="Goal" hideLabel placeholder="Goal" value={draft.goal} onChange={set("goal")} />
+      <TextField label="Angle" hideLabel placeholder="Angle" value={draft.angle} onChange={set("angle")} />
+      <TextareaField label="Brief" hideLabel placeholder="Brief" value={draft.brief} onChange={set("brief")} inputClassName="min-h-[100px]" />
+      <TextareaField label="Required inputs" hideLabel placeholder="Required inputs, one per line" value={draft.inputs} onChange={set("inputs")} />
       {published.length === 0 ? <p className="text-muted-foreground">Publish an idea or shot list on the Deliverables page first.</p> : null}
     </div>
   );
@@ -133,7 +128,7 @@ function ProposalCard({ proposal, subjects, onChanged }: { proposal: Proposal; s
       ))}
       {canReview(proposal, user?.id) ? (
         <div className="space-y-2">
-          <input aria-label="Review note" className={field} placeholder="Review note" value={note} onChange={(e) => setNote(e.target.value)} />
+          <TextField label="Review note" hideLabel placeholder="Review note" value={note} onChange={(e) => setNote(e.target.value)} />
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={() => review("reviewed")}>Mark reviewed</Button>
             <Button size="sm" variant="outline" onClick={() => review("changes_requested")}>Request changes</Button>
@@ -158,7 +153,7 @@ function ProposalCard({ proposal, subjects, onChanged }: { proposal: Proposal; s
           </div>
         </div>
       ) : null}
-      {error ? <p role="alert" className="text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-destructive">{error}</p> : null}
     </section>
   );
 }
@@ -179,7 +174,7 @@ function CreateForm({ engagementId, subjects, onCreated }: { engagementId: strin
       <div className="mt-3 space-y-2">
         <DraftFields draft={draft} setDraft={setDraft} subjects={subjects} />
         <Button size="sm" disabled={!ready(draft)} onClick={() => void create()}>Create proposal</Button>
-        {error ? <p role="alert" className="text-red-700">{error}</p> : null}
+        {error ? <p role="alert" className="text-destructive">{error}</p> : null}
       </div>
     </details>
   );
@@ -222,19 +217,16 @@ export default function StrategyPage() {
   useEffect(() => void load(), [load]);
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4" data-testid="strategy">
+    <PageShell data-testid="strategy">
       <PageHeader title="Strategy proposals" description="Proposals built on an approved idea or shot list. Another staff member reviews and accepts the exact version; the published version prefills handoff briefs." />
       <div className="grid gap-2 sm:grid-cols-2">
         {!clientSlug ? <div className="sm:col-span-2"><PickClientPrompt what="its strategy proposals" /></div> : null}
-        <select aria-label="Engagement" className={field} value={engagementId} onChange={(e) => setEngagementId(e.target.value)} disabled={!clientSlug}>
-          <option value="">Select an engagement</option>
-          {engagements.map((e) => <option key={e.id} value={e.id}>Cycle {e.cycle_number} ({e.status})</option>)}
-        </select>
+        <SelectField label="Engagement" hideLabel value={engagementId} onChange={(e) => setEngagementId(e.target.value)} disabled={!clientSlug} placeholder="Select an engagement" options={engagements.map((e) => ({ value: e.id, label: `Cycle ${e.cycle_number} (${e.status})` }))} />
       </div>
       {engagementId ? <CreateForm engagementId={engagementId} subjects={subjects} onCreated={() => void load()} /> : null}
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
-      {proposals && proposals.length === 0 ? <p className="text-sm text-muted-foreground">No strategy proposals for this engagement yet.</p> : null}
+      {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      {proposals && !error && proposals.length === 0 ? <EmptyState title="No strategy proposals for this engagement yet." /> : null}
       {(proposals ?? []).map((p) => <ProposalCard key={`${p.id}:${p.current_version}`} proposal={p} subjects={subjects} onChanged={() => void load()} />)}
-    </div>
+    </PageShell>
   );
 }

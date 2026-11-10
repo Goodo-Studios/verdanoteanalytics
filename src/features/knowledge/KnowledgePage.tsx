@@ -7,9 +7,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { PageHeader } from "@/components/PageHeader";
+import { ConfirmDialog, EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
+import { fmtDate } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
-import { ConfirmDeleteDialog } from "@/components/user-settings/ConfirmDeleteDialog";
 import {
   canPublish,
   canReview,
@@ -37,7 +37,6 @@ interface Untyped {
 }
 const db = supabase as unknown as Untyped;
 const SELECT = "*, knowledge_source_versions(*), knowledge_corrections(*, knowledge_correction_reviews(*))";
-const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 interface ClientOption {
   slug: string;
@@ -62,27 +61,18 @@ function AddSource({ clients, onAdded }: { clients: ClientOption[]; onAdded: () 
     <details className="rounded-lg border border-input bg-background p-4">
       <summary className="cursor-pointer text-sm font-medium">Add knowledge (builder)</summary>
       <div className="mt-3 space-y-2">
-        <input aria-label="Title" className={field} placeholder="Title" value={form.title} onChange={set("title")} />
-        <textarea aria-label="Text" className={`${field} min-h-[120px]`} placeholder="Text" value={form.body} onChange={set("body")} />
+        <TextField label="Title" hideLabel placeholder="Title" value={form.title} onChange={set("title")} />
+        <TextareaField label="Text" hideLabel inputClassName="min-h-[120px]" placeholder="Text" value={form.body} onChange={set("body")} />
         <div className="grid gap-2 sm:grid-cols-3">
-          <select aria-label="Who it is for" className={field} value={form.classification} onChange={set("classification")}>
-            <option value="staff">Staff knowledge</option>
-            <option value="client">Client knowledge (still staff only)</option>
-          </select>
-          <select aria-label="Applies to" className={field} value={form.scope} onChange={set("scope")}>
-            <option value="global">All clients</option>
-            <option value="client">One client</option>
-          </select>
+          <SelectField label="Who it is for" hideLabel value={form.classification} onChange={set("classification")} options={[{ value: "staff", label: "Staff knowledge" }, { value: "client", label: "Client knowledge (still staff only)" }]} />
+          <SelectField label="Applies to" hideLabel value={form.scope} onChange={set("scope")} options={[{ value: "global", label: "All clients" }, { value: "client", label: "One client" }]} />
           {form.scope === "client" ? (
-            <select aria-label="Client" className={field} value={form.client} onChange={set("client")}>
-              <option value="">Select client</option>
-              {clients.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
-            </select>
-          ) : <input aria-label="Topic" className={field} placeholder="Topic (for example process)" value={form.namespace} onChange={set("namespace")} />}
+            <SelectField label="Client" hideLabel value={form.client} onChange={set("client")} placeholder="Select client" options={clients.map((c) => ({ value: c.slug, label: c.name }))} />
+          ) : <TextField label="Topic" hideLabel placeholder="Topic (for example process)" value={form.namespace} onChange={set("namespace")} />}
         </div>
-        <input aria-label="Source link" className={field} placeholder="Source link (https://...)" value={form.url} onChange={set("url")} />
+        <TextField label="Source link" hideLabel placeholder="Source link (https://...)" value={form.url} onChange={set("url")} />
         <Button size="sm" disabled={!form.title.trim() || !form.body.trim()} onClick={() => void add()}>Add</Button>
-        {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       </div>
     </details>
   );
@@ -111,7 +101,7 @@ function CorrectionRow({ c, source, onChanged }: { c: Correction; source: Knowle
       {c.review ? <p className="text-muted-foreground">Review: {c.review.reason}</p> : null}
       {canReview(c, user?.id, isBuilder) ? (
         <div className="space-y-2">
-          <input aria-label="Review reason" className={field} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason" />
+          <TextField label="Review reason" hideLabel value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason" />
           <div className="flex flex-wrap gap-2">
             <Button size="sm" onClick={() => review("accepted")}>Accept</Button>
             <Button size="sm" variant="outline" onClick={() => review("rejected")}>Reject</Button>
@@ -124,7 +114,7 @@ function CorrectionRow({ c, source, onChanged }: { c: Correction; source: Knowle
           Publish as version {source.current_version + 1}
         </Button>
       ) : null}
-      {error ? <p role="alert" className="text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-destructive">{error}</p> : null}
     </li>
   );
 }
@@ -176,7 +166,7 @@ function SourceDetail({ source, onChanged }: { source: KnowledgeSource; onChange
         <ul className="mt-2 space-y-1 text-sm">
           {source.versions.map((v) => (
             <li key={v.id} className="flex items-center justify-between gap-2">
-              <span>{versionLabel(v)} · {new Date(v.created_at).toLocaleDateString("en-US", { dateStyle: "medium" })}</span>
+              <span>{versionLabel(v)} · {fmtDate(v.created_at)}</span>
               {isBuilder && v.version < source.current_version ? (
                 <Button size="sm" variant="outline" onClick={() => setRollbackTo(v.version)}>Roll back to this</Button>
               ) : null}
@@ -184,7 +174,7 @@ function SourceDetail({ source, onChanged }: { source: KnowledgeSource; onChange
           ))}
         </ul>
       </details>
-      <ConfirmDeleteDialog
+      <ConfirmDialog
         open={rollbackTo !== null}
         onOpenChange={(open) => { if (!open) setRollbackTo(null); }}
         title={`Roll back to version ${rollbackTo ?? ""}?`}
@@ -199,16 +189,14 @@ function SourceDetail({ source, onChanged }: { source: KnowledgeSource; onChange
 
       <div className="space-y-2">
         <h3 className="text-sm font-semibold">Propose a correction</h3>
-        <textarea aria-label="Corrected text" className={`${field} min-h-[100px]`} value={draft} onChange={(e) => setDraft(e.target.value)} />
+        <TextareaField label="Corrected text" hideLabel inputClassName="min-h-[100px]" value={draft} onChange={(e) => setDraft(e.target.value)} />
         <div className="grid gap-2 sm:grid-cols-2">
-          <input aria-label="Why" className={field} placeholder="Why it needs correcting" value={reason} onChange={(e) => setReason(e.target.value)} />
-          <select aria-label="Kind of correction" className={field} value={classification} onChange={(e) => setClassification(e.target.value as CorrectionClass)}>
-            {(Object.keys(CLASS_LABEL) as CorrectionClass[]).map((k) => <option key={k} value={k}>{CLASS_LABEL[k]}</option>)}
-          </select>
+          <TextField label="Why" hideLabel placeholder="Why it needs correcting" value={reason} onChange={(e) => setReason(e.target.value)} />
+          <SelectField label="Kind of correction" hideLabel value={classification} onChange={(e) => setClassification(e.target.value as CorrectionClass)} options={(Object.keys(CLASS_LABEL) as CorrectionClass[]).map((k) => ({ value: k, label: CLASS_LABEL[k] }))} />
         </div>
         <Button size="sm" disabled={!reason.trim() || !draft.trim() || draft === current?.body} onClick={() => void submit()}>Send for review</Button>
         {message ? <p role="status" className="text-sm">{message}</p> : null}
-        {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       </div>
 
       {source.corrections.length ? (
@@ -251,13 +239,13 @@ export default function KnowledgePage() {
   const openCount = (s: KnowledgeSource) => s.corrections.filter((c) => correctionStatus(c, s) === "open").length;
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4" data-testid="knowledge">
+    <PageShell data-testid="knowledge">
       <PageHeader title="Knowledge" description="Shared Goodo knowledge. Propose a correction to what is on screen; another person reviews it before it is published." />
       {isBuilder ? <AddSource clients={clients} onAdded={() => void load()} /> : null}
-      <input aria-label="Search knowledge" className={field} placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} />
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
-      {sources === null ? <p role="status" className="text-sm text-muted-foreground">Loading knowledge...</p> : null}
-      {sources && visible.length === 0 ? <p className="text-sm text-muted-foreground">{sources.length ? "Nothing matches." : "No knowledge has been added yet."}</p> : null}
+      <FilterBar search={{ value: query, onChange: setQuery, label: "Search knowledge", placeholder: "Search" }} />
+      {error ? <ErrorState message={error} onRetry={() => { setError(null); setSources(null); void load(); }} /> : null}
+      {sources === null ? <LoadingState label="Loading knowledge" /> : null}
+      {sources && !error && visible.length === 0 ? <EmptyState title={sources.length ? "Nothing matches." : "No knowledge has been added yet."} /> : null}
       <ul className="space-y-1">
         {visible.map((s) => (
           <li key={s.id}>
@@ -269,6 +257,6 @@ export default function KnowledgePage() {
         ))}
       </ul>
       {active ? <SourceDetail key={active.id} source={active} onChanged={() => void load()} /> : null}
-    </div>
+    </PageShell>
   );
 }
