@@ -112,6 +112,7 @@ describe("Client page", () => {
     const slot = screen.getByTestId("client-detail-4b-slot");
     expect(slot).toHaveTextContent("step 4b");
     expect(within(slot).getByRole("link", { name: "Engagements page" }).getAttribute("href")).toBe("/builder/engagements");
+    expect(within(slot).getByRole("link", { name: "Deliverables page" }).getAttribute("href")).toBe("/builder/deliverables");
     expect(screen.queryByRole("button", { name: /overview/ })).toBeNull();
     expect(document.body.textContent).not.toMatch(/coda/i);
   });

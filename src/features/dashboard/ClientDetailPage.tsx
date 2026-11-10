@@ -337,8 +337,9 @@ export default function ClientDetailPage() {
         <h2 className={H2}>Goodo OS engagement views (step 4b)</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Cycle setup, terms, milestones and closeouts are on the{" "}
-          <Link to={`${prefix}/engagements`} className="underline">Engagements page</Link>. Deliverables and approvals, QA gates and
-          handoffs for this client open here when step 4b builds them. This page stays the one client page.
+          <Link to={`${prefix}/engagements`} className="underline">Engagements page</Link>, and deliverable rounds and approvals on the{" "}
+          <Link to={`${prefix}/deliverables`} className="underline">Deliverables page</Link>. QA gates and handoffs for this client open
+          here when step 4b builds them. This page stays the one client page.
         </p>
       </section>
     </div>
