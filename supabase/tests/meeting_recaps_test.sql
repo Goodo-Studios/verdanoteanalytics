@@ -24,8 +24,8 @@ INSERT INTO public.user_roles (user_id, role) VALUES
 INSERT INTO public.clients (slug, name, status) VALUES ('mr-alpha', 'MR Alpha', 'active'), ('mr-beta', 'MR Beta', 'active');
 INSERT INTO public.client_members (user_id, client_slug) VALUES ('e3000000-0000-4000-8000-000000000003', 'mr-alpha');
 INSERT INTO public.engagements (id, client_slug, cycle_number, status) VALUES
-  ('e3000000-0000-4000-8000-0000000000e1', 'mr-alpha', 1, 'active'),
-  ('e3000000-0000-4000-8000-0000000000e2', 'mr-beta', 1, 'active');
+  ('e3000000-0000-4000-8000-0000000000e1', 'mr-alpha', 1, 'planned'),
+  ('e3000000-0000-4000-8000-0000000000e2', 'mr-beta', 1, 'planned');
 
 -- ---------------------------------------------------------------- structure (1-6)
 SELECT ok((SELECT bool_and(relrowsecurity) FROM pg_class
