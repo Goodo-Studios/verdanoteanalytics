@@ -3,7 +3,12 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { isStaffUser } from "../_shared/account-access.ts";
 
 
-Deno.serve(async (req) => {
+export interface Deps {
+  createClient?: typeof createClient;
+}
+
+export async function handler(req: Request, deps: Deps = {}): Promise<Response> {
+  const makeClient = deps.createClient ?? createClient;
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -21,7 +26,7 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    const userClient = createClient(supabaseUrl, supabaseKey, {
+    const userClient = makeClient(supabaseUrl, supabaseKey, {
       global: { headers: { Authorization: authHeader } },
     });
 
@@ -35,7 +40,7 @@ Deno.serve(async (req) => {
     const userId = user.id;
 
     // Use service role to fetch data
-    const admin = createClient(supabaseUrl, serviceKey);
+    const admin = makeClient(supabaseUrl, serviceKey);
 
     // Get user preferences
     const { data: prefs } = await admin
@@ -294,4 +299,9 @@ Deno.serve(async (req) => {
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
-});
+}
+
+// Tests import the handler with SEND_DIGEST_NO_SERVE set.
+if (!Deno.env.get("SEND_DIGEST_NO_SERVE")) {
+  Deno.serve((req) => handler(req));
+}
