@@ -51,6 +51,7 @@ vi.mock("@/features/dashboard/CreatorPipelinePage", () => pageMock("creator-pipe
 vi.mock("@/features/dashboard/ClientDetailPage", () => pageMock("clientDetail"));
 vi.mock("@/features/clients/ClientWorkTab", () => pageMock("client-work"));
 vi.mock("@/features/clients/ClientPerformanceTab", () => pageMock("client-performance"));
+vi.mock("@/features/clients/ClientSetupTab", () => pageMock("client-setup"));
 vi.mock("@/features/dashboard/OverviewPage", () => pageMock("client-overview"));
 vi.mock("@/features/dashboard/ApprovalBoardsPage", () => pageMock("approval-boards"));
 vi.mock("@/features/dashboard/LocationsPage", () => pageMock("locations"));
@@ -201,7 +202,7 @@ const PAGE_MARKER: Record<string, string> = {
   meetingRecaps: "meeting-recaps", bidViewer: "bids", team: "team", integrationHealth: "integration-health", operations: "operations",
   operatingCosts: "operating-costs", agentEvaluations: "agent-evaluations", growthDashboard: "growth-dashboard",
   adNameGenerator: "ad-name-generator", supportInbox: "support",
-  clientDetail: "clientDetail", clientWork: "client-work", clientPerformance: "client-performance",
+  clientDetail: "clientDetail", clientWork: "client-work", clientPerformance: "client-performance", clientSetup: "client-setup",
   engagements: "engagements", deliverables: "deliverables", qaGates: "qa-gates", handoffs: "handoffs", scopeChanges: "scope-changes",
   strategy: "strategy", recommendations: "recommendations",
 };

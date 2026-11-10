@@ -9,6 +9,8 @@ export interface HubTabDef {
   page: PageKey;
   /** Reads the client's ad account: shows a plain message when it has none. */
   needsAccount?: boolean;
+  /** Shown in the tab bar to builders only. The address still opens for anyone on staff and says why it is empty. */
+  builderOnly?: boolean;
 }
 
 export const HUB_TABS: HubTabDef[] = [
@@ -19,6 +21,7 @@ export const HUB_TABS: HubTabDef[] = [
   { slug: "brand-doc", label: "Brand doc", page: "bidViewer" },
   { slug: "meetings", label: "Meetings", page: "meetingRecaps" },
   { slug: "scope", label: "Scope", page: "engagements" },
+  { slug: "setup", label: "Setup", page: "clientSetup", builderOnly: true },
 ];
 
 export interface ScopeSubDef {

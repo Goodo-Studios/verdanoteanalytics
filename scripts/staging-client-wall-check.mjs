@@ -1069,6 +1069,9 @@ const SHELL_QUERIES = [
   ["client_ad_accounts", "account_id, client_slug"],
   // Client hub Work tab: the cards of one client, read by client_slug (the third item).
   ["pipeline_tasks", "id, task_name, stage, due_date, content_type, updated_at", "client_slug"],
+  // Client hub Setup tab (phase 4): the ad accounts to pick from and the client's ClickUp links.
+  ["ad_accounts", "id, name"],
+  ["source_mappings", "id, client_slug, provider, kind, external_id, label, active", "client_slug"],
 ];
 for (const [table, select, filter] of SHELL_QUERIES) {
   for (const [label, s] of [["employee", employee], ["builder", staff]]) {
@@ -1125,6 +1128,45 @@ for (const [table, select, filter] of SHELL_QUERIES) {
     }
   }
 }
+// Client setup (phase 4 PR 1, migration 20261112000001): the Setup tab. A client reads no ClickUp
+// links and no client logins, cannot write either table and is refused the four functions. The
+// employee reads the setup status (the Team page checklist) and is refused the three login
+// functions (builder only). Nothing is written: calls that pass a role check name a client or a
+// login that matches nothing.
+const SETUP_FUNCTIONS = [
+  ["client_setup_status", {}],
+  ["list_client_members", { p_slug: "wall-probe-no-such-client" }],
+  ["add_client_member", { p_slug: "wall-probe-no-such-client", p_email: "wall@staging.verdanote.test" }],
+  ["remove_client_member", { p_slug: "wall-probe-no-such-client", p_user_id: ZERO }],
+];
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  const m = await s.c.from("source_mappings").select("id, client_slug, provider, kind, external_id, label, active").eq("client_slug", "demo-glowdrip");
+  check(`${label} reads no ClickUp links with the Setup tab query`, !m.error && (m.data ?? []).length === 0, `error=${m.error?.message ?? "none"} rows=${m.data?.length ?? "error"}`);
+  const insMap = await s.c.from("source_mappings").insert({ client_slug: "demo-glowdrip", provider: "clickup", kind: "folder", external_id: "9999999999" });
+  check(`${label} cannot write source_mappings`, !!insMap.error, `error=${insMap.error?.message ?? "none (write accepted)"}`);
+  const insMember = await s.c.from("client_members").insert({ user_id: s.userId, client_slug: "demo-glowdrip" });
+  check(`${label} cannot link itself to a client`, !!insMember.error, `error=${insMember.error?.message ?? "none (write accepted)"}`);
+  const insLink = await s.c.from("client_ad_accounts").insert({ account_id: "act_demo_glowdrip", client_slug: "demo-glowdrip" });
+  check(`${label} cannot write client_ad_accounts`, !!insLink.error, `error=${insLink.error?.message ?? "none (write accepted)"}`);
+  const accounts = await s.c.from("ad_accounts").select("id, name");
+  check(`${label} loads only its own ad accounts with the Setup tab query`, !accounts.error && (accounts.data ?? []).every((a) => a.id === "act_demo_glowdrip"), `rows=${accounts.data?.length ?? "error"}`);
+  for (const [fn, args] of SETUP_FUNCTIONS) {
+    const res = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, res.error?.code === "42501", `code=${res.error?.code ?? "none"}`);
+  }
+}
+const setupStatus = await employee.c.rpc("client_setup_status");
+check("employee reads the client setup status", !setupStatus.error && Array.isArray(setupStatus.data) && setupStatus.data.length > 0, `error=${setupStatus.error?.message ?? "none"} rows=${setupStatus.data?.length ?? "error"}`);
+for (const [fn, args] of SETUP_FUNCTIONS.filter(([n]) => n !== "client_setup_status")) {
+  const res = await employee.c.rpc(fn, args);
+  check(`employee is refused ${fn} (builder only)`, res.error?.code === "42501", `code=${res.error?.code ?? "none"}`);
+}
+const setupList = await staff.c.rpc("list_client_members", { p_slug: "demo-glowdrip" });
+check("builder reads the client logins of a client", !setupList.error && Array.isArray(setupList.data), `error=${setupList.error?.message ?? "none"} rows=${setupList.data?.length ?? "error"}`);
+const setupNoClient = await staff.c.rpc("add_client_member", { p_slug: "wall-probe-no-such-client", p_email: "wall@staging.verdanote.test" });
+check("builder passes the role check in add_client_member (no such client, nothing linked)", setupNoClient.error?.code === "P0002", `code=${setupNoClient.error?.code ?? "none"}`);
+const setupNoLink = await staff.c.rpc("remove_client_member", { p_slug: "wall-probe-no-such-client", p_user_id: ZERO });
+check("builder passes the role check in remove_client_member (nothing linked)", setupNoLink.error?.code === "P0002", `code=${setupNoLink.error?.code ?? "none"}`);
 
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>

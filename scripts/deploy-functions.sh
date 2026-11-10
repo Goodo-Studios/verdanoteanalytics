@@ -62,6 +62,7 @@ FUNCTIONS=(
   run-slack-jobs
   fireflies-transcript
   push-brief-to-clickup
+  clickup-folders
   meeting-recaps
   agent-evaluations
   integration-health

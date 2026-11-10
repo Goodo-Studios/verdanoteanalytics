@@ -9,6 +9,7 @@ import { Suspense } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { PageSkeleton } from "@/components/skeletons/PageSkeleton";
 import { pageFor, prefetchPage } from "@/components/sections/lazyPages";
+import { useAuth } from "@/contexts/AuthContext";
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useAccountReady } from "@/hooks/useAccountReady";
 import { useRolePrefix } from "@/hooks/useRolePath";
@@ -23,6 +24,7 @@ export default function ClientHubPage() {
   const prefix = useRolePrefix();
   const { clients, isLoading, selectedClient, noAccount } = useClientSelection();
   const accountReady = useAccountReady();
+  const { isBuilder } = useAuth();
 
   const known = clients.length === 0 || clients.some((c) => c.slug === slug);
   if (!isLoading && !known) {
@@ -52,7 +54,7 @@ export default function ClientHubPage() {
           <Link to={`${prefix}/clients`} className="underline">Clients</Link> / <span data-testid="client-hub-name">{name}</span>
         </p>
         <nav aria-label="Client tabs" className="-mb-px mt-1 flex gap-1 overflow-x-auto">
-          {HUB_TABS.map((t) => (
+          {HUB_TABS.filter((t) => !t.builderOnly || isBuilder).map((t) => (
             <Link
               key={t.slug}
               to={`${prefix}${hubPath(slug, t.slug)}`}

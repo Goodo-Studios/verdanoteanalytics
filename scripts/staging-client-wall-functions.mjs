@@ -103,6 +103,11 @@ const controls = [
   ["employee passes the push-brief-to-clickup gate and it fails closed without a token", "push-brief-to-clickup", employee, { body: { action: "list", client_slug: "wall_probe" } }, (s) => s === 503],
   ["builder passes the push-brief-to-clickup gate and it fails closed without a token", "push-brief-to-clickup", builder, { body: { action: "list", client_slug: "wall_probe" } }, (s) => s === 503],
   ["client B refused by push-brief-to-clickup", "push-brief-to-clickup", clientB, { body: { action: "list", client_slug: "wall_probe" } }, refused],
+  // Staging has no CLICKUP_API_TOKEN: the builder passes the gate and clickup-folders fails closed with 503
+  // and no request. The employee is refused (builder only) and the client is refused.
+  ["builder passes the clickup-folders gate and it fails closed without a token", "clickup-folders", builder, { method: "GET" }, (s) => s === 503],
+  ["employee refused by clickup-folders (builder only)", "clickup-folders", employee, { method: "GET" }, refused],
+  ["client B refused by clickup-folders", "clickup-folders", clientB, { method: "GET" }, refused],
   // Integration health is read-only and calls nothing outside, so staff get 200.
   ["employee accepted by integration-health", "integration-health", employee, { method: "GET" }, (s) => s === 200],
   ["builder accepted by integration-health", "integration-health", builder, { method: "GET" }, (s) => s === 200],

@@ -79,7 +79,8 @@ INSERT INTO allow
     'set_studio_shipment_notes', 'unconfirm_actor_from_shoot', 'update_call_sheet',
     'update_client', 'update_crew_member', 'update_location', 'update_prop',
     'update_shoot', 'update_shoot_schedule_block', 'update_studio_shipment',
-    'save_call_sheet_talent_entry', 'remove_call_sheet_talent_entry'
+    'save_call_sheet_talent_entry', 'remove_call_sheet_talent_entry',
+    'client_setup_status', 'list_client_members', 'add_client_member', 'remove_client_member'
   ]);
 
 -- SECURITY DEFINER functions in public (extension functions excluded).

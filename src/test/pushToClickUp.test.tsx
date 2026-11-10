@@ -224,6 +224,20 @@ describe("the push dialog", () => {
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 
+  it("a client with no ClickUp folder linked gets a plain message with a link to its Setup tab, not a table name", async () => {
+    const refusal = new Response(JSON.stringify({
+      error: "This client has no ClickUp folder linked yet. A builder can link one on the client's Setup tab.",
+      needs_setup: true,
+      client_slug: "glow drip",
+    }), { status: 404 });
+    invoke.mockResolvedValue({ data: null, error: Object.assign(new Error("Edge Function returned a non-2xx status code"), { context: refusal }) });
+    wrap(<PushToClickUpDialog open onOpenChange={() => {}} heading="Push to ClickUp" accountId="act_smoke" initialTitle="T" initialBody="Brief" />);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("no ClickUp folder linked yet");
+    expect(alert.textContent ?? "").not.toMatch(/source_mappings/);
+    expect(screen.getByRole("link", { name: "Open the Setup tab" })).toHaveAttribute("href", "/builder/clients/glow%20drip/setup");
+  });
+
   it("without an ad account it loads nothing and cannot push", () => {
     wrap(<PushToClickUpDialog open onOpenChange={() => {}} heading="Push to ClickUp" accountId={null} initialTitle="T" initialBody="Brief" />);
     expect(invoke).not.toHaveBeenCalled();

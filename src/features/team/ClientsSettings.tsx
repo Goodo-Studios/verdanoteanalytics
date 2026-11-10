@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Link } from "react-router-dom";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { Button } from "@/components/ui/button";
+import { buildChecklist, checklistSummary, type SetupStatus } from "@/features/clients/setupModel";
 import { errorText } from "./model";
 import {
   CLIENT_SELECT,
@@ -37,7 +38,22 @@ interface Untyped {
 const db = supabase as unknown as Untyped;
 const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
-function ClientItem({ client, builder, onChanged }: { client: ClientRow; builder: boolean; onChanged: () => void }) {
+function SetupLine({ client, status, builder }: { client: ClientRow; status: SetupStatus | undefined; builder: boolean }) {
+  const prefix = useRolePrefix();
+  if (!status) return null;
+  const items = buildChecklist(status, new Date());
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted-foreground" data-testid="client-setup-line">
+      <span>{checklistSummary(items)}:</span>
+      {items.map((i) => (
+        <span key={i.key} data-done={i.done}>{i.done ? "\u2713" : "\u25CB"} {i.label}{i.key === "sync" ? ` (${i.detail})` : ""}</span>
+      ))}
+      {builder ? <Link className="underline" to={`${prefix}/clients/${client.slug}/setup`}>Set up</Link> : null}
+    </div>
+  );
+}
+
+function ClientItem({ client, builder, status, onChanged }: { client: ClientRow; builder: boolean; status: SetupStatus | undefined; onChanged: () => void }) {
   const prefix = useRolePrefix();
   const [form, setForm] = useState({ name: client.name, doesCreators: client.does_creators, doesProduction: client.does_production });
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +86,7 @@ function ClientItem({ client, builder, onChanged }: { client: ClientRow; builder
           {serviceLinesLabel(client)} · {originLabel(client)} · {client.active ? "On the Client overview" : "Not shown"}
         </div>
       </div>
+      <SetupLine client={client} status={status} builder={builder} />
       {builder ? (
         <div className="mt-2 flex flex-wrap gap-2">
           <Button size="sm" variant="outline" disabled={busy} onClick={toggle}>{client.active ? "Hide from overview" : "Show on overview"}</Button>
@@ -131,6 +148,7 @@ function AddClient({ existing, onAdded }: { existing: string[]; onAdded: () => v
 
 export function ClientsSettings({ builder }: { builder: boolean }) {
   const [clients, setClients] = useState<ClientRow[] | null>(null);
+  const [setup, setSetup] = useState<Map<string, SetupStatus>>(new Map());
   const [filter, setFilter] = useState<ClientFilter>("active");
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -144,6 +162,9 @@ export function ClientsSettings({ builder }: { builder: boolean }) {
     }
     setError(null);
     setClients((data ?? []) as ClientRow[]);
+    // The checklist line is a nicety: if it fails the list still works, so the line is left out.
+    const status = await db.rpc("client_setup_status");
+    setSetup(new Map((!status.error && Array.isArray(status.data) ? (status.data as SetupStatus[]) : []).map((s) => [s.client_slug, s])));
   }, []);
   useEffect(() => void load(), [load]);
 
@@ -165,7 +186,7 @@ export function ClientsSettings({ builder }: { builder: boolean }) {
       </div>
       {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
       {clients && shown.length === 0 ? <p className="text-sm text-muted-foreground">No clients match.</p> : null}
-      <ul className="space-y-2">{shown.map((c) => <ClientItem key={`${c.slug}:${c.active}:${c.name}`} client={c} builder={builder} onChanged={() => void load()} />)}</ul>
+      <ul className="space-y-2">{shown.map((c) => <ClientItem key={`${c.slug}:${c.active}:${c.name}`} client={c} builder={builder} status={setup.get(c.slug)} onChanged={() => void load()} />)}</ul>
       <details>
         <summary className="cursor-pointer text-sm font-medium">Add a client by hand</summary>
         <div className="mt-2"><AddClient existing={(clients ?? []).map((c) => c.slug)} onAdded={() => void load()} /></div>

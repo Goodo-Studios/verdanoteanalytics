@@ -15,6 +15,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 const h = vi.hoisted(() => ({
+  isBuilder: true,
   selectedAccountId: "act_glow" as string | null,
   tables: {} as Record<string, unknown>,
   taskCalls: [] as Array<{ select: string; col: string; val: string }>,
@@ -22,7 +23,7 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("@/contexts/AuthContext", () => ({
-  useAuth: () => ({ user: { id: "u1" }, role: "builder", isClient: false, isBuilder: true, isEmployee: false }),
+  useAuth: () => ({ user: { id: "u1" }, role: h.isBuilder ? "builder" : "employee", isClient: false, isBuilder: h.isBuilder, isEmployee: !h.isBuilder }),
 }));
 vi.mock("@/hooks/useClientPreviewMode", () => ({ useClientPreview: () => ({ isClientPreview: false, isEmployeePreview: false }) }));
 vi.mock("@/hooks/useRolePath", () => ({ useRolePrefix: () => "/builder" }));
@@ -139,6 +140,7 @@ const detail = (slug: string, name: string) => ({
 });
 
 beforeEach(() => {
+  h.isBuilder = true;
   window.localStorage.clear();
   h.selectedAccountId = "act_glow";
   h.taskCalls = [];
@@ -149,15 +151,23 @@ beforeEach(() => {
 });
 
 describe("hub tabs", () => {
-  it("lists the seven tabs, marks the open one and links each into the client's address", async () => {
+  it("lists the eight tabs (Setup is for builders), marks the open one and links each into the client's address", async () => {
     renderHub("/builder/clients/glow/work");
     const nav = await screen.findByRole("navigation", { name: "Client tabs" });
-    expect(within(nav).getAllByRole("link").map((a) => a.textContent)).toEqual(["Overview", "Work", "Briefs", "Performance", "Brand doc", "Meetings", "Scope"]);
+    expect(within(nav).getAllByRole("link").map((a) => a.textContent)).toEqual(["Overview", "Work", "Briefs", "Performance", "Brand doc", "Meetings", "Scope", "Setup"]);
     expect(within(nav).getByRole("link", { name: "Work" }).getAttribute("aria-current")).toBe("page");
     expect(within(nav).getByRole("link", { name: "Overview" }).getAttribute("href")).toBe("/builder/clients/glow");
     expect(within(nav).getByRole("link", { name: "Brand doc" }).getAttribute("href")).toBe("/builder/clients/glow/brand-doc");
     expect(within(nav).getByRole("link", { name: "Scope" }).getAttribute("href")).toBe("/builder/clients/glow/scope");
     await waitFor(() => expect(screen.getByTestId("client-hub-name").textContent).toBe("Glow Drip"));
+  });
+
+  it("hides the Setup tab from an employee, and its address says only a builder can set a client up", async () => {
+    h.isBuilder = false;
+    renderHub("/builder/clients/glow/setup");
+    const nav = await screen.findByRole("navigation", { name: "Client tabs" });
+    expect(within(nav).getAllByRole("link").map((a) => a.textContent)).toEqual(["Overview", "Work", "Briefs", "Performance", "Brand doc", "Meetings", "Scope"]);
+    expect(await screen.findByTestId("client-setup-builders-only")).toBeTruthy();
   });
 
   it("Overview is the client detail content for the client in the address", async () => {
@@ -213,7 +223,7 @@ describe("hub tabs", () => {
 
   it("the model builds the same addresses the tabs link to", () => {
     expect(HUB_TABS.map((t) => hubPath("glow", t.slug))).toEqual([
-      "/clients/glow", "/clients/glow/work", "/clients/glow/briefs", "/clients/glow/performance", "/clients/glow/brand-doc", "/clients/glow/meetings", "/clients/glow/scope",
+      "/clients/glow", "/clients/glow/work", "/clients/glow/briefs", "/clients/glow/performance", "/clients/glow/brand-doc", "/clients/glow/meetings", "/clients/glow/scope", "/clients/glow/setup",
     ]);
     expect(hubPath("a b", "scope", "strategy")).toBe("/clients/a%20b/scope/strategy");
   });

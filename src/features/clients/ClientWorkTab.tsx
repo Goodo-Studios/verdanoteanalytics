@@ -38,7 +38,7 @@ export default function ClientWorkTab() {
       ) : shown === 0 ? (
         <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground" data-testid="client-work-empty">
           Nothing in production for {name}. If ClickUp has cards for this client, check that its ClickUp folder is linked on the{" "}
-          <Link className="underline" to={`${prefix}/clients/${encodeURIComponent(selectedSlug)}`}>Overview</Link>.
+          <Link className="underline" to={`${prefix}/clients/${encodeURIComponent(selectedSlug)}/setup`}>Setup tab</Link>.
         </p>
       ) : (
         <>
