@@ -199,5 +199,30 @@ const listStaff = await accountsJson(builder);
 const rowsStaff = Array.isArray(listStaff.body) ? listStaff.body : [];
 check("builder still gets full account rows from the accounts function", listStaff.status === 200 && rowsStaff.some((r) => r.id === "act_demo_glowdrip" && "kill_threshold" in r), `status=${listStaff.status} rows=${rowsStaff.length}`);
 
+// 6. Board sync (phase 5). sync-clickup-tasks is for the schedule only (service role): no login of any
+//    role gets in, so nobody can run a sync, or its sweep of the delivered list, from the browser. The
+//    missing-token state is named the same in integration-health as in the sync ("clickup.no_token"):
+//    staging has no token, so staff must see ClickUp as not connected under that name, with the board
+//    rows clients still see reported beside it. (The sync's own 503 answer for a missing token is
+//    covered by supabase/functions/sync-clickup-tasks/index.test.ts; it is not called here because
+//    with a token set it would run a real sync.)
+for (const [label, token] of [["client A", clientA], ["client B", clientB], ["employee", employee], ["builder", builder]]) {
+  const status = await call("sync-clickup-tasks", token, {});
+  check(`${label} refused by sync-clickup-tasks (service role only)`, refused(status), `status=${status}`);
+}
+const healthRes = await fetch(`${url}/functions/v1/integration-health`, {
+  method: "GET",
+  headers: { Authorization: `Bearer ${builder}`, apikey: anon },
+});
+let health = null;
+try { health = await healthRes.json(); } catch { /* not JSON */ }
+const clickupHealth = (health?.connectors ?? []).find((c) => c.key === "clickup");
+check("integration-health reports ClickUp", healthRes.status === 200 && !!clickupHealth, `status=${healthRes.status}`);
+check(
+  "a ClickUp connector with no token is reported not connected under the name the sync logs, with the board rows kept",
+  !!clickupHealth && (clickupHealth.connected ? true : clickupHealth.state === "not_connected" && (clickupHealth.notes ?? []).includes("clickup.no_token") && typeof clickupHealth.details?.boardRows === "number"),
+  `connected=${clickupHealth?.connected} state=${clickupHealth?.state} notes=${(clickupHealth?.notes ?? []).join(",")} boardRows=${clickupHealth?.details?.boardRows}`,
+);
+
 console.log(failed ? `\n${failed} check(s) failed` : "\nAll server function wall checks passed");
 process.exit(failed ? 1 : 0);

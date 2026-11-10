@@ -5,6 +5,8 @@ import {
   CLICKUP_CLIENT_SPACE_ID,
   type ClickUpTask,
   type ClientRow,
+  CLICKUP_NO_TOKEN_STATE,
+  type DeliveredRecord,
   type PipelineRecord,
   boardAccountId,
   pickProjectList,
@@ -29,8 +31,16 @@ import {
 // because the /pipeline page filters by ad account.
 //
 // The sync is authoritative: rows not refreshed by a clean run are deleted, so
-// a task that is cleared, archived, moved to "stuck" or aged out of the launch
-// window leaves the board.
+// a task that is cleared, archived, moved to "stuck" or aged out leaves the board.
+//
+// Delivered work (phase 5): delivered in the last 30 days stays on the board
+// (pipeline_tasks, stage "Ready to Launch"); delivered earlier, up to a year back, is
+// written to pipeline_delivered so a client's past cycles keep their finished tasks.
+// Both tables get the same authoritative delete, under the same safety rule.
+//
+// No ClickUp token: the run stops before any read or write, answers 503 with the state
+// "clickup.no_token" (the note integration-health shows for the connector) and logs it.
+// Nothing is deleted, so clients keep the last good board and its "Updated ... ago" line.
 
 const CLICKUP_API = "https://api.clickup.com/api/v2";
 const MAX_PAGES_PER_LIST = 50; // 100 tasks per page
@@ -99,7 +109,19 @@ export async function handler(
 
   try {
     const token = Deno.env.get("CLICKUP_API_TOKEN");
-    if (!token) throw new Error("CLICKUP_API_TOKEN is not configured");
+    if (!token) {
+      console.error(
+        `${CLICKUP_NO_TOKEN_STATE}: CLICKUP_API_TOKEN is not set. The board sync did not run and no row was changed; clients keep the last synced board.`,
+      );
+      return new Response(
+        JSON.stringify({
+          success: false,
+          state: CLICKUP_NO_TOKEN_STATE,
+          error: "ClickUp is not connected: CLICKUP_API_TOKEN is not set. No row was changed.",
+        }),
+        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     const supabase: SupabaseLike = isInjectedClient
       ? injectedClient!
@@ -163,6 +185,7 @@ export async function handler(
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
     const records = new Map<string, PipelineRecord>();
+    const delivered = new Map<string, DeliveredRecord>();
     const unmatchedFolders: string[] = [];
     const ambiguousFolders: string[] = [];
     const staleMappingFolders: string[] = [];
@@ -212,6 +235,8 @@ export async function handler(
         const outcome = toPipelineRecord(task, owner, nowMs);
         if (outcome.kind === "record") {
           records.set(outcome.record.clickup_task_id, outcome.record);
+        } else if (outcome.kind === "archive") {
+          delivered.set(outcome.record.clickup_task_id, outcome.record);
         } else {
           skipped++;
           if (outcome.kind === "unknown") unknownStatuses.add(outcome.status);
@@ -235,6 +260,21 @@ export async function handler(
       }
     }
 
+    const archiveRows = [...delivered.values()];
+    let archived = 0;
+    for (let i = 0; i < archiveRows.length; i += UPSERT_CHUNK) {
+      const chunk = archiveRows.slice(i, i + UPSERT_CHUNK);
+      const { error } = await supabase
+        .from("pipeline_delivered")
+        .upsert(chunk, { onConflict: "clickup_task_id" });
+      if (error) {
+        upsertFailed = true;
+        console.error(`Delivered upsert error for chunk ${i}-${i + chunk.length}:`, error.message);
+      } else {
+        archived += chunk.length;
+      }
+    }
+
     // Authoritative delete: every row written this run carries synced_at = nowIso,
     // so anything older was not part of the board this time.
     //
@@ -254,6 +294,17 @@ export async function handler(
         console.error("Authoritative delete error:", deleteError.message);
       } else {
         deleted = count ?? 0;
+      }
+      // A task that moved between the board and the delivered list, or left ClickUp, is removed
+      // from the table it no longer belongs to.
+      const { error: archiveDeleteError, count: archiveCount } = await supabase
+        .from("pipeline_delivered")
+        .delete({ count: "exact" })
+        .lt("synced_at", nowIso);
+      if (archiveDeleteError) {
+        console.error("Delivered delete error:", archiveDeleteError.message);
+      } else {
+        deleted += archiveCount ?? 0;
       }
     }
 
@@ -285,6 +336,7 @@ export async function handler(
         clientsWithoutBoardAccount: [...clientsWithoutBoardAccount].sort(),
         seen,
         upserted,
+        archived,
         skipped,
         deleted,
         deleteSkipped,

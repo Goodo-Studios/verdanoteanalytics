@@ -19,6 +19,11 @@ export interface PageQuery {
 export const CLIENT_SWITCHER_COLUMNS = "slug, name, active";
 export const CLIENT_SWITCHER_LINK_COLUMNS = "account_id, client_slug";
 export const PIPELINE_TASK_COLUMNS = "id, task_name, stage, due_date, content_type, updated_at";
+// The client's own board by cycle (phase 5). A client login sends these with no filter: the row rules decide.
+export const CLIENT_BOARD_COLUMNS = "id, task_name, stage, due_date, content_type, updated_at, cycle_month, delivered_at";
+export const CLIENT_DELIVERED_COLUMNS = "id, task_name, content_type, cycle_month, delivered_at, updated_at";
+export const CLIENT_ENGAGEMENT_COLUMNS = "start_date, day45_date, status";
+export const CLIENT_LINK_COLUMNS = "client_slug";
 // Staff Home and the cross-client Work page (restructure phase 2b).
 export const HOME_TASK_COLUMNS = "id, clickup_task_id, client_slug, task_name, stage, due_date, synced_at";
 export const HOME_HANDOFF_COLUMNS = "id, client_slug, receiving_role, receiver_id, due_date, status";
@@ -37,6 +42,10 @@ export const PAGE_QUERIES: PageQuery[] = [
   { table: "clients", select: CLIENT_SWITCHER_COLUMNS, usedBy: "client switcher (ClientSelectionContext)" },
   { table: "client_ad_accounts", select: CLIENT_SWITCHER_LINK_COLUMNS, usedBy: "client switcher (ClientSelectionContext)" },
   { table: "pipeline_tasks", select: PIPELINE_TASK_COLUMNS, usedBy: "client hub Work tab (useClientWork)", filter: "client_slug" },
+  { table: "pipeline_tasks", select: CLIENT_BOARD_COLUMNS, usedBy: "client board by cycle (usePipelineTasks)", filter: "client_slug" },
+  { table: "pipeline_delivered", select: CLIENT_DELIVERED_COLUMNS, usedBy: "client past cycles (usePipelineDelivered)", filter: "client_slug" },
+  { table: "engagements", select: CLIENT_ENGAGEMENT_COLUMNS, usedBy: "client cycle dates (useCycleEngagements)", filter: "client_slug" },
+  { table: "client_members", select: CLIENT_LINK_COLUMNS, usedBy: "client landing page (useOwnClientLinks)", filter: "client_slug" },
   { table: "pipeline_tasks", select: HOME_TASK_COLUMNS, usedBy: "staff Home and Work page (useHomeData)", staffList: true },
   { table: "handoff_packets", select: HOME_HANDOFF_COLUMNS, usedBy: "staff Home, My handoffs (useHomeData)", staffList: true },
   { table: "support_requests", select: HOME_SUPPORT_COLUMNS, usedBy: "staff Home, My support requests and Clients needing attention (useHomeData)", staffList: true },

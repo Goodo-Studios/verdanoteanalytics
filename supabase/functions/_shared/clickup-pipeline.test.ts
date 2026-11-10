@@ -8,7 +8,9 @@ import {
   dropdownValue,
   isAssetTask,
   isClearedTask,
+  DELIVERED_RETENTION_DAYS,
   LAUNCH_WINDOW_DAYS,
+  parseCycleMonth,
   boardAccountId,
   type ClientRow,
   pickProjectList,
@@ -285,6 +287,8 @@ Deno.test("a task becomes a row holding only client-safe fields", () => {
     stage: "Editing",
     due_date: "2026-11-20",
     content_type: "Motion Graphic",
+    cycle_month: "2026-11-01",
+    delivered_at: null,
     synced_at: new Date(NOW).toISOString(),
     updated_at: new Date(NOW).toISOString(),
   });
@@ -292,7 +296,7 @@ Deno.test("a task becomes a row holding only client-safe fields", () => {
   assert(!("status" in out.record));
 });
 
-Deno.test("delivered work shows for the launch window only", () => {
+Deno.test("delivered work stays on the board for the launch window, then moves to the delivered list", () => {
   const task = (touched: number, closed = false) => ({
     id: "t1",
     name: "October Asset 1",
@@ -302,11 +306,77 @@ Deno.test("delivered work shows for the launch window only", () => {
   });
   assertEquals(toPipelineRecord(task(NOW - 5 * DAY), OWNER, NOW).kind, "record");
   assertEquals(toPipelineRecord(task(NOW - 5 * DAY, true), OWNER, NOW).kind, "record");
-  assertEquals(toPipelineRecord(task(NOW - (LAUNCH_WINDOW_DAYS + 1) * DAY), OWNER, NOW).kind, "skip");
+  assertEquals(toPipelineRecord(task(NOW - (LAUNCH_WINDOW_DAYS + 1) * DAY), OWNER, NOW).kind, "archive");
+  assertEquals(toPipelineRecord(task(NOW - (LAUNCH_WINDOW_DAYS + 1) * DAY, true), OWNER, NOW).kind, "archive");
+  assertEquals(toPipelineRecord(task(NOW - (DELIVERED_RETENTION_DAYS - 1) * DAY, true), OWNER, NOW).kind, "archive");
+  assertEquals(toPipelineRecord(task(NOW - (DELIVERED_RETENTION_DAYS + 1) * DAY, true), OWNER, NOW).kind, "skip");
+  // No usable finish time: nothing to date it by, so it is left out rather than shown undated.
   assertEquals(
-    toPipelineRecord(task(NOW - (LAUNCH_WINDOW_DAYS + 1) * DAY, true), OWNER, NOW).kind,
+    toPipelineRecord({ id: "t1", name: "October Asset 1", status: { status: "complete" } }, OWNER, NOW).kind,
     "skip",
   );
+});
+
+Deno.test("a delivered task carries its delivery day and cycle, and an old one lands in the delivered list", () => {
+  const recent = toPipelineRecord(
+    { id: "d1", name: "November Asset 2", status: { status: "complete" }, date_closed: String(NOW - 2 * DAY) },
+    { client_slug: "bearaby", account_id: "act_bearaby" },
+    NOW,
+  );
+  assert(recent.kind === "record");
+  assertEquals(recent.record.stage, "Ready to Launch");
+  assertEquals(recent.record.delivered_at, "2026-11-07");
+  assertEquals(recent.record.cycle_month, "2026-11-01");
+
+  const old = toPipelineRecord(
+    {
+      id: "d2",
+      name: "September Asset 4 - Hook test",
+      status: { status: "complete" },
+      date_done: String(Date.parse("2026-09-20T10:00:00Z")),
+      date_updated: String(NOW),
+      assignees: [{ email: "internal@example.test" }],
+    } as never,
+    { client_slug: "bearaby", account_id: null },
+    NOW,
+  );
+  assert(old.kind === "archive");
+  // date_done is the delivery day; a later edit (date_updated) does not move it.
+  assertEquals(old.record, {
+    clickup_task_id: "d2",
+    client_slug: "bearaby",
+    account_id: null,
+    task_name: "September Asset 4 - Hook test",
+    content_type: null,
+    cycle_month: "2026-09-01",
+    delivered_at: "2026-09-20",
+    synced_at: new Date(NOW).toISOString(),
+    updated_at: new Date(NOW).toISOString(),
+  });
+  assert(!JSON.stringify(old.record).includes("internal@example.test"));
+});
+
+Deno.test("the cycle is the month in the task name, with the year nearest the task's date", () => {
+  const ref = (iso: string) => Date.parse(iso);
+  // A due date decides the year.
+  assertEquals(parseCycleMonth("November Asset 1", ref("2026-11-20")), "2026-11-01");
+  assertEquals(parseCycleMonth("December Asset 2", ref("2026-11-20")), "2026-12-01");
+  // Month boundaries across a year end, both directions.
+  assertEquals(parseCycleMonth("November Asset 9", ref("2027-01-10")), "2026-11-01");
+  assertEquals(parseCycleMonth("January Asset 1", ref("2026-12-28")), "2027-01-01");
+  assertEquals(parseCycleMonth("December Asset 3", ref("2027-01-02")), "2026-12-01");
+  // Short names, other separators, an explicit year, extra spaces.
+  assertEquals(parseCycleMonth("Nov Asset 3 - Hook", ref("2026-11-02")), "2026-11-01");
+  assertEquals(parseCycleMonth("Sept. Asset 3", ref("2026-09-02")), "2026-09-01");
+  assertEquals(parseCycleMonth("Barriere - October Asset 12", ref("2026-10-30")), "2026-10-01");
+  assertEquals(parseCycleMonth("October 2025 Asset 4", ref("2026-11-02")), "2025-10-01");
+  assertEquals(parseCycleMonth("March  Asset  7", ref("2026-03-15")), "2026-03-01");
+  // No month, no asset number, or a month word that is part of another word: no cycle.
+  assertEquals(parseCycleMonth("Asset 4 - Summer promo", ref("2026-11-02")), null);
+  assertEquals(parseCycleMonth("Nov Shoot Day", ref("2026-11-02")), null);
+  assertEquals(parseCycleMonth("Decorated Asset 4", ref("2026-11-02")), null);
+  assertEquals(parseCycleMonth(null, ref("2026-11-02")), null);
+  assertEquals(parseCycleMonth("", ref("2026-11-02")), null);
 });
 
 Deno.test("stuck, cleared, non-asset and unknown-status tasks are left out", () => {

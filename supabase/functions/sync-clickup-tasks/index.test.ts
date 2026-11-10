@@ -13,7 +13,10 @@
 //   * SAFETY: the delete is skipped when an upsert chunk fails or when any
 //     client folder could not be read, so a transient error never empties a board.
 //   * A failed database read stops the run before ClickUp is called.
-//   * A missing ClickUp token fails closed with no ClickUp call.
+//   * A missing ClickUp token fails closed with no ClickUp call: 503, the state
+//     "clickup.no_token" (the same note integration-health shows), logged, nothing written or deleted.
+//   * Delivered work older than the 30 day window goes to pipeline_delivered (client-safe fields
+//     only), is swept with the same safety rule, and carries its cycle and delivery day.
 //   * Only the service role gets in.
 //
 //   deno test -A supabase/functions/sync-clickup-tasks/index.test.ts
@@ -24,6 +27,9 @@ Deno.env.set("SYNC_CLICKUP_TASKS_NO_SERVE", "1");
 Deno.env.set("CLICKUP_API_TOKEN", "fake-clickup-token");
 Deno.env.set("SUPABASE_URL", "https://example.supabase.co");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "fake-service-role");
+
+import { CLICKUP_NO_TOKEN_STATE } from "../_shared/clickup-pipeline.ts";
+import { evaluateIntegrationHealth } from "../_shared/integration-health.ts";
 
 const mod = await import("./index.ts");
 
@@ -56,11 +62,12 @@ const ACCOUNTS = [
 
 interface RecorderOptions {
   upsertError?: boolean;
+  upsertErrorTable?: string;
   mappings?: unknown[];
   failTable?: string;
 }
 
-function makeRecorder({ upsertError = false, mappings = [], failTable = "" }: RecorderOptions = {}) {
+function makeRecorder({ upsertError = false, upsertErrorTable = "", mappings = [], failTable = "" }: RecorderOptions = {}) {
   const calls: Call[] = [];
   const makeBuilder = (table: string) => {
     let op = "select";
@@ -76,7 +83,9 @@ function makeRecorder({ upsertError = false, mappings = [], failTable = "" }: Re
       if (op === "delete") return resolve({ data: null, error: null, count: 4 });
       if (op === "upsert") {
         return resolve(
-          upsertError ? { data: null, error: { message: "boom" } } : { data: null, error: null },
+          upsertError || table === upsertErrorTable
+            ? { data: null, error: { message: "boom" } }
+            : { data: null, error: null },
         );
       }
       if (table === failTable) return resolve({ data: null, error: { message: "read refused" } });
@@ -134,6 +143,15 @@ const TASKS: Record<string, unknown[]> = {
       custom_fields: [{ name: "Link to Asset", type: "text", value: "https://app.air.inc/secret" }],
     },
     { id: "t-stuck", name: "November Asset 2", status: { status: "stuck" }, date_updated: String(NOW) },
+    {
+      id: "t-old",
+      name: "September Asset 4 - Hook test",
+      status: { status: "complete" },
+      date_closed: String(Date.parse("2026-09-20T10:00:00Z")),
+      date_updated: String(NOW),
+      assignees: [{ email: "internal@goodostudios.com" }],
+      custom_fields: [{ name: "Link to Asset", type: "text", value: "https://app.air.inc/secret-old" }],
+    },
     { id: "t-shoot", name: "Nov Shoot Day", status: { status: "assigned" }, date_updated: String(NOW) },
   ],
   "l-osmo": [
@@ -190,7 +208,8 @@ Deno.test("syncs matched folders, reports unmatched ones, writes client-safe row
     assertEquals(json.staleMappingFolders, []);
     assertEquals(json.clientsWithoutBoardAccount, ["shared-co", "tea"]);
     assertEquals(json.upserted, 4);
-    assertEquals(json.deleted, 4);
+    assertEquals(json.archived, 1);
+    assertEquals(json.deleted, 8, "the stand-in reports 4 deleted rows from each table");
 
     // The unmatched folder's list is never read.
     assert(!urls.some((u) => u.includes("/list/l-x/")), "unmatched folder must not be fetched");
@@ -214,6 +233,8 @@ Deno.test("syncs matched folders, reports unmatched ones, writes client-safe row
       "clickup_task_id",
       "client_slug",
       "content_type",
+      "cycle_month",
+      "delivered_at",
       "due_date",
       "stage",
       "synced_at",
@@ -233,12 +254,34 @@ Deno.test("syncs matched folders, reports unmatched ones, writes client-safe row
     assertEquals(owner("t-tea"), ["tea", null], "no ad account: client_slug only");
     assertEquals(rows.find((r) => r.clickup_task_id === "t-review")?.stage, "Client Review");
 
-    // Delete happens after the upsert, on the same timestamp the rows carry.
+    // The old delivered task goes to pipeline_delivered, not the board, with client-safe fields only.
+    const archive = calls.find((c) => c.method === "upsert" && c.table === "pipeline_delivered");
+    assert(archive, "an old delivered task must be upserted into pipeline_delivered");
+    const archiveRows = archive.args[0] as Record<string, unknown>[];
+    assertEquals(archiveRows.map((r) => r.clickup_task_id), ["t-old"]);
+    assertEquals(Object.keys(archiveRows[0]).sort(), [
+      "account_id", "clickup_task_id", "client_slug", "content_type", "cycle_month",
+      "delivered_at", "synced_at", "task_name", "updated_at",
+    ]);
+    assertEquals(
+      [archiveRows[0].client_slug, archiveRows[0].cycle_month, archiveRows[0].delivered_at],
+      ["bearaby", "2026-09-01", "2026-09-20"],
+    );
+    assert(!JSON.stringify(archiveRows).includes("air.inc"), "asset links must not be stored");
+    assert(!JSON.stringify(archiveRows).includes("goodostudios.com"), "assignees must not be stored");
+    assert(!rows.some((r) => r.clickup_task_id === "t-old"), "an old delivered task is not a board row");
+    assertEquals(rows.find((r) => r.clickup_task_id === "t-edit")?.cycle_month, "2026-11-01");
+
+    // Delete happens after the upserts, on the same timestamp the rows carry, on both tables.
     const upsertIdx = calls.indexOf(upsert);
     const deleteIdx = calls.findIndex((c) => c.method === "delete" && c.table === "pipeline_tasks");
     assert(deleteIdx > upsertIdx, "delete must come after the upsert");
     const lt = calls.find((c) => c.method === "lt" && c.table === "pipeline_tasks");
     assertEquals(lt?.args, ["synced_at", rows[0].synced_at]);
+    const archiveDeleteIdx = calls.findIndex((c) => c.method === "delete" && c.table === "pipeline_delivered");
+    assert(archiveDeleteIdx > calls.indexOf(archive), "the delivered sweep must come after its upsert");
+    const archiveLt = calls.find((c) => c.method === "lt" && c.table === "pipeline_delivered");
+    assertEquals(archiveLt?.args, ["synced_at", rows[0].synced_at]);
   } finally {
     restore();
   }
@@ -324,7 +367,8 @@ Deno.test("the delete is skipped when a client folder cannot be read", async () 
     assertEquals(json.failedFolders, ["Osmo"]);
     assertEquals(json.deleteSkipped, true);
     assertEquals(json.upserted, 3, "the folders that did read are still refreshed");
-    assert(!calls.some((c) => c.method === "delete"), "must not delete after a partial read");
+    assertEquals(json.archived, 1, "delivered work of a folder that did read is still refreshed");
+    assert(!calls.some((c) => c.method === "delete"), "must not delete from either table after a partial read");
   } finally {
     restore();
   }
@@ -343,21 +387,64 @@ Deno.test("the delete is skipped when an upsert chunk fails", async () => {
   }
 });
 
-Deno.test("a missing ClickUp token fails closed without calling ClickUp", async () => {
+Deno.test("nothing is swept from either table when only the delivered upsert fails", async () => {
+  const { restore } = stubClickUp();
+  try {
+    const { supabase, calls } = makeRecorder({ upsertErrorTable: "pipeline_delivered" });
+    const json = await (await mod.handler(makeReq(), supabase)).json();
+    assertEquals(json.success, false);
+    assertEquals(json.deleteSkipped, true);
+    assertEquals(json.upserted, 4);
+    assertEquals(json.archived, 0);
+    assert(!calls.some((c) => c.method === "delete"), "a failed delivered write must not trigger any delete");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("a missing ClickUp token is a distinct, logged state: 503, nothing read, written or deleted", async () => {
   const { restore, urls } = stubClickUp();
   Deno.env.delete("CLICKUP_API_TOKEN");
+  const logged: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => void logged.push(args.map(String).join(" "));
   try {
     const { supabase, calls } = makeRecorder();
     const res = await mod.handler(makeReq(), supabase);
-    assertEquals(res.status, 500);
+    assertEquals(res.status, 503, "not a generic 500");
     const json = await res.json();
     assertEquals(json.success, false);
+    assertEquals(json.state, "clickup.no_token");
+    assert(String(json.error).includes("not connected"));
     assertEquals(urls.length, 0);
-    assert(!calls.some((c) => c.method === "upsert" || c.method === "delete"));
+    assertEquals(calls.length, 0, "no database call at all: the last good board stays as it is");
+    assert(logged.some((l) => l.startsWith("clickup.no_token")), "the state is logged under its name");
+    assert(!logged.join(" ").includes("fake-clickup-token"));
   } finally {
+    console.error = originalError;
     Deno.env.set("CLICKUP_API_TOKEN", "fake-clickup-token");
     restore();
   }
+});
+
+Deno.test("the sync and integration-health name the missing-token state the same way", () => {
+  const overview = evaluateIntegrationHealth(
+    {
+      environment: "production",
+      secrets: { clickup: false, fireflies: false, slack: false },
+      clickup: { lastSyncedAt: "2026-11-09T08:00:00.000Z", rows: 12 },
+      slack: { sendsEnabled: false, ownerAlertDestinations: 0 },
+      adSync: { runningStartedAt: [], lastCompletedAt: null, failedLast24h: 0, activeAccounts: 0, accountLastSynced: [] },
+      queue: { overdueQueued: 0, expiredLeases: 0, recovery: 0, pending: 0 },
+      ownerAlerts: [],
+      exceptions: [],
+    } as never,
+    new Date("2026-11-10T08:00:00.000Z"),
+  );
+  const clickup = overview.connectors.find((c) => c.key === "clickup")!;
+  assertEquals(clickup.state, "not_connected");
+  assertEquals(clickup.notes, [CLICKUP_NO_TOKEN_STATE]);
+  assertEquals(clickup.details.boardRows, 12, "the board rows the clients still see are reported");
 });
 
 Deno.test("a caller without the service-role key is refused", async () => {

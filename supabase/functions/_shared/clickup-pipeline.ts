@@ -33,9 +33,11 @@ export const CLICKUP_CLIENT_SPACE_ID = "90146671303";
 //                             "client revisions" (kept here so a client does not
 //                             read it as "your turn to act").
 //   - "Client Review"      <- sent to, or waiting on, the client.
-//   - "Ready to Launch"    <- approved or delivered. Windowed to the recent
-//                             past (LAUNCH_WINDOW_DAYS) so it reads as "just
-//                             shipped", not an all-time archive.
+//   - "Ready to Launch"    <- approved or delivered. Delivered work newer than
+//                             LAUNCH_WINDOW_DAYS stays on the board (pipeline_tasks);
+//                             older delivered work, up to DELIVERED_RETENTION_DAYS,
+//                             goes to pipeline_delivered so a past cycle keeps its
+//                             finished tasks (phase 5).
 // "stuck" is deliberately absent: it is internal status noise and is skipped.
 export const STAGE_MAP: Record<string, string> = {
   "assigned": "Preparing Content",
@@ -63,7 +65,15 @@ export const STAGE_MAP: Record<string, string> = {
 export const SKIP_STATUSES = new Set<string>(["stuck"]);
 
 export const LAUNCH_STAGE = "Ready to Launch";
+// Delivered work newer than this stays on the board (pipeline_tasks).
 export const LAUNCH_WINDOW_DAYS = 30;
+// Delivered work older than the window, up to this age, is kept in pipeline_delivered so past
+// cycles stay visible. Older than this it is dropped.
+export const DELIVERED_RETENTION_DAYS = 365;
+
+// The state the sync reports (and logs) when it has no ClickUp token. integration-health shows the
+// same string as the connector note, so staff see one name for it in both places.
+export const CLICKUP_NO_TOKEN_STATE = "clickup.no_token";
 
 export type StageDecision =
   | { kind: "stage"; stage: string }
@@ -92,6 +102,44 @@ export function decideStage(rawStatus: string | null | undefined): StageDecision
  */
 export function isAssetTask(name: string | null | undefined): boolean {
   return /\basset\s*\d+/i.test(name ?? "");
+}
+
+const MONTHS: Record<string, number> = {
+  jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4, may: 5,
+  jun: 6, june: 6, jul: 7, july: 7, aug: 8, august: 8, sep: 9, sept: 9, september: 9,
+  oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12,
+};
+
+// "{Month} [year] Asset {N}": the month, the optional four digit year, the asset number.
+const CYCLE_NAME =
+  /(?:^|[^a-z])(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?(?:\s+(\d{4}))?\s*[^\sa-z0-9]?\s*asset\s*#?\d+/i;
+
+/**
+ * The cycle a task belongs to: the first day of the month named in its name ("November Asset 3"),
+ * as YYYY-MM-01, or null when the name carries no month. A name has no year, so the year is the one
+ * that puts the month closest to `refMs` (the task's due date, delivery date or creation date): a
+ * "December Asset 2" created in November is this December, a "November Asset 9" delivered in
+ * January is last November. A four digit year in the name wins.
+ */
+export function parseCycleMonth(name: string | null | undefined, refMs: number): string | null {
+  const m = CYCLE_NAME.exec(name ?? "");
+  if (!m) return null;
+  const month = MONTHS[m[1].toLowerCase()];
+  if (!month) return null;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  if (m[2]) return `${m[2]}-${pad(month)}-01`;
+  const ref = new Date(Number.isFinite(refMs) ? refMs : Date.now());
+  const refYear = ref.getUTCFullYear();
+  let best = refYear;
+  let bestGap = Infinity;
+  for (const year of [refYear - 1, refYear, refYear + 1]) {
+    const gap = Math.abs(Date.UTC(year, month - 1, 1) - ref.getTime());
+    if (gap < bestGap) {
+      bestGap = gap;
+      best = year;
+    }
+  }
+  return `${best}-${pad(month)}-01`;
 }
 
 export function cleanTaskName(name: string | null | undefined): string | null {
@@ -268,6 +316,8 @@ export interface ClickUpTask {
   due_date?: string | null;
   date_updated?: string | null;
   date_closed?: string | null;
+  date_done?: string | null;
+  date_created?: string | null;
   custom_fields?: ClickUpCustomField[];
 }
 
@@ -285,12 +335,28 @@ export interface PipelineRecord {
   stage: string;
   due_date: string | null;
   content_type: string | null;
+  cycle_month: string | null;
+  delivered_at: string | null;
+  synced_at: string;
+  updated_at: string;
+}
+
+/** A delivered task older than the board window (table pipeline_delivered). Client-safe fields only. */
+export interface DeliveredRecord {
+  clickup_task_id: string;
+  client_slug: string;
+  account_id: string | null;
+  task_name: string | null;
+  content_type: string | null;
+  cycle_month: string | null;
+  delivered_at: string;
   synced_at: string;
   updated_at: string;
 }
 
 export type TaskOutcome =
   | { kind: "record"; record: PipelineRecord }
+  | { kind: "archive"; record: DeliveredRecord }
   | { kind: "skip" }
   | { kind: "unknown"; status: string };
 
@@ -307,23 +373,54 @@ export function toPipelineRecord(
   if (decision.kind === "skip") return { kind: "skip" };
   if (decision.kind === "unknown") return decision;
 
+  const DAY = 24 * 60 * 60 * 1000;
+  const nowIso = new Date(nowMs).toISOString();
+  const name = cleanTaskName(task.name);
+  const dueDate = toIsoDate(task.due_date);
+  const contentType = dropdownValue(task.custom_fields, "Type of Content");
+
+  let deliveredMs: number | null = null;
   if (decision.stage === LAUNCH_STAGE) {
-    const touched = Number(task.date_closed ?? task.date_updated ?? NaN);
-    const cutoff = nowMs - LAUNCH_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-    if (!Number.isFinite(touched) || touched < cutoff) return { kind: "skip" };
+    // The day it was finished: closed, else marked done, else last touched.
+    const finished = Number(task.date_closed ?? task.date_done ?? task.date_updated ?? NaN);
+    if (!Number.isFinite(finished) || finished <= 0) return { kind: "skip" };
+    if (finished < nowMs - DELIVERED_RETENTION_DAYS * DAY) return { kind: "skip" };
+    deliveredMs = finished;
   }
 
-  const nowIso = new Date(nowMs).toISOString();
+  // Year for a month named in the task: nearest to the due date, else the delivery, else creation.
+  const refMs = dueDate ? Date.parse(dueDate) : deliveredMs ?? Number(task.date_created ?? nowMs);
+  const cycleMonth = parseCycleMonth(task.name, refMs);
+
+  if (deliveredMs !== null && deliveredMs < nowMs - LAUNCH_WINDOW_DAYS * DAY) {
+    return {
+      kind: "archive",
+      record: {
+        clickup_task_id: task.id,
+        client_slug: owner.client_slug,
+        account_id: owner.account_id,
+        task_name: name,
+        content_type: contentType,
+        cycle_month: cycleMonth,
+        delivered_at: toIsoDate(deliveredMs)!,
+        synced_at: nowIso,
+        updated_at: nowIso,
+      },
+    };
+  }
+
   return {
     kind: "record",
     record: {
       clickup_task_id: task.id,
       client_slug: owner.client_slug,
       account_id: owner.account_id,
-      task_name: cleanTaskName(task.name),
+      task_name: name,
       stage: decision.stage,
-      due_date: toIsoDate(task.due_date),
-      content_type: dropdownValue(task.custom_fields, "Type of Content"),
+      due_date: dueDate,
+      content_type: contentType,
+      cycle_month: cycleMonth,
+      delivered_at: deliveredMs === null ? null : toIsoDate(deliveredMs),
       synced_at: nowIso,
       updated_at: nowIso,
     },

@@ -15,9 +15,12 @@ const account = { selectedAccountId: null as string | null, isLoading: false };
 vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => auth }));
 vi.mock("@/contexts/AccountContext", () => ({ useAccountContext: () => account }));
 
-const rows = [
+const board = [
   { id: "r1", task_name: "Slug-only card", stage: "Editing", due_date: null, content_type: "Video", updated_at: null },
 ];
+// The board table has the card; the delivered list and the engagements are empty here (the cycle
+// view and the delivered list have their own tests).
+const tableRows = (table: string) => (table === "pipeline_tasks" ? board : []);
 const from = vi.fn();
 const eq = vi.fn();
 vi.mock("@/integrations/supabase/client", () => ({
@@ -26,11 +29,11 @@ vi.mock("@/integrations/supabase/client", () => ({
       from(table);
       return {
         select: () => {
-          const result = Promise.resolve({ data: rows, error: null });
+          const result = Promise.resolve({ data: tableRows(table), error: null });
           return Object.assign(result, {
             eq: (col: string, val: string) => {
               eq(col, val);
-              return Promise.resolve({ data: rows, error: null });
+              return Promise.resolve({ data: tableRows(table), error: null });
             },
           });
         },

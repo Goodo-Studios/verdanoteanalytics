@@ -40,7 +40,7 @@ test('the data is made up: demo slugs, example.test and staging.verdanote.test a
     assert.match(a.phone, /^555-01\d\d$/, 'fictional phone range');
   }
   for (const u of seed.app_users) assert.match(u.email, /@staging\.verdanote\.test$/);
-  for (const t of seed.pipeline_tasks) assert.match(t.clickup_task_id, /^demo-seed-/);
+  for (const t of [...seed.pipeline_tasks, ...seed.pipeline_delivered]) assert.match(t.clickup_task_id, /^demo-seed-/);
 });
 
 test('rows respect the dashboard constraints', () => {
@@ -71,9 +71,29 @@ test('references point at seeded rows', () => {
   }
   const actorIds = new Set(seed.actors.map((a) => a.id));
   for (const c of seed.actor_assignments) assert.ok(actorIds.has(c.actor_id) && slugs.has(c.client_slug), c.id);
-  for (const t of ['deliverables', 'engagements', 'client_ad_accounts', 'pipeline_tasks']) {
+  for (const t of ['deliverables', 'engagements', 'client_ad_accounts', 'pipeline_tasks', 'pipeline_delivered']) {
     for (const r of seed[t]) assert.ok(slugs.has(r.client_slug), `${t} ${r.client_slug}`);
   }
+});
+
+test('demo work by cycle: this month on the board, earlier delivered work in the delivered list, for two clients', () => {
+  const thisCycle = '2026-11-01';
+  for (const t of seed.pipeline_tasks) {
+    assert.equal(t.cycle_month, thisCycle, t.clickup_task_id);
+    assert.equal(t.stage === 'Ready to Launch', t.delivered_at !== null, `${t.clickup_task_id}: delivered only when in Ready to Launch`);
+  }
+  assert.ok(seed.pipeline_delivered.length > 0);
+  const cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  for (const r of seed.pipeline_delivered) {
+    assert.ok(r.delivered_at < cutoff, `${r.clickup_task_id} is older than the 30 day board window`);
+    assert.match(r.cycle_month, /^\d{4}-\d{2}-01$/);
+    assert.ok(r.cycle_month < thisCycle, 'an earlier cycle');
+  }
+  const owners = new Set(seed.pipeline_delivered.map((r) => r.client_slug));
+  assert.ok(owners.has('demo-glowdrip') && owners.has('demo-northwind'), 'a second client holds delivered rows the demo client must not see');
+  const cycles = new Set(seed.pipeline_delivered.filter((r) => r.client_slug === 'demo-glowdrip').map((r) => r.cycle_month));
+  assert.ok(cycles.size >= 2, 'two earlier cycles for the demo client');
+  assert.ok(seed.pipeline_delivered.every((r) => !('stage' in r) && !('status' in r)), 'client-safe fields only');
 });
 
 test('follow-ups cover overdue, today and later, relative to the day it runs', () => {
