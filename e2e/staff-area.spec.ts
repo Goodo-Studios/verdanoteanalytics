@@ -19,7 +19,7 @@ const hasEmployeeCreds = !!process.env.PLAYWRIGHT_EMPLOYEE_EMAIL && !!process.en
 
 /** Staff pages, relative to the role prefix. Keep in step with STAFF_PAGES in src/test/StaffArea.test.tsx. */
 /** Builder-only pages: an employee is redirected to the index. */
-const BUILDER_ONLY_PATHS = ["/matrix", "/growth-dashboard"];
+const BUILDER_ONLY_PATHS = ["/matrix", "/growth-dashboard", "/operating-costs"];
 
 const STAFF_PATHS = [
   "/staff",
@@ -59,6 +59,7 @@ const STAFF_PATHS = [
   "/handoffs",
   "/agent-evaluations",
   "/operations",
+  "/operating-costs",
   "/learning",
   "/scope-changes",
   "/recommendations",
