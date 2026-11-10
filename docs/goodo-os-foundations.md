@@ -262,6 +262,25 @@ Handoffs: when the engagement has a published strategy, the create form on `/han
 
 Not ported: command receipts, the client idea selection state (US-021, client portal), the client publication and client strategy page (phase 2). Tests in `supabase/tests/strategy_proposals_test.sql`, `src/test/strategyPage.test.tsx` and `src/test/handoffsPage.test.tsx`.
 
+### Recommendations
+
+Page `/recommendations` (builder and employee) and migration `20261110200003_recommendations.sql`, no edge function. Port of the Goodo OS recommendations from decision to measured outcome (US-085: `RecommendationOutcomes.tsx`, `backend/services/recommendations.ts`, migration `051_recommendation_outcomes.sql`).
+
+| Table | Purpose |
+|---|---|
+| `recommendations` | a creative or service recommendation for one engagement. The title and proposal never change (trigger); state and version move forward one step at a time |
+| `recommendation_decisions` | accepted (with hypothesis and final action), rejected or deferred, with the reason and cited evidence. Immutable |
+| `recommendation_execution_links` | the client's ads that execute an accepted recommendation, an optional Content Pipeline task, the accountable owner (staff) and the review window. A later link supersedes an earlier one. Immutable |
+| `recommendation_outcomes` | an evaluation the database computes: not executed, insufficient, inconclusive or measured, with the reason and a sha256 fingerprint. Never a win. Immutable |
+| `recommendation_outcome_evidence` | per linked ad, the impressions, spend, clicks, purchases and purchase value it had in the review window, how many days reported, and when its account last synced. Immutable |
+| `recommendation_learnings` | the conclusion (supported, not supported, inconclusive) and learning a person writes after a measured outcome. Immutable |
+
+Staff read all six; clients read none. Checked functions (`staff_area` allow-list, role tested in the body): `propose_recommendation`, `decide_recommendation`, `link_recommendation_execution`, `record_recommendation_outcome`, `review_recommendation_learning` and `recommendation_ad_options` (the client's ads for the pickers). Each write names the version on screen (40001 when stale). Cited evidence is `{"kind":"ad"}` for an ad in the client's ad accounts or `{"kind":"meeting_recap_item"}` for a meeting recap item of the client that a person confirmed; anything else is refused.
+
+The evaluation (`recommendation_evaluation`, service role only) reads `creative_daily_metrics` for the linked ads: not executed when the recommendation is not accepted, deferred or has no link; insufficient while the window is open, when no linked ad ever reported metrics, or when a linked ad had no impressions in the window; inconclusive when an ad account last synced before the window closed; otherwise measured. "Measured" only means the evidence is complete enough for a person to review. A learning needs the latest outcome to be measured and a fresh evaluation to give the same fingerprint, so new metrics after the outcome mean evaluating again. The page shows only the stored numbers and their sums.
+
+Differences from Goodo OS: Goodo OS read asset-to-ad mappings and performance evidence records; Verdanote holds the ad metrics, so a link names ad ids directly. The ClickUp task on a link is optional (Goodo OS required one) because the ClickUp sync does not run in staging. Any builder or employee stands in for the recommendation capabilities. Not ported: service improvement suggestions as a source, deliverable asset identities, command receipts. The page loads with explicit relationship names (`table!constraint(...)`), because the history tables point at the recommendation and at each other. Tests in `supabase/tests/recommendations_test.sql` and `src/test/recommendationsPage.test.tsx`.
+
 ## Alternatives rejected
 
 **A new `os_clients` table with a uuid id, and the dashboard `clients` folded into it.** Gives a cleaner id, but the eight dashboard tables and the dashboard staff functions (`create_client`, `set_client_*`, `create_shoot` and others) already key on `clients.slug`, so it means either two client ids side by side or rewriting all of them. Not the smallest change.
