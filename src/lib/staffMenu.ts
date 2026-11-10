@@ -54,7 +54,7 @@ export const staffMenuSections: StaffMenuSection[] = [
       { id: "entities", title: "Creative Diversity", description: "Clusters of similar creatives.", status: "live", to: "/entities" },
       { id: "matrix", title: "Creative Matrix", description: "Theme and persona by creative type.", status: "live", to: "/matrix", builderOnly: true },
       { id: "ad-name-generator", title: "Ad Name Generator", description: "Ad codes from one shared counter.", status: "live", to: "/ad-name-generator" },
-      { id: "integration-health", title: "Integration health", description: "ClickUp, Fireflies, Slack and ad sync status.", status: "live", to: "/integration-health" },
+      { id: "integration-health", title: "Integration health", description: "ClickUp, Fireflies, Slack and ad sync status, alert exceptions and owner alerts.", status: "live", to: "/integration-health" },
       { id: "meeting-recaps", title: "Meeting recaps", description: "Decisions and actions from Fireflies calls, confirmed by a person.", status: "live", to: "/meeting-recaps" },
       { id: "knowledge", title: "Knowledge", description: "Shared knowledge, corrections and published versions.", status: "live", to: "/knowledge" },
       { id: "follow-ups", title: "Follow-ups", description: "Creators to chase today: snooze, reschedule, change the owner.", status: "live", to: "/follow-ups" },
@@ -87,7 +87,7 @@ export const staffMenuSections: StaffMenuSection[] = [
     label: "Moving in",
     blurb: "Tools from the other apps. Each slot opens when its page is built and checked in staging.",
     items: [
-      { id: "goodo-os", title: "Goodo OS areas", description: "Wave D: alerts, operating costs and the support inbox. Talent and call sheets move with step 5c.", status: "slot", step: "Step 4d" },
+      { id: "goodo-os", title: "Goodo OS areas", description: "Wave D: operating costs and the support inbox. Talent and call sheets move with step 5c.", status: "slot", step: "Step 4d" },
       { id: "dashboard-production", title: "Old dashboard: Production", description: "Casting and call sheets. Locations, props, crew, shipments and the production calendar are live.", status: "slot", step: "Step 5c" },
       { id: "dashboard-settings", title: "Old dashboard: Settings and team", description: "Team management, merged with Verdanote user management.", status: "slot", step: "Step 5d" },
       { id: "wideframe", title: "Wideframe Prompt Library", description: "Read-only prompt pages for editors.", status: "slot", step: "Step 6" },

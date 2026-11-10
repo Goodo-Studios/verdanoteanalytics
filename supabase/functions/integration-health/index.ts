@@ -2,10 +2,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { type Caller, resolveCaller } from "../_shared/internal-auth.ts";
 import {
+  type AlertException,
   environmentOf,
   evaluateIntegrationHealth,
   type HealthSnapshot,
   OWNER_ALERT_LIMIT,
+  ownerAlertsFor,
   QUEUE_OVERDUE_MINUTES,
 } from "../_shared/integration-health.ts";
 
@@ -20,12 +22,22 @@ import {
 //
 // Gate: a builder or employee login. Clients, logins with no role and the service
 // role get 403.
+//
+// Alerts (step 4d, port of Goodo OS backend/monitoring/alerts.ts): problems covered by
+// an active alert_exceptions row are reported as suppressed. POST {"action":"evaluate"}
+// is builder only: it lists the owner alerts the open problems call for (one per problem
+// per UTC day) and, in the production project only, queues each through
+// enqueue_owner_alert (which queues only for a builder-confirmed owner alert channel;
+// run-slack-jobs sends only with the slack_sends switch on). Anywhere else nothing is
+// queued and each alert comes back with reason "not_production".
 
 export interface Deps {
   resolveCaller?: (req: Request) => Promise<Caller | Response>;
   env?: (name: string) => string | undefined;
   loadSnapshot?: (env: (name: string) => string | undefined, now: Date) => Promise<HealthSnapshot>;
   now?: () => Date;
+  /** Queues one owner alert; returns the job id, or null when no confirmed owner channel exists. */
+  enqueueOwnerAlert?: (env: (name: string) => string | undefined, key: string, text: string) => Promise<string | null>;
 }
 
 const json = (body: unknown, status = 200) =>
@@ -60,6 +72,7 @@ interface Query extends PromiseLike<QueryResult> {
   eq(column: string, value: unknown): Query;
   in(column: string, values: unknown[]): Query;
   lt(column: string, value: unknown): Query;
+  gt(column: string, value: unknown): Query;
   gte(column: string, value: unknown): Query;
   not(column: string, operator: string, value: unknown): Query;
   order(column: string, options: { ascending: boolean }): Query;
@@ -68,6 +81,24 @@ interface Query extends PromiseLike<QueryResult> {
 }
 export interface SupabaseLike {
   from(table: string): Query;
+}
+interface RpcLike {
+  rpc(name: string, args: Record<string, unknown>): PromiseLike<QueryResult>;
+}
+
+/** Queues an owner alert through enqueue_owner_alert with the service role. */
+export async function enqueueOwnerAlertInDatabase(
+  env: (name: string) => string | undefined,
+  key: string,
+  text: string,
+  makeClient: (url: string, key: string) => RpcLike = (u, k) => createClient(u, k) as unknown as RpcLike,
+): Promise<string | null> {
+  const url = env("SUPABASE_URL");
+  const serviceKey = env("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !serviceKey) throw new Error("Server misconfigured");
+  const result = await makeClient(url, serviceKey).rpc("enqueue_owner_alert", { p_key: key, p_text: text });
+  if (result.error) throw new Error(`enqueue_owner_alert: ${result.error.message}`);
+  return typeof result.data === "string" ? result.data : null;
 }
 
 async function must(label: string, query: PromiseLike<QueryResult>): Promise<QueryResult> {
@@ -96,7 +127,7 @@ export async function loadSnapshotFromDatabase(
   const [
     lastBoard, boardRows, sendsSwitch, ownerDestinations,
     running, lastCompleted, failed, accounts,
-    overdue, expired, recovery, pending, alerts,
+    overdue, expired, recovery, pending, alerts, exceptions,
   ] = await Promise.all([
     must("pipeline_tasks", sb.from("pipeline_tasks").select("synced_at").order("synced_at", { ascending: false }).limit(1)),
     must("pipeline_tasks count", sb.from("pipeline_tasks").select("clickup_task_id", count)),
@@ -111,6 +142,7 @@ export async function loadSnapshotFromDatabase(
     must("durable_jobs recovery", sb.from("durable_jobs").select("id", count).eq("state", "recovery")),
     must("durable_jobs pending", sb.from("durable_jobs").select("id", count).in("state", ["queued", "leased"])),
     must("durable_jobs alerts", sb.from("durable_jobs").select("id, state, created_at, updated_at, payload").eq("kind", "slack.owner_alert").order("created_at", { ascending: false }).limit(OWNER_ALERT_LIMIT)),
+    must("alert_exceptions", sb.from("alert_exceptions").select("id, connector, pattern, kind, reason, expires_at").gt("expires_at", nowIso).order("expires_at", { ascending: false }).limit(200)),
   ]);
 
   const rows = (r: QueryResult) => (Array.isArray(r.data) ? r.data : []) as Row[];
@@ -151,6 +183,14 @@ export async function loadSnapshotFromDatabase(
       updatedAt: String(r.updated_at),
       text: alertText(r.payload),
     })),
+    exceptions: rows(exceptions).map((r) => ({
+      id: String(r.id),
+      connector: String(r.connector) as AlertException["connector"],
+      pattern: String(r.pattern),
+      kind: String(r.kind) as AlertException["kind"],
+      reason: String(r.reason),
+      expiresAt: String(r.expires_at),
+    })),
   };
 }
 
@@ -162,11 +202,42 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
   if (caller instanceof Response) return caller;
   if (!isStaffLogin(caller)) return json({ error: "Forbidden: staff only" }, 403);
 
+  // A POST may carry {"action":"evaluate"}; no body (or {}) is the read.
+  let action: string | null = null;
+  if (req.method === "POST") {
+    const raw = await req.text();
+    if (raw.trim()) {
+      let body: unknown;
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        return json({ error: "Body must be JSON" }, 400);
+      }
+      if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "Body must be a JSON object" }, 400);
+      const a = (body as Record<string, unknown>).action;
+      if (a !== undefined && a !== "evaluate") return json({ error: "Unknown action" }, 400);
+      action = a === "evaluate" ? "evaluate" : null;
+    }
+  }
+  if (action === "evaluate" && !caller.roles.includes("builder")) return json({ error: "Forbidden: builder only" }, 403);
+
   const env = deps.env ?? ((name: string) => Deno.env.get(name));
   const now = (deps.now ?? (() => new Date()))();
   try {
     const snapshot = await (deps.loadSnapshot ?? loadSnapshotFromDatabase)(env, now);
-    return json(evaluateIntegrationHealth(snapshot, now));
+    const overview = evaluateIntegrationHealth(snapshot, now);
+    if (action !== "evaluate") return json(overview);
+    const planned = ownerAlertsFor(overview, now);
+    const alerts = [];
+    for (const a of planned) {
+      if (overview.environment !== "production") {
+        alerts.push({ ...a, enqueued: false, jobId: null, reason: "not_production" });
+        continue;
+      }
+      const jobId = await (deps.enqueueOwnerAlert ?? enqueueOwnerAlertInDatabase)(env, a.key, a.text);
+      alerts.push({ ...a, enqueued: jobId !== null, jobId, reason: jobId === null ? "no_owner_destination" : null });
+    }
+    return json({ evaluated: true, checkedAt: overview.checkedAt, environment: overview.environment, alerts });
   } catch (error) {
     console.error("integration-health:", error instanceof Error ? error.message : error);
     return json({ error: "Integration health could not be read." }, 500);

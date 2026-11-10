@@ -105,6 +105,10 @@ const controls = [
   ["employee accepted by integration-health", "integration-health", employee, { method: "GET" }, (s) => s === 200],
   ["builder accepted by integration-health", "integration-health", builder, { method: "GET" }, (s) => s === 200],
   ["client B refused by integration-health", "integration-health", clientB, { method: "GET" }, refused],
+  // Alerts (step 4d): the evaluate action is builder only; in staging it queues nothing (not production).
+  ["client B refused by integration-health evaluate", "integration-health", clientB, { body: { action: "evaluate" } }, refused],
+  ["employee refused by integration-health evaluate (builder only)", "integration-health", employee, { body: { action: "evaluate" } }, refused],
+  ["builder accepted by integration-health evaluate", "integration-health", builder, { body: { action: "evaluate" } }, (s) => s === 200],
   // Staging has no FIREFLIES_API_KEY or ANTHROPIC_API_KEY: staff pass the gate and meeting-recaps fails closed with 503.
   ["employee passes the meeting-recaps gate and it fails closed without keys", "meeting-recaps", employee, { body: { client_slug: "wall_probe", transcript_id: "wall_probe" } }, (s) => s === 503],
   ["builder passes the meeting-recaps gate and it fails closed without keys", "meeting-recaps", builder, { body: { client_slug: "wall_probe", transcript_id: "wall_probe" } }, (s) => s === 503],

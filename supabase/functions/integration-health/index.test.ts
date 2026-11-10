@@ -9,17 +9,22 @@
 //     stuck / failed / behind accounts, queue overdue / expired / recovery
 //   * owner alert text is cut, the list is capped, a loader failure is a 500
 //     that does not leak the error text
+//   * alerts (step 4d): active exceptions suppress matching problems; the
+//     evaluate action is builder only, queues nothing outside production and
+//     queues one owner alert per open problem in production
 //
 //   deno test -A supabase/functions/integration-health/index.test.ts
 
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
+  type AlertException,
   ALERT_TEXT_MAX,
   CLICKUP_FRESHNESS_HOURS,
   environmentOf,
   evaluateIntegrationHealth,
   type HealthSnapshot,
   OWNER_ALERT_LIMIT,
+  ownerAlertsFor,
 } from "../_shared/integration-health.ts";
 import type { Caller } from "../_shared/internal-auth.ts";
 
@@ -40,6 +45,7 @@ function snapshot(over: Partial<HealthSnapshot> = {}): HealthSnapshot {
     adSync: { runningStartedAt: [], lastCompletedAt: hoursAgo(2), failedLast24h: 0, activeAccounts: 2, accountLastSynced: [hoursAgo(3), hoursAgo(5)] },
     queue: { overdueQueued: 0, expiredLeases: 0, recovery: 0, pending: 0 },
     ownerAlerts: [],
+    exceptions: [],
     ...over,
   };
 }
@@ -127,7 +133,7 @@ function fakeClient(answers: Record<string, { data?: unknown; count?: number; er
         return Promise.resolve({ error: null, ...answer() }).then(ok, bad);
       },
     };
-    for (const op of ["eq", "in", "lt", "gte", "not", "order", "limit"]) {
+    for (const op of ["eq", "in", "lt", "gt", "gte", "not", "order", "limit"]) {
       chain[op] = (...args: unknown[]) => {
         q.ops.push(`${op}:${args.map((a) => JSON.stringify(a)).join(",")}`);
         return chain;
@@ -161,6 +167,7 @@ Deno.test("loadSnapshotFromDatabase reads the tables and reports secrets as true
     'durable_jobs|eq:"kind","slack.owner_alert"': {
       data: [{ id: "j1", state: "recovery", created_at: hoursAgo(1), updated_at: hoursAgo(1), payload: { body: "Sync stuck", channel_id: "C1" } }],
     },
+    alert_exceptions: { data: [{ id: "x1", connector: "clickup", pattern: "connector.stale", kind: "idle_testing", reason: "Testing", expires_at: hoursAgo(-3) }] },
   });
   let made: string[] = [];
   const snap = await loadSnapshotFromDatabase((n) => ENV[n], NOW, (url: string, key: string) => {
@@ -178,6 +185,8 @@ Deno.test("loadSnapshotFromDatabase reads the tables and reports secrets as true
   assertEquals(snap.adSync.accountLastSynced, [hoursAgo(1), null]);
   assertEquals(snap.queue, { overdueQueued: 1, expiredLeases: 0, recovery: 3, pending: 4 });
   assertEquals(snap.ownerAlerts, [{ id: "j1", state: "recovery", createdAt: hoursAgo(1), updatedAt: hoursAgo(1), text: "Sync stuck" }]);
+  assertEquals(snap.exceptions, [{ id: "x1", connector: "clickup", pattern: "connector.stale", kind: "idle_testing", reason: "Testing", expiresAt: hoursAgo(-3) }]);
+  assert(seen.some((q) => q.table === "alert_exceptions" && q.ops.includes(`gt:"expires_at","${NOW.toISOString()}"`)), "only active exceptions are read");
   assert(seen.every((q) => q.select !== "*"), "no query selects every column");
   // The overview built from it carries no secret value.
   const text = JSON.stringify(evaluateIntegrationHealth(snap, NOW));
@@ -271,7 +280,7 @@ Deno.test("Meta sync: no active accounts is a note", () => {
 
 Deno.test("queue: overdue, expired leases and recovery", () => {
   const o = evaluateIntegrationHealth(snapshot({ queue: { overdueQueued: 1, expiredLeases: 2, recovery: 3, pending: 4 } }), NOW);
-  assertEquals(o.queue, { state: "needs_attention", patterns: ["queue.overdue:1", "queue.lease_expired:2", "queue.recovery:3"], pending: 4 });
+  assertEquals(o.queue, { state: "needs_attention", patterns: ["queue.overdue:1", "queue.lease_expired:2", "queue.recovery:3"], suppressed: [], pending: 4 });
   assertEquals(evaluateIntegrationHealth(snapshot(), NOW).queue.state, "healthy");
 });
 
@@ -289,4 +298,115 @@ Deno.test("environmentOf knows only the production project", () => {
   assertEquals(environmentOf("https://mnvcksbhbvypuiwozvct.supabase.co"), "other");
   assertEquals(environmentOf(undefined), "other");
   assertEquals(environmentOf("not a url"), "other");
+});
+
+// ---------------------------------------------------------------- alerts (step 4d)
+
+const exception = (connector: AlertException["connector"], pattern: string): AlertException => ({
+  id: `x-${connector}-${pattern}`, connector, pattern, kind: "false_positive", reason: "Known", expiresAt: hoursAgo(-2),
+});
+const problems = () => snapshot({
+  clickup: { lastSyncedAt: hoursAgo(CLICKUP_FRESHNESS_HOURS + 1), rows: 3 },
+  adSync: { runningStartedAt: [minutesAgo(45)], lastCompletedAt: hoursAgo(1), failedLast24h: 1, activeAccounts: 1, accountLastSynced: [hoursAgo(1)] },
+  queue: { overdueQueued: 0, expiredLeases: 0, recovery: 2, pending: 2 },
+});
+
+Deno.test("alerts: an active exception moves a problem to suppressed and out of the state", () => {
+  const o = evaluateIntegrationHealth({ ...problems(), exceptions: [exception("clickup", "connector.stale"), exception("verdanote_data", "sync.stuck"), exception("queue", "queue.recovery")] }, NOW);
+  const clickup = byKey(o, "clickup");
+  assertEquals(clickup.patterns, []);
+  assertEquals(clickup.suppressed, ["connector.stale"]);
+  assertEquals(clickup.state, "healthy");
+  assertEquals(byKey(o, "verdanote_data").patterns, ["sync.failed:1"]);
+  assertEquals(byKey(o, "verdanote_data").suppressed, ["sync.stuck:1"]);
+  assertEquals(o.queue.state, "healthy");
+  assertEquals(o.queue.suppressed, ["queue.recovery:2"]);
+  assertEquals(o.exceptions.length, 3);
+});
+
+Deno.test("alerts: an exception for another connector suppresses nothing", () => {
+  const o = evaluateIntegrationHealth({ ...problems(), exceptions: [exception("slack", "connector.stale")] }, NOW);
+  assertEquals(byKey(o, "clickup").patterns, ["connector.stale"]);
+});
+
+Deno.test("alerts: ownerAlertsFor plans one alert per open problem per day", () => {
+  const planned = ownerAlertsFor(evaluateIntegrationHealth({ ...problems(), exceptions: [exception("verdanote_data", "sync.stuck")] }, NOW), NOW);
+  assertEquals(planned.map((a) => a.key), [
+    "health:clickup:connector.stale:2026-11-10",
+    "health:verdanote_data:sync.failed:2026-11-10",
+    "health:queue:queue.recovery:2026-11-10",
+  ]);
+  assert(planned[0].text.includes("ClickUp needs attention"));
+});
+
+function evaluate(caller: Caller, opts: { body?: string; snap?: HealthSnapshot } = {}) {
+  const queued: Array<[string, string]> = [];
+  const res = handler(new Request("http://x/integration-health", { method: "POST", body: opts.body ?? JSON.stringify({ action: "evaluate" }) }), {
+    resolveCaller: () => Promise.resolve(caller),
+    env: () => undefined,
+    now: () => NOW,
+    loadSnapshot: () => Promise.resolve(opts.snap ?? problems()),
+    enqueueOwnerAlert: (_env, key, text) => {
+      queued.push([key, text]);
+      return Promise.resolve(key.includes("queue") ? null : `job-${queued.length}`);
+    },
+  });
+  return { res, queued };
+}
+
+Deno.test("alerts: evaluate is builder only", async () => {
+  for (const roles of [["employee"], ["client"]]) {
+    const r = evaluate(user(roles));
+    assertEquals((await r.res).status, 403);
+    assertEquals(r.queued.length, 0);
+  }
+});
+
+Deno.test("alerts: outside production evaluate queues nothing and says why", async () => {
+  const r = evaluate(user(["builder"]));
+  const res = await r.res;
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(body.environment, "other");
+  assertEquals(body.alerts.length, 4);
+  assert(body.alerts.every((a: { enqueued: boolean; reason: string }) => !a.enqueued && a.reason === "not_production"));
+  assertEquals(r.queued.length, 0);
+});
+
+Deno.test("alerts: in production evaluate queues each open problem and reports a missing owner channel", async () => {
+  const r = evaluate(user(["builder"]), { snap: { ...problems(), environment: "production", exceptions: [exception("verdanote_data", "sync.stuck")] } });
+  const body = await (await r.res).json();
+  assertEquals(r.queued.map(([k]) => k), [
+    "health:clickup:connector.stale:2026-11-10",
+    "health:verdanote_data:sync.failed:2026-11-10",
+    "health:queue:queue.recovery:2026-11-10",
+  ]);
+  assertEquals(body.alerts.map((a: { enqueued: boolean; reason: string | null }) => [a.enqueued, a.reason]), [[true, null], [true, null], [false, "no_owner_destination"]]);
+});
+
+Deno.test("alerts: an empty POST body still reads; a bad body or unknown action is a 400", async () => {
+  const ok = evaluate(user(["employee"]), { body: "" });
+  const okRes = await ok.res;
+  assertEquals(okRes.status, 200);
+  assert(Array.isArray((await okRes.json()).connectors));
+  assertEquals((await evaluate(user(["employee"]), { body: "{}" }).res).status, 200);
+  assertEquals((await evaluate(user(["builder"]), { body: "not json" }).res).status, 400);
+  assertEquals((await evaluate(user(["builder"]), { body: JSON.stringify({ action: "send" }) }).res).status, 400);
+  assertEquals((await evaluate(user(["builder"]), { body: "[]" }).res).status, 400);
+});
+
+Deno.test("alerts: enqueueOwnerAlertInDatabase calls enqueue_owner_alert with the service role", async () => {
+  const { enqueueOwnerAlertInDatabase } = await import("./index.ts");
+  const calls: unknown[] = [];
+  const make = (u: string, k: string) => ({
+    rpc: (name: string, args: Record<string, unknown>) => {
+      calls.push([u, k, name, args]);
+      return Promise.resolve({ data: "job-1", error: null });
+    },
+  });
+  const id = await enqueueOwnerAlertInDatabase((n) => ENV[n], "health:queue:queue.recovery:2026-11-10", "text", make);
+  assertEquals(id, "job-1");
+  assertEquals(calls, [[ENV.SUPABASE_URL, ENV.SUPABASE_SERVICE_ROLE_KEY, "enqueue_owner_alert", { p_key: "health:queue:queue.recovery:2026-11-10", p_text: "text" }]]);
+  const none = await enqueueOwnerAlertInDatabase((n) => ENV[n], "k", "t", () => ({ rpc: () => Promise.resolve({ data: null, error: null }) }));
+  assertEquals(none, null);
 });
