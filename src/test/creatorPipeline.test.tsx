@@ -40,7 +40,7 @@ import { ACTIVE_STAGES, PRODUCTION_STAGES, addableCreators, boardColumns, curren
 
 const row = (id: string, stage: string, slug = "glow", extra: Partial<Assignment> = {}): Assignment => ({
   id, creator_id: `c-${id}`, client_slug: slug, stage, owner_id: null, next_follow_up_at: null, next_follow_up_source: null,
-  tracking_number: null, product_delivered_at: null, brief_name: null, notes: null,
+  tracking_number: null, product_delivered_at: null, delivery_notes: null, brief_name: null, notes: null,
   dashboard_creators: { name: `Creator ${id}`, scale: 3, do_not_use_again: false }, ...extra,
 });
 const USERS = [
@@ -99,7 +99,16 @@ describe("Creator pipeline page", () => {
     fireEvent.change(await screen.findByLabelText("Tracking number for Creator 2"), { target: { value: " 1Z99 " } });
     fireEvent.change(screen.getByLabelText("Delivered on for Creator 2"), { target: { value: "2026-11-09" } });
     fireEvent.click(screen.getByRole("button", { name: "Save delivery" }));
-    await waitFor(() => expect(api.saveDelivery).toHaveBeenCalledWith("2", "1Z99", "2026-11-09"));
+    await waitFor(() => expect(api.saveDelivery).toHaveBeenCalledWith("2", "1Z99", "2026-11-09", null));
+  });
+
+  it("keeps the delivery notes when tracking is saved (they were wiped before step 5c)", async () => {
+    api.loadAssignments.mockResolvedValue([{ ...row("2", "product_shipped"), delivery_notes: "Left with the doorman" }]);
+    api.saveDelivery.mockResolvedValue({});
+    renderAt("?brand=glow");
+    fireEvent.change(await screen.findByLabelText("Tracking number for Creator 2"), { target: { value: "1Z77" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save delivery" }));
+    await waitFor(() => expect(api.saveDelivery).toHaveBeenCalledWith("2", "1Z77", null, "Left with the doorman"));
   });
 
   it("adds creators from the roster and removes one after confirming", async () => {

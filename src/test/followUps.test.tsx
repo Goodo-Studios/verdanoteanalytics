@@ -33,7 +33,7 @@ import { daysOverdue, formatOverdue, groupFollowUps, ownerScope, snoozeDate } fr
 const NOW = new Date("2026-11-10T12:00:00Z");
 const row = (id: string, stage: string, date: string | null, owner: string | null): Assignment => ({
   id, creator_id: `c-${id}`, client_slug: "glow", stage, owner_id: owner, next_follow_up_at: date, next_follow_up_source: "manual",
-  tracking_number: null, product_delivered_at: null, brief_name: null, notes: null,
+  tracking_number: null, product_delivered_at: null, delivery_notes: null, brief_name: null, notes: null,
   dashboard_creators: { name: `Creator ${id}`, scale: null, do_not_use_again: false },
 });
 const USERS = [

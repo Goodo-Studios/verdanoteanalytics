@@ -27,6 +27,7 @@ interface DbResult<T> {
 type Query<T> = PromiseLike<DbResult<T>> & {
   eq(column: string, value: unknown): Query<T>;
   in(column: string, values: unknown[]): Query<T>;
+  or(filters: string): Query<T>;
   not(column: string, op: string, value: unknown): Query<T>;
   lte(column: string, value: unknown): Query<T>;
   order(column: string, opts?: { ascending?: boolean }): Query<T>;
@@ -169,7 +170,7 @@ export function saveClientActive(slug: string, active: boolean) {
 // --------------------------------------------------------------- Creator pipeline and Follow-ups
 
 export const ASSIGNMENT_COLUMNS =
-  "id, creator_id, client_slug, stage, owner_id, next_follow_up_at, next_follow_up_source, tracking_number, product_delivered_at, brief_name, notes, dashboard_creators(name, scale, do_not_use_again)";
+  "id, creator_id, client_slug, stage, owner_id, next_follow_up_at, next_follow_up_source, tracking_number, product_delivered_at, delivery_notes, brief_name, notes, dashboard_creators(name, scale, do_not_use_again)";
 
 export interface BrandOption {
   slug: string;
@@ -235,7 +236,11 @@ export function loadFollowUps(): Promise<Assignment[]> {
   );
 }
 
-/** Staff only (set_creator_assignment_delivery checks the role). */
-export function saveDelivery(id: string, tracking: string | null, deliveredAt: string | null) {
-  return unwrap(db.rpc("set_creator_assignment_delivery", { p_assignment_id: id, p_tracking_number: tracking, p_product_delivered_at: deliveredAt }));
+/**
+ * Staff only (set_creator_assignment_delivery checks the role). The function
+ * replaces tracking, delivered date and delivery notes together, so the
+ * current notes are always sent; leaving them out would wipe them.
+ */
+export function saveDelivery(id: string, tracking: string | null, deliveredAt: string | null, notes: string | null) {
+  return unwrap(db.rpc("set_creator_assignment_delivery", { p_assignment_id: id, p_tracking_number: tracking, p_product_delivered_at: deliveredAt, p_delivery_notes: notes }));
 }
