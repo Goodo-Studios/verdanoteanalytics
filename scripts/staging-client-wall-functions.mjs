@@ -108,6 +108,14 @@ const controls = [
   ["builder passes the clickup-folders gate and it fails closed without a token", "clickup-folders", builder, { method: "GET" }, (s) => s === 503],
   ["employee refused by clickup-folders (builder only)", "clickup-folders", employee, { method: "GET" }, refused],
   ["client B refused by clickup-folders", "clickup-folders", clientB, { method: "GET" }, refused],
+  // Invite by email (phase 4 PR 2). Nothing is ever sent from this check: the builder reaches only the
+  // validation path (a bad email, answered 400 before any invite) and the not-found path (an id that
+  // matches nothing, answered 404 before any email). Employees and clients are refused at the gate.
+  ["builder passes the invite-user gate and a bad email is refused before any invite", "invite-user", builder, { body: { action: "invite", email: "not-an-email", display_name: "Wall", role: "employee" } }, (s) => s === 400],
+  ["builder passes the invite-user gate and an unknown invite is not found, nothing resent", "invite-user", builder, { body: { action: "resend", invite_id: "00000000-0000-4000-8000-000000000000" } }, (s) => s === 404],
+  ["builder passes the invite-user gate and an unknown invite is not found, nothing revoked", "invite-user", builder, { body: { action: "revoke", invite_id: "00000000-0000-4000-8000-000000000000" } }, (s) => s === 404],
+  ["employee refused by invite-user (builder only)", "invite-user", employee, { body: { action: "invite", email: "not-an-email", display_name: "Wall", role: "employee" } }, refused],
+  ["client B refused by invite-user", "invite-user", clientB, { body: { action: "invite", email: "not-an-email", display_name: "Wall", role: "employee" } }, refused],
   // Integration health is read-only and calls nothing outside, so staff get 200.
   ["employee accepted by integration-health", "integration-health", employee, { method: "GET" }, (s) => s === 200],
   ["builder accepted by integration-health", "integration-health", builder, { method: "GET" }, (s) => s === 200],

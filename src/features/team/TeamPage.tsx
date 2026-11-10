@@ -13,6 +13,7 @@ import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { ClientsSettings } from "./ClientsSettings";
+import { InviteSection, type InvitePrefill } from "./InviteSection";
 import {
   canAddToTeam,
   canPrepareInvite,
@@ -272,7 +273,7 @@ function Mappings({ mappings, builder, onChanged }: { mappings: RoleMapping[]; b
   );
 }
 
-function InviteRow({ invite, onChanged }: { invite: StaffInvite; onChanged: () => void }) {
+function InviteRow({ invite, onChanged, onSend }: { invite: StaffInvite; onChanged: () => void; onSend: (invite: StaffInvite) => void }) {
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const problem = cancelReasonProblem(reason);
@@ -287,7 +288,8 @@ function InviteRow({ invite, onChanged }: { invite: StaffInvite; onChanged: () =
       <span className="font-medium">{invite.name}</span> <span className="text-muted-foreground">{invite.email}</span> · as {roleLabel(invite.proposed_role)}
       {invite.mapping_flagged ? " (mapping waits on the owner)" : ""} · {invite.status === "prepared" ? "Prepared, not sent" : `Cancelled: ${invite.cancel_reason ?? ""}`}
       {invite.status === "prepared" ? (
-        <div className="mt-2 flex gap-2">
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => onSend(invite)} aria-label={`Send the invite to ${invite.name}`}>Send invite by email</Button>
           <input aria-label={`Reason to cancel the invite for ${invite.name}`} className={field} placeholder="Reason to cancel" value={reason} onChange={(e) => setReason(e.target.value)} />
           <Button size="sm" variant="outline" disabled={!!problem} onClick={() => void cancel()}>Cancel invite</Button>
         </div>
@@ -306,6 +308,7 @@ export default function TeamPage() {
   const [recon, setRecon] = useState<ReconRow[] | null>(null);
   const [invites, setInvites] = useState<StaffInvite[]>([]);
   const [events, setEvents] = useState<StaffEvent[]>([]);
+  const [prefill, setPrefill] = useState<InvitePrefill | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -335,12 +338,18 @@ export default function TeamPage() {
   useEffect(() => void load(), [load]);
 
   const reload = () => void load();
+  const openInvite = (i: StaffInvite) => setPrefill({ preparedId: i.id, name: i.name, email: i.email, role: i.proposed_role });
+  // A prepared invite that was sent by email is closed, so the list does not offer to send it twice.
+  const invitedByEmail = async (preparedId: string | null) => {
+    if (preparedId) await db.rpc("cancel_staff_invite", { p_invite_id: preparedId, p_reason: "Sent by email" });
+    reload();
+  };
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6" data-testid="team-page">
       <PageHeader
         title="Team and settings"
-        description="One place to manage staff: the team list, the role mapping, the check of the team list against Verdanote logins and roles, and prepared invites. Client logins and their ad accounts stay in Settings > Admin."
+        description="One place to manage staff: the team list, the role mapping, the check of the team list against Verdanote logins and roles, and invites by email. Linking a client login to its client is on the client's Setup tab."
       />
       {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
       {builder ? null : (
@@ -352,12 +361,13 @@ export default function TeamPage() {
       {members ? <TeamList members={members} builder={builder} onChanged={reload} /> : null}
       <Mappings mappings={mappings} builder={builder} onChanged={reload} />
       <ClientsSettings builder={builder} />
+      {builder ? <InviteSection prefill={prefill} onSent={(id) => void invitedByEmail(id)} /> : null}
       {builder ? (
         <section aria-label="Invites" className="space-y-2">
-          <h2 className="text-lg font-semibold">Invites</h2>
+          <h2 className="text-lg font-semibold">Prepared invites</h2>
           <p className="rounded border border-input bg-muted/40 p-3 text-sm">{NO_SEND_NOTE}</p>
           {invites.length === 0 ? <p className="text-sm text-muted-foreground">No invites prepared.</p> : null}
-          <ul className="space-y-2">{invites.map((i) => <InviteRow key={`${i.id}:${i.status}`} invite={i} onChanged={reload} />)}</ul>
+          <ul className="space-y-2">{invites.map((i) => <InviteRow key={`${i.id}:${i.status}`} invite={i} onChanged={reload} onSend={openInvite} />)}</ul>
         </section>
       ) : null}
       {builder ? (

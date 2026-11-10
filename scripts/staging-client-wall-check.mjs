@@ -1168,6 +1168,22 @@ check("builder passes the role check in add_client_member (no such client, nothi
 const setupNoLink = await staff.c.rpc("remove_client_member", { p_slug: "wall-probe-no-such-client", p_user_id: ZERO });
 check("builder passes the role check in remove_client_member (nothing linked)", setupNoLink.error?.code === "P0002", `code=${setupNoLink.error?.code ?? "none"}`);
 
+// Invite by email (phase 4 PR 2, migration 20261112000002): the invite log. Clients and employees
+// read no invite and are refused the list; the builder reads it. Nobody writes from the browser.
+// Nothing is written or sent: the insert is refused before it reaches a row.
+for (const [label, s] of [["client A", clientA], ["client B", clientB], ["employee", employee]]) {
+  const r = await s.c.from("user_invites").select("*").limit(1000);
+  check(`${label} reads no user_invites rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  const ins = await s.c.from("user_invites").insert({ email: "wall@staging.verdanote.test", display_name: "Wall", role: "employee", invited_by: s.userId });
+  check(`${label} cannot write user_invites`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  const list = await s.c.rpc("list_user_invites");
+  check(`${label} is refused list_user_invites`, list.error?.code === "42501", `code=${list.error?.code ?? "none"}`);
+}
+const inviteBuilderWrite = await staff.c.from("user_invites").insert({ email: "wall@staging.verdanote.test", display_name: "Wall", role: "employee", invited_by: staff.userId });
+check("even the builder cannot write user_invites from the browser", !!inviteBuilderWrite.error, `error=${inviteBuilderWrite.error?.message ?? "none (write accepted)"}`);
+const inviteList = await staff.c.rpc("list_user_invites");
+check("builder reads the invite list", !inviteList.error && Array.isArray(inviteList.data), `error=${inviteList.error?.message ?? "none"} rows=${inviteList.data?.length ?? "error"}`);
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

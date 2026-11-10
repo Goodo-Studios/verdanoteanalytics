@@ -133,7 +133,7 @@ describe("TeamPage", () => {
     expect(within(byName("Vee Viewer")).queryByRole("button", { name: /Set role/ })).toBeNull();
     expect(within(byName("Client Mail")).queryByRole("button")).toBeNull();
     expect(byName("Client Mail")).toHaveTextContent("Check by hand who this login belongs to");
-    expect(screen.getByText(/never sent from Verdanote/)).toBeTruthy();
+    expect(screen.getByText(/Nothing is sent until a builder presses Send invite by email/)).toBeTruthy();
   });
 
   it("runs each row action through its checked function, with a confirm for team list and role changes", async () => {
@@ -162,7 +162,9 @@ describe("TeamPage", () => {
 
   it("shows a refusal from the database in plain words", async () => {
     rpc.mockImplementation((name: string) =>
-      Promise.resolve(name === "staff_reconciliation" ? { data: RECON, error: null } : { data: null, error: { code: "42501", message: "only a builder can prepare invites" } }));
+      Promise.resolve(name === "staff_reconciliation" ? { data: RECON, error: null }
+        : name === "list_user_invites" ? { data: [], error: null }
+        : { data: null, error: { code: "42501", message: "only a builder can prepare invites" } }));
     render(<TeamPage />);
     const rows = await screen.findAllByTestId("recon-row");
     fireEvent.click(within(rows.find((r) => r.textContent?.includes("No Login"))!).getByRole("button", { name: "Prepare invite (not sent)" }));
@@ -192,6 +194,16 @@ describe("TeamPage", () => {
         p_dashboard_role: "viewer", p_verdanote_role: "employee", p_needs_owner_decision: false, p_note: "Owner decision 2 is open.",
       }));
     confirm.mockRestore();
+  });
+
+  it("a prepared invite can be sent by email: it fills the invite form, and nothing is sent until the builder confirms", async () => {
+    render(<TeamPage />);
+    const invite = await screen.findByTestId("invite-row");
+    fireEvent.click(within(invite).getByRole("button", { name: "Send the invite to No Login" }));
+    expect(await screen.findByLabelText("Invitee name")).toHaveValue("No Login");
+    expect(screen.getByRole("button", { name: "Review invite" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Send invite" })).toBeNull();
+    expect(rpc).not.toHaveBeenCalledWith("cancel_staff_invite", expect.anything());
   });
 
   it("cancels a prepared invite only with a reason", async () => {

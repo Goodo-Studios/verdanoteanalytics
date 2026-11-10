@@ -15,7 +15,7 @@ export const INVITE_SELECT = "id, team_member_id, email, name, proposed_role, ma
 export const EVENT_SELECT = "id, kind, subject, detail, created_at";
 
 export const NO_SEND_NOTE =
-  "Invites are prepared here and never sent from Verdanote. They are sent by hand at the release, after the owner has decided the role mapping and the staff list.";
+  "A prepared invite is a note that someone should be invited. Nothing is sent until a builder presses Send invite by email and confirms. Wait for the owner's decision on the role mapping and the staff list before sending to staff.";
 
 export interface TeamMember {
   id: string;

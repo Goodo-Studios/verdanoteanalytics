@@ -382,3 +382,7 @@ verify_jwt = false
 # ClickUp folder picker for the client Setup tab. Builder only; gated inside the function.
 [functions.clickup-folders]
 verify_jwt = false
+
+# Invite by email (builder only; gated inside the function). Uses Supabase Auth's own invite.
+[functions.invite-user]
+verify_jwt = false

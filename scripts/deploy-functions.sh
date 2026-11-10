@@ -63,6 +63,7 @@ FUNCTIONS=(
   fireflies-transcript
   push-brief-to-clickup
   clickup-folders
+  invite-user
   meeting-recaps
   agent-evaluations
   integration-health
