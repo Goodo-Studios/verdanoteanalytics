@@ -2,6 +2,7 @@ import { ReactNode, useState } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { PresenceAvatars } from "@/components/PresenceAvatars";
 import { ClientSwitcher } from "@/components/ClientSwitcher";
+import { CommandPaletteHost } from "@/components/CommandPaletteHost";
 import { ClientSelectionProvider } from "@/contexts/ClientSelectionProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
@@ -61,6 +62,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* Client switcher (staff) */}
           <div className="min-w-0 flex-1 px-2">{showSwitcher ? <ClientSwitcher /> : null}</div>
           <div className="flex items-center gap-2">
+            <CommandPaletteHost />
             <PresenceAvatars />
           </div>
         </div>

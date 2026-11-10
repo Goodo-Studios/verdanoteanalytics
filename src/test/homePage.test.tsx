@@ -7,6 +7,8 @@ import { describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
 vi.mock("@/hooks/useRolePath", () => ({ useRolePrefix: () => "/builder" }));
+// The blocks have their own tests (staffHome.test.tsx); here they are a marker.
+vi.mock("@/features/home/StaffHomeBlocks", () => ({ StaffHomeBlocks: () => <div data-testid="staff-home-blocks" /> }));
 
 import HomePage from "@/pages/HomePage";
 import { WithClient } from "@/test/clientSelection";
@@ -23,6 +25,17 @@ function renderHome(slug = "") {
 }
 
 describe("Home", () => {
+  it("puts the day's blocks first and has Today and Work tabs", () => {
+    renderHome();
+    expect(screen.getByTestId("staff-home-blocks")).toBeTruthy();
+    const tabs = screen.getByRole("navigation", { name: "Home tabs" });
+    expect(tabs.querySelector('[aria-current="page"]')?.textContent).toBe("Today");
+    expect(Array.from(tabs.querySelectorAll("a")).map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
+      ["Today", "/builder/"],
+      ["Work", "/builder/work"],
+    ]);
+  });
+
   it("links to Clients and every section", () => {
     renderHome();
     for (const [id, to] of [

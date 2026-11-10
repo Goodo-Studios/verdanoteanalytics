@@ -34,6 +34,7 @@ vi.mock("@/pages/SettingsPage", () => pageMock("settings"));
 vi.mock("@/pages/BriefsPage", () => pageMock("briefs"));
 vi.mock("@/pages/AgencyDashboardPage", () => pageMock("agency"));
 vi.mock("@/pages/HomePage", () => pageMock("staff-home"));
+vi.mock("@/features/home/WorkPage", () => pageMock("work"));
 vi.mock("@/pages/ContentPipelinePage", () => pageMock("pipeline"));
 vi.mock("@/pages/LandingPagesPage", () => pageMock("landing-pages"));
 vi.mock("@/pages/CreativeRotationPage", () => pageMock("creative-rotation"));
@@ -140,6 +141,7 @@ function renderAt(path: string) {
 /** Every staff page and the marker its mocked module renders. */
 const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean }> = [
   { path: "/staff", marker: "staff-home" },
+  { path: "/work", marker: "work" },
   { path: "/agency", marker: "agency" },
   { path: "/creative-library", marker: "creative-library" },
   { path: "/tagging", marker: "tagging" },
