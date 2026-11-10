@@ -174,3 +174,13 @@ test('demo props: valid outcomes, demo client names, no negative prices', () => 
     assert.match(p.name, /^Demo /);
   }
 });
+
+test('demo crew: example.test emails, 555-01xx phones, one archived', () => {
+  for (const c of seed.crew_members) {
+    assert.match(c.email, /@example\.test$/);
+    assert.match(c.phone, /^555-01\d\d$/);
+    assert.ok(c.role.trim());
+  }
+  assert.equal(seed.crew_members.filter((c) => !c.active).length, 1);
+  assert.equal(new Set(seed.crew_members.map((c) => c.email)).size, seed.crew_members.length);
+});

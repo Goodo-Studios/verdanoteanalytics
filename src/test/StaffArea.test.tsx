@@ -52,6 +52,7 @@ vi.mock("@/features/dashboard/OverviewPage", () => pageMock("client-overview"));
 vi.mock("@/features/dashboard/ApprovalBoardsPage", () => pageMock("approval-boards"));
 vi.mock("@/features/dashboard/LocationsPage", () => pageMock("locations"));
 vi.mock("@/features/dashboard/PropsPage", () => pageMock("props"));
+vi.mock("@/features/dashboard/CrewPage", () => pageMock("crew"));
 vi.mock("@/features/dashboard/ApplicationsPage", () => pageMock("applications"));
 vi.mock("@/features/dashboard/ApplicationDetailPage", () => pageMock("applicationDetail"));
 vi.mock("@/features/dashboard/ActorsPage", () => pageMock("actors"));
@@ -145,6 +146,7 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean }
   { path: "/approval-boards", marker: "approval-boards" },
   { path: "/locations", marker: "locations" },
   { path: "/props", marker: "props" },
+  { path: "/crew", marker: "crew" },
   { path: "/applications", marker: "applications" },
   { path: "/applications/creators/de5a0000-0000-4000-8000-000000000700", marker: "applicationDetail" },
   { path: "/actors", marker: "actors" },

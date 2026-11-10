@@ -31,6 +31,7 @@ export const SEED_MARKERS = {
   actor_applications: { sql: "email like '%@example.test'", match: (r) => r.email.endsWith('@example.test') },
   approval_boards: { sql: "client_slug like 'demo-%'", match: (r) => r.client_slug.startsWith('demo-') },
   approval_votes: { sql: "board_id::text like 'de5a0000-%'", match: (r) => r.board_id.startsWith('de5a0000-') },
+  crew_members: { sql: "email like '%@example.test'", match: (r) => r.email.endsWith('@example.test') },
   props: { sql: "id::text like 'de5a0000-%'", match: (r) => r.id.startsWith('de5a0000-') },
   locations: { sql: "id::text like 'de5a0000-%'", match: (r) => r.id.startsWith('de5a0000-') },
   location_boards: { sql: "id::text like 'de5a0000-%'", match: (r) => r.id.startsWith('de5a0000-') },
@@ -53,6 +54,7 @@ export const SEED_ORDER = [
   ['actor_applications', 'id'],
   ['approval_boards', 'id'],
   ['approval_votes', 'id'],
+  ['crew_members', 'id'],
   ['props', 'id'],
   ['locations', 'id'],
   ['location_boards', 'id'],
@@ -249,5 +251,16 @@ export function buildDashboardSeed(now = new Date()) {
     prop(3, 'Demo dog bed', { store: 'Sample Pet Shop', price: 64.5, client: 'Pinecrest Pets (demo)', return_status: 'Kept', notes: 'Made-up seed row' }),
   ];
 
-  return { clients, app_users, client_ad_accounts, engagements, deliverables, dashboard_creators, creator_assignments, pipeline_tasks, actors, actor_assignments, creator_applications, actor_applications, approval_boards, approval_votes, props, locations, location_boards, location_board_items };
+  // Step 5c: made-up crew. Emails at example.test, phones in the 555-01xx range.
+  const crewRows = [
+    ['Demo Rob Lens', 'Videographer', '$600 / day (made up)', true],
+    ['Demo Pat Grip', 'PA', '$250 / day (made up)', true],
+    ['Demo Sky Styles', 'Stylist', null, true],
+    ['Demo Alex Former', 'Director', null, false],
+  ];
+  const crew_members = crewRows.map(([name, role, rate_notes, active], i) => ({
+    id: id(960 + i), name, role, rate_notes, phone: `555-01${30 + i}`, email: `${name.split(' ')[1].toLowerCase()}.crew@example.test`, notes: null, active,
+  }));
+
+  return { clients, app_users, client_ad_accounts, engagements, deliverables, dashboard_creators, creator_assignments, pipeline_tasks, actors, actor_assignments, creator_applications, actor_applications, approval_boards, approval_votes, crew_members, props, locations, location_boards, location_board_items };
 }
