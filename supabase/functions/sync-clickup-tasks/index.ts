@@ -3,11 +3,12 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 import {
   CLICKUP_CLIENT_SPACE_ID,
-  type AccountRow,
   type ClickUpTask,
+  type ClientRow,
   type PipelineRecord,
+  boardAccountId,
   pickProjectList,
-  resolveAccountId,
+  resolveClientSlug,
   toPipelineRecord,
 } from "../_shared/clickup-pipeline.ts";
 
@@ -19,6 +20,13 @@ import {
 // Operations space it reads the "{Client} Project View" list, keeps asset tasks,
 // maps each ClickUp status to one of five client-facing columns and writes only
 // client-safe fields. See _shared/clickup-pipeline.ts for the rules.
+//
+// Each folder is resolved to a client (`clients.slug`): first through a staff-set
+// `source_mappings` row (provider clickup, kind folder), then by name against the
+// clients and their linked ad accounts. A folder that does not resolve to exactly
+// one client is skipped and listed in the result. Every row carries client_slug;
+// account_id is written only when the client has exactly one linked ad account,
+// because the /pipeline page filters by ad account.
 //
 // The sync is authoritative: rows not refreshed by a clean run are deleted, so
 // a task that is cleared, archived, moved to "stuck" or aged out of the launch
@@ -100,21 +108,49 @@ export async function handler(
           Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
         ) as unknown as SupabaseLike);
 
-    const { data: accountRows, error: accountsError } = await supabase
-      .from("ad_accounts")
-      .select("id, name")
-      .eq("is_active", true);
-    if (accountsError) throw new Error(`ad_accounts read failed: ${accountsError.message}`);
-    const accounts: AccountRow[] = (accountRows ?? []).map((a) => ({ id: a.id, name: a.name }));
+    // Any failed read stops the run before ClickUp is called or a row is written.
+    const read = async (table: string, query: PromiseLike<QueryResult>) => {
+      const { data, error } = await query;
+      if (error) throw new Error(`${table} read failed: ${error.message}`);
+      return data ?? [];
+    };
 
-    const { data: overrideRows, error: overridesError } = await supabase
-      .from("clickup_client_folders")
-      .select("folder_id, account_id");
-    if (overridesError) {
-      throw new Error(`clickup_client_folders read failed: ${overridesError.message}`);
+    const clientRows = await read(
+      "clients",
+      supabase.from("clients").select("slug, name").eq("active", true),
+    );
+    const linkRows = await read(
+      "client_ad_accounts",
+      supabase.from("client_ad_accounts").select("account_id, client_slug"),
+    );
+    const accountRows = await read(
+      "ad_accounts",
+      supabase.from("ad_accounts").select("id, name").eq("is_active", true),
+    );
+    const mappingRows = await read(
+      "source_mappings",
+      supabase
+        .from("source_mappings")
+        .select("external_id, client_slug")
+        .eq("provider", "clickup")
+        .eq("kind", "folder")
+        .eq("active", true),
+    );
+
+    const activeAccountNames = new Map(accountRows.map((a) => [a.id, a.name]));
+    const clients = new Map<string, ClientRow>();
+    for (const c of clientRows) {
+      clients.set(c.slug, { slug: c.slug, name: c.name, accountIds: [], accountNames: [] });
     }
-    const overrides: Record<string, string> = {};
-    for (const row of overrideRows ?? []) overrides[row.folder_id] = row.account_id;
+    for (const link of linkRows) {
+      const client = clients.get(link.client_slug);
+      if (!client) continue;
+      client.accountIds.push(link.account_id);
+      const name = activeAccountNames.get(link.account_id);
+      if (name) client.accountNames.push(name);
+    }
+    const mappings: Record<string, string> = {};
+    for (const m of mappingRows) mappings[m.external_id] = m.client_slug;
 
     const folderData = await clickupGet(
       `/space/${CLICKUP_CLIENT_SPACE_ID}/folder?archived=false`,
@@ -128,20 +164,39 @@ export async function handler(
     const nowIso = new Date(nowMs).toISOString();
     const records = new Map<string, PipelineRecord>();
     const unmatchedFolders: string[] = [];
+    const ambiguousFolders: string[] = [];
+    const staleMappingFolders: string[] = [];
     const failedFolders: string[] = [];
+    const clientsWithoutBoardAccount = new Set<string>();
     const unknownStatuses = new Set<string>();
     let seen = 0;
     let skipped = 0;
     let matchedFolders = 0;
+    let matchedByMapping = 0;
+    let matchedByName = 0;
 
     for (const folder of folders) {
-      const accountId = resolveAccountId(folder, accounts, overrides);
+      const resolution = resolveClientSlug(folder, [...clients.values()], mappings);
       const list = pickProjectList(folder.lists);
-      if (!accountId || !list) {
+      if (resolution.kind !== "client" || !list) {
+        // unmatchedFolders lists every skipped folder, as before; the two lists
+        // below say why for the ones that had a candidate.
         unmatchedFolders.push(folder.name);
+        if (resolution.kind === "none" && resolution.reason === "ambiguous") {
+          ambiguousFolders.push(folder.name);
+        }
+        if (resolution.kind === "none" && resolution.reason === "stale_mapping") {
+          staleMappingFolders.push(folder.name);
+        }
         continue;
       }
       matchedFolders++;
+      if (resolution.via === "mapping") matchedByMapping++;
+      else matchedByName++;
+
+      const client = clients.get(resolution.slug)!;
+      const owner = { client_slug: client.slug, account_id: boardAccountId(client) };
+      if (!owner.account_id) clientsWithoutBoardAccount.add(client.slug);
 
       let tasks: ClickUpTask[];
       try {
@@ -154,7 +209,7 @@ export async function handler(
 
       for (const task of tasks) {
         seen++;
-        const outcome = toPipelineRecord(task, accountId, nowMs);
+        const outcome = toPipelineRecord(task, owner, nowMs);
         if (outcome.kind === "record") {
           records.set(outcome.record.clickup_task_id, outcome.record);
         } else {
@@ -209,7 +264,7 @@ export async function handler(
     }
     if (unmatchedFolders.length > 0) {
       console.warn(
-        `Client folders with no Verdanote account match (add a clickup_client_folders row): ${unmatchedFolders.join(", ")}`,
+        `Client folders with no single client match (add a source_mappings row, provider clickup, kind folder): ${unmatchedFolders.join(", ")}`,
       );
     }
 
@@ -218,8 +273,16 @@ export async function handler(
         success: !upsertFailed && failedFolders.length === 0,
         folders: folders.length,
         matchedFolders,
+        matchedByMapping,
+        matchedByName,
         unmatchedFolders,
+        ambiguousFolders,
+        staleMappingFolders,
         failedFolders,
+        // Clients whose rows carry no account_id (no linked ad account, or more
+        // than one). The current /pipeline page filters by ad account, so their
+        // board is stored but not shown there yet.
+        clientsWithoutBoardAccount: [...clientsWithoutBoardAccount].sort(),
         seen,
         upserted,
         skipped,
