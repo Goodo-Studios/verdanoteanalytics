@@ -19,10 +19,14 @@ async function resolveDashboardRole(supabase: MappingReader, dashboardRole: unkn
 }
 
 
-serve(async (req) => {
+export interface Deps {
+  createClient?: typeof createClient;
+}
+
+export async function handler(req: Request, deps: Deps = {}): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  const supabase = createClient(
+  const supabase = (deps.createClient ?? createClient)(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
@@ -187,4 +191,9 @@ serve(async (req) => {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-});
+}
+
+// Tests import the handler with USER_MANAGEMENT_NO_SERVE set.
+if (!Deno.env.get("USER_MANAGEMENT_NO_SERVE")) {
+  serve((req) => handler(req));
+}

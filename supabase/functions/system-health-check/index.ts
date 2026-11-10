@@ -5,7 +5,11 @@ import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { previewCaptureHealthFindings } from "../_shared/preview-drain-logic.ts";
 
 
-serve(async (req) => {
+export interface Deps {
+  createClient?: typeof createClient;
+}
+
+export async function handler(req: Request, deps: Deps = {}): Promise<Response> {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -17,7 +21,7 @@ serve(async (req) => {
   if (authFailure) return authFailure;
 
   const start = Date.now();
-  const supabase = createClient(
+  const supabase = (deps.createClient ?? createClient)(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
@@ -466,4 +470,9 @@ serve(async (req) => {
   return new Response(JSON.stringify({ status: overallStatus, summary, findings, duration_ms: durationMs }), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-});
+}
+
+// Tests import the handler with SYSTEM_HEALTH_CHECK_NO_SERVE set.
+if (!Deno.env.get("SYSTEM_HEALTH_CHECK_NO_SERVE")) {
+  serve((req) => handler(req));
+}

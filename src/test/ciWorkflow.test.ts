@@ -68,6 +68,11 @@ describe("CI deployment safety", () => {
     expect(workflow).toContain("run: npm run check:e2e-env");
   });
 
+  it("runs the node script tests (scripts/*.test.mjs) in the check job", () => {
+    expect(workflow).toContain("run: npm run test:scripts");
+    expect(job("check")).toContain("run: npm run test:scripts");
+  });
+
   it("uses the non-increasing lint warning budget", () => {
     expect(workflow).toContain("run: npm run lint:ci");
   });
