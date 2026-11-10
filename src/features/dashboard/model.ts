@@ -202,3 +202,103 @@ export function errorText(code: string | undefined, fallback: string): string {
   if (code === "P0002") return "That client no longer exists.";
   return fallback;
 }
+
+// --------------------------------------------------------------- creator stages
+//
+// creator_assignments.stage, in board order (old dashboard src/lib/pipeline.ts
+// after migration 065). declined and passed are the terminal stages.
+
+export const STAGES = [
+  { value: "sourced", label: "Sourced" },
+  { value: "outreach_sent", label: "Outreach Sent" },
+  { value: "interested", label: "Interested" },
+  { value: "shortlisted", label: "Shortlisted" },
+  { value: "client_approved", label: "Client Approved" },
+  { value: "details_collected", label: "Details Collected" },
+  { value: "contract_sent", label: "Contract Sent" },
+  { value: "contract_signed", label: "Contract Signed" },
+  { value: "product_shipped", label: "Product Shipped" },
+  { value: "brief_sent", label: "Brief Sent" },
+  { value: "product_delivered", label: "Product Delivered" },
+  { value: "shooting", label: "Shooting" },
+  { value: "footage_delivered", label: "Footage Delivered" },
+  { value: "invoice_received", label: "Invoice Received" },
+  { value: "payment_logged", label: "Payment Logged" },
+  { value: "completed", label: "Completed" },
+  { value: "declined", label: "Declined" },
+  { value: "passed", label: "Passed" },
+] as const;
+
+export type Stage = (typeof STAGES)[number]["value"];
+export const TERMINAL_STAGES: readonly string[] = ["declined", "passed"];
+
+export function stageLabel(stage: string): string {
+  return STAGES.find((s) => s.value === stage)?.label ?? stage;
+}
+
+export function stageIndex(stage: string): number {
+  const i = STAGES.findIndex((s) => s.value === stage);
+  return i === -1 ? STAGES.length : i;
+}
+
+// --------------------------------------------------------------- Client Detail
+
+export interface Deliverable {
+  id: string;
+  month: string;
+  type: string;
+  status: string;
+}
+
+export const DELIVERABLE_TYPES = ["cycle_brief", "production", "delivery", "report", "performance"] as const;
+export const DELIVERABLE_LABEL: Record<string, string> = {
+  cycle_brief: "Cycle brief",
+  production: "Production",
+  delivery: "Delivery",
+  report: "Report",
+  performance: "Performance",
+};
+export const DELIVERABLE_STATUS_LABEL: Record<string, string> = {
+  pending: "Pending",
+  in_progress: "In progress",
+  complete: "Complete",
+};
+
+export function monthKey(now: Date): string {
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Months that have deliverables plus the current one, newest first. */
+export function monthOptions(deliverables: Deliverable[], current: string): string[] {
+  return [...new Set([current, ...deliverables.map((d) => d.month)])].filter((m) => /^\d{4}-\d{2}$/.test(m)).sort().reverse();
+}
+
+export function formatMonth(key: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(key);
+  if (!m) return key;
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, 1)).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+}
+
+/** Deliverables of one month in the fixed type order. */
+export function deliverablesFor(deliverables: Deliverable[], month: string): Deliverable[] {
+  const order = (t: string) => {
+    const i = (DELIVERABLE_TYPES as readonly string[]).indexOf(t);
+    return i === -1 ? DELIVERABLE_TYPES.length : i;
+  };
+  return deliverables.filter((d) => d.month === month).sort((a, b) => order(a.type) - order(b.type));
+}
+
+export const CLIENT_STATUSES = ["active", "draft", "ending / transitioning", "inactive / completed"] as const;
+
+/** Count of creator assignments per stage, in board order, empty stages left out. */
+export function stageCounts(assignments: { stage: string }[]): { stage: string; label: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const a of assignments) counts.set(a.stage, (counts.get(a.stage) ?? 0) + 1);
+  return [...counts.entries()]
+    .sort((a, b) => stageIndex(a[0]) - stageIndex(b[0]))
+    .map(([stage, count]) => ({ stage, label: stageLabel(stage), count }));
+}
+
+export function serviceLines(c: Pick<DashboardClient, "does_creators" | "does_production">): string[] {
+  return [c.does_creators ? "Creators" : null, c.does_production ? "Production" : null].filter((x): x is string => x !== null);
+}
