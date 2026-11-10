@@ -2,6 +2,7 @@
 // Loading, error and empty are three different things on screen. Red is used only on late rows.
 import { Link } from "react-router-dom";
 import { BLOCK_ROWS } from "@/lib/homeData";
+import { EmptyState, ErrorState, LoadingState } from "@/components/page-kit";
 
 export interface BlockRow {
   key: string;
@@ -42,23 +43,17 @@ export function HomeBlock({ id, title, status, rows, emptyText, seeAllTo, prefix
         </Link>
       </div>
       {status === "loading" ? (
-        <p role="status" className="rounded-lg border border-input px-4 py-3 text-sm text-muted-foreground" data-testid={`home-block-${id}-loading`}>
-          Loading...
-        </p>
+        <div data-testid={`home-block-${id}-loading`}>
+          <LoadingState label={`Loading ${title}`} count={2} />
+        </div>
       ) : status === "error" ? (
-        <div role="alert" className="rounded-lg border border-destructive/40 px-4 py-3 text-sm" data-testid={`home-block-${id}-error`}>
-          We could not load this, so the list is not the same as being empty.
-          {onRetry ? (
-            <>
-              {" "}
-              <button type="button" className="underline" onClick={onRetry}>Try again</button>
-            </>
-          ) : null}
+        <div data-testid={`home-block-${id}-error`}>
+          <ErrorState message="We could not load this, so the list is not the same as being empty." onRetry={onRetry} />
         </div>
       ) : shown.length === 0 ? (
-        <p className="rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground" data-testid={`home-block-${id}-empty`}>
-          {emptyText}
-        </p>
+        <div data-testid={`home-block-${id}-empty`}>
+          <EmptyState title={emptyText} className="py-4" />
+        </div>
       ) : (
         <ul className="divide-y divide-input rounded-lg border border-input">
           {shown.map((r) => (

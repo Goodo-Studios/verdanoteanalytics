@@ -8,8 +8,8 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
+import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField, StatusBadge, TextField, TextareaField } from "@/components/page-kit";
 import { fmtDate } from "@/lib/formatters";
 import {
   CHANNELS,
@@ -46,7 +46,6 @@ interface Untyped {
   rpc(name: string, args?: Record<string, unknown>): PromiseLike<DbResult>;
 }
 const db = supabase as unknown as Untyped;
-const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 interface ClientOption {
   slug: string;
@@ -106,8 +105,14 @@ function RequestCard({ request, names, staff, clientName, onChanged }: {
     <li aria-label={`Support request ${request.subject}`} className="space-y-2 rounded-lg border border-input bg-background p-4 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-semibold">{request.subject}</p>
-        <span data-testid={`support-status-${request.id}`} className={`rounded border px-2 py-0.5 text-[12px] ${overdue ? "border-amber-200 bg-amber-50 text-amber-900" : ""}`}>
-          {request.status === "resolved" ? "Resolved" : overdue ? "Update overdue" : "Open"}
+        <span data-testid={`support-status-${request.id}`}>
+          {request.status === "resolved" ? (
+            <StatusBadge status="done" label="Resolved" />
+          ) : overdue ? (
+            <StatusBadge status="late" label="Update overdue" />
+          ) : (
+            <StatusBadge status="in_progress" label="Open" />
+          )}
         </span>
       </div>
       <p className="text-[12px] text-muted-foreground">
@@ -125,11 +130,8 @@ function RequestCard({ request, names, staff, clientName, onChanged }: {
       <details>
         <summary className="cursor-pointer font-medium">Record an update</summary>
         <div className="mt-2 space-y-2">
-          <textarea aria-label="Update" className={field} placeholder="What you told the client, or why it is resolved or reopened" value={body} onChange={(e) => setBody(e.target.value)} />
-          <label className="block text-[12px] text-muted-foreground">
-            Next update by (optional)
-            <input aria-label="Next update by" type="date" className={field} value={nextDate} onChange={(e) => setNextDate(e.target.value)} />
-          </label>
+          <TextareaField label="Update" hideLabel placeholder="What you told the client, or why it is resolved or reopened" value={body} onChange={(e) => setBody(e.target.value)} />
+          <TextField label="Next update by" hint="Optional" type="date" value={nextDate} onChange={(e) => setNextDate(e.target.value)} />
           <div className="flex flex-wrap gap-2">
             <Button size="sm" disabled={busy || !body.trim()} onClick={() => void event("response")}>Record staff update</Button>
             {request.status === "open" ? (
@@ -143,15 +145,9 @@ function RequestCard({ request, names, staff, clientName, onChanged }: {
       <details>
         <summary className="cursor-pointer font-medium">Assign</summary>
         <div className="mt-2 grid gap-2 sm:grid-cols-3">
-          <select aria-label="Role" className={field} value={kind} onChange={(e) => setKind(e.target.value as "accountable" | "backup")}>
-            <option value="accountable">Accountable owner</option>
-            <option value="backup">Backup</option>
-          </select>
-          <select aria-label="Person" className={field} value={assignee} onChange={(e) => setAssignee(e.target.value)}>
-            <option value="">Choose a staff member</option>
-            {staff.map((s) => <option key={s.user_id} value={s.user_id}>{s.label}</option>)}
-          </select>
-          <Button size="sm" variant="outline" disabled={busy || !assignee} onClick={() => void assign()}>Assign</Button>
+          <SelectField label="Role" hideLabel value={kind} onChange={(e) => setKind(e.target.value as "accountable" | "backup")} options={[{ value: "accountable", label: "Accountable owner" }, { value: "backup", label: "Backup" }]} />
+          <SelectField label="Person" hideLabel value={assignee} onChange={(e) => setAssignee(e.target.value)} placeholder="Choose a staff member" options={staff.map((s) => ({ value: s.user_id, label: s.label }))} />
+          <div><Button size="sm" variant="outline" disabled={busy || !assignee} onClick={() => void assign()}>Assign</Button></div>
         </div>
         {request.assignments.length ? (
           <ol className="mt-2 space-y-1 text-[12px] text-muted-foreground">
@@ -195,31 +191,15 @@ function NewRequest({ clients, defaultClientSlug, staff, me, onCreated }: { clie
   return (
     <div role="group" aria-label="New support request" className="space-y-2">
       <div className="grid gap-2 sm:grid-cols-2">
-        <select aria-label="Client for the request" className={field} value={form.clientSlug} onChange={(e) => setForm({ ...form, clientSlug: e.target.value, engagementId: "" })}>
-          <option value="">Select a client</option>
-          {clients.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
-        </select>
-        <select aria-label="Engagement (optional)" className={field} value={form.engagementId} disabled={!form.clientSlug} onChange={(e) => setForm({ ...form, engagementId: e.target.value })}>
-          <option value="">No engagement</option>
-          {engagements.map((e) => <option key={e.id} value={e.id}>Cycle {e.cycle_number} ({e.status})</option>)}
-        </select>
-        <input aria-label="Subject" className={field} placeholder="Subject" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
-        <select aria-label="Came in by" className={field} value={form.channel} onChange={(e) => setForm({ ...form, channel: e.target.value as NewRequestForm["channel"] })}>
-          {CHANNELS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-        </select>
+        <SelectField label="Client for the request" value={form.clientSlug} onChange={(e) => setForm({ ...form, clientSlug: e.target.value, engagementId: "" })} placeholder="Select a client" options={clients.map((c) => ({ value: c.slug, label: c.name }))} />
+        <SelectField label="Engagement (optional)" value={form.engagementId} disabled={!form.clientSlug} onChange={(e) => setForm({ ...form, engagementId: e.target.value })} placeholder="No engagement" options={engagements.map((e) => ({ value: e.id, label: `Cycle ${e.cycle_number} (${e.status})` }))} />
+        <TextField label="Subject" placeholder="Subject" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+        <SelectField label="Came in by" value={form.channel} onChange={(e) => setForm({ ...form, channel: e.target.value as NewRequestForm["channel"] })} options={CHANNELS.map((c) => ({ value: c.value, label: c.label }))} />
       </div>
-      <textarea aria-label="Client question" className={field} placeholder="The client's question, as they asked it" value={form.question} onChange={(e) => setForm({ ...form, question: e.target.value })} />
+      <TextareaField label="Client question" placeholder="The client's question, as they asked it" value={form.question} onChange={(e) => setForm({ ...form, question: e.target.value })} />
       <div className="grid gap-2 sm:grid-cols-2">
-        <label className="block text-[12px] text-muted-foreground">
-          Next update owed by
-          <input aria-label="Next update owed by" type="date" className={field} value={form.nextUpdateTarget} onChange={(e) => setForm({ ...form, nextUpdateTarget: e.target.value })} />
-        </label>
-        <label className="block text-[12px] text-muted-foreground">
-          Accountable owner
-          <select aria-label="Accountable owner" className={field} value={form.accountableUserId} onChange={(e) => setForm({ ...form, accountableUserId: e.target.value })}>
-            {staff.map((s) => <option key={s.user_id} value={s.user_id}>{s.user_id === me ? `${s.label} (me)` : s.label}</option>)}
-          </select>
-        </label>
+        <TextField label="Next update owed by" type="date" value={form.nextUpdateTarget} onChange={(e) => setForm({ ...form, nextUpdateTarget: e.target.value })} />
+        <SelectField label="Accountable owner" value={form.accountableUserId} onChange={(e) => setForm({ ...form, accountableUserId: e.target.value })} options={staff.map((s) => ({ value: s.user_id, label: s.user_id === me ? `${s.label} (me)` : s.label }))} />
       </div>
       {problem && (form.subject || form.question) ? <p className="text-[12px] text-muted-foreground">{problem}</p> : null}
       <Button size="sm" disabled={!!problem} onClick={() => void save()}>Record question</Button>
@@ -265,21 +245,18 @@ export default function SupportInboxPage() {
   const clientName = (slug: string) => clients.find((c) => c.slug === slug)?.name ?? slug;
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4" data-testid="support-inbox">
+    <PageShell data-testid="support-inbox">
       <PageHeader title="Support inbox" description="Client questions with an accountable owner and the date the next update is owed. Staff only." />
       <p className="rounded border border-input bg-muted/40 p-3 text-sm">{NO_SEND_NOTE}</p>
-      <div className="grid gap-2 sm:grid-cols-2">
-        <select aria-label="Status" className={field} value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)}>
-          <option value="open">Open</option>
-          <option value="resolved">Resolved</option>
-          <option value="all">All</option>
-        </select>
-        <label className="flex items-center gap-2 text-sm">
+      <FilterBar>
+        <SelectField label="Status" hideLabel value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)} options={[{ value: "open", label: "Open" }, { value: "resolved", label: "Resolved" }, { value: "all", label: "All" }]} className="min-w-[10rem]" />
+        <label className="flex items-center gap-2 pb-2 text-sm">
           <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> Only mine (owner or backup)
         </label>
-      </div>
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
-      {requests && shown.length === 0 ? <p className="text-sm text-muted-foreground">No requests match.</p> : null}
+      </FilterBar>
+      {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      {requests === null && !error ? <LoadingState label="Loading support requests" /> : null}
+      {requests && shown.length === 0 && !error ? <EmptyState title="No requests match." /> : null}
       <ul className="space-y-3">
         {shown.map((r) => (
           <RequestCard key={`${r.id}:${r.revision}`} request={r} names={names} staff={staff} clientName={clientName(r.client_slug)} onChanged={() => void load()} />
@@ -289,6 +266,6 @@ export default function SupportInboxPage() {
         <summary className="cursor-pointer text-sm font-medium">Record a client question</summary>
         <div className="mt-2"><NewRequest clients={clients} defaultClientSlug={clientSlug} staff={staff} me={me} onCreated={() => void load()} /></div>
       </details>
-    </div>
+    </PageShell>
   );
 }

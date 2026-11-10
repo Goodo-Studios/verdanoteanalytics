@@ -8,7 +8,7 @@ import ReactMarkdown from "react-markdown";
 import { supabase } from "@/integrations/supabase/client";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { PickClientPrompt } from "@/components/PickClientPrompt";
-import { PageHeader } from "@/components/PageHeader";
+import { EmptyState, ErrorState, LoadingState, PageHeader, PageShell, SelectField } from "@/components/page-kit";
 import { fmtDate } from "@/lib/formatters";
 import {
   type Bid,
@@ -34,7 +34,6 @@ interface Untyped {
   from(table: string): { select(columns: string): Query };
 }
 const db = supabase as unknown as Untyped;
-const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 export default function BidViewerPage() {
   const [summaries, setSummaries] = useState<BidSummary[] | null>(null);
@@ -80,19 +79,23 @@ export default function BidViewerPage() {
   const sections = useMemo(() => (bid ? splitSections(bid.body_markdown) : []), [bid]);
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-4" data-testid="bid-viewer">
+    <PageShell data-testid="bid-viewer">
       <PageHeader title="Client BIDs" description="Each client's Brand Intelligence Document from the BID Builder. Read only." />
       <div className="grid gap-2 sm:grid-cols-2">
         {!clientSlug ? <div className="sm:col-span-2"><PickClientPrompt what="its BID" /></div> : null}
-        <select aria-label="Version" className={field} value={bidId} disabled={versions.length < 2} onChange={(e) => setBidId(e.target.value)}>
-          {versions.map((v, i) => (
-            <option key={v.id} value={v.id}>Version {v.version}{i === 0 ? " (latest)" : ""} · {fmtDate(v.generated_at, "unknown")}</option>
-          ))}
-        </select>
+        <SelectField
+          label="Version"
+          hideLabel
+          value={bidId}
+          disabled={versions.length < 2}
+          onChange={(e) => setBidId(e.target.value)}
+          options={versions.map((v, i) => ({ value: v.id, label: `Version ${v.version}${i === 0 ? " (latest)" : ""} · ${fmtDate(v.generated_at, "unknown")}` }))}
+        />
       </div>
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
-      {clientSlug && summaries && summaries.length > 0 && versions.length === 0 && !error ? <p className="text-sm text-muted-foreground">This client has no BID loaded yet.</p> : null}
-      {summaries && summaries.length === 0 && !error ? <p className="text-sm text-muted-foreground">No client BIDs have been loaded yet.</p> : null}
+      {error ? <ErrorState message={error} onRetry={() => window.location.reload()} /> : null}
+      {summaries === null && !error ? <LoadingState label="Loading client BIDs" /> : null}
+      {clientSlug && summaries && summaries.length > 0 && versions.length === 0 && !error ? <EmptyState title="This client has no BID loaded yet." /> : null}
+      {summaries && summaries.length === 0 && !error ? <EmptyState title="No client BIDs have been loaded yet." /> : null}
       {bid ? (
         <div className="grid gap-6 lg:grid-cols-[14rem_1fr]">
           <nav aria-label="BID sections" className="space-y-1 text-sm lg:sticky lg:top-4 lg:self-start">
@@ -113,6 +116,6 @@ export default function BidViewerPage() {
           </article>
         </div>
       ) : null}
-    </div>
+    </PageShell>
   );
 }

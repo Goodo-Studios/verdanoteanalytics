@@ -105,14 +105,14 @@ describe("Work page", () => {
   it("filters by client, stage and task name", async () => {
     renderWork("/builder/work?view=all");
     await screen.findAllByTestId("work-row");
-    fireEvent.change(screen.getByTestId("work-filter-client"), { target: { value: "bloom" } });
+    fireEvent.change(screen.getByLabelText("Client"), { target: { value: "bloom" } });
     await waitFor(() => expect(screen.getAllByTestId("work-row")).toHaveLength(2));
-    fireEvent.change(screen.getByTestId("work-filter-stage"), { target: { value: "Client Review" } });
+    fireEvent.change(screen.getByLabelText("Stage"), { target: { value: "Client Review" } });
     await waitFor(() => expect(screen.getAllByTestId("work-row")).toHaveLength(1));
     expect(screen.getByTestId("work-row").textContent).toContain("Static ads");
-    fireEvent.change(screen.getByTestId("work-filter-client"), { target: { value: "" } });
-    fireEvent.change(screen.getByTestId("work-filter-stage"), { target: { value: "" } });
-    fireEvent.change(screen.getByTestId("work-search"), { target: { value: "shoot" } });
+    fireEvent.change(screen.getByLabelText("Client"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Stage"), { target: { value: "" } });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search task names" }), { target: { value: "shoot" } });
     await waitFor(() => expect(screen.getAllByTestId("work-row")).toHaveLength(1));
     expect(screen.getByTestId("work-row").textContent).toContain("Shoot day");
   });
@@ -122,7 +122,7 @@ describe("Work page", () => {
     const rows = await screen.findAllByTestId("work-row");
     expect(rows).toHaveLength(1);
     expect(rows[0].textContent).toContain("Static ads");
-    expect((screen.getByTestId("work-filter-stage") as HTMLSelectElement).value).toBe("Client Review");
+    expect((screen.getByLabelText("Stage") as HTMLSelectElement).value).toBe("Client Review");
   });
 
   it("links each card out to ClickUp in a new tab", async () => {

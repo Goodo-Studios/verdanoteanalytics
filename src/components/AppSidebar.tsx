@@ -241,6 +241,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
             className="h-7 w-7 p-0 rounded-md text-muted-foreground hover:text-foreground flex-shrink-0"
             onClick={signOut}
             title="Sign out"
+            aria-label="Sign out"
           >
             <LogOut className="h-3.5 w-3.5" />
           </Button>

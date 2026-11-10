@@ -3,7 +3,7 @@
 // page; their index is the Overview.
 import { Link } from "react-router-dom";
 import { ExternalLink } from "lucide-react";
-import { PageHeader } from "@/components/PageHeader";
+import { PageHeader, PageShell } from "@/components/page-kit";
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { SECTIONS } from "@/lib/sections";
@@ -34,7 +34,7 @@ export default function HomePage() {
   ];
 
   return (
-    <div className="space-y-6 p-6" data-testid="home-page">
+    <PageShell className="space-y-6" data-testid="home-page">
       <PageHeader title="Home" description="What to do today. Pick a client at the top of the page to work on one." className="mb-2" />
       <HomeTabs active="today" />
 
@@ -82,6 +82,6 @@ export default function HomePage() {
           ))}
         </div>
       </section>
-    </div>
+    </PageShell>
   );
 }
