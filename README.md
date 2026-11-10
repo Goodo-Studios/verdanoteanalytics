@@ -37,7 +37,24 @@ npm run lint
 
 # Run tests
 npm run test
+
+# Build and check the bundle budget (CI runs this)
+npm run build:check
 ```
+
+### Bundle budget
+
+`scripts/check-bundle-budget.mjs` runs after the build and fails it when:
+
+- the JavaScript loaded on first open is over 840,000 bytes. That is every
+  module script and modulepreload link in `dist/index.html`, plus every chunk
+  those files import statically. Lazy page chunks (`import()`) are not counted.
+  The cap was the measured first-load size on 2026-11-10 (764,031 bytes) plus
+  about 10 percent.
+- any single chunk in `dist/assets` is over 380,000 bytes.
+
+The total of all chunks is printed for information only and has no cap (owner
+decision, 2026-11-10). Raising either cap is an owner decision.
 
 ## Deployment
 
