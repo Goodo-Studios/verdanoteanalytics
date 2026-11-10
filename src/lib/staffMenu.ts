@@ -55,6 +55,7 @@ export const staffMenuSections: StaffMenuSection[] = [
       { id: "matrix", title: "Creative Matrix", description: "Theme and persona by creative type.", status: "live", to: "/matrix", builderOnly: true },
       { id: "ad-name-generator", title: "Ad Name Generator", description: "Ad codes from one shared counter.", status: "live", to: "/ad-name-generator" },
       { id: "integration-health", title: "Integration health", description: "ClickUp, Fireflies, Slack and ad sync status.", status: "live", to: "/integration-health" },
+      { id: "meeting-recaps", title: "Meeting recaps", description: "Decisions and actions from Fireflies calls, confirmed by a person.", status: "live", to: "/meeting-recaps" },
       { id: "growth-dashboard", title: "Growth Dashboard", description: "Revenue and growth numbers. Builder only.", status: "live", to: "/growth-dashboard", builderOnly: true },
     ],
   },
@@ -63,7 +64,7 @@ export const staffMenuSections: StaffMenuSection[] = [
     label: "Moving in",
     blurb: "Tools from the other apps. Each slot opens when its page is built and checked in staging.",
     items: [
-      { id: "goodo-os", title: "Goodo OS areas", description: "Knowledge pages and meeting recaps, then waves B to D. Talent and call sheets move with step 5c.", status: "slot", step: "Step 4" },
+      { id: "goodo-os", title: "Goodo OS areas", description: "Knowledge pages, then waves B to D. Talent and call sheets move with step 5c.", status: "slot", step: "Step 4" },
       { id: "dashboard-pipeline", title: "Old dashboard: Overview, Client Detail, Pipeline, Follow-ups", description: "First batch of dashboard pages.", status: "slot", step: "Step 5a" },
       { id: "dashboard-creators", title: "Old dashboard: Creators, Actors, Applications", description: "Creator and actor management and application review.", status: "slot", step: "Step 5b" },
       { id: "dashboard-production", title: "Old dashboard: Production", description: "Casting, calendars, call sheets, locations, props, crew, shipments.", status: "slot", step: "Step 5c" },

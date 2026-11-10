@@ -148,6 +148,23 @@ for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
 const switches = await staff.c.from("outbound_switches").select("name, enabled");
 check("staging has no outbound switch turned on", !switches.error && (switches.data ?? []).every((r) => r.enabled !== true), `error=${switches.error?.message ?? "none"} rows=${switches.data?.length ?? "error"}`);
 
+// Meeting recaps (migration 20261110000002): staff only. Clients read nothing and cannot
+// write a review; the employee reads. Nothing here writes for staff.
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of ["meeting_recaps", "meeting_recap_items", "meeting_recap_reviews"]) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const ins = await s.c.from("meeting_recap_reviews").insert({ item_id: "00000000-0000-4000-8000-000000000000", decision: "confirmed", confirmed_item_hash: "0".repeat(64), note: "wall check" });
+  check(`${label} cannot write a meeting recap review`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  const rec = await s.c.rpc("record_meeting_recap", { p_recap: {}, p_items: [] });
+  check(`${label} is refused record_meeting_recap`, rec.error?.code === "42501", `code=${rec.error?.code ?? "none"}`);
+}
+for (const table of ["meeting_recaps", "meeting_recap_items", "meeting_recap_reviews"]) {
+  const r = await employee.c.from(table).select("*").limit(1);
+  check(`employee can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
+}
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

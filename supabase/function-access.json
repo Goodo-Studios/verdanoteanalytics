@@ -145,6 +145,16 @@
         "query": "account_id=act_demo_glowdrip"
       }
     },
+    "meeting-recaps": {
+      "class": "staff",
+      "note": "Goodo OS meeting recaps. Builder or employee login only. Reads one named Fireflies transcript, sends only clean excerpts to the model and records the grounded items in meeting_recaps. Answers 503 with no request when FIREFLIES_API_KEY or ANTHROPIC_API_KEY is not set (staging has neither).",
+      "probe": {
+        "body": {
+          "client_slug": "wall_probe",
+          "transcript_id": "wall_probe"
+        }
+      }
+    },
     "portfolio": {
       "class": "public",
       "note": "Public portfolio page looked up by slug; returns only aggregate numbers for accounts that switched portfolio_enabled on."

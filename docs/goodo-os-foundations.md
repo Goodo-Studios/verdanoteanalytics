@@ -140,6 +140,18 @@ ClickUp counts as stale 8 hours after its last sync (the sync runs every 4 hours
 
 Not ported: baseline exceptions (owner-set suppressions with an expiry) and the owner "evaluate" and "acknowledge" commands, because nothing is stored to suppress or acknowledge. Rules in `_shared/integration-health.ts`; tests in `supabase/functions/integration-health/index.test.ts` and `src/test/integrationHealth.test.tsx`.
 
+### Meeting recaps
+
+Page `/meeting-recaps` (builder and employee), staff function `meeting-recaps` and migration `20261110000002_meeting_recaps.sql`. Port of the Goodo OS meeting recaps (US-086: `src/pages/staff/MeetingRecaps.tsx`, `backend/services/meetingRecaps.ts`, `backend/agents/meetingRecaps.ts`, migration `053_meeting_recaps.sql`).
+
+A staff member picks a client and pastes a Fireflies transcript id. The function reads the transcript with the Fireflies connector (PR 145), sends only clean excerpts to the model (personnel, legal and financial excerpts are withheld), and keeps a candidate only when every citation is an exact quote of a supplied excerpt and every number in its summary appears in the quote. Dates count as stated only when an ISO date is in the quote. The outcome goes into `meeting_recaps` with its items in `meeting_recap_items` through `record_meeting_recap` (service role only). Outcomes without content are recorded too: unavailable (not found, no access, still processing), quarantined (every excerpt withheld) and failed (model refused or returned bad output).
+
+A person confirms or rejects each decision and action with a note. The page writes `meeting_recap_reviews` directly: row rules allow builder and employee, and a trigger sets the reviewer to the caller, refuses a question and refuses a review whose item hash differs from the stored one. One review per item; all three tables are append-only.
+
+The model is `claude-sonnet-5-5`, the Goodo OS default, with structured output and the server-side fallback; `ANTHROPIC_RECAP_MODEL` overrides it. Without `FIREFLIES_API_KEY` or `ANTHROPIC_API_KEY` the function answers 503 before any request or database read. Staging has neither.
+
+Not ported: transcript authorization records (choosing the transcript and client on the page is the request), the AI evaluation gate, the durable agent job (the call runs inside the request) and the ClickUp sync of a confirmed action. A confirmed action keeps its proposed action (internal note or due date) as a record only, because Verdanote has no ClickUp task-action path and staging sends nothing outward. Rules in `_shared/meeting-recaps.ts`; tests in `supabase/functions/meeting-recaps/index.test.ts`, `supabase/tests/meeting_recaps_test.sql` and `src/test/meetingRecaps.test.tsx`.
+
 ## Alternatives rejected
 
 **A new `os_clients` table with a uuid id, and the dashboard `clients` folded into it.** Gives a cleaner id, but the eight dashboard tables and the dashboard staff functions (`create_client`, `set_client_*`, `create_shoot` and others) already key on `clients.slug`, so it means either two client ids side by side or rewriting all of them. Not the smallest change.

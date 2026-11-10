@@ -26,6 +26,7 @@ import {
   Hash,
   ExternalLink,
   Activity,
+  MessageSquareText,
 } from "lucide-react";
 import { ATTIO_URL, GOODO_TIME_URL } from "@/lib/staffMenu";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
@@ -96,6 +97,7 @@ export const builderSections: NavSection[] = [
       { title: "Staff menu", url: "/staff", icon: LayoutList },
       { title: "Ad Name Generator", url: "/ad-name-generator", icon: Hash },
       { title: "Integration health", url: "/integration-health", icon: Activity },
+      { title: "Meeting recaps", url: "/meeting-recaps", icon: MessageSquareText },
       { title: "Growth Dashboard", url: "/growth-dashboard", icon: TrendingUp, builderOnly: true },
     ],
     links: [

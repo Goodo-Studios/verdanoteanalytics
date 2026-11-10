@@ -2307,6 +2307,169 @@ export type Database = {
         }
         Relationships: []
       }
+      meeting_recap_items: {
+        Row: {
+          citations: Json
+          created_at: string
+          date_status: string
+          date_text: string | null
+          date_value: string | null
+          id: string
+          item_hash: string
+          kind: string
+          missing_information: Json
+          position: number
+          proposed_action: string | null
+          recap_id: string
+          summary: string
+        }
+        Insert: {
+          citations: Json
+          created_at?: string
+          date_status: string
+          date_text?: string | null
+          date_value?: string | null
+          id?: string
+          item_hash: string
+          kind: string
+          missing_information?: Json
+          position: number
+          proposed_action?: string | null
+          recap_id: string
+          summary: string
+        }
+        Update: {
+          citations?: Json
+          created_at?: string
+          date_status?: string
+          date_text?: string | null
+          date_value?: string | null
+          id?: string
+          item_hash?: string
+          kind?: string
+          missing_information?: Json
+          position?: number
+          proposed_action?: string | null
+          recap_id?: string
+          summary?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meeting_recap_items_recap_id_fkey"
+            columns: ["recap_id"]
+            isOneToOne: false
+            referencedRelation: "meeting_recaps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      meeting_recap_reviews: {
+        Row: {
+          confirmed_item_hash: string
+          created_at: string
+          decision: string
+          id: string
+          item_id: string
+          note: string
+          reviewer_id: string
+        }
+        Insert: {
+          confirmed_item_hash: string
+          created_at?: string
+          decision: string
+          id?: string
+          item_id: string
+          note: string
+          reviewer_id?: string
+        }
+        Update: {
+          confirmed_item_hash?: string
+          created_at?: string
+          decision?: string
+          id?: string
+          item_id?: string
+          note?: string
+          reviewer_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meeting_recap_reviews_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: true
+            referencedRelation: "meeting_recap_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      meeting_recaps: {
+        Row: {
+          clean_excerpts: number
+          client_slug: string
+          created_at: string
+          engagement_id: string | null
+          evidence_status: string | null
+          id: string
+          limitation: string | null
+          meeting_started_at: string | null
+          model: string | null
+          rejected_candidates: number
+          requested_by: string
+          source_version: string | null
+          status: string
+          transcript_id: string
+          withheld_excerpts: number
+        }
+        Insert: {
+          clean_excerpts?: number
+          client_slug: string
+          created_at?: string
+          engagement_id?: string | null
+          evidence_status?: string | null
+          id?: string
+          limitation?: string | null
+          meeting_started_at?: string | null
+          model?: string | null
+          rejected_candidates?: number
+          requested_by: string
+          source_version?: string | null
+          status: string
+          transcript_id: string
+          withheld_excerpts?: number
+        }
+        Update: {
+          clean_excerpts?: number
+          client_slug?: string
+          created_at?: string
+          engagement_id?: string | null
+          evidence_status?: string | null
+          id?: string
+          limitation?: string | null
+          meeting_started_at?: string | null
+          model?: string | null
+          rejected_candidates?: number
+          requested_by?: string
+          source_version?: string | null
+          status?: string
+          transcript_id?: string
+          withheld_excerpts?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meeting_recaps_client_slug_fkey"
+            columns: ["client_slug"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["slug"]
+          },
+          {
+            foreignKeyName: "meeting_recaps_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "engagements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       moodboard_items: {
         Row: {
           ad_id: string | null

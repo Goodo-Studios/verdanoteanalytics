@@ -105,6 +105,10 @@ const controls = [
   ["employee accepted by integration-health", "integration-health", employee, { method: "GET" }, (s) => s === 200],
   ["builder accepted by integration-health", "integration-health", builder, { method: "GET" }, (s) => s === 200],
   ["client B refused by integration-health", "integration-health", clientB, { method: "GET" }, refused],
+  // Staging has no FIREFLIES_API_KEY or ANTHROPIC_API_KEY: staff pass the gate and meeting-recaps fails closed with 503.
+  ["employee passes the meeting-recaps gate and it fails closed without keys", "meeting-recaps", employee, { body: { client_slug: "wall_probe", transcript_id: "wall_probe" } }, (s) => s === 503],
+  ["builder passes the meeting-recaps gate and it fails closed without keys", "meeting-recaps", builder, { body: { client_slug: "wall_probe", transcript_id: "wall_probe" } }, (s) => s === 503],
+  ["client B refused by meeting-recaps", "meeting-recaps", clientB, { body: { client_slug: "wall_probe", transcript_id: "wall_probe" } }, refused],
 ];
 for (const [label, name, token, opts, ok] of controls) {
   const status = await call(name, token, opts);
