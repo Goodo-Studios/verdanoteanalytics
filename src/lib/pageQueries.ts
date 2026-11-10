@@ -27,6 +27,11 @@ export const HOME_BUDGET_ALERT_COLUMNS = "id, level, period_month";
 export const CHECK_RUN_COLUMNS = "check_key, trigger, outcome, created_at";
 export const SETUP_AD_ACCOUNT_COLUMNS = "id, name";
 export const SETUP_MAPPING_COLUMNS = "id, client_slug, provider, kind, external_id, label, active";
+// Admin, Notifications (phase 4 PR 4). Kept equal to the column lists in features/notifications/model.ts.
+export const NOTIFY_DESTINATION_COLUMNS = "id, label, channel_id, purpose, client_slug, owner_confirmed, active";
+export const NOTIFY_SWITCH_COLUMNS = "name, enabled, note, updated_at";
+export const NOTIFY_REMINDER_COLUMNS = "id, kind, body, due_at, state, destination_id, client_slug, for_member_id, created_by, created_at";
+export const NOTIFY_TEAM_COLUMNS = "id, name, email, role, active";
 
 export const PAGE_QUERIES: PageQuery[] = [
   { table: "clients", select: CLIENT_SWITCHER_COLUMNS, usedBy: "client switcher (ClientSelectionContext)" },
@@ -40,4 +45,8 @@ export const PAGE_QUERIES: PageQuery[] = [
   { table: "check_runs", select: CHECK_RUN_COLUMNS, usedBy: "Operating costs and Integration health, last run (LastRunLine)", filter: "check_key" },
   { table: "ad_accounts", select: SETUP_AD_ACCOUNT_COLUMNS, usedBy: "client hub Setup tab (ClientSetupTab)" },
   { table: "source_mappings", select: SETUP_MAPPING_COLUMNS, usedBy: "client hub Setup tab (ClientSetupTab)", filter: "client_slug" },
+  { table: "slack_destinations", select: NOTIFY_DESTINATION_COLUMNS, usedBy: "Admin Notifications page", filter: "purpose" },
+  { table: "outbound_switches", select: NOTIFY_SWITCH_COLUMNS, usedBy: "Admin Notifications page", filter: "name" },
+  { table: "reminders", select: NOTIFY_REMINDER_COLUMNS, usedBy: "Admin Notifications page", filter: "state" },
+  { table: "app_users", select: NOTIFY_TEAM_COLUMNS, usedBy: "Admin Notifications page, who a reminder is for", filter: "role" },
 ];

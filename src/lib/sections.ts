@@ -101,6 +101,7 @@ export const SECTIONS: SectionDef[] = [
     tabs: [
       { slug: "team", label: "Team and settings", page: "team", legacy: ["/team"] },
       { slug: "integration-health", label: "Integration health", page: "integrationHealth", legacy: ["/integration-health"] },
+      { slug: "notifications", label: "Notifications", page: "notifications", legacy: [] },
       { slug: "operations", label: "Operations", page: "operations", legacy: ["/operations"] },
       { slug: "operating-costs", label: "Operating costs", page: "operatingCosts", legacy: ["/operating-costs"], builderOnly: true },
       { slug: "agent-evaluations", label: "Agent evaluations", page: "agentEvaluations", legacy: ["/agent-evaluations"] },
