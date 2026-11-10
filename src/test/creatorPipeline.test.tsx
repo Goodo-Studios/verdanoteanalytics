@@ -6,7 +6,7 @@
  * - Stage, owner and follow-up changes call updateAssignment; delivery goes
  *   through saveDelivery; add and remove change creator_assignments.
  * - The roster picker leaves out creators already on the brand and do-not-use ones.
- * - It is not the Content Pipeline and links to the old dashboard for approval boards.
+ * - It is not the Content Pipeline and links to the Approval boards page (step 5b).
  * The row rules are in supabase/tests/dashboard_batch1_test.sql.
  */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -136,14 +136,14 @@ describe("Creator pipeline page", () => {
     expect(await screen.findByRole("region", { name: "Sourced" })).toBeTruthy();
   });
 
-  it("shows a list view and the old dashboard link for approval boards", async () => {
+  it("shows a list view and the link to the brand's approval board", async () => {
     api.loadAssignments.mockResolvedValue([row("1", "brief_sent", "glow", { brief_name: "Brief A", owner_id: "u1", next_follow_up_at: "2026-11-12" })]);
     renderAt("?brand=glow");
     await screen.findByRole("region", { name: "Brief Sent" });
     fireEvent.click(screen.getByRole("button", { name: "List" }));
     const table = screen.getByRole("table", { name: "Creator list" });
     expect(table).toHaveTextContent("Creator 1Brief SentEllieNov 12, 2026Brief A");
-    expect(screen.getByRole("link", { name: "old dashboard" }).getAttribute("href")).toBe("https://goodostudios-production.vercel.app/pipeline?brand=glow");
+    expect(screen.getByRole("link", { name: "Approval boards" }).getAttribute("href")).toBe("/builder/approval-boards?brand=glow");
     expect(screen.getByRole("link", { name: "Client page" }).getAttribute("href")).toBe("/builder/clients/glow");
   });
 });
