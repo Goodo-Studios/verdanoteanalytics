@@ -28,6 +28,7 @@ import {
   Activity,
   MessageSquareText,
   BookOpen,
+  CalendarRange,
 } from "lucide-react";
 import { ATTIO_URL, GOODO_TIME_URL } from "@/lib/staffMenu";
 import verdanoteLogo from "@/assets/verdanote_logo.png";
@@ -100,6 +101,7 @@ export const builderSections: NavSection[] = [
       { title: "Integration health", url: "/integration-health", icon: Activity },
       { title: "Meeting recaps", url: "/meeting-recaps", icon: MessageSquareText },
       { title: "Knowledge", url: "/knowledge", icon: BookOpen },
+      { title: "Engagements", url: "/engagements", icon: CalendarRange },
       { title: "Growth Dashboard", url: "/growth-dashboard", icon: TrendingUp, builderOnly: true },
     ],
     links: [

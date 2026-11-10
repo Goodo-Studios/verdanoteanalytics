@@ -36,6 +36,7 @@ const STAFF_PATHS = [
   "/integration-health",
   "/meeting-recaps",
   "/knowledge",
+  "/engagements",
   "/ad-library",
   "/ad-library/boards",
   "/ad-library/hooks",
