@@ -30,6 +30,7 @@ type Query<T> = PromiseLike<DbResult<T>> & {
   or(filters: string): Query<T>;
   not(column: string, op: string, value: unknown): Query<T>;
   lte(column: string, value: unknown): Query<T>;
+  gte(column: string, value: unknown): Query<T>;
   order(column: string, opts?: { ascending?: boolean }): Query<T>;
   range(from: number, to: number): Query<T>;
   ilike(column: string, pattern: string): Query<T>;

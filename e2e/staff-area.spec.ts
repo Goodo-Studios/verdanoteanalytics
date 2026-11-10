@@ -45,6 +45,7 @@ const STAFF_PATHS = [
   "/props",
   "/crew",
   "/shipments",
+  "/production-calendar",
   "/applications",
   "/applications/creators/de5a0000-0000-4000-8000-000000000700",
   "/actors",
