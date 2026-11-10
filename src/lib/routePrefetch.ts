@@ -33,6 +33,7 @@ export const routeImports = {
   growthDashboard: () => import("@/features/growth-dashboard/GrowthDashboardPage"),
   adNameGenerator: () => import("@/features/ad-name-generator/AdNameGeneratorPage"),
   integrationHealth: () => import("@/features/integration-health/IntegrationHealthPage"),
+  notifications: () => import("@/features/notifications/NotificationsPage"),
   meetingRecaps: () => import("@/features/meeting-recaps/MeetingRecapsPage"),
   knowledge: () => import("@/features/knowledge/KnowledgePage"),
   followUps: () => import("@/features/dashboard/FollowUpsPage"),

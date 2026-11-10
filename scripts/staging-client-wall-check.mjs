@@ -1074,6 +1074,11 @@ const SHELL_QUERIES = [
   // Client hub Setup tab (phase 4): the ad accounts to pick from and the client's ClickUp links.
   ["ad_accounts", "id, name"],
   ["source_mappings", "id, client_slug, provider, kind, external_id, label, active", "client_slug"],
+  // Admin Notifications page (phase 4 PR 4): destinations, the send switch, reminders, the team list.
+  ["slack_destinations", "id, label, channel_id, purpose, client_slug, owner_confirmed, active", "purpose"],
+  ["outbound_switches", "name, enabled, note, updated_at", "name"],
+  ["reminders", "id, kind, body, due_at, state, destination_id, client_slug, for_member_id, created_by, created_at", "state"],
+  ["app_users", "id, name, email, role, active", "role"],
 ];
 for (const [table, select, filter] of SHELL_QUERIES) {
   for (const [label, s] of [["employee", employee], ["builder", staff]]) {
@@ -1205,6 +1210,28 @@ const runsStaff = await employee.c.from("check_runs").select("check_key, trigger
 check("employee reads the check runs", !runsStaff.error, `error=${runsStaff.error?.message ?? "none"}`);
 const empBudget = await employee.c.rpc("evaluate_operating_budgets");
 check("employee is still refused the budget check button", empBudget.error?.code === "42501", `code=${empBudget.error?.code ?? "none"}`);
+
+// Notifications (phase 4 PR 4, migration 20261112000004). A client reads no Slack destination,
+// switch or reminder and cannot write any; an employee cannot add a destination or turn sending
+// on. Refused writes change nothing, and nothing here sends.
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of ["slack_destinations", "outbound_switches", "reminders"]) {
+    const r = await s.c.from(table).select("*").limit(5);
+    check(`${label} reads no ${table}`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const wDest = await s.c.from("slack_destinations").insert({ label: "wall-check", channel_id: "C0WALLCHK1", purpose: "internal" });
+  check(`${label} cannot add a Slack destination`, !!wDest.error, `error=${wDest.error?.message ?? "none (write accepted)"}`);
+  const wSw = await s.c.from("outbound_switches").upsert({ name: "slack_sends", enabled: true });
+  check(`${label} cannot turn Slack sending on`, !!wSw.error, `error=${wSw.error?.message ?? "none (write accepted)"}`);
+  const wRem = await s.c.from("reminders").insert({ kind: "custom", destination_id: ZERO, body: "wall-check", due_at: new Date().toISOString() });
+  check(`${label} cannot create a reminder`, !!wRem.error, `error=${wRem.error?.message ?? "none (write accepted)"}`);
+}
+const empDest = await employee.c.from("slack_destinations").insert({ label: "wall-check", channel_id: "C0WALLCHK2", purpose: "internal" });
+check("employee cannot add a Slack destination", !!empDest.error, `error=${empDest.error?.message ?? "none (write accepted)"}`);
+const empSw = await employee.c.from("outbound_switches").upsert({ name: "slack_sends", enabled: true });
+check("employee cannot turn Slack sending on", !!empSw.error, `error=${empSw.error?.message ?? "none (write accepted)"}`);
+const staffNotify = await employee.c.from("slack_destinations").select("id, label, channel_id, purpose, client_slug, owner_confirmed, active").limit(5);
+check("employee reads the Slack destinations", !staffNotify.error, `error=${staffNotify.error?.message ?? "none"}`);
 
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>

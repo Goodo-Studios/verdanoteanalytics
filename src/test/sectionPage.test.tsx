@@ -88,7 +88,7 @@ describe("section model", () => {
     ]);
     expect(labels("knowledge")).toEqual(["Knowledge", "Learning", "Meeting recaps", "Client BIDs"]);
     expect(labels("admin")).toEqual([
-      "Team and settings", "Integration health", "Operations", "Operating costs", "Agent evaluations", "Growth Dashboard", "Ad Name Generator", "Support inbox",
+      "Team and settings", "Integration health", "Notifications", "Operations", "Operating costs", "Agent evaluations", "Growth Dashboard", "Ad Name Generator", "Support inbox",
     ]);
   });
 
@@ -131,13 +131,14 @@ describe("role gating", () => {
     expect(names).toContain("Team and settings");
     expect(names).not.toContain("Operating costs");
     expect(names).not.toContain("Growth Dashboard");
-    expect(names).toHaveLength(6);
+    expect(names).toContain("Notifications");
+    expect(names).toHaveLength(7);
   });
 
-  it("a builder sees all eight Admin tabs", async () => {
+  it("a builder sees all nine Admin tabs", async () => {
     renderAt("/builder/admin/team");
     await screen.findByTestId("page-team");
-    expect(tabNames("Admin")).toHaveLength(8);
+    expect(tabNames("Admin")).toHaveLength(9);
   });
 
   it.each(["/employee/creative/matrix", "/employee/admin/growth", "/employee/admin/operating-costs"])("an employee typing %s is sent to the index", async (path) => {
