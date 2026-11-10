@@ -14,7 +14,7 @@
 -- relies on and the reworded refusals (migration 20261110150001, no Coda).
 
 BEGIN;
-SELECT plan(33);
+SELECT plan(32);
 
 -- ---------------------------------------------------------------- fixtures
 INSERT INTO auth.users (id, email) VALUES
