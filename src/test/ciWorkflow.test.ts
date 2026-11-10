@@ -79,6 +79,33 @@ describe("CI deployment safety", () => {
     expect(existsSync(`${process.cwd()}/bun.lockb`)).toBe(false);
   });
 
+  it("pins every Supabase CLI install to one explicit version", () => {
+    // "latest" pulled in new major CLI versions that broke the staging deploy
+    // twice on 2026-11-09 (db push defaulting to local, remote SQL asking for
+    // confirmation). Every setup-cli step must name the same exact version.
+    const steps = [
+      ...workflow.matchAll(/uses: supabase\/setup-cli@\S+\n((?: {8,}.*\n)*)/g),
+    ];
+    expect(steps.length).toBeGreaterThanOrEqual(3);
+    const versions = steps.map((m) => {
+      const v = m[1].match(/^ +version: *(\S+)\s*$/m);
+      expect(v, "setup-cli step has a version").not.toBeNull();
+      return v![1];
+    });
+    for (const v of versions) {
+      expect(v).not.toBe("latest");
+      expect(v).toMatch(/^\d+\.\d+\.\d+$/);
+    }
+    expect(new Set(versions).size).toBe(1);
+    expect(workflow).not.toMatch(/version: *latest/);
+  });
+
+  it("keeps the staging deploy commands explicit about the remote project", () => {
+    const staging = job("deploy-staging");
+    expect(staging).toContain("supabase db push --linked --include-all --yes");
+    expect(staging).toContain("supabase db query --linked --yes");
+  });
+
   it("enforces bundle budgets and smoke-tests deployed functions", () => {
     expect(workflow).toContain("run: npm run build:check");
     expect(workflow).toContain("run: bash scripts/smoke-test.sh");
