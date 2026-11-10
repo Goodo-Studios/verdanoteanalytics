@@ -12,7 +12,7 @@
 -- changed. All rows are made up.
 
 BEGIN;
-SELECT plan(31);
+SELECT plan(30);
 
 INSERT INTO auth.users (id, email) VALUES
   ('e8000000-0000-4000-8000-000000000001', 'ho-builder@example.test'),
