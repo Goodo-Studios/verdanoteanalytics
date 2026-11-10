@@ -50,6 +50,7 @@ vi.mock("@/features/dashboard/CreatorPipelinePage", () => pageMock("creator-pipe
 vi.mock("@/features/dashboard/ClientDetailPage", () => pageMock("clientDetail"));
 vi.mock("@/features/dashboard/OverviewPage", () => pageMock("client-overview"));
 vi.mock("@/features/dashboard/ApprovalBoardsPage", () => pageMock("approval-boards"));
+vi.mock("@/features/dashboard/LocationsPage", () => pageMock("locations"));
 vi.mock("@/features/dashboard/ApplicationsPage", () => pageMock("applications"));
 vi.mock("@/features/dashboard/ApplicationDetailPage", () => pageMock("applicationDetail"));
 vi.mock("@/features/dashboard/ActorsPage", () => pageMock("actors"));
@@ -141,6 +142,7 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean }
   { path: "/clients/demo-glowdrip", marker: "clientDetail" },
   { path: "/clients", marker: "client-overview" },
   { path: "/approval-boards", marker: "approval-boards" },
+  { path: "/locations", marker: "locations" },
   { path: "/applications", marker: "applications" },
   { path: "/applications/creators/de5a0000-0000-4000-8000-000000000700", marker: "applicationDetail" },
   { path: "/actors", marker: "actors" },

@@ -1,6 +1,6 @@
 // Made-up test data for the old dashboard pages in Verdanote STAGING (step 5a:
 // Overview, Client Detail, Creator pipeline, Follow-ups; step 5b: Creators,
-// Actors, Applications, approval boards). Decision 10 in the
+// Actors, Applications, approval boards; step 5c: Production). Decision 10 in the
 // consolidation plan: staging gets made-up test clients by default, never a copy
 // of real client data unless the owner says so.
 //
@@ -31,6 +31,9 @@ export const SEED_MARKERS = {
   actor_applications: { sql: "email like '%@example.test'", match: (r) => r.email.endsWith('@example.test') },
   approval_boards: { sql: "client_slug like 'demo-%'", match: (r) => r.client_slug.startsWith('demo-') },
   approval_votes: { sql: "board_id::text like 'de5a0000-%'", match: (r) => r.board_id.startsWith('de5a0000-') },
+  locations: { sql: "id::text like 'de5a0000-%'", match: (r) => r.id.startsWith('de5a0000-') },
+  location_boards: { sql: "id::text like 'de5a0000-%'", match: (r) => r.id.startsWith('de5a0000-') },
+  location_board_items: { sql: "id::text like 'de5a0000-%'", match: (r) => r.id.startsWith('de5a0000-') },
 };
 
 // Upsert order (parents first) and the conflict key of each table.
@@ -49,6 +52,9 @@ export const SEED_ORDER = [
   ['actor_applications', 'id'],
   ['approval_boards', 'id'],
   ['approval_votes', 'id'],
+  ['locations', 'id'],
+  ['location_boards', 'id'],
+  ['location_board_items', 'id'],
 ];
 
 export function assertStagingUrl(url) {
@@ -205,5 +211,30 @@ export function buildDashboardSeed(now = new Date()) {
     { id: id(812), board_id: id(800), assignment_id: id(403), vote: 'down', voted_at: stamp(-1), voted_by: 'Demo reviewer' },
   ];
 
-  return { clients, app_users, client_ad_accounts, engagements, deliverables, dashboard_creators, creator_assignments, pipeline_tasks, actors, actor_assignments, creator_applications, actor_applications, approval_boards, approval_votes };
+  // Step 5c: three made-up spaces (no street addresses; host contacts use
+  // @example.test, phones 555-01xx in notes only) and one live link that shares
+  // two of them with demo-harbor. The token exists only in staging.
+  const locations = [
+    { id: id(900), name: 'Demo Loft (made up)', neighborhood: 'Testville', rental_type: 'Peerspace', cost: 150, cost_period: 'hourly',
+      listing_url: 'https://listing.example.test/demo-loft', rooms: ['Kitchen', 'Living room'], attributes: ['Natural light'], have_rented: true, dont_rent_again: false,
+      contact_name: 'Demo Host One', contact_email: 'host.one@example.test', parking_instructions: 'Street parking (made up)', wifi_name: 'demo-loft-guest',
+      wifi_password: null, bedrooms: 1, bathrooms: 1, max_guests: 8, entry_instructions: 'Ring the demo buzzer. Host phone 555-0120.', notes: 'Seed row for staging.' },
+    { id: id(901), name: 'Demo Family House (made up)', neighborhood: 'Sampletown', rental_type: 'Airbnb', cost: 900, cost_period: 'daily',
+      listing_url: null, rooms: ['Kitchen', 'Backyard', 'Kids room'], attributes: ['Dog friendly'], have_rented: false, dont_rent_again: false,
+      contact_name: 'Demo Host Two', contact_email: 'host.two@example.test', parking_instructions: null, wifi_name: null,
+      wifi_password: null, bedrooms: 4, bathrooms: 2.5, max_guests: 10, entry_instructions: null, notes: null },
+    { id: id(902), name: 'Demo Studio Corner (made up)', neighborhood: 'Testville', rental_type: 'Studio', cost: null, cost_period: null,
+      listing_url: null, rooms: ['White cyc'], attributes: [], have_rented: true, dont_rent_again: true,
+      contact_name: null, contact_email: null, parking_instructions: null, wifi_name: null,
+      wifi_password: null, bedrooms: null, bathrooms: null, max_guests: null, entry_instructions: null, notes: 'Too small for a full crew (made up).' },
+  ];
+  const location_boards = [
+    { id: id(910), client_slug: 'demo-harbor', label: 'Demo spring shoot options', token: 'demoLocationLinkHarbor'.padEnd(48, '0'), revoked: false },
+  ];
+  const location_board_items = [
+    { id: id(911), board_id: id(910), location_id: id(900) },
+    { id: id(912), board_id: id(910), location_id: id(901) },
+  ];
+
+  return { clients, app_users, client_ad_accounts, engagements, deliverables, dashboard_creators, creator_assignments, pipeline_tasks, actors, actor_assignments, creator_applications, actor_applications, approval_boards, approval_votes, locations, location_boards, location_board_items };
 }
