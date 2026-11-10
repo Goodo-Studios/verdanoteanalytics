@@ -233,8 +233,9 @@ export function ContentPipelineView({
 /**
  * Read-only client view of in-flight + upcoming creative (US-007). Self-fetches
  * via `usePipelineTasks` and delegates rendering to `ContentPipelineView`.
+ * `own` loads the signed-in client's own rows (see `usePipelineTasks`).
  */
-export function ContentPipeline({ accountId }: { accountId: string }) {
-  const { data: tasks, isLoading, isError } = usePipelineTasks(accountId);
+export function ContentPipeline({ accountId, own }: { accountId?: string; own?: boolean }) {
+  const { data: tasks, isLoading, isError } = usePipelineTasks(accountId, own);
   return <ContentPipelineView tasks={tasks} isLoading={isLoading} isError={isError} />;
 }
