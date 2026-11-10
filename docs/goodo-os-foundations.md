@@ -338,6 +338,16 @@ The page lists `durable_jobs` with their `job_audit` history (staff-only row rul
 
 Merged with integration health: the Integration health page keeps the queue summary and links here. Not ported: the Goodo OS client release outbox and effect controls on this page (client releases are phase 2), per-engagement capability grants (any builder or employee acts). Tests in `supabase/tests/operations_test.sql` and `src/test/operationsPage.test.tsx`.
 
+### Alerts
+
+Migration `20261111000002_alert_exceptions.sql` and changes to the `integration-health` function and page; no new page. Port of the alert parts of Goodo OS migration `006_operations.sql` and `backend/monitoring/alerts.ts` (expected exceptions, false-positive acknowledgements, owner alert jobs).
+
+`alert_exceptions` records that one integration health problem (connector and problem code) is expected or a false positive, for 1 to 24 hours: kind (idle testing or paused engagement for a stale connector, reconnect warm-up for a connector that never synced, false positive for any problem), reason and expiry. Immutable; it expires. Staff read; clients read none. Written only by `record_alert_exception` (`staff_area` allow-list, role tested in the body).
+
+The `integration-health` function reads active exceptions and moves covered problems from `patterns` to `suppressed`, so they do not count against a connector's state. `POST {"action":"evaluate"}` is builder only: it lists the owner alerts the open problems call for, keyed one per problem per UTC day, and in the production project only queues each through `enqueue_owner_alert` (which queues only for a builder-confirmed owner alert channel; `run-slack-jobs` sends only with `slack_sends` on). Anywhere else nothing is queued and each alert comes back with the reason `not_production`. The Integration health page shows suppressed problems and active exceptions, lets staff record an exception for an open problem, and gives a builder "Check and alert now". Owner alert jobs show on the Integration health and Operations pages.
+
+Not ported: the stored evaluations, incidents and incident scopes (Verdanote evaluates on read), command receipts, per-engagement source scopes and capability grants. Nothing schedules the evaluate action; it runs when a builder presses the button. Tests in `supabase/tests/alert_exceptions_test.sql`, `supabase/functions/integration-health/index.test.ts` and `src/test/integrationHealth.test.tsx`.
+
 ## Alternatives rejected
 
 **A new `os_clients` table with a uuid id, and the dashboard `clients` folded into it.** Gives a cleaner id, but the eight dashboard tables and the dashboard staff functions (`create_client`, `set_client_*`, `create_shoot` and others) already key on `clients.slug`, so it means either two client ids side by side or rewriting all of them. Not the smallest change.

@@ -12,6 +12,12 @@
 // Pattern codes follow the Goodo OS names where one exists (connector.stale,
 // connector.unconfirmed, queue.recovery). The page turns codes into sentences
 // (src/features/integration-health/model.ts).
+//
+// Alerts (step 4d, port of Goodo OS backend/monitoring/alerts.ts): an active row in
+// alert_exceptions (expected exception or false positive, at most 24 hours) moves a
+// problem from `patterns` to `suppressed`, so it neither counts against the state nor
+// alerts. ownerAlertsFor lists the problems left; the function's builder-only
+// "evaluate" action queues them as owner alerts, from production only.
 
 /** Hours after the last ClickUp sync before the board counts as stale (the sync runs every 4 hours). */
 export const CLICKUP_FRESHNESS_HOURS = 8;
@@ -41,6 +47,20 @@ export interface HealthSnapshot {
   };
   queue: { overdueQueued: number; expiredLeases: number; recovery: number; pending: number };
   ownerAlerts: Array<{ id: string; state: string; createdAt: string; updatedAt: string; text: string | null }>;
+  /** Active alert exceptions (expires_at in the future). */
+  exceptions: AlertException[];
+}
+
+export type AlertConnector = "clickup" | "fireflies" | "slack" | "verdanote_data" | "queue";
+
+export interface AlertException {
+  id: string;
+  connector: AlertConnector;
+  /** Problem code without its count, for example "connector.stale" or "sync.stuck". */
+  pattern: string;
+  kind: "idle_testing" | "paused_engagement" | "reconnect_warmup" | "false_positive";
+  reason: string;
+  expiresAt: string;
 }
 
 export type ConnectorState = "healthy" | "needs_attention" | "not_connected";
@@ -52,6 +72,8 @@ export interface ConnectorHealth {
   state: ConnectorState;
   /** Problems, as pattern codes. */
   patterns: string[];
+  /** Problems covered by an active alert exception. */
+  suppressed: string[];
   /** Facts that are expected but worth showing (for example: sends are off). */
   notes: string[];
   lastConfirmedAt: string | null;
@@ -62,8 +84,21 @@ export interface HealthOverview {
   checkedAt: string;
   environment: "production" | "other";
   connectors: ConnectorHealth[];
-  queue: { state: "healthy" | "needs_attention"; patterns: string[]; pending: number };
+  queue: { state: "healthy" | "needs_attention"; patterns: string[]; suppressed: string[]; pending: number };
   ownerAlerts: HealthSnapshot["ownerAlerts"];
+  exceptions: AlertException[];
+}
+
+/** The code of a pattern without its count: "sync.stuck:2" -> "sync.stuck". */
+export const patternBase = (pattern: string) => pattern.split(":")[0];
+
+/** Splits problems into those still open and those covered by an active exception. */
+export function applyExceptions(connector: AlertConnector, patterns: string[], exceptions: AlertException[]): { patterns: string[]; suppressed: string[] } {
+  const covered = new Set(exceptions.filter((e) => e.connector === connector).map((e) => e.pattern));
+  return {
+    patterns: patterns.filter((p) => !covered.has(patternBase(p))),
+    suppressed: patterns.filter((p) => covered.has(patternBase(p))),
+  };
 }
 
 const HOUR = 3_600_000;
@@ -92,12 +127,15 @@ export function evaluateIntegrationHealth(snapshot: HealthSnapshot, now: Date = 
     if (!snapshot.clickup.lastSyncedAt) clickupPatterns.push("connector.unconfirmed");
     else if (olderThan(snapshot.clickup.lastSyncedAt, t, CLICKUP_FRESHNESS_HOURS * HOUR)) clickupPatterns.push("connector.stale");
   }
+  const ex = snapshot.exceptions ?? [];
+  const clickupSplit = applyExceptions("clickup", clickupPatterns, ex);
   const clickup: ConnectorHealth = {
     key: "clickup",
     label: "ClickUp",
     connected: snapshot.secrets.clickup,
-    state: stateOf(snapshot.secrets.clickup, clickupPatterns),
-    patterns: clickupPatterns,
+    state: stateOf(snapshot.secrets.clickup, clickupSplit.patterns),
+    patterns: clickupSplit.patterns,
+    suppressed: clickupSplit.suppressed,
     notes: snapshot.secrets.clickup ? [] : ["clickup.no_token"],
     lastConfirmedAt: snapshot.clickup.lastSyncedAt,
     details: { boardRows: snapshot.clickup.rows, freshnessHours: CLICKUP_FRESHNESS_HOURS },
@@ -110,6 +148,7 @@ export function evaluateIntegrationHealth(snapshot: HealthSnapshot, now: Date = 
     connected: snapshot.secrets.fireflies,
     state: stateOf(snapshot.secrets.fireflies, []),
     patterns: [],
+    suppressed: [],
     notes: snapshot.secrets.fireflies ? ["fireflies.on_demand"] : ["fireflies.no_key"],
     lastConfirmedAt: null,
     details: {},
@@ -126,12 +165,14 @@ export function evaluateIntegrationHealth(snapshot: HealthSnapshot, now: Date = 
   if (snapshot.secrets.slack && snapshot.environment === "production" && snapshot.slack.sendsEnabled && snapshot.slack.ownerAlertDestinations === 0) {
     slackPatterns.push("slack.no_owner_destination");
   }
+  const slackSplit = applyExceptions("slack", slackPatterns, ex);
   const slack: ConnectorHealth = {
     key: "slack",
     label: "Slack",
     connected: snapshot.secrets.slack,
-    state: stateOf(snapshot.secrets.slack, slackPatterns),
-    patterns: slackPatterns,
+    state: stateOf(snapshot.secrets.slack, slackSplit.patterns),
+    patterns: slackSplit.patterns,
+    suppressed: slackSplit.suppressed,
     notes: slackNotes,
     lastConfirmedAt: null,
     details: { sendsEnabled: snapshot.slack.sendsEnabled, ownerAlertDestinations: snapshot.slack.ownerAlertDestinations },
@@ -145,12 +186,14 @@ export function evaluateIntegrationHealth(snapshot: HealthSnapshot, now: Date = 
   if (stuck) dataPatterns.push(`sync.stuck:${stuck}`);
   if (ad.failedLast24h) dataPatterns.push(`sync.failed:${ad.failedLast24h}`);
   if (behind) dataPatterns.push(`sync.accounts_behind:${behind}`);
+  const dataSplit = applyExceptions("verdanote_data", dataPatterns, ex);
   const verdanoteData: ConnectorHealth = {
     key: "verdanote_data",
     label: "Verdanote data (Meta ad sync)",
     connected: true,
-    state: stateOf(true, dataPatterns),
-    patterns: dataPatterns,
+    state: stateOf(true, dataSplit.patterns),
+    patterns: dataSplit.patterns,
+    suppressed: dataSplit.suppressed,
     notes: ad.activeAccounts === 0 ? ["sync.no_active_accounts"] : [],
     lastConfirmedAt: ad.lastCompletedAt,
     details: {
@@ -167,17 +210,44 @@ export function evaluateIntegrationHealth(snapshot: HealthSnapshot, now: Date = 
   if (q.overdueQueued) queuePatterns.push(`queue.overdue:${q.overdueQueued}`);
   if (q.expiredLeases) queuePatterns.push(`queue.lease_expired:${q.expiredLeases}`);
   if (q.recovery) queuePatterns.push(`queue.recovery:${q.recovery}`);
+  const queueSplit = applyExceptions("queue", queuePatterns, ex);
 
   return {
     checkedAt: now.toISOString(),
     environment: snapshot.environment,
     connectors: [clickup, fireflies, slack, verdanoteData],
-    queue: { state: queuePatterns.length ? "needs_attention" : "healthy", patterns: queuePatterns, pending: q.pending },
+    queue: { state: queueSplit.patterns.length ? "needs_attention" : "healthy", patterns: queueSplit.patterns, suppressed: queueSplit.suppressed, pending: q.pending },
     ownerAlerts: snapshot.ownerAlerts.slice(0, OWNER_ALERT_LIMIT).map((a) => ({
       ...a,
       text: a.text === null ? null : a.text.length > ALERT_TEXT_MAX ? `${a.text.slice(0, ALERT_TEXT_MAX - 1)}…` : a.text,
     })),
+    exceptions: ex,
   };
+}
+
+export interface PlannedAlert {
+  connector: AlertConnector;
+  pattern: string;
+  /** Owner alert dedupe key: one alert per problem per UTC day. */
+  key: string;
+  text: string;
+}
+
+/** The owner alerts the open (not suppressed) problems call for, one per problem per day. */
+export function ownerAlertsFor(overview: HealthOverview, now: Date = new Date()): PlannedAlert[] {
+  const day = now.toISOString().slice(0, 10);
+  const out: PlannedAlert[] = [];
+  const add = (connector: AlertConnector, label: string, pattern: string) => {
+    out.push({
+      connector,
+      pattern,
+      key: `health:${connector}:${patternBase(pattern)}:${day}`,
+      text: `Integration health: ${label} needs attention (${pattern}). Open Integration health in Verdanote for details.`,
+    });
+  };
+  for (const c of overview.connectors) for (const p of c.patterns) add(c.key, c.label, p);
+  for (const p of overview.queue.patterns) add("queue", "the work queue", p);
+  return out;
 }
 
 /** True when the URL is the production Supabase project. */

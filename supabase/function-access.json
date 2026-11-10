@@ -119,7 +119,7 @@
     },
     "integration-health": {
       "class": "staff",
-      "note": "Goodo OS Integration health page. Read-only status of the ClickUp, Fireflies, Slack and Verdanote data connectors, the job queue and owner alert jobs. Reports whether each secret is set, never its value; calls no outside service.",
+      "note": "Goodo OS Integration health page. Status of the ClickUp, Fireflies, Slack and Verdanote data connectors, the job queue and owner alert jobs, with problems covered by an alert exception marked suppressed. Reports whether each secret is set, never its value; calls no outside service. POST {action: evaluate} is builder only and queues owner alerts through enqueue_owner_alert in production only.",
       "probe": {
         "method": "GET"
       }

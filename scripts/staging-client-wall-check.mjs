@@ -819,6 +819,20 @@ const evalOutcome = await employee.c.rpc("record_agent_evaluation_outcome", { p_
 check("employee passes the staff check in record_agent_evaluation_outcome", evalOutcome.error?.code === "P0002", `code=${evalOutcome.error?.code ?? "none"}`);
 const evalApprove = await employee.c.rpc("approve_agent_config", { p_run_id: ZERO });
 check("employee is refused approve_agent_config (builder only)", evalApprove.error?.code === "42501", `code=${evalApprove.error?.code ?? "none"}`);
+// Alert exceptions (migration 20261111000002, step 4d): staff only. Clients read none and are
+// refused record_alert_exception; the employee reads and passes the staff check (a kind that
+// does not fit the problem is refused with 22023, so nothing is written).
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  const r = await s.c.from("alert_exceptions").select("*").limit(1000);
+  check(`${label} reads no alert_exceptions rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  const fn = await s.c.rpc("record_alert_exception", { p_connector: "queue", p_pattern: "queue.recovery", p_kind: "false_positive", p_reason: "wall", p_hours: 1 });
+  check(`${label} is refused record_alert_exception`, fn.error?.code === "42501", `code=${fn.error?.code ?? "none"}`);
+}
+const aeRead = await employee.c.from("alert_exceptions").select("id, connector, pattern, kind, reason, expires_at").limit(1);
+check("employee can read alert_exceptions", !aeRead.error, `error=${aeRead.error?.message ?? "none"}`);
+const aeBad = await employee.c.rpc("record_alert_exception", { p_connector: "queue", p_pattern: "queue.recovery", p_kind: "idle_testing", p_reason: "wall", p_hours: 1 });
+check("employee passes the staff check in record_alert_exception (wrong kind refused)", aeBad.error?.code === "22023", `code=${aeBad.error?.code ?? "none"}`);
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

@@ -11,6 +11,8 @@ export interface ConnectorHealth {
   connected: boolean;
   state: ConnectorState;
   patterns: string[];
+  /** Problems covered by an active alert exception (step 4d). */
+  suppressed: string[];
   notes: string[];
   lastConfirmedAt: string | null;
   details: Record<string, number | string | boolean | null>;
@@ -24,12 +26,76 @@ export interface OwnerAlert {
   text: string | null;
 }
 
+export type AlertConnector = "clickup" | "fireflies" | "slack" | "verdanote_data" | "queue";
+export type ExceptionKind = "idle_testing" | "paused_engagement" | "reconnect_warmup" | "false_positive";
+
+export interface AlertException {
+  id: string;
+  connector: AlertConnector;
+  pattern: string;
+  kind: ExceptionKind;
+  reason: string;
+  expiresAt: string;
+}
+
 export interface HealthOverview {
   checkedAt: string;
   environment: "production" | "other";
   connectors: ConnectorHealth[];
-  queue: { state: "healthy" | "needs_attention"; patterns: string[]; pending: number };
+  queue: { state: "healthy" | "needs_attention"; patterns: string[]; suppressed?: string[]; pending: number };
   ownerAlerts: OwnerAlert[];
+  exceptions?: AlertException[];
+}
+
+export interface EvaluatedAlert {
+  connector: AlertConnector;
+  pattern: string;
+  key: string;
+  text: string;
+  enqueued: boolean;
+  jobId: string | null;
+  reason: "not_production" | "no_owner_destination" | null;
+}
+
+export const CONNECTOR_LABEL: Record<AlertConnector, string> = {
+  clickup: "ClickUp",
+  fireflies: "Fireflies",
+  slack: "Slack",
+  verdanote_data: "Verdanote data",
+  queue: "Work queue",
+};
+
+export const KIND_LABEL: Record<ExceptionKind, string> = {
+  idle_testing: "Idle while testing",
+  paused_engagement: "Engagement paused",
+  reconnect_warmup: "Reconnecting, warming up",
+  false_positive: "False positive",
+};
+
+/** The code of a pattern without its count: "sync.stuck:2" -> "sync.stuck". */
+export const patternBase = (pattern: string) => pattern.split(":")[0];
+
+/** Kinds allowed for a problem code (the Goodo OS rule, also checked in the database). */
+export function kindsFor(pattern: string): ExceptionKind[] {
+  const base = patternBase(pattern);
+  if (base === "connector.stale") return ["idle_testing", "paused_engagement", "false_positive"];
+  if (base === "connector.unconfirmed") return ["reconnect_warmup", "false_positive"];
+  return ["false_positive"];
+}
+
+/** The open problems a staff member can record an exception for. */
+export function exceptionTargets(o: HealthOverview): Array<{ connector: AlertConnector; pattern: string }> {
+  const out: Array<{ connector: AlertConnector; pattern: string }> = [];
+  for (const c of o.connectors) for (const p of c.patterns) out.push({ connector: c.key, pattern: patternBase(p) });
+  for (const p of o.queue.patterns) out.push({ connector: "queue", pattern: patternBase(p) });
+  return out;
+}
+
+export function evaluatedText(a: EvaluatedAlert): string {
+  if (a.enqueued) return "owner alert queued";
+  if (a.reason === "not_production") return "not queued: owner alerts are only queued from production";
+  if (a.reason === "no_owner_destination") return "not queued: no confirmed owner alert channel";
+  return "not queued";
 }
 
 export const STATE_LABEL: Record<ConnectorState, string> = {

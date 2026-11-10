@@ -1,9 +1,15 @@
 // Integration health: staff page (consolidation step 4a, port of the Goodo OS page
-// src/pages/staff/IntegrationHealth.tsx). Read-only. Shows what the
-// integration-health server function finds: each connector's state, the work
-// queue and the latest owner alert jobs. It never changes anything; switches and
-// Slack destinations stay builder actions in the database.
+// src/pages/staff/IntegrationHealth.tsx). Shows what the integration-health server
+// function finds: each connector's state, the work queue and the latest owner alert
+// jobs. Switches and Slack destinations stay builder actions in the database.
+//
+// Alerts (step 4d, port of the Goodo OS alert commands): staff record an expected
+// exception or a false positive for an open problem, for 1 to 24 hours, through the
+// checked function record_alert_exception; covered problems show as suppressed. A
+// builder's "Check and alert now" asks the function which owner alerts the open
+// problems call for; they are queued only from production, never from staging.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { Link } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -13,6 +19,14 @@ import { Button } from "@/components/ui/button";
 import { edgeFunctionError } from "@/lib/edgeFunctionError";
 import {
   ALERT_STATE,
+  type AlertConnector,
+  CONNECTOR_LABEL,
+  type EvaluatedAlert,
+  evaluatedText,
+  exceptionTargets,
+  type ExceptionKind,
+  KIND_LABEL,
+  kindsFor,
   type ConnectorHealth,
   describeNote,
   describePattern,
@@ -50,6 +64,9 @@ function ConnectorCard({ c }: { c: ConnectorHealth }) {
       {c.patterns.map((p) => (
         <p key={p} className="text-amber-900">{describePattern(p)}</p>
       ))}
+      {(c.suppressed ?? []).map((p) => (
+        <p key={`s-${p}`} className="text-muted-foreground">Suppressed by an exception: {describePattern(p)}</p>
+      ))}
       {c.notes.map((n) => (
         <p key={n} className="text-muted-foreground">{describeNote(n)}</p>
       ))}
@@ -57,7 +74,52 @@ function ConnectorCard({ c }: { c: ConnectorHealth }) {
   );
 }
 
+const rpcDb = supabase as unknown as { rpc(name: string, args: Record<string, unknown>): PromiseLike<{ data: unknown; error: { code?: string; message: string } | null }> };
+const field = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
+
+function ExceptionForm({ overview, onSaved }: { overview: HealthOverview; onSaved: () => void }) {
+  const targets = exceptionTargets(overview);
+  const [target, setTarget] = useState("");
+  const [kind, setKind] = useState<ExceptionKind>("false_positive");
+  const [reason, setReason] = useState("");
+  const [hours, setHours] = useState("4");
+  const [error, setError] = useState<string | null>(null);
+  if (targets.length === 0) return <p className="text-sm text-muted-foreground">No open problem to record an exception for.</p>;
+  const [connector, pattern] = target ? (target.split("|") as [AlertConnector, string]) : [null, null];
+  const kinds = pattern ? kindsFor(pattern) : [];
+  const h = Number(hours);
+  const ready = !!connector && kinds.includes(kind) && reason.trim().length > 0 && reason.length <= 500 && Number.isInteger(h) && h >= 1 && h <= 24;
+  const save = async () => {
+    setError(null);
+    const { error: e } = await rpcDb.rpc("record_alert_exception", { p_connector: connector, p_pattern: pattern, p_kind: kind, p_reason: reason.trim(), p_hours: h });
+    if (e) return setError(e.code === "42501" ? "Only staff can record an exception." : e.code === "22023" ? "That kind does not fit this problem, or the hours are outside 1 to 24." : "The exception could not be saved.");
+    setTarget("");
+    setReason("");
+    onSaved();
+  };
+  return (
+    <div role="group" aria-label="Record an exception" className="space-y-2">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <select aria-label="Problem" className={field} value={target} onChange={(e) => { setTarget(e.target.value); setKind(kindsFor(e.target.value.split("|")[1] ?? "")[0] ?? "false_positive"); }}>
+          <option value="">Choose an open problem</option>
+          {targets.map((t) => <option key={`${t.connector}|${t.pattern}`} value={`${t.connector}|${t.pattern}`}>{CONNECTOR_LABEL[t.connector]}: {t.pattern}</option>)}
+        </select>
+        <select aria-label="Kind" className={field} value={kind} disabled={!pattern} onChange={(e) => setKind(e.target.value as ExceptionKind)}>
+          {(kinds.length ? kinds : (["false_positive"] as ExceptionKind[])).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+        </select>
+        <input aria-label="Reason" className={field} placeholder="Why this is expected or wrong" value={reason} onChange={(e) => setReason(e.target.value)} />
+        <input aria-label="Hours (1 to 24)" className={field} inputMode="numeric" value={hours} onChange={(e) => setHours(e.target.value)} />
+      </div>
+      <Button size="sm" variant="outline" disabled={!ready} onClick={() => void save()}>Record exception</Button>
+      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+    </div>
+  );
+}
+
 export default function IntegrationHealthPage() {
+  const { isBuilder } = useAuth();
+  const [evaluated, setEvaluated] = useState<EvaluatedAlert[] | null>(null);
+  const [evalError, setEvalError] = useState<string | null>(null);
   const [overview, setOverview] = useState<HealthOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -89,11 +151,20 @@ export default function IntegrationHealthPage() {
     };
   }, [load]);
 
+  const evaluate = async () => {
+    setEvalError(null);
+    setEvaluated(null);
+    const { data, error: invokeError } = await supabase.functions.invoke(FN, { method: "POST", body: { action: "evaluate" } });
+    if (invokeError) return setEvalError(await edgeFunctionError(invokeError, "The check could not run."));
+    setEvaluated(Array.isArray(data?.alerts) ? (data.alerts as EvaluatedAlert[]) : []);
+    void load();
+  };
+
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6" data-testid="integration-health">
       <PageHeader
         title="Integration health"
-        description="Connector status, the work queue and owner alerts, as of the last check. This page is read-only."
+        description="Connector status, the work queue and owner alerts, as of the last check. Expected problems can be marked so they do not alert."
         actions={
           <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
             <RefreshCw className="mr-1 h-4 w-4" /> Check again
@@ -125,6 +196,33 @@ export default function IntegrationHealthPage() {
             <p className="text-sm">
               <Link className="underline" to={`${prefix}/operations`}>Open Operations</Link> to replay, resolve or cancel jobs.
             </p>
+          </section>
+          <section aria-labelledby="ih-exceptions" className="space-y-2">
+            <h2 id="ih-exceptions" className="text-base font-semibold">Alert exceptions</h2>
+            {(overview.exceptions ?? []).length === 0 ? (
+              <p className="text-sm text-muted-foreground">No active exceptions.</p>
+            ) : (
+              <ul className="space-y-1 text-sm">
+                {(overview.exceptions ?? []).map((x) => (
+                  <li key={x.id} className="rounded border border-input p-2">
+                    {CONNECTOR_LABEL[x.connector]}: {x.pattern} · {KIND_LABEL[x.kind]} · until {formatWhen(x.expiresAt)} · {x.reason}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <ExceptionForm key={overview.checkedAt} overview={overview} onSaved={() => void load()} />
+            {isBuilder ? (
+              <div className="space-y-1">
+                <Button size="sm" onClick={() => void evaluate()}>Check and alert now</Button>
+                {evalError ? <p role="alert" className="text-sm text-red-700">{evalError}</p> : null}
+                {evaluated ? (
+                  <ul aria-label="Check result" className="space-y-1 text-sm">
+                    {evaluated.length === 0 ? <li>No open problem calls for an owner alert.</li> : null}
+                    {evaluated.map((a) => <li key={a.key}>{CONNECTOR_LABEL[a.connector]}: {describePattern(a.pattern)} · {evaluatedText(a)}</li>)}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
           </section>
           <section aria-labelledby="ih-alerts" className="space-y-2">
             <h2 id="ih-alerts" className="text-base font-semibold">Owner alerts</h2>
