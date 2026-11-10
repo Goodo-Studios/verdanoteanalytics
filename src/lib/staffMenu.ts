@@ -63,6 +63,7 @@ export const staffMenuSections: StaffMenuSection[] = [
       { id: "engagements", title: "Engagements", description: "45-day cycles per client: templates, kickoff and closeout.", status: "live", to: "/engagements" },
       { id: "deliverables", title: "Deliverables and approvals", description: "Revisions, client decisions and rounds, idea and shot list approvals.", status: "live", to: "/deliverables" },
       { id: "qa-gates", title: "QA gates", description: "Release checks per revision: confirmation, strategist and QA signoffs.", status: "live", to: "/qa-gates" },
+      { id: "handoffs", title: "Handoffs", description: "Brief packets for the next role, acknowledged or returned by the receiver.", status: "live", to: "/handoffs" },
       { id: "growth-dashboard", title: "Growth Dashboard", description: "Revenue and growth numbers. Builder only.", status: "live", to: "/growth-dashboard", builderOnly: true },
     ],
   },
@@ -71,7 +72,7 @@ export const staffMenuSections: StaffMenuSection[] = [
     label: "Moving in",
     blurb: "Tools from the other apps. Each slot opens when its page is built and checked in staging.",
     items: [
-      { id: "goodo-os", title: "Goodo OS areas", description: "Waves B to D: handoffs, learning and strategy, operations. Talent and call sheets move with step 5c.", status: "slot", step: "Steps 4b to 4d" },
+      { id: "goodo-os", title: "Goodo OS areas", description: "Waves C and D: learning and strategy, scope changes, AI agents, operations. Talent and call sheets move with step 5c.", status: "slot", step: "Steps 4c and 4d" },
       { id: "dashboard-creators", title: "Old dashboard: Creators, Actors, Applications", description: "Creator and actor management and application review.", status: "slot", step: "Step 5b" },
       { id: "dashboard-production", title: "Old dashboard: Production", description: "Casting, calendars, call sheets, locations, props, crew, shipments.", status: "slot", step: "Step 5c" },
       { id: "dashboard-settings", title: "Old dashboard: Settings and team", description: "Team management, merged with Verdanote user management.", status: "slot", step: "Step 5d" },

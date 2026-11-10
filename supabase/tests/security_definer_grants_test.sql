@@ -57,6 +57,8 @@ INSERT INTO allow
     'save_approval_draft', 'publish_approval_version', 'record_approval_decision',
     'deliverable_release_status', 'confirm_deliverable_revision', 'return_deliverable_to_strategist',
     'resolve_deliverable_qa_return', 'record_deliverable_signoff', 'mark_deliverable_final_ready',
+    'handoff_staff_options', 'create_handoff_packet', 'acknowledge_handoff', 'reassign_handoff',
+    'handoff_source_status',
     'delete_shoot_schedule_block', 'delete_studio_shipment', 'peek_ad_code',
     'reject_actor_application', 'reject_application', 'revoke_call_sheet',
     'set_actor_shoot_schedule', 'set_client_active', 'set_client_details',

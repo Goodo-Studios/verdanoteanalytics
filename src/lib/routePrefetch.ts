@@ -41,6 +41,7 @@ export const routeImports = {
   engagements: () => import("@/features/engagements/EngagementsPage"),
   deliverables: () => import("@/features/deliverables/DeliverablesPage"),
   qaGates: () => import("@/features/qa-gates/QaGatesPage"),
+  handoffs: () => import("@/features/handoffs/HandoffsPage"),
 } as const;
 
 type Loader = () => Promise<unknown>;
@@ -74,6 +75,7 @@ const PATH_PREFETCH: Record<string, Loader[]> = {
   "/engagements": [routeImports.engagements],
   "/deliverables": [routeImports.deliverables],
   "/qa-gates": [routeImports.qaGates],
+  "/handoffs": [routeImports.handoffs],
   "/ad-library": [routeImports.adLibrary, routeImports.vaultItemDetail],
   "/ad-library/boards": [routeImports.boards, routeImports.boardDetail],
   "/ad-library/hooks": [routeImports.hooks],
