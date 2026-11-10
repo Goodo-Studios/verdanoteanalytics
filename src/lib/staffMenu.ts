@@ -57,6 +57,7 @@ export const staffMenuSections: StaffMenuSection[] = [
       { id: "integration-health", title: "Integration health", description: "ClickUp, Fireflies, Slack and ad sync status.", status: "live", to: "/integration-health" },
       { id: "meeting-recaps", title: "Meeting recaps", description: "Decisions and actions from Fireflies calls, confirmed by a person.", status: "live", to: "/meeting-recaps" },
       { id: "knowledge", title: "Knowledge", description: "Shared knowledge, corrections and published versions.", status: "live", to: "/knowledge" },
+      { id: "creator-pipeline", title: "Creator pipeline", description: "Creators per brand by stage: owners, follow-up dates, delivery.", status: "live", to: "/creator-pipeline" },
       { id: "client-overview", title: "Client overview", description: "Active creator clients by progress, with at-risk and stale counts.", status: "live", to: "/clients" },
       { id: "engagements", title: "Engagements", description: "45-day cycles per client: templates, kickoff and closeout.", status: "live", to: "/engagements" },
       { id: "deliverables", title: "Deliverables and approvals", description: "Revisions, client decisions and rounds, idea and shot list approvals.", status: "live", to: "/deliverables" },
@@ -70,7 +71,7 @@ export const staffMenuSections: StaffMenuSection[] = [
     blurb: "Tools from the other apps. Each slot opens when its page is built and checked in staging.",
     items: [
       { id: "goodo-os", title: "Goodo OS areas", description: "Waves B to D: handoffs, learning and strategy, operations. Talent and call sheets move with step 5c.", status: "slot", step: "Steps 4b to 4d" },
-      { id: "dashboard-pipeline", title: "Old dashboard: Creator pipeline, Follow-ups", description: "Rest of the first batch of dashboard pages. Client overview and client pages are live.", status: "slot", step: "Step 5a" },
+      { id: "dashboard-pipeline", title: "Old dashboard: Follow-ups", description: "Last page of the first dashboard batch. Client overview, client pages and Creator pipeline are live.", status: "slot", step: "Step 5a" },
       { id: "dashboard-creators", title: "Old dashboard: Creators, Actors, Applications", description: "Creator and actor management and application review.", status: "slot", step: "Step 5b" },
       { id: "dashboard-production", title: "Old dashboard: Production", description: "Casting, calendars, call sheets, locations, props, crew, shipments.", status: "slot", step: "Step 5c" },
       { id: "dashboard-settings", title: "Old dashboard: Settings and team", description: "Team management, merged with Verdanote user management.", status: "slot", step: "Step 5d" },
