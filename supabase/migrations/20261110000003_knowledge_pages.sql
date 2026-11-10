@@ -38,7 +38,7 @@ create table public.knowledge_sources (
   classification text not null check (classification in ('client', 'staff')),
   release_scope text not null check (release_scope in ('global', 'client')),
   client_slug text references public.clients(slug) on delete restrict,
-  citation_url text check (citation_url is null or citation_url ~ '^https://[^\s]{1,500}$'),
+  citation_url text check (citation_url is null or (citation_url ~ '^https://\S+$' and length(citation_url) <= 508)),
   current_version integer not null default 1 check (current_version >= 1),
   created_by uuid not null,
   created_at timestamptz not null default now(),
