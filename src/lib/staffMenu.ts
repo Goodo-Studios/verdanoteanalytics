@@ -80,6 +80,7 @@ export const staffMenuSections: StaffMenuSection[] = [
       { id: "operating-costs", title: "Operating costs", description: "Fixed monthly costs, the monthly budget and its alerts. Builder only.", status: "live", to: "/operating-costs", builderOnly: true },
       { id: "support", title: "Support inbox", description: "Client questions with an accountable owner and the next update owed. Nothing is sent to clients from here.", status: "live", to: "/support" },
       { id: "bid-viewer", title: "Client BIDs", description: "Read-only view of each client's finished BID from the BID Builder.", status: "live", to: "/bids" },
+      { id: "team", title: "Team and settings", description: "The team list, the role mapping, the check against Verdanote logins and roles, and prepared invites. Changes are builder only.", status: "live", to: "/team" },
       { id: "learning", title: "Learning", description: "Client lessons with a named reviewer and builder publication, and the weekly self-service tally.", status: "live", to: "/learning" },
       { id: "scope-changes", title: "Scope changes", description: "The approved shot list locks the scope; change requests are accepted or declined by a builder.", status: "live", to: "/scope-changes" },
       { id: "recommendations", title: "Recommendations", description: "Decisions with evidence, linked ads and outcomes measured from ad data.", status: "live", to: "/recommendations" },
@@ -92,7 +93,6 @@ export const staffMenuSections: StaffMenuSection[] = [
     label: "Moving in",
     blurb: "Tools from the other apps. Each slot opens when its page is built and checked in staging.",
     items: [
-      { id: "dashboard-settings", title: "Old dashboard: Settings and team", description: "Team management, merged with Verdanote user management.", status: "slot", step: "Step 5d" },
       { id: "content-leaderboard", title: "Content Leaderboard", description: "LinkedIn post log for the team.", status: "slot", step: "Step 8" },
     ],
   },

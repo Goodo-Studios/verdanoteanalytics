@@ -52,13 +52,15 @@ describe("staff menu content", () => {
     // (step 5a: Client overview, client pages, Creator pipeline and Follow-ups replaced "dashboard-pipeline";
     // step 5b: Creators, Actors, Applications and Approval boards replaced "dashboard-creators";
     // step 4d: Operations, Operating costs and Support inbox replaced "goodo-os";
-    // step 6: Client BIDs replaced "bid-viewer", and "wideframe" was dropped on 2026-11-10).
+    // step 6: Client BIDs replaced "bid-viewer", and "wideframe" was dropped on 2026-11-10;
+    // step 5d: Team and settings replaced "dashboard-settings"). What is left is optional (step 8).
     expect(slots.map((s) => s.id).sort()).toEqual(
-      ["content-leaderboard", "dashboard-settings"],
+      ["content-leaderboard"],
     );
+    expect(allStaffMenuItems.find((i) => i.id === "dashboard-settings")).toBeUndefined();
     expect(allStaffMenuItems.find((i) => i.id === "wideframe")).toBeUndefined();
     expect(allStaffMenuItems.find((i) => i.id === "bid-viewer")?.to).toBe("/bids");
-    for (const id of ["client-overview", "creator-pipeline", "follow-ups", "creators", "actors", "applications", "approval-boards", "locations", "props", "crew", "shipments", "production-calendar", "casting", "call-sheets", "operations", "operating-costs", "support", "bid-viewer"]) {
+    for (const id of ["client-overview", "creator-pipeline", "follow-ups", "creators", "actors", "applications", "approval-boards", "locations", "props", "crew", "shipments", "production-calendar", "casting", "call-sheets", "operations", "operating-costs", "support", "bid-viewer", "team"]) {
       expect(allStaffMenuItems.find((i) => i.id === id)?.status, id).toBe("live");
     }
     for (const slot of slots) {

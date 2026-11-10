@@ -1,7 +1,22 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
-import { mapDashboardRole } from "../_shared/dashboard-role-map.ts";
+import { type DashboardRoleMapping, mapDashboardRoleWith, type RoleMappingRow } from "../_shared/dashboard-role-map.ts";
+
+// A dashboard role is turned into a Verdanote role by the mapping in public.staff_role_mappings
+// (step 5d, shown on the Team page). A row still waiting on the owner is refused.
+interface MappingReader {
+  from(table: string): {
+    select(columns: string): PromiseLike<{ data: RoleMappingRow[] | null; error: unknown }>;
+  };
+}
+async function resolveDashboardRole(supabase: MappingReader, dashboardRole: unknown): Promise<DashboardRoleMapping> {
+  const { data, error } = await supabase
+    .from("staff_role_mappings")
+    .select("dashboard_role, verdanote_role, needs_owner_decision");
+  if (error) return { ok: false, error: "The role mapping could not be read." };
+  return mapDashboardRoleWith(data, dashboardRole);
+}
 
 
 serve(async (req) => {
@@ -69,10 +84,10 @@ serve(async (req) => {
       const { email, password, role: requestedRole, dashboard_role, display_name, account_ids } = await req.json();
 
       // A staff member coming from the old dashboard can be created by their
-      // dashboard role (admin -> builder, producer -> employee). See _shared/dashboard-role-map.ts.
+      // dashboard role, through the mapping in staff_role_mappings (step 5d).
       let role = requestedRole;
       if (!role && dashboard_role) {
-        const mapped = mapDashboardRole(dashboard_role);
+        const mapped = await resolveDashboardRole(supabase, dashboard_role);
         if (!mapped.ok) {
           return new Response(JSON.stringify({ error: mapped.error }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -123,7 +138,7 @@ serve(async (req) => {
 
       let role = requestedRole;
       if (!role && dashboard_role) {
-        const mapped = mapDashboardRole(dashboard_role);
+        const mapped = await resolveDashboardRole(supabase, dashboard_role);
         if (!mapped.ok) {
           return new Response(JSON.stringify({ error: mapped.error }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },

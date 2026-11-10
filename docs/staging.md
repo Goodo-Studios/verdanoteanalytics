@@ -106,7 +106,7 @@ The Content Pipeline board (`pipeline_tasks`) is keyed by client: `client_slug` 
 
 ### Roles from the old dashboard
 
-The dashboard role `admin` becomes `builder` and `producer` becomes `employee`. `user-management` accepts `dashboard_role` in place of `role` when creating or updating a user, using `supabase/functions/_shared/dashboard-role-map.ts`. A dashboard `viewer` is refused: Verdanote has no read-only staff role, and adding one is Matthew's decision (see the role mapping research note in the consolidation project).
+The dashboard role `admin` becomes `builder` and `producer` becomes `employee`. `user-management` accepts `dashboard_role` in place of `role` when creating or updating a user; since step 5d it reads the mapping from `staff_role_mappings` (`mapDashboardRoleWith` in `supabase/functions/_shared/dashboard-role-map.ts`) and refuses a row that still waits on the owner. Staff are managed on the Team and settings page (`/team`); Settings > Admin keeps every login, including client logins and their accounts. A dashboard `viewer` is refused: Verdanote has no read-only staff role, and adding one is Matthew's decision (see the role mapping research note in the consolidation project).
 
 ### One staff list (step 5d)
 
