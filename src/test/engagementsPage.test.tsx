@@ -15,6 +15,7 @@
  */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 
 const rpc = vi.fn();
 const update = vi.fn();
@@ -79,17 +80,34 @@ beforeEach(() => {
   auth = { user: { id: "emp-1" }, isBuilder: false };
 });
 
+function renderPage(url = "/builder/engagements") {
+  return render(<MemoryRouter initialEntries={[url]}><EngagementsPage /></MemoryRouter>);
+}
+
 async function pick(slug = "glow") {
-  render(<EngagementsPage />);
+  renderPage();
   await screen.findByRole("option", { name: "Glow Drip" });
   fireEvent.change(screen.getByLabelText("Client"), { target: { value: slug } });
 }
 
 describe("EngagementsPage", () => {
+  it("preselects the client from ?client= so a client page can link straight here", async () => {
+    renderPage("/builder/engagements?client=glow");
+    await screen.findByRole("option", { name: "Glow Drip" });
+    expect((screen.getByLabelText("Client") as HTMLSelectElement).value).toBe("glow");
+    expect(await screen.findByRole("region", { name: "Cycle 1" })).toBeTruthy();
+  });
+
+  it("ignores a ?client= that is not in the client list", async () => {
+    renderPage("/builder/engagements?client=nobody");
+    await screen.findByRole("option", { name: "Glow Drip" });
+    await waitFor(() => expect((screen.getByLabelText("Client") as HTMLSelectElement).value).toBe(""));
+  });
+
   it("lists a client's cycles with dates, fixed kickoff and milestones in order", async () => {
     await pick();
     const active = await screen.findByRole("region", { name: "Cycle 1" });
-    expect(within(active).getByTestId("dates-e1")).toHaveTextContent("Day 1 2026-11-02 · Day 30 2026-12-01 · Day 45 2026-12-16 · kickoff recorded, dates fixed · purchase PO-1");
+    expect(within(active).getByTestId("dates-e1")).toHaveTextContent("Day 1 Nov 2, 2026 · Day 30 Dec 1, 2026 · Day 45 Dec 16, 2026 · kickoff recorded, dates fixed · purchase PO-1");
     expect(within(active).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
       "kickoff: source_handoff (internal)", "delivery: strategist_congruency, qa_release, delivery_receipt",
     ]);

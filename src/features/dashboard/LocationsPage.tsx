@@ -263,7 +263,7 @@ export default function LocationsPage() {
     <div className="p-6 space-y-4" data-testid="locations-page">
       <PageHeader title="Locations" description="Spaces Goodo can shoot in, and links that share a set of them with a client." />
       <p className="text-xs text-muted-foreground" data-testid="old-dashboard-note">
-        Clients open location links on the old dashboard, which reads its own database until the release. A link made or revoked here is this database's copy; clients see the change after the release points the public page here. Photos are still uploaded on the old dashboard.
+        Public links still open on the old dashboard for now. Links you make or revoke here reach clients once the public pages move over. Photos are still uploaded on the old dashboard.
       </p>
       {notice && <p role="status" className="break-all text-sm text-muted-foreground">{notice}</p>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}

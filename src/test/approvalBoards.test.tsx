@@ -113,7 +113,7 @@ describe("Approval boards page", () => {
     expect(within(approved).getByTestId("vote-v1")).toHaveTextContent("Sam (name typed by the reviewer)");
     expect(screen.getByRole("region", { name: "Passed on" })).toHaveTextContent("Casey Moreno");
     expect(screen.getByTestId("past-b0")).toHaveTextContent("revoked");
-    expect(screen.getByTestId("old-dashboard-note")).toHaveTextContent("until the release");
+    expect(screen.getByTestId("old-dashboard-note")).toHaveTextContent("Public links still open on the old dashboard for now");
     expect(screen.getByRole("link", { name: "Creator pipeline" }).getAttribute("href")).toBe("/employee/creator-pipeline?brand=glow");
   });
 

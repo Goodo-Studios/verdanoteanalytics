@@ -9,10 +9,12 @@
 // Overlap: the old dashboard Client Detail page (step 5a) shows the same clients;
 // it is not built here.
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
+import { fmtDate } from "@/lib/formatters";
 import {
   canKickoff,
   type Engagement,
@@ -167,8 +169,8 @@ function EngagementCard({ engagement, onChanged }: { engagement: Engagement; onC
       <div>
         <h3 className="text-base font-semibold">Cycle {e.cycle_number} · {TYPE_LABEL[e.engagement_type]} · {STATUS_LABEL[e.status]}</h3>
         <p className="text-[12px] text-muted-foreground" data-testid={`dates-${e.id}`}>
-          {e.start_date ? `Day 1 ${e.start_date}` : "No kickoff yet"}
-          {e.day30_date ? ` · Day 30 ${e.day30_date} · Day 45 ${e.day45_date}` : ""}
+          {e.start_date ? `Day 1 ${fmtDate(e.start_date)}` : "No kickoff yet"}
+          {e.day30_date ? ` · Day 30 ${fmtDate(e.day30_date)} · Day 45 ${fmtDate(e.day45_date)}` : ""}
           {kickoffRecorded(e) ? " · kickoff recorded, dates fixed" : ""}
           {e.purchase_reference ? ` · purchase ${e.purchase_reference}` : ""}
         </p>
@@ -199,8 +201,10 @@ function EngagementCard({ engagement, onChanged }: { engagement: Engagement; onC
 
 export default function EngagementsPage() {
   const { isBuilder } = useAuth();
+  // Optional ?client=<slug> (from a client page) preselects that client.
+  const [searchParams] = useSearchParams();
   const [clients, setClients] = useState<ClientOption[]>([]);
-  const [clientSlug, setClientSlug] = useState("");
+  const [clientSlug, setClientSlug] = useState(() => searchParams.get("client") ?? "");
   const [engagements, setEngagements] = useState<Engagement[] | null>(null);
   const [templates, setTemplates] = useState<EngagementTemplate[]>([]);
   const [templateId, setTemplateId] = useState("");
@@ -208,7 +212,12 @@ export default function EngagementsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void db.from("clients").select("slug, name, active").order("name").then(({ data }) => setClients((data ?? []) as ClientOption[]));
+    void db.from("clients").select("slug, name, active").order("name").then(({ data }) => {
+      const list = (data ?? []) as ClientOption[];
+      setClients(list);
+      // Drop a preselected client that is not in the list (unknown or hidden slug).
+      setClientSlug((slug) => (slug && !list.some((c) => c.slug === slug) ? "" : slug));
+    });
   }, []);
 
   const loadTemplates = useCallback(async () => {

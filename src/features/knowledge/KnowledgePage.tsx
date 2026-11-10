@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
+import { ConfirmDeleteDialog } from "@/components/user-settings/ConfirmDeleteDialog";
 import {
   canPublish,
   canReview,
@@ -136,6 +137,7 @@ function SourceDetail({ source, onChanged }: { source: KnowledgeSource; onChange
   const [classification, setClassification] = useState<CorrectionClass>("content");
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [rollbackTo, setRollbackTo] = useState<number | null>(null);
   useEffect(() => setDraft(current?.body ?? ""), [current?.body]);
 
   const submit = async () => {
@@ -176,12 +178,24 @@ function SourceDetail({ source, onChanged }: { source: KnowledgeSource; onChange
             <li key={v.id} className="flex items-center justify-between gap-2">
               <span>{versionLabel(v)} · {new Date(v.created_at).toLocaleDateString("en-US", { dateStyle: "medium" })}</span>
               {isBuilder && v.version < source.current_version ? (
-                <Button size="sm" variant="outline" onClick={() => void rollback(v.version)}>Roll back to this</Button>
+                <Button size="sm" variant="outline" onClick={() => setRollbackTo(v.version)}>Roll back to this</Button>
               ) : null}
             </li>
           ))}
         </ul>
       </details>
+      <ConfirmDeleteDialog
+        open={rollbackTo !== null}
+        onOpenChange={(open) => { if (!open) setRollbackTo(null); }}
+        title={`Roll back to version ${rollbackTo ?? ""}?`}
+        description={`"${source.title}" will go back to version ${rollbackTo ?? ""}. Version ${source.current_version} stays in the history.`}
+        actionLabel="Roll back"
+        onConfirm={() => {
+          const to = rollbackTo;
+          setRollbackTo(null);
+          if (to !== null) void rollback(to);
+        }}
+      />
 
       <div className="space-y-2">
         <h3 className="text-sm font-semibold">Propose a correction</h3>

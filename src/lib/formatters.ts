@@ -49,3 +49,46 @@ export function deltaInverse(cur: number, prev: number | undefined): { value: nu
   if (!d) return undefined;
   return { ...d, positive: !d.positive };
 }
+
+/**
+ * A date for display, e.g. "Nov 10, 2026". A date-only value ("2026-11-10")
+ * or the date part of a timestamp is read as a calendar day, so it never shifts
+ * a day with the viewer's time zone. Empty or unreadable values return the
+ * fallback.
+ */
+export function fmtDate(value: string | null | undefined, fallback = "Not set"): string {
+  if (!value) return fallback;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!m) return fallback;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  if (Number.isNaN(d.getTime())) return fallback;
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+/** A date and time for display, e.g. "Nov 10, 2026, 3:04 PM", in the viewer's time zone. */
+export function fmtDateTime(value: string | null | undefined, fallback = "Not set"): string {
+  if (!value) return fallback;
+  const t = Date.parse(value);
+  if (!Number.isFinite(t)) return fallback;
+  return new Date(t).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+}
+
+/**
+ * How long ago a timestamp was, in plain words: "just now", "5 minutes ago",
+ * "2 hours ago", "3 days ago". Older than a week shows the date. Returns null
+ * for an empty or unreadable value.
+ */
+export function fmtTimeAgo(value: string | null | undefined, now: Date = new Date()): string | null {
+  if (!value) return null;
+  const t = Date.parse(value);
+  if (!Number.isFinite(t)) return null;
+  const diff = Math.max(0, now.getTime() - t);
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days} ${days === 1 ? "day" : "days"} ago`;
+  return `on ${new Date(t).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}`;
+}

@@ -139,7 +139,7 @@ describe("Locations page", () => {
     expect(within(loft).getByText("2 bd · 1.5 ba · 6 guests")).toBeTruthy();
     expect(within(loft).getByRole("img").getAttribute("src")).toBe("https://signed.example.test/a.jpg");
     expect(within(screen.getByTestId("location-row-l2")).getByText("Do not rent again")).toBeTruthy();
-    expect(screen.getByTestId("old-dashboard-note").textContent).toMatch(/old dashboard, which reads its own database until the release/);
+    expect(screen.getByTestId("old-dashboard-note").textContent).toMatch(/Public links still open on the old dashboard for now/);
     expect(screen.getByTestId("locations-count").textContent).toBe("3 locations");
   });
 

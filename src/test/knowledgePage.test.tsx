@@ -119,7 +119,16 @@ describe("KnowledgePage", () => {
     expect(within(within(region).getByTestId("correction-c2")).getByRole("button", { name: "Accept" })).toBeTruthy();
     fireEvent.click(within(within(region).getByTestId("correction-c4")).getByRole("button", { name: "Publish as version 3" }));
     await waitFor(() => expect(rpc).toHaveBeenCalledWith("publish_knowledge_correction", { p_correction_id: "c4" }));
+    // Rolling back asks first; Cancel sends nothing.
+    rpc.mockClear();
     fireEvent.click(within(region).getByRole("button", { name: "Roll back to this" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("Roll back to version 1?");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(rpc).not.toHaveBeenCalledWith("rollback_knowledge_source", expect.anything());
+    fireEvent.click(within(region).getByRole("button", { name: "Roll back to this" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Roll back" }));
     await waitFor(() => expect(rpc).toHaveBeenCalledWith("rollback_knowledge_source", expect.objectContaining({ p_source_id: "s1", p_to_version: 1, p_expected_version: 2 })));
   });
 

@@ -45,18 +45,18 @@ describe("staff menu content", () => {
     }
   });
 
-  it("has a slot for each tool that is moving in, shown but not clickable", () => {
+  it("shows no unbuilt slots or plan step labels to staff", () => {
     renderAs("builder");
     const slots = allStaffMenuItems.filter((i) => i.status === "slot");
-    // Each slot is a tool still to move in. A slot leaves this list only when its pages are live
-    // (step 5a: Client overview, client pages, Creator pipeline and Follow-ups replaced "dashboard-pipeline";
-    // step 5b: Creators, Actors, Applications and Approval boards replaced "dashboard-creators";
-    // step 4d: Operations, Operating costs and Support inbox replaced "goodo-os";
-    // step 6: Client BIDs replaced "bid-viewer", and "wideframe" was dropped on 2026-11-10;
-    // step 5d: Team and settings replaced "dashboard-settings"). What is left is optional (step 8).
-    expect(slots.map((s) => s.id).sort()).toEqual(
-      ["content-leaderboard"],
-    );
+    // Every tool that moved in is live (step 5a: Client overview, client pages, Creator pipeline
+    // and Follow-ups; step 5b: Creators, Actors, Applications and Approval boards; step 4d:
+    // Operations, Operating costs and Support inbox; step 6: Client BIDs; step 5d: Team and
+    // settings). The optional "content-leaderboard" slot (step 8) was taken off the menu
+    // because a "Moving in / Step 8" placeholder meant nothing to staff.
+    expect(slots).toEqual([]);
+    expect(allStaffMenuItems.find((i) => i.id === "content-leaderboard")).toBeUndefined();
+    expect(screen.queryByText("Moving in")).toBeNull();
+    expect(screen.queryByText(/^Step \d/)).toBeNull();
     expect(allStaffMenuItems.find((i) => i.id === "dashboard-settings")).toBeUndefined();
     expect(allStaffMenuItems.find((i) => i.id === "wideframe")).toBeUndefined();
     expect(allStaffMenuItems.find((i) => i.id === "bid-viewer")?.to).toBe("/bids");
@@ -102,6 +102,6 @@ describe("staff menu content", () => {
       if (item.status === "link") expect(item.href, item.id).toMatch(/^https:\/\//);
       if (item.status === "slot") expect(item.step, item.id).toBeTruthy();
     }
-    expect(staffMenuSections.length).toBeGreaterThanOrEqual(3);
+    expect(staffMenuSections.length).toBeGreaterThanOrEqual(2);
   });
 });

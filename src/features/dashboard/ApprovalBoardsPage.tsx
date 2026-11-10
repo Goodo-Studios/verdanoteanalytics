@@ -153,7 +153,7 @@ export default function ApprovalBoardsPage() {
         {brand && <Link to={`${prefix}/clients/${encodeURIComponent(brand)}`} className="underline">Client page</Link>}
       </div>
       <p className="text-xs text-muted-foreground" data-testid="old-dashboard-note">
-        Clients open these links on the old dashboard, which reads its own database until the release. A link made or revoked here, and the votes shown here, are this database's copy; clients see the change after the release points the public page here.
+        Public links still open on the old dashboard for now. Links you make or revoke here, and the votes shown here, reach clients once the public pages move over.
       </p>
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}

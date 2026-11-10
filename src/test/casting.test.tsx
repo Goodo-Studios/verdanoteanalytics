@@ -99,7 +99,7 @@ describe("Casting page", () => {
     expect(within(c1).getByText("Dec 4, 2026")).toBeTruthy();
     expect(screen.queryByTestId("casting-c3")).toBeNull();
     expect(screen.getByTestId("stage-counts").textContent).toBe("Shortlisted 1 · Booked 1 · Declined 1");
-    expect(screen.getByTestId("old-dashboard-note").textContent).toMatch(/reads its own database until the release/);
+    expect(screen.getByTestId("old-dashboard-note").textContent).toMatch(/Public links still open on the old dashboard for now/);
     expect(within(screen.getByTestId("live-link")).getByText("https://goodostudios-production.vercel.app/cast/tok1")).toBeTruthy();
   });
 

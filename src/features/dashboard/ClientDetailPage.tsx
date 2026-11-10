@@ -4,8 +4,8 @@
 // holds for the same clients.slug: linked ad accounts, 45-day cycles
 // (engagements), the Content Pipeline cards from ClickUp (pipeline_tasks; the
 // board stays on /pipeline), creator assignments and outside-system mappings.
-// Goodo OS step 4b (deliverables and approvals, QA gates, handoffs) is being
-// built in parallel; its views get a slot here rather than a second client page.
+// Cycle setup and deliverable approvals live on the Engagements and Deliverables
+// pages; this page links to them with ?client=<slug> so the client is preselected.
 //
 // Writes go through the checked functions: set_client_details (builder, manual
 // clients only), set_client_scope and set_client_active (builder).
@@ -15,6 +15,7 @@ import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
+import { STATUS_LABEL as ENGAGEMENT_STATUS_LABEL, type EngagementStatus } from "@/features/engagements/model";
 import {
   DashboardError,
   loadClientDetail,
@@ -49,6 +50,12 @@ import {
 const CARD = "rounded-lg border border-border bg-card p-4";
 const H2 = "text-sm font-semibold";
 const FIELD = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
+
+/** "ending / transitioning" -> "Ending / transitioning". */
+function sentenceCase(value: string | null | undefined): string {
+  if (!value) return "";
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
 
 function messageOf(e: unknown, fallback: string): string {
   if (e instanceof DashboardError) return e.code === "22023" ? e.message : errorText(e.code, e.message || fallback);
@@ -191,7 +198,10 @@ export default function ClientDetailPage() {
     return (
       <div className="p-6 space-y-4" data-testid="client-detail-page">
         {back}
-        <p className="rounded-lg border border-dashed p-8 text-center text-sm">No client with the id &ldquo;{slug}&rdquo;.</p>
+        <div className="rounded-lg border border-dashed p-8 text-center text-sm space-y-2">
+          <p>We couldn&rsquo;t find this client. It may have been removed, or the link may be out of date.</p>
+          <Link to={`${prefix}/clients`} className="underline">Go to Client overview</Link>
+        </div>
       </div>
     );
   }
@@ -210,7 +220,7 @@ export default function ClientDetailPage() {
       {back}
       <PageHeader
         title={client.name}
-        description={[...serviceLines(client), client.status, synced ? "Synced from its knowledge file" : "Added by hand"].join(" · ")}
+        description={[...serviceLines(client), sentenceCase(client.status), synced ? "Synced from its knowledge file" : "Added by hand"].join(" · ")}
         actions={isBuilder ? (
           <button type="button" className="rounded-md border px-3 py-1.5 text-sm" onClick={() => void toggleActive(client)}>
             {client.active ? "Hide from overview" : "Show on overview"}
@@ -280,7 +290,7 @@ export default function ClientDetailPage() {
                 const day = e.status === "active" ? cycleDay(e.start_date, now) : null;
                 return (
                   <li key={e.id} data-testid={`client-cycle-${e.cycle_number}`}>
-                    Cycle {e.cycle_number}: {e.status}{day ? `, day ${day} of 45` : ""}. Start {formatDay(e.start_date)}
+                    Cycle {e.cycle_number}: {ENGAGEMENT_STATUS_LABEL[e.status as EngagementStatus] ?? e.status}{day ? `, day ${day} of 45` : ""}. Start {formatDay(e.start_date)}
                     {e.day45_date ? `, day 30 ${formatDay(e.day30_date)}, day 45 ${formatDay(e.day45_date)}` : ""}
                   </li>
                 );
@@ -336,13 +346,14 @@ export default function ClientDetailPage() {
         </section>
       </div>
 
-      <section aria-label="Goodo OS engagement views" className="rounded-lg border border-dashed p-4" data-testid="client-detail-4b-slot">
-        <h2 className={H2}>Goodo OS engagement views (step 4b)</h2>
+      <section aria-label="Cycles and deliverables" className={CARD} data-testid="client-detail-engagement-links">
+        <h2 className={H2}>Cycles and deliverables</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Cycle setup, terms, milestones and closeouts are on the{" "}
-          <Link to={`${prefix}/engagements`} className="underline">Engagements page</Link>, and deliverable rounds and approvals on the{" "}
-          <Link to={`${prefix}/deliverables`} className="underline">Deliverables page</Link>. QA gates and handoffs for this client open
-          here when step 4b builds them. This page stays the one client page.
+          Set up cycles, terms and milestones on the{" "}
+          <Link to={`${prefix}/engagements?client=${encodeURIComponent(client.slug)}`} className="underline">Engagements page</Link>. Track deliverable
+          rounds and approvals on the{" "}
+          <Link to={`${prefix}/deliverables?client=${encodeURIComponent(client.slug)}`} className="underline">Deliverables page</Link>. Both open with{" "}
+          {client.name} already picked.
         </p>
       </section>
     </div>

@@ -83,7 +83,7 @@ async function waitingForMe() {
 describe("HandoffsPage", () => {
   it("shows the packet with brief, inputs, the deliverable snapshot and source status", async () => {
     const card = await waitingForMe();
-    expect(within(card).getByRole("heading")).toHaveTextContent("To Eda Editor as Editor · due 2026-11-20");
+    expect(within(card).getByRole("heading")).toHaveTextContent("To Eda Editor as Editor · due Nov 20, 2026");
     expect(await within(card).findByTestId("packet-p1")).toHaveTextContent("Waiting for the receiver · revision 1 · owner Sam Strategist · Deliverables match the packet");
     expect(within(card).getByText("Cut a 30 second UGC ad")).toBeTruthy();
     expect(within(card).getByText("Brand fonts")).toBeTruthy();

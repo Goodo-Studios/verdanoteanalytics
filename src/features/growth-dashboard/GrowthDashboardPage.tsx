@@ -327,7 +327,7 @@ function PlanEditor({
   return (
     <Block
       title={isNew ? "Enter the plan" : "Edit the plan"}
-      hint="Amounts in dollars. Stored in the database, builder only."
+      hint="Amounts in dollars. Only builders can see or change these numbers."
     >
       <div className="grid gap-3 sm:grid-cols-3">
         <label className={K3}>

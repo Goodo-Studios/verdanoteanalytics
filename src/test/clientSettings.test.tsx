@@ -30,7 +30,11 @@ vi.mock("@/integrations/supabase/client", () => ({
   },
 }));
 
+import { MemoryRouter } from "react-router-dom";
+import type { ReactElement } from "react";
 import { ClientsSettings } from "@/features/team/ClientsSettings";
+
+const renderWithRouter = (ui: ReactElement) => render(<MemoryRouter initialEntries={["/employee/team"]}>{ui}</MemoryRouter>);
 import { filterClients, newClientProblem, originLabel, serviceLinesLabel, suggestClientSlug, type ClientRow } from "@/features/team/clientsModel";
 
 const c = (over: Partial<ClientRow>): ClientRow => ({
@@ -51,7 +55,7 @@ afterEach(() => cleanup());
 
 describe("ClientsSettings", () => {
   it("opens on clients shown on the overview, widens to hidden and all, and searches", async () => {
-    render(<ClientsSettings builder={false} />);
+    renderWithRouter(<ClientsSettings builder={false} />);
     const items = await screen.findAllByTestId("client-setting");
     expect(items.map((i) => i.querySelector("a")?.textContent)).toEqual(["Glow Drip", "Harbor Home"]);
     expect(items[0].querySelector("a")?.getAttribute("href")).toBe("/employee/clients/glow");
@@ -65,14 +69,14 @@ describe("ClientsSettings", () => {
   });
 
   it("gives an employee no show, hide or edit controls", async () => {
-    render(<ClientsSettings builder={false} />);
+    renderWithRouter(<ClientsSettings builder={false} />);
     const items = await screen.findAllByTestId("client-setting");
     expect(within(items[0]).queryByRole("button")).toBeNull();
     expect(screen.queryByText("Edit name and service lines")).toBeNull();
   });
 
   it("lets staff add a client by hand with a suggested slug, and refuses a taken slug before calling", async () => {
-    render(<ClientsSettings builder={false} />);
+    renderWithRouter(<ClientsSettings builder={false} />);
     await screen.findAllByTestId("client-setting");
     const group = screen.getByRole("group", { name: "Add a client" });
     fireEvent.change(within(group).getByLabelText("New client name"), { target: { value: "Glow Drip" } });
@@ -89,7 +93,7 @@ describe("ClientsSettings", () => {
 
   it("lets a builder hide a client after a confirm and edit a hand-made client; a synced client stays read only", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-    render(<ClientsSettings builder />);
+    renderWithRouter(<ClientsSettings builder />);
     const items = await screen.findAllByTestId("client-setting");
     fireEvent.click(within(items[0]).getByRole("button", { name: "Hide from overview" }));
     await waitFor(() => expect(rpc).toHaveBeenCalledWith("set_client_active", { p_slug: "glow", p_active: false }));
@@ -107,7 +111,7 @@ describe("ClientsSettings", () => {
   it("shows a refusal from the database", async () => {
     rpc.mockResolvedValue({ data: null, error: { code: "42501", message: "Only admins can change which clients are active." } });
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    render(<ClientsSettings builder />);
+    renderWithRouter(<ClientsSettings builder />);
     const items = await screen.findAllByTestId("client-setting");
     fireEvent.click(within(items[0]).getByRole("button", { name: "Hide from overview" }));
     expect(await within(items[0]).findByRole("alert")).toHaveTextContent("Not allowed: Only admins can change which clients are active.");

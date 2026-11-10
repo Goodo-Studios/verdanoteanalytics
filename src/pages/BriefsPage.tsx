@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useBriefs, useBriefTemplates, useCreateBrief, useDeleteBrief, type Brief } from "@/hooks/useBriefsApi";
 import { useAccounts } from "@/hooks/useAccountsApi";
 import { BriefEditorModal } from "@/components/briefs/BriefEditorModal";
+import { ConfirmDeleteDialog } from "@/components/user-settings/ConfirmDeleteDialog";
 import { Plus, Search, Trash2, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -23,6 +24,8 @@ const BriefsPage = () => {
   const [search, setSearch] = useState("");
   const [editorBrief, setEditorBrief] = useState<Brief | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [editorIsNew, setEditorIsNew] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<Brief | null>(null);
 
   const filtered = useMemo(() => {
     if (!search) return briefs;
@@ -63,6 +66,7 @@ const BriefsPage = () => {
     createBrief.mutate(newBrief as any, {
       onSuccess: (created) => {
         setEditorBrief(created);
+        setEditorIsNew(true);
         setEditorOpen(true);
       },
     });
@@ -89,7 +93,7 @@ const BriefsPage = () => {
             className="pl-8 h-9 font-body text-[13px]"
           />
         </div>
-        <Button size="sm" className="bg-verdant hover:bg-verdant/90 text-white font-body text-[12px] gap-1.5" onClick={() => handleNew()}>
+        <Button size="sm" className="bg-verdant hover:bg-verdant/90 text-white font-body text-[12px] gap-1.5" onClick={() => handleNew()} disabled={createBrief.isPending}>
           <Plus className="h-3.5 w-3.5" /> New Brief
         </Button>
       </div>
@@ -111,7 +115,7 @@ const BriefsPage = () => {
                 <tr
                   key={brief.id}
                   className="border-b border-border-light last:border-0 hover:bg-muted/20 cursor-pointer"
-                  onClick={() => { setEditorBrief(brief); setEditorOpen(true); }}
+                  onClick={() => { setEditorBrief(brief); setEditorIsNew(false); setEditorOpen(true); }}
                 >
                   <td className="px-4 py-3 font-body text-[13px] font-medium text-charcoal">{brief.name}</td>
                   <td className="px-4 py-3 font-body text-[12px] text-slate">{accountName(brief.account_id)}</td>
@@ -120,7 +124,7 @@ const BriefsPage = () => {
                       <button onClick={() => brief.share_token && copyShareLink(brief.share_token)} className="p-1 rounded hover:bg-muted" title="Copy share link" disabled={!brief.share_token}>
                         <Copy className={cn("h-3.5 w-3.5", brief.share_token ? "text-muted-foreground" : "text-muted-foreground/30")} />
                       </button>
-                      <button onClick={() => deleteBrief.mutate(brief.id)} className="p-1 rounded hover:bg-destructive/10" title="Delete">
+                      <button onClick={() => setPendingDelete(brief)} className="p-1 rounded hover:bg-destructive/10" title="Delete" aria-label={`Delete ${brief.name}`}>
                         <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </button>
                     </div>
@@ -143,8 +147,21 @@ const BriefsPage = () => {
       <BriefEditorModal
         brief={editorBrief}
         open={editorOpen}
-        onClose={() => { setEditorOpen(false); setEditorBrief(null); }}
+        onClose={() => { setEditorOpen(false); setEditorBrief(null); setEditorIsNew(false); }}
         onCopyShareLink={copyShareLink}
+        isNew={editorIsNew}
+      />
+
+      <ConfirmDeleteDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => { if (!open) setPendingDelete(null); }}
+        title="Delete this brief?"
+        description={`"${pendingDelete?.name ?? ""}" will be deleted for everyone, including anyone with its share link. This can't be undone.`}
+        actionLabel="Delete brief"
+        onConfirm={() => {
+          if (pendingDelete) deleteBrief.mutate(pendingDelete.id);
+          setPendingDelete(null);
+        }}
       />
     </>
   );

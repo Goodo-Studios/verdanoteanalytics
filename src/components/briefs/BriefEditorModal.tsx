@@ -24,9 +24,11 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onCopyShareLink: (token: string) => void;
+  /** A brief that was just created: focus and select the name so typing replaces it. */
+  isNew?: boolean;
 }
 
-export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Props) {
+export function BriefEditorModal({ brief, open, onClose, onCopyShareLink, isNew = false }: Props) {
   const updateBrief = useUpdateBrief();
   const [name, setName] = useState("");
   const [content, setContent] = useState<Record<string, any>>({});
@@ -126,6 +128,9 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
               onChange={(e) => { setName(e.target.value); setDirty(true); }}
               className="font-heading text-[18px] text-forest border-0 p-0 h-auto shadow-none focus-visible:ring-0"
               placeholder="Brief name…"
+              aria-label="Brief name"
+              autoFocus={isNew}
+              onFocus={isNew ? (e) => e.currentTarget.select() : undefined}
             />
           </div>
           <div className="flex items-center gap-2 shrink-0">

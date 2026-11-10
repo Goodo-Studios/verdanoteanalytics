@@ -89,6 +89,13 @@ export const STAGE_LABEL: Record<Stage, string> = {
 
 export const CHANNEL_LABEL: Record<Channel, string> = { call: "Call", slack: "Slack", email: "Email" };
 export const KIND_LABEL: Record<ApprovalSubject["subject_kind"], string> = { idea: "Idea", shot_list: "Shot list" };
+export const ASSET_KIND_LABEL: Record<Deliverable["asset_kind"], string> = {
+  video: "Video",
+  image: "Image",
+  design: "Design",
+  document: "Document",
+  other: "Other",
+};
 
 export const currentRevision = (d: Deliverable): Revision | undefined => d.revisions.find((r) => r.revision === d.current_revision);
 export const decisionFor = (d: Deliverable, revision: number) => d.decisions.find((x) => x.revision === revision);

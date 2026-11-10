@@ -50,11 +50,13 @@ describe("ClientEmptyState (shared component)", () => {
 });
 
 describe("Content pipeline empty state", () => {
-  it("nothing in flight shows 'Nothing in production right now — your strategist will queue the next round'", () => {
+  it("nothing in flight shows a friendly 'Nothing in production right now' message with no em dash", () => {
     render(<ContentPipelineView tasks={[]} isLoading={false} isError={false} />);
-    expect(screen.getByTestId("client-empty-state")).toBeInTheDocument();
+    const empty = screen.getByTestId("client-empty-state");
+    expect(empty).toBeInTheDocument();
     expect(
-      screen.getByText(/Nothing in production right now — your strategist will queue the next round/i),
+      screen.getByText(/Nothing in production right now\. Your strategist will queue up the next round soon\./i),
     ).toBeInTheDocument();
+    expect(empty.textContent).not.toContain("\u2014");
   });
 });

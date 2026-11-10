@@ -1,8 +1,11 @@
 import { usePipelineTasks, PipelineTask } from "@/hooks/usePipelineTasks";
-import { differenceInDays, parseISO, format } from "date-fns";
-import { PackageOpen } from "lucide-react";
+import { parseISO, format } from "date-fns";
+import { CloudOff, PackageOpen } from "lucide-react";
 import { ClientEmptyState } from "@/components/client/ClientEmptyState";
+import { Button } from "@/components/ui/button";
 import { waitingOnYou } from "@/lib/pipelineSummary";
+import { fmtTimeAgo } from "@/lib/formatters";
+import { dueDateLabel, lastSyncedAt } from "@/lib/pipelineBoard";
 
 const STAGE_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
   "Preparing Content": { color: "text-amber-500", bg: "bg-amber-500", label: "Preparing Content" },
@@ -32,29 +35,26 @@ const COLUMN_ORDER = [
   "Ready to Launch",
 ] as const;
 
-function dueDateLabel(dueDateStr: string | null): { text: string; urgent: boolean } | null {
-  if (!dueDateStr) return null;
-  const due = parseISO(dueDateStr);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const diff = differenceInDays(due, today);
-
-  if (diff < 0) return { text: `Overdue by ${Math.abs(diff)} day${Math.abs(diff) !== 1 ? "s" : ""}`, urgent: true };
-  if (diff === 0) return { text: "Due today", urgent: true };
-  if (diff === 1) return { text: "Due tomorrow", urgent: false };
-  if (diff <= 5) return { text: `Due in ${diff} days`, urgent: false };
-  return { text: `Due ${format(due, "MMM d")}`, urgent: false };
+/** "Updated 2 hours ago". Omitted when there are no rows (or no sync time). */
+function LastUpdated({ tasks }: { tasks?: PipelineTask[] }) {
+  const ago = fmtTimeAgo(lastSyncedAt(tasks));
+  if (!ago) return null;
+  return (
+    <p className="font-body text-[12px] text-muted-foreground -mt-3 mb-4" data-testid="pipeline-last-updated">
+      Updated {ago}
+    </p>
+  );
 }
 
 /**
  * A single pipeline card in its stage column, framed in client language: what it
- * is (content type) and roughly when it lands. Intentionally READ-ONLY — no
+ * is (content type) and roughly when it lands. Intentionally READ-ONLY: no
  * click handler, no link-out, no internal task IDs or strategist-only fields
  * (US-007 AC2/AC3). No link to the task in ClickUp is stored or surfaced. The
  * card is a plain <div> with no interactive affordances.
  */
 function TaskCard({ task, stage }: { task: PipelineTask; stage: string }) {
-  const dueInfo = dueDateLabel(task.due_date);
+  const dueInfo = dueDateLabel(task.due_date, stage);
 
   return (
     <div
@@ -73,8 +73,8 @@ function TaskCard({ task, stage }: { task: PipelineTask; stage: string }) {
       </p>
 
       {dueInfo && (
-        <p className={`font-body text-[11px] mt-1 ${dueInfo.urgent ? "text-destructive font-medium" : "text-muted-foreground"}`}>
-          {dueInfo.urgent && "⚠️ "}{dueInfo.text}
+        <p className={`font-body text-[11px] mt-1 ${dueInfo.urgent ? "text-blue-500 font-medium" : "text-muted-foreground"}`}>
+          {dueInfo.text}
         </p>
       )}
     </div>
@@ -139,10 +139,10 @@ function bucketByColumn(tasks: PipelineTask[]): Record<string, PipelineTask[]> {
  *
  * Renders a transparency-only "what we're making next" surface. There are NO
  * comment / approve / request-changes / upload affordances and no link-out /
- * click-to-open interaction controls (out of scope for Phase C, AC2). When data
- * is unavailable — loading, fetch error, or simply nothing in production — the
- * section degrades to a friendly empty/onboarding state rather than erroring
- * (AC4/AC5), consistent with the rest of the client home.
+ * click-to-open interaction controls on the board (out of scope for Phase C,
+ * AC2). Loading shows placeholders. A failed load shows its own message with a
+ * Try again button, so a client never mistakes a load problem for an empty
+ * pipeline. Nothing in production degrades to a friendly onboarding state (AC4).
  *
  * Takes its data as plain props so it can be rendered (and tested) without a
  * QueryClient. The exported `ContentPipeline` wraps it with `usePipelineTasks`.
@@ -151,10 +151,12 @@ export function ContentPipelineView({
   tasks,
   isLoading,
   isError,
+  onRetry,
 }: {
   tasks?: PipelineTask[];
   isLoading?: boolean;
   isError?: boolean;
+  onRetry?: () => void;
 }) {
   if (isLoading) {
     return (
@@ -169,22 +171,43 @@ export function ContentPipelineView({
     );
   }
 
+  // A failed load gets its own state. It must not look like an empty pipeline.
+  if (isError) {
+    return (
+      <div className="glass-panel p-7" data-testid="pipeline-error">
+        <h2 className="font-heading text-[20px] text-foreground mb-4">Content Pipeline</h2>
+        <ClientEmptyState
+          icon={CloudOff}
+          heading="We couldn't load your pipeline just now"
+          subcopy="This one is on our side. Please try again in a moment."
+        />
+        {onRetry && (
+          <div className="mt-4 flex justify-center">
+            <Button variant="outline" size="sm" onClick={onRetry}>
+              Try again
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // Bucket into the board columns. Unmapped/drifted-stage tasks fall out here,
   // so a pipeline of only-unmapped work reads as empty for board purposes.
   const columns = bucketByColumn(tasks ?? []);
   const hasBoardTasks = COLUMN_ORDER.some((col) => columns[col].length > 0);
 
-  // AC4/AC5: no data for this account — fetch failed, nothing synced, or only
-  // completed/unmapped work — degrades to the same calm, first-class onboarding
-  // state (US-006) instead of surfacing an error.
-  if (isError || !hasBoardTasks) {
+  // AC4: nothing synced, or only completed/unmapped work, degrades to the calm,
+  // first-class onboarding state (US-006).
+  if (!hasBoardTasks) {
     return (
       <div className="glass-panel p-7" data-testid="pipeline-empty">
         <h2 className="font-heading text-[20px] text-foreground mb-4">Content Pipeline</h2>
+        <LastUpdated tasks={tasks} />
         <ClientEmptyState
           icon={PackageOpen}
-          heading="Nothing in production right now — your strategist will queue the next round"
-          subcopy="When new creative is planned and underway, you&rsquo;ll see exactly what&rsquo;s coming next right here."
+          heading="Nothing in production right now. Your strategist will queue up the next round soon."
+          subcopy="When new creative is planned and underway, you'll see exactly what's coming next right here."
         />
       </div>
     );
@@ -193,10 +216,11 @@ export function ContentPipelineView({
   return (
     <div className="glass-panel p-7" data-testid="content-pipeline">
       <h2 className="font-heading text-[20px] text-foreground mb-4">Content Pipeline</h2>
+      <LastUpdated tasks={tasks} />
 
       <WaitingOnYouSummary tasks={tasks ?? []} />
 
-      {/* Horizontal-scroll kanban board — one column per active stage. */}
+      {/* Horizontal-scroll kanban board: one column per active stage. */}
       <div className="flex gap-4 overflow-x-auto pb-2 -mx-1 px-1 snap-x">
         {COLUMN_ORDER.map((col) => {
           const cfg = STAGE_CONFIG[col];
@@ -236,6 +260,13 @@ export function ContentPipelineView({
  * `own` loads the signed-in client's own rows (see `usePipelineTasks`).
  */
 export function ContentPipeline({ accountId, own }: { accountId?: string; own?: boolean }) {
-  const { data: tasks, isLoading, isError } = usePipelineTasks(accountId, own);
-  return <ContentPipelineView tasks={tasks} isLoading={isLoading} isError={isError} />;
+  const { data: tasks, isLoading, isError, refetch } = usePipelineTasks(accountId, own);
+  return (
+    <ContentPipelineView
+      tasks={tasks}
+      isLoading={isLoading}
+      isError={isError}
+      onRetry={() => void refetch()}
+    />
+  );
 }
