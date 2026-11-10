@@ -20,6 +20,7 @@ export const routeImports = {
   briefs: () => import("@/pages/BriefsPage"),
   agencyDashboard: () => import("@/pages/AgencyDashboardPage"),
   home: () => import("@/pages/HomePage"),
+  work: () => import("@/features/home/WorkPage"),
   contentPipeline: () => import("@/pages/ContentPipelinePage"),
   creativeLibrary: () => import("@/features/creative-library/CreativeLibraryPage"),
   adLibrary: () => import("@/features/vault/LibraryPage"),

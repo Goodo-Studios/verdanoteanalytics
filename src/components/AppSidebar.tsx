@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { NavLink } from "@/components/NavLink";
 import {
   Settings,
@@ -115,6 +115,8 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
     navigate(`${newPrefix}/`);
   };
 
+  // Work is a tab under Home, so Home stays lit on it.
+  const onWork = /^\/(builder|employee)\/work\/?$/.test(useLocation().pathname);
   const navItems = useMemo<NavItem[]>(() => (effectiveClient ? clientNavItems : staffNavItems), [effectiveClient]);
 
   return (
@@ -174,7 +176,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
               key={item.url}
               to={`${prefix}${item.url}`}
               end={item.url === "/"}
-              className={ITEM_CLASS}
+              className={item.url === "/" && !effectiveClient && onWork ? `${ITEM_CLASS} ${ACTIVE_CLASS}` : ITEM_CLASS}
               activeClassName={ACTIVE_CLASS}
               onClick={onNavigate}
               onMouseEnter={() => prefetchRoute(item.url)}

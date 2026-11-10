@@ -7,6 +7,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { SECTIONS } from "@/lib/sections";
+import { HomeTabs } from "@/features/home/HomeTabs";
+import { StaffHomeBlocks } from "@/features/home/StaffHomeBlocks";
 import { ATTIO_URL, GOODO_TIME_URL, OLD_DASHBOARD_PUBLIC_URL } from "@/lib/staffMenu";
 
 const CARD = "block rounded-lg border border-input bg-background px-4 py-3 font-body transition-colors hover:bg-accent";
@@ -33,7 +35,10 @@ export default function HomePage() {
 
   return (
     <div className="space-y-6 p-6" data-testid="home-page">
-      <PageHeader title="Home" description="Pick a client at the top of the page, or go straight to a part of the app." />
+      <PageHeader title="Home" description="What to do today. Pick a client at the top of the page to work on one." className="mb-2" />
+      <HomeTabs active="today" />
+
+      <StaffHomeBlocks />
 
       <section aria-label="Current client" className="rounded-lg border border-input p-4">
         {selectedSlug ? (
@@ -50,13 +55,16 @@ export default function HomePage() {
         )}
       </section>
 
-      <section aria-label="Menu" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {cards.map((c) => (
-          <Link key={c.id} to={`${prefix}${c.to}`} className={CARD} data-testid={`home-card-${c.id}`}>
-            <span className="text-[14px] font-semibold text-forest">{c.title}</span>
-            <p className="mt-1 text-[12px] text-muted-foreground">{c.description}</p>
-          </Link>
-        ))}
+      <section aria-label="Menu" className="space-y-2">
+        <h2 className="text-sm font-semibold">Go to</h2>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {cards.map((c) => (
+            <Link key={c.id} to={`${prefix}${c.to}`} className={CARD} data-testid={`home-card-${c.id}`}>
+              <span className="text-[14px] font-semibold text-forest">{c.title}</span>
+              <p className="mt-1 text-[12px] text-muted-foreground">{c.description}</p>
+            </Link>
+          ))}
+        </div>
       </section>
 
       <section aria-label="Other apps" className="space-y-2">

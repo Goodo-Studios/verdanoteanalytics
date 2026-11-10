@@ -4,6 +4,7 @@ import { useSync } from "@/hooks/useSyncApi";
 import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { Button } from "@/components/ui/button";
+import { WaitingOnYouLine } from "@/components/client/WaitingOnYouLine";
 import { RefreshCw } from "lucide-react";
 import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
 import { fmt$, fmtN, fmtPct, delta, deltaInverse } from "@/lib/formatters";
@@ -61,6 +62,8 @@ const OverviewPage = () => {
 
   return (
     <div className="space-y-8">
+      {/* A client's first line: what is waiting on them. Real client logins only. */}
+      {isClient ? <WaitingOnYouLine /> : null}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>

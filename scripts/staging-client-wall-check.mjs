@@ -1091,6 +1091,41 @@ for (const [table, select, filter] of SHELL_QUERIES) {
   check("client A loads only its own clients with the shell page query", !rows.error && (rows.data ?? []).every((r) => mine.includes(r.slug)), `error=${rows.error?.message ?? "none"} rows=${rows.data?.length ?? "error"} own=${mine}`);
 }
 
+// Staff Home and the cross-client Work page (restructure phase 2b). The same four reads the pages send
+// (src/lib/pageQueries.ts, staffList entries; src/test/pageQueryCheck.test.ts keeps the two in step), with
+// the filter each page adds. Staff load them (the budget table is builder only: an employee reads nothing).
+// A client reads none of the handoff, support and budget rows, and of the cards only its own clients'.
+{
+  const HOME_QUERIES = [
+    ["pipeline_tasks", "id, clickup_task_id, client_slug, task_name, stage, due_date, synced_at"],
+    ["handoff_packets", "id, client_slug, receiving_role, receiver_id, due_date, status"],
+    ["support_requests", "id, client_slug, subject, status, next_update_target, accountable_user_id, backup_user_id"],
+    ["operating_budget_alerts", "id, level, period_month"],
+  ];
+  const HOME_FILTER = { handoff_packets: ["status", "ready"], support_requests: ["status", "open"], operating_budget_alerts: ["period_month", new Date().toISOString().slice(0, 7) + "-01"] };
+  const run = (s, table, select) => {
+    let q = s.c.from(table).select(select);
+    if (HOME_FILTER[table]) q = q.eq(...HOME_FILTER[table]);
+    return q;
+  };
+  for (const [table, select] of HOME_QUERIES) {
+    const builderOnly = table === "operating_budget_alerts";
+    const emp = await run(employee, table, select);
+    check(`employee loads the Home page query on ${table}${builderOnly ? " (and reads no rows: builder only)" : ""}`, !emp.error && (!builderOnly || (emp.data ?? []).length === 0), `error=${emp.error?.code ?? ""} ${emp.error?.message ?? "none"} rows=${emp.data?.length ?? "error"}`);
+    const bld = await run(staff, table, select);
+    check(`builder loads the Home page query on ${table}`, !bld.error, `error=${bld.error?.code ?? ""} ${bld.error?.message ?? "none"} rows=${bld.data?.length ?? "error"}`);
+    for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+      const r = await run(s, table, select);
+      if (table === "pipeline_tasks") {
+        const mine = await slugsOf(s);
+        check(`${label} reads only its own clients' cards with the Home page query`, !r.error && (r.data ?? []).every((row) => mine.includes(row.client_slug)), `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"} own=${mine}`);
+      } else {
+        check(`${label} reads no rows of ${table} with the Home page query`, !!r.error || (r.data ?? []).length === 0, `rows=${r.data?.length ?? "error"}`);
+      }
+    }
+  }
+}
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

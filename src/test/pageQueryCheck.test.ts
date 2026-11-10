@@ -48,6 +48,24 @@ describe("page queries are run by the staging wall check", () => {
     expect(hook).not.toContain("task_name, stage");
   });
 
+  it("runs the Home and Work reads as staff and as a client, with the filter each page adds", () => {
+    const lists = PAGE_QUERIES.filter((q) => q.staffList);
+    expect(lists.map((q) => q.table).sort()).toEqual(["handoff_packets", "operating_budget_alerts", "pipeline_tasks", "support_requests"]);
+    expect(script).toContain("loads the Home page query on");
+    expect(script).toContain("reads only its own clients' cards with the Home page query");
+    expect(script).toContain("reads no rows of ${table} with the Home page query");
+    for (const f of ['handoff_packets: ["status", "ready"]', 'support_requests: ["status", "open"]', 'operating_budget_alerts: ["period_month"']) expect(script).toContain(f);
+  });
+
+  it("the Home hooks send the listed columns, not their own copy", () => {
+    const hook = readFileSync(path.resolve(__dirname, "../hooks/useHomeData.ts"), "utf8");
+    for (const c of ["HOME_TASK_COLUMNS", "HOME_HANDOFF_COLUMNS", "HOME_SUPPORT_COLUMNS", "HOME_BUDGET_ALERT_COLUMNS"]) expect(hook).toContain(c);
+    expect(hook).toContain('.eq("status", "ready")');
+    expect(hook).toContain('.eq("status", "open")');
+    expect(hook).toContain('.eq("period_month", month)');
+    expect(hook).not.toMatch(/select\("[a-z_, ]+"\)/);
+  });
+
   it("lists no query twice", () => {
     const keys = PAGE_QUERIES.map((q) => `${q.table}:${q.select}`);
     expect(new Set(keys).size).toBe(keys.length);
