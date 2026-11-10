@@ -100,7 +100,7 @@ One client list: the dashboard `clients` table, keyed by `slug`. `client_ad_acco
 
 ### Job queue and reminders (step 3)
 
-`durable_jobs`, `job_audit`, `slack_destinations` and `reminders` (migration 20261109000005) are staff only. Jobs are written only through the service-role queue functions; staff can replay or close a job in recovery. Only a builder can add or confirm a Slack destination. Nothing is scheduled and nothing sends in this step; the worker that sends arrives with the Slack connector, behind a switch that is off by default and refuses to run on staging. Tests: `supabase/tests/durable_jobs_test.sql`, plus lines in both staging wall scripts.
+`durable_jobs`, `job_audit`, `slack_destinations` and `reminders` (migration 20261109000005) are staff only. Jobs are written only through the service-role queue functions; staff can replay or close a job in recovery. Only a builder can add or confirm a Slack destination. The worker that sends is `run-slack-jobs` (cron every 5 minutes, removed on staging by the lockdown). It refuses with 409 outside the production project, does nothing while the `outbound_switches` row `slack_sends` is missing or off (no row exists), and answers 503 without `SLACK_BOT_TOKEN`. Staging has neither a switch row nor a token. Tests: `supabase/functions/run-slack-jobs/index.test.ts`, `supabase/tests/slack_sends_test.sql`. Tests: `supabase/tests/durable_jobs_test.sql`, plus lines in both staging wall scripts.
 
 ### Roles from the old dashboard
 

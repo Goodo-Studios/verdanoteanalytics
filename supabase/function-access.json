@@ -166,6 +166,10 @@
     "resolve-destinations": {
       "class": "service"
     },
+    "run-slack-jobs": {
+      "class": "service",
+      "note": "Goodo OS Slack connector. Sends queued reminders and owner alerts only in the production project, only with the slack_sends switch on (off by default) and SLACK_BOT_TOKEN set."
+    },
     "sadie-read": {
       "class": "secret"
     },
