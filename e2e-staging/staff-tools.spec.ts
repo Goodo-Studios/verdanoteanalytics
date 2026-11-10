@@ -3,7 +3,7 @@
  * Cmd/Ctrl+K jump-to search.
  */
 import { test, expect } from "@playwright/test";
-import { hasLogins, NEEDS_PASSWORD, storagePath } from "./support";
+import { hasLogins, NEEDS_PASSWORD, openSearchWithShortcut, storagePath } from "./support";
 
 test.describe("builder: top bar tools", () => {
   test.use({ storageState: storagePath("builder") });
@@ -36,10 +36,7 @@ test.describe("builder: top bar tools", () => {
 
   test("Ctrl+K opens the search, it finds a page, and Enter opens it", async ({ page }) => {
     await page.goto("/builder/");
-    await expect(page.getByTestId("command-palette-button")).toBeVisible();
-    await page.keyboard.press("Control+k");
-    const input = page.getByTestId("command-palette-input");
-    await expect(input).toBeVisible();
+    const input = await openSearchWithShortcut(page);
     await expect(input).toBeFocused();
 
     await input.fill("call sheets");
@@ -51,10 +48,7 @@ test.describe("builder: top bar tools", () => {
 
   test("Escape closes the search and the button opens it again", async ({ page }) => {
     await page.goto("/builder/");
-    // The shortcut is listening once the button is on screen.
-    await expect(page.getByTestId("command-palette-button")).toBeVisible();
-    await page.keyboard.press("Control+k");
-    await expect(page.getByTestId("command-palette-input")).toBeVisible();
+    await openSearchWithShortcut(page);
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("command-palette")).toHaveCount(0);
     await page.getByTestId("command-palette-button").click();

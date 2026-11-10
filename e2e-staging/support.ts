@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 
 // The four staging test logins (docs/staging.md). They exist only in the staging project.
 export const LOGINS = {
@@ -47,4 +47,22 @@ export function watchConsole(page: Page, alsoKnown: RegExp[] = []) {
     problems.push(`console.error: ${text}`);
   });
   return { problems: () => [...problems] };
+}
+
+/**
+ * Open the Cmd/Ctrl+K search with the keyboard. The shortcut listener is attached just after the
+ * button first renders and the palette loads on first use, so a key pressed in that gap does
+ * nothing. Hovering the button starts the load, and the press is retried until the dialog is
+ * there, without pressing again once it is open (a second press would close it).
+ */
+export async function openSearchWithShortcut(page: Page) {
+  const button = page.getByTestId("command-palette-button");
+  await expect(button).toBeVisible();
+  await button.hover();
+  const input = page.getByTestId("command-palette-input");
+  await expect(async () => {
+    if (!(await input.isVisible())) await page.keyboard.press("Control+k");
+    await expect(input).toBeVisible({ timeout: 4_000 });
+  }).toPass({ timeout: 30_000 });
+  return input;
 }
