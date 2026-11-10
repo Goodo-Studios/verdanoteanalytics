@@ -3,7 +3,7 @@
 // only). The numbers live in public.growth_dashboard_data instead of the browser.
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
@@ -16,10 +16,10 @@ import { cn } from "@/lib/utils";
 import {
   ACTS,
   EXPORT_CONSOLE_COMMAND,
-  EXPORT_DOWNLOAD_COMMAND,
   H2_MONTHS,
   MONTHS,
-  MONTH_NAMES,
+  monthName,
+  emptyWeek,
   QUOTES,
   allTimeTotal,
   calendarCells,
@@ -64,6 +64,30 @@ import {
 const GROWTH_TABLE = "growth_dashboard_data";
 const GROWTH_QUERY_KEY = ["growth-dashboard"] as const;
 const SAVE_DELAY_MS = 700;
+// Repeated class names, kept once so the page chunk stays small (bundle budget).
+const KK0 = "w-full text-[14px]";
+const KK1 = "px-2 py-1.5 font-semibold";
+const KK2 = "list-disc pl-5 text-[13px] text-red-700";
+const KK3 = "flex flex-wrap items-center gap-2";
+const KK4 = "min-w-full text-center text-[14px]";
+const KK5 = "bg-muted/40 px-3 py-2";
+const KK6 = "px-3 py-1.5 text-left font-semibold";
+const KK7 = "border-t-2 border-input font-semibold";
+const KK8 = "text-amber-700";
+const K0 = "font-label text-[10px] uppercase tracking-[0.08em] text-sage";
+const K1 = "px-2 py-1.5 tabular-nums";
+const K2 = "text-[24px] font-semibold tabular-nums text-forest";
+const K3 = "text-[12px] text-muted-foreground";
+const K4 = "border-b border-input text-left font-label text-[10px] uppercase tracking-[0.06em] text-sage";
+const K5 = "mt-1 overflow-x-auto rounded bg-muted px-2 py-1.5 font-mono text-[12px] text-forest";
+const K6 = "text-[13px] text-muted-foreground";
+const K7 = "border-b border-input font-label text-[10px] uppercase text-sage";
+const K8 = "border-t-2 border-input bg-muted/40 font-semibold";
+const K9 = "flex items-baseline gap-2";
+const K10 = "flex items-center gap-1.5";
+const K11 = "border-b border-input/50";
+const K12 = "px-2 py-2";
+const K13 = "overflow-x-auto";
 
 /** Message of an Error or of a Supabase error object (a plain object with `message`). */
 function errorText(e: unknown): string {
@@ -111,7 +135,7 @@ function Tiles({ tiles, testId }: { tiles: Tile[]; testId: string }) {
       {tiles.map((t) => (
         <div key={t.label} className="relative overflow-hidden rounded-lg border border-input bg-background px-4 py-3">
           <div className={cn("absolute inset-y-0 left-0 w-1", STRIPE[t.cls])} />
-          <div className="font-label text-[10px] uppercase tracking-[0.08em] text-sage">{t.label}</div>
+          <div className={K0}>{t.label}</div>
           <div
             className={cn(
               "mt-1 text-[26px] font-semibold tabular-nums text-forest",
@@ -121,7 +145,7 @@ function Tiles({ tiles, testId }: { tiles: Tile[]; testId: string }) {
           >
             {t.value}
           </div>
-          <div className="text-[12px] text-muted-foreground">{t.foot}</div>
+          <div className={K3}>{t.foot}</div>
         </div>
       ))}
     </div>
@@ -149,11 +173,21 @@ function PillTag({ pill }: { pill: Pill }) {
   );
 }
 
-/** Parse a number input: "" clears, anything not a number is ignored (undefined). */
-function readNumber(e: ChangeEvent<HTMLInputElement>): number | null | undefined {
-  if (e.target.value === "") return null;
-  const v = Number(e.target.value);
-  return Number.isFinite(v) ? v : undefined;
+/** Number input handler: "" clears (null), anything that is not a number is ignored. */
+function onNumber(fn: (v: number | null) => void) {
+  return (e: ChangeEvent<HTMLInputElement>) => {
+    if (e.target.value === "") return fn(null);
+    const v = Number(e.target.value);
+    if (Number.isFinite(v)) fn(v);
+  };
+}
+
+/** Copy of a map with one key set, or removed when the value is null. */
+function setOrDelete(obj: Record<string, number>, k: string | number, v: number | null): Record<string, number> {
+  const out = { ...obj };
+  if (v == null) delete out[k];
+  else out[k] = v;
+  return out;
 }
 
 function RevenueChart({ state, plan, withEntered }: { state: GrowthState; plan: GrowthPlan | null; withEntered: boolean }) {
@@ -161,7 +195,7 @@ function RevenueChart({ state, plan, withEntered }: { state: GrowthState; plan: 
   return (
     <div className="h-[280px] w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 0 }}>
+        <ComposedChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
           <XAxis dataKey="month" tickLine={false} />
           <YAxis tickFormatter={(v: number) => fmtMoney(v)} width={64} />
@@ -172,7 +206,7 @@ function RevenueChart({ state, plan, withEntered }: { state: GrowthState; plan: 
           {withEntered && (
             <Line dataKey="entered" name="Actual entered" stroke="#2C2C2C" strokeWidth={2.5} strokeDasharray="6 4" isAnimationActive={false} />
           )}
-        </LineChart>
+        </ComposedChart>
       </ResponsiveContainer>
     </div>
   );
@@ -224,42 +258,42 @@ function PlanTab({ state, plan, onSave }: { state: GrowthState; plan: GrowthPlan
         />
         <RevenueChart state={state} plan={plan} withEntered={false} />
       </Block>
-      <Block title="Monthly plan (H2)" hint="New-retainer MRR on top of the existing base and project work.">
-        <div className="overflow-x-auto">
-          <table className="w-full text-[14px]" data-testid="growth-plan-table">
+      <Block title="Monthly plan (H2)">
+        <div className={K13}>
+          <table className={KK0} data-testid="growth-plan-table">
             <thead>
-              <tr className="border-b border-input text-left font-label text-[10px] uppercase tracking-[0.06em] text-sage">
-                <th className="px-2 py-2">Month</th>
+              <tr className={K4}>
+                <th className={K12}>Month</th>
                 {PLAN_FIELDS.slice(0, 6).map((f) => (
-                  <th key={f.k} className="px-2 py-2">{f.label}</th>
+                  <th key={f.k} className={K12}>{f.label}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {plan.months.map((m, i) => (
-                <tr key={i} className="border-b border-input/50">
-                  <td className="px-2 py-1.5 font-semibold">{MONTHS[i + 6]}</td>
-                  <td className="px-2 py-1.5 tabular-nums">{m.signings}</td>
-                  <td className="px-2 py-1.5 tabular-nums">{m.active}</td>
-                  <td className="px-2 py-1.5 tabular-nums">{k(m.newMrr)}</td>
-                  <td className="px-2 py-1.5 tabular-nums">{k(m.base)}</td>
-                  <td className="px-2 py-1.5 tabular-nums">{k(m.projects)}</td>
+                <tr key={i} className={K11}>
+                  <td className={KK1}>{MONTHS[i + 6]}</td>
+                  <td className={K1}>{m.signings}</td>
+                  <td className={K1}>{m.active}</td>
+                  <td className={K1}>{k(m.newMrr)}</td>
+                  <td className={K1}>{k(m.base)}</td>
+                  <td className={K1}>{k(m.projects)}</td>
                   <td className="px-2 py-1.5 font-semibold tabular-nums">{k(m.rev)}</td>
                 </tr>
               ))}
-              <tr className="border-t-2 border-input bg-muted/40 font-semibold">
+              <tr className={K8}>
                 <td className="px-2 py-1.5">Total</td>
-                <td className="px-2 py-1.5 tabular-nums">{s.clientsToSign}</td>
-                <td className="px-2 py-1.5 tabular-nums">{s.activeByDec}</td>
+                <td className={K1}>{s.clientsToSign}</td>
+                <td className={K1}>{s.activeByDec}</td>
                 <td className="px-2 py-1.5 text-muted-foreground" colSpan={3}>H2 revenue</td>
-                <td className="px-2 py-1.5 tabular-nums">{fmtMoney(s.h2Revenue)}</td>
+                <td className={K1}>{fmtMoney(s.h2Revenue)}</td>
               </tr>
             </tbody>
           </table>
         </div>
         {plan.assumptions && (
           <div>
-            <div className="font-label text-[10px] uppercase tracking-[0.08em] text-sage">Model assumptions</div>
+            <div className={K0}>Model assumptions</div>
             <p className="mt-1 text-[13px] text-muted-foreground">{plan.assumptions}</p>
           </div>
         )}
@@ -293,27 +327,27 @@ function PlanEditor({
   return (
     <Block
       title={isNew ? "Enter the plan" : "Edit the plan"}
-      hint="The plan figures were written into the old page's code. Enter them once here; they are stored in the database, builder only. All amounts in dollars."
+      hint="Amounts in dollars. Stored in the database, builder only."
     >
       <div className="grid gap-3 sm:grid-cols-3">
-        <label className="text-[12px] text-muted-foreground">
+        <label className={K3}>
           Year
           <Input type="number" aria-label="Plan year" value={shown(draft.year)} onChange={(e) => setDraft({ ...draft, year: num(e.target.value) })} />
         </label>
-        <label className="text-[12px] text-muted-foreground">
+        <label className={K3}>
           Full-year goal ($)
           <Input type="number" aria-label="Full-year goal" value={shown(draft.goal)} onChange={(e) => setDraft({ ...draft, goal: num(e.target.value) })} />
         </label>
-        <label className="text-[12px] text-muted-foreground">
+        <label className={K3}>
           Judge weeks against targets from
           <Input type="date" aria-label="Targets from" value={draft.targetsFrom} onChange={(e) => setDraft({ ...draft, targetsFrom: e.target.value })} />
         </label>
       </div>
       <div>
-        <div className="font-label text-[10px] uppercase tracking-[0.08em] text-sage">January to June actual revenue, per month ($)</div>
+        <div className={K0}>January to June actual revenue, per month ($)</div>
         <div className="mt-1 grid grid-cols-3 gap-2 sm:grid-cols-6">
           {draft.h1Actuals.map((v, i) => (
-            <label key={i} className="text-[12px] text-muted-foreground">
+            <label key={i} className={K3}>
               {MONTHS[i]}
               <Input
                 type="number"
@@ -325,13 +359,13 @@ function PlanEditor({
           ))}
         </div>
       </div>
-      <div className="overflow-x-auto">
+      <div className={K13}>
         <table className="text-[13px]">
           <thead>
             <tr className="text-left font-label text-[10px] uppercase tracking-[0.06em] text-sage">
               <th className="px-1 py-1">Month</th>
               {PLAN_FIELDS.map((f) => (
-                <th key={f.k} className="px-1 py-1">{f.k === "rev" ? "Total revenue ($)" : f.k === "newMrr" || f.k === "base" || f.k === "projects" ? `${f.label} ($)` : f.label}</th>
+                <th key={f.k} className="px-1 py-1">{f.label}</th>
               ))}
             </tr>
           </thead>
@@ -360,7 +394,7 @@ function PlanEditor({
         <Textarea aria-label="Model assumptions" value={draft.assumptions} onChange={(e) => setDraft({ ...draft, assumptions: e.target.value })} />
       </label>
       {errors.length > 0 && (
-        <ul className="list-disc pl-5 text-[13px] text-red-700" role="alert">
+        <ul className={KK2} role="alert">
           {errors.map((e) => (
             <li key={e}>{e}</li>
           ))}
@@ -438,9 +472,9 @@ function ProgressTab({
     <div className="space-y-5">
       <Tiles testId="growth-progress-tiles" tiles={progressTiles(kpis, plan)} />
 
-      <Block title="Revenue vs. plan" hint="The green line is the plan. Enter each month's actual as it closes to see the real trajectory.">
+      <Block title="Revenue vs. plan" hint="Enter each month's actual as it closes.">
         <RevenueChart state={state} plan={plan} withEntered />
-        <div className="font-label text-[10px] uppercase tracking-[0.08em] text-sage">Enter monthly actual revenue ($)</div>
+        <div className={K0}>Enter monthly actual revenue ($)</div>
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
           {H2_MONTHS.map((mi) => (
             <label key={mi} className="rounded-md border border-input bg-muted/30 px-2.5 py-2 text-[11px] uppercase text-sage">
@@ -452,36 +486,27 @@ function ProgressTab({
                 step={1000}
                 aria-label={`${MONTHS[mi]} actual revenue`}
                 value={state.rev[mi] ?? ""}
-                onChange={(e) => {
-                  const v = readNumber(e);
-                  if (v === undefined) return;
-                  update((s) => {
-                    const rev = { ...s.rev };
-                    if (v == null) delete rev[mi];
-                    else rev[mi] = v;
-                    return { ...s, rev };
-                  });
-                }}
+                onChange={onNumber((v) => update((s) => ({ ...s, rev: setOrDelete(s.rev, mi, v) })))}
               />
             </label>
           ))}
         </div>
       </Block>
 
-      <Block title="Calls booked" hint="Write in how many calls were booked each day. The month tallies at the top.">
+      <Block title="Calls booked">
         <div className="flex flex-wrap items-center gap-3">
           <Button variant="outline" size="icon" aria-label="Previous month" onClick={() => setCalMonth(new Date(y, m - 1, 1))}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <span className="min-w-[140px] font-heading text-[17px] text-forest" data-testid="growth-cal-label">
-            {MONTH_NAMES[m]} {y}
+            {monthName(m)} {y}
           </span>
           <Button variant="outline" size="icon" aria-label="Next month" onClick={() => setCalMonth(new Date(y, m + 1, 1))}>
             <ChevronRight className="h-4 w-4" />
           </Button>
           <div className="ml-auto flex items-center gap-3" data-testid="growth-cal-tally">
-            <span className="text-[24px] font-semibold tabular-nums text-forest">{callTotal}</span>
-            <span className="text-[13px] text-muted-foreground">of {callTarget ?? "-"} target</span>
+            <span className={K2}>{callTotal}</span>
+            <span className={K6}>of {callTarget ?? "-"} target</span>
             <PillTag pill={callTallyPill(callTotal, callTarget, y, m, now)} />
           </div>
         </div>
@@ -507,16 +532,7 @@ function ProgressTab({
                   aria-label={`Calls on ${c.key}`}
                   className="w-full flex-1 bg-transparent text-center text-[18px] font-semibold tabular-nums text-forest focus:outline-none"
                   value={state.calls[c.key] ?? ""}
-                  onChange={(e) => {
-                    const v = readNumber(e);
-                    if (v === undefined) return;
-                    update((s) => {
-                      const calls = { ...s.calls };
-                      if (v == null) delete calls[c.key];
-                      else calls[c.key] = v;
-                      return { ...s, calls };
-                    });
-                  }}
+                  onChange={onNumber((v) => update((s) => ({ ...s, calls: setOrDelete(s.calls, c.key, v) })))}
                 />
               </div>
             ) : (
@@ -526,26 +542,23 @@ function ProgressTab({
         </div>
       </Block>
 
-      <Block title="Deals closed" hint="Log every deal closed and its monthly billing (MRR). It tallies new monthly revenue against the signing goal.">
+      <Block title="Deals closed" hint="Every deal closed and its monthly billing (MRR), against the signing goal.">
         <div className="flex flex-wrap items-center gap-6" data-testid="growth-deal-tally">
-          <div className="flex items-baseline gap-2">
-            <span className="text-[24px] font-semibold tabular-nums text-forest">
-              {tally.count}
-              {tally.target != null ? ` / ${tally.target}` : ""}
-            </span>
-            <span className="text-[13px] text-muted-foreground">{tally.month} deals</span>
-            <PillTag pill={tally.pill} />
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-[24px] font-semibold tabular-nums text-forest">{fmtMoney(tally.value)}/mo</span>
-            <span className="text-[13px] text-muted-foreground">new MRR this month</span>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-[24px] font-semibold tabular-nums text-forest">{fmtMoney(tally.allValue)}/mo</span>
-            <span className="text-[13px] text-muted-foreground">total MRR booked</span>
-          </div>
+          {(
+            [
+              [`${tally.count}${tally.target != null ? ` / ${tally.target}` : ""}`, `${tally.month} deals`, tally.pill],
+              [`${fmtMoney(tally.value)}/mo`, "new MRR this month", null],
+              [`${fmtMoney(tally.allValue)}/mo`, "total MRR booked", null],
+            ] as const
+          ).map(([v, label, pill]) => (
+            <div key={label} className={K9}>
+              <span className={K2}>{v}</span>
+              <span className={K6}>{label}</span>
+              <PillTag pill={pill} />
+            </div>
+          ))}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className={KK3}>
           <Input type="date" className="w-40" aria-label="Deal date" value={dealDate} onChange={(e) => setDealDate(e.target.value)} />
           <Input className="min-w-[150px] flex-1" placeholder="Client name" aria-label="Client name" value={dealClient} onChange={(e) => setDealClient(e.target.value)} />
           <Input
@@ -562,14 +575,14 @@ function ProgressTab({
           />
           <Button onClick={addDeal}>Add deal</Button>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-[14px]" data-testid="growth-deal-table">
+        <div className={K13}>
+          <table className={KK0} data-testid="growth-deal-table">
             <thead>
-              <tr className="border-b border-input text-left font-label text-[10px] uppercase tracking-[0.06em] text-sage">
-                <th className="px-2 py-2">Date</th>
-                <th className="px-2 py-2">Client</th>
-                <th className="px-2 py-2">Monthly</th>
-                <th className="px-2 py-2" />
+              <tr className={K4}>
+                <th className={K12}>Date</th>
+                <th className={K12}>Client</th>
+                <th className={K12}>Monthly</th>
+                <th className={K12} />
               </tr>
             </thead>
             <tbody>
@@ -581,10 +594,10 @@ function ProgressTab({
               {deals.map((d) => {
                 const dt = parseISO(d.date);
                 return (
-                  <tr key={d.id} className="border-b border-input/50">
-                    <td className="px-2 py-1.5 font-semibold">{`${MONTHS[dt.getMonth()]} ${dt.getDate()}`}</td>
+                  <tr key={d.id} className={K11}>
+                    <td className={KK1}>{`${MONTHS[dt.getMonth()]} ${dt.getDate()}`}</td>
                     <td className="px-2 py-1.5">{d.client || "-"}</td>
-                    <td className="px-2 py-1.5 tabular-nums">${(+d.price || 0).toLocaleString()}/mo</td>
+                    <td className={K1}>${(+d.price || 0).toLocaleString()}/mo</td>
                     <td className="px-2 py-1.5 text-right">
                       <button
                         type="button"
@@ -599,10 +612,10 @@ function ProgressTab({
                 );
               })}
               {deals.length > 0 && (
-                <tr className="border-t-2 border-input bg-muted/40 font-semibold">
+                <tr className={K8}>
                   <td className="px-2 py-1.5">Total MRR</td>
                   <td />
-                  <td className="px-2 py-1.5 tabular-nums">${dealTotal.toLocaleString()}/mo</td>
+                  <td className={K1}>${dealTotal.toLocaleString()}/mo</td>
                   <td />
                 </tr>
               )}
@@ -635,36 +648,36 @@ function OutputsTab({
 
   return (
     <div className="space-y-5">
-      <Block title="Marketing and advertising output" hint="Each week is a column. Type the channel counts in and watch the monthly totals and the all-time score.">
+      <Block title="Marketing and advertising output">
         <Tiles testId="growth-score-tiles" tiles={scoreTiles(state, plan)} />
-        <div className="font-label text-[10px] uppercase tracking-[0.08em] text-sage">Monthly output vs. goal</div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-center text-[14px]" data-testid="growth-monthly-table">
+        <div className={K0}>Monthly output vs. goal</div>
+        <div className={K13}>
+          <table className={KK4} data-testid="growth-monthly-table">
             <thead>
-              <tr className="border-b border-input font-label text-[10px] uppercase text-sage">
+              <tr className={K7}>
                 <th className="px-3 py-2 text-left" />
                 {months.map((mi) => (
                   <th key={mi} className="px-3 py-2">{MONTHS[mi]}</th>
                 ))}
-                <th className="bg-muted/40 px-3 py-2">H2</th>
+                <th className={KK5}>H2</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td className="px-3 py-1.5 text-left font-semibold">Output</td>
+                <td className={KK6}>Output</td>
                 {months.map((mi) => (
                   <td key={mi} className="px-3 py-1.5 tabular-nums">{monthOut(state, mi)}</td>
                 ))}
                 <td className="bg-muted/40 px-3 py-1.5 font-semibold tabular-nums">{allTimeTotal(state).toLocaleString()}</td>
               </tr>
               <tr>
-                <td className="px-3 py-1.5 text-left font-semibold">Goal</td>
+                <td className={KK6}>Goal</td>
                 {goals.map((g, i) => (
                   <td key={i} className="px-3 py-1.5 text-[12px] text-muted-foreground">{g}</td>
                 ))}
                 <td className="bg-muted/40 px-3 py-1.5 text-[12px] text-muted-foreground">{goals.reduce((a, g) => a + g, 0)}</td>
               </tr>
-              <tr className="border-t-2 border-input font-semibold">
+              <tr className={KK7}>
                 <td className="px-3 py-1.5 text-left">% to goal</td>
                 {months.map((mi, i) => {
                   const o = monthOut(state, mi);
@@ -685,19 +698,19 @@ function OutputsTab({
 
       <Block
         title="Weekly log: the spreadsheet"
-        hint="Each column is one week (Mon to Sun). Type each channel's count into that week's column; cells turn green at target. Scroll right as the weeks stack up."
+        hint="One column per week (Mon to Sun). Cells turn green at target."
       >
         <div className="flex flex-wrap gap-4 text-[12px] text-muted-foreground">
-          <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-emerald-600" />Hit target</span>
-          <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-amber-600" />Within 60%</span>
-          <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-red-600" />Under target</span>
+          <span className={K10}><span className="h-3 w-3 rounded-sm bg-emerald-600" />Hit target</span>
+          <span className={K10}><span className="h-3 w-3 rounded-sm bg-amber-600" />Within 60%</span>
+          <span className={K10}><span className="h-3 w-3 rounded-sm bg-red-600" />Under target</span>
         </div>
         <div className="overflow-x-auto rounded-md border border-input">
-          <table className="min-w-full text-center text-[14px]" data-testid="growth-sheet">
+          <table className={KK4} data-testid="growth-sheet">
             <thead>
-              <tr className="border-b border-input font-label text-[10px] uppercase text-sage">
+              <tr className={K7}>
                 <th className="sticky left-0 bg-background px-3 py-2 text-left">Channel</th>
-                <th className="px-2 py-2">Tgt</th>
+                <th className={K12}>Tgt</th>
                 {weeks.map((k) => {
                   const [a, b] = weekRange(k);
                   return (
@@ -709,14 +722,14 @@ function OutputsTab({
                     </th>
                   );
                 })}
-                <th className="bg-muted/40 px-3 py-2">Total</th>
+                <th className={KK5}>Total</th>
               </tr>
             </thead>
             <tbody>
               {ACTS.map((a) => {
                 const t = +state.targets[a.k];
                 return (
-                  <tr key={a.k} className="border-b border-input/50">
+                  <tr key={a.k} className={K11}>
                     <td className="sticky left-0 whitespace-nowrap bg-background px-3 py-1 text-left font-semibold">{a.n}</td>
                     <td className="px-1 py-1">
                       <input
@@ -725,11 +738,7 @@ function OutputsTab({
                         aria-label={`${a.n} weekly target`}
                         className="w-14 rounded border border-input bg-background px-1 py-1 text-center tabular-nums"
                         value={Number.isFinite(t) ? t : ""}
-                        onChange={(e) => {
-                          const v = readNumber(e);
-                          if (v === undefined) return;
-                          update((s) => ({ ...s, targets: { ...s.targets, [a.k]: v ?? 0 } }));
-                        }}
+                        onChange={onNumber((v) => update((s) => ({ ...s, targets: { ...s.targets, [a.k]: v ?? 0 } })))}
                       />
                     </td>
                     {weeks.map((k) => {
@@ -744,17 +753,12 @@ function OutputsTab({
                             aria-label={`${a.n}, week ending ${k}`}
                             className="w-14 rounded border border-transparent bg-transparent px-1 py-1.5 text-center text-[16px] tabular-nums focus:border-verdant focus:outline-none"
                             value={v ?? ""}
-                            onChange={(e) => {
-                              const nv = readNumber(e);
-                              if (nv === undefined) return;
+                            onChange={onNumber((nv) =>
                               update((s) => {
-                                const prev = s.weeks[k] ?? { total: null, paid: null, spend: null, acts: {} };
-                                const acts = { ...prev.acts };
-                                if (nv == null) delete acts[a.k];
-                                else acts[a.k] = nv;
-                                return { ...s, weeks: { ...s.weeks, [k]: { ...prev, acts } } };
-                              });
-                            }}
+                                const prev = s.weeks[k] ?? emptyWeek();
+                                return { ...s, weeks: { ...s.weeks, [k]: { ...prev, acts: setOrDelete(prev.acts, a.k, nv) } } };
+                              }),
+                            )}
                           />
                         </td>
                       );
@@ -763,7 +767,7 @@ function OutputsTab({
                   </tr>
                 );
               })}
-              <tr className="border-t-2 border-input font-semibold">
+              <tr className={KK7}>
                 <td className="sticky left-0 bg-background px-3 py-1.5 text-left">Weekly total</td>
                 <td className="px-2 py-1.5 text-[12px] text-muted-foreground">{ts}</td>
                 {weeks.map((k) => {
@@ -807,28 +811,22 @@ function ImportTab({ hasData, onImport }: { hasData: boolean; onImport: (s: Grow
   return (
     <Block
       title="One-time import from the old Growth Dashboard"
-      hint="The old page kept its numbers in one browser. Export them from that browser once and import them here. The plan figures are entered on the Plan tab."
+      hint="Plan figures go on the Plan tab."
     >
       <ol className="list-decimal space-y-2 pl-5 text-[13px] text-muted-foreground">
+        <li>In that browser, open goodo-growth-dashboard.vercel.app and its developer console.</li>
         <li>
-          In the browser that holds the numbers, open goodo-growth-dashboard.vercel.app, then open the developer console
-          (Chrome or Edge: View, Developer, JavaScript Console. Safari: Develop, Show JavaScript Console).
-        </li>
-        <li>
-          Paste this command and press Enter. It copies the numbers to the clipboard:
-          <pre className="mt-1 overflow-x-auto rounded bg-muted px-2 py-1.5 font-mono text-[12px] text-forest" data-testid="growth-export-command">
+          Run this to copy the numbers (the old page's "Copy data (JSON)" button does the same):
+          <pre className={K5} data-testid="growth-export-command">
             {EXPORT_CONSOLE_COMMAND}
           </pre>
-          To save a file instead, use:
-          <pre className="mt-1 overflow-x-auto rounded bg-muted px-2 py-1.5 font-mono text-[12px] text-forest">{EXPORT_DOWNLOAD_COMMAND}</pre>
-          The old page's "Copy data (JSON)" button at the bottom gives the same numbers.
         </li>
-        <li>Paste the result below (or choose the saved file), check it, then save it to Verdanote.</li>
+        <li>Paste the result below (or choose a saved file), check it, then save.</li>
       </ol>
       <Textarea
         aria-label="Exported JSON"
         className="min-h-[140px] font-mono text-[12px]"
-        placeholder='{"rev":{...},"calls":{...},"deals":[...],"weeks":{...},"targets":{...}}'
+        placeholder="Exported JSON"
         value={text}
         onChange={(e) => {
           setText(e.target.value);
@@ -836,14 +834,14 @@ function ImportTab({ hasData, onImport }: { hasData: boolean; onImport: (s: Grow
           setDone(null);
         }}
       />
-      <div className="flex flex-wrap items-center gap-2">
-        <Input type="file" accept="application/json,.json,.txt" aria-label="Exported JSON file" className="w-auto" onChange={readFile} />
+      <div className={KK3}>
+        <Input type="file" accept=".json,.txt" aria-label="Exported JSON file" className="w-auto" onChange={readFile} />
         <Button variant="outline" onClick={() => setResult(parseGrowthImport(text))}>
           Check
         </Button>
       </div>
       {result && !result.ok && (
-        <ul className="list-disc pl-5 text-[13px] text-red-700" role="alert" data-testid="growth-import-errors">
+        <ul className={KK2} role="alert" data-testid="growth-import-errors">
           {result.errors.map((e) => (
             <li key={e}>{e}</li>
           ))}
@@ -856,9 +854,9 @@ function ImportTab({ hasData, onImport }: { hasData: boolean; onImport: (s: Grow
             and {result.summary.weeks} weeks of output counts.
           </p>
           {result.warnings.map((w) => (
-            <p key={w} className="text-amber-700">{w}</p>
+            <p key={w} className={KK8}>{w}</p>
           ))}
-          {hasData && <p className="text-amber-700">Saving replaces the numbers already stored in Verdanote.</p>}
+          {hasData && <p className={KK8}>Saving replaces the numbers already stored in Verdanote.</p>}
           {saveError && <p className="text-red-700" role="alert">{saveError}</p>}
           <Button
             disabled={busy}
@@ -973,10 +971,10 @@ export default function GrowthDashboardPage({ now: nowProp }: { now?: Date } = {
   const header = (
     <PageHeader
       title="Growth Dashboard"
-      description="Revenue against plan, calls, deals and the weekly output that feeds them. Builder only."
+      description="Revenue, calls, deals and weekly output. Builder only."
       actions={
         <div className="text-right">
-          <div className="font-label text-[10px] uppercase tracking-[0.08em] text-sage">Today</div>
+          <div className={K0}>Today</div>
           <div className="text-[14px] font-semibold">
             {now.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
           </div>
@@ -989,7 +987,7 @@ export default function GrowthDashboardPage({ now: nowProp }: { now?: Date } = {
     return (
       <div>
         {header}
-        <p className="text-[13px] text-muted-foreground">Loading the numbers...</p>
+        <p className={K6}>Loading the numbers...</p>
       </div>
     );
   }
@@ -1014,7 +1012,7 @@ export default function GrowthDashboardPage({ now: nowProp }: { now?: Date } = {
 
       {loadError && (
         <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700" role="alert">
-          The stored numbers did not pass the checks, so editing is off to avoid overwriting them. Import a fresh export to replace them. Details: {loadError}
+          Stored numbers failed the checks, so editing is off. Import a fresh export to replace them: {loadError}
         </p>
       )}
 
@@ -1043,8 +1041,8 @@ export default function GrowthDashboardPage({ now: nowProp }: { now?: Date } = {
         </TabsContent>
       </Tabs>
 
-      <div className="text-[12px] text-muted-foreground" data-testid="growth-save-status">
-        {saveStatus.kind === "idle" && "Saved in Verdanote. Changes save automatically."}
+      <div className={K3} data-testid="growth-save-status">
+        {saveStatus.kind === "idle" && "Changes save automatically."}
         {saveStatus.kind === "saving" && "Saving..."}
         {saveStatus.kind === "saved" &&
           `Saved ${saveStatus.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`}

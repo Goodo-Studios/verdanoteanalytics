@@ -101,5 +101,28 @@ for (const [label, name, token, opts, ok] of controls) {
   check(label, ok(status), `status=${status}`);
 }
 
+// 4. Ad code counter (Ad Name Generator): clients are refused by peek_ad_code and
+//    claim_ad_code; builder and employee may peek. Nobody claims here, so no staging
+//    code is spent.
+const rpcStatus = async (name, token) => {
+  const res = await fetch(`${url}/rest/v1/rpc/${name}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, apikey: anon, "Content-Type": "application/json" },
+    body: "{}",
+  });
+  const text = await res.text();
+  return { status: res.status, text };
+};
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const fn of ["peek_ad_code", "claim_ad_code"]) {
+    const r = await rpcStatus(fn, s);
+    check(`${label} refused by ${fn}`, refused(r.status), `status=${r.status}`);
+  }
+}
+for (const [label, s] of [["builder", builder], ["employee", employee]]) {
+  const r = await rpcStatus("peek_ad_code", s);
+  check(`${label} can peek the next ad code`, r.status === 200 && Number(r.text) > 0, `status=${r.status}`);
+}
+
 console.log(failed ? `\n${failed} check(s) failed` : "\nAll server function wall checks passed");
 process.exit(failed ? 1 : 0);

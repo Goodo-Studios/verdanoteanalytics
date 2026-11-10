@@ -14,28 +14,26 @@
 export const OLD_STORAGE_KEY = "goodo3m_v1";
 
 export const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-export const MONTH_NAMES = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-];
+/** Full month name for a month index, e.g. 10 -> "November". */
+export const monthName = (m: number): string => new Date(2000, m, 1).toLocaleString("en-US", { month: "long" });
 /** Month indexes (JS getMonth) of the second half, the part the plan covers. */
 export const H2_MONTHS = [6, 7, 8, 9, 10, 11];
 
-export type ActDef = { k: string; n: string; cad: string; t: number };
+export type ActDef = { k: string; n: string; t: number };
 
 /** Output channels and their default weekly targets, as in the old app. */
 export const ACTS: ActDef[] = [
-  { k: "liPosts", n: "LinkedIn posts", cad: "daily", t: 5 },
-  { k: "twPosts", n: "Twitter / X posts", cad: "daily", t: 5 },
-  { k: "igtt", n: "Instagram / TikTok videos", cad: "weekly", t: 4 },
-  { k: "liConnect", n: "LinkedIn connection requests", cad: "daily", t: 200 },
-  { k: "liDM", n: "LinkedIn direct messages", cad: "daily", t: 10 },
-  { k: "warm", n: "Warm DMs / messages", cad: "daily", t: 25 },
-  { k: "community", n: "Community touches", cad: "ongoing", t: 10 },
-  { k: "referral", n: "Referral asks", cad: "per win", t: 5 },
-  { k: "newsletter", n: "Newsletter", cad: "weekly", t: 1 },
-  { k: "youtube", n: "YouTube video", cad: "weekly", t: 1 },
-  { k: "podcast", n: "Podcast episode", cad: "from Oct", t: 0 },
+  { k: "liPosts", n: "LinkedIn posts", t: 5 },
+  { k: "twPosts", n: "Twitter / X posts", t: 5 },
+  { k: "igtt", n: "Instagram / TikTok videos", t: 4 },
+  { k: "liConnect", n: "LinkedIn connection requests", t: 200 },
+  { k: "liDM", n: "LinkedIn direct messages", t: 10 },
+  { k: "warm", n: "Warm DMs / messages", t: 25 },
+  { k: "community", n: "Community touches", t: 10 },
+  { k: "referral", n: "Referral asks", t: 5 },
+  { k: "newsletter", n: "Newsletter", t: 1 },
+  { k: "youtube", n: "YouTube video", t: 1 },
+  { k: "podcast", n: "Podcast episode", t: 0 },
 ];
 const ACT_KEYS = new Set(ACTS.map((a) => a.k));
 
@@ -104,6 +102,8 @@ export type GrowthPlan = {
 };
 
 // ---------------------------------------------------------------- helpers
+
+export const emptyWeek = (): WeekEntry => ({ total: null, paid: null, spend: null, acts: {} });
 
 export function pad(n: number): string {
   return n < 10 ? `0${n}` : `${n}`;
@@ -609,7 +609,7 @@ export type ImportResult =
 export function parseGrowthImport(text: string): ImportResult {
   const trimmed = text.trim();
   if (!trimmed) return { ok: false, errors: ["Paste the exported JSON or choose the file first."] };
-  if (trimmed.length > MAX_IMPORT_CHARS) return { ok: false, errors: ["That file is too large to be a Growth Dashboard export."] };
+  if (trimmed.length > MAX_IMPORT_CHARS) return { ok: false, errors: ["File too large for an export."] };
 
   let raw: unknown;
   try {
@@ -622,7 +622,7 @@ export function parseGrowthImport(text: string): ImportResult {
   if (!r.ok) return r;
   const { summary } = r;
   if (summary.revMonths + summary.callDays + summary.deals + summary.weeks === 0) {
-    return { ok: false, errors: ["The export has no revenue, calls, deals or weekly counts, so there is nothing to import."] };
+    return { ok: false, errors: ["No numbers found, nothing to import."] };
   }
   return r;
 }
@@ -631,7 +631,7 @@ export function parseGrowthImport(text: string): ImportResult {
 export function validateState(raw: unknown): ImportResult {
   const errors: string[] = [];
   const warnings: string[] = [];
-  if (!isObj(raw)) return { ok: false, errors: ["The export must be a JSON object with rev, calls, deals, weeks and targets."] };
+  if (!isObj(raw)) return { ok: false, errors: ["Expected a JSON object."] };
 
   const known = new Set(["rev", "weeks", "targets", "calls", "deals"]);
   const unknownTop = Object.keys(raw).filter((k) => !known.has(k));
@@ -641,7 +641,7 @@ export function validateState(raw: unknown): ImportResult {
 
   // rev: month index 6..11 to dollars
   if (raw.rev != null) {
-    if (!isObj(raw.rev)) errors.push("rev must be an object of month to revenue.");
+    if (!isObj(raw.rev)) errors.push("rev must be an object.");
     else
       for (const [k, v] of Object.entries(raw.rev)) {
         if (!["6", "7", "8", "9", "10", "11"].includes(k)) errors.push(`rev has an unknown month "${k}" (expected 6 to 11).`);
@@ -653,7 +653,7 @@ export function validateState(raw: unknown): ImportResult {
 
   // calls: day to count
   if (raw.calls != null) {
-    if (!isObj(raw.calls)) errors.push("calls must be an object of date to count.");
+    if (!isObj(raw.calls)) errors.push("calls must be an object.");
     else
       for (const [k, v] of Object.entries(raw.calls)) {
         if (!isValidDate(k)) errors.push(`calls has an invalid date "${k}".`);
@@ -672,7 +672,7 @@ export function validateState(raw: unknown): ImportResult {
         if (!isObj(d)) return void errors.push(`deal ${n} is not an object.`);
         if (!isValidDate(d.date)) return void errors.push(`deal ${n} has an invalid date.`);
         if (!isNum(d.price) || d.price < 0) return void errors.push(`deal ${n} has no valid monthly price.`);
-        if (d.client != null && typeof d.client !== "string") return void errors.push(`deal ${n} has a client name that is not text.`);
+        if (d.client != null && typeof d.client !== "string") return void errors.push(`deal ${n} client is not text.`);
         const id = typeof d.id === "string" || isNum(d.id) ? String(d.id) : `import-${n}`;
         state.deals.push({ id, date: d.date, client: (d.client as string | undefined) ?? "", price: d.price });
       });
@@ -686,7 +686,7 @@ export function validateState(raw: unknown): ImportResult {
   // weeks: Friday to {total, paid, spend, acts}
   const unknownActs = new Set<string>();
   if (raw.weeks != null) {
-    if (!isObj(raw.weeks)) errors.push("weeks must be an object of week to counts.");
+    if (!isObj(raw.weeks)) errors.push("weeks must be an object.");
     else
       for (const [k, w] of Object.entries(raw.weeks)) {
         if (!isValidDate(k)) {
@@ -697,7 +697,7 @@ export function validateState(raw: unknown): ImportResult {
           errors.push(`week ${k} is not an object.`);
           continue;
         }
-        const entry: WeekEntry = { total: null, paid: null, spend: null, acts: {} };
+        const entry = emptyWeek();
         for (const f of ["total", "paid", "spend"] as const) {
           const v = w[f];
           if (v == null) continue;
@@ -705,11 +705,11 @@ export function validateState(raw: unknown): ImportResult {
           else entry[f] = v;
         }
         if (w.acts != null) {
-          if (!isObj(w.acts)) errors.push(`week ${k} has acts that are not an object.`);
+          if (!isObj(w.acts)) errors.push(`week ${k} acts is not an object.`);
           else
             for (const [ak, av] of Object.entries(w.acts)) {
               if (av === null) continue;
-              if (!isNum(av) || av < 0) errors.push(`week ${k} has a count for ${ak} that is not a number.`);
+              if (!isNum(av) || av < 0) errors.push(`week ${k} count for ${ak} is not a number.`);
               else {
                 if (!ACT_KEYS.has(ak)) unknownActs.add(ak);
                 entry.acts[ak] = av;
@@ -719,11 +719,11 @@ export function validateState(raw: unknown): ImportResult {
         state.weeks[k] = entry;
       }
   }
-  if (unknownActs.size) warnings.push(`Kept counts for channels this page does not show: ${[...unknownActs].join(", ")}.`);
+  if (unknownActs.size) warnings.push(`Kept counts for unknown channels: ${[...unknownActs].join(", ")}.`);
 
   // targets: channel to weekly target
   if (raw.targets != null) {
-    if (!isObj(raw.targets)) errors.push("targets must be an object of channel to target.");
+    if (!isObj(raw.targets)) errors.push("targets must be an object.");
     else
       for (const [k, v] of Object.entries(raw.targets)) {
         if (v === null) continue;
@@ -761,7 +761,7 @@ export function stateFromRow(data: unknown): { state: GrowthState; error: null }
 export function validatePlan(plan: unknown): string[] {
   const errs: string[] = [];
   if (!isObj(plan)) return ["The plan must be an object."];
-  if (!isNum(plan.year) || plan.year < 2000 || plan.year > 2100 || !Number.isInteger(plan.year)) errs.push("Year must be a whole year, for example 2026.");
+  if (!isNum(plan.year) || plan.year < 2000 || plan.year > 2100 || !Number.isInteger(plan.year)) errs.push("Year must be a whole year.");
   if (!isNum(plan.goal) || plan.goal <= 0) errs.push("Goal must be a number of dollars above zero.");
   if (!Array.isArray(plan.h1Actuals) || plan.h1Actuals.length !== 6 || !plan.h1Actuals.every((v) => isNum(v) && v >= 0))
     errs.push("January to June actuals must be six numbers.");
@@ -786,6 +786,3 @@ export function planFromRow(data: unknown): GrowthPlan | null {
  * the DevTools console on goodo-growth-dashboard.vercel.app, in the browser that holds them.
  */
 export const EXPORT_CONSOLE_COMMAND = `copy(localStorage.getItem('${OLD_STORAGE_KEY}'))`;
-/** Same, but saves a file instead of copying. */
-export const EXPORT_DOWNLOAD_COMMAND =
-  `(()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([localStorage.getItem('${OLD_STORAGE_KEY}')],{type:'application/json'}));a.download='${OLD_STORAGE_KEY}.json';a.click();})()`;

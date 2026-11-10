@@ -41,6 +41,7 @@ vi.mock("@/pages/EntityReportPage", () => pageMock("entities"));
 vi.mock("@/features/creative-library/CreativeLibraryPage", () => pageMock("creative-library"));
 vi.mock("@/features/matrix/board/MatrixBoardPage", () => pageMock("matrix"));
 vi.mock("@/features/growth-dashboard/GrowthDashboardPage", () => pageMock("growth-dashboard"));
+vi.mock("@/features/ad-name-generator/AdNameGeneratorPage", () => pageMock("ad-name-generator"));
 vi.mock("@/features/vault/LibraryPage", () => pageMock("ad-library"));
 vi.mock("@/features/vault/ItemDetailPage", () => pageMock("vault-item"));
 vi.mock("@/features/vault/BoardsPage", () => pageMock("boards"));
@@ -108,6 +109,7 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean }
   { path: "/entities", marker: "entities" },
   { path: "/matrix", marker: "matrix", builderOnly: true },
   { path: "/growth-dashboard", marker: "growth-dashboard", builderOnly: true },
+  { path: "/ad-name-generator", marker: "ad-name-generator" },
   { path: "/ad-library", marker: "ad-library" },
   { path: "/ad-library/boards", marker: "boards" },
   { path: "/ad-library/boards/b1", marker: "board-detail" },

@@ -32,6 +32,7 @@ const STAFF_PATHS = [
   "/entities",
   "/matrix",
   "/growth-dashboard",
+  "/ad-name-generator",
   "/ad-library",
   "/ad-library/boards",
   "/ad-library/hooks",
@@ -69,7 +70,8 @@ test.describe("employee reaches staff pages", () => {
     await expect(page.getByRole("link", { name: /Attio/ })).toHaveAttribute("href", /attio\.com/);
     await expect(page.getByRole("link", { name: /Old dashboard public pages/ })).toHaveAttribute("href", /goodostudios-production/);
     await expect(page.getByText("Growth Dashboard")).toHaveCount(0); // builder only
-    await expect(page.getByText("Ad Name Generator")).toBeVisible();
+    // Live now, so it is a link on the menu (the sidebar has one too, hence the test id).
+    await expect(page.getByTestId("staff-menu-ad-name-generator")).toHaveAttribute("href", "/employee/ad-name-generator");
   });
 
   test("the sidebar offers the staff menu", async ({ page }) => {
