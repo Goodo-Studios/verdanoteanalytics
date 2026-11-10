@@ -148,6 +148,16 @@
     "preview-capture-drain": {
       "class": "service"
     },
+    "push-brief-to-clickup": {
+      "class": "staff",
+      "note": "Push to ClickUp (replaces the Coda brief buttons). Builder or employee login only; writes a brief into an empty asset task or a new one. Answers 503 with no request when CLICKUP_API_TOKEN is not set (staging has none).",
+      "probe": {
+        "body": {
+          "action": "list",
+          "client_slug": "wall_probe"
+        }
+      }
+    },
     "quick-save": {
       "class": "staff"
     },

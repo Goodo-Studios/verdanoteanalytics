@@ -61,6 +61,7 @@ FUNCTIONS=(
   sync-clickup-tasks
   run-slack-jobs
   fireflies-transcript
+  push-brief-to-clickup
   system-health-check
   transcribe-ad
   user-management
