@@ -108,6 +108,10 @@ The Content Pipeline board (`pipeline_tasks`) is keyed by client: `client_slug` 
 
 The dashboard role `admin` becomes `builder` and `producer` becomes `employee`. `user-management` accepts `dashboard_role` in place of `role` when creating or updating a user, using `supabase/functions/_shared/dashboard-role-map.ts`. A dashboard `viewer` is refused: Verdanote has no read-only staff role, and adding one is Matthew's decision (see the role mapping research note in the consolidation project).
 
+### One staff list (step 5d)
+
+The mapping is data since migration 20261111040001: `staff_role_mappings` holds admin -> builder, producer -> employee and viewer -> employee with `needs_owner_decision` set. A flagged row is shown and proposed but never applied (`dashboard_role_to_verdanote_role` returns null for it), so viewers still get no role until the owner decides and a builder clears the flag. `staff_reconciliation()` (builder only) lists every team list member (`app_users`) and every staff login, matched by exact email with case and spaces ignored, with the mismatches: `no_login`, `client_login`, `no_staff_role`, `role_differs`, `mapping_needs_owner`, `inactive_with_staff_role`, `not_on_team_list`, `possible_name_match`. Nobody is merged by name. Invites are prepared in `staff_invites` and never sent from Verdanote. Counts only, no personal data: `node scripts/staff-reconciliation-report.mjs` (same secrets as the wall check). Tests: `supabase/tests/staff_team_reconciliation_test.sql`, lines in both staging wall scripts.
+
 ## Releasing staging to production
 
 This step is one-way for the database. Get Matthew's sign-off first.
@@ -118,6 +122,7 @@ This step is one-way for the database. Get Matthew's sign-off first.
 4. Ship the pages by hand: `vercel --prod` from `repos/private/verdanoteanalytics`, then confirm the live bundle changed.
 5. Run the client wall check and the main page checks against production.
 6. Ad code counter, in one step with no gap: copy the old dashboard database's counter into production `ad_name_counter` at its latest value (raise only, never lower: `scripts/dashboard-copy.mjs` does this with `greatest`, see `docs/dashboard-copy.md`), and at the same moment switch off the old Ad Name Generator (goodo-ad-name-generator) and the Goodo OS ad naming page. If either keeps issuing codes after the copy, two ads can get the same code. Until the release, staging's counter is a test copy and the old screens stay on.
+7. Staff list: run `staff_reconciliation()` on production and settle every row with the owner. Prepared invites in `staff_invites` are a list, not sent mail: send them by hand only after the owner has decided the role mapping (decision 2) and the staff list (decision 3).
 
 If the pages break, roll back in Vercel within minutes. Database changes do not roll back cleanly, which is why steps 1 and 2 exist.
 
