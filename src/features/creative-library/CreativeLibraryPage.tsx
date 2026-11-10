@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Loader2, Search, Download, Archive, Vault as VaultIcon, X, LayoutGrid } from "lucide-react";
 import { toast } from "sonner";
-import { PageHeader } from "@/components/PageHeader";
+import { EmptyState, ErrorState, LoadingState, PageHeader, PageShell } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -172,24 +172,19 @@ export default function CreativeLibraryPage() {
   // ── Gate / empty states ─────────────────────────────────────────────────────
   if (gated) {
     return (
-      <div className="p-6 max-w-7xl mx-auto">
+      <PageShell wide>
         <PageHeader title="Creative Library" description="Every live creative for this client, as playable cards." />
-        <div className="text-center py-24 space-y-2">
-          <LayoutGrid className="w-10 h-10 text-muted-foreground mx-auto" />
-          <p className="text-muted-foreground">
-            Pick a client to see its Creative Library.
-          </p>
-        </div>
-      </div>
+        <EmptyState icon={<LayoutGrid className="w-10 h-10" />} title="Pick a client to see its Creative Library." />
+      </PageShell>
     );
   }
 
   return (
     <>
-      <div className="p-6 max-w-7xl mx-auto">
+      <PageShell wide>
         <PageHeader
           title="Creative Library"
-          description="Every live creative for this account — playable, classified, and archivable."
+          description="Every live creative for this account. Playable, classified, and archivable."
           actions={
             <Button
               variant="outline"
@@ -210,6 +205,7 @@ export default function CreativeLibraryPage() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search creatives"
               placeholder="Search name, code, hook, angle…"
               className="pl-8"
             />
@@ -240,14 +236,17 @@ export default function CreativeLibraryPage() {
                 ? (data?.rows.length ?? 0)
                 : (data?.counts[f.key] ?? 0);
             return (
-              <button
+              <Button
                 key={f.key}
+                type="button"
+                variant="outline"
+                size="sm"
                 data-active={filter === f.key}
                 onClick={() => setFilter(f.key)}
-                className="rounded-full border border-border-light px-3 py-1 text-[12px] font-medium text-charcoal transition-colors data-[active=true]:border-transparent data-[active=true]:bg-charcoal data-[active=true]:text-white hover:bg-cream-dark"
+                className="h-auto rounded-full border-border-light px-3 py-1 text-[12px] shadow-none font-medium text-charcoal transition-colors data-[active=true]:border-transparent data-[active=true]:bg-charcoal data-[active=true]:text-white hover:bg-cream-dark"
               >
                 {f.label} <span className="opacity-70">({count})</span>
-              </button>
+              </Button>
             );
           })}
         </div>
@@ -255,22 +254,11 @@ export default function CreativeLibraryPage() {
         {/* Grid */}
         <div className="mt-5">
           {isLoading ? (
-            <div className="text-center py-20 text-muted-foreground">
-              <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
-              Loading creatives…
-            </div>
+            <LoadingState label="Loading creatives" variant="cards" count={4} />
           ) : isError ? (
-            <div className="text-center py-20 space-y-2">
-              <p className="text-destructive">{error instanceof Error ? error.message : "Failed to load"}</p>
-              <Button variant="outline" size="sm" onClick={() => refetch()}>Retry</Button>
-            </div>
+            <ErrorState message={error instanceof Error ? error.message : "Failed to load"} onRetry={() => refetch()} />
           ) : visible.length === 0 ? (
-            <div className="text-center py-20 space-y-2">
-              <LayoutGrid className="w-10 h-10 text-muted-foreground mx-auto" />
-              <p className="text-muted-foreground">
-                {data?.rows.length ? "No creatives match the current filters." : "No live creatives in this window."}
-              </p>
-            </div>
+            <EmptyState icon={<LayoutGrid className="w-10 h-10" />} title={data?.rows.length ? "No creatives match the current filters." : "No live creatives in this window."} />
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {visible.map((c) => (
@@ -287,7 +275,7 @@ export default function CreativeLibraryPage() {
             </div>
           )}
         </div>
-      </div>
+      </PageShell>
 
       {/* Bulk action bar */}
       {selected.size > 0 && (

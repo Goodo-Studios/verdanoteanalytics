@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Check, Copy, ExternalLink, Loader2, Search, Star, X, Zap } from "lucide-react";
+import { Check, Copy, ExternalLink, Search, Star, X, Zap } from "lucide-react";
 import { toast } from "sonner";
-import { PageHeader } from "@/components/PageHeader";
+import { EmptyState, LoadingState, PageHeader, PageShell } from "@/components/page-kit";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -195,10 +196,10 @@ export default function HooksPage() {
 
   return (
     <>
-      <div className="p-6 max-w-5xl mx-auto">
+      <PageShell>
         <PageHeader
           title="Hooks"
-          description="Your curated hook library — star hooks from any item detail page to save them here."
+          description="Your curated hook library. Star hooks from any item detail page to save them here."
         />
 
         {/* Starred competitor-vault hooks */}
@@ -244,40 +245,22 @@ export default function HooksPage() {
 
         {/* Results */}
         {isLoading ? (
-          <div className="text-center py-20 text-muted-foreground">
-            <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
-            Loading hooks…
-          </div>
+          <LoadingState label="Loading hooks" />
         ) : allRows.length === 0 ? (
-          <div className="text-center py-20 space-y-3">
-            <Zap className="w-12 h-12 text-muted-foreground mx-auto" />
-            <p className="text-muted-foreground">Your hook library is empty.</p>
-            <p className="text-xs text-muted-foreground max-w-md mx-auto">
-              Open any item in your library, go to the Framework tab, and click
+          <EmptyState icon={<Zap className="w-10 h-10" />} title="Your hook library is empty." description={<>Open any item in your library, go to the Framework tab, and click
               the <Star className="inline w-3.5 h-3.5 mb-0.5" /> star next to a
-              verbal, on-screen text, or visual hook to add it here.
-            </p>
-            <Link
+              verbal, on-screen text, or visual hook to add it here.</>} action={<Link
               to={`${prefix}/ad-library`}
               className="inline-block text-primary text-sm font-medium hover:underline"
             >
               Open Library →
-            </Link>
-          </div>
+            </Link>} />
         ) : filtered.length === 0 ? (
-          <div className="text-center py-20 space-y-2">
-            <p className="text-muted-foreground">No hooks match your filters.</p>
-            <button
+          <EmptyState title="No hooks match your filters." action={<Button type="button" variant="link" size="sm"
               onClick={() => {
                 setSearchInput("");
                 setKindFilter("all");
-              }}
-              type="button"
-              className="text-primary text-sm font-medium hover:underline"
-            >
-              Clear filters
-            </button>
-          </div>
+              }}>Clear filters</Button>} />
         ) : (
           <div className="space-y-3">
             {filtered.map((row) => {
@@ -349,6 +332,7 @@ export default function HooksPage() {
                       type="button"
                       onClick={() => unstar({ itemId: row.itemId, field: starField })}
                       title="Remove from Hook Library"
+                      aria-label="Remove from Hook Library"
                       className="p-1 rounded hover:bg-muted-foreground/10 transition-colors text-amber-500"
                     >
                       <Star className="w-4 h-4 fill-amber-500" />
@@ -360,7 +344,7 @@ export default function HooksPage() {
             })}
           </div>
         )}
-      </div>
+      </PageShell>
     </>
   );
 }

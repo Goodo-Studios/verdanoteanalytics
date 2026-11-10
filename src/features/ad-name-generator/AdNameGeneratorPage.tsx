@@ -7,7 +7,7 @@
 // counter cannot be reached: a duplicate ad name is worse than no name.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { PageHeader } from "@/components/PageHeader";
+import { PageHeader, PageShell, SelectField, TextField } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -60,43 +60,21 @@ type Status = { kind: "idle" } | { kind: "copied"; name: string; manual: boolean
 
 type FieldProps = { id: string; label: string; value: string; error?: string; hint?: string; onChange: (v: string) => void };
 
-/** Label, required mark, hint and error around one control (select or text input). */
+/** Label with a required mark, hint and error around one control (select or text input). */
 function Field({ id, label, value, error, hint, onChange, options, placeholder }: FieldProps & { options?: Option[]; placeholder?: string }) {
-  const control = {
-    id,
-    value,
-    className: cn(
-      "w-full rounded-md border bg-background px-3 py-2 text-[14px] text-foreground outline-none focus:border-verdant",
-      error ? "border-red-600" : "border-input",
-    ),
-    "aria-invalid": Boolean(error),
-    "aria-describedby": error ? `${id}-error` : undefined,
-    onChange: (e: { target: { value: string } }) => onChange(e.target.value),
-  };
-  return (
-    <div className="space-y-1">
-      <label className="block font-label text-[12px] font-medium text-foreground" htmlFor={id}>
-        {label} <span className="text-red-600">*</span>
-      </label>
-      {options ? (
-        <select {...control}>
-          <option value="">{placeholder}</option>
-          {options.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      ) : (
-        <input type="text" placeholder={placeholder} {...control} />
-      )}
-      {hint && !error && <p className="text-[12px] text-muted-foreground">{hint}</p>}
-      {error && (
-        <p id={`${id}-error`} className="text-[12px] text-red-700">
-          {error}
-        </p>
-      )}
-    </div>
+  return options ? (
+    <SelectField
+      id={id}
+      label={`${label} *`}
+      value={value}
+      error={error}
+      hint={hint}
+      placeholder={placeholder ?? ""}
+      options={options}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  ) : (
+    <TextField id={id} label={`${label} *`} value={value} error={error} hint={hint} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
   );
 }
 
@@ -194,7 +172,7 @@ export default function AdNameGeneratorPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-4">
+    <PageShell className="max-w-2xl">
       <PageHeader title="Ad Name Generator" description="Every name is a coordinate on the client's Creative Matrix." />
 
       <section className="space-y-3 rounded-lg border border-input bg-background p-5">
@@ -310,12 +288,12 @@ export default function AdNameGeneratorPage() {
           </p>
         )}
         {status.kind === "copied" && status.manual && (
-          <p className="mt-3 text-[12px] text-red-700" role="status">
+          <p className="mt-3 text-[12px] text-destructive" role="status">
             {formatCode(fields.uniqueCode)} is reserved for this ad, but the browser blocked copying. Select the name above and copy it by hand.
           </p>
         )}
         {status.kind === "error" && (
-          <p className="mt-3 text-[12px] text-red-700" role="alert">
+          <p className="mt-3 text-[12px] text-destructive" role="alert">
             {status.message}
           </p>
         )}
@@ -324,6 +302,6 @@ export default function AdNameGeneratorPage() {
       <p className="text-center text-[12px] text-muted-foreground">
         The code is only spent when you copy, so opening this page costs nothing.
       </p>
-    </div>
+    </PageShell>
   );
 }
