@@ -293,6 +293,37 @@ for (const table of batch1Tables) {
 const b1Employee = await employee.c.rpc("set_client_details", { p_slug: "demo-northwind", p_strategist: "wall" });
 check("employee is refused set_client_details (builder only)", b1Employee.error?.code === "42501", `code=${b1Employee.error?.code ?? "none"}`);
 
+// Old dashboard batch 2, Creators (step 5b): the creator page also reads the creator media
+// tables and the creator media buckets. Clients read none of it, cannot write it and cannot
+// sign a link to a creator headshot, even one that exists.
+const creatorMediaTables = ["creator_videos", "creator_photos", "creator_filming_locations"];
+// A headshot file that exists: the employee must be able to sign it, so it doubles as the probe.
+let headshotPath = null;
+const { data: headshotRows } = await employee.c.from("dashboard_creators").select("headshot_path").not("headshot_path", "is", null).limit(20);
+for (const r of headshotRows ?? []) {
+  const signed = await employee.c.storage.from("creator-headshots").createSignedUrl(r.headshot_path, 60);
+  if (!signed.error && signed.data?.signedUrl) { headshotPath = r.headshot_path; break; }
+}
+check("employee can sign a creator headshot link", headshotPath !== null, headshotPath ? "" : "no headshot of the first 20 could be signed");
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of creatorMediaTables) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const insV = await s.c.from("creator_videos").insert({ creator_id: ZERO, storage_path: "wall.mp4", sort_order: 99 });
+  check(`${label} cannot write creator_videos`, !!insV.error, `error=${insV.error?.message ?? "none (write accepted)"}`);
+  const upd = await s.c.from("dashboard_creators").update({ do_not_use_again: true }).neq("id", ZERO).select("id");
+  check(`${label} changes no dashboard_creators row`, !!upd.error || (upd.data ?? []).length === 0, `rows=${upd.data?.length ?? "error"}`);
+  if (headshotPath) {
+    const signed = await s.c.storage.from("creator-headshots").createSignedUrl(headshotPath, 60);
+    check(`${label} cannot sign a creator headshot link`, !!signed.error || !signed.data?.signedUrl, `error=${signed.error?.message ?? "none (link signed)"}`);
+  }
+}
+for (const table of creatorMediaTables) {
+  const r = await employee.c.from(table).select("*").limit(1);
+  check(`employee can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
+}
+
 // QA gates (migration 20261110120003, step 4b): staff only. Clients read none of the three
 // tables, cannot write them and are refused every checked function, the gate read included.
 const qaTables = ["engagement_deliverable_confirmations", "engagement_deliverable_qa_returns", "engagement_deliverable_signoffs"];

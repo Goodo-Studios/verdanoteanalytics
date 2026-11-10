@@ -30,6 +30,7 @@ type Query<T> = PromiseLike<DbResult<T>> & {
   not(column: string, op: string, value: unknown): Query<T>;
   lte(column: string, value: unknown): Query<T>;
   order(column: string, opts?: { ascending?: boolean }): Query<T>;
+  range(from: number, to: number): Query<T>;
   maybeSingle(): PromiseLike<DbResult<T extends (infer R)[] ? R : T>>;
   select(columns: string): Query<T>;
 };

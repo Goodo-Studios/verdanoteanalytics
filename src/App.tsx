@@ -81,6 +81,9 @@ const CreatorPipelinePage = lazy(routeImports.creatorPipeline);
 const ClientDetailPage = lazy(routeImports.clientDetail);
 // Client overview (consolidation step 5a, old dashboard): builder and employee.
 const ClientOverviewPage = lazy(routeImports.clientOverview);
+// Creators (consolidation step 5b, old dashboard): builder and employee.
+const CreatorsPage = lazy(routeImports.creators);
+const CreatorDetailPage = lazy(routeImports.creatorDetail);
 // Meeting recaps (consolidation step 4a, Goodo OS): builder and employee.
 const MeetingRecapsPage = lazy(routeImports.meetingRecaps);
 // Integration health (consolidation step 4a, Goodo OS): builder and employee.
@@ -223,6 +226,8 @@ export function RoleGuardedRoutes() {
           <Route path="/creator-pipeline" element={staffPage ? <CreatorPipelinePage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/clients/:slug" element={staffPage ? <ClientDetailPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/clients" element={staffPage ? <ClientOverviewPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/creators/:id" element={staffPage ? <CreatorDetailPage /> : <Navigate to={`${prefix}/`} replace />} />
+          <Route path="/creators" element={staffPage ? <CreatorsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/engagements" element={staffPage ? <EngagementsPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/deliverables" element={staffPage ? <DeliverablesPage /> : <Navigate to={`${prefix}/`} replace />} />
           <Route path="/qa-gates" element={staffPage ? <QaGatesPage /> : <Navigate to={`${prefix}/`} replace />} />
