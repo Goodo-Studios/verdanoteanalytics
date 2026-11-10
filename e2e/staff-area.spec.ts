@@ -51,6 +51,7 @@ const STAFF_PATHS = [
   "/deliverables",
   "/qa-gates",
   "/handoffs",
+  "/learning",
   "/scope-changes",
   "/recommendations",
   "/strategy",

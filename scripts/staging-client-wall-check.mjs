@@ -564,6 +564,40 @@ for (const [table, select] of [
   check(`employee loads the ${table} page query`, !r.error, `error=${r.error?.code ?? ""} ${r.error?.message ?? "none"}`);
 }
 
+// Learning (migration 20261110200005, step 4c): staff only. Clients read none of the six
+// tables, cannot write them and are refused every checked function.
+const learningTables = ["learning_modules", "learning_module_versions", "learning_reviews", "learning_history", "learning_support_weeks", "learning_self_service_snapshots"];
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of learningTables) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const ins = await s.c.from("learning_reviews").insert({ module_id: ZERO, version: 1, action: "approved", reviewer_id: s.userId });
+  check(`${label} cannot write learning_reviews`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  for (const [fn, args] of [
+    ["create_learning_module", { p_client_slug: "demo-glowdrip", p_module_key: "wall-check", p_title: "wall" }],
+    ["save_learning_draft", { p_module_id: ZERO, p_expected_version: 0, p_summary: "wall", p_steps: ["wall"], p_checklist: ["wall"], p_source_refs: ["https://wall.test"], p_applicability: ["standard"], p_source_clearance: "cleared", p_client_use_rights: "client_approved", p_blocking_gaps: [], p_assigned_reviewer: null }],
+    ["review_learning_version", { p_module_id: ZERO, p_version: 1, p_action: "accepted" }],
+    ["publish_learning_version", { p_module_id: ZERO, p_version: 1 }],
+    ["withdraw_learning_module", { p_module_id: ZERO, p_reason: "wall" }],
+    ["record_learning_support_week", { p_engagement_id: ZERO, p_week_start: "2026-11-09", p_observation_status: "observed", p_recurring_how_to_questions: 1, p_data_origin: "synthetic_fixture" }],
+    ["snapshot_learning_self_service", { p_engagement_id: ZERO, p_baseline_start: "2026-09-07", p_baseline_end: "2026-09-20", p_pilot_start: "2026-09-21", p_pilot_end: "2026-10-04" }],
+  ]) {
+    const r = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, r.error?.code === "42501", `code=${r.error?.code ?? "none"}`);
+  }
+}
+for (const table of learningTables) {
+  const r = await employee.c.from(table).select("*").limit(1);
+  check(`employee can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
+}
+const lnPublish = await employee.c.rpc("publish_learning_version", { p_module_id: ZERO, p_version: 1 });
+check("employee cannot publish a lesson (builder only)", lnPublish.error?.code === "42501", `code=${lnPublish.error?.code ?? "none"}`);
+const lnDraft = await employee.c.rpc("save_learning_draft", { p_module_id: ZERO, p_expected_version: 0, p_summary: "wall", p_steps: [], p_checklist: [], p_source_refs: [], p_applicability: [], p_source_clearance: "pending", p_client_use_rights: "internal_draft_only", p_blocking_gaps: [], p_assigned_reviewer: null });
+check("employee passes the staff check in save_learning_draft", lnDraft.error?.code === "P0002", `code=${lnDraft.error?.code ?? "none"}`);
+const lnPage = await employee.c.from("learning_modules").select("*, learning_module_versions!learning_module_versions_module_id_fkey(*), learning_reviews!learning_reviews_module_id_fkey(*), learning_history!learning_history_module_id_fkey(*)").limit(1);
+check("employee loads the learning page query", !lnPage.error, `error=${lnPage.error?.code ?? ""} ${lnPage.error?.message ?? "none"}`);
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {
