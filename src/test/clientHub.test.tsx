@@ -74,11 +74,17 @@ vi.mock("@/features/dashboard/api", () => {
 // The existing pages that moved into the hub are stubbed to show which client the shared selection gave them.
 vi.mock("@/pages/BriefsPage", async () => {
   const { useSelectedClientSlug } = await import("@/contexts/ClientSelectionContext");
-  return { default: () => <div data-testid="page-briefs">{`briefs for ${useSelectedClientSlug()}`}</div> };
+  function BriefsStub() {
+    return <div data-testid="page-briefs">{`briefs for ${useSelectedClientSlug()}`}</div>;
+  }
+  return { default: BriefsStub };
 });
 async function stub(testid: string, label: string) {
   const { useSelectedClientSlug } = await import("@/contexts/ClientSelectionContext");
-  return { default: () => <div data-testid={testid}>{`${label} for ${useSelectedClientSlug()}`}</div> };
+  function PageStub() {
+    return <div data-testid={testid}>{`${label} for ${useSelectedClientSlug()}`}</div>;
+  }
+  return { default: PageStub };
 }
 vi.mock("@/features/bids/BidViewerPage", () => stub("page-brand-doc", "brand doc"));
 vi.mock("@/features/meeting-recaps/MeetingRecapsPage", () => stub("page-meetings", "meetings"));
