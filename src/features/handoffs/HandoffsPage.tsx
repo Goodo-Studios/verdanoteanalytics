@@ -6,6 +6,9 @@
 // for me" lists packets addressed to the signed-in person. Every write goes through
 // a checked database function (migration 20261110120004); clients see none of it.
 // Acknowledging does not complete any ClickUp task, and nothing is sent outward.
+// A new packet starts from the engagement's published strategy proposal when there is
+// one (step 4c, migration 20261110200001); staff edit it before saving and the packet
+// keeps the reference.
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -18,6 +21,8 @@ import {
   errorText,
   type Packet,
   parseInputs,
+  prefillFromStrategy,
+  type PublishedStrategy,
   type ReceivingRole,
   ROLE_LABEL,
   SOURCE_LABEL,
@@ -113,6 +118,7 @@ function PacketCard({ packet, staff, onChanged }: { packet: Packet; staff: Staff
               </ul>
             </>
           ) : <p className="text-muted-foreground">No deliverable revisions when written.</p>}
+          {v.strategy_proposal_id ? <p className="text-muted-foreground">Brief started from the published strategy proposal, version {v.strategy_proposal_version}.</p> : null}
           {v.reason ? <p className="text-muted-foreground">Reassigned: {v.reason}</p> : null}
         </div>
       ) : null}
@@ -152,7 +158,25 @@ function PacketCard({ packet, staff, onChanged }: { packet: Packet; staff: Staff
 function CreateForm({ engagementId, staff, onCreated }: { engagementId: string; staff: StaffOption[]; onCreated: () => void }) {
   const { user } = useAuth();
   const [form, setForm] = useState({ role: "editor", receiver: "", owner: user?.id ?? "", due: "", brief: "", angle: "", goal: "", inputs: "" });
+  const [strategy, setStrategy] = useState<PublishedStrategy | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    setStrategy(null);
+    void db.rpc("published_strategy_for_engagement", { p_engagement_id: engagementId }).then(({ data, error: e }) => {
+      const row = !e && Array.isArray(data) ? (data[0] as PublishedStrategy | undefined) : undefined;
+      if (!live || !row) return;
+      setStrategy(row);
+      setForm((f) => ({ ...f, ...prefillFromStrategy(row) }));
+    });
+    return () => {
+      live = false;
+    };
+  }, [engagementId]);
+  const startBlank = () => {
+    setStrategy(null);
+    setForm((f) => ({ ...f, brief: "", angle: "", goal: "", inputs: "" }));
+  };
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
   const inputs = parseInputs(form.inputs);
   const ready = form.receiver && form.owner && form.due && form.brief.trim() && form.angle.trim() && form.goal.trim() && inputs.length;
@@ -161,15 +185,23 @@ function CreateForm({ engagementId, staff, onCreated }: { engagementId: string; 
     const { error: e } = await db.rpc("create_handoff_packet", {
       p_engagement_id: engagementId, p_receiving_role: form.role, p_receiver_id: form.receiver, p_accountable_owner_id: form.owner,
       p_due_date: form.due, p_brief: form.brief.trim(), p_angle: form.angle.trim(), p_goal: form.goal.trim(), p_required_inputs: inputs,
+      p_strategy_proposal_id: strategy?.proposal_id ?? null, p_strategy_proposal_version: strategy?.version ?? null,
     });
     if (e) return setError(errorText(e.code, "The handoff could not be created."));
     setForm({ ...form, brief: "", angle: "", goal: "", inputs: "" });
+    setStrategy(null);
     onCreated();
   };
   return (
     <details className="rounded-lg border border-input bg-background p-4 text-sm">
       <summary className="cursor-pointer font-medium">Create a handoff packet</summary>
       <div className="mt-3 space-y-2">
+        {strategy ? (
+          <p className="rounded bg-muted/40 p-2" data-testid="strategy-prefill">
+            Prefilled from the published strategy proposal "{strategy.title}", version {strategy.version}. Edit anything before creating.{" "}
+            <button type="button" className="underline" onClick={startBlank}>Start blank</button>
+          </p>
+        ) : null}
         <div className="grid gap-2 sm:grid-cols-4">
           <select aria-label="Receiving role" className={field} value={form.role} onChange={set("role")}>
             {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}

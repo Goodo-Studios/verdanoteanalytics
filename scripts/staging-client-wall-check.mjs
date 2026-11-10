@@ -384,6 +384,37 @@ const hStaff = await employee.c.rpc("handoff_staff_options", {});
 check("employee lists staff logins and no client", !hStaff.error && (hStaff.data ?? []).length > 0 && !(hStaff.data ?? []).some((u) => u.user_id === clientA.userId || u.user_id === clientB.userId),
   `error=${hStaff.error?.message ?? "none"} rows=${hStaff.data?.length ?? "error"}`);
 
+// Strategy proposals (migration 20261110200001, step 4c): staff only. Clients read none of the
+// five tables, cannot write them and are refused every checked function.
+const strategyTables = ["strategy_proposals", "strategy_proposal_versions", "strategy_proposal_reviews", "strategy_proposal_acceptances", "strategy_proposal_publications"];
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of strategyTables) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const ins = await s.c.from("strategy_proposal_reviews").insert({ proposal_id: ZERO, version: 1, decision: "reviewed", note: "wall", reviewer_id: s.userId });
+  check(`${label} cannot write strategy_proposal_reviews`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+  for (const [fn, args] of [
+    ["create_strategy_proposal", { p_engagement_id: ZERO, p_source_subject_id: ZERO, p_source_version: 1, p_title: "wall", p_summary: "wall", p_brief: "wall", p_angle: "wall", p_goal: "wall", p_required_inputs: ["wall"] }],
+    ["revise_strategy_proposal", { p_proposal_id: ZERO, p_expected_version: 1, p_source_subject_id: ZERO, p_source_version: 1, p_title: "wall", p_summary: "wall", p_brief: "wall", p_angle: "wall", p_goal: "wall", p_required_inputs: ["wall"] }],
+    ["review_strategy_proposal", { p_proposal_id: ZERO, p_version: 1, p_decision: "reviewed", p_note: "wall" }],
+    ["accept_strategy_proposal", { p_proposal_id: ZERO, p_version: 1 }],
+    ["publish_strategy_proposal", { p_proposal_id: ZERO, p_version: 1 }],
+    ["published_strategy_for_engagement", { p_engagement_id: ZERO }],
+  ]) {
+    const r = await s.c.rpc(fn, args);
+    check(`${label} is refused ${fn}`, r.error?.code === "42501", `code=${r.error?.code ?? "none"}`);
+  }
+}
+for (const table of strategyTables) {
+  const r = await employee.c.from(table).select("*").limit(1);
+  check(`employee can read ${table}`, !r.error, `error=${r.error?.message ?? "none"}`);
+}
+const spPublished = await employee.c.rpc("published_strategy_for_engagement", { p_engagement_id: ZERO });
+check("employee passes the staff check in published_strategy_for_engagement", !spPublished.error && (spPublished.data ?? []).length === 0, `error=${spPublished.error?.message ?? "none"}`);
+const spAccept = await employee.c.rpc("accept_strategy_proposal", { p_proposal_id: ZERO, p_version: 1 });
+check("employee passes the staff check in accept_strategy_proposal", spAccept.error?.code === "P0002", `code=${spAccept.error?.code ?? "none"}`);
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

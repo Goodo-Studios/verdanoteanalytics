@@ -30,7 +30,30 @@ export interface PacketVersion {
   action: "created" | "reassigned";
   reason: string | null;
   created_at: string;
+  strategy_proposal_id?: string | null;
+  strategy_proposal_version?: number | null;
 }
+
+/** The engagement's published strategy proposal (published_strategy_for_engagement). */
+export interface PublishedStrategy {
+  proposal_id: string;
+  version: number;
+  title: string;
+  summary: string;
+  brief: string;
+  angle: string;
+  goal: string;
+  required_inputs: string[];
+  published_at: string;
+}
+
+/** The brief fields a new packet starts with when the engagement has a published strategy. */
+export const prefillFromStrategy = (s: PublishedStrategy) => ({
+  brief: s.brief,
+  angle: s.angle,
+  goal: s.goal,
+  inputs: s.required_inputs.join("\n"),
+});
 
 export interface Acknowledgement {
   revision: number;
