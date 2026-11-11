@@ -111,8 +111,8 @@ RESET role;
 -- ---------------------------------------------------------------- what the table holds (19-21)
 SELECT is(ARRAY(SELECT column_name::text FROM information_schema.columns
                  WHERE table_schema = 'public' AND table_name = 'pipeline_delivered' ORDER BY column_name COLLATE "C"),
-  ARRAY['account_id', 'clickup_task_id', 'client_slug', 'content_type', 'cycle_month', 'delivered_at', 'id', 'synced_at', 'task_name', 'updated_at'],
-  'pipeline_delivered holds the client-safe fields only (no status, assignee, link or brief)');
+  ARRAY['account_id', 'asset_link', 'clickup_task_id', 'client_slug', 'content_type', 'cycle_month', 'delivered_at', 'id', 'synced_at', 'task_name', 'updated_at'],
+  'pipeline_delivered holds the client-safe fields only (the Air review link, and no status, assignee or brief)');
 SELECT is((SELECT count(*)::int FROM public.pipeline_delivered WHERE clickup_task_id = 'pd-a-1' AND task_name = 'Changed by client'), 0,
   'the client update changed nothing');
 SELECT is((SELECT count(*)::int FROM public.pipeline_delivered WHERE clickup_task_id LIKE 'pd-%'), 4,

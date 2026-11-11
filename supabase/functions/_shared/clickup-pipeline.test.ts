@@ -3,6 +3,7 @@
 
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
+  assetLinkValue,
   cleanFolderName,
   decideStage,
   dropdownValue,
@@ -287,6 +288,7 @@ Deno.test("a task becomes a row holding only client-safe fields", () => {
     stage: "Editing",
     due_date: "2026-11-20",
     content_type: "Motion Graphic",
+    asset_link: null,
     cycle_month: "2026-11-01",
     delivered_at: null,
     synced_at: new Date(NOW).toISOString(),
@@ -348,6 +350,7 @@ Deno.test("a delivered task carries its delivery day and cycle, and an old one l
     account_id: null,
     task_name: "September Asset 4 - Hook test",
     content_type: null,
+    asset_link: null,
     cycle_month: "2026-09-01",
     delivered_at: "2026-09-20",
     synced_at: new Date(NOW).toISOString(),
@@ -398,4 +401,33 @@ Deno.test("stuck, cleared, non-asset and unknown-status tasks are left out", () 
     kind: "unknown",
     status: "brand new",
   });
+});
+
+Deno.test("assetLinkValue reads the Link to Asset field by name and keeps only valid Air links", () => {
+  const field = (value: unknown, name = "Link to Asset") => [{ name, type: "text", value }];
+  assertEquals(assetLinkValue(field(" https://app.air.inc/a/baf09d5e3 \n")), "https://app.air.inc/a/baf09d5e3");
+  assertEquals(assetLinkValue(field("https://air.inc/a/x1")), "https://air.inc/a/x1");
+  assertEquals(assetLinkValue(field("https://app.air.inc/a/x", "Other")), null, "another field is not read");
+  assertEquals(assetLinkValue(field("https://app.air.inc/a/x", "link to asset")), "https://app.air.inc/a/x");
+  assertEquals(assetLinkValue(undefined), null);
+  assertEquals(assetLinkValue([]), null);
+  assertEquals(assetLinkValue(field(null)), null);
+  assertEquals(assetLinkValue(field("")), null);
+});
+
+Deno.test("a task with an Air link carries it on the record; an invalid one is stored as null", () => {
+  const owner = { client_slug: "bearaby", account_id: null };
+  const base = { id: "t1", name: "November Asset 2", status: { status: "client review" }, date_updated: String(NOW) };
+  const withLink = toPipelineRecord(
+    { ...base, custom_fields: [{ name: "Link to Asset", type: "text", value: "https://app.air.inc/a/abc" }] },
+    owner,
+    NOW,
+  );
+  assert(withLink.kind === "record");
+  assertEquals(withLink.record.asset_link, "https://app.air.inc/a/abc");
+  for (const bad of ["javascript:alert(1)", "http://app.air.inc/a/abc", "https://air.inc.evil.com/a", "https://evilair.inc/a", "https://app.air.inc@evil.com/a", "not a url"]) {
+    const out = toPipelineRecord({ ...base, custom_fields: [{ name: "Link to Asset", type: "text", value: bad }] }, owner, NOW);
+    assert(out.kind === "record");
+    assertEquals(out.record.asset_link, null, bad);
+  }
 });

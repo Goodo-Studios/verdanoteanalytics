@@ -10,6 +10,7 @@ import { bucketWork, WORK_COLUMNS } from "@/lib/clientWork";
 import { useClientWork } from "@/hooks/useClientWork";
 import { dueDateLabel, lastSyncedAt } from "@/lib/pipelineBoard";
 import { CLIENT_REVIEW_STAGE, waitingOnYou } from "@/lib/pipelineSummary";
+import { ViewAssetLink } from "@/components/client/ViewAssetLink";
 import { PageHeader, PageShell, LoadingState, ErrorState, EmptyState } from "@/components/page-kit";
 
 export default function ClientWorkTab() {
@@ -69,6 +70,7 @@ export default function ClientWorkTab() {
                         {t.content_type ? <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.content_type}</p> : null}
                         <p className="text-[13px]">{t.task_name || "Untitled task"}</p>
                         {due ? <p className={`mt-1 text-[11px] ${due.urgent && col === CLIENT_REVIEW_STAGE ? "font-medium text-blue-600" : "text-muted-foreground"}`}>{due.text}</p> : null}
+                        <ViewAssetLink link={t.asset_link} className="mt-2" />
                       </li>
                     );
                   })}

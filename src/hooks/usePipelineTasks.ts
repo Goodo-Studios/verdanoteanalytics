@@ -20,6 +20,8 @@ export interface PipelineTask {
   updated_at: string | null;
   cycle_month?: string | null;
   delivered_at?: string | null;
+  /** Air review link from the ClickUp "Link to Asset" field (https, air.inc host), or null. */
+  asset_link?: string | null;
 }
 
 const STAGE_ORDER: Record<string, number> = {

@@ -18,14 +18,14 @@ export interface PageQuery {
 
 export const CLIENT_SWITCHER_COLUMNS = "slug, name, active";
 export const CLIENT_SWITCHER_LINK_COLUMNS = "account_id, client_slug";
-export const PIPELINE_TASK_COLUMNS = "id, task_name, stage, due_date, content_type, updated_at";
+export const PIPELINE_TASK_COLUMNS = "id, task_name, stage, due_date, content_type, updated_at, asset_link";
 // The client's own board by cycle (phase 5). A client login sends these with no filter: the row rules decide.
-export const CLIENT_BOARD_COLUMNS = "id, task_name, stage, due_date, content_type, updated_at, cycle_month, delivered_at";
-export const CLIENT_DELIVERED_COLUMNS = "id, task_name, content_type, cycle_month, delivered_at, updated_at";
+export const CLIENT_BOARD_COLUMNS = "id, task_name, stage, due_date, content_type, updated_at, cycle_month, delivered_at, asset_link";
+export const CLIENT_DELIVERED_COLUMNS = "id, task_name, content_type, cycle_month, delivered_at, updated_at, asset_link";
 export const CLIENT_ENGAGEMENT_COLUMNS = "start_date, day45_date, status";
 export const CLIENT_LINK_COLUMNS = "client_slug";
 // Staff Home and the cross-client Work page (restructure phase 2b).
-export const HOME_TASK_COLUMNS = "id, clickup_task_id, client_slug, task_name, stage, due_date, synced_at";
+export const HOME_TASK_COLUMNS = "id, clickup_task_id, client_slug, task_name, stage, due_date, synced_at, asset_link";
 export const HOME_HANDOFF_COLUMNS = "id, client_slug, receiving_role, receiver_id, due_date, status";
 export const HOME_SUPPORT_COLUMNS = "id, client_slug, subject, status, next_update_target, accountable_user_id, backup_user_id";
 export const HOME_BUDGET_ALERT_COLUMNS = "id, level, period_month";
