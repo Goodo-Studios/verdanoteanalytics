@@ -1,4 +1,4 @@
--- Client progress ingest (migration 20261116000001, P9).
+-- Client progress ingest (migrations 20261116000001, P9, and 20261118090001, manual clients accepted).
 --
 -- Run with the local stack (requires Docker):  supabase test db
 --
@@ -8,7 +8,7 @@
 -- Checks: both tables have row rules on and no login of any role reads or writes them; only a
 -- builder creates, lists and revokes tokens; the raw token is returned once and only its sha256 hash
 -- is stored; list_ingest_tokens shows no hash; apply_client_progress is service role only; it
--- refuses unknown and hand-made clients, writes only the fields a call names, sets last_synced,
+-- refuses unknown clients, applies hand-made clients (owner decision 2026-11-11), writes only the fields a call names, sets last_synced,
 -- never touches active or origin, is idempotent on replay, refuses a revoked token, and audits.
 
 BEGIN;
@@ -67,12 +67,13 @@ SELECT is((public.apply_client_progress((SELECT id FROM made), 'run-cycle',
   '[{"slug":"ing-glow","pct_complete":60,"month":"2026-11","deliverables":[{"month":"2026-11","type":"cycle_brief","status":"in_progress","file_path":"a/b.md"}]},
     {"slug":"ing-nobody","pct_complete":1},
     {"slug":"ing-hand","pct_complete":99}]'::jsonb, 400)) -> 'rejected',
-  '[{"slug":"ing-nobody","reason":"unknown_client"},{"slug":"ing-hand","reason":"manual_client"}]'::jsonb,
-  'unknown and hand-made clients are refused per entry');
+  '[{"slug":"ing-nobody","reason":"unknown_client"}]'::jsonb,
+  'an unknown client is refused per entry and a hand-made client is not');
 SELECT is((SELECT pct_complete::text || ':' || month || ':' || (last_synced IS NOT NULL)::text FROM public.clients WHERE slug = 'ing-glow'), '60:2026-11:true',
   'a synced client gets the fields named and last_synced from the database clock');
 SELECT is((SELECT strategist FROM public.clients WHERE slug = 'ing-glow'), 'Sam Strategist', 'a field the call did not name is left alone');
-SELECT is((SELECT pct_complete::text || ':' || coalesce(last_synced::text, 'none') FROM public.clients WHERE slug = 'ing-hand'), '5:none', 'a hand-made client is not written');
+SELECT is((SELECT pct_complete::text || ':' || (last_synced IS NOT NULL)::text || ':' || origin || ':' || active::text FROM public.clients WHERE slug = 'ing-hand'), '99:true:manual:true',
+  'a hand-made client is written and stamped, and its origin and active are untouched');
 SELECT is((SELECT active::text || ':' || origin FROM public.clients WHERE slug = 'ing-glow'), 'true:coda', 'active and origin are untouched');
 SELECT is((SELECT count(*)::int FROM public.clients WHERE slug = 'ing-nobody'), 0, 'an unknown client is never created');
 

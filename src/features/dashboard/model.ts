@@ -53,7 +53,7 @@ export function isSyncedClient(origin: string | null | undefined): boolean {
 
 export const SYNCED_DETAILS_NOTE =
   "Kept in step with this client's knowledge file by the HQ sync. Service type, strategist, contract dates and status are changed in the knowledge file.";
-export const MANUAL_PROGRESS_NOTE = "Added by hand. No sync updates this client, so progress is only what is entered here.";
+export const MANUAL_PROGRESS_NOTE = "Added by hand. The HQ feed also updates this client when it sends data, so a value entered here can be replaced by the next update.";
 
 // --------------------------------------------------------------- time
 
@@ -157,7 +157,7 @@ export function clientHealth(c: DashboardClient, now: Date): ClientHealth {
 
 /** The plain "Last updated" line shown on a client card and on the client page. */
 export function lastUpdatedLine(c: Pick<DashboardClient, "origin" | "last_synced">, now: Date): string {
-  if (!isSyncedClient(c.origin)) return "Added by hand";
+  if (!isSyncedClient(c.origin)) return c.last_synced ? `Added by hand. Last updated ${formatAgo(c.last_synced, now)}` : "Added by hand";
   if (!c.last_synced) return "Waiting for the first update from HQ";
   return `Last updated ${formatAgo(c.last_synced, now)}`;
 }

@@ -248,14 +248,14 @@ Checklist (do in order, with the HQ processes paused):
 1. Production token. Sign in to production as a builder, open Integration health, "Client progress feed", create a token named for the job (for example `hq-processes`). Copy it from the one-time panel and store it straight away: `pbpaste | hq secrets set VERDANOTE_INGEST_TOKEN --company goodo-studios --from-stdin` (the token is still on the clipboard from the Copy button; never paste it into chat or a file). It cannot be shown again; if it is lost, revoke it and make another.
 2. Final copy of the old dashboard data (step 7), so `clients` and `deliverables` hold the latest history before the feed starts.
 3. Dry run against production: `hq secrets exec --company goodo-studios --only VERDANOTE_INGEST_TOKEN -- python3 companies/goodo-studios/scripts/sync/push-client-progress.py --target production --seed --dry-run` (prints counts only).
-4. Backfill: the same command without `--dry-run`. It sends every active client in one batch (up to 100) and prints how many were applied and refused. A refused client is unknown to Verdanote or was made by hand; fix the roster, do not force it.
+4. Backfill: the same command without `--dry-run`. It sends every active client in one batch (up to 100) and prints how many were applied and refused. A refused client is unknown to Verdanote (no client with that slug); fix the roster, do not force it. Hand-made clients are applied.
 5. Switch the target: set `VERDANOTE_INGEST_TARGET=production` where the processes run (the shell environment of the HQ sessions and the crons), and make sure `DASHBOARD_LEGACY_WRITE` is not set.
 6. Resume the processes. Confirm one write from each lands: Integration health, "Latest calls", shows the process name, and the client's "Last updated" line changes. Nothing should reach the old database.
 7. Revoke any test token left on the page.
 
 What Verdanote derives instead of ingesting: the delivery numbers (delivered N of M, last delivery day) come from the ClickUp tasks that `sync-clickup-tasks` stores, for any month that has tasks. HQ still sends `pct_complete`, status, contract dates, strategist and the `cycle_brief`, `report` and `performance` deliverables, and `delivery` for months with no ClickUp task.
 
-A hand-made client (`origin = 'manual'`) is refused by the feed, as the old sync refused it. `clients.origin = 'coda'` is the legacy name for the clients these processes sync; those clients stay read only on the client page because of it.
+Decision made 2026-11-11: hand-made clients (`origin = 'manual'`) are accepted by the feed. The feed never changes `origin`, so a hand-made client stays editable on the client page and a value entered by hand can be replaced by the next feed update that names it. `clients.origin = 'coda'` is the legacy name for the clients these processes sync; those clients stay read only on the client page because of it.
 
 Rollback: set `DASHBOARD_LEGACY_WRITE=1` and `VERDANOTE_INGEST_TARGET=staging` to point the processes back at the old database, and revoke the production token. Rows written to Verdanote in between are copied back by hand, so keep a note of when each process was switched.
 

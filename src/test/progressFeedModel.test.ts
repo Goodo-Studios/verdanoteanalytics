@@ -7,6 +7,7 @@ const NOW = new Date("2026-11-10T12:00:00Z");
 describe("last updated and progress lines", () => {
   it("covers hand-made, never updated and updated clients", () => {
     expect(lastUpdatedLine({ origin: "manual", last_synced: null }, NOW)).toBe("Added by hand");
+    expect(lastUpdatedLine({ origin: "manual", last_synced: "2026-11-10T09:00:00Z" }, NOW)).toBe("Added by hand. Last updated 3 hr ago");
     expect(lastUpdatedLine({ origin: "coda", last_synced: null }, NOW)).toBe("Waiting for the first update from HQ");
     expect(lastUpdatedLine({ origin: "coda", last_synced: "2026-11-10T09:00:00Z" }, NOW)).toBe("Last updated 3 hr ago");
   });

@@ -7,7 +7,7 @@
 // (their JWT is not an ingest token). verify_jwt is false because the caller has no Supabase session.
 //
 // Write: one batched call to apply_client_progress (service role only), which is idempotent, refuses
-// unknown and hand-made clients per entry, sets last_synced from the database clock and writes the
+// unknown clients per entry (hand-made clients are accepted, owner decision 2026-11-11), sets last_synced from the database clock and writes the
 // audit row. Shape errors and rate-limited calls write nothing to clients or deliverables.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
