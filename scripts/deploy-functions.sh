@@ -39,7 +39,6 @@ FUNCTIONS=(
   refresh-media-queue
   competitor-ads
   entity-report
-  create-coda-brief
   creatives
   enrich-thumbnails
   ingest-reviews
@@ -59,8 +58,6 @@ FUNCTIONS=(
   settings
   spend-diagnostic
   sync
-  sync-coda-tasks
-  sync-coda-names
   system-health-check
   transcribe-ad
   user-management

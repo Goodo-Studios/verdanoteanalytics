@@ -76,7 +76,6 @@ OTHER_FUNCTIONS=(
   clear-media-cache
   client-insights
   competitor-ads
-  create-coda-brief
   enrich-thumbnails
   portfolio
   quick-save
@@ -89,7 +88,6 @@ OTHER_FUNCTIONS=(
   send-digest
   spend-diagnostic
   sync
-  sync-coda-tasks
   system-health-check
   transcribe-ad
   user-management
