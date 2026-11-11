@@ -78,6 +78,7 @@ vi.mock("@/features/operating-costs/OperatingCostsPage", () => pageMock("operati
 vi.mock("@/features/support/SupportInboxPage", () => pageMock("support"));
 vi.mock("@/features/bids/BidViewerPage", () => pageMock("bids"));
 vi.mock("@/features/team/TeamPage", () => pageMock("team"));
+vi.mock("@/features/admin/EarlyPagesPage", () => pageMock("early-pages"));
 vi.mock("@/features/learning/LearningPage", () => pageMock("learning"));
 vi.mock("@/features/scope-changes/ScopeChangesPage", () => pageMock("scope-changes"));
 vi.mock("@/features/recommendations/RecommendationsPage", () => pageMock("recommendations"));
@@ -116,6 +117,7 @@ import { RoleGuardedRoutes } from "@/App";
 import { clientNavItems, staffNavItems } from "@/components/AppSidebar";
 import { SECTIONS, type PageKey } from "@/lib/sections";
 import { LEGACY_REDIRECTS } from "@/lib/legacyRoutes";
+import { HIDDEN_PAGES, isHiddenPage } from "@/lib/hiddenPages";
 import { CLIENT_SCOPED_LEGACY, HUB_TABS, SCOPE_SUBTABS, STAFF_PIPELINE_LEGACY } from "@/lib/clientHub";
 
 function setRole(role: Role, opts: { clientPreview?: boolean } = {}) {
@@ -141,7 +143,7 @@ function renderAt(path: string) {
 }
 
 /** Every staff page and the marker its mocked module renders. */
-const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean }> = [
+const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean; hidden?: boolean }> = [
   { path: "/staff", marker: "staff-home" },
   { path: "/work", marker: "work" },
   { path: "/agency", marker: "agency" },
@@ -175,13 +177,13 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean }
   { path: "/actors/de5a0000-0000-4000-8000-000000000500", marker: "actorDetail" },
   { path: "/creators", marker: "creators" },
   { path: "/creators/de5a0000-0000-4000-8000-000000000300", marker: "creatorDetail" },
-  { path: "/agent-evaluations", marker: "agent-evaluations" },
+  { path: "/agent-evaluations", marker: "agent-evaluations", hidden: true },
   { path: "/operations", marker: "operations" },
   { path: "/operating-costs", marker: "operating-costs", builderOnly: true },
   { path: "/support", marker: "support" },
   { path: "/bids", marker: "bids" },
   { path: "/team", marker: "team" },
-  { path: "/learning", marker: "learning" },
+  { path: "/learning", marker: "learning", hidden: true },
   { path: "/ad-library", marker: "ad-library" },
   { path: "/viral-feed", marker: "ad-library" },
   { path: "/ad-library/viral", marker: "ad-library" },
@@ -200,7 +202,7 @@ const PAGE_MARKER: Record<string, string> = {
   agencyDashboard: "agency", creatives: "creatives", creativeLibrary: "creative-library", analytics: "analytics", matrix: "matrix",
   tagging: "tagging", briefs: "briefs", reports: "reports", landingPages: "landing-pages", creativeRotation: "creative-rotation",
   entityReport: "entities", adLibrary: "ad-library", boards: "boards", hooks: "hooks", knowledge: "knowledge", learning: "learning",
-  meetingRecaps: "meeting-recaps", bidViewer: "bids", team: "team", integrationHealth: "integration-health", notifications: "notifications", operations: "operations",
+  meetingRecaps: "meeting-recaps", bidViewer: "bids", team: "team", earlyPages: "early-pages", integrationHealth: "integration-health", notifications: "notifications", operations: "operations",
   operatingCosts: "operating-costs", agentEvaluations: "agent-evaluations", growthDashboard: "growth-dashboard",
   adNameGenerator: "ad-name-generator", supportInbox: "support",
   clientDetail: "clientDetail", clientWork: "client-work", clientPerformance: "client-performance", clientSetup: "client-setup",
@@ -209,15 +211,15 @@ const PAGE_MARKER: Record<string, string> = {
 };
 
 /** Every section tab address, with the page it shows. */
-const TAB_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean }> = SECTIONS.flatMap((section) =>
-  section.tabs.map((tab) => ({ path: `/${section.id}/${tab.slug}`, marker: PAGE_MARKER[tab.page], builderOnly: tab.builderOnly })),
+const TAB_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean; hidden?: boolean }> = SECTIONS.flatMap((section) =>
+  section.tabs.map((tab) => ({ path: `/${section.id}/${tab.slug}`, marker: PAGE_MARKER[tab.page], builderOnly: tab.builderOnly, hidden: isHiddenPage(tab.page) })),
 );
 
 /** The client hub: every tab and every scope sub-tab, with the client in the address. */
-const HUB_PAGES: Array<{ path: string; marker: string }> = [
+const HUB_PAGES: Array<{ path: string; marker: string; hidden?: boolean }> = [
   ...HUB_TABS.filter((t) => t.slug !== "scope").map((t) => ({ path: t.slug === "overview" ? "/clients/demo-glowdrip" : `/clients/demo-glowdrip/${t.slug}`, marker: PAGE_MARKER[t.page] })),
   { path: "/clients/demo-glowdrip/scope", marker: "engagements" },
-  ...SCOPE_SUBTABS.map((t) => ({ path: `/clients/demo-glowdrip/scope/${t.slug}`, marker: PAGE_MARKER[t.page] })),
+  ...SCOPE_SUBTABS.map((t) => ({ path: `/clients/demo-glowdrip/scope/${t.slug}`, marker: PAGE_MARKER[t.page], hidden: isHiddenPage(t.page) })),
 ];
 
 /** Old addresses of the pages that moved into the hub, opened for a client the old way (?client=). */
@@ -225,6 +227,7 @@ const MOVED_INTO_HUB = [...CLIENT_SCOPED_LEGACY, STAFF_PIPELINE_LEGACY].map((r) 
   path: `${r.from}?client=demo-glowdrip`,
   from: r.from,
   marker: r.sub ? PAGE_MARKER[SCOPE_SUBTABS.find((t) => t.slug === r.sub)!.page] : PAGE_MARKER.clientWork,
+  hidden: r.sub ? isHiddenPage(SCOPE_SUBTABS.find((t) => t.slug === r.sub)!.page) : false,
 }));
 
 /** Old staff addresses a client also uses for its own pages: staff are sent to the tab, clients keep the page. */
@@ -325,7 +328,9 @@ describe("a client cannot load any staff page", () => {
 
 describe("staff reach the staff pages", () => {
   const ALL = [...STAFF_PAGES, ...TAB_PAGES, ...SHARED_OLD_PAGES, ...HUB_PAGES, ...MOVED_INTO_HUB];
-  it.each(ALL.filter((p) => !("builderOnly" in p && p.builderOnly)))("an employee reaches $path", async ({ path, marker }) => {
+  const isHidden = (p: unknown) => !!(p as { hidden?: boolean }).hidden;
+  const isBuilderOnly = (p: unknown) => !!(p as { builderOnly?: boolean }).builderOnly;
+  it.each(ALL.filter((p) => !isBuilderOnly(p) && !isHidden(p)))("an employee reaches $path", async ({ path, marker }) => {
     setRole("employee");
     renderAt(`/employee${path}`);
     expect(await screen.findByTestId(`page-${marker}`)).toBeTruthy();
@@ -337,16 +342,42 @@ describe("staff reach the staff pages", () => {
     expect(await screen.findByTestId(`page-${marker}`)).toBeTruthy();
   });
 
-  it.each(ALL.filter((p) => "builderOnly" in p && p.builderOnly))("an employee is sent away from the builder-only page $path", async ({ path, marker }) => {
+  it.each(ALL.filter(isBuilderOnly))("an employee is sent away from the builder-only page $path", async ({ path, marker }) => {
     setRole("employee");
     renderAt(`/employee${path}`);
     expect(await screen.findByTestId("page-staff-home")).toBeTruthy();
     expect(screen.queryByTestId(`page-${marker}`)).toBeNull();
   });
 
-  it("the builder-only list holds the Matrix, the Growth Dashboard and Operating costs, old and new addresses", () => {
-    const paths = ALL.filter((p) => "builderOnly" in p && p.builderOnly).map((p) => p.path).sort();
-    expect(paths).toEqual(["/admin/growth", "/admin/operating-costs", "/creative/matrix", "/growth-dashboard", "/matrix", "/operating-costs"]);
+  // Hidden pages (src/lib/hiddenPages.ts): an employee who opens the address is sent away. A staff
+  // page goes Home; a hidden scope page of the client hub goes to the hub's Engagements.
+  it.each(ALL.filter((p) => isHidden(p) && !p.path.includes("scope") && !/^\/(strategy|recommendations)/.test(p.path)))(
+    "an employee is sent home from the hidden page $path",
+    async ({ path, marker }) => {
+      setRole("employee");
+      renderAt(`/employee${path}`);
+      expect(await screen.findByTestId("page-staff-home")).toBeTruthy();
+      expect(screen.queryByTestId(`page-${marker}`)).toBeNull();
+    },
+  );
+
+  it.each(ALL.filter((p) => isHidden(p) && (p.path.includes("scope") || /^\/(strategy|recommendations)/.test(p.path))))(
+    "an employee who opens the hidden client page $path lands on Engagements",
+    async ({ path, marker }) => {
+      setRole("employee");
+      renderAt(`/employee${path}`);
+      expect(await screen.findByTestId("page-engagements")).toBeTruthy();
+      expect(screen.queryByTestId(`page-${marker}`)).toBeNull();
+    },
+  );
+
+  it("the four pages with no data yet are the hidden ones", () => {
+    expect([...HIDDEN_PAGES].sort()).toEqual(["agentEvaluations", "learning", "recommendations", "strategy"]);
+  });
+
+  it("the builder-only list holds the Matrix, the Growth Dashboard, Operating costs and Early pages, old and new addresses", () => {
+    const paths = ALL.filter(isBuilderOnly).map((p) => p.path).sort();
+    expect(paths).toEqual(["/admin/early-pages", "/admin/growth", "/admin/operating-costs", "/creative/matrix", "/growth-dashboard", "/matrix", "/operating-costs"]);
   });
 
   it("/staff goes to Home", async () => {

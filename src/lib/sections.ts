@@ -4,6 +4,7 @@
 // pure data so the sidebar, the section pages, the redirects and the tests all read the
 // same list.
 import type { routeImports } from "@/lib/routePrefetch";
+import { isHiddenPage } from "@/lib/hiddenPages";
 
 export type PageKey = keyof typeof routeImports;
 export type SectionId = "production" | "talent" | "creative" | "knowledge" | "admin";
@@ -86,7 +87,7 @@ export const SECTIONS: SectionDef[] = [
   {
     id: "knowledge",
     label: "Knowledge",
-    description: "Shared knowledge, lessons, meeting recaps and client BIDs.",
+    description: "Shared knowledge, meeting recaps and client BIDs.",
     tabs: [
       { slug: "shared", label: "Knowledge", page: "knowledge", legacy: [] },
       { slug: "learning", label: "Learning", page: "learning", legacy: ["/learning"] },
@@ -97,12 +98,13 @@ export const SECTIONS: SectionDef[] = [
   {
     id: "admin",
     label: "Admin",
-    description: "Team, integrations, operations, costs and other back-office tools.",
+    description: "Team, integrations, operations, costs, early pages and other back-office tools.",
     tabs: [
       { slug: "team", label: "Team and settings", page: "team", legacy: ["/team"] },
       { slug: "integration-health", label: "Integration health", page: "integrationHealth", legacy: ["/integration-health"] },
       { slug: "notifications", label: "Notifications", page: "notifications", legacy: [] },
       { slug: "operations", label: "Operations", page: "operations", legacy: ["/operations"] },
+      { slug: "early-pages", label: "Early pages", page: "earlyPages", legacy: [], builderOnly: true },
       { slug: "operating-costs", label: "Operating costs", page: "operatingCosts", legacy: ["/operating-costs"], builderOnly: true },
       { slug: "agent-evaluations", label: "Agent evaluations", page: "agentEvaluations", legacy: ["/agent-evaluations"] },
       { slug: "growth", label: "Growth Dashboard", page: "growthDashboard", legacy: ["/growth-dashboard"], builderOnly: true },
@@ -114,9 +116,12 @@ export const SECTIONS: SectionDef[] = [
 
 export const sectionById = (id: string): SectionDef | undefined => SECTIONS.find((s) => s.id === id);
 
-/** Tabs a person may open. Builder-only tabs need a real builder. */
+/**
+ * Tabs shown in the menu, the tab bar and the palette. Builder-only tabs need a real builder.
+ * Hidden pages (src/lib/hiddenPages.ts) are never listed; the address still opens for a builder.
+ */
 export function tabsFor(section: SectionDef, effectiveBuilder: boolean): TabDef[] {
-  return section.tabs.filter((t) => effectiveBuilder || !t.builderOnly);
+  return section.tabs.filter((t) => (effectiveBuilder || !t.builderOnly) && !isHiddenPage(t.page));
 }
 
 export const sectionPath = (section: SectionDef, tab?: TabDef): string => `/${section.id}${tab ? `/${tab.slug}` : ""}`;

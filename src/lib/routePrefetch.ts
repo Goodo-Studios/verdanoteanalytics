@@ -54,6 +54,7 @@ export const routeImports = {
   supportInbox: () => import("@/features/support/SupportInboxPage"),
   bidViewer: () => import("@/features/bids/BidViewerPage"),
   team: () => import("@/features/team/TeamPage"),
+  earlyPages: () => import("@/features/admin/EarlyPagesPage"),
   learning: () => import("@/features/learning/LearningPage"),
   scopeChanges: () => import("@/features/scope-changes/ScopeChangesPage"),
   recommendations: () => import("@/features/recommendations/RecommendationsPage"),

@@ -23,6 +23,9 @@ vi.mock("@/features/team/TeamPage", () => marker("team"));
 vi.mock("@/features/operating-costs/OperatingCostsPage", () => marker("operating-costs"));
 vi.mock("@/features/growth-dashboard/GrowthDashboardPage", () => marker("growth"));
 vi.mock("@/features/knowledge/KnowledgePage", () => marker("knowledge"));
+vi.mock("@/features/learning/LearningPage", () => marker("learning"));
+vi.mock("@/features/agent-evaluations/AgentEvaluationsPage", () => marker("agent-evaluations"));
+vi.mock("@/features/admin/EarlyPagesPage", () => marker("early-pages"));
 
 const h = vi.hoisted(() => ({
   auth: {} as Record<string, unknown>,
@@ -88,13 +91,13 @@ describe("section model", () => {
     ]);
     expect(labels("knowledge")).toEqual(["Knowledge", "Learning", "Meeting recaps", "Client BIDs"]);
     expect(labels("admin")).toEqual([
-      "Team and settings", "Integration health", "Notifications", "Operations", "Operating costs", "Agent evaluations", "Growth Dashboard", "Ad Name Generator", "Support inbox",
+      "Team and settings", "Integration health", "Notifications", "Operations", "Early pages", "Operating costs", "Agent evaluations", "Growth Dashboard", "Ad Name Generator", "Support inbox",
     ]);
   });
 
-  it("marks exactly the Matrix, Operating costs and Growth Dashboard builder only", () => {
+  it("marks exactly the Matrix, Operating costs, Growth Dashboard and Early pages builder only", () => {
     const builderOnly = SECTIONS.flatMap((s) => s.tabs.filter((t) => t.builderOnly).map((t) => t.label));
-    expect(builderOnly.sort()).toEqual(["Growth Dashboard", "Matrix", "Operating costs"]);
+    expect(builderOnly.sort()).toEqual(["Early pages", "Growth Dashboard", "Matrix", "Operating costs"]);
     const creative = SECTIONS.find((s) => s.id === "creative")!;
     expect(tabsFor(creative, false).map((t) => t.label)).not.toContain("Matrix");
     expect(tabsFor(creative, true).map((t) => t.label)).toContain("Matrix");
@@ -131,14 +134,43 @@ describe("role gating", () => {
     expect(names).toContain("Team and settings");
     expect(names).not.toContain("Operating costs");
     expect(names).not.toContain("Growth Dashboard");
+    expect(names).not.toContain("Early pages");
+    expect(names).not.toContain("Agent evaluations");
     expect(names).toContain("Notifications");
-    expect(names).toHaveLength(7);
+    expect(names).toHaveLength(6);
   });
 
-  it("a builder sees all nine Admin tabs", async () => {
+  it("a builder sees nine Admin tabs: Early pages in, Agent evaluations out", async () => {
     renderAt("/builder/admin/team");
     await screen.findByTestId("page-team");
-    expect(tabNames("Admin")).toHaveLength(9);
+    const names = tabNames("Admin");
+    expect(names).toHaveLength(9);
+    expect(names).toContain("Early pages");
+    expect(names).not.toContain("Agent evaluations");
+  });
+
+  it("Learning is not a Knowledge tab, but a builder opens it by its address", async () => {
+    renderAt("/builder/knowledge/shared");
+    await screen.findByTestId("page-knowledge");
+    expect(tabNames("Knowledge")).not.toContain("Learning");
+    renderAt("/builder/knowledge/learning");
+    expect(await screen.findByTestId("page-learning")).toBeTruthy();
+  });
+
+  it("a builder opens Agent evaluations and Early pages by their addresses", async () => {
+    renderAt("/builder/admin/agent-evaluations");
+    expect(await screen.findByTestId("page-agent-evaluations")).toBeTruthy();
+    renderAt("/builder/admin/early-pages");
+    expect(await screen.findByTestId("page-early-pages")).toBeTruthy();
+  });
+
+  it.each(["/employee/knowledge/learning", "/employee/admin/agent-evaluations", "/employee/admin/early-pages"])("an employee typing %s is sent to the index", async (path) => {
+    setRole("employee");
+    renderAt(path);
+    expect(await screen.findByTestId("index")).toBeTruthy();
+    expect(screen.queryByTestId("page-learning")).toBeNull();
+    expect(screen.queryByTestId("page-agent-evaluations")).toBeNull();
+    expect(screen.queryByTestId("page-early-pages")).toBeNull();
   });
 
   it.each(["/employee/creative/matrix", "/employee/admin/growth", "/employee/admin/operating-costs"])("an employee typing %s is sent to the index", async (path) => {

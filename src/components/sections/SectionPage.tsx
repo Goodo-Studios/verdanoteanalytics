@@ -12,6 +12,7 @@ import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { pageFor, prefetchPage } from "@/components/sections/lazyPages";
 import { useAccountReady } from "@/hooks/useAccountReady";
+import { isHiddenPage } from "@/lib/hiddenPages";
 import { sectionPath, tabsFor, type SectionDef, type TabDef } from "@/lib/sections";
 
 function NoAccountNotice({ tab }: { tab: TabDef }) {
@@ -49,7 +50,7 @@ export function SectionPage({ section }: { section: SectionDef }) {
   }
   const tab = section.tabs.find((t) => t.slug === tabSlug);
   if (!tab) return <Navigate to={`${prefix}${sectionPath(section, tabs[0])}`} replace />;
-  if (tab.builderOnly && !effectiveBuilder) return home;
+  if ((tab.builderOnly || isHiddenPage(tab.page)) && !effectiveBuilder) return home;
 
   const Page = pageFor(tab.page);
   const body = tab.requireOneAccount ? (
