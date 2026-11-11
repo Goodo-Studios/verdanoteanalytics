@@ -60,9 +60,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pinned: "latest" pulled in new major CLI versions that broke the staging
+      # deploy twice on 2026-11-09 and the production deploy on 2026-11-11.
+      # Keep every job on the same version and bump it on purpose
+      # (src/test/ciWorkflow.test.ts enforces this).
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 3.1.0
 
       - name: Start isolated Supabase stack
         run: supabase start
@@ -206,9 +210,13 @@ jobs:
           fi
           exit 0
 
+      # Pinned: "latest" pulled in new major CLI versions that broke the staging
+      # deploy twice on 2026-11-09 and the production deploy on 2026-11-11.
+      # Keep every job on the same version and bump it on purpose
+      # (src/test/ciWorkflow.test.ts enforces this).
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 3.1.0
 
       - name: Deploy all edge functions
         run: bash scripts/deploy-functions.sh
@@ -240,9 +248,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pinned: "latest" pulled in new major CLI versions that broke the staging
+      # deploy twice on 2026-11-09 and the production deploy on 2026-11-11.
+      # Keep every job on the same version and bump it on purpose
+      # (src/test/ciWorkflow.test.ts enforces this).
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 3.1.0
 
       - name: Refuse to run against production
         run: |
