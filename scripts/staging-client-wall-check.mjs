@@ -989,7 +989,7 @@ check("staging BIDs are all made up", !bidList.error && (bidList.data ?? []).eve
 // here writes: every call that gets past a role check is given an id that matches nothing.
 const STAFF_5D_FUNCTIONS = [
   ["staff_reconciliation", {}],
-  ["set_staff_role_mapping", { p_dashboard_role: "viewer", p_verdanote_role: "employee", p_needs_owner_decision: false, p_note: "wall" }],
+  ["set_staff_role_mapping", { p_dashboard_role: "viewer", p_verdanote_role: "client", p_note: "wall" }],
   ["prepare_staff_invite", { p_team_member_id: ZERO }],
   ["cancel_staff_invite", { p_invite_id: ZERO, p_reason: "wall check" }],
   ["add_login_to_team_list", { p_user_id: ZERO, p_name: "wall" }],
@@ -1010,9 +1010,9 @@ for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
 }
 const teamPage = await employee.c.from("app_users").select("id, name, email, role, active").order("name");
 check("employee loads the team list page query", !teamPage.error && (teamPage.data ?? []).length > 0, `error=${teamPage.error?.code ?? ""} ${teamPage.error?.message ?? "none"} rows=${teamPage.data?.length ?? "error"}`);
-const mapPage = await employee.c.from("staff_role_mappings").select("dashboard_role, verdanote_role, needs_owner_decision, note, updated_at").order("dashboard_role");
+const mapPage = await employee.c.from("staff_role_mappings").select("dashboard_role, verdanote_role, note, updated_at").order("dashboard_role");
 check("employee loads the role mapping page query (three rows)", !mapPage.error && (mapPage.data ?? []).length === 3, `error=${mapPage.error?.code ?? ""} ${mapPage.error?.message ?? "none"} rows=${mapPage.data?.length ?? "error"}`);
-check("the viewer mapping is still flagged for the owner", (mapPage.data ?? []).some((m) => m.dashboard_role === "viewer" && m.needs_owner_decision === true));
+check("the mapping is admin to builder, producer to employee and viewer to client", ["admin:builder", "producer:employee", "viewer:client"].every((x) => (mapPage.data ?? []).some((m) => `${m.dashboard_role}:${m.verdanote_role}` === x)));
 for (const table of ["staff_invites", "staff_admin_events"]) {
   const r = await employee.c.from(table).select("*").limit(1000);
   check(`employee reads no ${table} rows (builder only)`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
@@ -1033,7 +1033,7 @@ check("builder reads the staff reconciliation", !recon.error && Array.isArray(re
 const prepNone = await staff.c.rpc("prepare_staff_invite", { p_team_member_id: ZERO });
 check("builder passes the role check in prepare_staff_invite (no such member)", prepNone.error?.code === "P0002", `code=${prepNone.error?.code ?? "none"}`);
 // The Team page (/team, step 5d PR 2) loads these as the builder.
-const invPage = await staff.c.from("staff_invites").select("id, team_member_id, email, name, proposed_role, mapping_flagged, status, prepared_at, cancelled_at, cancel_reason").order("prepared_at", { ascending: false }).limit(200);
+const invPage = await staff.c.from("staff_invites").select("id, team_member_id, email, name, proposed_role, status, prepared_at, cancelled_at, cancel_reason").order("prepared_at", { ascending: false }).limit(200);
 check("builder loads the Team page invites query", !invPage.error, `error=${invPage.error?.code ?? ""} ${invPage.error?.message ?? "none"}`);
 check("no staging invite was ever sent (prepared or cancelled only)", (invPage.data ?? []).every((i) => ["prepared", "cancelled"].includes(i.status)), `statuses=${[...new Set((invPage.data ?? []).map((i) => i.status))]}`);
 const evPage = await staff.c.from("staff_admin_events").select("id, kind, subject, detail, created_at").order("created_at", { ascending: false }).limit(20);

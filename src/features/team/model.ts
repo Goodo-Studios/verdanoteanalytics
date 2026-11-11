@@ -5,17 +5,19 @@
 
 export type DashboardRole = "admin" | "producer" | "viewer";
 export type StaffRole = "builder" | "employee";
+/** What a dashboard role maps to. Two kinds of people: employees (and builders) and clients (the viewer). */
+export type MappedRole = StaffRole | "client";
 
 export const DASHBOARD_ROLES: readonly DashboardRole[] = ["admin", "producer", "viewer"];
 export const STAFF_ROLES: readonly StaffRole[] = ["builder", "employee"];
 
 export const TEAM_SELECT = "id, name, email, role, active";
-export const MAPPING_SELECT = "dashboard_role, verdanote_role, needs_owner_decision, note, updated_at";
-export const INVITE_SELECT = "id, team_member_id, email, name, proposed_role, mapping_flagged, status, prepared_at, cancelled_at, cancel_reason";
+export const MAPPING_SELECT = "dashboard_role, verdanote_role, note, updated_at";
+export const INVITE_SELECT = "id, team_member_id, email, name, proposed_role, status, prepared_at, cancelled_at, cancel_reason";
 export const EVENT_SELECT = "id, kind, subject, detail, created_at";
 
 export const NO_SEND_NOTE =
-  "A prepared invite is a note that someone should be invited. Nothing is sent until a builder presses Send invite by email and confirms. Wait for the owner's decision on the role mapping and the staff list before sending to staff.";
+  "A prepared invite is a note that someone should be invited. Nothing is sent until a builder presses Send invite by email and confirms.";
 
 export interface TeamMember {
   id: string;
@@ -27,8 +29,7 @@ export interface TeamMember {
 
 export interface RoleMapping {
   dashboard_role: DashboardRole;
-  verdanote_role: StaffRole;
-  needs_owner_decision: boolean;
+  verdanote_role: MappedRole;
   note: string;
   updated_at: string;
 }
@@ -39,7 +40,6 @@ export interface StaffInvite {
   email: string;
   name: string;
   proposed_role: StaffRole;
-  mapping_flagged: boolean;
   status: "prepared" | "cancelled";
   prepared_at: string;
   cancelled_at: string | null;
@@ -59,7 +59,7 @@ export type Issue =
   | "client_login"
   | "no_staff_role"
   | "role_differs"
-  | "mapping_needs_owner"
+  | "no_client_linked"
   | "inactive_with_staff_role"
   | "not_on_team_list"
   | "possible_name_match";
@@ -74,8 +74,8 @@ export interface ReconRow {
   login_name: string | null;
   staff_roles: string[];
   has_client_role: boolean;
-  mapped_role: StaffRole | null;
-  mapping_flagged: boolean;
+  client_linked: boolean;
+  mapped_role: MappedRole | null;
   prepared_invite_id: string | null;
   possible_match: string | null;
   issues: Issue[];
@@ -86,7 +86,7 @@ export const ISSUE_ORDER: readonly Issue[] = [
   "client_login",
   "no_staff_role",
   "role_differs",
-  "mapping_needs_owner",
+  "no_client_linked",
   "inactive_with_staff_role",
   "not_on_team_list",
   "possible_name_match",
@@ -110,9 +110,9 @@ export const ISSUE_INFO: Record<Issue, { label: string; effect: string }> = {
     label: "Role differs from the mapping",
     effect: "The Verdanote role is not the one the mapping gives for the dashboard role.",
   },
-  mapping_needs_owner: {
-    label: "Mapping waits on the owner",
-    effect: "The dashboard role's mapping is flagged, so no role is applied for it.",
+  no_client_linked: {
+    label: "No client linked yet",
+    effect: "A viewer is a client login. This one is not linked to a client, so it sees nothing yet. Link it on the client's Setup tab.",
   },
   inactive_with_staff_role: {
     label: "Deactivated but still staff",
@@ -135,24 +135,28 @@ export const roleLabel = (r: string | null | undefined): string =>
 export function proposedChange(row: ReconRow): string | null {
   const issues = new Set(row.issues);
   const mapped = row.mapped_role ? roleLabel(row.mapped_role) : null;
-  const wait = row.mapping_flagged ? " once the owner has decided the mapping" : "";
+  const isClient = row.mapped_role === "client";
   if (issues.has("client_login")) return "Check by hand who this login belongs to. No change is proposed.";
   if (issues.has("no_login")) {
+    if (isClient) return "Make the client login from the client's Setup tab.";
     if (row.prepared_invite_id) return `Invite prepared as ${mapped ?? "staff"}, not sent.`;
-    return `Prepare an invite as ${mapped ?? "staff"}${wait}.`;
+    return `Prepare an invite as ${mapped ?? "staff"}.`;
   }
-  if (issues.has("no_staff_role")) return `Give the login the ${mapped ?? "mapped"} role${wait}.`;
-  if (issues.has("role_differs")) return `Change the role to ${mapped}${wait}.`;
+  if (issues.has("no_staff_role")) return `Give the login the ${mapped ?? "mapped"} role.`;
+  if (issues.has("role_differs")) {
+    if (isClient) return "This viewer's login holds a staff role. Change it by hand if they should be a client.";
+    return `Change the role to ${mapped}.`;
+  }
+  if (issues.has("no_client_linked")) return "Link the login to its client on the client's Setup tab.";
   if (issues.has("inactive_with_staff_role")) return "Remove the staff role, or reactivate them on the team list.";
   if (issues.has("not_on_team_list")) return "Add the login to the team list.";
-  if (issues.has("mapping_needs_owner")) return "Waits on the owner's role decision.";
   if (issues.has("possible_name_match")) return "Check by hand whether these are the same person.";
   return null;
 }
 
 /** True when the builder may prepare an invite from this row. */
 export function canPrepareInvite(row: ReconRow): boolean {
-  return row.issues.includes("no_login") && !!row.team_member_id && !row.prepared_invite_id;
+  return row.issues.includes("no_login") && !!row.team_member_id && !row.prepared_invite_id && row.mapped_role !== "client";
 }
 
 /** True when the builder may put this login on the team list. */
@@ -161,12 +165,14 @@ export function canAddToTeam(row: ReconRow): boolean {
 }
 
 /**
- * The staff role a builder may set from this row with one click: only for a login with no
- * role or a differing role, never a client login, and never while the mapping is flagged.
+ * The role a builder may set from this row with one click: a login with no role gets the mapped
+ * role (client for a viewer); a staff login with a differing staff role gets the mapped staff
+ * role. Never a client login, never a staff login that should become a client.
  */
-export function roleActionFor(row: ReconRow): StaffRole | null {
-  if (!row.user_id || row.has_client_role || row.mapping_flagged || !row.mapped_role) return null;
-  if (row.issues.includes("no_staff_role") || row.issues.includes("role_differs")) return row.mapped_role;
+export function roleActionFor(row: ReconRow): MappedRole | null {
+  if (!row.user_id || row.has_client_role || !row.mapped_role) return null;
+  if (row.issues.includes("no_staff_role")) return row.mapped_role;
+  if (row.issues.includes("role_differs") && row.mapped_role !== "client") return row.mapped_role;
   return null;
 }
 
@@ -220,13 +226,17 @@ export function memberFormProblem(form: MemberForm): string | null {
 }
 
 export interface MappingForm {
+  dashboardRole: string;
   verdanoteRole: string;
-  needsOwnerDecision: boolean;
   note: string;
 }
 
 export function mappingFormProblem(form: MappingForm): string | null {
-  if (!STAFF_ROLES.includes(form.verdanoteRole as StaffRole)) return "A dashboard role maps to builder or employee.";
+  if (form.dashboardRole === "viewer") {
+    if (form.verdanoteRole !== "client") return "A viewer maps to client.";
+  } else if (!STAFF_ROLES.includes(form.verdanoteRole as StaffRole)) {
+    return "A staff role maps to builder or employee.";
+  }
   if (form.note.trim().length > 500) return "The note is longer than 500 characters.";
   return null;
 }

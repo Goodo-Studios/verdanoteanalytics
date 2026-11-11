@@ -7,6 +7,8 @@
 // and their ad accounts stay in Settings > Admin. Nothing here sends an invite or an email.
 // The old Settings "Active clients" half is the Clients section (ClientsSettings.tsx).
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { useRolePrefix } from "@/hooks/useRolePath";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
@@ -66,6 +68,7 @@ function PersonRow({ row, onChanged }: { row: ReconRow; onChanged: () => void })
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const { confirm, dialog } = useConfirm();
+  const prefix = useRolePrefix();
   const role = roleActionFor(row);
   const proposal = proposedChange(row);
   const name = row.team_name ?? row.login_name ?? row.email;
@@ -89,7 +92,7 @@ function PersonRow({ row, onChanged }: { row: ReconRow; onChanged: () => void })
         <div className="text-[12px] text-muted-foreground">
           Team list: {row.team_member_id ? `${roleLabel(row.team_role)}${row.team_active ? "" : " (deactivated)"}` : "not on it"} · Login:{" "}
           {row.user_id ? (row.staff_roles.length ? row.staff_roles.map(roleLabel).join(", ") : row.has_client_role ? "Client" : "no role") : "none"}
-          {row.mapped_role ? ` · Mapped: ${roleLabel(row.mapped_role)}${row.mapping_flagged ? " (waits on the owner)" : ""}` : ""}
+          {row.mapped_role ? ` · Mapped: ${roleLabel(row.mapped_role)}` : ""}
         </div>
       </div>
       {row.issues.length ? (
@@ -98,6 +101,15 @@ function PersonRow({ row, onChanged }: { row: ReconRow; onChanged: () => void })
             <li key={i}>
               <span className="font-medium">{ISSUE_INFO[i]?.label ?? i}.</span> {ISSUE_INFO[i]?.effect}
               {i === "possible_name_match" && row.possible_match ? ` Possible match: ${row.possible_match}.` : ""}
+              {i === "no_client_linked" ? (
+                <>
+                  {" "}
+                  <Link to={`${prefix}/clients`} className="underline" data-testid="no-client-linked-link">
+                    Open Clients, pick the client and use its Setup tab
+                  </Link>
+                  .
+                </>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -210,18 +222,14 @@ function TeamList({ members, builder, onChanged }: { members: TeamMember[]; buil
 }
 
 function MappingRow({ mapping, builder, onChanged }: { mapping: RoleMapping; builder: boolean; onChanged: () => void }) {
-  const [form, setForm] = useState({ verdanoteRole: mapping.verdanote_role as string, needsOwnerDecision: mapping.needs_owner_decision, note: mapping.note });
+  const [form, setForm] = useState({ dashboardRole: mapping.dashboard_role as string, verdanoteRole: mapping.verdanote_role as string, note: mapping.note });
   const [error, setError] = useState<string | null>(null);
   const problem = mappingFormProblem(form);
-  const { confirm, dialog } = useConfirm();
   const save = async () => {
-    const decides = mapping.needs_owner_decision && !form.needsOwnerDecision;
-    if (decides && !(await confirm({ title: `Clear the owner flag on ${mapping.dashboard_role}?`, description: `From then on ${mapping.dashboard_role} becomes ${form.verdanoteRole} when roles are applied. Only do this with the owner's decision.`, actionLabel: "Clear the flag" }))) return;
     setError(null);
     const { error: e } = await db.rpc("set_staff_role_mapping", {
       p_dashboard_role: mapping.dashboard_role,
       p_verdanote_role: form.verdanoteRole,
-      p_needs_owner_decision: form.needsOwnerDecision,
       p_note: form.note.trim(),
     });
     if (e) return setError(errorText(e));
@@ -231,17 +239,14 @@ function MappingRow({ mapping, builder, onChanged }: { mapping: RoleMapping; bui
     <TableRow className="align-top" data-testid="mapping-row">
       <TableCell>{roleLabel(mapping.dashboard_role)}</TableCell>
       <TableCell>{roleLabel(mapping.verdanote_role)}</TableCell>
-      <TableCell>{mapping.needs_owner_decision ? <span className="font-medium text-warning-foreground">Waits on the owner (not applied)</span> : "Applied"}</TableCell>
+      <TableCell>Applied</TableCell>
       <TableCell>
         {mapping.note}
         {builder ? (
           <details>
             <summary className="cursor-pointer text-[12px] text-muted-foreground">Change</summary>
             <div role="group" aria-label={`Change the ${mapping.dashboard_role} mapping`} className="mt-2 space-y-2">
-              <SelectField label="Verdanote role" hideLabel value={form.verdanoteRole} onChange={(e) => setForm({ ...form, verdanoteRole: e.target.value })} options={STAFF_ROLES.map((r) => ({ value: r, label: roleLabel(r) }))} />
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.needsOwnerDecision} onChange={(e) => setForm({ ...form, needsOwnerDecision: e.target.checked })} /> Still waits on the owner
-              </label>
+              <SelectField label="Verdanote role" hideLabel value={form.verdanoteRole} onChange={(e) => setForm({ ...form, verdanoteRole: e.target.value })} options={(mapping.dashboard_role === "viewer" ? ["client"] : [...STAFF_ROLES]).map((r) => ({ value: r, label: roleLabel(r) }))} />
               <TextareaField label="Mapping note" hideLabel value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
               <Button size="sm" disabled={!!problem} onClick={() => void save()}>Save mapping</Button>
               {problem ? <p className="text-[12px] text-muted-foreground">{problem}</p> : null}
@@ -249,7 +254,6 @@ function MappingRow({ mapping, builder, onChanged }: { mapping: RoleMapping; bui
             </div>
           </details>
         ) : null}
-        {dialog}
       </TableCell>
     </TableRow>
   );
@@ -260,8 +264,9 @@ function Mappings({ mappings, builder, onChanged }: { mappings: RoleMapping[]; b
     <section aria-label="Role mapping" className="space-y-2">
       <h2 className="text-lg font-semibold">Role mapping</h2>
       <p className="text-sm text-muted-foreground">
-        How a dashboard role becomes a Verdanote role. This is the owner's open decision on roles: until it is made, admin becomes
-        builder, producer becomes employee, and viewer is proposed as employee but never applied.
+        How a dashboard role becomes a Verdanote role. There are two kinds of people: anyone who works at Goodo Studios is an
+        employee (producer, editor and any other staff role), and anyone who is a client is the viewer, which is the client role.
+        Admin stays builder.
       </p>
       <Table aria-label="Role mapping table" className="min-w-[40rem]">
         <TableHeader>
@@ -290,7 +295,7 @@ function InviteRow({ invite, onChanged, onSend }: { invite: StaffInvite; onChang
   return (
     <li className="rounded border border-input p-3 text-sm" data-testid="invite-row">
       <span className="font-medium">{invite.name}</span> <span className="text-muted-foreground">{invite.email}</span> · as {roleLabel(invite.proposed_role)}
-      {invite.mapping_flagged ? " (mapping waits on the owner)" : ""} · {invite.status === "prepared" ? "Prepared, not sent" : `Cancelled: ${invite.cancel_reason ?? ""}`}
+ · {invite.status === "prepared" ? "Prepared, not sent" : `Cancelled: ${invite.cancel_reason ?? ""}`}
       {invite.status === "prepared" ? (
         <div className="mt-2 flex flex-wrap gap-2">
           <Button size="sm" onClick={() => onSend(invite)} aria-label={`Send the invite to ${invite.name}`}>Send invite by email</Button>

@@ -139,7 +139,7 @@ Deno.test("POST with a dashboard role uses the mapping table", async () => {
     cfg: {
       tables: {
         user_roles: rolesFor(["builder"]),
-        staff_role_mappings: [{ dashboard_role: "producer", verdanote_role: "employee", needs_owner_decision: false }],
+        staff_role_mappings: [{ dashboard_role: "producer", verdanote_role: "employee" }],
       },
     },
   });
@@ -148,19 +148,36 @@ Deno.test("POST with a dashboard role uses the mapping table", async () => {
   assertEquals(roleWrite?.payload, { user_id: "new-user-id", role: "employee" });
 });
 
-Deno.test("POST with a dashboard role still waiting on the owner is refused and creates nothing", async () => {
+Deno.test("POST with the dashboard role viewer creates a client login", async () => {
   const { res, db } = await call("POST", "", {
-    body: { email: "v@b.test", password: "pw", dashboard_role: "viewer" },
+    body: { email: "v@b.test", password: "[REDACTED]", dashboard_role: "viewer", account_ids: ["act_1"] },
     cfg: {
       tables: {
         user_roles: rolesFor(["builder"]),
-        staff_role_mappings: [{ dashboard_role: "viewer", verdanote_role: "employee", needs_owner_decision: true }],
+        staff_role_mappings: [{ dashboard_role: "viewer", verdanote_role: "client" }],
       },
     },
   });
-  assertEquals(res.status, 400);
-  assertEquals(db.admin.created.length, 0);
-  assertEquals(db.writes().length, 0);
+  assertEquals(res.status, 200);
+  const roleWrite = db.writes().find((w) => w.table === "user_roles");
+  assertEquals(roleWrite?.payload, { user_id: "new-user-id", role: "client" });
+});
+
+Deno.test("POST with another staff role such as editor creates an employee", async () => {
+  const { res, db } = await call("POST", "", {
+    body: { email: "e@b.test", password: "[REDACTED]", dashboard_role: "editor" },
+    cfg: {
+      tables: {
+        user_roles: rolesFor(["builder"]),
+        staff_role_mappings: [
+          { dashboard_role: "admin", verdanote_role: "builder" },
+          { dashboard_role: "viewer", verdanote_role: "client" },
+        ],
+      },
+    },
+  });
+  assertEquals(res.status, 200);
+  assertEquals(db.writes().find((w) => w.table === "user_roles")?.payload, { user_id: "new-user-id", role: "employee" });
 });
 
 Deno.test("POST with an unreadable mapping table fails closed", async () => {

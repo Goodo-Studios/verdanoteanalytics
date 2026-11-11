@@ -8,7 +8,7 @@ export const ISSUE_ORDER = [
   "client_login",
   "no_staff_role",
   "role_differs",
-  "mapping_needs_owner",
+  "no_client_linked",
   "inactive_with_staff_role",
   "not_on_team_list",
   "possible_name_match",
