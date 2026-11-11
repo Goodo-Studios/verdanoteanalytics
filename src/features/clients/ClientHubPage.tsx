@@ -15,6 +15,8 @@ import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useAccountReady } from "@/hooks/useAccountReady";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { HUB_TABS, SCOPE_SUBTABS, hubPath } from "@/lib/clientHub";
+import { isHiddenPage } from "@/lib/hiddenPages";
+import { useClientPreview } from "@/hooks/useClientPreviewMode";
 
 const TAB_LINK = "whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors";
 const TAB_ON = "border-verdant font-semibold text-forest";
@@ -26,6 +28,8 @@ export default function ClientHubPage() {
   const { clients, isLoading, selectedClient, noAccount } = useClientSelection();
   const accountReady = useAccountReady();
   const { isBuilder } = useAuth();
+  const { isClientPreview, isEmployeePreview } = useClientPreview();
+  const realBuilder = isBuilder && !isClientPreview && !isEmployeePreview;
 
   const known = clients.length === 0 || clients.some((c) => c.slug === slug);
   if (!isLoading && !known) {
@@ -42,7 +46,10 @@ export default function ClientHubPage() {
 
   const active = HUB_TABS.find((t) => t.slug === (tab ?? "overview"));
   if (!active) return <Navigate to={`${prefix}${hubPath(slug)}`} replace />;
-  const activeSub = active.slug === "scope" ? SCOPE_SUBTABS.find((s) => s.slug === (sub ?? SCOPE_SUBTABS[0].slug)) : undefined;
+  // Hidden pages (src/lib/hiddenPages.ts) are not listed; the address opens for a builder only.
+  const shownSubs = SCOPE_SUBTABS.filter((s) => !isHiddenPage(s.page));
+  const activeSub = active.slug === "scope" ? SCOPE_SUBTABS.find((s) => s.slug === (sub ?? shownSubs[0].slug)) : undefined;
+  if (activeSub && isHiddenPage(activeSub.page) && !realBuilder) return <Navigate to={`${prefix}${hubPath(slug, "scope")}`} replace />;
   if (active.slug === "scope" && !activeSub) return <Navigate to={`${prefix}${hubPath(slug, "scope")}`} replace />;
   if (active.slug !== "scope" && sub) return <Navigate to={`${prefix}${hubPath(slug, active.slug)}`} replace />;
 
@@ -70,7 +77,7 @@ export default function ClientHubPage() {
         </nav>
         {activeSub ? (
           <nav aria-label="Scope sections" className="mt-1 flex gap-1 overflow-x-auto">
-            {SCOPE_SUBTABS.map((s) => (
+            {shownSubs.map((s) => (
               <Link
                 key={s.slug}
                 to={`${prefix}${hubPath(slug, "scope", s.slug)}`}

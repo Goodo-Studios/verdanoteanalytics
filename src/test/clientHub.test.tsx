@@ -193,8 +193,9 @@ describe("hub tabs", () => {
     const page = await screen.findByTestId(`page-${sub}`);
     expect(page.textContent).toMatch(/ for glow$/);
     const subnav = screen.getByRole("navigation", { name: "Scope sections" });
-    expect(within(subnav).getAllByRole("link")).toHaveLength(7);
-    expect(within(subnav).getAllByRole("link").filter((a) => a.getAttribute("aria-current") === "page")).toHaveLength(1);
+    // Strategy and Recommendations are hidden pages (src/lib/hiddenPages.ts): not listed, still open for a builder.
+    expect(within(subnav).getAllByRole("link")).toHaveLength(5);
+    expect(within(subnav).getAllByRole("link").filter((a) => a.getAttribute("aria-current") === "page")).toHaveLength(["strategy", "recommendations"].includes(sub) ? 0 : 1);
   });
 
   it("Scope opens on Engagements and offers every old scope page as a sub-tab", async () => {
@@ -202,9 +203,23 @@ describe("hub tabs", () => {
     expect(await screen.findByTestId("page-engagements")).toBeTruthy();
     const subnav = screen.getByRole("navigation", { name: "Scope sections" });
     expect(within(subnav).getAllByRole("link").map((a) => a.textContent)).toEqual([
-      "Engagements", "Deliverables", "QA gates", "Handoffs", "Scope changes", "Strategy", "Recommendations",
+      "Engagements", "Deliverables", "QA gates", "Handoffs", "Scope changes",
     ]);
+    expect(within(subnav).queryByRole("link", { name: "Strategy" })).toBeNull();
+    expect(within(subnav).queryByRole("link", { name: "Recommendations" })).toBeNull();
     expect(within(subnav).getByRole("link", { name: "QA gates" }).getAttribute("href")).toBe("/builder/clients/glow/scope/qa-gates");
+  });
+
+  it("a hidden scope page opens by its address for a builder only", async () => {
+    renderHub("/builder/clients/glow/scope/strategy");
+    expect(await screen.findByTestId("page-strategy")).toBeTruthy();
+  });
+
+  it("an employee who opens a hidden scope address lands on Engagements", async () => {
+    h.isBuilder = false;
+    renderHub("/builder/clients/glow/scope/recommendations");
+    expect(await screen.findByTestId("page-engagements")).toBeTruthy();
+    expect(screen.queryByTestId("page-recommendations")).toBeNull();
   });
 
   it("an unknown tab goes to the Overview and an unknown scope section goes to Scope", async () => {

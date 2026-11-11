@@ -43,10 +43,10 @@ Approving or rejecting an application finds the reviewer's `app_users` row by em
 | Dashboard role | Verdanote role |
 |---|---|
 | admin | builder |
-| producer | employee |
-| viewer | none |
+| producer, editor and any other staff role | employee |
+| viewer | client |
 
-Verdanote has no read only staff role, so viewers get no Verdanote role. The plan recommends giving them what they need another way, unless there turn out to be many of them.
+Owner decision 2026-11-11: there are two kinds of people. Staff are employees (builders stay builders) and a viewer is a client. A viewer client login is linked to its client on the client's Setup tab until then it sees nothing.
 
 `app_user_role_mapping()` shows staff what the mapping would do for each copied person. `apply_app_user_role_mapping()` adds the roles for active people who already have a Verdanote login (matched by email). Only the service role can call it. It never removes a role and never creates a login. It is not run by the copy script.
 

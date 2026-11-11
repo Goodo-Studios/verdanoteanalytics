@@ -4,7 +4,8 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { type DashboardRoleMapping, mapDashboardRoleWith, type RoleMappingRow } from "../_shared/dashboard-role-map.ts";
 
 // A dashboard role is turned into a Verdanote role by the mapping in public.staff_role_mappings
-// (step 5d, shown on the Team page). A row still waiting on the owner is refused.
+// (step 5d, shown on the Team page): admin to builder, viewer to client, any other staff role to
+// employee (owner decision 2026-11-11).
 interface MappingReader {
   from(table: string): {
     select(columns: string): PromiseLike<{ data: RoleMappingRow[] | null; error: unknown }>;
@@ -13,7 +14,7 @@ interface MappingReader {
 async function resolveDashboardRole(supabase: MappingReader, dashboardRole: unknown): Promise<DashboardRoleMapping> {
   const { data, error } = await supabase
     .from("staff_role_mappings")
-    .select("dashboard_role, verdanote_role, needs_owner_decision");
+    .select("dashboard_role, verdanote_role");
   if (error) return { ok: false, error: "The role mapping could not be read." };
   return mapDashboardRoleWith(data, dashboardRole);
 }

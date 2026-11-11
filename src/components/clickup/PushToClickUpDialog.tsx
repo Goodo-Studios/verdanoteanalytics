@@ -69,7 +69,7 @@ export function PushToClickUpDialog({
   const [pushing, setPushing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [setupSlug, setSetupSlug] = useState<string | null>(null);
-  const [result, setResult] = useState<{ url: string; task_name: string } | null>(null);
+  const [result, setResult] = useState<{ url: string; task_name: string; note?: string } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -121,7 +121,7 @@ export function PushToClickUpDialog({
         },
       });
       if (invokeError) throw invokeError;
-      setResult({ url: data.url, task_name: data.task_name });
+      setResult({ url: data.url, task_name: data.task_name, note: typeof data.note === "string" ? data.note : undefined });
     } catch (err) {
       const info = await errorInfo(err, "Push to ClickUp failed");
       setError(info.message);
@@ -154,6 +154,7 @@ export function PushToClickUpDialog({
             >
               <ExternalLink className="h-3.5 w-3.5" /> {result.task_name}
             </a>
+            {result.note ? <p className="font-body text-[12px] text-muted-foreground" data-testid="push-note">{result.note}</p> : null}
             <div className="flex justify-end">
               <Button size="sm" variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
             </div>

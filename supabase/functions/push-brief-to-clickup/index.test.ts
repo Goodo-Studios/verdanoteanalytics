@@ -7,7 +7,8 @@
 //   * folder resolution: source_mappings first, name rules second, none / two refused
 //   * existing task: overwrite refused, wrong list refused, non-asset refused,
 //     success writes only description and status
-//   * new task: numbering across months, current month in Pacific time
+//   * new task: numbering across months, current month in Pacific time, ClickUp task type "Asset"
+//     looked up by name (read-only), fallback to no type with a note
 //   * picker list: empty asset tasks in assigned / brief creation only
 //   * the description sent is plain markdown with no HTML tags
 //
@@ -135,6 +136,8 @@ const ok = (body: unknown) => () => new Response(JSON.stringify(body), { status:
 const baseRoutes = (extra: Record<string, (seen: Seen) => Response> = {}) => ({
   [`GET /space/${SPACE}/folder`]: ok(FOLDERS),
   [`GET /list/${LIST}/task`]: ok({ tasks: LIST_TASKS, last_page: true }),
+  [`GET /team`]: ok({ teams: [{ id: "9014", name: "Goodo" }] }),
+  [`GET /team/9014/custom_item`]: ok({ custom_items: [{ id: 1006, name: "Video Editing" }, { id: 1001, name: "Asset" }] }),
   ...extra,
 });
 
@@ -377,8 +380,84 @@ Deno.test("a new task is numbered after the highest asset number in the list", a
   assertEquals(w.length, 1);
   assertEquals(w[0].body!.name, "November Asset 13 - Sleep hook");
   assertEquals(w[0].body!.status, "brief creation");
-  assertEquals(Object.keys(w[0].body!).sort(), ["markdown_content", "name", "status"]);
-  assertEquals(r.json, { client_slug: "smokeshow", task_id: "new1", task_name: "November Asset 13 - Sleep hook", url: "https://app.clickup.com/t/new1", created: true });
+  assertEquals(Object.keys(w[0].body!).sort(), ["custom_item_id", "markdown_content", "name", "status"]);
+  assertEquals(w[0].body!.custom_item_id, 1001);
+  assertEquals(r.json, {
+    client_slug: "smokeshow", task_id: "new1", task_name: "November Asset 13 - Sleep hook", url: "https://app.clickup.com/t/new1",
+    created: true, task_type: "Asset",
+  });
+});
+
+const newTaskRoute = { [`POST /list/${LIST}/task`]: (s: Seen) => new Response(JSON.stringify({ id: "n", name: s.body!.name })) };
+
+Deno.test("the Asset task type id is looked up by name, read-only, never hard coded", async () => {
+  const r = await run({ ...PUSH, target: "new" }, {
+    routes: baseRoutes({
+      [`GET /team/9014/custom_item`]: ok({ custom_items: [{ id: "2077", name: " asset " }] }),
+      ...newTaskRoute,
+    }),
+  });
+  assertEquals(writes(r.seen).length, 1);
+  assertEquals(writes(r.seen)[0].body!.custom_item_id, 2077);
+  assert(r.seen.some((s) => s.method === "GET" && s.url.endsWith("/team/9014/custom_item")));
+});
+
+Deno.test("a second team is searched when the first has no Asset type", async () => {
+  const r = await run({ ...PUSH, target: "new" }, {
+    routes: baseRoutes({
+      [`GET /team`]: ok({ teams: [{ id: "1" }, { id: "2" }] }),
+      [`GET /team/1/custom_item`]: ok({ custom_items: [{ id: 5, name: "Other" }] }),
+      [`GET /team/2/custom_item`]: ok({ custom_items: [{ id: 3003, name: "Asset" }] }),
+      ...newTaskRoute,
+    }),
+  });
+  assertEquals(writes(r.seen)[0].body!.custom_item_id, 3003);
+});
+
+Deno.test("no Asset type found: the task is created without a type and the answer says so", async () => {
+  const r = await run({ ...PUSH, target: "new" }, {
+    routes: baseRoutes({
+      [`GET /team/9014/custom_item`]: ok({ custom_items: [{ id: 1006, name: "Video Editing" }] }),
+      ...newTaskRoute,
+    }),
+  });
+  assertEquals(r.res.status, 200);
+  const w = writes(r.seen);
+  assertEquals(w.length, 1);
+  assert(!("custom_item_id" in w[0].body!));
+  assertEquals(r.json.created, true);
+  assertEquals(r.json.task_type, null);
+  assertStringIncludes(r.json.note, "without the \"Asset\" task type");
+});
+
+Deno.test("a failed task type lookup does not stop the push: no type, a note", async () => {
+  const r = await run({ ...PUSH, target: "new" }, {
+    routes: baseRoutes({ [`GET /team`]: () => new Response("nope", { status: 403 }), ...newTaskRoute }),
+  });
+  assertEquals(r.res.status, 200);
+  assert(!("custom_item_id" in writes(r.seen)[0].body!));
+  assertEquals(r.json.task_type, null);
+  assert(typeof r.json.note === "string");
+});
+
+Deno.test("pushing to an existing task never looks up or sets a task type", async () => {
+  const r = await run({ ...PUSH, target: "86bc00t09" }, {
+    routes: baseRoutes({
+      "GET /task/86bc00t09": ok(task("86bc00t09", "November Asset 9")),
+      "PUT /task/86bc00t09": ok(task("86bc00t09", "November Asset 9")),
+    }),
+  });
+  assertEquals(r.res.status, 200);
+  assert(!r.seen.some((s) => s.url.includes("/team")));
+  assert(!("custom_item_id" in writes(r.seen)[0].body!));
+  assertEquals(r.json.note, undefined);
+});
+
+Deno.test("no ClickUp write ever happens in the task type lookup", async () => {
+  const r = await run({ ...PUSH, target: "new" }, { routes: baseRoutes(newTaskRoute) });
+  const typeCalls = r.seen.filter((s) => s.url.includes("/team"));
+  assert(typeCalls.length > 0);
+  assert(typeCalls.every((s) => s.method === "GET"));
 });
 
 Deno.test("new-task numbering reads every page of the list", async () => {

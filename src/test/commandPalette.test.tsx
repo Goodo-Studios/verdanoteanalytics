@@ -16,6 +16,7 @@ vi.mock("@/hooks/useRolePath", () => ({ useRolePrefix: () => "/builder" }));
 import { CommandPaletteHost } from "@/components/CommandPaletteHost";
 import { WithClient } from "@/test/clientSelection";
 import { SECTIONS } from "@/lib/sections";
+import { isHiddenPage } from "@/lib/hiddenPages";
 import { pageItems, searchJump, clientItems } from "@/lib/jumpTo";
 
 const CLIENTS = [
@@ -102,9 +103,23 @@ describe("what it lists", () => {
     const items = pageItems(true);
     for (const s of SECTIONS) {
       expect(items.some((i) => i.to === `/${s.id}`), s.id).toBe(true);
-      for (const t of s.tabs) expect(items.some((i) => i.to === `/${s.id}/${t.slug}` && i.label === t.label), `${s.id}/${t.slug}`).toBe(true);
+      for (const t of s.tabs) {
+        // Hidden pages (src/lib/hiddenPages.ts) are not offered, even to a builder.
+        const there = items.some((i) => i.to === `/${s.id}/${t.slug}` && i.label === t.label);
+        expect(there, `${s.id}/${t.slug}`).toBe(!isHiddenPage(t.page));
+      }
     }
     for (const to of ["/", "/work", "/clients"]) expect(items.some((i) => i.to === to), to).toBe(true);
+  });
+
+  it("never offers the four hidden pages, and offers Early pages to a builder only", () => {
+    const labels = (b: boolean) => pageItems(b).map((i) => i.label);
+    for (const hidden of ["Agent evaluations", "Learning", "Recommendations", "Strategy"]) {
+      expect(labels(true), hidden).not.toContain(hidden);
+      expect(labels(false), hidden).not.toContain(hidden);
+    }
+    expect(labels(true)).toContain("Early pages");
+    expect(labels(false)).not.toContain("Early pages");
   });
 
   it("matches clients by name, ignoring case, and lists them before pages", () => {
