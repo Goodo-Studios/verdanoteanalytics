@@ -106,11 +106,11 @@ try {
     { id: ids.aa[1], actor_id: ids.actors[1], client_slug: slugB, stage: "shortlisted" },
   ]));
   await must("boards", admin.from("approval_boards").insert([
-    { id: boards.creatorsA.id, client_slug: slugA, board_type: "creators", token: boards.creatorsA.token, expires_at: future },
-    { id: boards.creatorsB.id, client_slug: slugB, board_type: "creators", token: boards.creatorsB.token, expires_at: future },
-    { id: boards.actorsA.id, client_slug: slugA, board_type: "actors", token: boards.actorsA.token, expires_at: future },
+    { id: boards.creatorsA.id, client_slug: slugA, board_type: "creators", token: boards.creatorsA.token, expires_at: future, revoked: false },
+    { id: boards.creatorsB.id, client_slug: slugB, board_type: "creators", token: boards.creatorsB.token, expires_at: future, revoked: false },
+    { id: boards.actorsA.id, client_slug: slugA, board_type: "actors", token: boards.actorsA.token, expires_at: future, revoked: false },
     { id: boards.revoked.id, client_slug: slugA, board_type: "creators", token: boards.revoked.token, expires_at: future, revoked: true },
-    { id: boards.expired.id, client_slug: slugA, board_type: "creators", token: boards.expired.token, expires_at: past },
+    { id: boards.expired.id, client_slug: slugA, board_type: "creators", token: boards.expired.token, expires_at: past, revoked: false },
   ]));
 
   // Registry rows came from the trigger.
