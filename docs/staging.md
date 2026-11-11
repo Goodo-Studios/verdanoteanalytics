@@ -99,7 +99,7 @@ Adding a function: add it to `supabase/function-access.json` with its class. Add
 
 | Spec | What it checks |
 |---|---|
-| `staff-menu.spec.ts` | As the builder: the seven menu items are there; every section opens, lists all its tabs; every tab (read from `src/lib/sections.ts`, so a new tab is covered without an edit) shows a page heading and logs no console error |
+| `staff-menu.spec.ts` | As the builder: the seven menu items are there; every section opens, lists its tabs (all except the hidden pages in `src/lib/hiddenPages.ts`, which it checks are absent); every tab (read from `src/lib/sections.ts`, so a new tab is covered without an edit) shows a page heading and logs no console error |
 | `staff-tools.spec.ts` | The client switcher changes the client and keeps it on the next page; Ctrl+K opens the search, finds a page and opens it; Escape closes it |
 | `client-view.spec.ts` | As client A: exactly the five client items, no switcher or search; every staff route (the clients list, a client hub, Work, the first tab of each section, Admin pages) lands on the client home; the pipeline page shows a cycle group (with "N of M delivered") or the empty state |
 
