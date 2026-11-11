@@ -6,8 +6,8 @@
  *   count recorded is counted apart, never dropped.
  * - Add and edit go through the checked location functions (locationsApi);
  *   the form is checked before any call.
- * - Selected locations become a link served by the old dashboard; copy and
- *   revoke; the page says that clients use the old dashboard's copy.
+ * - Selected locations become a link served by Verdanote; copy and
+ *   revoke; each link shows how often it was opened.
  * The row rules and functions are in supabase/tests/dashboard_locations_page_test.sql.
  */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -89,7 +89,7 @@ describe("locations model", () => {
     expect(formatCapacity(LOFT)).toBe("2 bd · 1.5 ba · 6 guests");
     expect(safeListingUrl("javascript:alert(1)")).toBeNull();
     expect(safeListingUrl("https://listing.example.test/1")).toBe("https://listing.example.test/1");
-    expect(locationBoardUrl("abc")).toBe("https://goodostudios-production.vercel.app/locations-board/abc");
+    expect(locationBoardUrl("abc")).toBe(`${window.location.origin}/locations-board/abc`);
   });
 
   it("checks the form before any call", () => {
@@ -130,14 +130,14 @@ describe("Locations page", () => {
 
   const renderPage = () => render(<MemoryRouter><LocationsPage /></MemoryRouter>);
 
-  it("lists locations with cost, size and photo, and says links are served by the old dashboard", async () => {
+  it("lists locations with cost, size and photo, and says links open on Verdanote", async () => {
     renderPage();
     const loft = await screen.findByTestId("location-row-l1");
     expect(within(loft).getByText("$250 / day")).toBeTruthy();
     expect(within(loft).getByText("2 bd · 1.5 ba · 6 guests")).toBeTruthy();
     expect(within(loft).getByRole("img").getAttribute("src")).toBe("https://signed.example.test/a.jpg");
     expect(within(screen.getByTestId("location-row-l2")).getByText("Do not rent again")).toBeTruthy();
-    expect(screen.getByTestId("old-dashboard-note").textContent).toMatch(/Public links still open on the old dashboard for now/);
+    expect(screen.getByTestId("old-dashboard-note").textContent).toMatch(/Clients open these links on Verdanote with no login/);
     expect(screen.getByTestId("locations-count").textContent).toBe("3 locations");
   });
 
@@ -218,7 +218,7 @@ describe("Locations page", () => {
     await screen.findByTestId("location-row-l1");
     const live = screen.getByTestId("location-board-b1");
     expect(within(live).getByText("Sunny Loft, Corner Studio")).toBeTruthy();
-    expect(within(live).getByText("https://goodostudios-production.vercel.app/locations-board/tok-b1")).toBeTruthy();
+    expect(within(live).getByText(`${window.location.origin}/locations-board/tok-b1`)).toBeTruthy();
     expect(within(screen.getByTestId("location-board-b0")).queryByText("Revoke")).toBeNull();
     expect((screen.getByText("Create link") as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByLabelText("Select Sunny Loft"));

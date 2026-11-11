@@ -32,7 +32,7 @@ const arr = (v: unknown): Record<string, unknown>[] =>
   Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => !!x && typeof x === "object") : [];
 
 /** Signs a list of paths in one bucket. A path that cannot be signed gets no address. */
-async function signMany(db: Db, bucket: string, paths: string[]): Promise<Map<string, string>> {
+export async function signMany(db: Db, bucket: string, paths: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   const unique = [...new Set(paths.filter((p) => p))];
   if (unique.length === 0) return out;

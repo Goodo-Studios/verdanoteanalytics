@@ -12,6 +12,19 @@ const { sha256Hex } = await import("../_shared/public-link.ts");
 const TOKEN = "A".repeat(48);
 const UUID = "11111111-1111-4111-8111-111111111111";
 
+const LOCATIONS = {
+  status: "ok", label: "Spring", client_name: "Glow Co", cost: 900, contact_email: "host@example.test",
+  locations: [{ location_id: UUID, name: "Loft", neighborhood: "Mission", rental_type: "house", rooms: ["Kitchen"], attributes: ["Bright"], listing_url: "https://leak.example",
+    photos: [{ id: UUID, caption: "Front", path: "loc/1.jpg", storage_path: "loc/1.jpg" }] }],
+};
+const SHEET = {
+  status: "ok", call_time: "08:00:00", wrap_time_estimate: "5 pm", general_notes: "Bring ID", shoot_date: "2026-12-01", shoot_location: "Loft", client_name: "Glow Co",
+  talent: [{ name: "Ada", phone: "555-0100", email: "ada@example.test", notes: "private" }],
+  location: { name: "Loft", wifi_password: "pw", cost: 900, notes: "private" },
+  schedule: [{ id: UUID, label: "Setup", start_time: "08:00", end_time: "09:00", talent: [{ name: "Ada", phone: "x" }], crew: [{ id: UUID, name: "Bo", rate_notes: "private" }] }],
+  crew: [{ id: UUID, name: "Bo", role: "DP", phone: "555-0101", email: "bo@example.test", rate_notes: "private" }],
+};
+
 interface FakeOpts {
   /** Status the board functions answer for the token. */
   status?: string;
@@ -41,6 +54,11 @@ function fakeDb(opts: FakeOpts = {}) {
           data: { status: "ok", client_name: "Glow Co", expires_at: "2030-01-01T00:00:00Z", people: opts.people ?? [] },
           error: null,
         });
+      }
+      if (name === "public_location_board_get" || name === "public_call_sheet_get") {
+        const status = opts.status ?? "ok";
+        if (status !== "ok") return Promise.resolve({ data: { status }, error: null });
+        return Promise.resolve({ data: name === "public_call_sheet_get" ? SHEET : LOCATIONS, error: null });
       }
       if (name === "public_board_vote") return Promise.resolve({ data: opts.voteAnswer ?? "ok", error: null });
       if (name === "public_board_media") {
@@ -189,4 +207,61 @@ Deno.test("a rate limit database error fails closed", async () => {
   db.rpc = () => Promise.resolve({ data: null, error: { message: "down" } });
   const res = await mod.handler(req({ type: "approval", action: "get", token: TOKEN }), db);
   assertEquals(res.status, 429);
+});
+
+Deno.test("location board: allowed keys only, photos signed, no storage path or cost", async () => {
+  const db = fakeDb();
+  const res = await mod.handler(req({ type: "location", action: "get", token: TOKEN }), db);
+  assertEquals(res.status, 200);
+  const text = await res.text();
+  for (const bad of ["cost", "host@example.test", "leak.example", "storage_path", "\"path\""]) assert(!text.includes(bad), bad);
+  assertEquals(JSON.parse(text).locations[0].photos[0].url, "https://signed.example/location-photos/loc/1.jpg");
+  assertEquals(db.calls.find((c) => c.name === "public_location_board_get")!.args.p_token_hash, await sha256Hex(TOKEN));
+});
+
+Deno.test("call sheet: explicit keys only, no private notes or rates", async () => {
+  const res = await mod.handler(req({ type: "call-sheet", action: "get", token: TOKEN }), fakeDb());
+  assertEquals(res.status, 200);
+  const text = await res.text();
+  for (const bad of ["private", "cost", "\"notes\":\"private"]) assert(!text.includes(bad), bad);
+  const body = JSON.parse(text);
+  assertEquals(body.crew[0].phone, "555-0101");
+  assertEquals(body.schedule[0].talent[0], { name: "Ada" });
+});
+
+Deno.test("location and call sheet: unknown, revoked, expired, wrong token shape", async () => {
+  for (const type of ["location", "call-sheet"]) {
+    assertEquals((await mod.handler(req({ type, action: "get", token: TOKEN }), fakeDb({ status: "not_found" }))).status, 404);
+    assertEquals((await mod.handler(req({ type, action: "get", token: TOKEN }), fakeDb({ status: "revoked" }))).status, 410);
+    assertEquals((await mod.handler(req({ type, action: "get", token: TOKEN }), fakeDb({ status: "expired" }))).status, 410);
+    assertEquals((await mod.handler(req({ type, action: "get" }), fakeDb())).status, 404);
+    assertEquals((await mod.handler(req({ type, action: "get", token: "x".repeat(200) }), fakeDb())).status, 404);
+  }
+});
+
+Deno.test("location and call sheet are read only: vote and photo are 400", async () => {
+  for (const type of ["location", "call-sheet"]) {
+    for (const action of ["vote", "photo"]) {
+      const db = fakeDb();
+      assertEquals((await mod.handler(req({ type, action, token: TOKEN, assignment_id: UUID, vote: "up" }), db)).status, 400);
+      assert(!db.calls.some((c) => c.name.startsWith("public_board_")));
+    }
+  }
+});
+
+Deno.test("location and call sheet are rate limited and capped", async () => {
+  for (const type of ["location", "call-sheet"]) {
+    assertEquals((await mod.handler(req({ type, action: "get", token: TOKEN }), fakeDb({ limited: ["ip:"] }))).status, 429);
+    assertEquals((await mod.handler(req({ type, action: "get", token: TOKEN }), fakeDb({ limited: ["tok:"] }))).status, 429);
+    assertEquals((await mod.handler(req(JSON.stringify({ type, action: "get", token: TOKEN, pad: "x".repeat(20000) })), fakeDb())).status, 413);
+  }
+});
+
+Deno.test("a database error is a 500 with no detail", async () => {
+  const db = fakeDb();
+  const orig = db.rpc.bind(db);
+  db.rpc = (name: string, args: Record<string, unknown>) => (name === "public_call_sheet_get" ? Promise.resolve({ data: null, error: { message: "secret detail" } }) : orig(name, args));
+  const res = await mod.handler(req({ type: "call-sheet", action: "get", token: TOKEN }), db);
+  assertEquals(res.status, 500);
+  assert(!(await res.text()).includes("secret detail"));
 });

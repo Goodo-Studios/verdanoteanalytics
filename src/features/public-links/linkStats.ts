@@ -19,3 +19,10 @@ export function describeActivity(stat: LinkStat | undefined, lastResponseAt: str
 export function lastResponse(votes: { voted_at: string }[]): string | null {
   return votes.reduce<string | null>((a, v) => (a === null || v.voted_at > a ? v.voted_at : a), null);
 }
+
+/** "Opened 3 times, last on Nov 10, 2026." for links that have no responses. */
+export function describeOpens(stat: LinkStat | undefined, formatDay: (iso: string) => string): string {
+  const s = stat ?? NO_ACTIVITY;
+  if (s.open_count === 0) return "Not opened yet.";
+  return `Opened ${s.open_count} time${s.open_count === 1 ? "" : "s"}${s.last_opened_at ? `, last on ${formatDay(s.last_opened_at)}` : ""}.`;
+}

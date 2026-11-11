@@ -48,10 +48,10 @@ export async function applyVotes(slug: string, votes: { assignment_id: string; v
 }
 
 /** Open counts for approval links, by board id. Staff read public_link_registry under its row rule. */
-export async function loadLinkStats(boardIds: string[]): Promise<Record<string, LinkStat>> {
+export async function loadLinkStats(boardIds: string[], linkType: "approval_board" | "location_board" | "call_sheet" = "approval_board"): Promise<Record<string, LinkStat>> {
   if (boardIds.length === 0) return {};
   const rows = await unwrap(
-    db.from("public_link_registry").select<{ link_id: string; open_count: number; last_opened_at: string | null }[]>("link_id, open_count, last_opened_at").eq("link_type", "approval_board").in("link_id", boardIds),
+    db.from("public_link_registry").select<{ link_id: string; open_count: number; last_opened_at: string | null }[]>("link_id, open_count, last_opened_at").eq("link_type", linkType).in("link_id", boardIds),
   );
   return Object.fromEntries(rows.map((r) => [r.link_id, { open_count: r.open_count, last_opened_at: r.last_opened_at }]));
 }
