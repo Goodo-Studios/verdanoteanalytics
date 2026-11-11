@@ -16,7 +16,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-type Entry = { class: string; minRole?: string; rls?: boolean; note?: string };
+type Entry = { class: string; minRole?: string; rls?: boolean; note?: string; gate?: string };
 
 const root = process.cwd();
 const functionsDir = join(root, "supabase", "functions");
@@ -78,10 +78,19 @@ describe("function access manifest", () => {
       });
     }
     if (entry.class === "public") {
-      it("only serves what an account switched on", () => {
-        // portfolio is public by slug; it must keep filtering on the opt-in flag.
-        expect(/portfolio_enabled/.test(source(name)), `${name} is public and does not check an opt-in flag`).toBe(true);
-      });
+      if (entry.gate === "token") {
+        it("hashes the token, rate limits, and caps the body", () => {
+          const src = source(name);
+          expect(/hashToken\(/.test(src), `${name} does not hash the token`).toBe(true);
+          expect(/checkRequestLimits\(/.test(src), `${name} has no rate limit`).toBe(true);
+          expect(/readJsonBody\(/.test(src), `${name} has no body cap`).toBe(true);
+        });
+      } else {
+        it("only serves what an account switched on", () => {
+          // portfolio is public by slug; it must keep filtering on the opt-in flag.
+          expect(/portfolio_enabled/.test(source(name)), `${name} is public and does not check an opt-in flag`).toBe(true);
+        });
+      }
     }
     if (entry.class === "account-scoped") {
       it("checks account ownership or relies on row rules", () => {

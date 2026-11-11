@@ -3,15 +3,15 @@
 // every actor cast on it by stage, with owner, follow-up date, notes and the
 // booked shoot date; add actors from the roster, change stage, owner,
 // follow-up and notes, take an actor off the client after a confirm. Below,
-// the client's casting link: the live link (served by the old dashboard) with
+// the client's casting link: the live link (served by Verdanote) with
 // copy and revoke, a new link with an expiry when none is live, the client's
 // thumbs up and down, Apply decisions through apply_actor_approval_votes, and
 // past links. Booking onto a shoot is on the Production calendar.
 //
 // This is the one talent and casting flow: Goodo OS talent profiles and talent
 // approvals pointed at these same actors and casting links. The page a client
-// opens (/cast/<token>) reads the old dashboard's database until the release;
-// the page says so. Not ported: the casting follow-ups list (removed from the
+// opens (/cast/<token>) is served by Verdanote and reads this database; the
+// votes here refresh on their own. Not ported: the casting follow-ups list (removed from the
 // old dashboard) and the card board view.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { DataTable, EmptyState, ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField, useConfirm, type DataColumn } from "@/components/page-kit";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { DashboardError, loadBrandsAndTeam, type BrandOption } from "./api";
+import { describeActivity, lastResponse } from "@/features/public-links/linkStats";
 import { activeBoard, boardState, defaultExpiry, parseExpiry } from "./approvalBoardsModel";
 import { addActors, applyActorVotes, createCastingLink, loadActorOptions, loadCasting, removeCasting, revokeCastingLink, updateCasting, type CastingData, type CastingPatch } from "./castingApi";
 import { addableActors, castingUrl, sortCastings, splitActorVotes, stageCounts, type ActorOption, type CastingRow } from "./castingModel";
@@ -81,6 +82,14 @@ export default function CastingPage() {
   const liveVotes = useMemo(() => (live ? (data?.votes ?? []).filter((v) => v.board_id === live.id) : []), [data, live]);
   const responses = useMemo(() => splitActorVotes(liveVotes, data?.castings ?? []), [liveVotes, data]);
   const activeUsers = users.filter((u) => u.active);
+
+  // Votes arrive while staff watch: look again every 15 seconds while a link is live.
+  const hasLive = !!live;
+  useEffect(() => {
+    if (!hasLive) return;
+    const t = window.setInterval(() => void load(), 15000);
+    return () => window.clearInterval(t);
+  }, [hasLive, load]);
 
   const run = async (fn: () => Promise<string>) => {
     setBusy(true);
@@ -164,7 +173,7 @@ export default function CastingPage() {
         <Link to={`${prefix}/talent/actors`} className="underline">Actors</Link>
       </div>
       <p className="text-xs text-muted-foreground" data-testid="old-dashboard-note">
-        Public links still open on the old dashboard for now. Links you make or revoke here, and the votes shown here, reach clients once the public pages move over.
+        Clients open this link on Verdanote with no login. Revoke stops it at once, and answers show here as they come in.
       </p>
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
@@ -199,6 +208,7 @@ export default function CastingPage() {
                 <span className="text-xs text-muted-foreground">expires {formatDay(live.expires_at)}</span>
                 <Button type="button" size="sm" variant="outline" onClick={() => void navigator.clipboard?.writeText(castingUrl(live.token)).then(() => setNotice("Link copied."), () => setNotice(`Copy the link: ${castingUrl(live.token)}`))}>Copy link</Button>
                 <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void revokeLink(live.id)}>Revoke</Button>
+                <p className="w-full text-xs text-muted-foreground" data-testid="link-activity">{describeActivity(data?.stats?.[live.id], lastResponse(liveVotes), formatDay)}</p>
               </div>
             ) : (
               <div className="mt-1 flex flex-wrap items-center gap-2">

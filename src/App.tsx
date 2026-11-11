@@ -59,6 +59,9 @@ const CreatorDetailPage = lazy(routeImports.creatorDetail);
 
 const SharedAdBoardPage = lazy(() => import("./pages/SharedAdBoardPage"));
 const PublicVaultItemPage = lazy(() => import("./pages/PublicVaultItemPage"));
+// Pages opened from a secret link with no login (approval boards, casting). Lazy: they stay out of
+// the first load, and they pull in nothing from the staff area.
+const PublicBoardPage = lazy(() => import("./features/public-links/PublicBoardPage"));
 const BookmarkletReceiver = lazy(() => import("./pages/BookmarkletReceiver"));
 // Mobile capture surfaces (vault-mobile-capture). Un-prefixed and lazy: both are
 // opened cold from a phone — the Android share sheet (US-003) and an iOS
@@ -255,6 +258,16 @@ const App = () => {
                   <Route path="/vault/share/:token" element={
                     <Suspense fallback={<PageFallback />}>
                       <PublicVaultItemPage />
+                    </Suspense>
+                  } />
+                  <Route path="/approve/:token" element={
+                    <Suspense fallback={<PageFallback />}>
+                      <PublicBoardPage type="approval" />
+                    </Suspense>
+                  } />
+                  <Route path="/cast/:token" element={
+                    <Suspense fallback={<PageFallback />}>
+                      <PublicBoardPage type="casting" />
                     </Suspense>
                   } />
                   <Route path="/bookmarklet-receiver" element={

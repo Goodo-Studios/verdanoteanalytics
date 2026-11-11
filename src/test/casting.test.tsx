@@ -66,7 +66,7 @@ describe("casting model", () => {
     const s = splitActorVotes(VOTES.slice(0, 2), ROWS);
     expect(s.approved[0].row?.id).toBe("c2");
     expect(s.passed[0].row?.id).toBe("c1");
-    expect(castingUrl("abc")).toBe("https://goodostudios-production.vercel.app/cast/abc");
+    expect(castingUrl("abc")).toBe(`${window.location.origin}/cast/abc`);
   });
 });
 
@@ -108,8 +108,8 @@ describe("Casting page", () => {
     expect(within(c1).getByText("Dec 4, 2026")).toBeTruthy();
     expect(screen.queryByTestId("casting-c3")).toBeNull();
     expect(screen.getByTestId("stage-counts").textContent).toBe("Shortlisted 1 · Booked 1 · Declined 1");
-    expect(screen.getByTestId("old-dashboard-note").textContent).toMatch(/Public links still open on the old dashboard for now/);
-    expect(within(screen.getByTestId("live-link")).getByText("https://goodostudios-production.vercel.app/cast/tok1")).toBeTruthy();
+    expect(screen.getByTestId("old-dashboard-note").textContent).toMatch(/Clients open this link on Verdanote with no login/);
+    expect(within(screen.getByTestId("live-link")).getByText(`${window.location.origin}/cast/tok1`)).toBeTruthy();
   });
 
   it("writes stage, owner and follow-up back to the casting", async () => {

@@ -77,6 +77,12 @@ The wall has six parts. Parts 1, 2 and 6 run on every change in CI (`supabase te
 hq secrets exec --company goodo-studios --only STAGING_SUPABASE_URL,STAGING_SUPABASE_ANON_KEY,STAGING_TEST_PASSWORD -- node scripts/staging-client-wall-functions.mjs
 ```
 
+Public links have their own anonymous check (`scripts/staging-public-link-wall-check.mjs`). It makes throwaway clients, people and links, calls the `public-link` function as a stranger (no token, wrong token, malformed, other link's token, wrong link type, revoked, expired, oversized) and as a client login, tries to read the link tables and call the link database functions directly, and deletes everything it made:
+
+```bash
+hq secrets exec --company goodo-studios --only STAGING_SUPABASE_URL,STAGING_SUPABASE_ANON_KEY,STAGING_SUPABASE_SERVICE_ROLE_KEY,STAGING_TEST_PASSWORD -- node scripts/staging-public-link-wall-check.mjs
+```
+
 ```bash
 hq secrets exec --company goodo-studios --only STAGING_SUPABASE_URL,STAGING_SUPABASE_ANON_KEY,STAGING_SUPABASE_SERVICE_ROLE_KEY,STAGING_TEST_PASSWORD -- node scripts/staging-function-grants-check.mjs
 ```
@@ -258,6 +264,18 @@ Rollback: set `DASHBOARD_LEGACY_WRITE=1` and `VERDANOTE_INGEST_TARGET=staging` t
 From `repos/private/verdanoteanalytics`: `vercel --prod --yes`. Then verify the live bundle changed (the served JS chunk or the asset hash differs from before). Do not report the pages live off the merge alone: CI ships functions, not pages.
 
 Rollback: promote the previous deployment in Vercel (instant rollback).
+
+### Step 11b. Old public links (approval boards, casting, location boards, call sheets, application forms)
+
+Links already sent out point at `goodostudios-production.vercel.app`. Verdanote now serves the same pages at the same paths, so they can be forwarded one to one. The Verdanote pages read and write Verdanote's database, so the old host must stop serving them the day the copy is final.
+
+1. **Token copy.** `scripts/dashboard-copy.mjs` copies `approval_boards`, `location_boards` and `call_sheets` with their `token` values unchanged. A database trigger on each table (enabled even while the copy runs with triggers off) writes a hash row into `public_link_registry`, which is all the public pages look up. After the final copy, run `select public.public_link_backfill_registry();` as the service role: every count must be 0. A non-zero count means a link was copied without its hash row (the function adds it). Then open one old token of each type on the Verdanote host (the page shows the board, not "not available").
+2. **Forward the old host.** On the old dashboard project, after the final copy and not before, add permanent redirects (HTTP 308, path and token kept) in its `vercel.json`: `/approve/:token`, `/cast/:token`, `/locations-board/:token` and `/call-sheet/:token` to `https://<verdanote production host>/<same path>`; `/creatorapply` to `https://<verdanote production host>/creatorapply` and `/actorapply` to `https://<verdanote production host>/actorapply` (these two come with the application forms part). The redirect carries only the path, so the secret token reaches Verdanote and nobody else. Keep the redirects for good: the links are in clients' inboxes.
+3. **Order matters.** Revokes and votes made on the old host after the final copy are lost. Pause the old public pages (or forward them) as soon as the final copy finishes, then verify step 1.
+4. **Revoked and expired links** copy as they are and answer "turned off" or "expired" on Verdanote.
+5. **Check after the release:** `node scripts/staging-public-link-wall-check.mjs` has a staging-only guard; on production, open a revoked link, a wrong token and a live link by hand and confirm 410, 404 and the board.
+
+Rollback: remove the redirects on the old host. Links made on Verdanote after the release then stop working for people who opened the old address, so only do this early.
 
 ### Step 12. Check production
 

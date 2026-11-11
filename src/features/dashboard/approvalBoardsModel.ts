@@ -3,11 +3,11 @@
 // client opens without a login to give a thumbs up or down on the creators
 // shortlisted for their brand. Rows come from approval_boards and
 // approval_votes (migration 20261101000001, staff-only row rules). The public
-// board page stays on the old dashboard. Only creator boards are handled here;
+// board page is served by Verdanote (src/features/public-links). Only creator boards are handled here;
 // actor boards are the casting links and move with step 5c. Pure helpers only,
 // ported from the old dashboard's src/lib/approvalBoard.ts.
 
-import { OLD_DASHBOARD_URL } from "./applicationsModel";
+import { publicLinkUrl } from "@/features/public-links/publicLinkApi";
 
 export const CREATOR_BOARD_TYPE = "creators";
 export const DEFAULT_BOARD_DAYS = 14;
@@ -45,9 +45,9 @@ export function generateBoardToken(random: (n: number) => Uint8Array = (n) => cr
   return token;
 }
 
-/** The public link a client opens. It is served by the old dashboard. */
+/** The public link a client opens. It opens on this site. */
 export function approvalUrl(token: string): string {
-  return `${OLD_DASHBOARD_URL}/approve/${token}`;
+  return publicLinkUrl("approval", token);
 }
 
 export function isBoardActive(b: Pick<ApprovalBoard, "revoked" | "expires_at">, now: Date): boolean {

@@ -4,11 +4,10 @@
 // thumbs up and down with the name they typed, applying those decisions to the
 // Creator pipeline, and past links.
 //
-// The page a client opens (/approve/<token>) stays on the old dashboard and
-// reads the old dashboard's database until the release, so a link made or
-// revoked here takes effect for clients only once the release points that page
-// at this database. The page says so. Actor boards are the casting links and
-// move with step 5c.
+// The page a client opens (/approve/<token>) is served by Verdanote and reads
+// and writes this database, so a link made or revoked here works at once. The
+// votes below refresh on their own while the page is open. Actor boards are
+// the casting links, on the Casting page.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
@@ -17,7 +16,8 @@ import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, LoadingState, PageHeader, PageShell, TextField, useConfirm } from "@/components/page-kit";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { DashboardError, loadBrandsAndTeam, type BrandOption } from "./api";
-import { applyVotes, createBoard, loadBoards, loadVotes, revokeBoard } from "./approvalBoardsApi";
+import { applyVotes, createBoard, loadBoards, loadLinkStats, loadVotes, revokeBoard } from "./approvalBoardsApi";
+import { describeActivity, lastResponse, type LinkStat } from "@/features/public-links/linkStats";
 import {
   activeBoard,
   approvalUrl,
@@ -63,6 +63,7 @@ export default function ApprovalBoardsPage() {
   const [brands, setBrands] = useState<BrandOption[] | null>(null);
   const [boards, setBoards] = useState<ApprovalBoard[] | null>(null);
   const [votes, setVotes] = useState<ApprovalVote[]>([]);
+  const [stats, setStats] = useState<Record<string, LinkStat>>({});
   const [expiry, setExpiry] = useState(() => defaultExpiry(new Date()));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +86,7 @@ export default function ApprovalBoardsPage() {
       setBoards(b);
       const live = activeBoard(b, new Date());
       setVotes(live ? await loadVotes(live.id) : []);
+      setStats(await loadLinkStats(b.map((x) => x.id)).catch(() => ({})));
       setLoadError(null);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Could not load approval boards.");
@@ -94,6 +96,14 @@ export default function ApprovalBoardsPage() {
     setBoards(null);
     void load();
   }, [load]);
+
+  // Votes arrive while staff watch: look again every 15 seconds while a link is live.
+  const hasLive = !!boards && !!activeBoard(boards, new Date());
+  useEffect(() => {
+    if (!hasLive) return;
+    const t = window.setInterval(() => void load(), 15000);
+    return () => window.clearInterval(t);
+  }, [hasLive, load]);
 
   const brandName = brands?.find((b) => b.slug === brand)?.name ?? brand;
   const live = boards ? activeBoard(boards, now) : null;
@@ -152,7 +162,7 @@ export default function ApprovalBoardsPage() {
         {brand && <Link to={`${prefix}/clients/${encodeURIComponent(brand)}`} className="underline">Client page</Link>}
       </div>
       <p className="text-xs text-muted-foreground" data-testid="old-dashboard-note">
-        Public links still open on the old dashboard for now. Links you make or revoke here, and the votes shown here, reach clients once the public pages move over.
+        Clients open this link on Verdanote with no login. Revoke stops it at once, and answers show here as they come in.
       </p>
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
@@ -171,6 +181,7 @@ export default function ApprovalBoardsPage() {
                 <span className="text-xs text-muted-foreground">expires {formatDay(live.expires_at)}</span>
                 <Button type="button" size="sm" variant="outline" onClick={() => copy(approvalUrl(live.token))}>Copy link</Button>
                 <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void revoke(live)}>Revoke</Button>
+                <p className="w-full text-xs text-muted-foreground" data-testid="link-activity">{describeActivity(stats[live.id], lastResponse(votes), formatDay)}</p>
               </div>
             ) : (
               <div className="mt-1 flex flex-wrap items-center gap-2">

@@ -2,11 +2,11 @@
  * Approval boards, staff side (consolidation step 5b, port of the old
  * dashboard's approval panel).
  *
- * - Per brand: the live creator link (served by the old dashboard) with copy and
+ * - Per brand: the live creator link (opens on Verdanote) with copy and
  *   revoke, a new link with an expiry when none is live, past links.
  * - The client's thumbs up and down, with the unverified typed name, linked to
  *   the creator page; Apply sends them to apply_approval_votes after a confirm.
- * - The page says that clients use the old dashboard's copy until the release.
+ * - Open count and last response show for the live link.
  * The row rules and apply_approval_votes are in supabase/tests/dashboard_approval_boards_page_test.sql.
  */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -30,6 +30,7 @@ const loadVotes = vi.fn();
 const createBoard = vi.fn();
 const revokeBoard = vi.fn();
 const applyVotes = vi.fn();
+const loadLinkStats = vi.fn();
 
 vi.mock("@/hooks/useRolePath", () => ({ useRolePrefix: () => "/employee" }));
 vi.mock("@/features/dashboard/api", () => ({ DashboardError: FakeDashboardError, loadBrandsAndTeam: () => loadBrandsAndTeam() }));
@@ -39,6 +40,7 @@ vi.mock("@/features/dashboard/approvalBoardsApi", () => ({
   createBoard: (...a: unknown[]) => createBoard(...a),
   revokeBoard: (...a: unknown[]) => revokeBoard(...a),
   applyVotes: (...a: unknown[]) => applyVotes(...a),
+  loadLinkStats: (...a: unknown[]) => loadLinkStats(...a),
 }));
 
 import { answerConfirm } from "@/test/productionConfirm";
@@ -66,7 +68,7 @@ const BOARDS = [board("b1"), board("b0", { revoked: true, created_at: "2026-10-0
 const VOTES = [vote("v1", "up", "Avery Stone", { voted_by: "Sam" }), vote("v2", "up", "Blake Rivers"), vote("v3", "down", "Casey Moreno")];
 
 beforeEach(() => {
-  for (const f of [loadBrandsAndTeam, loadBoards, loadVotes, createBoard, revokeBoard, applyVotes]) f.mockReset();
+  for (const f of [loadBrandsAndTeam, loadBoards, loadVotes, createBoard, revokeBoard, applyVotes, loadLinkStats]) f.mockReset();
   loadBrandsAndTeam.mockResolvedValue({
     brands: [
       { slug: "glow", name: "Glow Co", active: true, does_creators: true },
@@ -79,6 +81,7 @@ beforeEach(() => {
   createBoard.mockResolvedValue(board("b2"));
   revokeBoard.mockResolvedValue(undefined);
   applyVotes.mockResolvedValue(3);
+  loadLinkStats.mockResolvedValue({ b1: { open_count: 4, last_opened_at: "2026-11-09T00:00:00Z" } });
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
 });
@@ -99,10 +102,10 @@ describe("Approval boards page", () => {
     expect(loadBoards).not.toHaveBeenCalled();
   });
 
-  it("shows the live link on the old dashboard, the responses and past links", async () => {
+  it("shows the live link on Verdanote with its activity, the responses and past links", async () => {
     renderPage();
     const live = await screen.findByTestId("live-link");
-    expect(within(live).getByRole("link").getAttribute("href")).toBe("https://goodostudios-production.vercel.app/approve/tok-b1");
+    expect(within(live).getByRole("link").getAttribute("href")).toBe(`${window.location.origin}/approve/tok-b1`);
     expect(live).toHaveTextContent("expires Nov 20, 2026");
     expect(loadVotes).toHaveBeenCalledWith("b1");
     const approved = await screen.findByRole("region", { name: "Approved" });
@@ -111,7 +114,8 @@ describe("Approval boards page", () => {
     expect(within(approved).getByTestId("vote-v1")).toHaveTextContent("Sam (name typed by the reviewer)");
     expect(screen.getByRole("region", { name: "Passed on" })).toHaveTextContent("Casey Moreno");
     expect(screen.getByTestId("past-b0")).toHaveTextContent("revoked");
-    expect(screen.getByTestId("old-dashboard-note")).toHaveTextContent("Public links still open on the old dashboard for now");
+    expect(screen.getByTestId("old-dashboard-note")).toHaveTextContent("Clients open this link on Verdanote with no login");
+    expect(screen.getByTestId("link-activity")).toHaveTextContent("Opened 4 times, last on Nov 9, 2026. Last response Nov 8, 2026.");
     expect(screen.getByRole("link", { name: "Creator pipeline" }).getAttribute("href")).toBe("/employee/talent/pipeline");
   });
 
@@ -182,6 +186,6 @@ describe("approval boards model", () => {
   it("splits and sends votes", () => {
     expect(splitVotes(VOTES).approved.map((v) => v.id)).toEqual(["v1", "v2"]);
     expect(votesPayload([VOTES[2]])).toEqual([{ assignment_id: "as-v3", vote: "down" }]);
-    expect(approvalUrl("abc")).toBe("https://goodostudios-production.vercel.app/approve/abc");
+    expect(approvalUrl("abc")).toBe(`${window.location.origin}/approve/abc`);
   });
 });

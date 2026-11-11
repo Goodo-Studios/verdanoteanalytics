@@ -4,6 +4,7 @@
 // apply_approval_votes function, which refuses non-staff callers and only
 // moves assignments that belong to the brand.
 import { DashboardError, db, unwrap, unwrapOne } from "./api";
+import type { LinkStat } from "@/features/public-links/linkStats";
 import { CREATOR_BOARD_TYPE, generateBoardToken, type ApprovalBoard, type ApprovalVote } from "./approvalBoardsModel";
 
 const BOARD_COLUMNS = "id, client_slug, board_type, token, expires_at, revoked, created_at";
@@ -44,4 +45,13 @@ export async function revokeBoard(id: string): Promise<void> {
 export async function applyVotes(slug: string, votes: { assignment_id: string; vote: "up" | "down" }[]): Promise<number> {
   const n = await unwrapOne(db.rpc<number>("apply_approval_votes", { p_client_slug: slug, p_votes: votes }));
   return n ?? 0;
+}
+
+/** Open counts for approval links, by board id. Staff read public_link_registry under its row rule. */
+export async function loadLinkStats(boardIds: string[]): Promise<Record<string, LinkStat>> {
+  if (boardIds.length === 0) return {};
+  const rows = await unwrap(
+    db.from("public_link_registry").select<{ link_id: string; open_count: number; last_opened_at: string | null }[]>("link_id, open_count, last_opened_at").eq("link_type", "approval_board").in("link_id", boardIds),
+  );
+  return Object.fromEntries(rows.map((r) => [r.link_id, { open_count: r.open_count, last_opened_at: r.last_opened_at }]));
 }
