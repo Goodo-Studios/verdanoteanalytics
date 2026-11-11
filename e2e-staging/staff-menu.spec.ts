@@ -1,10 +1,12 @@
 /**
  * Staff menu on the deployed staging site: every menu item, every section and every tab loads,
  * shows a page heading and logs no console error. The tab list is read from src/lib/sections.ts,
- * so a tab added there is tested without an edit here.
+ * so a tab added there is tested without an edit here. The tab bar is checked against tabsFor
+ * (builder), so pages in HIDDEN_PAGES are expected to be absent from it; their addresses still open
+ * for a builder, so each one is still opened by the per-tab test below.
  */
 import { test, expect } from "@playwright/test";
-import { SECTIONS, STAFF_NAV } from "../src/lib/sections";
+import { SECTIONS, STAFF_NAV, tabsFor } from "../src/lib/sections";
 import { hasLogins, NEEDS_PASSWORD, storagePath, watchConsole } from "./support";
 
 /**
@@ -56,8 +58,14 @@ for (const section of SECTIONS) {
       await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: section.label, exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/builder/${section.id}/`));
       const tabs = page.getByRole("navigation", { name: `${section.label} tabs` });
-      for (const tab of section.tabs) {
+      // The tab bar lists what tabsFor lists for a real builder: hidden pages (src/lib/hiddenPages.ts)
+      // are left out of it, and they must stay out.
+      const shown = tabsFor(section, true);
+      for (const tab of shown) {
         await expect(tabs.getByRole("link", { name: tab.label, exact: true })).toBeVisible();
+      }
+      for (const tab of section.tabs.filter((t) => !shown.includes(t))) {
+        await expect(tabs.getByRole("link", { name: tab.label, exact: true })).toHaveCount(0);
       }
     });
 
