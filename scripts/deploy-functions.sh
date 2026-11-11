@@ -48,6 +48,7 @@ FUNCTIONS=(
   leaderboard
   matrix
   portfolio
+  public-link
   quick-save
   refresh-thumbnails
   reports
