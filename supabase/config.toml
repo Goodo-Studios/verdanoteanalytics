@@ -401,3 +401,9 @@ verify_jwt = false
 # credential, it is hashed and looked up in public_link_registry, and every call is rate limited.
 [functions.public-link]
 verify_jwt = false
+
+# Public application forms (creator and actor). Open to anyone by design: a draft id, limits per
+# address, a hidden field and signed upload addresses inside one application's folder stand in for
+# a token. Writes only the application tables, through service-only database functions.
+[functions.public-apply]
+verify_jwt = false

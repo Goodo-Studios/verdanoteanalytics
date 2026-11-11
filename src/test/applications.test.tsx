@@ -98,7 +98,7 @@ describe("Applications page", () => {
     expect(avery).toEqual(["/employee/applications/creators/c2", "/employee/creators/r1"]);
     expect(screen.getByTestId("application-c2")).toHaveTextContent("Already on the roster");
     expect(screen.getByTestId("application-c1")).not.toHaveTextContent("Already on the roster");
-    expect(screen.getByRole("link", { name: "https://goodostudios-production.vercel.app/creatorapply" }).getAttribute("target")).toBe("_blank");
+    expect(screen.getByRole("link", { name: `${window.location.origin}/creatorapply` }).getAttribute("target")).toBe("_blank");
   });
 
   it("switches to rejected and to actor applications", async () => {
@@ -108,7 +108,7 @@ describe("Applications page", () => {
     expect(await screen.findByTestId("application-a1")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Pending (1)" }).getAttribute("aria-pressed")).toBe("true");
     expect(loadApplications).toHaveBeenLastCalledWith("actors");
-    expect(screen.getByRole("link", { name: "https://goodostudios-production.vercel.app/actorapply" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: `${window.location.origin}/actorapply` })).toBeTruthy();
   });
 
   it("bulk rejects with one reason and reports the outcome", async () => {

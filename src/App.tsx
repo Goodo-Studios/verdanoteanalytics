@@ -64,6 +64,7 @@ const PublicVaultItemPage = lazy(() => import("./pages/PublicVaultItemPage"));
 const PublicBoardPage = lazy(() => import("./features/public-links/PublicBoardPage"));
 const PublicLocationBoardPage = lazy(() => import("./features/public-links/PublicLocationBoardPage"));
 const PublicCallSheetPage = lazy(() => import("./features/public-links/PublicCallSheetPage"));
+const PublicApplyPage = lazy(() => import("./features/public-links/PublicApplyPage"));
 const BookmarkletReceiver = lazy(() => import("./pages/BookmarkletReceiver"));
 // Mobile capture surfaces (vault-mobile-capture). Un-prefixed and lazy: both are
 // opened cold from a phone — the Android share sheet (US-003) and an iOS
@@ -282,6 +283,17 @@ const App = () => {
                       <PublicCallSheetPage />
                     </Suspense>
                   } />
+                  <Route path="/creatorapply" element={
+                    <Suspense fallback={<PageFallback />}>
+                      <PublicApplyPage kind="creator" />
+                    </Suspense>
+                  } />
+                  <Route path="/actorapply" element={
+                    <Suspense fallback={<PageFallback />}>
+                      <PublicApplyPage kind="actor" />
+                    </Suspense>
+                  } />
+                  <Route path="/apply" element={<Navigate to="/creatorapply" replace />} />
                   <Route path="/bookmarklet-receiver" element={
                     <Suspense fallback={<PageFallback />}>
                       <BookmarkletReceiver />

@@ -45,8 +45,8 @@ describe("function access manifest", () => {
     expect(Object.keys(manifest).sort()).toEqual(deployed);
   });
 
-  it("covers all 82 functions today", () => {
-    expect(deployed).toHaveLength(82);
+  it("covers all 83 functions today", () => {
+    expect(deployed).toHaveLength(83);
   });
 
   it("uses only known classes", () => {
@@ -84,6 +84,14 @@ describe("function access manifest", () => {
           expect(/hashToken\(/.test(src), `${name} does not hash the token`).toBe(true);
           expect(/checkRequestLimits\(/.test(src), `${name} has no rate limit`).toBe(true);
           expect(/readJsonBody\(/.test(src), `${name} has no body cap`).toBe(true);
+        });
+      } else if (entry.gate === "form") {
+        it("limits by address, caps the body, has a hidden field, and writes through service-only functions", () => {
+          const src = source(name) + readFileSync(join(functionsDir, "_shared", "public-apply.ts"), "utf8");
+          expect(/checkRequestLimits\(/.test(src), `${name} has no rate limit`).toBe(true);
+          expect(/readJsonBody\(/.test(src), `${name} has no body cap`).toBe(true);
+          expect(/HONEYPOT_FIELD/.test(src), `${name} has no hidden field`).toBe(true);
+          expect(/\.from\(["'](creator_applications|actor_applications|application_videos)/.test(src), `${name} writes a table directly`).toBe(false);
         });
       } else {
         it("only serves what an account switched on", () => {

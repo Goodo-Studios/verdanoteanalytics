@@ -213,6 +213,11 @@
       "gate": "token",
       "note": "Public approval boards and casting links (parts 2 and 3 add location boards, call sheets and application forms). No login. The secret token is hashed and looked up in public_link_registry; unknown, malformed and wrong-type tokens all answer 404; revoked or expired answers 410 to a real token only. Per-address and per-token rate limits, 8 KB body cap, service-only database functions, writes only to the vote table for that link type."
     },
+    "public-apply": {
+      "class": "public",
+      "gate": "form",
+      "note": "Public creator and actor application forms. No login and no token: a draft id (two hours, used once) is needed for uploads and the submit. Per-address limits on drafts, uploads and submissions, 32 KB body cap, a hidden field and a minimum fill time, signed upload addresses made server-side inside one application's folder with size and type checked first, writes only the application and application video tables through service-only functions. A repeat of a pending email is dropped silently. Nothing is emailed."
+    },
     "portfolio": {
       "class": "public",
       "note": "Public portfolio page looked up by slug; returns only aggregate numbers for accounts that switched portfolio_enabled on."

@@ -58,7 +58,7 @@ const boards = {
 };
 const part2 = {
   location: uuid(), locBoardLive: { id: uuid(), token: token() }, locBoardRevoked: { id: uuid(), token: token() },
-  shoot: uuid(), sheetLive: { id: uuid(), token: token() }, sheetRevoked: { id: uuid(), token: token() }, sheetOld: { id: uuid(), token: token() }, shootOld: uuid(),
+  shoot: uuid(), shootRevoked: uuid(), sheetLive: { id: uuid(), token: token() }, sheetRevoked: { id: uuid(), token: token() }, sheetOld: { id: uuid(), token: token() }, shootOld: uuid(),
   crew: uuid(),
 };
 const future = new Date(Date.now() + 86400000).toISOString();
@@ -74,13 +74,35 @@ async function call(body, headers = {}) {
   return { status: res.status, text };
 }
 
+const applyDraftIds = [];
+const applyEmail = `wall-pl-apply-${Date.now()}@example.test`;
+async function applyCall(body) {
+  const res = await fetch(`${url}/functions/v1/public-apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: anon },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+  return { status: res.status, text: await res.text() };
+}
+
 async function cleanup() {
+  for (const id of applyDraftIds) {
+    await admin.from("application_videos").delete().eq("application_id", id);
+    await admin.from("creator_applications").delete().eq("id", id);
+    await admin.from("public_application_drafts").delete().eq("id", id);
+    for (const [bucket, kind] of [["creator-application-videos", "video"], ["creator-application-headshots", "headshot"]]) {
+      const list = await admin.storage.from(bucket).list(`applications/${id}/${kind}`);
+      const names = (list.data ?? []).map((o) => `applications/${id}/${kind}/${o.name}`);
+      if (names.length) await admin.storage.from(bucket).remove(names);
+    }
+  }
+  await admin.from("creator_applications").delete().eq("email", applyEmail);
   const p2 = [part2.locBoardLive.id, part2.locBoardRevoked.id];
   await admin.from("location_board_items").delete().in("board_id", p2);
   await admin.from("location_boards").delete().in("id", p2);
   await admin.from("call_sheet_crew").delete().in("call_sheet_id", [part2.sheetLive.id, part2.sheetRevoked.id, part2.sheetOld.id]);
   await admin.from("call_sheets").delete().in("id", [part2.sheetLive.id, part2.sheetRevoked.id, part2.sheetOld.id]);
-  await admin.from("shoots").delete().in("id", [part2.shoot, part2.shootOld]);
+  await admin.from("shoots").delete().in("id", [part2.shoot, part2.shootOld, part2.shootRevoked]);
   await admin.from("crew_members").delete().eq("id", part2.crew);
   await admin.from("locations").delete().eq("id", part2.location);
   await admin.from("approval_votes").delete().in("board_id", Object.values(boards).map((b) => b.id));
@@ -181,12 +203,13 @@ try {
   await must("location items", admin.from("location_board_items").insert({ board_id: part2.locBoardLive.id, location_id: part2.location }));
   await must("shoots", admin.from("shoots").insert([
     { id: part2.shoot, client_slug: slugA, shoot_date: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10), location: "Wall place" },
+    { id: part2.shootRevoked, client_slug: slugA, shoot_date: new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10), location: "Revoked place" },
     { id: part2.shootOld, client_slug: slugA, shoot_date: new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10), location: "Old place" },
   ]));
   await must("crew", admin.from("crew_members").insert({ id: part2.crew, name: "Wall Crew", role: "DP", phone: "555-0199", email: "wall-crew@example.test", rate_notes: "wall secret rate" }));
   await must("call sheets", admin.from("call_sheets").insert([
     { id: part2.sheetLive.id, shoot_id: part2.shoot, token: part2.sheetLive.token, revoked: false },
-    { id: part2.sheetRevoked.id, shoot_id: part2.shoot, token: part2.sheetRevoked.token, revoked: true },
+    { id: part2.sheetRevoked.id, shoot_id: part2.shootRevoked, token: part2.sheetRevoked.token, revoked: true },
     { id: part2.sheetOld.id, shoot_id: part2.shootOld, token: part2.sheetOld.token, revoked: false },
   ]));
   await must("call sheet crew", admin.from("call_sheet_crew").insert({ call_sheet_id: part2.sheetLive.id, crew_member_id: part2.crew }));
@@ -207,6 +230,45 @@ try {
   check("location and call sheet take no votes", (await call({ type: "call-sheet", action: "vote", token: part2.sheetLive.token, assignment_id: ids.ca[0], vote: "up" })).status === 400);
   check("an unknown token on the call sheet side is 404", (await call({ type: "call-sheet", action: "get", token: token() })).status === 404);
 
+
+  // Part 3: application forms.
+  check("upload_url with no draft is 404", (await applyCall({ kind: "creator", action: "upload_url", draft_id: uuid(), file_kind: "video", size: 10, mime: "video/mp4" })).status === 404);
+  check("submit with a draft that was never started is 404", (await applyCall({ kind: "creator", action: "submit", draft_id: uuid(), payload: { name: "x", email: applyEmail, videos: [] } })).status === 404);
+  check("an unknown form kind is 400", (await applyCall({ kind: "nope", action: "begin" })).status === 400);
+  check("an oversized form body is 413", (await applyCall({ kind: "creator", action: "begin", pad: "x".repeat(40000) })).status === 413);
+  const began = await applyCall({ kind: "creator", action: "begin" });
+  const draftId = JSON.parse(began.text).draft_id;
+  if (draftId) applyDraftIds.push(draftId);
+  check("begin returns a draft id", began.status === 200 && /^[0-9a-f-]{36}$/.test(draftId ?? ""), `status=${began.status}`);
+  check("a pdf is refused as a video", (await applyCall({ kind: "creator", action: "upload_url", draft_id: draftId, file_kind: "video", size: 10, mime: "application/pdf" })).status === 400);
+  check("a 300 MB video is refused", (await applyCall({ kind: "creator", action: "upload_url", draft_id: draftId, file_kind: "video", size: 300 * 1024 * 1024, mime: "video/mp4" })).status === 413);
+  check("a creator draft cannot be used on the actor form", (await applyCall({ kind: "actor", action: "upload_url", draft_id: draftId, file_kind: "video", size: 10, mime: "video/mp4" })).status === 404);
+  const bait = await applyCall({ kind: "creator", action: "submit", draft_id: draftId, company_website: "http://spam.example", payload: { name: "Wall Bot", email: applyEmail, videos: [] } });
+  check("a filled hidden field gets a thank you and writes nothing", bait.status === 200 && ((await admin.from("creator_applications").select("id").eq("email", applyEmail)).data ?? []).length === 0);
+  const stray = await applyCall({ kind: "creator", action: "submit", draft_id: draftId, payload: { name: "Wall", email: applyEmail, headshot_path: `applications/${uuid()}/headshot/a.jpg`, videos: [] } });
+  check("a file path in another application's folder is refused", stray.status === 400, `status=${stray.status}`);
+
+  // The real path: three tiny videos on signed addresses, then the submit, once.
+  const paths = [];
+  for (let i = 0; i < 3; i++) {
+    const t = await applyCall({ kind: "creator", action: "upload_url", draft_id: draftId, file_kind: "video", size: 8, mime: "video/mp4" });
+    const j = JSON.parse(t.text);
+    check(`upload address ${i + 1} is inside this application's folder`, t.status === 200 && j.path?.startsWith(`applications/${draftId}/video/`), `status=${t.status}`);
+    const up = await anonClient.storage.from(j.bucket).uploadToSignedUrl(j.path, j.token, new Blob([Buffer.from("00000000")], { type: "video/mp4" }), { contentType: "video/mp4" });
+    check(`video ${i + 1} uploads to its signed address`, !up.error, up.error?.message ?? "");
+    paths.push(j.path);
+  }
+  const outside = await anonClient.storage.from("creator-application-videos").upload(`applications/${draftId}/video/direct.mp4`, new Blob(["00000000"], { type: "video/mp4" }), { contentType: "video/mp4" });
+  check("anonymous cannot upload straight into the bucket without an address", !!outside.error, outside.error?.message ?? "accepted");
+  await new Promise((r) => setTimeout(r, 3500));
+  const good = await applyCall({ kind: "creator", action: "submit", draft_id: draftId, payload: { name: "Wall Applicant", email: applyEmail, videos: paths.map((storage_path) => ({ storage_path })) } });
+  check("a good application is accepted", good.status === 200, `status=${good.status} ${good.text.slice(0, 80)}`);
+  const row = await admin.from("creator_applications").select("status, name").eq("id", draftId);
+  check("it is stored as pending", row.data?.[0]?.status === "pending", `rows=${row.data?.length ?? "error"}`);
+  const vids = await admin.from("application_videos").select("id").eq("application_id", draftId);
+  check("its three videos are stored", (vids.data ?? []).length === 3);
+  check("the same draft cannot submit twice", (await applyCall({ kind: "creator", action: "submit", draft_id: draftId, payload: { name: "Wall Applicant", email: applyEmail, videos: paths.map((storage_path) => ({ storage_path })) } })).status === 410);
+
   // Too big.
   const big = await call({ type: "approval", action: "vote", token: boards.creatorsA.token, assignment_id: ids.ca[0], vote: "up", voted_by: "x".repeat(20000) });
   check("an oversized body is 413", big.status === 413, `status=${big.status}`);
@@ -222,7 +284,7 @@ try {
 
   const clientDb = createClient(url, anon, { auth: { persistSession: false }, global: { headers: clientHeaders } });
   for (const [label, c] of [["anonymous", anonClient], ["a client login", clientDb]]) {
-    for (const table of ["approval_boards", "approval_votes", "actor_approval_votes", "creator_assignments", "actor_assignments", "public_link_registry", "public_link_rate_limits", "location_boards", "location_board_items", "call_sheets", "call_sheet_crew"]) {
+    for (const table of ["approval_boards", "approval_votes", "actor_approval_votes", "creator_assignments", "actor_assignments", "public_link_registry", "public_link_rate_limits", "location_boards", "location_board_items", "call_sheets", "call_sheet_crew", "public_application_drafts", "creator_applications", "actor_applications", "application_videos", "actor_application_videos"]) {
       const all = await c.from(table).select("*").limit(5);
       check(`${label} reads no ${table} rows`, !!all.error || (all.data ?? []).length === 0, `rows=${all.data?.length ?? "error"}`);
     }
@@ -231,6 +293,8 @@ try {
     const h = createHash("sha256").update(boards.creatorsA.token).digest("hex");
     const fn = await c.rpc("public_board_get", { p_token_hash: h, p_board_type: "creators", p_count_open: false });
     check(`${label} cannot call public_board_get, even with the right hash`, fn.error?.code === "42501", `code=${fn.error?.code ?? "none"}`);
+    const fa = await c.rpc("public_application_begin", { p_kind: "creator", p_ip_hash: "wall" });
+    check(`${label} cannot start an application draft through the database`, fa.error?.code === "42501", `code=${fa.error?.code ?? "none"}`);
     const fv = await c.rpc("public_board_vote", { p_token_hash: h, p_board_type: "creators", p_assignment_id: ids.ca[0], p_vote: "down", p_voted_by: null });
     check(`${label} cannot call public_board_vote`, fv.error?.code === "42501", `code=${fv.error?.code ?? "none"}`);
   }
