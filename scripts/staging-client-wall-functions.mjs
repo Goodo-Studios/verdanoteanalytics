@@ -17,6 +17,9 @@
 //   - the accounts list a client gets carries only the client-safe fields, and
 //     staff still get the full row.
 //
+//   - the client progress feed (P9): no token, wrong token and every login are refused by
+//     ingest-client-progress, only a builder manages ingest tokens, a revoked token is refused.
+//
 // Exit code 1 if anything fails. Refuses to run against production.
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
@@ -245,6 +248,78 @@ for (const [label, token] of [["employee", employee], ["builder", builder]]) {
   let body = null;
   try { body = await res.json(); } catch { /* not JSON */ }
   check(`${label} sees the storage signing secrets on Integration health`, res.status === 200 && Array.isArray(body?.vaultSecrets) && body.vaultSecrets.length === 2, `status=${res.status}`);
+}
+
+// 8. Client progress feed (P9). ingest-client-progress takes a dedicated ingest token, not a login.
+//    - no token, a wrong token and a login JWT of every role are refused with 401;
+//    - clients and the employee cannot create, list or revoke tokens and cannot read the audit, the builder can;
+//    - a token the builder makes works (a probe with an unknown client slug writes nothing but an audit row),
+//      and the same token is refused with 401 once the builder revokes it;
+//    - nobody reads ingest_tokens or ingest_audit through the table API, the builder included.
+//    The throwaway token lives in memory only: it is never printed or stored, and it is revoked at the end.
+const asUser = (jwt) => createClient(url, anon, { auth: { persistSession: false }, global: { headers: { Authorization: `Bearer ${jwt}` } } });
+const ingest = async (token, body = { source: "wall-check", clients: [{ slug: "wall-probe-unknown", pct_complete: 1 }] }) => {
+  const headers = { "Content-Type": "application/json", apikey: anon };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`${url}/functions/v1/ingest-client-progress`, { method: "POST", headers, body: JSON.stringify(body) });
+  let parsed = null;
+  try { parsed = await res.json(); } catch { /* not JSON */ }
+  return { status: res.status, body: parsed };
+};
+check("ingest-client-progress refuses a call with no token", (await ingest(null)).status === 401);
+check("ingest-client-progress refuses a wrong but well-formed token", (await ingest(`vni_${"0".repeat(64)}`)).status === 401);
+for (const [label, jwt] of [["client A", clientA], ["client B", clientB], ["employee", employee], ["builder", builder]]) {
+  check(`ingest-client-progress refuses the ${label} login token`, (await ingest(jwt)).status === 401);
+}
+for (const [label, jwt] of [["client A", clientA], ["employee", employee]]) {
+  const c = asUser(jwt);
+  const created = await c.rpc("create_ingest_token", { p_name: "wall-check-refused" });
+  check(`${label} cannot create an ingest token`, created.error?.code === "42501" && !created.data, `code=${created.error?.code ?? "none"}`);
+  const listed = await c.rpc("list_ingest_tokens");
+  check(`${label} cannot list ingest tokens`, listed.error?.code === "42501", `code=${listed.error?.code ?? "none"}`);
+  const audit = await c.rpc("list_ingest_audit", { p_limit: 5 });
+  check(`${label} cannot read the ingest audit`, audit.error?.code === "42501", `code=${audit.error?.code ?? "none"}`);
+  const revoked = await c.rpc("revoke_ingest_token", { p_id: "00000000-0000-4000-8000-000000000000" });
+  check(`${label} cannot revoke an ingest token`, revoked.error?.code === "42501", `code=${revoked.error?.code ?? "none"}`);
+  const write = await c.rpc("apply_client_progress", { p_token_id: "00000000-0000-4000-8000-000000000000", p_source: "wall", p_items: [] });
+  check(`${label} cannot call apply_client_progress`, write.error?.code === "42501", `code=${write.error?.code ?? "none"}`);
+}
+for (const [label, jwt] of [["client A", clientA], ["employee", employee], ["builder", builder]]) {
+  const c = asUser(jwt);
+  for (const table of ["ingest_tokens", "ingest_audit"]) {
+    const r = await c.from(table).select("*").limit(5);
+    check(`${label} reads no ${table} rows through the table API`, !!r.error || (r.data ?? []).length === 0, `error=${r.error?.code ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+}
+{
+  const b = asUser(builder);
+  const made = await b.rpc("create_ingest_token", { p_name: `wall-check-${Date.now()}` });
+  const token = made.data?.token;
+  const tokenId = made.data?.id;
+  check("builder creates an ingest token and gets it once", !made.error && /^vni_[0-9a-f]{64}$/.test(token ?? ""), `error=${made.error?.code ?? "none"}`);
+  try {
+    if (token) {
+      const listed = await b.rpc("list_ingest_tokens");
+      const row = (listed.data ?? []).find((r) => r.id === tokenId);
+      check("builder lists the new token without any hash or raw value", !!row && !("token_hash" in row) && !("token" in row), `keys=${row ? Object.keys(row).join(",") : "missing"}`);
+      const ok = await ingest(token);
+      check(
+        "a live ingest token is accepted; an unknown client is refused per entry and nothing is created",
+        ok.status === 200 && ok.body?.applied === 0 && ok.body?.rejected?.[0]?.reason === "unknown_client",
+        `status=${ok.status} applied=${ok.body?.applied} reason=${ok.body?.rejected?.[0]?.reason}`,
+      );
+      const bad = await ingest(token, { source: "wall-check", clients: [{ slug: "wall-probe-unknown", pct_complete: 140, active: false }] });
+      check("a bad shape is refused with 400 and the error does not echo the value", bad.status === 400 && !JSON.stringify(bad.body).includes("140"), `status=${bad.status}`);
+      const audit = await b.rpc("list_ingest_audit", { p_limit: 5 });
+      check("the builder sees the calls in the audit", !audit.error && (audit.data ?? []).some((r) => r.source === "wall-check"), `error=${audit.error?.code ?? "none"} rows=${audit.data?.length ?? 0}`);
+    }
+  } finally {
+    if (tokenId) {
+      const rev = await b.rpc("revoke_ingest_token", { p_id: tokenId });
+      check("builder revokes the token", !rev.error, `error=${rev.error?.code ?? "none"}`);
+    }
+  }
+  if (token) check("a revoked ingest token is refused with 401", (await ingest(token)).status === 401);
 }
 
 console.log(failed ? `\n${failed} check(s) failed` : "\nAll server function wall checks passed");

@@ -41,6 +41,7 @@ FUNCTIONS=(
   entity-report
   creatives
   enrich-thumbnails
+  ingest-client-progress
   ingest-reviews
   landing-pages
   leaderboard

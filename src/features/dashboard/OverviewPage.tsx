@@ -14,10 +14,11 @@ import {
   boardSummary,
   clientHealth,
   cycleDay,
-  formatAgo,
   formatDay,
   groupBySlug,
+  lastUpdatedLine,
   overviewCounts,
+  progressText,
   serviceLines,
   sortByProgress,
   type ActiveEngagement,
@@ -39,7 +40,7 @@ function Tile({ label, value, Icon, tone }: { label: string; value: number; Icon
   );
 }
 
-const HEALTH_LABEL = { stale: "Stale", at_risk: "At risk", ok: null, manual: null } as const;
+const HEALTH_LABEL = { stale: "Stale", at_risk: "At risk", ok: null, manual: null, no_data: null } as const;
 
 function ClientCard({ client, cards, engagement, now, prefix }: {
   client: DashboardClient;
@@ -62,7 +63,7 @@ function ClientCard({ client, cards, engagement, now, prefix }: {
       <div className="mt-3 h-2 w-full rounded bg-muted" aria-label={`Progress ${pct ?? 0} percent`} role="img">
         <div className="h-2 rounded bg-primary" style={{ width: `${pct ?? 0}%` }} />
       </div>
-      <p className="mt-1 text-xs text-muted-foreground">{pct === null ? "No progress recorded" : `${pct}% complete`}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{progressText(pct, client)}</p>
       <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
         <dt className="text-muted-foreground">Service</dt>
         <dd>{serviceLines(client).join(", ") || "None set"}</dd>
@@ -76,7 +77,7 @@ function ClientCard({ client, cards, engagement, now, prefix }: {
         <dd>{board.total === 0 ? "No cards" : `${board.total} cards, ${board.waitingOnClient} in client review`}</dd>
       </dl>
       <p className="mt-3 text-xs text-muted-foreground">
-        {health === "manual" ? "Added by hand" : `Updated by the HQ sync ${formatAgo(client.last_synced, now)}`}
+        {lastUpdatedLine(client, now)}
       </p>
     </Link>
   );
@@ -142,7 +143,7 @@ export default function OverviewPage() {
             </section>
           )}
           <p className="text-xs text-muted-foreground">
-            At risk: under half done and no sync update in 14 days. Stale: no sync update in 21 days. Clients added by hand are not counted in either.
+            At risk: under half done and no update from HQ in 14 days. Stale: no update in 21 days. Clients added by hand, and clients still waiting for their first update, are not counted in either.
           </p>
         </>
       )}
