@@ -1,6 +1,7 @@
 // Rules for the client hub Work tab (the ClickUp content pipeline for one client, staff view).
 export interface WorkTask {
   id: string;
+  clickup_task_id?: string | null;
   task_name: string | null;
   stage: string | null;
   due_date: string | null;

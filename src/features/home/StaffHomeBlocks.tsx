@@ -11,6 +11,8 @@ import {
   useReadyHandoffs,
   useStaffHomeAccess,
 } from "@/hooks/useHomeData";
+import { useStaffDecisions } from "@/hooks/useClientDecisions";
+import { isNewDecision, staffDecisionText } from "@/lib/clientDecisions";
 import { hubPath } from "@/lib/clientHub";
 import { clientsNeedingAttention, dueThisWeek, isLate, shortDate, todayIso, waitingOnClient, type HomeTask } from "@/lib/homeData";
 import { HomeBlock, type BlockRow, type BlockStatus } from "./HomeBlock";
@@ -34,6 +36,7 @@ export function StaffHomeBlocks() {
   const handoffs = useReadyHandoffs();
   const support = useOpenSupport();
   const budget = useBudgetAlerts();
+  const decisions = useStaffDecisions();
 
   const names = useMemo(() => Object.fromEntries(clients.map((c) => [c.slug, c.name])), [clients]);
   const nameOf = (slug: string) => names[slug] ?? "A client";
@@ -48,6 +51,20 @@ export function StaffHomeBlocks() {
     late: isLate(t, today),
     assetLink: t.asset_link,
   });
+
+  // Client feedback: the current answers clients gave in Verdanote, newest first. New ones are highlighted.
+  const nowMs = Date.now();
+  const feedbackRows: BlockRow[] = (decisions.data ?? [])
+    .filter((d) => d.superseded_at === null)
+    .sort((a, b) => b.decided_at.localeCompare(a.decided_at))
+    .map((d) => ({
+      key: d.id,
+      primary: d.task_name || "Untitled task",
+      secondary: `${nameOf(d.client_slug)} · ${staffDecisionText(d)}`,
+      to: hubPath(d.client_slug, "work"),
+      right: shortDate(d.decided_at.slice(0, 10)),
+      isNew: isNewDecision(d, nowMs),
+    }));
 
   const dueRows = (tasks.data ? dueThisWeek(tasks.data, today) : []).map(taskRow);
   const waitingRows = (tasks.data ? waitingOnClient(tasks.data) : []).map(taskRow);
@@ -108,6 +125,16 @@ export function StaffHomeBlocks() {
           onRetry={retryAttention}
         />
       ) : null}
+      <HomeBlock
+        id="feedback"
+        title="Client feedback"
+        status={statusOf(decisions)}
+        rows={feedbackRows}
+        emptyText="No client has answered a card yet."
+        seeAllTo="/work?view=all&stage=Client+Review"
+        prefix={prefix}
+        onRetry={() => void decisions.refetch()}
+      />
       <HomeBlock
         id="due"
         title="Due this week"

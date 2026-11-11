@@ -13,6 +13,8 @@ import { DELIVERED_STAGE, type CycleEngagement } from "@/lib/pipelineCycles";
  */
 export interface PipelineTask {
   id: string;
+  /** ClickUp task id; the key a decision is recorded against. */
+  clickup_task_id?: string | null;
   task_name: string | null;
   stage: string | null;
   due_date: string | null;

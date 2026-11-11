@@ -16,6 +16,7 @@ export const BOARD_STAGES = ["Preparing Content", "Production", "Editing", "Clie
 
 export interface CycleTask {
   id: string;
+  clickup_task_id?: string | null;
   task_name: string | null;
   stage: string | null;
   due_date: string | null;
@@ -108,6 +109,8 @@ export function groupByCycle(
   tasks: CycleTask[] | null | undefined,
   engagements: CycleEngagement[] | null | undefined = [],
   now: Date = new Date(),
+  /** Task ids the client has already answered (approved or asked for changes): they no longer wait on the client. */
+  answered: ReadonlySet<string> = new Set(),
 ): CycleGroup[] {
   const byKey = new Map<string, CycleTask[]>();
   for (const task of tasks ?? []) {
@@ -126,7 +129,7 @@ export function groupByCycle(
   const build = (key: string): CycleGroup => {
     const list = byKey.get(key)!;
     const delivered = list.filter((t) => stageOf(t) === DELIVERED_STAGE).length;
-    const waiting = list.filter((t) => stageOf(t) === WAITING_STAGE).length;
+    const waiting = list.filter((t) => stageOf(t) === WAITING_STAGE && !(t.clickup_task_id && answered.has(t.clickup_task_id))).length;
     const status: CycleStatus = key === currentKey ? "current" : key === "other" ? "other" : key > nowKey ? "upcoming" : "past";
     return {
       key,

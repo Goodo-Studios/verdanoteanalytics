@@ -17,6 +17,8 @@ export interface BlockRow {
   late?: boolean;
   /** Air review link; shown as a small "View asset" link beside the row, not inside it. */
   assetLink?: string | null;
+  /** A new item staff have not seen yet (a client decision in the last 48 hours). */
+  isNew?: boolean;
 }
 
 export type BlockStatus = "loading" | "error" | "ready";
@@ -66,7 +68,9 @@ export function HomeBlock({ id, title, status, rows, emptyText, seeAllTo, prefix
                 className="flex min-w-0 flex-1 items-baseline justify-between gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-accent"
                 data-testid={`home-block-${id}-row`}
                 data-late={r.late ? "true" : undefined}
+                data-new={r.isNew ? "true" : undefined}
               >
+                {r.isNew ? <span className="mr-2 shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-900" data-testid="home-row-new">New</span> : null}
                 <span className="min-w-0 truncate">
                   <span className={r.late ? "font-medium text-red-700" : "font-medium"}>{r.primary}</span>
                   {r.secondary ? <span className="text-muted-foreground"> {r.secondary}</span> : null}

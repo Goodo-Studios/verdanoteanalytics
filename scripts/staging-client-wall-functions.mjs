@@ -135,6 +135,15 @@ const controls = [
   ["employee passes the agent-evaluations gate and it fails closed without a key", "agent-evaluations", employee, { body: { agent_key: "meeting-recaps" } }, (s) => s === 503],
   ["builder passes the agent-evaluations gate and it fails closed without a key", "agent-evaluations", builder, { body: { agent_key: "meeting-recaps" } }, (s) => s === 503],
   ["client B refused by agent-evaluations", "agent-evaluations", clientB, { body: { agent_key: "meeting-recaps" } }, refused],
+  // Client decisions (phase 5b). client-decision is for client logins only: staff and a login with no clients are
+  // refused, bad input is refused before anything is recorded. Nothing is written by these calls (the writing
+  // checks are in staging-client-wall-check.mjs).
+  ["builder refused by client-decision", "client-decision", builder, { body: { taskId: "wall-probe", decision: "approved" } }, (s) => s === 403],
+  ["employee refused by client-decision", "client-decision", employee, { body: { taskId: "wall-probe", decision: "approved" } }, (s) => s === 403],
+  ["client B (no clients) refused by client-decision", "client-decision", clientB, { body: { taskId: "wall-probe", decision: "approved" } }, (s) => s === 403],
+  ["client A is refused a bad task id by client-decision", "client-decision", clientA, { body: { taskId: "not valid!", decision: "approved" } }, (s) => s === 400],
+  ["client A is refused a change request with no note by client-decision", "client-decision", clientA, { body: { taskId: "wall-probe", decision: "changes_requested" } }, (s) => s === 400],
+  ["client A gets not found for a card that is not its client's", "client-decision", clientA, { body: { taskId: "wall-probe-no-such-card", decision: "approved" } }, (s) => s === 404],
 ];
 for (const [label, name, token, opts, ok] of controls) {
   const status = await call(name, token, opts);

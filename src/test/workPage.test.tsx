@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
 type Table = { data?: unknown; error?: { message: string } | null; pending?: boolean };
-const h = vi.hoisted(() => ({ table: {} as Table, calls: [] as string[] }));
+const h = vi.hoisted(() => ({ table: {} as Table, decisions: [] as unknown[], calls: [] as string[] }));
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
@@ -18,7 +18,9 @@ vi.mock("@/integrations/supabase/client", () => ({
         h.calls.push(table);
         return {
           then: (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => {
-            const p = h.table.pending ? new Promise(() => {}) : Promise.resolve({ data: h.table.data ?? [], error: h.table.error ?? null });
+            const p = table === "client_task_decisions"
+              ? Promise.resolve({ data: h.decisions, error: null })
+              : h.table.pending ? new Promise(() => {}) : Promise.resolve({ data: h.table.data ?? [], error: h.table.error ?? null });
             return p.then(res, rej);
           },
         };
@@ -175,9 +177,24 @@ describe("Work page", () => {
     expect(screen.queryByTestId("work-loading")).toBeNull();
   });
 
-  it("reads only pipeline_tasks", async () => {
+  it("shows what the client decided beside the card, and highlights a new answer", async () => {
+    h.decisions = [
+      { id: "d1", clickup_task_id: "cu-Static ads", client_slug: "bloom", task_name: "Static ads", decision: "approved", note: null, decided_by_label: "Alex", decided_at: new Date().toISOString(), superseded_at: null },
+      { id: "d0", clickup_task_id: "cu-Hook video", client_slug: "glow", task_name: "Hook video", decision: "changes_requested", note: "Shorter", decided_by_label: "Sam", decided_at: "2020-01-01T00:00:00Z", superseded_at: null },
+      { id: "dx", clickup_task_id: "cu-Shoot day", client_slug: "glow", task_name: "Shoot day", decision: "approved", note: null, decided_by_label: "Old", decided_at: "2020-01-01T00:00:00Z", superseded_at: "2020-01-02T00:00:00Z" },
+    ];
+    renderWork("/builder/work?view=all");
+    await screen.findAllByTestId("work-row");
+    const badges = await screen.findAllByTestId("work-row-decision");
+    expect(badges.map((b) => b.textContent).sort()).toEqual(["Changes requested", "Client approved"]);
+    expect(badges.find((b) => b.textContent === "Client approved")).toHaveAttribute("data-new", "true");
+    expect(badges.find((b) => b.textContent === "Changes requested")).not.toHaveAttribute("data-new");
+    h.decisions = [];
+  });
+
+  it("reads only the cards and the client decisions", async () => {
     renderWork();
     await screen.findAllByTestId("work-row");
-    expect([...new Set(h.calls)]).toEqual(["pipeline_tasks"]);
+    expect([...new Set(h.calls)].sort()).toEqual(["client_task_decisions", "pipeline_tasks"]);
   });
 });

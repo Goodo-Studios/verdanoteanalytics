@@ -66,6 +66,8 @@ CREATE FUNCTION pg_temp.override(p_table text, p_col text) RETURNS text AS $$
     WHEN 'naming_convention_vocab.dimension' THEN quote_literal('hook')
     WHEN 'client_highlights.period' THEN quote_literal('2026-01')
     WHEN 'media_assets.media_type' THEN quote_literal('image')
+    WHEN 'client_task_decisions.decision' THEN quote_literal('approved')
+    WHEN 'client_task_decisions.note' THEN 'NULL'
   END
 $$ LANGUAGE sql;
 

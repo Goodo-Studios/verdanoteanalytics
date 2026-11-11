@@ -107,10 +107,10 @@ describe("Waiting on you, client Overview", () => {
     const link = screen.getAllByRole("link", { name: /content pipeline/i })[0];
     expect(link.getAttribute("href")).toBe("/client/pipeline");
     // The client's own rows, no filter sent, on the board, the delivered list and the engagement dates.
-    await waitFor(() => expect(h.calls).toHaveLength(3));
-    expect(h.calls.map((c) => [c.table, c.eq]).sort()).toEqual([["engagements", 0], ["pipeline_delivered", 0], ["pipeline_tasks", 0]]);
+    await waitFor(() => expect(h.calls).toHaveLength(4));
+    expect(h.calls.map((c) => [c.table, c.eq]).sort()).toEqual([["client_task_decisions", 0], ["engagements", 0], ["pipeline_delivered", 0], ["pipeline_tasks", 0]]);
     expect(h.calls.find((c) => c.table === "pipeline_tasks")!.select).toBe(
-      "id, task_name, stage, due_date, content_type, updated_at, cycle_month, delivered_at, asset_link",
+      "id, clickup_task_id, task_name, stage, due_date, content_type, updated_at, cycle_month, delivered_at, asset_link",
     );
   });
 
@@ -180,7 +180,7 @@ describe("current cycle count, client Overview", () => {
     h.tables.pipeline_delivered = { error: { message: "x" } };
     renderOverview("client");
     await screen.findByTestId("waiting-on-you-line");
-    await waitFor(() => expect(h.calls.length).toBe(3));
+    await waitFor(() => expect(h.calls.length).toBe(4));
     expect(screen.queryByTestId("landing-cycle")).toBeNull();
   });
 

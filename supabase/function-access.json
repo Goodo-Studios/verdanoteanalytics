@@ -76,6 +76,16 @@
       "rls": true,
       "note": "Reads through the caller's own session, so row rules limit it to the client's accounts."
     },
+    "client-decision": {
+      "class": "account-scoped",
+      "note": "A client approves a card or asks for changes. Client logins only (staff get 403). Reads the caller's own clients with the caller's token, then records through record_client_decision (service role), which accepts only a card of those clients.",
+      "probe": {
+        "body": {
+          "taskId": "wall-probe",
+          "decision": "approved"
+        }
+      }
+    },
     "cluster-creatives": {
       "class": "service"
     },
