@@ -1212,7 +1212,7 @@ for (const [table, select, filter] of SHELL_QUERIES) {
   check("the delivered rows are all still there after the write attempts", !stillThere.error && (stillThere.data ?? []).length >= 5, `rows=${stillThere.data?.length ?? "error"}`);
 }
 
-// Client decisions (phase 5b, migration 20261115000002). A client approves or asks for changes through the
+// Client decisions (phase 5b, migration 20261117000001). A client approves or asks for changes through the
 // client-decision function; the database keeps the history. Proves, with real logins: client A can decide on
 // its own client's card (and change its answer while the card is in Client Review), cannot decide on another
 // client's card, cannot write the table directly, reads only its own client's decisions and never the login id;

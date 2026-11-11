@@ -1,4 +1,4 @@
--- Client approvals and change requests (migration 20261115000002, phase 5b).
+-- Client approvals and change requests (migration 20261117000001, phase 5b).
 --
 -- Run with the local stack (requires Docker):  supabase test db
 --
