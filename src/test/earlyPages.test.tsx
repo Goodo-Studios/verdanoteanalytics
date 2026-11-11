@@ -24,7 +24,7 @@ describe("hidden pages config", () => {
     for (const key of HIDDEN_PAGES) {
       const note = EARLY_PAGE_NOTES[key];
       expect(note, key).toBeTruthy();
-      expect(note!.feeds).not.toMatch(/—|\n/);
+      expect(note!.feeds).not.toMatch(/\u2014|\n/);
       expect(note!.to.startsWith("/")).toBe(true);
     }
   });
