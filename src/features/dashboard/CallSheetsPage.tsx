@@ -4,8 +4,8 @@
 // and a line per confirmed talent (call time, wardrobe, notes for the talent,
 // and staff-only rate and internal notes) from Goodo OS. Staff make a sheet
 // for a shoot, edit it, revoke and restore its link, and keep the talent lines.
-// The public call sheet page stays on the old dashboard and reads the old
-// database until the release; the page says so next to every link.
+// The public call sheet page is served by Verdanote and reads this database; each
+// link shows how often it was opened.
 // Not ported: Goodo OS's immutable published versions and the talent portal.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, LoadingState, PageHeader, PageShell, TextField, TextareaField, useConfirm } from "@/components/page-kit";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { DashboardError, loadBrandsAndTeam } from "./api";
+import { describeOpens } from "@/features/public-links/linkStats";
 import { createCallSheet, loadCallSheets, removeTalentLine, saveTalentLine, setCallSheetRevoked, updateCallSheet, type CallSheetsData } from "./callSheetsApi";
 import {
   EMPTY_SHEET_FORM,
@@ -248,6 +249,7 @@ export default function CallSheetsPage() {
                 <>
                   <a href={url} target="_blank" rel="noreferrer" className="underline">Open public call sheet</a>
                   <Button type="button" variant="link" size="sm" className={LINK_BTN} onClick={() => copy(url)}>Copy link</Button>
+                  <span className="text-muted-foreground" data-testid={`link-activity-${sheet.id}`}>{describeOpens(data?.stats?.[sheet.id], formatDay)}</span>
                 </>
               )}
             </div>
@@ -302,7 +304,7 @@ export default function CallSheetsPage() {
     <PageShell data-testid="call-sheets-page">
       <PageHeader title="Call sheets" description="One call sheet per shoot: call time, wrap, notes, crew, and a line for each confirmed talent." />
       <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900" data-testid="call-sheets-old-dashboard-note">
-        Public links still open on the old dashboard for now. Call sheets you make, change or revoke here reach crew and clients once the public pages move over. Talent lines, rate notes and internal notes are staff only and never appear on the public page.
+        Crew and clients open call sheets on Verdanote with no login, and a link stops 30 days after the shoot. Revoke stops a link at once. Talent lines, rate notes and internal notes are staff only and never appear on the public page.
       </p>
       <div className="flex flex-wrap gap-3 text-sm">
         <Link to={`${prefix}/production-calendar`} className="underline">Production calendar</Link>

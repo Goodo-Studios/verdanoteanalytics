@@ -65,8 +65,8 @@ const DATA = {
 };
 
 describe("call sheets model", () => {
-  it("builds the old dashboard link and picks the live sheet", () => {
-    expect(callSheetUrl("abc")).toBe("https://goodostudios-production.vercel.app/call-sheet/abc");
+  it("builds the Verdanote link and picks the live sheet", () => {
+    expect(callSheetUrl("abc")).toBe(`${window.location.origin}/call-sheet/abc`);
     const s = shoot("s", "2099-01-01", { call_sheets: [sheet("new", { revoked: true, created_at: "2026-11-05T00:00:00Z" }), sheet("live")] });
     expect(currentSheet(s)?.id).toBe("live");
     expect(currentSheet(shoot("s", "2099-01-01", { call_sheets: [sheet("r", { revoked: true })] }))?.id).toBe("r");
@@ -114,17 +114,17 @@ describe("call sheets page", () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  it("shows upcoming shoots with the sheet, crew, link and the old dashboard note", async () => {
+  it("shows upcoming shoots with the sheet, crew, link and the Verdanote note", async () => {
     renderPage();
     const card = await screen.findByTestId("call-sheet-shoot-s1");
     expect(within(card).getByText("Demo Harbor")).toBeTruthy();
     expect(within(card).getByText("Demo Loft")).toBeTruthy();
     expect(within(card).getByText(/Call 8:30 AM/)).toBeTruthy();
     expect(within(card).getByText(/Demo Shooter \(Videographer\)/)).toBeTruthy();
-    expect(within(card).getByText("Open public call sheet").getAttribute("href")).toBe("https://goodostudios-production.vercel.app/call-sheet/tok-cs1");
+    expect(within(card).getByText("Open public call sheet").getAttribute("href")).toBe(`${window.location.origin}/call-sheet/tok-cs1`);
     expect(within(card).getByText(/Rate \(staff only\): \$400 flat/)).toBeTruthy();
     expect(within(card).getByText("No longer on this shoot")).toBeTruthy();
-    expect(screen.getByTestId("call-sheets-old-dashboard-note").textContent).toMatch(/Public links still open on the old dashboard for now/);
+    expect(screen.getByTestId("call-sheets-old-dashboard-note").textContent).toMatch(/Crew and clients open call sheets on Verdanote with no login/);
     expect(within(screen.getByTestId("call-sheet-shoot-s2")).getByText("No call sheet yet.")).toBeTruthy();
     expect(screen.queryByTestId("call-sheet-shoot-s0")).toBeNull();
     fireEvent.click(screen.getByLabelText(/Show shoots from the last/));

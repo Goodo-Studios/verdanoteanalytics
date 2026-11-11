@@ -2,7 +2,7 @@
 // No login and no staff session is involved; the secret in the link is the only credential.
 // Answers are reduced to a small set of reasons so a page can say something plain for each.
 
-export type LinkType = "approval" | "casting";
+export type LinkType = "approval" | "casting" | "location" | "call-sheet";
 
 export type LinkFailure = "not_found" | "revoked" | "expired" | "rate_limited" | "invalid" | "too_large" | "error";
 
@@ -41,7 +41,7 @@ export async function callPublicLink<T>(body: Record<string, unknown>, fetchImpl
 }
 
 /** The path a link opens at. Same paths the old dashboard used, so old links redirect one to one. */
-export const LINK_PATHS: Record<LinkType, string> = { approval: "/approve/", casting: "/cast/" };
+export const LINK_PATHS: Record<LinkType, string> = { approval: "/approve/", casting: "/cast/", location: "/locations-board/", "call-sheet": "/call-sheet/" };
 
 /** The full address staff copy and send. It opens on this site. */
 export function publicLinkUrl(type: LinkType, token: string, origin: string = window.location.origin): string {

@@ -5,17 +5,17 @@
 // signed links (upload, delete and "set as main photo" in the editor, phase 6b),
 // and links that share a set of locations with a client.
 //
-// The page a client opens (/locations-board/<token>) stays on the old
-// dashboard and reads the old dashboard's database until the release, so a
-// link made or revoked here takes effect for clients only once the release
-// points that page at this database. The page says so. Not ported: editing the
-// locations on an existing link.
+// The page a client opens (/locations-board/<token>) is served by Verdanote and
+// reads this database, so a link made or revoked here works at once. Each link
+// shows how often it was opened. Not ported: editing the locations on an
+// existing link.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { DataTable, EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField, TextField, useConfirm, type DataColumn } from "@/components/page-kit";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { DashboardError, loadBrandsAndTeam, type BrandOption } from "./api";
+import { describeOpens } from "@/features/public-links/linkStats";
 import { createLocation, createLocationBoard, deleteLocation, loadLocations, revokeLocationBoard, updateLocation, type LocationsData } from "./locationsApi";
 import {
   DEFAULT_LOCATION_FILTERS,
@@ -276,7 +276,7 @@ export default function LocationsPage() {
     <PageShell wide data-testid="locations-page">
       <PageHeader title="Locations" description="Spaces Goodo can shoot in, and links that share a set of them with a client." />
       <p className="text-xs text-muted-foreground" data-testid="old-dashboard-note">
-        Public links still open on the old dashboard for now. Links you make or revoke here reach clients once the public pages move over. Open a location to add, delete or reorder its photos.
+        Clients open these links on Verdanote with no login. Revoke stops a link at once. Open a location to add, delete or reorder its photos.
       </p>
       {notice && <p role="status" className="break-all text-sm text-muted-foreground">{notice}</p>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
@@ -352,6 +352,7 @@ export default function LocationsPage() {
                           <a href={url} target="_blank" rel="noopener noreferrer" className="break-all text-xs underline">{url}</a>
                           <Button type="button" size="sm" variant="outline" onClick={() => copy(url)}>Copy link</Button>
                           <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void revoke(b.id)}>Revoke</Button>
+                          <span className="w-full text-xs text-muted-foreground" data-testid={`link-activity-${b.id}`}>{describeOpens(data?.stats?.[b.id], formatDay)}</span>
                         </div>
                       )}
                     </li>

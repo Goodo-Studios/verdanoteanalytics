@@ -1,8 +1,8 @@
 // public-link: the one door for pages that open without a login (P8).
 //
 //   POST { type, action, token, ... }
-//     type    approval | casting          (part 2 adds location | call-sheet, part 3 applications)
-//     action  get | vote | photo
+//     type    approval | casting | location | call-sheet   (part 3 adds applications)
+//     action  get | vote | photo   (location and call-sheet are read only: get)
 //
 // Who can call it: anyone. What they get depends only on the token. The access class in
 // supabase/function-access.json is "public" with gate "token":
@@ -25,6 +25,7 @@ import {
   readJsonBody,
 } from "../_shared/public-link.ts";
 import { castVote, getBoard, getPhoto, type BoardKind } from "../_shared/public-board.ts";
+import { getCallSheet, getLocationBoard } from "../_shared/public-sheet.ts";
 
 const BOARD_TYPES: Record<string, BoardKind> = { approval: "approval", casting: "casting" };
 
@@ -45,7 +46,9 @@ export async function handler(req: Request, injectedDb?: any): Promise<Response>
   const action = typeof body.action === "string" ? body.action : "";
   const kind = BOARD_TYPES[type];
   const isWrite = action === "vote";
-  if (!kind || !["get", "vote", "photo"].includes(action)) return jsonResponse({ error: "bad_request" }, 400);
+  const readOnlyType = type === "location" || type === "call-sheet";
+  const validAction = readOnlyType ? action === "get" : !!kind && ["get", "vote", "photo"].includes(action);
+  if ((!kind && !readOnlyType) || !validAction) return jsonResponse({ error: "bad_request" }, 400);
 
   const ip = await clientKey(req);
   const tokenHash = await hashToken(body.token);
@@ -59,7 +62,10 @@ export async function handler(req: Request, injectedDb?: any): Promise<Response>
 
   try {
     let res: Response;
-    if (action === "get") res = await getBoard(db, kind, tokenHash, body.refresh !== true);
+    const countOpen = body.refresh !== true;
+    if (type === "location") res = await getLocationBoard(db, tokenHash, countOpen);
+    else if (type === "call-sheet") res = await getCallSheet(db, tokenHash, countOpen);
+    else if (action === "get") res = await getBoard(db, kind, tokenHash, countOpen);
     else if (action === "vote") res = await castVote(db, kind, tokenHash, body);
     else res = await getPhoto(db, kind, tokenHash, body);
     if (res.status === 404) await countMiss(db, ip);

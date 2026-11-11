@@ -7,10 +7,10 @@
 // links are written directly under the staff rules, as the old dashboard did.
 //
 // The page a client opens (/locations-board/<token>) stays on the old
-// dashboard and reads the old dashboard's database until the release.
+// is served by Verdanote.
 // Pure helpers only.
 
-import { OLD_DASHBOARD_URL } from "./applicationsModel";
+import { publicLinkUrl } from "@/features/public-links/publicLinkApi";
 
 export const LOCATION_PHOTO_BUCKET = "location-photos";
 
@@ -57,9 +57,9 @@ export interface LocationBoard {
   location_board_items: { location_id: string }[];
 }
 
-/** The public link a client opens. It is served by the old dashboard. */
+/** The public link a client opens. It opens on this site. */
 export function locationBoardUrl(token: string): string {
-  return `${OLD_DASHBOARD_URL}/locations-board/${token}`;
+  return publicLinkUrl("location", token);
 }
 
 export interface LocationFilters {

@@ -7,6 +7,8 @@
 // 20261110220001), which refuse talent not confirmed onto the sheet's shoot.
 import { DashboardError, db, unwrap, unwrapOne } from "./api";
 import { generateBoardToken } from "./approvalBoardsModel";
+import { loadLinkStats } from "./approvalBoardsApi";
+import type { LinkStat } from "@/features/public-links/linkStats";
 import type { CrewOption, SheetArgs, SheetShoot, ShootCasting, TalentArgs } from "./callSheetsModel";
 
 const SHOOT_COLUMNS =
@@ -17,6 +19,7 @@ export interface CallSheetsData {
   castings: ShootCasting[];
   crew: CrewOption[];
   locations: Map<string, string>;
+  stats?: Record<string, LinkStat>;
 }
 
 /** Shoots from `from` onward with their call sheets, the castings confirmed onto them, crew and location names. */
@@ -37,7 +40,8 @@ export async function loadCallSheets(from: string): Promise<CallSheetsData> {
   ]);
   const castings = new Map<string, ShootCasting>();
   for (const c of [...confirmed, ...linked]) castings.set(c.id, c);
-  return { shoots, castings: [...castings.values()], crew, locations: new Map(locations.map((l) => [l.id, l.name])) };
+  const stats = await loadLinkStats(shoots.flatMap((s) => s.call_sheets.map((c) => c.id)), "call_sheet").catch(() => ({}));
+  return { shoots, castings: [...castings.values()], crew, locations: new Map(locations.map((l) => [l.id, l.name])), stats };
 }
 
 export async function createCallSheet(shootId: string, a: SheetArgs): Promise<string> {

@@ -2,6 +2,8 @@
 // checked functions from migration 20261101000002, which refuse anyone who is
 // not builder or employee. Shared links (location_boards and their items) are
 // written directly under the staff-only row rules, as the old dashboard did.
+import { loadLinkStats } from "./approvalBoardsApi";
+import type { LinkStat } from "@/features/public-links/linkStats";
 import { DashboardError, db, unwrap, unwrapOne } from "./api";
 import { generateBoardToken } from "./approvalBoardsModel";
 import { LOCATION_PHOTO_BUCKET, type Location, type LocationArgs, type LocationBoard, type LocationPhoto } from "./locationsModel";
@@ -15,6 +17,7 @@ export interface LocationsData {
   locations: Location[];
   photos: LocationPhoto[];
   boards: LocationBoard[];
+  stats?: Record<string, LinkStat>;
   /** storage path -> signed link, for the photos that exist in storage. */
   links: Map<string, string>;
 }
@@ -26,7 +29,8 @@ export async function loadLocations(): Promise<LocationsData> {
     unwrap(db.from("location_boards").select<LocationBoard[]>(BOARD_COLUMNS).order("created_at", { ascending: false })),
   ]);
   const links = await signedUrls(LOCATION_PHOTO_BUCKET, photos.map((p) => p.storage_path));
-  return { locations, photos, boards, links };
+  const stats = await loadLinkStats(boards.map((b) => b.id), "location_board").catch(() => ({}));
+  return { locations, photos, boards, links, stats };
 }
 
 async function saveDetails(id: string, a: LocationArgs): Promise<void> {

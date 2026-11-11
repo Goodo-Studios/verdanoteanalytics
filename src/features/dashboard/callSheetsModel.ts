@@ -5,7 +5,7 @@
 // staff-only rate and internal notes). The per-talent lines live in
 // call_sheet_talent_entries (migration 20261110220001), one line per talent
 // confirmed onto the sheet's shoot. Pure helpers only.
-import { OLD_DASHBOARD_URL } from "./applicationsModel";
+import { publicLinkUrl } from "@/features/public-links/publicLinkApi";
 
 export interface TalentEntry {
   actor_assignment_id: string;
@@ -56,9 +56,9 @@ export interface CrewOption {
   active: boolean;
 }
 
-/** The public call sheet page. It stays on the old dashboard until the release. */
+/** The public call sheet page. It opens on this site. */
 export function callSheetUrl(token: string): string {
-  return `${OLD_DASHBOARD_URL}/call-sheet/${token}`;
+  return publicLinkUrl("call-sheet", token);
 }
 
 /** The sheet shown for a shoot: the live one, else the newest revoked one. */

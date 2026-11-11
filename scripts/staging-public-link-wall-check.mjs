@@ -56,6 +56,11 @@ const boards = {
   revoked: { id: uuid(), token: token() },
   expired: { id: uuid(), token: token() },
 };
+const part2 = {
+  location: uuid(), locBoardLive: { id: uuid(), token: token() }, locBoardRevoked: { id: uuid(), token: token() },
+  shoot: uuid(), sheetLive: { id: uuid(), token: token() }, sheetRevoked: { id: uuid(), token: token() }, sheetOld: { id: uuid(), token: token() }, shootOld: uuid(),
+  crew: uuid(),
+};
 const future = new Date(Date.now() + 86400000).toISOString();
 const past = new Date(Date.now() - 86400000).toISOString();
 
@@ -70,6 +75,14 @@ async function call(body, headers = {}) {
 }
 
 async function cleanup() {
+  const p2 = [part2.locBoardLive.id, part2.locBoardRevoked.id];
+  await admin.from("location_board_items").delete().in("board_id", p2);
+  await admin.from("location_boards").delete().in("id", p2);
+  await admin.from("call_sheet_crew").delete().in("call_sheet_id", [part2.sheetLive.id, part2.sheetRevoked.id, part2.sheetOld.id]);
+  await admin.from("call_sheets").delete().in("id", [part2.sheetLive.id, part2.sheetRevoked.id, part2.sheetOld.id]);
+  await admin.from("shoots").delete().in("id", [part2.shoot, part2.shootOld]);
+  await admin.from("crew_members").delete().eq("id", part2.crew);
+  await admin.from("locations").delete().eq("id", part2.location);
   await admin.from("approval_votes").delete().in("board_id", Object.values(boards).map((b) => b.id));
   await admin.from("actor_approval_votes").delete().in("board_id", Object.values(boards).map((b) => b.id));
   await admin.from("approval_boards").delete().in("id", Object.values(boards).map((b) => b.id));
@@ -158,6 +171,42 @@ try {
   const castWritten = await admin.from("actor_approval_votes").select("id").in("board_id", Object.values(boards).map((b) => b.id));
   check("no casting vote was written", (castWritten.data ?? []).length === 0);
 
+
+  // Part 2: location boards and call sheets.
+  await must("location", admin.from("locations").insert({ id: part2.location, name: "Wall Loft", neighborhood: "Wall Hood", cost: 777, contact_email: "wall-host@example.test", notes: "wall internal note", rooms: [], attributes: [] }));
+  await must("location boards", admin.from("location_boards").insert([
+    { id: part2.locBoardLive.id, client_slug: slugA, label: "Wall board", token: part2.locBoardLive.token, revoked: false },
+    { id: part2.locBoardRevoked.id, client_slug: slugA, label: "Wall board revoked", token: part2.locBoardRevoked.token, revoked: true },
+  ]));
+  await must("location items", admin.from("location_board_items").insert({ board_id: part2.locBoardLive.id, location_id: part2.location }));
+  await must("shoots", admin.from("shoots").insert([
+    { id: part2.shoot, client_slug: slugA, shoot_date: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10), location: "Wall place" },
+    { id: part2.shootOld, client_slug: slugA, shoot_date: new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10), location: "Old place" },
+  ]));
+  await must("crew", admin.from("crew_members").insert({ id: part2.crew, name: "Wall Crew", role: "DP", phone: "555-0199", email: "wall-crew@example.test", rate_notes: "wall secret rate" }));
+  await must("call sheets", admin.from("call_sheets").insert([
+    { id: part2.sheetLive.id, shoot_id: part2.shoot, token: part2.sheetLive.token, revoked: false },
+    { id: part2.sheetRevoked.id, shoot_id: part2.shoot, token: part2.sheetRevoked.token, revoked: true },
+    { id: part2.sheetOld.id, shoot_id: part2.shootOld, token: part2.sheetOld.token, revoked: false },
+  ]));
+  await must("call sheet crew", admin.from("call_sheet_crew").insert({ call_sheet_id: part2.sheetLive.id, crew_member_id: part2.crew }));
+
+  const lb = await call({ type: "location", action: "get", token: part2.locBoardLive.token });
+  check("a live location token opens its board", lb.status === 200 && lb.text.includes("Wall Loft"), `status=${lb.status}`);
+  const lbLeaks = ["777", "wall-host@example.test", "wall internal note", "cost", "notes", "storage_path"].filter((k) => lb.text.includes(k));
+  check("the location board carries no cost, host contact or notes", lbLeaks.length === 0, lbLeaks.join(","));
+  check("a revoked location link is 410", (await call({ type: "location", action: "get", token: part2.locBoardRevoked.token })).status === 410);
+  check("an approval token on the location side is 404", (await call({ type: "location", action: "get", token: boards.creatorsA.token })).status === 404);
+  check("a location token on the approval side is 404", (await call({ type: "approval", action: "get", token: part2.locBoardLive.token })).status === 404);
+  check("a location token on the call sheet side is 404", (await call({ type: "call-sheet", action: "get", token: part2.locBoardLive.token })).status === 404);
+  const cs = await call({ type: "call-sheet", action: "get", token: part2.sheetLive.token });
+  check("a live call sheet token opens it with the crew", cs.status === 200 && cs.text.includes("Wall Crew"), `status=${cs.status}`);
+  check("the call sheet carries no crew rate notes", !cs.text.includes("wall secret rate") && !cs.text.includes("rate_notes"));
+  check("a revoked call sheet is 410", (await call({ type: "call-sheet", action: "get", token: part2.sheetRevoked.token })).status === 410);
+  check("a call sheet 45 days after its shoot is 410", (await call({ type: "call-sheet", action: "get", token: part2.sheetOld.token })).status === 410);
+  check("location and call sheet take no votes", (await call({ type: "call-sheet", action: "vote", token: part2.sheetLive.token, assignment_id: ids.ca[0], vote: "up" })).status === 400);
+  check("an unknown token on the call sheet side is 404", (await call({ type: "call-sheet", action: "get", token: token() })).status === 404);
+
   // Too big.
   const big = await call({ type: "approval", action: "vote", token: boards.creatorsA.token, assignment_id: ids.ca[0], vote: "up", voted_by: "x".repeat(20000) });
   check("an oversized body is 413", big.status === 413, `status=${big.status}`);
@@ -173,7 +222,7 @@ try {
 
   const clientDb = createClient(url, anon, { auth: { persistSession: false }, global: { headers: clientHeaders } });
   for (const [label, c] of [["anonymous", anonClient], ["a client login", clientDb]]) {
-    for (const table of ["approval_boards", "approval_votes", "actor_approval_votes", "creator_assignments", "actor_assignments", "public_link_registry", "public_link_rate_limits"]) {
+    for (const table of ["approval_boards", "approval_votes", "actor_approval_votes", "creator_assignments", "actor_assignments", "public_link_registry", "public_link_rate_limits", "location_boards", "location_board_items", "call_sheets", "call_sheet_crew"]) {
       const all = await c.from(table).select("*").limit(5);
       check(`${label} reads no ${table} rows`, !!all.error || (all.data ?? []).length === 0, `rows=${all.data?.length ?? "error"}`);
     }
