@@ -326,6 +326,46 @@ describe("role gating", () => {
   });
 });
 
+describe("Client feedback", () => {
+  const dec = (over: Record<string, unknown>) => ({
+    id: `d${++n}`, clickup_task_id: `cu${n}`, client_slug: "glow", task_name: `Card ${n}`, decision: "approved", note: null,
+    decided_by_label: "Alex", decided_at: new Date().toISOString(), superseded_at: null, ...over,
+  });
+
+  it("lists the current client answers, newest first, with the new ones highlighted", async () => {
+    h.tables.client_task_decisions = {
+      data: [
+        dec({ task_name: "Old answer", decision: "changes_requested", note: "Shorter", client_slug: "bloom", decided_at: "2020-03-01T00:00:00Z" }),
+        dec({ task_name: "Fresh answer" }),
+        dec({ task_name: "Replaced answer", superseded_at: "2020-01-02T00:00:00Z", decided_at: "2020-01-01T00:00:00Z" }),
+      ],
+    };
+    renderBlocks();
+    const feedback = await block("feedback");
+    const rows = await within(feedback).findAllByTestId("home-block-feedback-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).toContain("Fresh answer");
+    expect(rows[0].textContent).toContain("Approved by Alex");
+    expect(rows[0].getAttribute("data-new")).toBe("true");
+    expect(within(rows[0]).getByTestId("home-row-new")).toBeTruthy();
+    expect(rows[1].textContent).toContain("Bloom");
+    expect(rows[1].textContent).toContain("Changes requested by Alex: Shorter");
+    expect(rows[1].getAttribute("data-new")).toBeNull();
+    expect(rows[1].getAttribute("href")).toBe("/builder/clients/bloom/work");
+  });
+
+  it("says so when no client has answered, and when it cannot load", async () => {
+    renderBlocks();
+    expect(await within(await block("feedback")).findByTestId("home-block-feedback-empty")).toBeTruthy();
+  });
+
+  it("shows an error, not an empty list, when the answers fail to load", async () => {
+    h.tables.client_task_decisions = { error: { message: "x" } };
+    renderBlocks();
+    expect(await within(await block("feedback")).findByTestId("home-block-feedback-error")).toBeTruthy();
+  });
+});
+
 describe("what is sent to the database", () => {
   it("sends exactly the listed selects and filters", async () => {
     renderBlocks();

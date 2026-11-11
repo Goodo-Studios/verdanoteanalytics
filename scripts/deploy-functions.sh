@@ -32,6 +32,7 @@ FUNCTIONS=(
   cleanup-stuck-media
   cleanup-stuck-syncs
   clear-media-cache
+  client-decision
   client-insights
   cluster-creatives
   creative-embed

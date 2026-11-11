@@ -56,12 +56,13 @@ describe("waitingOnYou", () => {
     expect(waitingOnYou([task({ stage: "Client Review" })])).toEqual({
       count: 1,
       nextDueDate: null,
+      answered: 0,
     });
   });
 
   it("handles empty or missing input", () => {
-    expect(waitingOnYou([])).toEqual({ count: 0, nextDueDate: null });
-    expect(waitingOnYou(undefined)).toEqual({ count: 0, nextDueDate: null });
+    expect(waitingOnYou([])).toEqual({ count: 0, nextDueDate: null, answered: 0 });
+    expect(waitingOnYou(undefined)).toEqual({ count: 0, nextDueDate: null, answered: 0 });
   });
 
   it("does not match a stage by case or spacing", () => {

@@ -14,6 +14,8 @@ import { ViewAssetLink } from "@/components/client/ViewAssetLink";
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { useAllWorkTasks } from "@/hooks/useHomeData";
+import { useStaffDecisions } from "@/hooks/useClientDecisions";
+import { currentDecision, isNewDecision, staffDecisionText } from "@/lib/clientDecisions";
 import { hubPath } from "@/lib/clientHub";
 import { ALL_STAGES, clickupTaskUrl, filterWork, isLate, shortDate, todayIso, type WorkView } from "@/lib/homeData";
 import { HomeTabs } from "./HomeTabs";
@@ -32,6 +34,7 @@ export default function WorkPage() {
   const { clients } = useClientSelection();
   const [params, setParams] = useSearchParams();
   const { data: tasks, isLoading, isError, refetch } = useAllWorkTasks();
+  const decisions = useStaffDecisions();
   const [shown, setShown] = useState(PAGE_SIZE);
 
   const view = asView(params.get("view"));
@@ -144,6 +147,20 @@ export default function WorkPage() {
                     )}
                   </span>
                   <ViewAssetLink link={t.asset_link} className="shrink-0" />
+                  {(() => {
+                    const d = currentDecision(decisions.data, t.clickup_task_id);
+                    if (!d) return null;
+                    return (
+                      <span
+                        className={`hidden max-w-[16rem] shrink-0 truncate rounded px-2 py-0.5 text-xs md:block ${d.decision === "approved" ? "bg-green-50 text-green-800" : "bg-amber-50 text-amber-900"} ${isNewDecision(d) ? "font-semibold ring-1 ring-amber-300" : ""}`}
+                        title={staffDecisionText(d)}
+                        data-testid="work-row-decision"
+                        data-new={isNewDecision(d) ? "true" : undefined}
+                      >
+                        {d.decision === "approved" ? "Client approved" : "Changes requested"}
+                      </span>
+                    );
+                  })()}
                   <span className="hidden w-36 shrink-0 text-muted-foreground sm:block" data-testid="work-row-stage">{t.stage ?? "Preparing Content"}</span>
                   <span className={`w-16 shrink-0 text-right text-xs ${late ? "font-medium text-red-700" : "text-muted-foreground"}`} data-testid="work-row-due">
                     {shortDate(t.due_date)}

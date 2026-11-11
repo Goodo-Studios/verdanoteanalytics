@@ -1086,11 +1086,12 @@ const SHELL_QUERIES = [
   ["clients", "slug, name, active"],
   ["client_ad_accounts", "account_id, client_slug"],
   // Client hub Work tab: the cards of one client, read by client_slug (the third item).
-  ["pipeline_tasks", "id, task_name, stage, due_date, content_type, updated_at, asset_link", "client_slug"],
+  ["pipeline_tasks", "id, clickup_task_id, task_name, stage, due_date, content_type, updated_at, asset_link", "client_slug"],
   // The client's own board by cycle (phase 5): board cards, delivered work older than 30 days, cycle
   // dates from engagements, and the client link that decides the landing page.
-  ["pipeline_tasks", "id, task_name, stage, due_date, content_type, updated_at, cycle_month, delivered_at, asset_link", "client_slug"],
-  ["pipeline_delivered", "id, task_name, content_type, cycle_month, delivered_at, updated_at, asset_link", "client_slug"],
+  ["pipeline_tasks", "id, clickup_task_id, task_name, stage, due_date, content_type, updated_at, cycle_month, delivered_at, asset_link", "client_slug"],
+  ["pipeline_delivered", "id, clickup_task_id, task_name, content_type, cycle_month, delivered_at, updated_at, asset_link", "client_slug"],
+  ["client_task_decisions", "id, clickup_task_id, client_slug, task_name, decision, note, decided_by_label, decided_at, superseded_at", "client_slug"],
   ["engagements", "start_date, day45_date, status", "client_slug"],
   ["client_members", "client_slug", "client_slug"],
   // Last run line on Operating costs and Integration health (phase 4 PR 3).
@@ -1113,7 +1114,7 @@ for (const [table, select, filter] of SHELL_QUERIES) {
   }
 }
 {
-  const WORK = "id, task_name, stage, due_date, content_type, updated_at, asset_link";
+  const WORK = "id, clickup_task_id, task_name, stage, due_date, content_type, updated_at, asset_link";
   const mineA = await clientA.c.from("pipeline_tasks").select(WORK).eq("client_slug", "demo-glowdrip");
   check("client A loads its own client's cards with the Work tab query", !mineA.error, `error=${mineA.error?.message ?? "none"} rows=${mineA.data?.length ?? "error"}`);
   const otherB = await clientB.c.from("pipeline_tasks").select(WORK).eq("client_slug", "demo-glowdrip");
@@ -1132,8 +1133,8 @@ for (const [table, select, filter] of SHELL_QUERIES) {
 // rows to prove it (the seed gives demo-glowdrip two earlier cycles and demo-northwind two delivered
 // tasks), and nothing beyond the client-safe fields. B must see nothing. Nobody writes from the browser.
 {
-  const BOARD = "id, task_name, stage, due_date, content_type, updated_at, cycle_month, delivered_at, asset_link";
-  const DONE = "id, task_name, content_type, cycle_month, delivered_at, updated_at, asset_link";
+  const BOARD = "id, clickup_task_id, task_name, stage, due_date, content_type, updated_at, cycle_month, delivered_at, asset_link";
+  const DONE = "id, clickup_task_id, task_name, content_type, cycle_month, delivered_at, updated_at, asset_link";
   const BOARD_FIELDS = ["id", "clickup_task_id", "client_slug", "account_id", "task_name", "stage", "due_date", "content_type", "cycle_month", "delivered_at", "synced_at", "updated_at", "asset_link"];
   const DONE_FIELDS = ["id", "clickup_task_id", "client_slug", "account_id", "task_name", "content_type", "cycle_month", "delivered_at", "synced_at", "updated_at", "asset_link"];
   // Names that would mean a staff-only field has reached a client-readable table.
@@ -1209,6 +1210,99 @@ for (const [table, select, filter] of SHELL_QUERIES) {
   }
   const stillThere = await staff.c.from("pipeline_delivered").select("id").eq("client_slug", "demo-glowdrip");
   check("the delivered rows are all still there after the write attempts", !stillThere.error && (stillThere.data ?? []).length >= 5, `rows=${stillThere.data?.length ?? "error"}`);
+}
+
+// Client decisions (phase 5b, migration 20261117000001). A client approves or asks for changes through the
+// client-decision function; the database keeps the history. Proves, with real logins: client A can decide on
+// its own client's card (and change its answer while the card is in Client Review), cannot decide on another
+// client's card, cannot write the table directly, reads only its own client's decisions and never the login id;
+// client B decides on nothing and reads nothing; staff are refused by the function and read every decision; and
+// the ClickUp write-back stays queued and unsent with its switch off. The card is demo-seed-4 (demo-glowdrip,
+// Client Review, from scripts/seed-staging-dashboard.mjs). A run adds at most two history rows to that card; the
+// function allows 5 per person per card per 10 minutes, so wait 10 minutes before a third run in a row.
+{
+  const DECISION_SELECT = "id, clickup_task_id, client_slug, task_name, decision, note, decided_by_label, decided_at, superseded_at";
+  const CARD = "demo-seed-4";
+  const OTHER_CLIENT_CARD = "demo-seed-done-6"; // demo-northwind, delivered
+  const decide = async (s, body) => {
+    const res = await fetch(`${url}/functions/v1/client-decision`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${s.token}`, apikey: anon, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    let json = null;
+    try { json = await res.json(); } catch { /* not JSON */ }
+    return { status: res.status, json };
+  };
+  const mine = await slugsOf(clientA);
+
+  const a1 = await decide(clientA, { taskId: CARD, decision: "approved" });
+  check("client A approves a card of its own client", a1.status === 200 && ["recorded", "unchanged"].includes(a1.json?.status), `status=${a1.status} ${JSON.stringify(a1.json)}`);
+  const a2 = await decide(clientA, { taskId: CARD, decision: "approved" });
+  check("approving again changes nothing (idempotent)", a2.status === 200 && a2.json?.status === "unchanged", `status=${a2.status} ${JSON.stringify(a2.json)}`);
+  const a3 = await decide(clientA, { taskId: CARD, decision: "changes_requested", note: "Wall check: please shorten the intro" });
+  check("client A can change its answer while the card is in Client Review", a3.status === 200, `status=${a3.status} ${JSON.stringify(a3.json)}`);
+  const a4 = await decide(clientA, { taskId: CARD, decision: "approved" });
+  check("and change it back", a4.status === 200 && a4.json?.status === "recorded", `status=${a4.status} ${JSON.stringify(a4.json)}`);
+  const noNote = await decide(clientA, { taskId: CARD, decision: "changes_requested" });
+  check("a change request with no note is refused", noNote.status === 400, `status=${noNote.status}`);
+  const badId = await decide(clientA, { taskId: "not a valid id!", decision: "approved" });
+  check("an invalid task id is refused", badId.status === 400, `status=${badId.status}`);
+  const wrongClient = await decide(clientA, { taskId: OTHER_CLIENT_CARD, decision: "approved" });
+  check("client A cannot decide on another client's card (not found)", wrongClient.status === 404, `status=${wrongClient.status}`);
+  const noSuch = await decide(clientA, { taskId: "wall-check-no-such-card", decision: "approved" });
+  check("a card that does not exist answers the same as another client's card", noSuch.status === 404 && JSON.stringify(noSuch.json) === JSON.stringify(wrongClient.json), `status=${noSuch.status}`);
+  const b1 = await decide(clientB, { taskId: CARD, decision: "approved" });
+  check("client B (no clients) cannot decide on client A's card", b1.status === 403 || b1.status === 404, `status=${b1.status}`);
+  for (const [label, s] of [["builder", staff], ["employee", employee]]) {
+    const r = await decide(s, { taskId: CARD, decision: "approved" });
+    check(`${label} is refused by client-decision (the decision is the client's)`, r.status === 403, `status=${r.status}`);
+  }
+  const noAuth = await fetch(`${url}/functions/v1/client-decision`, { method: "POST", headers: { apikey: anon, "Content-Type": "application/json" }, body: JSON.stringify({ taskId: CARD, decision: "approved" }) });
+  await noAuth.text();
+  check("a call with no login is refused", noAuth.status === 401, `status=${noAuth.status}`);
+
+  // What the client reads: the exact page select, its own client only, one current decision per card.
+  const seenA = await clientA.c.from("client_task_decisions").select(DECISION_SELECT);
+  check("client A loads the decisions query and gets its own client's decisions only", !seenA.error && (seenA.data ?? []).length >= 2 && (seenA.data ?? []).every((r) => mine.includes(r.client_slug)), `error=${seenA.error?.message ?? "none"} rows=${seenA.data?.length ?? "error"}`);
+  const current = (seenA.data ?? []).filter((r) => r.clickup_task_id === CARD && r.superseded_at === null);
+  check("the card has exactly one current decision, and it is the last answer (approved)", current.length === 1 && current[0].decision === "approved", `current=${current.map((r) => r.decision)}`);
+  check("the earlier answers stay as history on the card", (seenA.data ?? []).filter((r) => r.clickup_task_id === CARD && r.superseded_at !== null).length >= 1, `rows=${seenA.data?.length}`);
+  check("a decision carries a plain label, never an email address", (seenA.data ?? []).every((r) => r.decided_by_label && !r.decided_by_label.includes("@")), `labels=${[...new Set((seenA.data ?? []).map((r) => r.decided_by_label))]}`);
+  const allA = await clientA.c.from("client_task_decisions").select("*").limit(50);
+  const keysA = [...new Set((allA.data ?? []).flatMap((r) => Object.keys(r)))];
+  check("client A reads no decision column beyond the client-safe ones, even with select *", !allA.error && keysA.length > 0 && !keysA.includes("decided_by") && keysA.every((k) => DECISION_SELECT.split(", ").includes(k)), `columns=${keysA} error=${allA.error?.message ?? "none"}`);
+  const idA = await clientA.c.from("client_task_decisions").select("decided_by");
+  check("client A cannot read the login id of a decision", !!idA.error, `error=${idA.error?.message ?? "none (read accepted)"}`);
+  const idStaff = await staff.c.from("client_task_decisions").select("decided_by");
+  check("not even staff read the login id from the browser", !!idStaff.error, `error=${idStaff.error?.message ?? "none (read accepted)"}`);
+  const seenB = await clientB.c.from("client_task_decisions").select(DECISION_SELECT);
+  check("client B reads no decisions", !seenB.error && (seenB.data ?? []).length === 0, `error=${seenB.error?.message ?? "none"} rows=${seenB.data?.length ?? "error"}`);
+  const staffSees = await staff.c.from("client_task_decisions").select(DECISION_SELECT).eq("client_slug", "demo-glowdrip");
+  check("staff read the client's decisions, so the wall check is not hollow", !staffSees.error && (staffSees.data ?? []).length >= 2, `error=${staffSees.error?.message ?? "none"} rows=${staffSees.data?.length ?? "error"}`);
+  const otherLeak = await clientA.c.from("client_task_decisions").select("id").neq("client_slug", "demo-glowdrip");
+  check("client A reads no decision of another client even when it asks for them", !otherLeak.error && (otherLeak.data ?? []).length === 0, `rows=${otherLeak.data?.length ?? "error"}`);
+
+  // Nobody writes the table from the browser.
+  for (const [label, s] of [["client A", clientA], ["client B", clientB], ["builder", staff]]) {
+    const ins = await s.c.from("client_task_decisions").insert({ clickup_task_id: CARD, client_slug: "demo-glowdrip", decision: "approved", decided_by: s.userId, decided_by_label: "Wall" });
+    check(`${label} cannot write a decision directly`, !!ins.error, `error=${ins.error?.message ?? "none (write accepted)"}`);
+    const upd = await s.c.from("client_task_decisions").update({ note: "changed by wall check" }).eq("clickup_task_id", CARD).select("id");
+    check(`${label} cannot change a decision`, !!upd.error || (upd.data ?? []).length === 0, `rows=${upd.data?.length ?? "error"}`);
+    const del = await s.c.from("client_task_decisions").delete().eq("clickup_task_id", CARD).select("id");
+    check(`${label} cannot delete a decision`, !!del.error || (del.data ?? []).length === 0, `rows=${del.data?.length ?? "error"}`);
+  }
+  const still = await staff.c.from("client_task_decisions").select("id").eq("clickup_task_id", CARD);
+  check("the history is all still there after the write attempts", !still.error && (still.data ?? []).length >= 3, `rows=${still.data?.length ?? "error"}`);
+
+  // The ClickUp write-back is recorded and not sent: jobs stay queued or canceled and the switch has no enabled row.
+  const jobs = await staff.c.from("durable_jobs").select("kind, state").eq("kind", "clickup.decision_writeback");
+  check("each decision queued a ClickUp write-back job", !jobs.error && (jobs.data ?? []).length >= 3, `error=${jobs.error?.message ?? "none"} rows=${jobs.data?.length ?? "error"}`);
+  check("no write-back job has been claimed, sent or delivered", !jobs.error && (jobs.data ?? []).every((j) => ["queued", "canceled"].includes(j.state)), `states=${[...new Set((jobs.data ?? []).map((j) => j.state))]}`);
+  const sw = await staff.c.from("outbound_switches").select("name, enabled").eq("name", "clickup_writeback");
+  check("the ClickUp write-back switch is off", !sw.error && (sw.data ?? []).every((r) => r.enabled === false), `error=${sw.error?.message ?? "none"} rows=${JSON.stringify(sw.data)}`);
+  const jobsA = await clientA.c.from("durable_jobs").select("id").limit(5);
+  check("a client reads no queued jobs", !jobsA.error && (jobsA.data ?? []).length === 0, `rows=${jobsA.data?.length ?? "error"}`);
 }
 
 // Staff Home and the cross-client Work page (restructure phase 2b). The same four reads the pages send

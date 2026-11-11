@@ -6,6 +6,8 @@
 import { Link } from "react-router-dom";
 import { format, parseISO } from "date-fns";
 import { useClientCycles } from "@/hooks/usePipelineTasks";
+import { useOwnDecisions } from "@/hooks/useClientDecisions";
+import { decidedTaskIds } from "@/lib/clientDecisions";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { waitingOnYou } from "@/lib/pipelineSummary";
 import { deliveredCountText, formatCycleDates, groupByCycle } from "@/lib/pipelineCycles";
@@ -14,7 +16,8 @@ import { CycleProgress } from "@/components/client/ContentPipeline";
 export function WaitingOnYouLine() {
   const prefix = useRolePrefix();
   const { tasks, engagements, isLoading, isError, pastCyclesFailed } = useClientCycles(undefined, true);
-  if (isLoading) return null;
+  const decisions = useOwnDecisions(true);
+  if (isLoading || decisions.isLoading) return null;
 
   const to = `${prefix}/pipeline`;
   if (isError) {
@@ -26,17 +29,20 @@ export function WaitingOnYouLine() {
     );
   }
 
-  const { count, nextDueDate } = waitingOnYou(tasks);
+  // Cards the client has already answered no longer wait on the client. If the answers could not load, every
+  // card in Client Review is counted rather than hiding one.
+  const answeredIds = decisions.isError ? undefined : decidedTaskIds(decisions.data);
+  const { count, nextDueDate, answered } = waitingOnYou(tasks, answeredIds);
   // The current cycle count needs the earlier-delivered list too (a cycle can run past 30 days), so it is
   // left out rather than shown too low when that list could not load.
-  const current = pastCyclesFailed ? undefined : groupByCycle(tasks, engagements).find((g) => g.status === "current" && g.key !== "other");
+  const current = pastCyclesFailed ? undefined : groupByCycle(tasks, engagements, new Date(), answeredIds).find((g) => g.status === "current" && g.key !== "other");
   const dates = current ? formatCycleDates(current.dates) : null;
 
   return (
     <div className="space-y-3" data-testid="client-landing">
       {count === 0 ? (
         <p className="rounded-[8px] border border-input px-4 py-3 font-body text-[13px] text-muted-foreground" data-testid="waiting-on-you-line">
-          Nothing is waiting on you right now.{" "}
+          {answered > 0 ? "Thank you. Everything you have reviewed is with our team now." : "Nothing is waiting on you right now."}{" "}
           <Link to={to} className="underline">Open your content pipeline</Link>
         </p>
       ) : (

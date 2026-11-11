@@ -8,6 +8,8 @@ import { useRolePrefix } from "@/hooks/useRolePath";
 import { fmtTimeAgo } from "@/lib/formatters";
 import { bucketWork, WORK_COLUMNS } from "@/lib/clientWork";
 import { useClientWork } from "@/hooks/useClientWork";
+import { useStaffDecisions } from "@/hooks/useClientDecisions";
+import { currentDecision, decidedTaskIds, isNewDecision, staffDecisionText } from "@/lib/clientDecisions";
 import { dueDateLabel, lastSyncedAt } from "@/lib/pipelineBoard";
 import { CLIENT_REVIEW_STAGE, waitingOnYou } from "@/lib/pipelineSummary";
 import { ViewAssetLink } from "@/components/client/ViewAssetLink";
@@ -17,13 +19,14 @@ export default function ClientWorkTab() {
   const prefix = useRolePrefix();
   const { selectedSlug, selectedClient } = useClientSelection();
   const { data: tasks, isLoading, isError, refetch } = useClientWork(selectedSlug);
+  const decisions = useStaffDecisions(selectedSlug || undefined);
   const name = selectedClient?.name ?? selectedSlug;
 
   if (!selectedSlug) return null;
 
   const columns = bucketWork(tasks ?? []);
   const shown = WORK_COLUMNS.reduce((n, c) => n + columns[c].length, 0);
-  const waiting = waitingOnYou(tasks);
+  const waiting = waitingOnYou(tasks, decisions.isError ? undefined : decidedTaskIds(decisions.data));
   const updated = fmtTimeAgo(lastSyncedAt(tasks));
 
   return (
@@ -52,6 +55,7 @@ export default function ClientWorkTab() {
         <>
           <p className="text-sm text-muted-foreground" data-testid="client-work-summary">
             {shown} {shown === 1 ? "card" : "cards"}. {waiting.count === 0 ? "None are waiting on the client." : `${waiting.count} waiting on the client.`}
+            {waiting.answered > 0 ? ` ${waiting.answered} answered by the client.` : ""}
             {updated ? ` Updated ${updated}.` : ""}
           </p>
           <div className="flex gap-4 overflow-x-auto pb-2">
@@ -71,6 +75,19 @@ export default function ClientWorkTab() {
                         <p className="text-[13px]">{t.task_name || "Untitled task"}</p>
                         {due ? <p className={`mt-1 text-[11px] ${due.urgent && col === CLIENT_REVIEW_STAGE ? "font-medium text-blue-600" : "text-muted-foreground"}`}>{due.text}</p> : null}
                         <ViewAssetLink link={t.asset_link} className="mt-2" />
+                        {(() => {
+                          const d = currentDecision(decisions.data, t.clickup_task_id);
+                          if (!d) return null;
+                          return (
+                            <p
+                              className={`mt-2 rounded px-2 py-1 text-[11px] ${d.decision === "approved" ? "bg-green-50 text-green-800" : "bg-amber-50 text-amber-900"}`}
+                              data-testid="client-work-decision"
+                              data-new={isNewDecision(d) ? "true" : undefined}
+                            >
+                              {staffDecisionText(d)}
+                            </p>
+                          );
+                        })()}
                       </li>
                     );
                   })}

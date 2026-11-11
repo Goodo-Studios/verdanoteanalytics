@@ -4,6 +4,10 @@ import { CloudOff, PackageOpen } from "lucide-react";
 import { ClientEmptyState } from "@/components/client/ClientEmptyState";
 import { Button } from "@/components/ui/button";
 import { ViewAssetLink } from "@/components/client/ViewAssetLink";
+import { DecisionPanel } from "@/components/client/DecisionPanel";
+import { DecisionContext, type DecisionContextValue } from "@/components/client/decisionContext";
+import { useOwnDecisions, useRecordDecision } from "@/hooks/useClientDecisions";
+import { decidedTaskIds, type ClientDecision } from "@/lib/clientDecisions";
 import { waitingOnYou } from "@/lib/pipelineSummary";
 import { fmtTimeAgo } from "@/lib/formatters";
 import { dueDateLabel, lastSyncedAt } from "@/lib/pipelineBoard";
@@ -90,17 +94,18 @@ function TaskCard({ task, stage }: { task: CycleTask; stage: string }) {
       )}
       {delivered && <p className="font-body text-[11px] mt-1 text-muted-foreground">{delivered}</p>}
       <ViewAssetLink link={task.asset_link} className="mt-2" />
+      <DecisionPanel taskId={task.clickup_task_id} stage={stage} />
     </div>
   );
 }
 
 /**
- * "Waiting on you": how many cards are in Client Review and the earliest due
- * date among them. Read-only text, no buttons or links. Derived from the rows
- * the board already has.
+ * "Waiting on you": how many cards in Client Review the client has not answered yet, and the
+ * earliest due date among them. Read-only text. Derived from the rows the board already has and
+ * the client's own decisions.
  */
-function WaitingOnYouSummary({ tasks }: { tasks: CycleTask[] }) {
-  const { count, nextDueDate } = waitingOnYou(tasks);
+function WaitingOnYouSummary({ tasks, answeredIds }: { tasks: CycleTask[]; answeredIds?: ReadonlySet<string> }) {
+  const { count, nextDueDate, answered } = waitingOnYou(tasks, answeredIds);
 
   if (count === 0) {
     return (
@@ -109,7 +114,9 @@ function WaitingOnYouSummary({ tasks }: { tasks: CycleTask[] }) {
         data-testid="pipeline-waiting-on-you"
       >
         <p className="font-body text-[13px] text-muted-foreground">
-          Nothing is waiting on you right now.
+          {answered > 0
+            ? "Thank you. Everything you have reviewed is with our team now."
+            : "Nothing is waiting on you right now."}
         </p>
       </div>
     );
@@ -184,7 +191,7 @@ function TimelineRow({ task, delivered }: { task: CycleTask; delivered: boolean 
   const { title, label } = cardTitle(task);
   const when = delivered ? deliveredLine(task) : `In ${stageOf(task)}`;
   return (
-    <li className="flex items-start gap-3 py-2" data-testid="pipeline-timeline-row" data-delivered={delivered ? "yes" : "no"}>
+    <li className="flex flex-wrap items-start gap-3 py-2" data-testid="pipeline-timeline-row" data-delivered={delivered ? "yes" : "no"}>
       <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${delivered ? "bg-green-500" : "bg-muted-foreground/40"}`} />
       <div className="min-w-0 flex-1">
         {label && <span className="font-label text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>}
@@ -192,6 +199,7 @@ function TimelineRow({ task, delivered }: { task: CycleTask; delivered: boolean 
       </div>
       <ViewAssetLink link={task.asset_link} className="shrink-0" />
       {when && <span className="shrink-0 font-body text-[11px] text-muted-foreground">{when}</span>}
+      <div className="w-full pl-5"><DecisionPanel taskId={task.clickup_task_id} stage={stageOf(task)} /></div>
     </li>
   );
 }
@@ -299,6 +307,9 @@ export function ContentPipelineView({
   engagements,
   pastCyclesFailed,
   now,
+  decisions,
+  decisionsFailed,
+  onDecide,
 }: {
   tasks?: PipelineTask[];
   isLoading?: boolean;
@@ -308,6 +319,11 @@ export function ContentPipelineView({
   /** The earlier-cycles list failed to load while the board did load. */
   pastCyclesFailed?: boolean;
   now?: Date;
+  /** The client's own decisions. With `onDecide`, cards in Client Review get Approve and Request changes. */
+  decisions?: ClientDecision[];
+  /** The decisions could not load: no buttons are shown (a second answer must not be sent blind). */
+  decisionsFailed?: boolean;
+  onDecide?: DecisionContextValue["onDecide"];
 }) {
   if (isLoading) {
     return (
@@ -345,7 +361,9 @@ export function ContentPipelineView({
 
   // Group into cycles. Unmapped/drifted-stage tasks fall out here, so a pipeline of
   // only-unmapped work reads as empty for board purposes.
-  const groups = groupByCycle(tasks ?? [], engagements ?? [], now);
+  const answeredIds = decisionsFailed || !decisions ? undefined : decidedTaskIds(decisions);
+  const groups = groupByCycle(tasks ?? [], engagements ?? [], now, answeredIds);
+  const decisionCtx: DecisionContextValue | null = onDecide && decisions && !decisionsFailed ? { decisions, onDecide } : null;
 
   // AC4: nothing synced, or only completed/unmapped work, degrades to the calm,
   // first-class onboarding state (US-006).
@@ -369,11 +387,17 @@ export function ContentPipelineView({
   }
 
   return (
+    <DecisionContext.Provider value={decisionCtx}>
     <div className="glass-panel p-7" data-testid="content-pipeline">
       <h2 className="font-heading text-[20px] text-foreground mb-4">Content Pipeline</h2>
       <LastUpdated tasks={tasks} />
 
-      <WaitingOnYouSummary tasks={tasks ?? []} />
+      <WaitingOnYouSummary tasks={tasks ?? []} answeredIds={answeredIds} />
+      {decisionsFailed && onDecide && (
+        <p className="font-body text-[12px] text-muted-foreground mb-3" data-testid="pipeline-decisions-failed">
+          We could not load your earlier answers just now, so Approve and Request changes are paused. Please refresh in a moment.
+        </p>
+      )}
 
       {groups.map((group) => (
         <CycleSection key={group.key} group={group} />
@@ -385,18 +409,24 @@ export function ContentPipelineView({
         </p>
       )}
     </div>
+    </DecisionContext.Provider>
   );
 }
 
 /**
- * Read-only client view of in-flight + upcoming creative, by cycle (US-007, phase 5). Self-fetches
+ * Client view of in-flight + upcoming creative, by cycle (US-007, phase 5). Self-fetches
  * via `useClientCycles` and delegates rendering to `ContentPipelineView`.
  * `own` loads the signed-in client's own rows (see `usePipelineTasks`).
  */
 export function ContentPipeline({ accountId, own }: { accountId?: string; own?: boolean }) {
   const { tasks, engagements, isLoading, isError, pastCyclesFailed, refetch } = useClientCycles(accountId, own);
+  const decisions = useOwnDecisions(!!own);
+  const record = useRecordDecision();
   return (
     <ContentPipelineView
+      decisions={own ? decisions.data : undefined}
+      decisionsFailed={own ? decisions.isError : false}
+      onDecide={own ? (input) => record.mutateAsync(input) : undefined}
       tasks={tasks}
       engagements={engagements}
       pastCyclesFailed={pastCyclesFailed}
