@@ -1,12 +1,20 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { CLIENT_ACCOUNT_SELECT, toClientAccount } from "../_shared/client-account-fields.ts";
 
+// deno-lint-ignore no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SupabaseLike = any;
 
-serve(async (req) => {
+export interface Deps {
+  /** Service-role client. Tests pass a fake; production builds one from the env. */
+  client?: SupabaseLike;
+}
+
+export async function handler(req: Request, deps: Deps = {}): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  const supabase = createClient(
+  const supabase = deps.client ?? createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
@@ -34,7 +42,7 @@ serve(async (req) => {
     .from("user_roles")
     .select("role")
     .eq("user_id", user.id);
-  const roles = (roleRows || []).map((r) => r.role);
+  const roles = (roleRows || []).map((r: { role: string }) => r.role);
   const isStaff = roles.includes("builder") || roles.includes("employee");
   const isClientRole = roles.includes("client");
   if (!isStaff && !isClientRole) {
@@ -68,19 +76,22 @@ serve(async (req) => {
         .from("user_accounts")
         .select("account_id")
         .eq("user_id", user.id);
-      const ids = (links || []).map((l) => l.account_id);
+      const ids = (links || []).map((l: { account_id: string }) => l.account_id);
       if (ids.length === 0) {
         return new Response(JSON.stringify([]), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+      // Only the client-safe columns. Row rules do not limit columns, and this
+      // client is service-role anyway, so the column list is the wall here.
       const { data, error } = await supabase
         .from("ad_accounts")
-        .select("*")
+        .select(CLIENT_ACCOUNT_SELECT)
         .in("id", ids)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return new Response(JSON.stringify(data), {
+      const safe = (data || []).map((row: Record<string, unknown>) => toClientAccount(row));
+      return new Response(JSON.stringify(safe), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -278,4 +289,9 @@ serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-});
+}
+
+// Tests import the handler with ACCOUNTS_NO_SERVE set.
+if (!Deno.env.get("ACCOUNTS_NO_SERVE")) {
+  Deno.serve((req) => handler(req));
+}
