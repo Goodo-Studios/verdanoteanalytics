@@ -1271,7 +1271,9 @@ for (const [table, select, filter] of SHELL_QUERIES) {
   check("a decision carries a plain label, never an email address", (seenA.data ?? []).every((r) => r.decided_by_label && !r.decided_by_label.includes("@")), `labels=${[...new Set((seenA.data ?? []).map((r) => r.decided_by_label))]}`);
   const allA = await clientA.c.from("client_task_decisions").select("*").limit(50);
   const keysA = [...new Set((allA.data ?? []).flatMap((r) => Object.keys(r)))];
-  check("client A reads no decision column beyond the client-safe ones, even with select *", !allA.error && keysA.length > 0 && !keysA.includes("decided_by") && keysA.every((k) => DECISION_SELECT.split(", ").includes(k)), `columns=${keysA} error=${allA.error?.message ?? "none"}`);
+  // The table has column grants without decided_by, so a select * is refused outright (permission denied). Refused
+  // or limited to the client-safe columns both keep the login id hidden; reading it is the failure.
+  check("client A cannot read beyond the client-safe decision columns with select *", !!allA.error || (!keysA.includes("decided_by") && keysA.every((k) => DECISION_SELECT.split(", ").includes(k))), `columns=${keysA} error=${allA.error?.message ?? "none"}`);
   const idA = await clientA.c.from("client_task_decisions").select("decided_by");
   check("client A cannot read the login id of a decision", !!idA.error, `error=${idA.error?.message ?? "none (read accepted)"}`);
   const idStaff = await staff.c.from("client_task_decisions").select("decided_by");
