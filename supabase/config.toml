@@ -130,6 +130,11 @@ verify_jwt = false
 [functions.ingest-reviews]
 verify_jwt = false
 
+# P9: client progress feed from the HQ processes. Bearer ingest token (hashed in ingest_tokens),
+# no end-user JWT.
+[functions.ingest-client-progress]
+verify_jwt = false
+
 # Phase C US-005: service-role persister that writes an HQ-synthesized brief
 # into the briefs table as status='draft'. Invoked by the HQ brief-synthesis
 # flow with the service-role bearer (+ WRITE_BRIEF_SECRET) — no end-user JWT,

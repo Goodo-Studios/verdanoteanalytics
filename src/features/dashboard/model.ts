@@ -130,26 +130,42 @@ export interface OverviewCounts {
 
 /**
  * A hand-made client is left out of both warning tiles: nothing updates its
- * last_synced, so it would sit in Stale forever. Stale wins over At risk.
+ * last_synced, so it would sit in Stale forever. A synced client that has never
+ * received an update is left out too ("no_data"): it is waiting for the first
+ * push from HQ, which is not the same as having gone quiet. Stale wins over At risk.
  */
 export function overviewCounts(clients: DashboardClient[], now: Date): OverviewCounts {
   let atRisk = 0;
   let stale = 0;
   for (const c of clients) {
-    if (!isSyncedClient(c.origin)) continue;
-    if (isStale(c.last_synced, now)) stale += 1;
-    else if (isAtRisk(c.pct_complete, c.last_synced, now)) atRisk += 1;
+    const health = clientHealth(c, now);
+    if (health === "stale") stale += 1;
+    else if (health === "at_risk") atRisk += 1;
   }
   return { total: clients.length, atRisk, stale };
 }
 
-export type ClientHealth = "stale" | "at_risk" | "ok" | "manual";
+export type ClientHealth = "stale" | "at_risk" | "ok" | "manual" | "no_data";
 
 export function clientHealth(c: DashboardClient, now: Date): ClientHealth {
   if (!isSyncedClient(c.origin)) return "manual";
+  if (!c.last_synced) return "no_data";
   if (isStale(c.last_synced, now)) return "stale";
   if (isAtRisk(c.pct_complete, c.last_synced, now)) return "at_risk";
   return "ok";
+}
+
+/** The plain "Last updated" line shown on a client card and on the client page. */
+export function lastUpdatedLine(c: Pick<DashboardClient, "origin" | "last_synced">, now: Date): string {
+  if (!isSyncedClient(c.origin)) return "Added by hand";
+  if (!c.last_synced) return "Waiting for the first update from HQ";
+  return `Last updated ${formatAgo(c.last_synced, now)}`;
+}
+
+/** Progress text under the bar: a friendly line, never a bare 0. */
+export function progressText(pct: number | null | undefined, c: Pick<DashboardClient, "origin" | "last_synced">): string {
+  if (typeof pct === "number") return `${Math.max(0, Math.min(100, pct))}% complete`;
+  return isSyncedClient(c.origin) ? "No progress yet. It appears after HQ sends its first update." : "No progress recorded";
 }
 
 /** Lowest completion first; no number sorts first, then by name. */
@@ -447,4 +463,45 @@ export function ownerScope(me: AppUser | null, isBuilder: boolean, override: str
   if (!me) return { owner: override ?? "all", canPick: true };
   if (!isBuilder) return { owner: me.id, canPick: false };
   return { owner: override ?? me.id, canPick: true };
+}
+
+
+// --------------------------------------------------------------- delivery derived from ClickUp
+//
+// Verdanote already knows what was delivered: sync-clickup-tasks stores each finished task with its
+// delivery day (pipeline_tasks, and pipeline_delivered once a task is older than 30 days). For a
+// month that has tasks, "delivered N of M" and the last delivery day come from there, so HQ does
+// not have to report them. A month with no tasks falls back to what HQ sent (the deliverables row).
+
+export interface DerivedTask {
+  stage?: string | null;
+  cycle_month?: string | null;
+  due_date?: string | null;
+  delivered_at?: string | null;
+}
+export interface DerivedDelivery {
+  total: number;
+  delivered: number;
+  lastDelivery: string | null;
+}
+
+const monthOf = (iso: string | null | undefined): string | null => {
+  const m = /^(\d{4}-\d{2})/.exec(iso ?? "");
+  return m ? m[1] : null;
+};
+
+/** Delivered tasks of a month (YYYY-MM) against all its tasks, or null when ClickUp has no task for it. */
+export function deriveMonthDelivery(open: DerivedTask[], delivered: DerivedTask[], month: string): DerivedDelivery | null {
+  const inMonth = (t: DerivedTask) => (monthOf(t.cycle_month) ?? monthOf(t.due_date) ?? monthOf(t.delivered_at)) === month;
+  const openIn = open.filter(inMonth);
+  const doneOpen = openIn.filter((t) => t.stage === "Ready to Launch");
+  const doneOld = delivered.filter(inMonth);
+  const total = openIn.length + doneOld.length;
+  if (total === 0) return null;
+  const days = [...doneOpen, ...doneOld].map((t) => t.delivered_at).filter((d): d is string => !!d).sort();
+  return { total, delivered: doneOpen.length + doneOld.length, lastDelivery: days.length ? days[days.length - 1] : null };
+}
+
+export function deliveryText(d: DerivedDelivery): string {
+  return `${d.delivered} of ${d.total} delivered`;
 }

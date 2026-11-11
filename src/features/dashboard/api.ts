@@ -14,6 +14,7 @@ import {
   type CreatorOption,
   type DashboardClient,
   type Deliverable,
+  type DerivedTask,
 } from "./model";
 
 export interface DbError {
@@ -126,11 +127,14 @@ export interface ClientDetailData {
   cards: ClientBoardCard[];
   assignments: ClientAssignment[];
   mappings: ClientSourceMapping[];
+  /** ClickUp work, for the delivery numbers Verdanote derives itself. */
+  tasks: DerivedTask[];
+  deliveredTasks: DerivedTask[];
 }
 
 /** Everything the client page shows, all keyed by clients.slug. */
 export async function loadClientDetail(slug: string): Promise<ClientDetailData> {
-  const [client, deliverables, adAccounts, engagements, cards, assignments, mappings] = await Promise.all([
+  const [client, deliverables, adAccounts, engagements, cards, assignments, mappings, tasks, deliveredTasks] = await Promise.all([
     unwrapOne(db.from("clients").select<DashboardClient[]>(CLIENT_COLUMNS).eq("slug", slug).maybeSingle()),
     unwrap(db.from("deliverables").select<Deliverable[]>("id, month, type, status").eq("client_slug", slug).order("month", { ascending: false })),
     unwrap(db.from("client_ad_accounts").select<ClientDetailData["adAccounts"]>("account_id, ad_accounts(name)").eq("client_slug", slug).order("account_id")),
@@ -138,8 +142,10 @@ export async function loadClientDetail(slug: string): Promise<ClientDetailData> 
     unwrap(db.from("pipeline_tasks").select<ClientBoardCard[]>("task_name, stage, due_date, content_type").eq("client_slug", slug).order("due_date")),
     unwrap(db.from("creator_assignments").select<ClientAssignment[]>("id, stage, next_follow_up_at, dashboard_creators(name)").eq("client_slug", slug)),
     unwrap(db.from("source_mappings").select<ClientSourceMapping[]>("provider, kind, external_id, label").eq("client_slug", slug).eq("active", true).order("provider")),
+    unwrap(db.from("pipeline_tasks").select<DerivedTask[]>("stage, cycle_month, due_date, delivered_at").eq("client_slug", slug)),
+    unwrap(db.from("pipeline_delivered").select<DerivedTask[]>("cycle_month, delivered_at").eq("client_slug", slug)),
   ]);
-  return { client, deliverables, adAccounts, engagements, cards, assignments, mappings };
+  return { client, deliverables, adAccounts, engagements, cards, assignments, mappings, tasks, deliveredTasks };
 }
 
 export interface ClientDetailsPatch {

@@ -73,6 +73,8 @@ function data(extra: Partial<ClientDetailData["client"]> = {}): ClientDetailData
       { id: "a3", stage: "sourced", next_follow_up_at: null, dashboard_creators: { name: "Casey" } },
     ],
     mappings: [{ provider: "clickup", kind: "folder", external_id: "f1", label: "Glow folder" }],
+    tasks: [],
+    deliveredTasks: [],
   };
 }
 
@@ -89,6 +91,35 @@ const renderAt = (slug = "glow") =>
       <Routes><Route path="/builder/clients/:slug" element={<ClientDetailPage />} /></Routes>
     </MemoryRouter>,
   );
+
+describe("Client page, progress feed", () => {
+  it("shows a plain Last updated line from last_synced", async () => {
+    loadClientDetail.mockResolvedValue(data());
+    renderAt();
+    expect(await screen.findByTestId("client-last-updated")).toHaveTextContent("Last updated 1 day ago");
+  });
+
+  it("shows a friendly empty state when HQ has not sent anything yet", async () => {
+    loadClientDetail.mockResolvedValue(data({ pct_complete: null, last_synced: null }));
+    renderAt();
+    expect(await screen.findByTestId("client-last-updated")).toHaveTextContent("Waiting for the first update from HQ");
+    expect(screen.getByText("No progress yet. It appears after HQ sends its first update.")).toBeTruthy();
+  });
+
+  it("derives delivery from ClickUp when the month has tasks, and shows the last delivery day", async () => {
+    const d = data();
+    d.deliverables.push({ id: "d9", month: "2026-11", type: "delivery", status: "pending" });
+    d.tasks = [
+      { stage: "Ready to Launch", cycle_month: "2026-11-01", due_date: null, delivered_at: "2026-11-05" },
+      { stage: "Production", cycle_month: "2026-11-01", due_date: null, delivered_at: null },
+    ];
+    loadClientDetail.mockResolvedValue(d);
+    renderAt();
+    const deliverables = await screen.findByRole("region", { name: "Deliverables" });
+    expect(within(deliverables).getByText("1 of 2 delivered, from ClickUp")).toBeTruthy();
+    expect(screen.getByTestId("client-last-delivery")).toHaveTextContent("Last delivery");
+  });
+});
 
 describe("Client page", () => {
   it("shows a synced client read only with every section for its slug", async () => {

@@ -38,7 +38,10 @@ import {
   cycleDay,
   deliverablesFor,
   errorText,
-  formatAgo,
+  deliveryText,
+  deriveMonthDelivery,
+  lastUpdatedLine,
+  progressText,
   formatDay,
   formatMonth,
   isSyncedClient,
@@ -211,6 +214,7 @@ export default function ClientDetailPage() {
   const board = boardSummary(data.cards.map((c) => ({ client_slug: slug, stage: c.stage, due_date: c.due_date })));
   const review = data.cards.filter((c) => c.stage === "Client Review");
   const stages = stageCounts(data.assignments);
+  const derived = deriveMonthDelivery(data.tasks ?? [], data.deliveredTasks ?? [], month);
   const pct = typeof client.pct_complete === "number" ? Math.max(0, Math.min(100, client.pct_complete)) : null;
 
   return (
@@ -250,8 +254,10 @@ export default function ClientDetailPage() {
           <div className="mt-2 h-2 w-full rounded bg-muted" role="img" aria-label={`Progress ${pct ?? 0} percent`}>
             <div className="h-2 rounded bg-primary" style={{ width: `${pct ?? 0}%` }} />
           </div>
-          <p className="mt-1 text-xs">{pct === null ? "No progress recorded" : `${pct}% complete`}</p>
-          <p className="mt-2 text-xs text-muted-foreground">{synced ? `Updated by the HQ sync ${formatAgo(client.last_synced, now)}` : MANUAL_PROGRESS_NOTE}</p>
+          <p className="mt-1 text-xs">{progressText(pct, client)}</p>
+          <p className="mt-2 text-xs text-muted-foreground" data-testid="client-last-updated">{lastUpdatedLine(client, now)}</p>
+          {!synced && <p className="text-xs text-muted-foreground">{MANUAL_PROGRESS_NOTE}</p>}
+          {derived?.lastDelivery && <p className="text-xs text-muted-foreground" data-testid="client-last-delivery">Last delivery {formatDay(derived.lastDelivery)}, from ClickUp</p>}
         </div>
       </div>
 
@@ -267,7 +273,9 @@ export default function ClientDetailPage() {
             {monthRows.map((d) => (
               <li key={d.id} className="flex justify-between py-1.5">
                 <span>{DELIVERABLE_LABEL[d.type] ?? d.type}</span>
-                <span className="text-muted-foreground">{DELIVERABLE_STATUS_LABEL[d.status] ?? d.status}</span>
+                <span className="text-muted-foreground">
+                  {d.type === "delivery" && derived ? `${deliveryText(derived)}, from ClickUp` : DELIVERABLE_STATUS_LABEL[d.status] ?? d.status}
+                </span>
               </li>
             ))}
           </ul>

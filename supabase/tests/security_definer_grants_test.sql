@@ -81,7 +81,8 @@ INSERT INTO allow
     'update_shoot', 'update_shoot_schedule_block', 'update_studio_shipment',
     'save_call_sheet_talent_entry', 'remove_call_sheet_talent_entry',
     'client_setup_status', 'list_client_members', 'add_client_member', 'remove_client_member',
-    'list_user_invites'
+    'list_user_invites',
+    'create_ingest_token', 'revoke_ingest_token', 'list_ingest_tokens', 'list_ingest_audit'
   ]);
 
 -- SECURITY DEFINER functions in public (extension functions excluded).

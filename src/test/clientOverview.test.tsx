@@ -87,7 +87,7 @@ describe("Client overview page", () => {
     expect(risky).toHaveTextContent("At risk");
     expect(risky).toHaveTextContent("2 cards, 1 in client review");
     expect(risky).toHaveTextContent("Cycle 2, day 12 of 45");
-    expect(risky).toHaveTextContent("Updated by the HQ sync Oct 25, 2026");
+    expect(risky).toHaveTextContent("Last updated Oct 25, 2026");
     expect(screen.getByTestId("overview-client-handmade")).toHaveTextContent("Added by hand");
     expect(screen.getByTestId("overview-client-fresh")).toHaveTextContent("No active cycle");
     expect(document.body.textContent).not.toMatch(/coda/i);
@@ -135,6 +135,12 @@ describe("overview model", () => {
     expect(clientHealth(client("x", { pct_complete: 10, last_synced: daysAgo(40) }), NOW)).toBe("stale");
     expect(clientHealth(client("x", { origin: "manual", last_synced: null }), NOW)).toBe("manual");
     expect(clientHealth(client("x", { pct_complete: 60, last_synced: daysAgo(16) }), NOW)).toBe("ok");
+  });
+
+  it("a synced client that has never been updated is waiting, not stale or at risk", () => {
+    const waiting = client("new", { pct_complete: null, last_synced: null });
+    expect(clientHealth(waiting, NOW)).toBe("no_data");
+    expect(overviewCounts([waiting], NOW)).toEqual({ total: 1, atRisk: 0, stale: 0 });
   });
 
   it("sorts missing progress first, then by number and name", () => {

@@ -123,6 +123,21 @@
         }
       }
     },
+    "ingest-client-progress": {
+      "class": "secret",
+      "note": "P9 client progress feed from the HQ processes. Bearer ingest token (sha256 hash in ingest_tokens, constant-time compare, per-token rate limit); a client or staff login JWT is not an ingest token and gets 401. Writes through apply_client_progress, which refuses unknown and hand-made clients per entry and audits every authenticated call.",
+      "probe": {
+        "body": {
+          "source": "wall-probe",
+          "clients": [
+            {
+              "slug": "wall-probe",
+              "pct_complete": 1
+            }
+          ]
+        }
+      }
+    },
     "ingest-reviews": {
       "class": "secret"
     },

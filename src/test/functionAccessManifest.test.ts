@@ -37,7 +37,7 @@ const STAFF_GATES = [
   /from\("user_roles"\)/, // user-management reads the caller's role row directly
 ];
 const SERVICE_GATE = /requireServiceRole\(/;
-const SECRET_GATES = [/withApiAuth/, /_SECRET/, /SADIE_API_KEY/, /verifyWebhookItem/, /verifySlackSignature/];
+const SECRET_GATES = [/withApiAuth/, /_SECRET/, /SADIE_API_KEY/, /verifyWebhookItem/, /verifySlackSignature/, /verifyIngestToken/];
 const OWNERSHIP_GATES = [/verifyAccountOwnership\(/, /hasAccountAccess\(/, /resolveCaller\(/, /roles\.includes\("client"\)/, /isStaffUser\(/];
 
 describe("function access manifest", () => {
@@ -45,8 +45,8 @@ describe("function access manifest", () => {
     expect(Object.keys(manifest).sort()).toEqual(deployed);
   });
 
-  it("covers all 79 functions today", () => {
-    expect(deployed).toHaveLength(79);
+  it("covers all 80 functions today", () => {
+    expect(deployed).toHaveLength(80);
   });
 
   it("uses only known classes", () => {
