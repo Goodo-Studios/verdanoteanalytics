@@ -79,6 +79,44 @@ describe("CI deployment safety", () => {
     expect(existsSync(`${process.cwd()}/bun.lockb`)).toBe(false);
   });
 
+  it("pins every Supabase CLI install to one explicit version", () => {
+    // "latest" pulled in new major CLI versions that broke the staging deploy
+    // twice on 2026-11-09 and the production deploy on 2026-11-11. Every
+    // setup-cli step must name the same exact version.
+    const steps = [
+      ...workflow.matchAll(/uses: supabase\/setup-cli@\S+\n((?: {8,}.*\n)*)/g),
+    ];
+    expect(steps.length).toBeGreaterThanOrEqual(3);
+    const versions = steps.map((m) => {
+      const v = m[1].match(/^ +version: *(\S+)\s*$/m);
+      expect(v, "setup-cli step has a version").not.toBeNull();
+      return v![1];
+    });
+    for (const v of versions) {
+      expect(v).not.toBe("latest");
+      expect(v).toMatch(/^\d+\.\d+\.\d+$/);
+    }
+    expect(new Set(versions).size).toBe(1);
+    expect(workflow).not.toMatch(/version: *latest/);
+  });
+
+  it("passes --yes to every supabase functions deploy so the CLI never waits for a prompt", () => {
+    // The current CLI refuses to deploy without --yes ("Nothing was changed"),
+    // which deployed 0 of 73 functions on the production run of 2026-11-11.
+    const script = readFileSync(`${process.cwd()}/scripts/deploy-functions.sh`, "utf8");
+    const deployCalls = script
+      .split("\n")
+      .filter((line) => /supabase functions deploy\b/.test(line) && !line.trim().startsWith("#"));
+    expect(deployCalls.length).toBeGreaterThanOrEqual(1);
+    for (const line of deployCalls) expect(line).toMatch(/ --yes\b/);
+    // No other call site in the workflow bypasses the script without --yes.
+    for (const line of workflow.split("\n")) {
+      if (/supabase functions deploy\b/.test(line) && !line.trim().startsWith("#")) {
+        expect(line).toMatch(/ --yes\b/);
+      }
+    }
+  });
+
   it("enforces bundle budgets and smoke-tests deployed functions", () => {
     expect(workflow).toContain("run: npm run build:check");
     expect(workflow).toContain("run: bash scripts/smoke-test.sh");
