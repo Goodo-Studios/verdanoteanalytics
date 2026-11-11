@@ -132,7 +132,7 @@ export default function ApplicationsPage() {
           <Button key={k} type="button" variant={kind === k ? "secondary" : "outline"} size="sm" aria-pressed={kind === k} onClick={() => go({ kind: k })}>{KIND_LABEL[k]}</Button>
         ))}
         <span className="ml-2 text-xs text-muted-foreground">
-          Public form (old dashboard): <a href={APPLY_LINKS[kind]} target="_blank" rel="noopener noreferrer" className="underline">{APPLY_LINKS[kind]}</a>
+          Public form: <a href={APPLY_LINKS[kind]} target="_blank" rel="noopener noreferrer" className="underline">{APPLY_LINKS[kind]}</a>
         </span>
         <Button type="button" variant="outline" size="sm" onClick={() => copy(APPLY_LINKS[kind])}>Copy form link</Button>
       </div>

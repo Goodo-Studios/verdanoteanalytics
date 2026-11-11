@@ -2,17 +2,17 @@
 // Applications and Actor applications pages). Rows come from
 // creator_applications and actor_applications (migration 20261101000001,
 // staff-only row rules; clients read none). The public forms that fill them
-// stay on the old dashboard. Pure helpers only.
+// are served by Verdanote (src/features/public-links). Pure helpers only.
 import { storageSecretsText } from "./media/storageSecrets";
 
 export type ApplicationKind = "creators" | "actors";
 export type QueueStatus = "pending" | "rejected";
 
 export const OLD_DASHBOARD_URL = "https://goodostudios-production.vercel.app";
-/** The public application forms, which stay on the old dashboard. */
+/** The public application forms. They open on this site, at the same paths the old dashboard used. */
 export const APPLY_LINKS: Record<ApplicationKind, string> = {
-  creators: `${OLD_DASHBOARD_URL}/creatorapply`,
-  actors: `${OLD_DASHBOARD_URL}/actorapply`,
+  creators: `${window.location.origin}/creatorapply`,
+  actors: `${window.location.origin}/actorapply`,
 };
 
 interface ApplicationBase {

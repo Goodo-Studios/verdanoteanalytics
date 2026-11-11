@@ -49,6 +49,7 @@ FUNCTIONS=(
   matrix
   portfolio
   public-link
+  public-apply
   quick-save
   refresh-thumbnails
   reports
