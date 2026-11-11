@@ -43,8 +43,14 @@ import {
 //            A task that already has a description is refused: a strategist's
 //            work is never overwritten.
 //   target = "new": creates "{Current month} Asset {next N} - {title}" in that
-//            list with the brief as description and status "brief creation".
-//   -> { task_id, task_name, url, created }
+//            list with the brief as description and status "brief creation", and
+//            with the ClickUp task type "Asset" (custom_item_id). The type id is
+//            looked up by name at run time (GET /team, then
+//            /team/{id}/custom_item), never hard coded. If the type cannot be
+//            found or read, the task is created without a type and the answer
+//            carries a plain "note" saying so. A task that already exists keeps
+//            its own type.
+//   -> { task_id, task_name, url, created, task_type?, note? }
 // Only the description and status are written (plus the name on a new task).
 // Assignees and every other field are left alone.
 //
@@ -58,6 +64,9 @@ import {
 
 const CLICKUP_API = "https://api.clickup.com/api/v2";
 const MAX_PAGES_PER_LIST = 20; // 100 tasks per page
+export const ASSET_TASK_TYPE_NAME = "Asset";
+export const NO_TASK_TYPE_NOTE =
+  'The task was created without the "Asset" task type because that type could not be found in ClickUp. Set the type on the task by hand.';
 
 type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
@@ -264,6 +273,27 @@ async function listTasks(clickup: ClickUp, listId: string): Promise<ClickUpBrief
   return tasks;
 }
 
+/**
+ * The id of the workspace task type named "Asset", looked up read-only by name. Null when it
+ * cannot be found or the lookup fails: the caller then creates the task without a type.
+ */
+export async function resolveAssetTaskTypeId(clickup: ClickUp): Promise<number | null> {
+  try {
+    const teams = ((await clickup("/team")).teams as { id?: string | number }[] | undefined) ?? [];
+    for (const team of teams) {
+      if (team.id === undefined || !/^\d{1,20}$/.test(String(team.id))) continue;
+      const data = await clickup(`/team/${team.id}/custom_item`);
+      const items = (data.custom_items as { id?: string | number; name?: string }[] | undefined) ?? [];
+      const hit = items.find((i) => (i.name ?? "").trim().toLowerCase() === ASSET_TASK_TYPE_NAME.toLowerCase());
+      const id = hit?.id === undefined ? NaN : Number(hit.id);
+      if (Number.isInteger(id) && id > 0) return id;
+    }
+  } catch (error) {
+    if (!(error instanceof ClickUpError)) throw error;
+  }
+  return null;
+}
+
 function checkedDescription(input: Input): string {
   const description = buildBriefDescription(input.body, input.creative);
   // toPlainMarkdown already removes tags; never send one if that ever changes.
@@ -315,11 +345,25 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
       const names = (await listTasks(clickup, list.id)).map((t) => t.name);
       const now = (deps.now ?? (() => new Date()))();
       const name = newTaskName(currentMonthName(now), nextAssetNumber(names), input.title);
+      const typeId = await resolveAssetTaskTypeId(clickup);
       const created = (await clickup(`/list/${list.id}/task`, {
         method: "POST",
-        body: { name, markdown_content: description, status: BRIEF_STATUS },
+        body: {
+          name,
+          markdown_content: description,
+          status: BRIEF_STATUS,
+          ...(typeId === null ? {} : { custom_item_id: typeId }),
+        },
       })) as unknown as ClickUpBriefTask;
-      return json({ client_slug: slug, task_id: created.id, task_name: created.name ?? name, url: taskUrl(created), created: true });
+      return json({
+        client_slug: slug,
+        task_id: created.id,
+        task_name: created.name ?? name,
+        url: taskUrl(created),
+        created: true,
+        task_type: typeId === null ? null : ASSET_TASK_TYPE_NAME,
+        ...(typeId === null ? { note: NO_TASK_TYPE_NOTE } : {}),
+      });
     }
 
     const taskId = input.target!;

@@ -203,6 +203,20 @@ describe("the push dialog", () => {
     });
   });
 
+  it("shows the server's note when a new task was created without the Asset task type", async () => {
+    invoke.mockImplementation((_fn: string, { body }: { body: { action: string } }) =>
+      Promise.resolve(
+        body.action === "list"
+          ? LIST
+          : { data: { task_id: "n1", task_name: "November Asset 13 - Hook", url: "https://app.clickup.com/t/n1", created: true, task_type: null, note: "Set the type on the task by hand." }, error: null },
+      ),
+    );
+    wrap(<PushToClickUpDialog open onOpenChange={() => {}} heading="Push to ClickUp" accountId="act_smoke" initialTitle="Hook" initialBody="Brief" />);
+    await screen.findByRole("option", { name: "November Asset 9 (assigned)" });
+    fireEvent.click(screen.getByRole("button", { name: "Push to ClickUp" }));
+    expect(await screen.findByTestId("push-note")).toHaveTextContent("Set the type on the task by hand.");
+  });
+
   it("a new asset task needs a title before it can be pushed", async () => {
     wrap(<PushToClickUpDialog open onOpenChange={() => {}} heading="Push to ClickUp" accountId="act_smoke" initialTitle="" initialBody="Brief" />);
     await screen.findByRole("option", { name: "November Asset 9 (assigned)" });
