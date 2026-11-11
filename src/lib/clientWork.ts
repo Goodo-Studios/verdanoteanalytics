@@ -6,6 +6,7 @@ export interface WorkTask {
   due_date: string | null;
   content_type: string | null;
   updated_at: string | null;
+  asset_link?: string | null;
 }
 
 export const WORK_COLUMNS = ["Preparing Content", "Production", "Editing", "Client Review", "Ready to Launch"] as const;

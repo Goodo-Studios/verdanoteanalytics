@@ -1068,11 +1068,11 @@ const SHELL_QUERIES = [
   ["clients", "slug, name, active"],
   ["client_ad_accounts", "account_id, client_slug"],
   // Client hub Work tab: the cards of one client, read by client_slug (the third item).
-  ["pipeline_tasks", "id, task_name, stage, due_date, content_type, updated_at", "client_slug"],
+  ["pipeline_tasks", "id, task_name, stage, due_date, content_type, updated_at, asset_link", "client_slug"],
   // The client's own board by cycle (phase 5): board cards, delivered work older than 30 days, cycle
   // dates from engagements, and the client link that decides the landing page.
-  ["pipeline_tasks", "id, task_name, stage, due_date, content_type, updated_at, cycle_month, delivered_at", "client_slug"],
-  ["pipeline_delivered", "id, task_name, content_type, cycle_month, delivered_at, updated_at", "client_slug"],
+  ["pipeline_tasks", "id, task_name, stage, due_date, content_type, updated_at, cycle_month, delivered_at, asset_link", "client_slug"],
+  ["pipeline_delivered", "id, task_name, content_type, cycle_month, delivered_at, updated_at, asset_link", "client_slug"],
   ["engagements", "start_date, day45_date, status", "client_slug"],
   ["client_members", "client_slug", "client_slug"],
   // Last run line on Operating costs and Integration health (phase 4 PR 3).
@@ -1095,7 +1095,7 @@ for (const [table, select, filter] of SHELL_QUERIES) {
   }
 }
 {
-  const WORK = "id, task_name, stage, due_date, content_type, updated_at";
+  const WORK = "id, task_name, stage, due_date, content_type, updated_at, asset_link";
   const mineA = await clientA.c.from("pipeline_tasks").select(WORK).eq("client_slug", "demo-glowdrip");
   check("client A loads its own client's cards with the Work tab query", !mineA.error, `error=${mineA.error?.message ?? "none"} rows=${mineA.data?.length ?? "error"}`);
   const otherB = await clientB.c.from("pipeline_tasks").select(WORK).eq("client_slug", "demo-glowdrip");
@@ -1114,10 +1114,10 @@ for (const [table, select, filter] of SHELL_QUERIES) {
 // rows to prove it (the seed gives demo-glowdrip two earlier cycles and demo-northwind two delivered
 // tasks), and nothing beyond the client-safe fields. B must see nothing. Nobody writes from the browser.
 {
-  const BOARD = "id, task_name, stage, due_date, content_type, updated_at, cycle_month, delivered_at";
-  const DONE = "id, task_name, content_type, cycle_month, delivered_at, updated_at";
-  const BOARD_FIELDS = ["id", "clickup_task_id", "client_slug", "account_id", "task_name", "stage", "due_date", "content_type", "cycle_month", "delivered_at", "synced_at", "updated_at"];
-  const DONE_FIELDS = ["id", "clickup_task_id", "client_slug", "account_id", "task_name", "content_type", "cycle_month", "delivered_at", "synced_at", "updated_at"];
+  const BOARD = "id, task_name, stage, due_date, content_type, updated_at, cycle_month, delivered_at, asset_link";
+  const DONE = "id, task_name, content_type, cycle_month, delivered_at, updated_at, asset_link";
+  const BOARD_FIELDS = ["id", "clickup_task_id", "client_slug", "account_id", "task_name", "stage", "due_date", "content_type", "cycle_month", "delivered_at", "synced_at", "updated_at", "asset_link"];
+  const DONE_FIELDS = ["id", "clickup_task_id", "client_slug", "account_id", "task_name", "content_type", "cycle_month", "delivered_at", "synced_at", "updated_at", "asset_link"];
   // Names that would mean a staff-only field has reached a client-readable table.
   const STAFF_FIELD = /status|assign|owner|link|url|brief|hour|qa_|email|note|internal|token|secret|created_by/i;
   const mine = await slugsOf(clientA);
@@ -1156,12 +1156,23 @@ for (const [table, select, filter] of SHELL_QUERIES) {
   // Field level: a client may ask for every column, and still gets only the client-safe ones.
   const boardAll = await clientA.c.from("pipeline_tasks").select("*").limit(5);
   const boardKeys = [...new Set((boardAll.data ?? []).flatMap((r) => Object.keys(r)))];
-  check("client A reads no pipeline_tasks column beyond the client-safe ones, even with select *", !boardAll.error && boardKeys.length > 0 && boardKeys.every((k) => BOARD_FIELDS.includes(k) && !STAFF_FIELD.test(k)), `columns=${boardKeys}`);
+  check("client A reads no pipeline_tasks column beyond the client-safe ones, even with select *", !boardAll.error && boardKeys.length > 0 && boardKeys.every((k) => BOARD_FIELDS.includes(k) && (k === "asset_link" || !STAFF_FIELD.test(k))), `columns=${boardKeys}`);
   const doneAll = await clientA.c.from("pipeline_delivered").select("*").limit(5);
   const doneKeys = [...new Set((doneAll.data ?? []).flatMap((r) => Object.keys(r)))];
-  check("client A reads no pipeline_delivered column beyond the client-safe ones, even with select *", !doneAll.error && doneKeys.length > 0 && doneKeys.every((k) => DONE_FIELDS.includes(k) && !STAFF_FIELD.test(k)), `columns=${doneKeys}`);
+  check("client A reads no pipeline_delivered column beyond the client-safe ones, even with select *", !doneAll.error && doneKeys.length > 0 && doneKeys.every((k) => DONE_FIELDS.includes(k) && (k === "asset_link" || !STAFF_FIELD.test(k))), `columns=${doneKeys}`);
   const engAll = await clientA.c.from("engagement_notes").select("*").limit(5);
   check("client A reads no engagement notes (purchase references stay staff only)", !engAll.error && (engAll.data ?? []).length === 0, `rows=${engAll.data?.length ?? "error"}`);
+
+  // The Air review link (phase 5b): every link a client can read is https on an air.inc host, A sees
+  // links on its own cards (the seed gives demo-glowdrip some), and writing one is refused.
+  const AIR_LINK = /^https:\/\/([a-z0-9-]+\.)*air\.inc(\/[^\s]*)?$/;
+  const linksA = await clientA.c.from("pipeline_tasks").select("asset_link").not("asset_link", "is", null);
+  const linksDoneA = await clientA.c.from("pipeline_delivered").select("asset_link").not("asset_link", "is", null);
+  check("client A reads Air links on its own cards, and every one is an https air.inc address", !linksA.error && !linksDoneA.error && (linksA.data ?? []).length > 0 && [...(linksA.data ?? []), ...(linksDoneA.data ?? [])].every((r) => AIR_LINK.test(r.asset_link)), `error=${linksA.error?.message ?? linksDoneA.error?.message ?? "none"} board=${linksA.data?.length ?? "error"} done=${linksDoneA.data?.length ?? "error"}`);
+  const linkWrite = await staff.c.from("pipeline_tasks").update({ asset_link: "javascript:alert(1)" }).eq("client_slug", "demo-glowdrip");
+  check("a non-Air link cannot be written to a card, even by staff", !!linkWrite.error, `error=${linkWrite.error?.message ?? "none (write accepted)"}`);
+  const linkWriteA = await clientA.c.from("pipeline_tasks").update({ asset_link: "https://app.air.inc/a/hijack" }).eq("client_slug", "demo-glowdrip").select("id");
+  check("client A cannot change a card link", !!linkWriteA.error || (linkWriteA.data ?? []).length === 0, `rows=${linkWriteA.data?.length ?? "error"}`);
 
   // Client B: no links, no cycles.
   for (const [table, select] of [["pipeline_tasks", BOARD], ["pipeline_delivered", DONE], ["engagements", "start_date, day45_date, status"], ["client_members", "client_slug"]]) {
@@ -1188,7 +1199,7 @@ for (const [table, select, filter] of SHELL_QUERIES) {
 // A client reads none of the handoff, support and budget rows, and of the cards only its own clients'.
 {
   const HOME_QUERIES = [
-    ["pipeline_tasks", "id, clickup_task_id, client_slug, task_name, stage, due_date, synced_at"],
+    ["pipeline_tasks", "id, clickup_task_id, client_slug, task_name, stage, due_date, synced_at, asset_link"],
     ["handoff_packets", "id, client_slug, receiving_role, receiver_id, due_date, status"],
     ["support_requests", "id, client_slug, subject, status, next_update_target, accountable_user_id, backup_user_id"],
     ["operating_budget_alerts", "id, level, period_month"],

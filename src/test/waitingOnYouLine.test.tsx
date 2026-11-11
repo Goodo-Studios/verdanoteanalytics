@@ -110,7 +110,7 @@ describe("Waiting on you, client Overview", () => {
     await waitFor(() => expect(h.calls).toHaveLength(3));
     expect(h.calls.map((c) => [c.table, c.eq]).sort()).toEqual([["engagements", 0], ["pipeline_delivered", 0], ["pipeline_tasks", 0]]);
     expect(h.calls.find((c) => c.table === "pipeline_tasks")!.select).toBe(
-      "id, task_name, stage, due_date, content_type, updated_at, cycle_month, delivered_at",
+      "id, task_name, stage, due_date, content_type, updated_at, cycle_month, delivered_at, asset_link",
     );
   });
 

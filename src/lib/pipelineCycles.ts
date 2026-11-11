@@ -23,6 +23,7 @@ export interface CycleTask {
   updated_at: string | null;
   cycle_month?: string | null;
   delivered_at?: string | null;
+  asset_link?: string | null;
 }
 
 export interface CycleEngagement {

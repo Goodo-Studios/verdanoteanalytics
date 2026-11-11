@@ -140,7 +140,7 @@ const TASKS: Record<string, unknown[]> = {
       due_date: "1795194000000",
       date_updated: String(NOW),
       assignees: [{ email: "internal@goodostudios.com" }],
-      custom_fields: [{ name: "Link to Asset", type: "text", value: "https://app.air.inc/secret" }],
+      custom_fields: [{ name: "Link to Asset", type: "text", value: " https://app.air.inc/a/baf09d5e3 \n" }],
     },
     { id: "t-stuck", name: "November Asset 2", status: { status: "stuck" }, date_updated: String(NOW) },
     {
@@ -150,7 +150,7 @@ const TASKS: Record<string, unknown[]> = {
       date_closed: String(Date.parse("2026-09-20T10:00:00Z")),
       date_updated: String(NOW),
       assignees: [{ email: "internal@goodostudios.com" }],
-      custom_fields: [{ name: "Link to Asset", type: "text", value: "https://app.air.inc/secret-old" }],
+      custom_fields: [{ name: "Link to Asset", type: "text", value: "https://air.inc.evil.com/a/old1" }],
     },
     { id: "t-shoot", name: "Nov Shoot Day", status: { status: "assigned" }, date_updated: String(NOW) },
   ],
@@ -230,6 +230,7 @@ Deno.test("syncs matched folders, reports unmatched ones, writes client-safe row
     assertEquals(rows.map((r) => r.clickup_task_id).sort(), ["t-edit", "t-review", "t-shared", "t-tea"]);
     const allowed = [
       "account_id",
+      "asset_link",
       "clickup_task_id",
       "client_slug",
       "content_type",
@@ -242,7 +243,9 @@ Deno.test("syncs matched folders, reports unmatched ones, writes client-safe row
       "updated_at",
     ];
     for (const row of rows) assertEquals(Object.keys(row).sort(), allowed);
-    assert(!JSON.stringify(rows).includes("air.inc"), "asset links must not be stored");
+    // The Air link of a board row is stored, trimmed. Cards without one carry null.
+    assertEquals(rows.find((r) => r.clickup_task_id === "t-edit")?.asset_link, "https://app.air.inc/a/baf09d5e3");
+    assertEquals(rows.find((r) => r.clickup_task_id === "t-review")?.asset_link, null);
     assert(!JSON.stringify(rows).includes("goodostudios.com"), "assignees must not be stored");
     const owner = (id: string) => {
       const r = rows.find((row) => row.clickup_task_id === id)!;
@@ -260,14 +263,16 @@ Deno.test("syncs matched folders, reports unmatched ones, writes client-safe row
     const archiveRows = archive.args[0] as Record<string, unknown>[];
     assertEquals(archiveRows.map((r) => r.clickup_task_id), ["t-old"]);
     assertEquals(Object.keys(archiveRows[0]).sort(), [
-      "account_id", "clickup_task_id", "client_slug", "content_type", "cycle_month",
+      "account_id", "asset_link", "clickup_task_id", "client_slug", "content_type", "cycle_month",
       "delivered_at", "synced_at", "task_name", "updated_at",
     ]);
     assertEquals(
       [archiveRows[0].client_slug, archiveRows[0].cycle_month, archiveRows[0].delivered_at],
       ["bearaby", "2026-09-01", "2026-09-20"],
     );
-    assert(!JSON.stringify(archiveRows).includes("air.inc"), "asset links must not be stored");
+    // A look-alike host is dropped, not stored.
+    assertEquals(archiveRows[0].asset_link, null);
+    assert(!JSON.stringify(archiveRows).includes("evil.com"), "a look-alike link must not be stored");
     assert(!JSON.stringify(archiveRows).includes("goodostudios.com"), "assignees must not be stored");
     assert(!rows.some((r) => r.clickup_task_id === "t-old"), "an old delivered task is not a board row");
     assertEquals(rows.find((r) => r.clickup_task_id === "t-edit")?.cycle_month, "2026-11-01");

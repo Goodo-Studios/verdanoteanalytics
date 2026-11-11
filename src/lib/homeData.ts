@@ -13,6 +13,7 @@ export interface HomeTask {
   stage: string | null;
   due_date: string | null;
   synced_at: string | null;
+  asset_link?: string | null;
 }
 
 export interface HomeHandoff {

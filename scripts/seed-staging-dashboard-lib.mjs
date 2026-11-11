@@ -190,6 +190,8 @@ export function buildDashboardSeed(now = new Date()) {
     clickup_task_id: `demo-seed-${i + 1}`, client_slug: 'demo-glowdrip', account_id: DEMO_ACCOUNT,
     stage, task_name, content_type, due_date: due === null ? null : day(due), synced_at: stamp(0),
     cycle_month: cycleOf(0), delivered_at: delivered === null ? null : day(delivered),
+    // Cards 4 and 5 carry a made-up Air link (Client Review, delivered); the rest carry none.
+    asset_link: i >= 3 ? `https://app.air.inc/a/demoseed${i + 1}` : null,
   }));
 
   const pipeline_delivered = [
@@ -204,6 +206,7 @@ export function buildDashboardSeed(now = new Date()) {
     clickup_task_id: `demo-seed-done-${i + 1}`, client_slug, account_id,
     task_name: `${monthName(back)} Asset ${n} - Demo ${client_slug.replace('demo-', '')} piece ${i + 1}`,
     content_type, cycle_month: cycleOf(back), delivered_at: day(delivered), synced_at: stamp(0),
+    asset_link: i % 2 === 0 ? `https://app.air.inc/a/demodone${i + 1}` : null,
   }));
 
   // Step 5b: production talent. Phone numbers use the 555-01xx range kept for fiction.

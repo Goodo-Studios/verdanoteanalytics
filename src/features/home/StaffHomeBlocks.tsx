@@ -46,6 +46,7 @@ export function StaffHomeBlocks() {
     to: hubPath(t.client_slug, "work"),
     right: shortDate(t.due_date),
     late: isLate(t, today),
+    assetLink: t.asset_link,
   });
 
   const dueRows = (tasks.data ? dueThisWeek(tasks.data, today) : []).map(taskRow);

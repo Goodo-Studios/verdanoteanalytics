@@ -7,18 +7,22 @@
 // so it is covered by plain Deno unit tests.
 //
 // What a client may see is decided HERE, not in the page: the sync only writes
-// the client-safe fields (name, column, due date, content type). The raw
-// ClickUp status, assignees, hours, QA results, briefs and links never reach
+// the client-safe fields (name, column, due date, content type, and the Air review
+// link). The raw ClickUp status, assignees, hours, QA results and briefs never reach
 // pipeline_tasks.
 //
-// "Link to Asset" (the Air link) is deliberately not synced. A read-only sample
-// on 2026-11-09 found every value in the same app.air.inc/a/<id> shape, in
-// internal stages as well as client-facing ones, and briefs use that same shape
-// for raw creator footage. The shape alone cannot tell a client share link from
-// an internal one, so the link stays out until there is a rule that can.
+// "Link to Asset" (the Air link) is synced since 2026-11-10 (owner decision): the field
+// is the review link a client may open. It is a text field, id
+// 43b89e72-8575-49e6-bf6a-fc90f373291c, the same id in every client Project View list
+// (read from ClickUp for Bearaby, Barriere, Unbound Snacks and Unmetered), so it is matched
+// by name like the other fields. The guard is the host check in air-link.ts (https and an
+// air.inc host); anything else is stored as null. The value of that field is shown to the
+// client as is, so staff must paste the client-shareable link, never an internal one.
 
 // The "Client Operations/Views" space. One folder per client, each holding a
 // "{Client} Project View" list with one task per asset.
+import { parseAssetLink } from "./air-link.ts";
+
 export const CLICKUP_CLIENT_SPACE_ID = "90146671303";
 
 // ClickUp status (lowercase, as the API returns it) -> board column.
@@ -192,6 +196,12 @@ export function isClearedTask(fields: ClickUpCustomField[] | null | undefined): 
   return (dropdownValue(fields, "Clear Task") ?? "").trim().toLowerCase() === "true";
 }
 
+/** The review link of a task: the "Link to Asset" text field, kept only when it is a valid Air link. */
+export function assetLinkValue(fields: ClickUpCustomField[] | null | undefined): string | null {
+  const field = (fields ?? []).find((f) => (f.name ?? "").trim().toLowerCase() === "link to asset");
+  return field ? parseAssetLink(field.value) : null;
+}
+
 export function normalise(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
@@ -335,6 +345,7 @@ export interface PipelineRecord {
   stage: string;
   due_date: string | null;
   content_type: string | null;
+  asset_link: string | null;
   cycle_month: string | null;
   delivered_at: string | null;
   synced_at: string;
@@ -348,6 +359,7 @@ export interface DeliveredRecord {
   account_id: string | null;
   task_name: string | null;
   content_type: string | null;
+  asset_link: string | null;
   cycle_month: string | null;
   delivered_at: string;
   synced_at: string;
@@ -378,6 +390,7 @@ export function toPipelineRecord(
   const name = cleanTaskName(task.name);
   const dueDate = toIsoDate(task.due_date);
   const contentType = dropdownValue(task.custom_fields, "Type of Content");
+  const assetLink = assetLinkValue(task.custom_fields);
 
   let deliveredMs: number | null = null;
   if (decision.stage === LAUNCH_STAGE) {
@@ -401,6 +414,7 @@ export function toPipelineRecord(
         account_id: owner.account_id,
         task_name: name,
         content_type: contentType,
+        asset_link: assetLink,
         cycle_month: cycleMonth,
         delivered_at: toIsoDate(deliveredMs)!,
         synced_at: nowIso,
@@ -419,6 +433,7 @@ export function toPipelineRecord(
       stage: decision.stage,
       due_date: dueDate,
       content_type: contentType,
+      asset_link: assetLink,
       cycle_month: cycleMonth,
       delivered_at: deliveredMs === null ? null : toIsoDate(deliveredMs),
       synced_at: nowIso,

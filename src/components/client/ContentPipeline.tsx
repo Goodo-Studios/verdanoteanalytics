@@ -3,6 +3,7 @@ import { parseISO, format } from "date-fns";
 import { CloudOff, PackageOpen } from "lucide-react";
 import { ClientEmptyState } from "@/components/client/ClientEmptyState";
 import { Button } from "@/components/ui/button";
+import { ViewAssetLink } from "@/components/client/ViewAssetLink";
 import { waitingOnYou } from "@/lib/pipelineSummary";
 import { fmtTimeAgo } from "@/lib/formatters";
 import { dueDateLabel, lastSyncedAt } from "@/lib/pipelineBoard";
@@ -58,8 +59,9 @@ function LastUpdated({ tasks }: { tasks?: CycleTask[] }) {
 /**
  * A single pipeline card in its stage column, framed in client language: a clean title, the
  * asset number and content type as a small label, and roughly when it lands (or when it was
- * delivered). Intentionally READ-ONLY: no click handler, no link-out, no internal task IDs or
- * strategist-only fields (US-007 AC2/AC3). The card is a plain <div> with no interactive affordances.
+ * delivered). No internal task IDs or strategist-only fields (US-007 AC2/AC3). The only link-out is
+ * the "View asset" button, which opens the Air review link in a new tab and appears only when the
+ * card has one.
  */
 function TaskCard({ task, stage }: { task: CycleTask; stage: string }) {
   const { title, label } = cardTitle(task);
@@ -87,6 +89,7 @@ function TaskCard({ task, stage }: { task: CycleTask; stage: string }) {
         </p>
       )}
       {delivered && <p className="font-body text-[11px] mt-1 text-muted-foreground">{delivered}</p>}
+      <ViewAssetLink link={task.asset_link} className="mt-2" />
     </div>
   );
 }
@@ -187,6 +190,7 @@ function TimelineRow({ task, delivered }: { task: CycleTask; delivered: boolean 
         {label && <span className="font-label text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>}
         <p className="font-body text-[13px] text-foreground">{title}</p>
       </div>
+      <ViewAssetLink link={task.asset_link} className="shrink-0" />
       {when && <span className="shrink-0 font-body text-[11px] text-muted-foreground">{when}</span>}
     </li>
   );

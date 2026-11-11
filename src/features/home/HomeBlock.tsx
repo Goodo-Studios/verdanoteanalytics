@@ -2,6 +2,7 @@
 // Loading, error and empty are three different things on screen. Red is used only on late rows.
 import { Link } from "react-router-dom";
 import { BLOCK_ROWS } from "@/lib/homeData";
+import { ViewAssetLink } from "@/components/client/ViewAssetLink";
 import { EmptyState, ErrorState, LoadingState } from "@/components/page-kit";
 
 export interface BlockRow {
@@ -14,6 +15,8 @@ export interface BlockRow {
   right?: string;
   /** Late: the only reason a row is red. */
   late?: boolean;
+  /** Air review link; shown as a small "View asset" link beside the row, not inside it. */
+  assetLink?: string | null;
 }
 
 export type BlockStatus = "loading" | "error" | "ready";
@@ -57,10 +60,10 @@ export function HomeBlock({ id, title, status, rows, emptyText, seeAllTo, prefix
       ) : (
         <ul className="divide-y divide-input rounded-lg border border-input">
           {shown.map((r) => (
-            <li key={r.key}>
+            <li key={r.key} className="flex items-center gap-2 pr-3">
               <Link
                 to={`${prefix}${r.to}`}
-                className="flex items-baseline justify-between gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-accent"
+                className="flex min-w-0 flex-1 items-baseline justify-between gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-accent"
                 data-testid={`home-block-${id}-row`}
                 data-late={r.late ? "true" : undefined}
               >
@@ -70,6 +73,7 @@ export function HomeBlock({ id, title, status, rows, emptyText, seeAllTo, prefix
                 </span>
                 {r.right ? <span className={`shrink-0 text-xs ${r.late ? "text-red-700" : "text-muted-foreground"}`}>{r.right}</span> : null}
               </Link>
+              <ViewAssetLink link={r.assetLink} className="shrink-0" />
             </li>
           ))}
         </ul>

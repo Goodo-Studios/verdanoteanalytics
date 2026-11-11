@@ -10,6 +10,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField } from "@/components/page-kit";
+import { ViewAssetLink } from "@/components/client/ViewAssetLink";
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { useAllWorkTasks } from "@/hooks/useHomeData";
@@ -142,6 +143,7 @@ export default function WorkPage() {
                       </span>
                     )}
                   </span>
+                  <ViewAssetLink link={t.asset_link} className="shrink-0" />
                   <span className="hidden w-36 shrink-0 text-muted-foreground sm:block" data-testid="work-row-stage">{t.stage ?? "Preparing Content"}</span>
                   <span className={`w-16 shrink-0 text-right text-xs ${late ? "font-medium text-red-700" : "text-muted-foreground"}`} data-testid="work-row-due">
                     {shortDate(t.due_date)}
