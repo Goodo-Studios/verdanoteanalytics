@@ -7,10 +7,10 @@
 // A casting is one actor on one production client (actor_assignments). A
 // casting link is an approval board with board_type 'actors' that the client
 // opens without a login (/cast/<token>) to give a thumbs up or down; votes are
-// in actor_approval_votes. The public page stays on the old dashboard.
+// in actor_approval_votes. The public page is served by Verdanote (src/features/public-links).
 // Pure helpers only.
 
-import { OLD_DASHBOARD_URL } from "./applicationsModel";
+import { publicLinkUrl } from "@/features/public-links/publicLinkApi";
 import { ACTOR_STAGES } from "./rosterModel";
 
 export const ACTOR_BOARD_TYPE = "actors";
@@ -44,9 +44,9 @@ export interface ActorOption {
   do_not_use_again: boolean;
 }
 
-/** The public casting link a client opens. It is served by the old dashboard. */
+/** The public casting link a client opens. It opens on this site. */
 export function castingUrl(token: string): string {
-  return `${OLD_DASHBOARD_URL}/cast/${token}`;
+  return publicLinkUrl("casting", token);
 }
 
 /** Castings in stage order, then by actor name; declined and passed only when asked for. */

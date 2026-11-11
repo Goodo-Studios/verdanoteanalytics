@@ -4,6 +4,8 @@
 // apply_actor_approval_votes function, which refuses non-staff callers and only
 // moves castings that belong to the brand.
 import { DashboardError, db, unwrap, unwrapOne } from "./api";
+import { loadLinkStats } from "./approvalBoardsApi";
+import type { LinkStat } from "@/features/public-links/linkStats";
 import { generateBoardToken, type ApprovalBoard } from "./approvalBoardsModel";
 import { ACTOR_BOARD_TYPE, type ActorOption, type ActorVote, type CastingRow } from "./castingModel";
 
@@ -14,6 +16,7 @@ export interface CastingData {
   castings: CastingRow[];
   boards: ApprovalBoard[];
   votes: ActorVote[];
+  stats?: Record<string, LinkStat>;
 }
 
 export async function loadCasting(slug: string): Promise<CastingData> {
@@ -23,7 +26,8 @@ export async function loadCasting(slug: string): Promise<CastingData> {
   ]);
   const ids = boards.map((b) => b.id);
   const votes = ids.length ? await unwrap(db.from("actor_approval_votes").select<ActorVote[]>("id, board_id, assignment_id, vote, voted_at, voted_by").in("board_id", ids)) : [];
-  return { castings, boards, votes };
+  const stats = await loadLinkStats(ids).catch(() => ({}));
+  return { castings, boards, votes, stats };
 }
 
 export function loadActorOptions(): Promise<ActorOption[]> {

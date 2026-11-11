@@ -422,6 +422,24 @@ for (const table of boardTables) {
 const applyEmpty = await employee.c.rpc("apply_approval_votes", { p_client_slug: "demo-glowdrip", p_votes: [] });
 check("employee passes the staff check in apply_approval_votes (empty list, nothing moves)", !applyEmpty.error && applyEmpty.data === 0, `error=${applyEmpty.error?.message ?? "none"} data=${applyEmpty.data}`);
 
+// Public links (P8 part 1): the registry holds a hash of every link's token and the open
+// counts, and the rate limit table holds hashed addresses. No client login reads either,
+// and no client can write to them or call the functions that serve the public pages.
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  for (const table of ["public_link_registry", "public_link_rate_limits"]) {
+    const r = await s.c.from(table).select("*").limit(1000);
+    check(`${label} reads no ${table} rows`, !!r.error || (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+  }
+  const w = await s.c.from("public_link_registry").update({ open_count: 0 }).neq("link_id", ZERO).select("link_id");
+  check(`${label} resets no link open counts`, !!w.error || (w.data ?? []).length === 0, `rows=${w.data?.length ?? "error"}`);
+  const rl = await s.c.rpc("public_link_rate_hit", { p_key: "wall", p_limit: 1, p_window_seconds: 60, p_cost: 0 });
+  check(`${label} is refused public_link_rate_hit`, rl.error?.code === "42501", `code=${rl.error?.code ?? "none"}`);
+  const pb = await s.c.rpc("public_board_get", { p_token_hash: "0".repeat(64), p_board_type: "creators", p_count_open: false });
+  check(`${label} is refused public_board_get`, pb.error?.code === "42501", `code=${pb.error?.code ?? "none"}`);
+}
+const regStaff = await employee.c.from("public_link_registry").select("link_id, open_count").limit(1);
+check("employee can read public_link_registry (open counts)", !regStaff.error, `error=${regStaff.error?.message ?? "none"}`);
+
 // Old dashboard batch 3, Locations (step 5c): a location holds the host's contact email,
 // wifi and entry instructions, and a link token opens the public location page without a
 // login, so no client reads any of the four tables, writes them, or passes the checked
