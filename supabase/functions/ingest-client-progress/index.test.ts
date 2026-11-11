@@ -56,7 +56,6 @@ function fake(s: State, recent = 0): any {
       for (const it of args.p_items) {
         const c = s.clients.get(it.slug as string);
         if (!c) { rejected.push({ slug: it.slug, reason: "unknown_client" }); continue; }
-        if (c.origin === "manual") { rejected.push({ slug: it.slug, reason: "manual_client" }); continue; }
         if ("pct_complete" in it) c.pct_complete = it.pct_complete as number | null;
         if ("status" in it) c.status = it.status as string;
         for (const d of (it.deliverables ?? []) as Array<{ month: string; type: string; status: string }>) {
@@ -125,14 +124,15 @@ Deno.test("token revoked between the check and the write is refused by the write
   assertEquals((await mod.handler(post(valid), db)).status, 401);
 });
 
-Deno.test("unknown and hand-made clients are refused per entry, known ones still apply", async () => {
+Deno.test("an unknown client is refused per entry, known and hand-made ones apply", async () => {
   const s = await makeState();
   const res = await mod.handler(post({ source: "seed", clients: [{ slug: "glow", pct_complete: 5 }, { slug: "nope", pct_complete: 5 }, { slug: "hand", pct_complete: 5 }] }), fake(s));
   const body = await res.json();
   assertEquals(res.status, 200);
-  assertEquals(body.applied, 1);
-  assertEquals(body.rejected, [{ slug: "nope", reason: "unknown_client" }, { slug: "hand", reason: "manual_client" }]);
-  assertEquals(s.clients.get("hand")?.pct_complete, undefined);
+  assertEquals(body.applied, 2);
+  assertEquals(body.rejected, [{ slug: "nope", reason: "unknown_client" }]);
+  assertEquals(s.clients.get("hand")?.pct_complete, 5);
+  assertEquals(s.clients.get("hand")?.origin, "manual");
 });
 
 Deno.test("an oversized body is refused with 413 and an audit row", async () => {
