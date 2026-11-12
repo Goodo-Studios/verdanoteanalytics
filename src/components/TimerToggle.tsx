@@ -1,7 +1,8 @@
 // The play / stop button on a task (OS-012). Presentational: the caller says whether this task's
 // timer is running and what to do on a press.
-import { Play, Square } from "lucide-react";
-import { cn } from "@/lib/utils";
+const BASE = "inline-flex shrink-0 items-center justify-center rounded-full border transition-colors disabled:opacity-50";
+const IDLE = "border-input bg-background text-muted-foreground hover:bg-secondary hover:text-foreground";
+const ON = "border-primary bg-primary text-primary-foreground";
 
 export function TimerToggle({
   title,
@@ -28,13 +29,10 @@ export function TimerToggle({
       aria-pressed={running}
       data-testid="timer-toggle"
       data-running={running ? "true" : undefined}
-      className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-full border transition-colors disabled:opacity-50",
-        size === "md" ? "h-9 w-9" : "h-7 w-7",
-        running ? "border-primary bg-primary text-primary-foreground" : "border-input bg-background text-muted-foreground hover:bg-secondary hover:text-foreground",
-      )}
+      className={`${BASE} ${size === "md" ? "h-9 w-9" : "h-7 w-7"} ${running ? ON : IDLE}`}
     >
-      {running ? <Square className="h-3 w-3" aria-hidden fill="currentColor" /> : <Play className="h-3 w-3" aria-hidden fill="currentColor" />}
+      {/* Plain glyphs, not icon components: this button is on every row, so it stays cheap to draw. */}
+      <span aria-hidden className="text-[10px] leading-none">{running ? "■" : "▶"}</span>
     </button>
   );
 }

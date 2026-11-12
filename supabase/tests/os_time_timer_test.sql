@@ -98,6 +98,9 @@ SELECT is((SELECT task_id::text FROM public.time_entries WHERE end_at IS NULL), 
 
 -- Stop.
 RESET role;
+-- Move both entries back so the running one can start 30 minutes ago without overlapping the first
+-- (which ended at now() when the second started). The earlier entry moves first.
+UPDATE public.time_entries SET start_at = now() - interval '2 hours', end_at = now() - interval '1 hour' WHERE description = 'first pass';
 UPDATE public.time_entries SET start_at = now() - interval '30 minutes' WHERE end_at IS NULL;
 SET LOCAL role authenticated;
 SELECT is((SELECT (public.time_stop_timer()).end_at), now(), 'stop ends the running timer now');
