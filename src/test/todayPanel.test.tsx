@@ -18,6 +18,8 @@ const h = vi.hoisted(() => ({
   builder: false,
   mutations: [] as Array<{ id: string; status: string }>,
   toasts: [] as Array<{ msg: string; opts?: { action?: { label: string; onClick: () => void } } }>,
+  runningTaskId: null as string | null,
+  toggled: [] as string[],
 }));
 
 vi.mock("@/contexts/AuthContext", () => ({
@@ -34,6 +36,10 @@ vi.mock("@/hooks/useMyWork", () => ({
 vi.mock("@/hooks/useToday", () => ({
   useDoneTodayCount: () => ({ data: h.doneToday, isLoading: false, isError: false }),
   useSetTaskStatus: () => ({ mutate: (v: { id: string; status: string }) => h.mutations.push(v) }),
+}));
+// OS-012: the play buttons. The hook itself is covered in timer.test.tsx.
+vi.mock("@/hooks/useTimer", () => ({
+  useTaskTimer: () => ({ runningTaskId: h.runningTaskId, toggle: (id: string) => h.toggled.push(id), busy: false }),
 }));
 vi.mock("@/hooks/useClientDecisions", () => ({
   useStaffDecisions: () => ({ data: h.decisions, isLoading: false, isError: false, refetch: vi.fn() }),
@@ -85,8 +91,29 @@ beforeEach(() => {
   h.builder = false;
   h.mutations = [];
   h.toasts = [];
+  h.runningTaskId = null;
+  h.toggled = [];
 });
 afterEach(() => vi.useRealTimers());
+
+describe("Today timer buttons (OS-012)", () => {
+  it("the next action and each list item have a play button for their own task", () => {
+    renderPanel();
+    fireEvent.click(within(screen.getByTestId("today-next")).getByRole("button", { name: "Start a timer on Task late" }));
+    const items = screen.getAllByTestId("today-list-item");
+    fireEvent.click(within(items[0]).getByRole("button", { name: "Start a timer on Task today" }));
+    expect(h.toggled).toEqual(["late", "today"]);
+  });
+
+  it("shows a stop state on the item whose task is running", () => {
+    h.runningTaskId = "today";
+    renderPanel();
+    const items = screen.getAllByTestId("today-list-item");
+    const stop = within(items[0]).getByRole("button", { name: "Stop the timer on Task today" });
+    expect(stop.getAttribute("aria-pressed")).toBe("true");
+    expect(within(screen.getByTestId("today-next")).getByTestId("timer-toggle").getAttribute("aria-pressed")).toBe("false");
+  });
+});
 
 describe("Today (OS-010)", () => {
   it("leads with one next action (the late one) and shows no table", () => {

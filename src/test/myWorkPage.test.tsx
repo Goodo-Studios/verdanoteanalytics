@@ -21,6 +21,7 @@ const h = vi.hoisted(() => ({
   calls: [] as Call[],
   rpcs: [] as Array<{ fn: string; args: unknown }>,
   builder: false,
+  running: null as unknown,
 }));
 
 vi.mock("@/integrations/supabase/client", () => {
@@ -28,6 +29,8 @@ vi.mock("@/integrations/supabase/client", () => {
     if (table === "os_tasks" && single) return { data: h.detail, error: null };
     if (table === "os_tasks") return { data: h.tasks, error: h.tasksError };
     if (table === "os_task_status_history") return { data: h.history, error: null };
+    // OS-012: the running timer (none unless a test sets one).
+    if (table === "time_entries") return { data: single ? h.running : [], error: null };
     return { data: [], error: null };
   };
   const builder = (call: Call, single = false): Record<string, unknown> => {
@@ -35,6 +38,8 @@ vi.mock("@/integrations/supabase/client", () => {
       neq: (c: string, v: string) => (call.filters.push(`neq:${c}:${v}`), b),
       eq: (c: string, v: string) => (call.filters.push(`eq:${c}:${v}`), b),
       or: (f: string) => (call.filters.push(`or:${f}`), b),
+      is: (c: string, v: unknown) => (call.filters.push(`is:${c}:${String(v)}`), b),
+      limit: () => b,
       order: () => b,
       maybeSingle: () => builder(call, true),
       then: (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => Promise.resolve(result(call.table, single)).then(res, rej),
@@ -124,6 +129,7 @@ beforeEach(() => {
   h.calls = [];
   h.rpcs = [];
   h.builder = false;
+  h.running = null;
 });
 afterEach(() => {
   Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: originalWidth });
@@ -281,5 +287,36 @@ describe("speed", () => {
     await waitFor(() => expect(screen.getAllByTestId("my-task-row")).toHaveLength(1000));
     const ms = performance.now() - start;
     expect(ms).toBeLessThan(1000);
+  });
+});
+
+describe("timer on rows (OS-012)", () => {
+  it("each row has a play button that starts a timer for that task", async () => {
+    renderPage();
+    const rows = await screen.findAllByTestId("my-task-row");
+    const li = rows[1].closest("li")!;
+    fireEvent.click(within(li).getByRole("button", { name: "Start a timer on Task today" }));
+    await waitFor(() => expect(h.rpcs.find((r) => r.fn === "time_start_timer")?.args).toMatchObject({ p_task_id: "today" }));
+    // The play button does not open the side panel.
+    expect(screen.queryByTestId("task-panel")).toBeNull();
+  });
+
+  it("the row whose task is running shows a stop button that stops it", async () => {
+    h.running = { id: "e1", task_id: "week", start_at: new Date().toISOString(), end_at: null };
+    renderPage();
+    const stop = await screen.findByRole("button", { name: "Stop the timer on Task week" });
+    expect(stop.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getAllByRole("button", { pressed: true })).toHaveLength(1);
+    fireEvent.click(stop);
+    await waitFor(() => expect(h.rpcs.map((r) => r.fn)).toContain("time_stop_timer"));
+  });
+
+  it("the side panel has a play button for its task", async () => {
+    renderPage();
+    const rows = await screen.findAllByTestId("my-task-row");
+    fireEvent.click(rows[1]);
+    const panel = await screen.findByTestId("task-panel");
+    fireEvent.click(within(panel).getByRole("button", { name: "Start a timer on Task today" }));
+    await waitFor(() => expect(h.rpcs.find((r) => r.fn === "time_start_timer")?.args).toMatchObject({ p_task_id: "today" }));
   });
 });

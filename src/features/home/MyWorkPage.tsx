@@ -1,6 +1,7 @@
 // My work (OS-009): the open tasks where the signed-in person is strategist, producer or editor,
 // one line each, grouped by due date (overdue, today, this week, later, no date). A row opens the
 // task side panel without leaving the page. A tab under Home, beside Work (every client's cards).
+// Each row has a play button that starts a timer on the task (OS-012), or stops it if it runs.
 //
 // Filters (client, phase) live in the address (?for=, ?phase=). A builder can switch to everyone's
 // tasks (?everyone=1). Red is only for late dates.
@@ -9,6 +10,8 @@ import { useSearchParams } from "react-router-dom";
 import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField } from "@/components/page-kit";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMyTasks } from "@/hooks/useMyWork";
+import { useTaskTimer } from "@/hooks/useTimer";
+import { TimerToggle } from "@/components/TimerToggle";
 import { shortDate, todayIso } from "@/lib/homeData";
 import { clientOptions, filterMyTasks, groupMyTasks, isLateDue, PHASES, type MyTaskRow } from "@/lib/myWork";
 import { HomeTabs } from "./HomeTabs";
@@ -17,14 +20,26 @@ import { TaskSidePanel } from "./TaskSidePanel";
 
 const PHASE_OPTIONS = [...PHASES.map((p) => ({ value: p, label: p })), { value: "Other", label: "Other" }];
 
-const TaskRow = memo(function TaskRow({ task, today, onOpen }: { task: MyTaskRow; today: string; onOpen: (id: string) => void }) {
+const TaskRow = memo(function TaskRow({
+  task,
+  today,
+  onOpen,
+  timing,
+  onTimer,
+}: {
+  task: MyTaskRow;
+  today: string;
+  onOpen: (id: string) => void;
+  timing: boolean;
+  onTimer: (id: string) => void;
+}) {
   const late = isLateDue(task.due_date, today);
   return (
-    <li>
+    <li className="flex items-center gap-2 pr-3 transition-colors hover:bg-secondary">
       <button
         type="button"
         onClick={() => onOpen(task.id)}
-        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-secondary focus-visible:bg-secondary focus-visible:outline-none"
+        className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pl-4 text-left text-sm focus-visible:bg-secondary focus-visible:outline-none"
         data-testid="my-task-row"
         data-late={late ? "true" : undefined}
       >
@@ -40,6 +55,7 @@ const TaskRow = memo(function TaskRow({ task, today, onOpen }: { task: MyTaskRow
           {shortDate(task.due_date)}
         </span>
       </button>
+      <TimerToggle title={task.title} running={timing} onToggle={() => onTimer(task.id)} />
     </li>
   );
 });
@@ -52,6 +68,7 @@ export default function MyWorkPage() {
   const everyone = isBuilder && params.get("everyone") === "1";
   const { data: tasks, isLoading, isError, refetch } = useMyTasks(user?.id, everyone);
   const [openId, setOpenId] = useState<string | null>(null);
+  const { runningTaskId, toggle } = useTaskTimer(user?.id);
   const today = todayIso();
 
   const set = (key: string, value: string) => {
@@ -135,7 +152,7 @@ export default function MyWorkPage() {
               </h2>
               <ul className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/60 bg-card">
                 {g.tasks.map((t) => (
-                  <TaskRow key={t.id} task={t} today={today} onOpen={onOpen} />
+                  <TaskRow key={t.id} task={t} today={today} onOpen={onOpen} timing={runningTaskId === t.id} onTimer={toggle} />
                 ))}
               </ul>
             </section>

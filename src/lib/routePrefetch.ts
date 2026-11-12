@@ -22,6 +22,7 @@ export const routeImports = {
   home: () => import("@/pages/HomePage"),
   work: () => import("@/features/home/WorkPage"),
   myWork: () => import("@/features/home/MyWorkPage"),
+  timeLog: () => import("@/features/home/TimeLogPage"),
   contentPipeline: () => import("@/pages/ContentPipelinePage"),
   creativeLibrary: () => import("@/features/creative-library/CreativeLibraryPage"),
   adLibrary: () => import("@/features/vault/LibraryPage"),
