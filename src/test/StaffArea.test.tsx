@@ -49,6 +49,7 @@ vi.mock("@/features/integration-health/IntegrationHealthPage", () => pageMock("i
 vi.mock("@/features/notifications/NotificationsPage", () => pageMock("notifications"));
 vi.mock("@/features/meeting-recaps/MeetingRecapsPage", () => pageMock("meeting-recaps"));
 vi.mock("@/features/knowledge/KnowledgePage", () => pageMock("knowledge"));
+vi.mock("@/features/brain/BrainPage", () => pageMock("brain"));
 vi.mock("@/features/dashboard/FollowUpsPage", () => pageMock("follow-ups"));
 vi.mock("@/features/dashboard/CreatorPipelinePage", () => pageMock("creator-pipeline"));
 vi.mock("@/features/dashboard/ClientDetailPage", () => pageMock("clientDetail"));
@@ -206,7 +207,7 @@ const PAGE_MARKER: Record<string, string> = {
   creatorPipeline: "creator-pipeline", followUps: "follow-ups", approvalBoards: "approval-boards", overview: "overview",
   agencyDashboard: "agency", creatives: "creatives", creativeLibrary: "creative-library", analytics: "analytics", matrix: "matrix",
   tagging: "tagging", briefs: "briefs", reports: "reports", landingPages: "landing-pages", creativeRotation: "creative-rotation",
-  entityReport: "entities", adLibrary: "ad-library", boards: "boards", hooks: "hooks", knowledge: "knowledge", learning: "learning",
+  entityReport: "entities", adLibrary: "ad-library", boards: "boards", hooks: "hooks", knowledge: "knowledge", brain: "brain", learning: "learning",
   meetingRecaps: "meeting-recaps", bidViewer: "bids", team: "team", earlyPages: "early-pages", integrationHealth: "integration-health", notifications: "notifications", operations: "operations",
   operatingCosts: "operating-costs", agentEvaluations: "agent-evaluations", growthDashboard: "growth-dashboard",
   adNameGenerator: "ad-name-generator", supportInbox: "support",

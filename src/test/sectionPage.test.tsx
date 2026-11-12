@@ -23,6 +23,7 @@ vi.mock("@/features/team/TeamPage", () => marker("team"));
 vi.mock("@/features/operating-costs/OperatingCostsPage", () => marker("operating-costs"));
 vi.mock("@/features/growth-dashboard/GrowthDashboardPage", () => marker("growth"));
 vi.mock("@/features/knowledge/KnowledgePage", () => marker("knowledge"));
+vi.mock("@/features/brain/BrainPage", () => marker("brain"));
 vi.mock("@/features/learning/LearningPage", () => marker("learning"));
 vi.mock("@/features/agent-evaluations/AgentEvaluationsPage", () => marker("agent-evaluations"));
 vi.mock("@/features/admin/EarlyPagesPage", () => marker("early-pages"));
@@ -89,7 +90,7 @@ describe("section model", () => {
       "Overview", "Agency overview", "Creatives", "Analytics", "Creative Rotation", "Creative Diversity", "Landing Pages",
       "Creative Library", "Vault", "Boards", "Hooks", "Tagging", "Matrix", "Reports", "Briefs",
     ]);
-    expect(labels("knowledge")).toEqual(["Knowledge", "Learning", "Meeting recaps", "Client BIDs"]);
+    expect(labels("knowledge")).toEqual(["Knowledge", "Brain", "Learning", "Meeting recaps", "Client BIDs"]);
     expect(labels("tools")).toEqual(["Ad Name Generator"]);
     expect(labels("admin")).toEqual([
       "Team and settings", "Integration health", "Notifications", "Operations", "Early pages", "Operating costs", "Agent evaluations", "Growth Dashboard", "Support inbox",

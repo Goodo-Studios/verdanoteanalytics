@@ -39,6 +39,7 @@ export const routeImports = {
   notifications: () => import("@/features/notifications/NotificationsPage"),
   meetingRecaps: () => import("@/features/meeting-recaps/MeetingRecapsPage"),
   knowledge: () => import("@/features/knowledge/KnowledgePage"),
+  brain: () => import("@/features/brain/BrainPage"),
   followUps: () => import("@/features/dashboard/FollowUpsPage"),
   creatorPipeline: () => import("@/features/dashboard/CreatorPipelinePage"),
   clientDetail: () => import("@/features/dashboard/ClientDetailPage"),
