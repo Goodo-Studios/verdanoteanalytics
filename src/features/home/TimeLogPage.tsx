@@ -5,13 +5,14 @@
 // start, longer than 24 hours) are shown in plain words. The week is in the address (?week=).
 // A small form starts a timer for a client or Internal with a category, for time with no task.
 import { useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { EmptyState, ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField, useConfirm } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
 import { INTERNAL, TimePurposeFields } from "@/components/TimePurposeFields";
 import { useAuth } from "@/contexts/AuthContext";
+import { useRolePrefix } from "@/hooks/useRolePath";
 import { useMyTasks } from "@/hooks/useMyWork";
 import { useDeleteEntry, useSaveEntry, useStartTimer, useWeekEntries, type EntryInput } from "@/hooks/useTimer";
 import { todayIso } from "@/lib/homeData";
@@ -194,6 +195,7 @@ function StartWithoutTask() {
 
 export default function TimeLogPage() {
   const { user } = useAuth();
+  const prefix = useRolePrefix();
   const [params, setParams] = useSearchParams();
   const today = todayIso();
   const asked = params.get("week") ?? "";
@@ -273,6 +275,9 @@ export default function TimeLogPage() {
         <span className="ml-auto text-sm" data-testid="time-week-total">
           Week total <span className="font-semibold tabular-nums">{formatHours(grouped.seconds)}</span>
         </span>
+        <Link to={`${prefix}/time/reports`} className="text-sm underline" data-testid="time-reports-link">
+          Reports
+        </Link>
         <Button size="sm" onClick={() => setFormFor("new")} data-testid="time-add" disabled={formFor === "new"}>
           Add entry
         </Button>

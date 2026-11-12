@@ -48,6 +48,7 @@ const HomePage = lazy(routeImports.home);
 const WorkPage = lazy(routeImports.work);
 const MyWorkPage = lazy(routeImports.myWork);
 const TimeLogPage = lazy(routeImports.timeLog);
+const TimeReportsPage = lazy(routeImports.timeReports);
 const ContentPipelinePage = lazy(routeImports.contentPipeline);
 const VaultItemDetailPage = lazy(routeImports.vaultItemDetail);
 const BoardDetailPage = lazy(routeImports.boardDetail);
@@ -179,6 +180,8 @@ export function RoleGuardedRoutes() {
           <Route path="/my-work" element={staffPage ? <MyWorkPage /> : <Navigate to={`${prefix}/`} replace />} />
           {/* Time: my weekly time log, from the timer and by hand (a tab under Home, OS-012). Staff only. */}
           <Route path="/time" element={staffPage ? <TimeLogPage /> : <Navigate to={`${prefix}/`} replace />} />
+          {/* Time reports: by client, person, task, content type or category, with CSV (OS-013). Staff only. */}
+          <Route path="/time/reports" element={staffPage ? <TimeReportsPage /> : <Navigate to={`${prefix}/`} replace />} />
           {/* Staff menu sections: one page each, with tabs. A client, or a builder previewing
               the client view, goes to the index. */}
           {SECTIONS.flatMap((section) => [

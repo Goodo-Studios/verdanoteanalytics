@@ -24,6 +24,10 @@ let auth = { isBuilder: false };
 
 vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => auth }));
 vi.mock("@/hooks/useRolePath", () => ({ useRolePrefix: () => "/builder" }));
+// The month-hours card has its own tests (clientMonthHours.test.tsx); here it is a marker.
+vi.mock("@/features/clients/ClientMonthHours", () => ({
+  ClientMonthHours: ({ slug }: { slug: string }) => <div data-testid="client-month-hours-stub">{slug}</div>,
+}));
 vi.mock("@/features/dashboard/api", () => {
   class DashboardError extends Error {
     code?: string;
@@ -91,6 +95,14 @@ const renderAt = (slug = "glow") =>
       <Routes><Route path="/builder/clients/:slug" element={<ClientDetailPage />} /></Routes>
     </MemoryRouter>,
   );
+
+describe("Client page, hours this month", () => {
+  it("places the month-hours card for this client", async () => {
+    loadClientDetail.mockResolvedValue(data());
+    renderAt();
+    expect(await screen.findByTestId("client-month-hours-stub")).toHaveTextContent("glow");
+  });
+});
 
 describe("Client page, progress feed", () => {
   it("shows a plain Last updated line from last_synced", async () => {
