@@ -18,6 +18,7 @@ import {
   Palette,
   BookOpen,
   ShieldCheck,
+  Wrench,
 } from "lucide-react";
 import { ATTIO_URL, GOODO_TIME_URL } from "@/lib/staffMenu";
 import { STAFF_NAV, type StaffNavId } from "@/lib/sections";
@@ -49,11 +50,12 @@ const STAFF_ICONS: Record<StaffNavId, typeof LayoutGrid> = {
   talent: Contact,
   creative: Palette,
   knowledge: BookOpen,
+  tools: Wrench,
   admin: ShieldCheck,
 };
 
 /**
- * Staff menu: seven items. Production, Talent, Creative, Knowledge and Admin are pages with
+ * Staff menu: eight items. Production, Talent, Creative, Knowledge, Tools and Admin are pages with
  * tabs (see src/lib/sections.ts). Admin shows for builders and employees; the tabs inside it
  * that are builder only stay hidden from employees.
  */

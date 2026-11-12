@@ -156,6 +156,7 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean; 
   { path: "/matrix", marker: "matrix", builderOnly: true },
   { path: "/growth-dashboard", marker: "growth-dashboard", builderOnly: true },
   { path: "/ad-name-generator", marker: "ad-name-generator" },
+  { path: "/admin/ad-name-generator", marker: "ad-name-generator" },
   { path: "/integration-health", marker: "integration-health" },
   { path: "/meeting-recaps", marker: "meeting-recaps" },
   { path: "/knowledge", marker: "knowledge" },
@@ -238,9 +239,9 @@ const SHARED_OLD_PAGES = [
 ];
 
 describe("every menu item, tab and old address is covered", () => {
-  it("has seven staff menu items", () => {
-    expect(staffNavItems.map((i) => i.title)).toEqual(["Home", "Clients", "Production", "Talent", "Creative", "Knowledge", "Admin"]);
-    expect(staffNavItems).toHaveLength(7);
+  it("has eight staff menu items, with Tools before Admin", () => {
+    expect(staffNavItems.map((i) => i.title)).toEqual(["Home", "Clients", "Production", "Talent", "Creative", "Knowledge", "Tools", "Admin"]);
+    expect(staffNavItems).toHaveLength(8);
     expect(clientNavItems).toHaveLength(5);
   });
 

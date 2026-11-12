@@ -12,7 +12,7 @@ vi.mock("@/features/home/StaffHomeBlocks", () => ({ StaffHomeBlocks: () => <div 
 
 import HomePage from "@/pages/HomePage";
 import { WithClient } from "@/test/clientSelection";
-import { ATTIO_URL, GOODO_TIME_URL, OLD_DASHBOARD_PUBLIC_URL } from "@/lib/staffMenu";
+import { ATTIO_URL, GOODO_TIME_URL } from "@/lib/staffMenu";
 
 function renderHome(slug = "") {
   return render(
@@ -36,31 +36,22 @@ describe("Home", () => {
     ]);
   });
 
-  it("links to Clients and every section", () => {
+  it("does not repeat the sidebar as Go to cards (OS-002)", () => {
     renderHome();
-    for (const [id, to] of [
-      ["clients", "/builder/clients"],
-      ["production", "/builder/production"],
-      ["talent", "/builder/talent"],
-      ["creative", "/builder/creative"],
-      ["knowledge", "/builder/knowledge"],
-      ["admin", "/builder/admin"],
-    ]) {
-      expect(screen.getByTestId(`home-card-${id}`).getAttribute("href"), id).toBe(to);
+    expect(screen.queryByText("Go to")).toBeNull();
+    for (const id of ["clients", "production", "talent", "creative", "knowledge", "tools", "admin"]) {
+      expect(screen.queryByTestId(`home-card-${id}`), id).toBeNull();
     }
   });
 
-  it("opens the apps that stay outside Verdanote in a new tab", () => {
+  it("has no outside-app cards: Goodo Time and Attio live in the sidebar, the old dashboard card is gone", () => {
     renderHome();
-    for (const [id, href] of [
-      ["goodo-time", GOODO_TIME_URL],
-      ["attio", ATTIO_URL],
-      ["old-dashboard-public", OLD_DASHBOARD_PUBLIC_URL],
-    ]) {
-      const link = screen.getByTestId(`home-app-${id}`);
-      expect(link.getAttribute("href")).toBe(href);
-      expect(link.getAttribute("target")).toBe("_blank");
-      expect(link.getAttribute("rel")).toContain("noopener");
+    expect(screen.queryByText("Other apps")).toBeNull();
+    for (const id of ["goodo-time", "attio", "old-dashboard-public"]) {
+      expect(screen.queryByTestId(`home-app-${id}`), id).toBeNull();
+    }
+    for (const href of [GOODO_TIME_URL, ATTIO_URL, "https://goodostudios-production.vercel.app"]) {
+      expect(document.querySelector(`a[href="${href}"]`), href).toBeNull();
     }
   });
 
