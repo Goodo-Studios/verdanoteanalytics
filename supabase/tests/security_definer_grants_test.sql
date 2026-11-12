@@ -88,7 +88,10 @@ INSERT INTO allow
     'save_call_sheet_talent_entry', 'remove_call_sheet_talent_entry',
     'client_setup_status', 'list_client_members', 'add_client_member', 'remove_client_member',
     'list_user_invites',
-    'create_ingest_token', 'revoke_ingest_token', 'list_ingest_tokens', 'list_ingest_audit'
+    'create_ingest_token', 'revoke_ingest_token', 'list_ingest_tokens', 'list_ingest_audit',
+    -- OS-012: the timer and the weekly log. Each refuses anyone who is not builder or employee
+    -- and acts only on the caller's own time_people row.
+    'time_my_person', 'time_start_timer', 'time_stop_timer'
   ]);
 
 -- SECURITY DEFINER functions in public (extension functions excluded).

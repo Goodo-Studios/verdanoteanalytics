@@ -1,7 +1,8 @@
 // Today in the War Room layout (OS-010). One next action at the top, then a short list, with a thin
 // progress bar for today (N of M done). Marking an item done slides it away and offers Undo. A builder
 // also sees decisions waiting, late items across every client, and client approvals outstanding.
-// No tables: one item, then plain lists.
+// No tables: one item, then plain lists. The next action and each list item have a play button
+// for the timer (OS-012).
 import { useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { EmptyState, ErrorState, LoadingState } from "@/components/page-kit";
@@ -9,6 +10,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useStaffDecisions } from "@/hooks/useClientDecisions";
 import { useMyTasks } from "@/hooks/useMyWork";
 import { useDoneTodayCount, useSetTaskStatus } from "@/hooks/useToday";
+import { useTaskTimer } from "@/hooks/useTimer";
+import { TimerToggle } from "@/components/TimerToggle";
 import { isNewDecision, staffDecisionText } from "@/lib/clientDecisions";
 import { shortDate, todayIso } from "@/lib/homeData";
 import { DONE_STATUS, isLateDue, type MyTaskRow } from "@/lib/myWork";
@@ -114,6 +117,7 @@ export function TodayPanel() {
   const everyone = useMyTasks(isBuilder ? user?.id : undefined, isBuilder);
   const decisions = useStaffDecisions();
   const setStatus = useSetTaskStatus();
+  const timer = useTaskTimer(user?.id);
 
   // Items finished on this page: `leaving` while they slide out, then `hidden` until the list reloads.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
@@ -214,7 +218,10 @@ export function TodayPanel() {
                     </span>
                   </p>
                 </button>
-                <DoneButton task={next} onDone={markDone} big />
+                <div className="flex shrink-0 items-center gap-2">
+                  <TimerToggle title={next.title} running={timer.runningTaskId === next.id} onToggle={() => timer.toggle(next.id)} size="md" />
+                  <DoneButton task={next} onDone={markDone} big />
+                </div>
               </div>
             </section>
           ) : (
@@ -237,6 +244,7 @@ export function TodayPanel() {
                           {shortDate(t.due_date)}
                         </span>
                       </button>
+                      <TimerToggle title={t.title} running={timer.runningTaskId === t.id} onToggle={() => timer.toggle(t.id)} />
                       <DoneButton task={t} onDone={markDone} />
                     </div>
                   </li>

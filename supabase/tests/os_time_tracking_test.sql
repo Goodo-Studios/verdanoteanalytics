@@ -10,6 +10,9 @@
 -- invoice and only its own person's; a sent invoice locks its time, fields and lines until a
 -- builder reopens it; only a builder marks paid; only drafts are deleted; time_link_people()
 -- links people to logins by email. All rows are made up.
+--
+-- Since OS-012 an app-made entry needs a task, or a client or Internal with a category, so the
+-- entries made here are Internal time in the category Other. The rules checked are unchanged.
 
 BEGIN;
 SELECT plan(40);
@@ -36,9 +39,9 @@ INSERT INTO public.time_clients (id, name) VALUES ('e8300000-0000-4000-8000-0000
 INSERT INTO public.time_projects (id, client_id, name, archived) VALUES
   ('e8400000-0000-4000-8000-000000000001', 'e8300000-0000-4000-8000-000000000001', 'Brand film', false),
   ('e8400000-0000-4000-8000-000000000002', NULL, 'Old reels', true);
-INSERT INTO public.time_entries (person_id, description, start_at, end_at) VALUES
-  ('e8200000-0000-4000-8000-000000000003', 'Bob cut', '2026-10-30 13:00Z', '2026-10-30 14:00Z'),
-  ('e8200000-0000-4000-8000-000000000004', 'Carol cut', '2026-10-30 13:00Z', '2026-10-30 14:00Z');
+INSERT INTO public.time_entries (is_internal, category, person_id, description, start_at, end_at) VALUES
+  (true, 'Other', 'e8200000-0000-4000-8000-000000000003', 'Bob cut', '2026-10-30 13:00Z', '2026-10-30 14:00Z'),
+  (true, 'Other', 'e8200000-0000-4000-8000-000000000004', 'Carol cut', '2026-10-30 13:00Z', '2026-10-30 14:00Z');
 
 -- ---------------------------------------------------------------- structure
 SELECT ok((SELECT bool_and(relrowsecurity) FROM pg_class WHERE oid IN (
@@ -62,37 +65,37 @@ SELECT is((SELECT user_id::text FROM public.time_people WHERE email = 'tt-alice@
 SET LOCAL role authenticated;
 SELECT set_config('request.jwt.claim.sub', 'e8100000-0000-4000-8000-000000000002', true);
 
-SELECT lives_ok($$INSERT INTO public.time_entries (person_id, project_id, description, start_at, end_at)
-  VALUES ('e8200000-0000-4000-8000-000000000002', 'e8400000-0000-4000-8000-000000000001', 'Rough cut',
+SELECT lives_ok($$INSERT INTO public.time_entries (is_internal, category, person_id, project_id, description, start_at, end_at)
+  VALUES (true, 'Other', 'e8200000-0000-4000-8000-000000000002', 'e8400000-0000-4000-8000-000000000001', 'Rough cut',
           '2026-10-30 10:00Z', '2026-10-30 11:00Z')$$, 'an employee adds her own entry');
-SELECT lives_ok($$INSERT INTO public.time_entries (person_id, description, start_at, end_at)
-  VALUES ('e8200000-0000-4000-8000-000000000002', 'Notes', '2026-10-30 11:00Z', '2026-10-30 12:00Z')$$,
+SELECT lives_ok($$INSERT INTO public.time_entries (is_internal, category, person_id, description, start_at, end_at)
+  VALUES (true, 'Other', 'e8200000-0000-4000-8000-000000000002', 'Notes', '2026-10-30 11:00Z', '2026-10-30 12:00Z')$$,
   'an entry may start exactly when the last one ends');
-SELECT throws_ok($$INSERT INTO public.time_entries (person_id, start_at, end_at)
-  VALUES ('e8200000-0000-4000-8000-000000000002', '2026-10-30 10:30Z', '2026-10-30 10:45Z')$$, '23P01', NULL,
+SELECT throws_ok($$INSERT INTO public.time_entries (is_internal, category, person_id, start_at, end_at)
+  VALUES (true, 'Other', 'e8200000-0000-4000-8000-000000000002', '2026-10-30 10:30Z', '2026-10-30 10:45Z')$$, '23P01', NULL,
   'an entry that overlaps another is refused');
-SELECT throws_ok($$INSERT INTO public.time_entries (person_id, start_at, end_at)
-  VALUES ('e8200000-0000-4000-8000-000000000002', '2026-10-30 15:00Z', '2026-10-30 15:00Z')$$, '23514', NULL,
+SELECT throws_ok($$INSERT INTO public.time_entries (is_internal, category, person_id, start_at, end_at)
+  VALUES (true, 'Other', 'e8200000-0000-4000-8000-000000000002', '2026-10-30 15:00Z', '2026-10-30 15:00Z')$$, '23514', NULL,
   'an entry must end after it starts');
-SELECT throws_ok($$INSERT INTO public.time_entries (person_id, start_at, end_at)
-  VALUES ('e8200000-0000-4000-8000-000000000002', '2026-10-20 00:00Z', '2026-10-21 00:00:01Z')$$, '23514', NULL,
+SELECT throws_ok($$INSERT INTO public.time_entries (is_internal, category, person_id, start_at, end_at)
+  VALUES (true, 'Other', 'e8200000-0000-4000-8000-000000000002', '2026-10-20 00:00Z', '2026-10-21 00:00:01Z')$$, '23514', NULL,
   'a typed-in entry longer than 24 hours is refused');
-SELECT lives_ok($$INSERT INTO public.time_entries (person_id, start_at, end_at)
-  VALUES ('e8200000-0000-4000-8000-000000000002', '2026-10-20 00:00Z', '2026-10-21 00:00Z')$$,
+SELECT lives_ok($$INSERT INTO public.time_entries (is_internal, category, person_id, start_at, end_at)
+  VALUES (true, 'Other', 'e8200000-0000-4000-8000-000000000002', '2026-10-20 00:00Z', '2026-10-21 00:00Z')$$,
   'an entry of exactly 24 hours is allowed');
-SELECT throws_ok($$INSERT INTO public.time_entries (person_id, project_id, start_at, end_at)
-  VALUES ('e8200000-0000-4000-8000-000000000002', 'e8400000-0000-4000-8000-000000000002', '2026-10-22 10:00Z', '2026-10-22 11:00Z')$$,
+SELECT throws_ok($$INSERT INTO public.time_entries (is_internal, category, person_id, project_id, start_at, end_at)
+  VALUES (true, 'Other', 'e8200000-0000-4000-8000-000000000002', 'e8400000-0000-4000-8000-000000000002', '2026-10-22 10:00Z', '2026-10-22 11:00Z')$$,
   '23514', NULL, 'a new entry cannot use an archived project');
 
 -- A running timer is open-ended.
-SELECT lives_ok($$INSERT INTO public.time_entries (person_id, description, start_at)
-  VALUES ('e8200000-0000-4000-8000-000000000002', 'Running', '2026-10-31 09:00Z')$$, 'an employee starts a timer');
-SELECT throws_ok($$INSERT INTO public.time_entries (person_id, start_at, end_at)
-  VALUES ('e8200000-0000-4000-8000-000000000002', '2026-11-05 09:00Z', '2026-11-05 10:00Z')$$, '23P01', NULL,
+SELECT lives_ok($$INSERT INTO public.time_entries (is_internal, category, person_id, description, start_at)
+  VALUES (true, 'Other', 'e8200000-0000-4000-8000-000000000002', 'Running', '2026-10-31 09:00Z')$$, 'an employee starts a timer');
+SELECT throws_ok($$INSERT INTO public.time_entries (is_internal, category, person_id, start_at, end_at)
+  VALUES (true, 'Other', 'e8200000-0000-4000-8000-000000000002', '2026-11-05 09:00Z', '2026-11-05 10:00Z')$$, '23P01', NULL,
   'an entry after a running timer''s start overlaps it');
 -- A second open-ended timer always overlaps the first, so either rule may report it.
-SELECT throws_ok($$INSERT INTO public.time_entries (person_id, start_at)
-  VALUES ('e8200000-0000-4000-8000-000000000002', '2026-10-29 09:00Z')$$, NULL, NULL,
+SELECT throws_ok($$INSERT INTO public.time_entries (is_internal, category, person_id, start_at)
+  VALUES (true, 'Other', 'e8200000-0000-4000-8000-000000000002', '2026-10-29 09:00Z')$$, NULL, NULL,
   'a second running timer is refused');
 SELECT ok((SELECT indisunique FROM pg_index WHERE indexrelid = 'public.time_entries_one_running'::regclass),
   'one running timer per person is also a unique rule of its own');
@@ -101,8 +104,8 @@ SELECT lives_ok($$UPDATE public.time_entries SET end_at = '2026-11-02 09:00Z' WH
 
 SELECT is((SELECT count(*)::int FROM public.time_entries), 4, 'an employee sees only her own entries');
 SELECT is((SELECT count(*)::int FROM public.time_people), 1, 'an employee sees only her own person row');
-SELECT throws_ok($$INSERT INTO public.time_entries (person_id, start_at, end_at)
-  VALUES ('e8200000-0000-4000-8000-000000000003', '2026-10-25 10:00Z', '2026-10-25 11:00Z')$$, '42501', NULL,
+SELECT throws_ok($$INSERT INTO public.time_entries (is_internal, category, person_id, start_at, end_at)
+  VALUES (true, 'Other', 'e8200000-0000-4000-8000-000000000003', '2026-10-25 10:00Z', '2026-10-25 11:00Z')$$, '42501', NULL,
   'an employee cannot add time for someone else');
 UPDATE public.time_entries SET description = 'changed by Alice' WHERE description = 'Bob cut';
 UPDATE public.time_people SET monthly_fee_cents = 1 WHERE email = 'tt-alice@example.test';
@@ -115,8 +118,8 @@ SELECT set_config('request.jwt.claim.sub', 'e8100000-0000-4000-8000-000000000004
 SELECT is((SELECT count(*)::int FROM public.time_entries) + (SELECT count(*)::int FROM public.time_people)
         + (SELECT count(*)::int FROM public.time_projects) + (SELECT count(*)::int FROM public.time_clients), 0,
   'a client sees no time, people, projects or clients');
-SELECT throws_ok($$INSERT INTO public.time_entries (person_id, start_at, end_at)
-  VALUES ('e8200000-0000-4000-8000-000000000004', '2026-10-25 10:00Z', '2026-10-25 11:00Z')$$, '42501', NULL,
+SELECT throws_ok($$INSERT INTO public.time_entries (is_internal, category, person_id, start_at, end_at)
+  VALUES (true, 'Other', 'e8200000-0000-4000-8000-000000000004', '2026-10-25 10:00Z', '2026-10-25 11:00Z')$$, '42501', NULL,
   'a client cannot add time');
 SELECT set_config('request.jwt.claim.sub', 'e8100000-0000-4000-8000-000000000005', true);
 SELECT is((SELECT count(*)::int FROM public.time_entries), 0, 'a login with no role sees no time');
@@ -140,8 +143,8 @@ INSERT INTO public.time_invoice_lines (invoice_id, kind, description, amount_cen
   VALUES ('e8500000-0000-4000-8000-000000000001', 'fee', 'Monthly fee, second half (16 to 31 Oct 2026)', 250000);
 UPDATE public.time_entries SET invoice_id = 'e8500000-0000-4000-8000-000000000001'
  WHERE description IN ('Rough cut', 'Notes');
-SELECT throws_ok($$INSERT INTO public.time_entries (person_id, start_at, invoice_id)
-  VALUES ('e8200000-0000-4000-8000-000000000002', '2026-11-03 09:00Z', 'e8500000-0000-4000-8000-000000000001')$$,
+SELECT throws_ok($$INSERT INTO public.time_entries (is_internal, category, person_id, start_at, invoice_id)
+  VALUES (true, 'Other', 'e8200000-0000-4000-8000-000000000002', '2026-11-03 09:00Z', 'e8500000-0000-4000-8000-000000000001')$$,
   '23514', NULL, 'a running timer cannot be put on an invoice');
 RESET role;
 SELECT throws_ok($$UPDATE public.time_entries SET invoice_id = 'e8500000-0000-4000-8000-000000000001'

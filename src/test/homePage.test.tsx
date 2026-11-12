@@ -27,7 +27,7 @@ function renderHome(slug = "") {
 }
 
 describe("Home", () => {
-  it("puts the day's blocks first and has Today, My work and Work tabs", () => {
+  it("puts the day's blocks first and has Today, My work, Time and Work tabs", () => {
     renderHome();
     expect(screen.getByTestId("staff-home-blocks")).toBeTruthy();
     // OS-010: the Today panel (one next action) comes before the blocks.
@@ -38,6 +38,7 @@ describe("Home", () => {
     expect(Array.from(tabs.querySelectorAll("a")).map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
       ["Today", "/builder/"],
       ["My work", "/builder/my-work"],
+      ["Time", "/builder/time"],
       ["Work", "/builder/work"],
     ]);
   });

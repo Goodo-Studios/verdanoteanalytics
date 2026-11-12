@@ -11,6 +11,7 @@ import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
 import { GoodoOsMark } from "@/components/GoodoOsMark";
+import { TimerPill } from "@/components/TimerPill";
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -65,7 +66,9 @@ export function AppLayout({ children }: AppLayoutProps) {
           </div>
           {/* Client switcher (staff) */}
           <div className="min-w-0 flex-1 px-2">{showSwitcher ? <ClientSwitcher /> : null}</div>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            {/* OS-012: the running timer, staff only (the pill checks the role itself). */}
+            <TimerPill />
             <CommandPaletteHost />
             <PresenceAvatars />
           </div>

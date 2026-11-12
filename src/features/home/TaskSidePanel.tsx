@@ -1,11 +1,15 @@
 // The task side panel on My work (OS-009). Opens over the list without leaving the page: a panel
 // on the right on wider screens, a bottom sheet on phones. Radix Dialog gives the focus trap,
 // Escape to close and the aria labelling. Details load only when it opens (useTaskDetail).
+// A play button by the title starts or stops a timer on the task (OS-012).
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { ExternalLink, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fmtDateTime } from "@/components/page-kit";
 import { useIsPhone, useTaskDetail, type TaskComment } from "@/hooks/useMyWork";
+import { useTaskTimer } from "@/hooks/useTimer";
+import { useAuth } from "@/contexts/AuthContext";
+import { TimerToggle } from "@/components/TimerToggle";
 import { shortDate } from "@/lib/homeData";
 import { isLateDue, type MyTaskRow } from "@/lib/myWork";
 import { PhaseDots } from "./PhaseDots";
@@ -48,6 +52,8 @@ function Thread({ label, comments, testId }: { label: string; comments: TaskComm
 
 export function TaskSidePanel({ task, today, onClose }: { task: MyTaskRow | null; today: string; onClose: () => void }) {
   const phone = useIsPhone();
+  const { user } = useAuth();
+  const timer = useTaskTimer(user?.id);
   const { data, isLoading, isError } = useTaskDetail(task?.id ?? null);
   const late = task ? isLateDue(task.due_date, today) : false;
   const detail = data?.detail;
@@ -78,9 +84,14 @@ export function TaskSidePanel({ task, today, onClose }: { task: MyTaskRow | null
                   </DialogPrimitive.Description>
                   <PhaseDots stage={task.status_info?.stage} />
                 </div>
-                <DialogPrimitive.Close className="rounded-md p-1 text-muted-foreground hover:bg-secondary" aria-label="Close">
-                  <X className="h-4 w-4" />
-                </DialogPrimitive.Close>
+                <div className="flex shrink-0 items-center gap-1">
+                  {task.read_only ? null : (
+                    <TimerToggle title={task.title} running={timer.runningTaskId === task.id} onToggle={() => timer.toggle(task.id)} />
+                  )}
+                  <DialogPrimitive.Close className="rounded-md p-1 text-muted-foreground hover:bg-secondary" aria-label="Close">
+                    <X className="h-4 w-4" />
+                  </DialogPrimitive.Close>
+                </div>
               </div>
 
               {isLoading ? (
