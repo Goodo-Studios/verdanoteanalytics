@@ -107,6 +107,15 @@ verify_jwt = false
 [functions.sync-clickup-tasks]
 verify_jwt = false
 
+# OS-007: ClickUp -> os_tasks, full or nightly walk. Service-role only; gated inside the function.
+[functions.clickup-os-sync]
+verify_jwt = false
+
+# OS-007: ClickUp posts task events here with no JWT. The function checks the
+# X-Signature HMAC against CLICKUP_WEBHOOK_SECRET and answers 401 otherwise.
+[functions.clickup-webhook]
+verify_jwt = false
+
 # US-005: one-time backfill re-tag of historical creatives. Invoked manually
 # (or by an internal caller) with the service-role bearer — no end-user JWT.
 [functions.backfill-retag]

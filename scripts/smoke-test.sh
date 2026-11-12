@@ -107,7 +107,7 @@ done
 
 echo ""
 echo "── Internal auth-only functions ───────────────"
-INTERNAL_FUNCTIONS=(cleanup-stuck-media cleanup-stuck-syncs)
+INTERNAL_FUNCTIONS=(cleanup-stuck-media cleanup-stuck-syncs clickup-os-sync clickup-webhook)
 for fn in "${INTERNAL_FUNCTIONS[@]}"; do
   check_auth_gate "$fn"
 done
