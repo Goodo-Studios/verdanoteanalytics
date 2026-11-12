@@ -1,5 +1,5 @@
 /**
- * The staff menu has seven items whatever client is selected (including "All clients", the
+ * The staff menu has eight items whatever client is selected (including "All clients", the
  * old Agency View), Admin shows for builders and employees, a client's sidebar is unchanged,
  * pages that need one client ask for one, and the mobile menu button is labelled.
  */
@@ -57,7 +57,7 @@ function renderSidebar(role: Role) {
   );
 }
 
-const SEVEN = ["Home", "Clients", "Production", "Talent", "Creative", "Knowledge", "Admin"];
+const EIGHT = ["Home", "Clients", "Production", "Talent", "Creative", "Knowledge", "Tools", "Admin"];
 
 beforeEach(() => {
   h.selected = "all";
@@ -66,15 +66,15 @@ beforeEach(() => {
 });
 
 describe("staff sidebar", () => {
-  it("has exactly the seven menu items, in order", () => {
-    expect(staffNavItems.map((i) => i.title)).toEqual(SEVEN);
+  it("has exactly the eight menu items, in order", () => {
+    expect(staffNavItems.map((i) => i.title)).toEqual(EIGHT);
   });
 
-  it.each(["builder", "employee"] as const)("%s sees the seven items with role-prefixed links", (role) => {
+  it.each(["builder", "employee"] as const)("%s sees the eight items with role-prefixed links", (role) => {
     renderSidebar(role);
     const main = screen.getByRole("navigation", { name: "Main" });
     const links = Array.from(main.querySelectorAll("a")).map((a) => a.textContent);
-    expect(links).toEqual(SEVEN);
+    expect(links).toEqual(EIGHT);
     expect(screen.getByRole("link", { name: "Production" }).getAttribute("href")).toBe(`/${role}/production`);
     expect(screen.getByRole("link", { name: "Clients" }).getAttribute("href")).toBe(`/${role}/clients`);
     expect(screen.getByRole("link", { name: "Home" }).getAttribute("href")).toBe(`/${role}/`);
@@ -93,7 +93,7 @@ describe("staff sidebar", () => {
     h.selected = "act_a";
     renderSidebar("builder");
     const main = screen.getByRole("navigation", { name: "Main" });
-    expect(Array.from(main.querySelectorAll("a")).map((a) => a.textContent)).toEqual(SEVEN);
+    expect(Array.from(main.querySelectorAll("a")).map((a) => a.textContent)).toEqual(EIGHT);
   });
 
   it("keeps Settings in the footer", () => {
@@ -106,7 +106,7 @@ describe("staff sidebar", () => {
     renderSidebar("client");
     const main = screen.getByRole("navigation", { name: "Main" });
     expect(Array.from(main.querySelectorAll("a")).map((a) => a.textContent)).toEqual(["Overview", "Creatives", "Analytics", "Content Pipeline", "Reports"]);
-    for (const name of SEVEN.filter((n) => n !== "Home")) expect(screen.queryByRole("link", { name })).toBeNull();
+    for (const name of EIGHT.filter((n) => n !== "Home")) expect(screen.queryByRole("link", { name })).toBeNull();
     expect(screen.queryByRole("link", { name: "Home" })).toBeNull();
   });
 });

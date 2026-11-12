@@ -1,5 +1,5 @@
-// Staff menu model. Seven menu items: Home, Clients, Production, Talent, Creative,
-// Knowledge and Admin. Production, Talent, Creative, Knowledge and Admin are one page
+// Staff menu model. Eight menu items: Home, Clients, Production, Talent, Creative,
+// Knowledge, Tools and Admin. Production, Talent, Creative, Knowledge, Tools and Admin are one page
 // each with tabs; every tab renders an existing page component unchanged. This file is
 // pure data so the sidebar, the section pages, the redirects and the tests all read the
 // same list.
@@ -7,7 +7,7 @@ import type { routeImports } from "@/lib/routePrefetch";
 import { isHiddenPage } from "@/lib/hiddenPages";
 
 export type PageKey = keyof typeof routeImports;
-export type SectionId = "production" | "talent" | "creative" | "knowledge" | "admin";
+export type SectionId = "production" | "talent" | "creative" | "knowledge" | "tools" | "admin";
 
 export interface TabDef {
   /** Last URL segment: /production/calendar. */
@@ -96,9 +96,18 @@ export const SECTIONS: SectionDef[] = [
     ],
   },
   {
+    id: "tools",
+    label: "Tools",
+    description: "Everyday utilities for production work, such as naming ad files.",
+    tabs: [
+      // Moved out of Admin (Goodo OS OS-002). The old Admin address redirects here.
+      { slug: "ad-name-generator", label: "Ad Name Generator", page: "adNameGenerator", legacy: ["/ad-name-generator", "/admin/ad-name-generator"] },
+    ],
+  },
+  {
     id: "admin",
     label: "Admin",
-    description: "Team, integrations, operations, costs, early pages and other back-office tools.",
+    description: "Team, integrations, notifications, operations and the support inbox.",
     tabs: [
       { slug: "team", label: "Team and settings", page: "team", legacy: ["/team"] },
       { slug: "integration-health", label: "Integration health", page: "integrationHealth", legacy: ["/integration-health"] },
@@ -108,7 +117,6 @@ export const SECTIONS: SectionDef[] = [
       { slug: "operating-costs", label: "Operating costs", page: "operatingCosts", legacy: ["/operating-costs"], builderOnly: true },
       { slug: "agent-evaluations", label: "Agent evaluations", page: "agentEvaluations", legacy: ["/agent-evaluations"] },
       { slug: "growth", label: "Growth Dashboard", page: "growthDashboard", legacy: ["/growth-dashboard"], builderOnly: true },
-      { slug: "ad-name-generator", label: "Ad Name Generator", page: "adNameGenerator", legacy: ["/ad-name-generator"] },
       { slug: "support", label: "Support inbox", page: "supportInbox", legacy: ["/support"] },
     ],
   },
@@ -136,7 +144,7 @@ export interface StaffNavEntry {
   url: string;
 }
 
-/** The seven items of the staff menu, in order. */
+/** The eight items of the staff menu, in order. */
 export const STAFF_NAV: StaffNavEntry[] = [
   { id: "home", label: "Home", url: "/" },
   { id: "clients", label: "Clients", url: "/clients" },
@@ -144,5 +152,6 @@ export const STAFF_NAV: StaffNavEntry[] = [
   { id: "talent", label: "Talent", url: "/talent" },
   { id: "creative", label: "Creative", url: "/creative" },
   { id: "knowledge", label: "Knowledge", url: "/knowledge" },
+  { id: "tools", label: "Tools", url: "/tools" },
   { id: "admin", label: "Admin", url: "/admin" },
 ];

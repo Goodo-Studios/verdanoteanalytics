@@ -135,7 +135,8 @@ const MOVED: Record<string, string> = {
   "/operating-costs": "admin/operating-costs",
   "/agent-evaluations": "admin/agent-evaluations",
   "/growth-dashboard": "admin/growth",
-  "/ad-name-generator": "admin/ad-name-generator",
+  "/ad-name-generator": "tools/ad-name-generator",
+  "/admin/ad-name-generator": "tools/ad-name-generator",
   "/support": "admin/support",
 };
 

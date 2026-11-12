@@ -54,6 +54,8 @@ const STAFF_PATHS = [
   "/matrix",
   "/growth-dashboard",
   "/ad-name-generator",
+  "/admin/ad-name-generator",
+  "/tools/ad-name-generator",
   "/integration-health",
   "/meeting-recaps",
   "/knowledge",
@@ -113,7 +115,7 @@ test.describe("client cannot load staff pages", () => {
         await expect(page.getByRole("heading", { name: "Home", exact: true })).toHaveCount(0);
         await expect(page.getByText("Moving in", { exact: true })).toHaveCount(0);
         // And a client never gets the staff sidebar entries or the client switcher.
-        for (const name of ["Clients", "Production", "Talent", "Creative", "Knowledge", "Admin"]) {
+        for (const name of ["Clients", "Production", "Talent", "Creative", "Knowledge", "Tools", "Admin"]) {
           await expect(page.getByRole("link", { name, exact: true })).toHaveCount(0);
         }
         await expect(page.getByTestId("client-switcher")).toHaveCount(0);
@@ -126,19 +128,19 @@ test.describe("employee reaches staff pages", () => {
   test.use({ storageState: "e2e/.auth/employee.json" });
   test.skip(!hasEmployeeCreds, "Set PLAYWRIGHT_EMPLOYEE_EMAIL and PLAYWRIGHT_EMPLOYEE_PASSWORD to run");
 
-  test("Home loads with the other apps and no builder-only entries", async ({ page }) => {
+  test("Home loads without Go to cards, outside-app cards or builder-only entries", async ({ page }) => {
     await page.goto("/employee/staff");
     await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible({ timeout: 30_000 });
     expect(new URL(page.url()).pathname.replace(/\/$/, "")).toBe("/employee");
-    await expect(page.getByTestId("home-app-goodo-time")).toHaveAttribute("href", /goodo-time/);
-    await expect(page.getByTestId("home-app-attio")).toHaveAttribute("href", /attio\.com/);
-    await expect(page.getByTestId("home-app-old-dashboard-public")).toHaveAttribute("href", /goodostudios-production/);
+    await expect(page.getByTestId("home-card-production")).toHaveCount(0);
+    await expect(page.getByTestId("home-app-goodo-time")).toHaveCount(0);
+    await expect(page.getByTestId("home-app-old-dashboard-public")).toHaveCount(0);
     await expect(page.getByText("Growth Dashboard")).toHaveCount(0); // builder only
   });
 
-  test("the sidebar has the seven staff menu items and the client switcher", async ({ page }) => {
+  test("the sidebar has the eight staff menu items and the client switcher", async ({ page }) => {
     await page.goto("/employee/");
-    for (const name of ["Home", "Clients", "Production", "Talent", "Creative", "Knowledge", "Admin"]) {
+    for (const name of ["Home", "Clients", "Production", "Talent", "Creative", "Knowledge", "Tools", "Admin"]) {
       await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link", { name, exact: true })).toBeVisible({ timeout: 30_000 });
     }
     await expect(page.getByRole("link", { name: "Staff menu" })).toHaveCount(0);

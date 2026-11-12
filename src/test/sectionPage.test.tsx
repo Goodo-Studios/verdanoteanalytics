@@ -80,8 +80,8 @@ beforeEach(() => {
 });
 
 describe("section model", () => {
-  it("has the five tabbed sections with the agreed tabs", () => {
-    expect(SECTIONS.map((s) => s.label)).toEqual(["Production", "Talent", "Creative", "Knowledge", "Admin"]);
+  it("has the six tabbed sections with the agreed tabs", () => {
+    expect(SECTIONS.map((s) => s.label)).toEqual(["Production", "Talent", "Creative", "Knowledge", "Tools", "Admin"]);
     const labels = (id: string) => SECTIONS.find((s) => s.id === id)!.tabs.map((t) => t.label);
     expect(labels("production")).toEqual(["Production calendar", "Call sheets", "Casting", "Crew", "Locations", "Props", "Shipments"]);
     expect(labels("talent")).toEqual(["Creators", "Actors", "Applications", "Creator pipeline", "Follow-ups", "Approval boards"]);
@@ -90,9 +90,18 @@ describe("section model", () => {
       "Creative Rotation", "Creative Diversity", "Library", "Boards", "Hooks",
     ]);
     expect(labels("knowledge")).toEqual(["Knowledge", "Learning", "Meeting recaps", "Client BIDs"]);
+    expect(labels("tools")).toEqual(["Ad Name Generator"]);
     expect(labels("admin")).toEqual([
-      "Team and settings", "Integration health", "Notifications", "Operations", "Early pages", "Operating costs", "Agent evaluations", "Growth Dashboard", "Ad Name Generator", "Support inbox",
+      "Team and settings", "Integration health", "Notifications", "Operations", "Early pages", "Operating costs", "Agent evaluations", "Growth Dashboard", "Support inbox",
     ]);
+  });
+
+  it("shows an employee five Admin items or fewer, and the Ad Name Generator under Tools (OS-002)", () => {
+    const admin = tabsFor(SECTIONS.find((s) => s.id === "admin")!, false).map((t) => t.label);
+    expect(admin.length).toBeLessThanOrEqual(5);
+    expect(admin).not.toContain("Ad Name Generator");
+    const tools = tabsFor(SECTIONS.find((s) => s.id === "tools")!, false).map((t) => t.label);
+    expect(tools).toEqual(["Ad Name Generator"]);
   });
 
   it("marks exactly the Matrix, Operating costs, Growth Dashboard and Early pages builder only", () => {
@@ -137,14 +146,15 @@ describe("role gating", () => {
     expect(names).not.toContain("Early pages");
     expect(names).not.toContain("Agent evaluations");
     expect(names).toContain("Notifications");
-    expect(names).toHaveLength(6);
+    expect(names).not.toContain("Ad Name Generator");
+    expect(names).toHaveLength(5);
   });
 
-  it("a builder sees nine Admin tabs: Early pages in, Agent evaluations out", async () => {
+  it("a builder sees eight Admin tabs: Early pages in, Agent evaluations out", async () => {
     renderAt("/builder/admin/team");
     await screen.findByTestId("page-team");
     const names = tabNames("Admin");
-    expect(names).toHaveLength(9);
+    expect(names).toHaveLength(8);
     expect(names).toContain("Early pages");
     expect(names).not.toContain("Agent evaluations");
   });
