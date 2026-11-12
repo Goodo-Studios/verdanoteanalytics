@@ -1,0 +1,110 @@
+/*
+ * Goodo OS design tokens (OS-005). One file for colours, type, radius, shadow and motion.
+ * Values match the War Room page (companies/goodo-studios/workers/chief-of-staff/scripts/ui.py
+ * in HQ). Light theme only. Red (--gos-late) is for late items and errors only.
+ *
+ * Loaded after index.css and kept outside any @layer, so these values win over the older
+ * Verdanote palette without editing every page.
+ */
+:root {
+  /* Raw War Room values */
+  --gos-bg: #f9f7f3;
+  --gos-card: #ffffff;
+  --gos-ink: #1e1e1e;
+  --gos-mut: #6b6560;
+  --gos-faint: #a39d96;
+  --gos-line: #e9e5de;
+  --gos-acc2: #f1eee8;
+  --gos-late: #c2412b;
+  --gos-warm: #f3ede1;
+  --gos-grid: rgba(30, 25, 20, 0.045);
+  --gos-hdr: #faf7f2;
+  --gos-blue: #2f6fb0;
+
+  /* Type */
+  --gos-sans: "Inter", "Neue Haas Grotesk Display Pro", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Helvetica, Arial, sans-serif;
+  --gos-serif: "Instrument Serif", "Iowan Old Style", "Playfair Display", Georgia, serif;
+
+  /* Shape */
+  --gos-radius-card: 20px;
+  --gos-radius-panel: 28px;
+  --gos-radius-pill: 999px;
+  --gos-shadow: 0 1px 2px rgba(30, 25, 20, 0.04), 0 8px 28px rgba(30, 25, 20, 0.06);
+  --gos-shadow-raised: 0 12px 32px rgba(30, 25, 20, 0.1), 0 2px 4px rgba(30, 25, 20, 0.05);
+
+  /* Motion */
+  --gos-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --gos-dur-fast: 150ms;
+  --gos-dur: 250ms;
+  --gos-dur-slow: 320ms;
+
+  /* The app's shared colour variables (HSL triples), set from the values above */
+  --background: 40 33% 96%; /* bg */
+  --foreground: 0 0% 12%; /* ink */
+  --text-strong: 0 0% 12%;
+  --text-secondary: 27 5% 40%; /* mut */
+  --text-heading: 0 0% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 12%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 12%;
+  --primary: 0 0% 12%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 40 24% 93%; /* acc2 */
+  --secondary-foreground: 0 0% 12%;
+  --muted: 40 24% 93%;
+  --muted-foreground: 27 5% 40%;
+  --accent: 40 24% 93%;
+  --accent-foreground: 0 0% 12%;
+  --destructive: 9 64% 47%; /* late */
+  --destructive-foreground: 0 0% 100%;
+  --border: 38 20% 89%; /* line */
+  --input: 38 20% 89%;
+  --ring: 0 0% 12%;
+  --radius: 20px;
+  --sidebar-background: 38 44% 97%; /* hdr */
+  --sidebar-foreground: 27 5% 40%;
+  --sidebar-primary: 0 0% 12%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 40 24% 93%;
+  --sidebar-accent-foreground: 0 0% 12%;
+  --sidebar-border: 38 20% 89%;
+  --sidebar-ring: 0 0% 12%;
+
+  color-scheme: light;
+}
+
+body {
+  background-color: var(--gos-bg);
+  background-image: linear-gradient(var(--gos-grid) 1px, transparent 1px), linear-gradient(90deg, var(--gos-grid) 1px, transparent 1px);
+  background-size: 44px 44px;
+  background-position: -1px -1px;
+  color: var(--gos-ink);
+  font-family: var(--gos-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--gos-sans);
+  letter-spacing: -0.02em;
+}
+
+/* Italic serif accent, as in the War Room headings */
+.gos-serif {
+  font-family: var(--gos-serif);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}
