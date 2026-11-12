@@ -59,7 +59,14 @@ interface QueryBuilder extends PromiseLike<QueryResult> {
   upsert(rows: unknown[], options: { onConflict: string }): QueryBuilder;
   delete(options: { count: "exact" }): QueryBuilder;
   lt(column: string, value: string): QueryBuilder;
+  not(column: string, operator: string, value: string): QueryBuilder;
 }
+
+// Made-up demo cards seeded on staging (scripts/seed-staging-dashboard-lib.mjs) use
+// clickup_task_id values starting with this prefix. Real ClickUp ids never do, so the
+// authoritative delete leaves these rows alone and the staging client wall check keeps
+// cards to test against after a real sync. On production no row has this prefix.
+export const DEMO_SEED_ID_PATTERN = "demo-seed-%";
 interface SupabaseLike {
   from(table: string): QueryBuilder;
 }
@@ -289,7 +296,8 @@ export async function handler(
       const { error: deleteError, count } = await supabase
         .from("pipeline_tasks")
         .delete({ count: "exact" })
-        .lt("synced_at", nowIso);
+        .lt("synced_at", nowIso)
+        .not("clickup_task_id", "like", DEMO_SEED_ID_PATTERN);
       if (deleteError) {
         console.error("Authoritative delete error:", deleteError.message);
       } else {
@@ -300,7 +308,8 @@ export async function handler(
       const { error: archiveDeleteError, count: archiveCount } = await supabase
         .from("pipeline_delivered")
         .delete({ count: "exact" })
-        .lt("synced_at", nowIso);
+        .lt("synced_at", nowIso)
+        .not("clickup_task_id", "like", DEMO_SEED_ID_PATTERN);
       if (archiveDeleteError) {
         console.error("Delivered delete error:", archiveDeleteError.message);
       } else {

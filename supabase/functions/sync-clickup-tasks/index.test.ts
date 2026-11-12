@@ -72,7 +72,7 @@ function makeRecorder({ upsertError = false, upsertErrorTable = "", mappings = [
   const makeBuilder = (table: string) => {
     let op = "select";
     const builder: Record<string, unknown> = {};
-    for (const m of ["select", "eq", "upsert", "delete", "lt"]) {
+    for (const m of ["select", "eq", "upsert", "delete", "lt", "not"]) {
       builder[m] = (...args: unknown[]) => {
         if (m === "upsert" || m === "delete") op = m;
         calls.push({ method: m, table, args });
@@ -287,6 +287,14 @@ Deno.test("syncs matched folders, reports unmatched ones, writes client-safe row
     assert(archiveDeleteIdx > calls.indexOf(archive), "the delivered sweep must come after its upsert");
     const archiveLt = calls.find((c) => c.method === "lt" && c.table === "pipeline_delivered");
     assertEquals(archiveLt?.args, ["synced_at", rows[0].synced_at]);
+
+    // Both deletes spare the made-up staging demo cards (clickup_task_id demo-seed-...).
+    for (const table of ["pipeline_tasks", "pipeline_delivered"]) {
+      const not = calls.find((c) => c.method === "not" && c.table === table);
+      assertEquals(not?.args, ["clickup_task_id", "like", "demo-seed-%"], `${table} delete must exclude demo cards`);
+      const delIdx = calls.findIndex((c) => c.method === "delete" && c.table === table);
+      assert(calls.indexOf(not!) > delIdx, `${table}: the demo exclusion belongs to the delete query`);
+    }
   } finally {
     restore();
   }
