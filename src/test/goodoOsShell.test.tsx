@@ -65,7 +65,7 @@ describe("Goodo OS tokens", () => {
     expect(read("src/components/AppLayout.tsx")).not.toContain('"flex min-h-screen w-full bg-background"');
     expect(read("src/components/ui/select.tsx")).toContain("rounded-input");
     // Pages that pass their own corner classes still get pills.
-    expect(tokens).toMatch(/select,\s*button\[role="combobox"\]\s*\{\s*border-radius: var\(--gos-radius-pill\);/);
+    expect(tokens).toMatch(/select,\s*button\[role="combobox"\]\s*\{\s*border-radius: var\(--gos-radius-pill\) !important;/);
   });
 });
 

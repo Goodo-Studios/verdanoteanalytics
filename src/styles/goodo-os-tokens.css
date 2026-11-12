@@ -93,11 +93,13 @@ h3 {
 
 /*
  * Dropdowns are pills, as on the War Room page. Many pages pass their own corner classes, so the
- * shape is set here, outside the utility layer, for native selects and select triggers.
+ * shape is set here for native selects and select triggers. A page's corner class (for example
+ * rounded-[6px]) is a class selector and outranks a plain element selector, so this needs
+ * !important. Checked on staging: the Casting selects measured 6px without it.
  */
 select,
 button[role="combobox"] {
-  border-radius: var(--gos-radius-pill);
+  border-radius: var(--gos-radius-pill) !important;
 }
 
 /* Italic serif accent, as in the War Room headings */

@@ -32,6 +32,15 @@ test.describe("builder: top bar tools", () => {
     await expect(switcher).toHaveValue("");
   });
 
+  // OS-005: dropdowns are pills even where a page passes its own corner class.
+  test("dropdowns are pill-shaped", async ({ page }) => {
+    await page.goto("/builder/creative/agency");
+    const select = page.locator("select").first();
+    await expect(select).toBeVisible();
+    const radius = await select.evaluate((e) => parseFloat(getComputedStyle(e).borderRadius));
+    expect(radius).toBeGreaterThanOrEqual(999);
+  });
+
   // OS-004: the switcher shows only on pages that filter by client.
   for (const path of ["/builder/", "/builder/work", "/builder/clients", "/builder/tools/ad-name-generator", "/builder/admin/team", "/builder/production/calendar"]) {
     test("no client switcher on " + path, async ({ page }) => {
