@@ -202,14 +202,14 @@
 
   body {
     @apply text-foreground antialiased;
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--gos-sans);
     font-size: 15px;
     line-height: 1.6;
     background-color: hsl(var(--background));
   }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Libre Caslon Display', serif;
+    font-family: var(--gos-sans);
     color: hsl(var(--text-strong));
     line-height: 1.15;
     margin: 0;
@@ -230,7 +230,7 @@
   }
 
   code, .font-mono {
-    font-family: 'Crimson Pro', serif;
+    font-family: var(--gos-sans); font-variant-numeric: tabular-nums;
   }
 
   /* Softer focus rings */
@@ -242,7 +242,7 @@
 @layer components {
   /* ── Page Titles ── */
   .page-title {
-    font-family: 'Libre Caslon Display', serif;
+    font-family: var(--gos-sans);
     font-size: 2rem;
     color: hsl(var(--text-strong));
     letter-spacing: -0.01em;
@@ -250,7 +250,7 @@
   }
 
   .page-subtitle {
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--gos-sans);
     font-size: 0.8125rem;
     color: hsl(var(--muted-foreground));
     margin-top: 4px;
@@ -258,14 +258,14 @@
 
   /* ── Section Headers ── */
   .section-title {
-    font-family: 'Libre Caslon Display', serif;
+    font-family: var(--gos-sans);
     font-size: 1.5rem;
     color: hsl(var(--text-strong));
     line-height: 1.15;
   }
 
   .card-title {
-    font-family: 'Libre Caslon Display', serif;
+    font-family: var(--gos-sans);
     font-size: 1.125rem;
     color: hsl(var(--text-strong));
     line-height: 1.2;
@@ -275,7 +275,7 @@
 @layer utilities {
   /* ── Metric Card typography ── */
   .metric-value {
-    font-family: 'Crimson Pro', serif;
+    font-family: var(--gos-sans); font-variant-numeric: tabular-nums;
     font-size: 1.5rem;
     font-weight: 600;
     color: hsl(var(--foreground));
@@ -284,7 +284,7 @@
   }
 
   .metric-value-lg {
-    font-family: 'Crimson Pro', serif;
+    font-family: var(--gos-sans); font-variant-numeric: tabular-nums;
     font-size: 2.25rem;
     font-weight: 600;
     color: hsl(var(--foreground));
@@ -302,14 +302,14 @@
   }
 
   .metric-delta-positive {
-    font-family: 'Crimson Pro', serif;
+    font-family: var(--gos-sans); font-variant-numeric: tabular-nums;
     font-size: 0.875rem;
     font-weight: 500;
     color: hsl(var(--success));
   }
 
   .metric-delta-negative {
-    font-family: 'Crimson Pro', serif;
+    font-family: var(--gos-sans); font-variant-numeric: tabular-nums;
     font-size: 0.875rem;
     font-weight: 500;
     color: hsl(var(--destructive));
@@ -326,7 +326,7 @@
   }
 
   .text-table-data {
-    font-family: 'Crimson Pro', serif;
+    font-family: var(--gos-sans); font-variant-numeric: tabular-nums;
     font-size: 1.0625rem;
     font-weight: 500;
     color: hsl(var(--foreground));
@@ -335,7 +335,7 @@
   }
 
   .text-page-title {
-    font-family: 'Libre Caslon Display', serif;
+    font-family: var(--gos-sans);
     font-size: 2rem;
     color: hsl(var(--text-strong));
     letter-spacing: -0.01em;
@@ -482,7 +482,7 @@
 
     @bottom-center {
       content: "Goodo Studios · Verdanote";
-      font-family: 'Outfit', sans-serif;
+      font-family: var(--gos-sans);
       font-size: 8pt;
       color: #999;
     }

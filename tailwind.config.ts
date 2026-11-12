@@ -20,8 +20,8 @@ export default {
         heading: ["var(--gos-sans)"],
         body: ["var(--gos-sans)"],
         serif: ["var(--gos-serif)"],
-        data: ['"Crimson Pro"', "serif"],
-        mono: ['"Crimson Pro"', "serif"],
+        data: ["var(--gos-sans)"],
+        mono: ["var(--gos-sans)"],
         label: ['"Space Grotesk"', "sans-serif"],
       },
       colors: {
@@ -70,16 +70,17 @@ export default {
           DEFAULT: "hsl(var(--info))",
           foreground: "hsl(var(--info-foreground))",
         },
+        // OS-005: the old Verdanote greens now point at the War Room ink and greys.
         verdant: {
-          DEFAULT: "#1B7A4E",
-          light: "#22965F",
-          dark: "#156B42",
+          DEFAULT: "var(--gos-ink)",
+          light: "var(--gos-ink)",
+          dark: "var(--gos-ink)",
         },
         forest: "hsl(var(--text-heading))",
         sage: {
-          DEFAULT: "#6B9A7E",
-          light: "#E8F5EE",
-          dark: "#578568",
+          DEFAULT: "var(--gos-mut)",
+          light: "var(--gos-acc2)",
+          dark: "var(--gos-ink)",
         },
         cream: {
           DEFAULT: "var(--gos-bg)",

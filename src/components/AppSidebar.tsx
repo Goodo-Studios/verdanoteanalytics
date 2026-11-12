@@ -139,7 +139,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
                 className={`flex-1 text-center py-1.5 rounded-[5px] font-label text-[9px] uppercase tracking-[0.1em] font-semibold transition-colors ${
                   effectiveRole === r
                     ? "bg-background text-forest shadow-sm"
-                    : "text-sage/50 hover:text-sage cursor-pointer"
+                    : "text-muted-foreground hover:text-foreground cursor-pointer"
                 }`}
               >
                 {r}
