@@ -145,6 +145,7 @@ Deno.test("taskCommentPosted stores the comments", async () => {
   const comments = db.table("os_task_comments");
   assertEquals(comments.length, 1);
   assertEquals([comments[0].clickup_comment_id, comments[0].body], ["cm1", "Ship it"]);
+  assertEquals(comments[0].thread, "internal", "ClickUp comments land in the internal thread");
 });
 
 Deno.test("stuck keeps the app status and sets the flag", async () => {

@@ -202,6 +202,7 @@ Deno.test("full: comments for asset tasks only", async () => {
   assertEquals(comments.map((c) => c.clickup_comment_id).sort(), ["cm1", "cm5"]);
   const cm1 = comments.find((c) => c.clickup_comment_id === "cm1")!;
   assertEquals(cm1.task_id, "app-t1");
+  assert(comments.every((c) => c.thread === "internal"), "ClickUp comments land in the internal thread");
   assertEquals((cm1.author as Record<string, unknown>).email, "sam@goodo.test");
   assertEquals(body.comments, 2);
 });

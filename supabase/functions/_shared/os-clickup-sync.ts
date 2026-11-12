@@ -236,6 +236,8 @@ export async function upsertTasks(
 export interface CommentRow {
   task_id: string;
   clickup_comment_id: string;
+  /** OS-008: ClickUp comments always land in the staff-only internal thread. */
+  thread: "internal";
   author: Record<string, unknown>;
   body: string;
   created_at: string | null;
@@ -259,6 +261,7 @@ export async function fetchComments(
       return {
         task_id: appId,
         clickup_comment_id: String(c.id),
+        thread: "internal",
         author: {
           id: user.id === undefined || user.id === null ? null : String(user.id),
           username: (user.username as string | undefined) ?? null,

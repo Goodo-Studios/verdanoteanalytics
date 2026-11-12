@@ -35,6 +35,10 @@ INSERT INTO allow VALUES
   ('browser','get_period_metrics'), ('browser','get_user_role'),
   -- OS-006: a client's own tasks, client-visible fields only; filters on has_role and get_user_client_slugs.
   ('browser','os_client_tasks'),
+  -- OS-008: task comment threads. Both check the caller inside: staff (has_role builder/employee)
+  -- see and post in both threads; a client only the client thread of their own client's visible
+  -- task (get_user_client_slugs); anyone else is refused or gets no rows.
+  ('browser','post_task_comment'), ('browser','list_task_comments'),
   ('row_rules','has_role'), ('row_rules','get_user_account_ids'),
   ('row_rules','get_user_client_slugs'),
   ('row_rules','owns_ad_library_ad'), ('row_rules','owns_ad_library_board'),
