@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { clickUpWritePolicy, mayWriteToList, READ_ONLY_MESSAGE } from "../_shared/clickup-write-guard.ts";
 import { type Caller, resolveCaller } from "../_shared/internal-auth.ts";
 import {
   CLICKUP_CLIENT_SPACE_ID,
@@ -125,11 +126,16 @@ function isStaffLogin(caller: Caller): boolean {
   return caller.roles.includes("builder") || caller.roles.includes("employee");
 }
 
-function makeClickUp(token: string, fetchImpl: FetchLike) {
+function makeClickUp(token: string, fetchImpl: FetchLike, refuseAllWrites = false) {
   return async function clickup(
     path: string,
     init: { method?: "GET" | "POST" | "PUT"; body?: unknown } = {},
   ): Promise<Record<string, unknown>> {
+    // Second safety net behind the list check in the handler: when this
+    // environment allows no ClickUp writes at all, no non-GET request leaves.
+    if (refuseAllWrites && (init.method ?? "GET") !== "GET") {
+      throw new Refusal(403, READ_ONLY_MESSAGE, { read_only: true });
+    }
     const res = await fetchImpl(`${CLICKUP_API}${path}`, {
       method: init.method ?? "GET",
       headers: { Authorization: token, "Content-Type": "application/json" },
@@ -325,11 +331,20 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
   const input = parseInput(raw);
   if (typeof input === "string") return json({ error: input }, 400);
 
-  const clickup = makeClickUp(token, deps.fetch ?? ((url, init) => fetch(url, init)));
+  const writePolicy = clickUpWritePolicy(env);
+  const clickup = makeClickUp(
+    token,
+    deps.fetch ?? ((url, init) => fetch(url, init)),
+    writePolicy.blocked && writePolicy.allowedListIds.size === 0,
+  );
   try {
     const db = (deps.db ?? serviceClient)();
     const { slug, clients, mappings } = await loadClients(db, input);
     const list = await resolveProjectList(clickup, slug, clients, mappings);
+
+    if (input.action === "push" && !mayWriteToList(writePolicy, list.id)) {
+      throw new Refusal(403, READ_ONLY_MESSAGE, { read_only: true });
+    }
 
     if (input.action === "list") {
       const tasks = (await listTasks(clickup, list.id))
