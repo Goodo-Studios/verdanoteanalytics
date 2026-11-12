@@ -64,6 +64,8 @@ describe("Goodo OS tokens", () => {
   it("lets the page grid show behind the app and gives dropdowns the pill shape", () => {
     expect(read("src/components/AppLayout.tsx")).not.toContain('"flex min-h-screen w-full bg-background"');
     expect(read("src/components/ui/select.tsx")).toContain("rounded-input");
+    // Pages that pass their own corner classes still get pills.
+    expect(tokens).toMatch(/select,\s*button\[role="combobox"\]\s*\{\s*border-radius: var\(--gos-radius-pill\);/);
   });
 });
 

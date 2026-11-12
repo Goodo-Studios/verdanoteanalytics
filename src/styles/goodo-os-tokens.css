@@ -91,6 +91,15 @@ h3 {
   letter-spacing: -0.02em;
 }
 
+/*
+ * Dropdowns are pills, as on the War Room page. Many pages pass their own corner classes, so the
+ * shape is set here, outside the utility layer, for native selects and select triggers.
+ */
+select,
+button[role="combobox"] {
+  border-radius: var(--gos-radius-pill);
+}
+
 /* Italic serif accent, as in the War Room headings */
 .gos-serif {
   font-family: var(--gos-serif);
