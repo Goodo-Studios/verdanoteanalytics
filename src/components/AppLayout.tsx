@@ -27,7 +27,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <ClientSelectionProvider>
-    <div className="flex min-h-screen w-full bg-background">
+    <div className="flex min-h-screen w-full">{/* transparent so the page grid shows (OS-005) */}
       {/* Mobile overlay */}
       {mobileOpen && (
         <div

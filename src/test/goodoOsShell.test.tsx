@@ -53,6 +53,18 @@ describe("Goodo OS tokens", () => {
     expect(tw).toContain('card: "var(--gos-shadow)"');
     expect(tw).toContain('sans: ["var(--gos-sans)"]');
   });
+
+  it("has no Verdanote green or serif number font left in the shared settings", () => {
+    const tw = read("tailwind.config.ts");
+    expect(tw).not.toMatch(/#1B7A4E|#22965F|#156B42|#6B9A7E|#E8F5EE/i);
+    expect(tw).toContain('data: ["var(--gos-sans)"]');
+    expect(tw).not.toContain("Crimson Pro");
+  });
+
+  it("lets the page grid show behind the app and gives dropdowns the pill shape", () => {
+    expect(read("src/components/AppLayout.tsx")).not.toContain('"flex min-h-screen w-full bg-background"');
+    expect(read("src/components/ui/select.tsx")).toContain("rounded-input");
+  });
 });
 
 describe("Goodo OS name", () => {

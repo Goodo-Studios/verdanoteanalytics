@@ -17,7 +17,7 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "flex h-10 w-full items-center justify-between rounded-[6px] border border-border-light bg-background px-2.5 py-1.5 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+      "flex h-10 w-full items-center justify-between rounded-input border border-border-light bg-background px-2.5 py-1.5 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
       className,
     )}
     {...props}
@@ -66,7 +66,7 @@ const SelectContent = React.forwardRef<
     <SelectPrimitive.Content
       ref={ref}
       className={cn(
-        "relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-[6px] border border-border-light bg-popover text-popover-foreground shadow-card transition-opacity data-[state=open]:duration-[120ms] data-[state=closed]:duration-[80ms] ease data-[state=open]:opacity-100 data-[state=closed]:opacity-0",
+        "relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-[16px] border border-border-light bg-popover text-popover-foreground shadow-card transition-opacity data-[state=open]:duration-[120ms] data-[state=closed]:duration-[80ms] ease data-[state=open]:opacity-100 data-[state=closed]:opacity-0",
         position === "popper" &&
           "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
         className,
