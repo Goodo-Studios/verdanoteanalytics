@@ -10,8 +10,7 @@ test.describe("builder: top bar tools", () => {
   test.skip(!hasLogins, NEEDS_PASSWORD);
 
   test("the client switcher changes the client and keeps it when the page changes", async ({ page }) => {
-    await page.goto("/builder/work");
-    // The Work page has its own "Client" filter, so the switcher is found by its test id.
+    await page.goto("/builder/creative/agency");
     const switcher = page.getByTestId("client-switcher").getByRole("combobox", { name: "Client", exact: true });
     await expect(switcher).toBeVisible();
     // Wait for the list to load: "All clients" plus at least two clients.
@@ -24,15 +23,23 @@ test.describe("builder: top bar tools", () => {
     await switcher.selectOption(values[1]);
     await expect(switcher).toHaveValue(values[1]);
 
-    // The choice follows the person to another page.
-    await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Production", exact: true }).click();
-    await expect(page).toHaveURL(/\/builder\/production\//);
+    // The choice follows the person to another page that filters by client.
+    await page.goto("/builder/knowledge/meetings");
     await expect(switcher).toHaveValue(values[1]);
 
     // And back to every client.
     await switcher.selectOption("");
     await expect(switcher).toHaveValue("");
   });
+
+  // OS-004: the switcher shows only on pages that filter by client.
+  for (const path of ["/builder/", "/builder/work", "/builder/clients", "/builder/tools/ad-name-generator", "/builder/admin/team", "/builder/production/calendar"]) {
+    test("no client switcher on " + path, async ({ page }) => {
+      await page.goto(path);
+      await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
+      await expect(page.getByTestId("client-switcher")).toHaveCount(0);
+    });
+  }
 
   test("Ctrl+K opens the search, it finds a page, and Enter opens it", async ({ page }) => {
     await page.goto("/builder/");

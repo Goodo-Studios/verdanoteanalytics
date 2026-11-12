@@ -1,4 +1,6 @@
 import { ReactNode, useState } from "react";
+import { useLocation } from "react-router-dom";
+import { showsClientPicker } from "@/lib/sections";
 import { AppSidebar } from "@/components/AppSidebar";
 import { PresenceAvatars } from "@/components/PresenceAvatars";
 import { ClientSwitcher } from "@/components/ClientSwitcher";
@@ -18,8 +20,10 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { isClient } = useAuth();
   const { isClientPreview } = useClientPreview();
-  // Staff pick a client in one switcher at the top. A client login has none.
-  const showSwitcher = !isClient && !isClientPreview;
+  const { pathname } = useLocation();
+  // Staff pick a client in one switcher at the top, only on pages that filter by client
+  // (OS-004: client pages, Creative, and tabs marked usesClient). A client login has none.
+  const showSwitcher = !isClient && !isClientPreview && showsClientPicker(pathname);
 
   return (
     <ClientSelectionProvider>
