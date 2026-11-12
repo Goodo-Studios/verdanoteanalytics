@@ -97,9 +97,11 @@ export const SECTIONS: SectionDef[] = [
   {
     id: "knowledge",
     label: "Knowledge",
-    description: "Shared knowledge, meeting recaps and client BIDs.",
+    description: "The company Brain, shared knowledge, meeting recaps and client BIDs.",
     tabs: [
       { slug: "shared", label: "Knowledge", page: "knowledge", legacy: [] },
+      // Published from HQ knowledge by scripts/publish-brain.mjs (Goodo OS OS-014).
+      { slug: "brain", label: "Brain", page: "brain", legacy: [] },
       { slug: "learning", label: "Learning", page: "learning", legacy: ["/learning"], usesClient: true },
       { slug: "meetings", label: "Meeting recaps", page: "meetingRecaps", legacy: ["/meeting-recaps"], usesClient: true },
       { slug: "bids", label: "Client BIDs", page: "bidViewer", legacy: ["/bids"], usesClient: true },
