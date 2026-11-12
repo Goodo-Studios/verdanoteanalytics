@@ -11,7 +11,7 @@
 -- mentioned person, never the author, readable only by its owner. All rows are made up.
 
 BEGIN;
-SELECT plan(45);
+SELECT plan(48);
 
 INSERT INTO auth.users (id, email) VALUES
   ('e8100000-0000-4000-8000-000000000001', 'ct-builder@example.test'),
@@ -31,6 +31,12 @@ INSERT INTO public.client_members (user_id, client_slug) VALUES
   ('e8100000-0000-4000-8000-000000000003', 'ct-alpha'),
   ('e8100000-0000-4000-8000-000000000004', 'ct-alpha'),
   ('e8100000-0000-4000-8000-000000000005', 'ct-beta');
+-- A client login linked to ct-alpha through an ad account only, with no client_members row.
+INSERT INTO auth.users (id, email) VALUES ('e8100000-0000-4000-8000-000000000007', 'ct-adclient@example.test');
+INSERT INTO public.user_roles (user_id, role) VALUES ('e8100000-0000-4000-8000-000000000007', 'client');
+INSERT INTO public.ad_accounts (id, name) VALUES ('act_ct_alpha', 'CT Alpha Meta');
+INSERT INTO public.client_ad_accounts (account_id, client_slug) VALUES ('act_ct_alpha', 'ct-alpha');
+INSERT INTO public.user_accounts (user_id, account_id) VALUES ('e8100000-0000-4000-8000-000000000007', 'act_ct_alpha');
 
 -- a: alpha app task. ro: alpha read-only asset. n: alpha ClickUp non-asset (meeting call). b: beta task.
 INSERT INTO public.os_tasks (id, client_slug, title, clickup_task_id, clickup_list_id, is_asset, read_only) VALUES
@@ -172,6 +178,21 @@ SELECT throws_ok($$SELECT public.post_task_comment('e8200000-0000-4000-8000-0000
   '42501', NULL, 'a login with no role cannot post');
 SELECT is((SELECT count(*)::int FROM public.os_task_comments), 0,
   'a login with no role reads no comment rows');
+
+-- ---------------------------------------------------------------- ad-account client (fix 20261121080002)
+RESET role;
+SELECT ok(NOT has_function_privilege('authenticated', 'public.os_user_client_slugs(uuid)', 'EXECUTE'),
+  'the client-membership helper is not callable from the browser');
+SET LOCAL role authenticated;
+SELECT set_config('request.jwt.claim.role', 'authenticated', true);
+SELECT set_config('request.jwt.claim.sub', 'e8100000-0000-4000-8000-000000000002', true);
+SELECT lives_ok($$SELECT public.post_task_comment('e8200000-0000-4000-8000-00000000000a', 'client', 'Ready for you',
+                   ARRAY['e8100000-0000-4000-8000-000000000007']::uuid[])$$,
+  'staff can mention a client linked to the task''s client through an ad account');
+RESET role;
+SELECT is((SELECT count(*)::int FROM public.notifications
+            WHERE user_id = 'e8100000-0000-4000-8000-000000000007' AND type = 'mention'), 1,
+  'the ad-account client gets the mention notification');
 
 -- ---------------------------------------------------------------- anon (43-44)
 RESET role;
