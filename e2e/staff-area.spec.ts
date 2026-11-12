@@ -138,13 +138,15 @@ test.describe("employee reaches staff pages", () => {
     await expect(page.getByText("Growth Dashboard")).toHaveCount(0); // builder only
   });
 
-  test("the sidebar has the eight staff menu items and the client switcher", async ({ page }) => {
+  test("the sidebar has the eight staff menu items, and the client switcher shows on Creative only", async ({ page }) => {
     await page.goto("/employee/");
     for (const name of ["Home", "Clients", "Production", "Talent", "Creative", "Knowledge", "Tools", "Admin"]) {
       await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link", { name, exact: true })).toBeVisible({ timeout: 30_000 });
     }
     await expect(page.getByRole("link", { name: "Staff menu" })).toHaveCount(0);
-    await expect(page.getByRole("combobox", { name: "Client", exact: true })).toBeVisible();
+    await expect(page.getByTestId("client-switcher")).toHaveCount(0);
+    await page.goto("/employee/creative/agency");
+    await expect(page.getByTestId("client-switcher").getByRole("combobox", { name: "Client", exact: true })).toBeVisible({ timeout: 30_000 });
   });
 
   for (const path of STAFF_PATHS.filter((p) => !BUILDER_ONLY_PATHS.includes(p) && !p.includes("/build"))) {
