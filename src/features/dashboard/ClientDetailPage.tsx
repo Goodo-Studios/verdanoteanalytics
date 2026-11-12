@@ -15,6 +15,7 @@ import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField } from "@/components/page-kit";
 import { useAuth } from "@/contexts/AuthContext";
+import { ClientMonthHours } from "@/features/clients/ClientMonthHours";
 import { hubPath } from "@/lib/clientHub";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { STATUS_LABEL as ENGAGEMENT_STATUS_LABEL, type EngagementStatus } from "@/features/engagements/model";
@@ -249,6 +250,7 @@ export default function ClientDetailPage() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <ScopeField key={client.scope ?? ""} client={client} canEdit={isBuilder} onSaved={saved} />
+        <ClientMonthHours slug={client.slug} />
         <div className={CARD}>
           <h2 className={H2}>Production progress</h2>
           <div className="mt-2 h-2 w-full rounded bg-muted" role="img" aria-label={`Progress ${pct ?? 0} percent`}>

@@ -91,7 +91,9 @@ INSERT INTO allow
     'create_ingest_token', 'revoke_ingest_token', 'list_ingest_tokens', 'list_ingest_audit',
     -- OS-012: the timer and the weekly log. Each refuses anyone who is not builder or employee
     -- and acts only on the caller's own time_people row.
-    'time_my_person', 'time_start_timer', 'time_stop_timer'
+    'time_my_person', 'time_start_timer', 'time_stop_timer',
+    -- OS-013: a client's monthly scope hours. Refuses anyone who is not a builder.
+    'set_client_scope_hours'
   ]);
 
 -- SECURITY DEFINER functions in public (extension functions excluded).
