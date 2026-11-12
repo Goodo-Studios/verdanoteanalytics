@@ -282,10 +282,14 @@ describe("speed", () => {
         due_date: i % 10 === 0 ? null : day((i % 40) - 10),
       }),
     );
+    // Time the page, not the test's own lookups: waitFor re-runs its callback on every DOM change, and
+    // a Testing Library query over 1,000 rows is slow on its own. A plain selector count is cheap, so
+    // the clock stops when the page has drawn the rows. The full query runs once afterwards.
     const start = performance.now();
-    renderPage();
-    await waitFor(() => expect(screen.getAllByTestId("my-task-row")).toHaveLength(1000));
+    const { container } = renderPage();
+    await waitFor(() => expect(container.querySelectorAll('[data-testid="my-task-row"]').length).toBe(1000));
     const ms = performance.now() - start;
+    expect(screen.getAllByTestId("my-task-row")).toHaveLength(1000);
     expect(ms).toBeLessThan(1000);
   });
 });
