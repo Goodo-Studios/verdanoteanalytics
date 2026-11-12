@@ -12,6 +12,8 @@ const h = vi.hoisted(() => ({ auth: {} as Record<string, unknown>, preview: { is
 vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => h.auth }));
 vi.mock("@/hooks/useClientPreviewMode", () => ({ useClientPreview: () => h.preview }));
 vi.mock("@/hooks/useRolePath", () => ({ useRolePrefix: () => "/builder" }));
+// The server search (OS-015) is covered in osSearch.test.tsx; here it finds nothing and makes no request.
+vi.mock("@/lib/osSearchApi", () => ({ fetchOsSearch: vi.fn(async () => []) }));
 
 import { CommandPaletteHost } from "@/components/CommandPaletteHost";
 import { WithClient } from "@/test/clientSelection";
