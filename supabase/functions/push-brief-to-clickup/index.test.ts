@@ -155,12 +155,14 @@ async function run(body: unknown, opts: {
   token?: string | undefined;
   tables?: Record<string, Row[]>;
   now?: Date;
+  extraEnv?: Record<string, string>;
 } = {}) {
   const click = stubClickUp(opts.routes ?? baseRoutes());
   const db = fakeDb(opts.tables ?? TABLES);
+  const baseEnv = env("token" in opts ? opts.token : TOKEN);
   const res = await handler(post(body), {
     resolveCaller: opts.caller ?? employee,
-    env: env("token" in opts ? opts.token : TOKEN),
+    env: (name: string) => opts.extraEnv?.[name] ?? baseEnv(name),
     fetch: click.fetch,
     db: db.db,
     now: () => opts.now ?? new Date("2026-11-15T12:00:00Z"),
@@ -518,4 +520,71 @@ Deno.test("helpers", () => {
   assertEquals(toPlainMarkdown("a<sub> </sub>b"), "ab");
   assertEquals(toPlainMarkdown("3 < 4 and 5 > 2"), "3 < 4 and 5 > 2");
   assertEquals(buildBriefDescription("Body"), "Body\n\n*Pushed from Verdanote.*");
+});
+
+// ── staging read-only guard (_shared/clickup-write-guard.ts) ───────────────
+
+const STAGING_ENV = { SUPABASE_URL: "https://mnvcksbhbvypuiwozvct.supabase.co" };
+const PROD_ENV = { SUPABASE_URL: "https://gwyxaqoaldnaavkjqquv.supabase.co" };
+const allWriteRoutes = () => {
+  const target = task("86bc00t09", "November Asset 9");
+  return baseRoutes({
+    ...taskRoute(target),
+    "PUT /task/86bc00t09": ok(target),
+    [`POST /list/${LIST}/task`]: ok({ id: "n", name: "x" }),
+  });
+};
+
+Deno.test("staging: pushing to an existing task is refused with 403 and nothing is written", async () => {
+  const r = await run({ ...PUSH, target: "86bc00t09" }, { routes: allWriteRoutes(), extraEnv: STAGING_ENV });
+  assertEquals(r.res.status, 403);
+  assertEquals(r.json.read_only, true);
+  assertStringIncludes(r.json.error, "read-only");
+  assertEquals(writes(r.seen).length, 0);
+});
+
+Deno.test("staging: creating a new task is refused with 403 and nothing is written", async () => {
+  const r = await run({ ...PUSH, target: "new" }, { routes: allWriteRoutes(), extraEnv: STAGING_ENV });
+  assertEquals(r.res.status, 403);
+  assertEquals(writes(r.seen).length, 0);
+});
+
+Deno.test("staging: listing tasks still works (reads are allowed)", async () => {
+  const r = await run({ action: "list", client_slug: "smokeshow" }, { extraEnv: STAGING_ENV });
+  assertEquals(r.res.status, 200);
+  assertEquals(r.json.tasks.length, 2);
+  assertEquals(writes(r.seen).length, 0);
+});
+
+Deno.test("staging stays blocked even when CLICKUP_WRITES says on", async () => {
+  const r = await run({ ...PUSH, target: "new" }, { routes: allWriteRoutes(), extraEnv: { ...STAGING_ENV, CLICKUP_WRITES: "on" } });
+  assertEquals(r.res.status, 403);
+  assertEquals(writes(r.seen).length, 0);
+});
+
+Deno.test("CLICKUP_WRITES=off blocks writes outside staging too", async () => {
+  const r = await run({ ...PUSH, target: "new" }, { routes: allWriteRoutes(), extraEnv: { ...PROD_ENV, CLICKUP_WRITES: "off" } });
+  assertEquals(r.res.status, 403);
+  assertEquals(writes(r.seen).length, 0);
+});
+
+Deno.test("staging: an allowed test list can be written, any other list cannot", async () => {
+  const allowed = await run({ ...PUSH, target: "new" }, {
+    routes: allWriteRoutes(),
+    extraEnv: { ...STAGING_ENV, CLICKUP_WRITE_ALLOWED_LIST_IDS: `123, ${LIST}` },
+  });
+  assertEquals(allowed.res.status, 200);
+  assertEquals(writes(allowed.seen).length, 1);
+  const other = await run({ ...PUSH, target: "new" }, {
+    routes: allWriteRoutes(),
+    extraEnv: { ...STAGING_ENV, CLICKUP_WRITE_ALLOWED_LIST_IDS: OTHER_LIST },
+  });
+  assertEquals(other.res.status, 403);
+  assertEquals(writes(other.seen).length, 0);
+});
+
+Deno.test("production is unchanged: writes go through with no guard settings", async () => {
+  const r = await run({ ...PUSH, target: "new" }, { routes: allWriteRoutes(), extraEnv: PROD_ENV });
+  assertEquals(r.res.status, 200);
+  assertEquals(writes(r.seen).length, 1);
 });
