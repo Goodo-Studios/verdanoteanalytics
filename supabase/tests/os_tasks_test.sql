@@ -24,7 +24,6 @@ INSERT INTO public.clients (slug, name, status) VALUES ('ot-alpha', 'OT Alpha', 
 INSERT INTO public.client_members (user_id, client_slug) VALUES ('e7000000-0000-4000-8000-000000000003', 'ot-alpha');
 
 CREATE TEMP TABLE r AS SELECT NULL::uuid AS a, NULL::uuid AS b;
-INSERT INTO r VALUES (NULL, NULL);
 GRANT ALL ON r TO authenticated;
 
 -- ---------------------------------------------------------------- structure (1-5)
