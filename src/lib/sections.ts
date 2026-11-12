@@ -31,6 +31,11 @@ export interface SectionDef {
   id: SectionId;
   label: string;
   description: string;
+  /**
+   * Optional groups, in order. When set, the section shows one row of group links and, below
+   * it, only the tabs of the open group. Every tab must then name one of these groups.
+   */
+  groups?: string[];
   tabs: TabDef[];
 }
 
@@ -65,23 +70,26 @@ export const SECTIONS: SectionDef[] = [
   {
     id: "creative",
     label: "Creative",
-    description: "Ad analytics, creatives, briefs, reports and the Creative Vault.",
+    description: "Ad performance, the creative library, tagging and reports.",
+    // Four groups, each with its own short row of tabs (Goodo OS OS-003). Slugs did not
+    // change, so every old Creative address still opens the same page.
+    groups: ["Performance", "Library", "Tagging", "Reports"],
     tabs: [
-      { slug: "overview", label: "Overview", page: "overview", legacy: [], needsAccount: true },
-      { slug: "agency", label: "Agency overview", page: "agencyDashboard", legacy: ["/agency"] },
-      { slug: "creatives", label: "Creatives", page: "creatives", legacy: ["/creatives"], needsAccount: true },
-      { slug: "library", label: "Creative Library", page: "creativeLibrary", legacy: ["/creative-library"], needsAccount: true },
-      { slug: "analytics", label: "Analytics", page: "analytics", legacy: ["/analytics"], needsAccount: true },
-      { slug: "matrix", label: "Matrix", page: "matrix", legacy: ["/matrix"], builderOnly: true, needsAccount: true },
-      { slug: "tagging", label: "Tagging", page: "tagging", legacy: ["/tagging"], needsAccount: true },
-      { slug: "briefs", label: "Briefs", page: "briefs", legacy: ["/briefs"], needsAccount: true },
-      { slug: "reports", label: "Reports", page: "reports", legacy: ["/reports"], needsAccount: true },
-      { slug: "landing-pages", label: "Landing Pages", page: "landingPages", legacy: ["/landing-pages"], needsAccount: true, requireOneAccount: "Landing Pages" },
-      { slug: "rotation", label: "Creative Rotation", page: "creativeRotation", legacy: ["/creative-rotation"], needsAccount: true, requireOneAccount: "Creative Rotation" },
-      { slug: "diversity", label: "Creative Diversity", page: "entityReport", legacy: ["/entities"], needsAccount: true, requireOneAccount: "Creative Diversity" },
-      { slug: "vault", label: "Library", page: "adLibrary", legacy: ["/ad-library"], group: "Vault" },
-      { slug: "vault-boards", label: "Boards", page: "boards", legacy: ["/ad-library/boards"], group: "Vault" },
-      { slug: "vault-hooks", label: "Hooks", page: "hooks", legacy: ["/ad-library/hooks"], group: "Vault" },
+      { slug: "overview", label: "Overview", page: "overview", legacy: [], needsAccount: true, group: "Performance" },
+      { slug: "agency", label: "Agency overview", page: "agencyDashboard", legacy: ["/agency"], group: "Performance" },
+      { slug: "creatives", label: "Creatives", page: "creatives", legacy: ["/creatives"], needsAccount: true, group: "Performance" },
+      { slug: "analytics", label: "Analytics", page: "analytics", legacy: ["/analytics"], needsAccount: true, group: "Performance" },
+      { slug: "rotation", label: "Creative Rotation", page: "creativeRotation", legacy: ["/creative-rotation"], needsAccount: true, requireOneAccount: "Creative Rotation", group: "Performance" },
+      { slug: "diversity", label: "Creative Diversity", page: "entityReport", legacy: ["/entities"], needsAccount: true, requireOneAccount: "Creative Diversity", group: "Performance" },
+      { slug: "landing-pages", label: "Landing Pages", page: "landingPages", legacy: ["/landing-pages"], needsAccount: true, requireOneAccount: "Landing Pages", group: "Performance" },
+      { slug: "library", label: "Creative Library", page: "creativeLibrary", legacy: ["/creative-library"], needsAccount: true, group: "Library" },
+      { slug: "vault", label: "Vault", page: "adLibrary", legacy: ["/ad-library"], group: "Library" },
+      { slug: "vault-boards", label: "Boards", page: "boards", legacy: ["/ad-library/boards"], group: "Library" },
+      { slug: "vault-hooks", label: "Hooks", page: "hooks", legacy: ["/ad-library/hooks"], group: "Library" },
+      { slug: "tagging", label: "Tagging", page: "tagging", legacy: ["/tagging"], needsAccount: true, group: "Tagging" },
+      { slug: "matrix", label: "Matrix", page: "matrix", legacy: ["/matrix"], builderOnly: true, needsAccount: true, group: "Tagging" },
+      { slug: "reports", label: "Reports", page: "reports", legacy: ["/reports"], needsAccount: true, group: "Reports" },
+      { slug: "briefs", label: "Briefs", page: "briefs", legacy: ["/briefs"], needsAccount: true, group: "Reports" },
     ],
   },
   {
@@ -130,6 +138,12 @@ export const sectionById = (id: string): SectionDef | undefined => SECTIONS.find
  */
 export function tabsFor(section: SectionDef, effectiveBuilder: boolean): TabDef[] {
   return section.tabs.filter((t) => (effectiveBuilder || !t.builderOnly) && !isHiddenPage(t.page));
+}
+
+/** Groups that have at least one tab this person may see, in the section's order. */
+export function groupsFor(section: SectionDef, effectiveBuilder: boolean): string[] {
+  const visible = tabsFor(section, effectiveBuilder);
+  return (section.groups ?? []).filter((g) => visible.some((t) => t.group === g));
 }
 
 export const sectionPath = (section: SectionDef, tab?: TabDef): string => `/${section.id}${tab ? `/${tab.slug}` : ""}`;

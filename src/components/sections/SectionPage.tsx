@@ -13,7 +13,7 @@ import { useRolePrefix } from "@/hooks/useRolePath";
 import { pageFor, prefetchPage } from "@/components/sections/lazyPages";
 import { useAccountReady } from "@/hooks/useAccountReady";
 import { isHiddenPage } from "@/lib/hiddenPages";
-import { sectionPath, tabsFor, type SectionDef, type TabDef } from "@/lib/sections";
+import { groupsFor, sectionPath, tabsFor, type SectionDef, type TabDef } from "@/lib/sections";
 
 function NoAccountNotice({ tab }: { tab: TabDef }) {
   const { selectedClient, selectedSlug } = useClientSelection();
@@ -60,6 +60,68 @@ export function SectionPage({ section }: { section: SectionDef }) {
   ) : (
     <Page />
   );
+
+  const tabLink = (t: TabDef) => {
+    const active = t.slug === tab.slug;
+    return (
+      <Link
+        key={t.slug}
+        to={`${prefix}${sectionPath(section, t)}`}
+        aria-current={active ? "page" : undefined}
+        onMouseEnter={() => prefetchPage(t.page)}
+        className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors ${
+          active ? "border-verdant font-semibold text-forest" : "border-transparent text-slate hover:text-forest"
+        }`}
+      >
+        {t.label}
+      </Link>
+    );
+  };
+
+  // Grouped section (Creative): a row of groups, then only the open group's tabs.
+  const groups = groupsFor(section, effectiveBuilder);
+  if (groups.length > 0) {
+    const openGroup = tab.group ?? groups[0];
+    const groupTabs = tabs.filter((t) => t.group === openGroup);
+    return (
+      <div data-testid={`section-${section.id}`}>
+        <div className="border-b border-border/60 px-4 pt-3 md:px-6">
+          <p className="font-label text-[10px] uppercase tracking-[0.1em] text-sage">{section.label}</p>
+          <nav aria-label={`${section.label} groups`} className="mt-1 flex flex-wrap gap-1">
+            {groups.map((g) => {
+              const first = tabs.find((t) => t.group === g)!;
+              const active = g === openGroup;
+              return (
+                <Link
+                  key={g}
+                  to={`${prefix}${sectionPath(section, first)}`}
+                  aria-current={active ? "true" : undefined}
+                  onMouseEnter={() => prefetchPage(first.page)}
+                  className={`whitespace-nowrap rounded-full px-3 py-1 text-sm transition-colors ${
+                    active ? "bg-accent font-semibold text-forest" : "text-slate hover:text-forest"
+                  }`}
+                >
+                  {g}
+                </Link>
+              );
+            })}
+          </nav>
+          <nav aria-label={`${openGroup} tabs`} className="-mb-px mt-1 flex flex-wrap gap-1">
+            {groupTabs.map(tabLink)}
+          </nav>
+        </div>
+        <Suspense fallback={<PageSkeleton />}>
+          {tab.needsAccount && noAccount ? (
+            <div className="p-6"><NoAccountNotice tab={tab} /></div>
+          ) : tab.needsAccount && !accountReady ? (
+            <PageSkeleton />
+          ) : (
+            body
+          )}
+        </Suspense>
+      </div>
+    );
+  }
 
   let lastGroup: string | undefined;
   return (

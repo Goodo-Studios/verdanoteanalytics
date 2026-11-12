@@ -86,8 +86,8 @@ describe("section model", () => {
     expect(labels("production")).toEqual(["Production calendar", "Call sheets", "Casting", "Crew", "Locations", "Props", "Shipments"]);
     expect(labels("talent")).toEqual(["Creators", "Actors", "Applications", "Creator pipeline", "Follow-ups", "Approval boards"]);
     expect(labels("creative")).toEqual([
-      "Overview", "Agency overview", "Creatives", "Creative Library", "Analytics", "Matrix", "Tagging", "Briefs", "Reports", "Landing Pages",
-      "Creative Rotation", "Creative Diversity", "Library", "Boards", "Hooks",
+      "Overview", "Agency overview", "Creatives", "Analytics", "Creative Rotation", "Creative Diversity", "Landing Pages",
+      "Creative Library", "Vault", "Boards", "Hooks", "Tagging", "Matrix", "Reports", "Briefs",
     ]);
     expect(labels("knowledge")).toEqual(["Knowledge", "Learning", "Meeting recaps", "Client BIDs"]);
     expect(labels("tools")).toEqual(["Ad Name Generator"]);
@@ -120,19 +120,44 @@ describe("section model", () => {
 });
 
 describe("role gating", () => {
-  it("a builder sees every Creative tab, including the Matrix, and the Vault group", async () => {
+  it("Creative shows four groups and only the open group's tabs (OS-003)", async () => {
     renderAt("/builder/creative/overview");
-    expect(tabNames("Creative")).toContain("Matrix");
-    expect(tabNames("Creative")).toHaveLength(15);
-    expect(screen.getByText("Vault")).toBeTruthy();
+    const groups = within(screen.getByRole("navigation", { name: "Creative groups" })).getAllByRole("link").map((a) => a.textContent);
+    expect(groups).toEqual(["Performance", "Library", "Tagging", "Reports"]);
+    expect(tabNames("Performance")).toEqual([
+      "Overview", "Agency overview", "Creatives", "Analytics", "Creative Rotation", "Creative Diversity", "Landing Pages",
+    ]);
+    expect(screen.queryByRole("navigation", { name: "Library tabs" })).toBeNull();
     expect(await screen.findByTestId("page-overview")).toBeTruthy();
   });
 
-  it("an employee does not see the builder-only Creative tab", () => {
+  it("each group link opens its first tab, and a tab opens inside its own group", () => {
+    renderAt("/builder/creative/vault-hooks");
+    const groupLinks = within(screen.getByRole("navigation", { name: "Creative groups" })).getAllByRole("link");
+    expect(groupLinks.map((a) => a.getAttribute("href"))).toEqual([
+      "/builder/creative/overview", "/builder/creative/library", "/builder/creative/tagging", "/builder/creative/reports",
+    ]);
+    expect(groupLinks.find((a) => a.textContent === "Library")?.getAttribute("aria-current")).toBe("true");
+    expect(tabNames("Library")).toEqual(["Creative Library", "Vault", "Boards", "Hooks"]);
+  });
+
+  it("no Creative row has more than seven tabs, so nothing scrolls sideways", () => {
+    const creative = SECTIONS.find((s) => s.id === "creative")!;
+    for (const g of creative.groups!) {
+      expect(creative.tabs.filter((t) => t.group === g).length, g).toBeLessThanOrEqual(7);
+    }
+    expect(creative.tabs.every((t) => creative.groups!.includes(t.group!))).toBe(true);
+  });
+
+  it("a builder sees the Matrix under Tagging", () => {
+    renderAt("/builder/creative/tagging");
+    expect(tabNames("Tagging")).toEqual(["Tagging", "Matrix"]);
+  });
+
+  it("an employee does not see the builder-only Matrix", () => {
     setRole("employee");
-    renderAt("/employee/creative/overview");
-    expect(tabNames("Creative")).not.toContain("Matrix");
-    expect(tabNames("Creative")).toHaveLength(14);
+    renderAt("/employee/creative/tagging");
+    expect(tabNames("Tagging")).toEqual(["Tagging"]);
   });
 
   it("an employee sees Admin, without Operating costs or the Growth Dashboard", async () => {
