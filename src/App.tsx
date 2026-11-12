@@ -46,6 +46,7 @@ const PublicBriefPage = lazy(() => import("./pages/PublicBriefPage"));
 // Staff Home: the front door of the staff area (builder and employee only).
 const HomePage = lazy(routeImports.home);
 const WorkPage = lazy(routeImports.work);
+const MyWorkPage = lazy(routeImports.myWork);
 const ContentPipelinePage = lazy(routeImports.contentPipeline);
 const VaultItemDetailPage = lazy(routeImports.vaultItemDetail);
 const BoardDetailPage = lazy(routeImports.boardDetail);
@@ -173,6 +174,8 @@ export function RoleGuardedRoutes() {
           />
           {/* Work: every client's ClickUp cards (a tab under Home). Staff only. */}
           <Route path="/work" element={staffPage ? <WorkPage /> : <Navigate to={`${prefix}/`} replace />} />
+          {/* My work: my open Goodo OS tasks with the task side panel (a tab under Home). Staff only. */}
+          <Route path="/my-work" element={staffPage ? <MyWorkPage /> : <Navigate to={`${prefix}/`} replace />} />
           {/* Staff menu sections: one page each, with tabs. A client, or a builder previewing
               the client view, goes to the index. */}
           {SECTIONS.flatMap((section) => [

@@ -25,13 +25,14 @@ function renderHome(slug = "") {
 }
 
 describe("Home", () => {
-  it("puts the day's blocks first and has Today and Work tabs", () => {
+  it("puts the day's blocks first and has Today, My work and Work tabs", () => {
     renderHome();
     expect(screen.getByTestId("staff-home-blocks")).toBeTruthy();
     const tabs = screen.getByRole("navigation", { name: "Home tabs" });
     expect(tabs.querySelector('[aria-current="page"]')?.textContent).toBe("Today");
     expect(Array.from(tabs.querySelectorAll("a")).map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
       ["Today", "/builder/"],
+      ["My work", "/builder/my-work"],
       ["Work", "/builder/work"],
     ]);
   });
