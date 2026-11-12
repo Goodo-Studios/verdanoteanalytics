@@ -6,7 +6,7 @@
  * for a builder, so each one is still opened by the per-tab test below.
  */
 import { test, expect } from "@playwright/test";
-import { SECTIONS, STAFF_NAV, tabsFor } from "../src/lib/sections";
+import { groupsFor, SECTIONS, STAFF_NAV, tabsFor } from "../src/lib/sections";
 import { hasLogins, NEEDS_PASSWORD, storagePath, watchConsole } from "./support";
 
 /**
@@ -25,7 +25,7 @@ const KNOWN_ON_TAB: Record<string, RegExp[]> = {
   ],
 };
 
-test.describe("builder: the seven menu items", () => {
+test.describe("builder: the staff menu items", () => {
   test.use({ storageState: storagePath("builder") });
   test.skip(!hasLogins, NEEDS_PASSWORD);
 
@@ -57,15 +57,33 @@ for (const section of SECTIONS) {
       await page.goto("/builder/");
       await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: section.label, exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/builder/${section.id}/`));
-      const tabs = page.getByRole("navigation", { name: `${section.label} tabs` });
       // The tab bar lists what tabsFor lists for a real builder: hidden pages (src/lib/hiddenPages.ts)
       // are left out of it, and they must stay out.
       const shown = tabsFor(section, true);
-      for (const tab of shown) {
-        await expect(tabs.getByRole("link", { name: tab.label, exact: true })).toBeVisible();
+      const groups = groupsFor(section, true);
+      if (groups.length === 0) {
+        const tabs = page.getByRole("navigation", { name: `${section.label} tabs` });
+        for (const tab of shown) {
+          await expect(tabs.getByRole("link", { name: tab.label, exact: true })).toBeVisible();
+        }
+        for (const tab of section.tabs.filter((t) => !shown.includes(t))) {
+          await expect(tabs.getByRole("link", { name: tab.label, exact: true })).toHaveCount(0);
+        }
+        return;
       }
-      for (const tab of section.tabs.filter((t) => !shown.includes(t))) {
-        await expect(tabs.getByRole("link", { name: tab.label, exact: true })).toHaveCount(0);
+      // Grouped section (Creative, OS-003): a row of groups, and one row of tabs for the open
+      // group. Each group link is clicked and its row checked.
+      const groupNav = page.getByRole("navigation", { name: `${section.label} groups` });
+      for (const group of groups) {
+        await groupNav.getByRole("link", { name: group, exact: true }).click();
+        const row = page.getByRole("navigation", { name: `${group} tabs` });
+        const inGroup = section.tabs.filter((t) => t.group === group);
+        for (const tab of inGroup.filter((t) => shown.includes(t))) {
+          await expect(row.getByRole("link", { name: tab.label, exact: true })).toBeVisible();
+        }
+        for (const tab of inGroup.filter((t) => !shown.includes(t))) {
+          await expect(row.getByRole("link", { name: tab.label, exact: true })).toHaveCount(0);
+        }
       }
     });
 
