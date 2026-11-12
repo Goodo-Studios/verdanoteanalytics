@@ -33,6 +33,8 @@ INSERT INTO allow VALUES
   ('browser','create_api_key'), ('browser','get_agency_dashboard_summary'),
   ('browser','get_creative_window_aggregates'), ('browser','get_daily_trends'),
   ('browser','get_period_metrics'), ('browser','get_user_role'),
+  -- OS-006: a client's own tasks, client-visible fields only; filters on has_role and get_user_client_slugs.
+  ('browser','os_client_tasks'),
   ('row_rules','has_role'), ('row_rules','get_user_account_ids'),
   ('row_rules','get_user_client_slugs'),
   ('row_rules','owns_ad_library_ad'), ('row_rules','owns_ad_library_board'),
