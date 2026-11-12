@@ -63,6 +63,8 @@ FUNCTIONS=(
   spend-diagnostic
   sync
   sync-clickup-tasks
+  clickup-os-sync
+  clickup-webhook
   run-slack-jobs
   fireflies-transcript
   push-brief-to-clickup
