@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate, useLocation } from "react-router-dom";
 import { AuthLayout } from "@/components/AuthLayout";
+import { APP_NAME } from "@/lib/brand";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -66,7 +67,7 @@ const LoginPage = () => {
   };
 
   return (
-    <AuthLayout title="Verdanote" subtitle="Creative analytics, simplified">
+    <AuthLayout title={APP_NAME} subtitle="Goodo Studios, in one place">
       <form onSubmit={handleSubmit} className="space-y-5">
         <div className="space-y-2">
           <Label htmlFor="email" className="font-label text-[10px] font-semibold uppercase tracking-[0.08em] text-slate">

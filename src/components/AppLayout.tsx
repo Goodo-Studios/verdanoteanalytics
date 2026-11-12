@@ -10,7 +10,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
-import verdanoteLogo from "@/assets/verdanote_logo.png";
+import { GoodoOsMark } from "@/components/GoodoOsMark";
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -49,7 +49,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       {/* Main content */}
       <main id="app-scroll-container" className="flex-1 overflow-auto min-w-0 md:ml-56">
         {/* Header bar */}
-        <div className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 border-b border-border/60 bg-background">
+        <div className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 border-b border-border bg-sidebar/90 backdrop-blur">
           <div className="flex items-center gap-3 md:hidden">
             <Button
               variant="ghost"
@@ -61,7 +61,7 @@ export function AppLayout({ children }: AppLayoutProps) {
             >
               <Menu className="h-5 w-5" aria-hidden="true" />
             </Button>
-            <img src={verdanoteLogo} alt="Verdanote" className="h-5" />
+            <GoodoOsMark size="sm" />
           </div>
           {/* Client switcher (staff) */}
           <div className="min-w-0 flex-1 px-2">{showSwitcher ? <ClientSwitcher /> : null}</div>

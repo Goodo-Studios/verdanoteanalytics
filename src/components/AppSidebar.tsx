@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { ATTIO_URL, GOODO_TIME_URL } from "@/lib/staffMenu";
 import { STAFF_NAV, type StaffNavId } from "@/lib/sections";
-import verdanoteLogo from "@/assets/verdanote_logo.png";
+import { GoodoOsMark } from "@/components/GoodoOsMark";
 import {
   Select,
   SelectContent,
@@ -122,10 +122,10 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const navItems = useMemo<NavItem[]>(() => (effectiveClient ? clientNavItems : staffNavItems), [effectiveClient]);
 
   return (
-    <aside className="flex h-screen w-56 flex-col bg-background border-r border-input">
-      {/* Logo */}
-      <div className="flex items-center px-5 py-5 border-b border-input">
-        <img src={verdanoteLogo} alt="Verdanote" className="h-7" />
+    <aside className="flex h-screen w-56 flex-col bg-sidebar border-r border-border">
+      {/* Name mark */}
+      <div className="flex items-center px-5 py-5 border-b border-border">
+        <GoodoOsMark />
       </div>
 
       {/* Role indicator - only builders can see/switch roles */}
