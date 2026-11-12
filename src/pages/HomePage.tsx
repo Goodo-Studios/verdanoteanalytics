@@ -8,6 +8,7 @@ import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { HomeTabs } from "@/features/home/HomeTabs";
 import { StaffHomeBlocks } from "@/features/home/StaffHomeBlocks";
+import { TodayPanel } from "@/features/home/TodayPanel";
 
 export default function HomePage() {
   const prefix = useRolePrefix();
@@ -18,7 +19,12 @@ export default function HomePage() {
       <PageHeader title="Home" description="What to do today. Pick a client at the top of the page to work on one." className="mb-2" />
       <HomeTabs active="today" />
 
-      <StaffHomeBlocks />
+      <TodayPanel />
+
+      <section aria-label="More for today" className="space-y-3 border-t border-border/60 pt-6">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">More for today</h2>
+        <StaffHomeBlocks />
+      </section>
 
       <section aria-label="Current client" className="rounded-lg border border-input p-4">
         {selectedSlug ? (

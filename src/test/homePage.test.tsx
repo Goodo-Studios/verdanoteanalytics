@@ -9,6 +9,8 @@ import { MemoryRouter } from "react-router-dom";
 vi.mock("@/hooks/useRolePath", () => ({ useRolePrefix: () => "/builder" }));
 // The blocks have their own tests (staffHome.test.tsx); here they are a marker.
 vi.mock("@/features/home/StaffHomeBlocks", () => ({ StaffHomeBlocks: () => <div data-testid="staff-home-blocks" /> }));
+// Today has its own tests (todayPanel.test.tsx); here it is a marker.
+vi.mock("@/features/home/TodayPanel", () => ({ TodayPanel: () => <div data-testid="today-panel" /> }));
 
 import HomePage from "@/pages/HomePage";
 import { WithClient } from "@/test/clientSelection";
@@ -28,6 +30,9 @@ describe("Home", () => {
   it("puts the day's blocks first and has Today, My work and Work tabs", () => {
     renderHome();
     expect(screen.getByTestId("staff-home-blocks")).toBeTruthy();
+    // OS-010: the Today panel (one next action) comes before the blocks.
+    const today = screen.getByTestId("today-panel");
+    expect(today.compareDocumentPosition(screen.getByTestId("staff-home-blocks")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const tabs = screen.getByRole("navigation", { name: "Home tabs" });
     expect(tabs.querySelector('[aria-current="page"]')?.textContent).toBe("Today");
     expect(Array.from(tabs.querySelectorAll("a")).map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
