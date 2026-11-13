@@ -3,8 +3,10 @@
 // Escape to close and the aria labelling. Details load only when it opens (useTaskDetail).
 // A play button by the title starts or stops a timer on the task (OS-012).
 // Versions (OS-020): the cuts of the task with their timestamped internal and client comments.
+// Playbook (OS-026): a task with a content type links to the matching Brain playbook section.
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { ExternalLink, X } from "lucide-react";
+import { BookOpen, ExternalLink, X } from "lucide-react";
+import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { fmtDateTime } from "@/components/page-kit";
 import { useIsPhone, useTaskDetail, type TaskComment } from "@/hooks/useMyWork";
@@ -15,6 +17,9 @@ import { shortDate } from "@/lib/homeData";
 import { isLateDue, type MyTaskRow } from "@/lib/myWork";
 import { PhaseDots } from "./PhaseDots";
 import { CutReview } from "@/features/cut-review/CutReview";
+import { brainPagePath, sectionFromParam } from "@/features/brain/model";
+import { useBrainPlaybook } from "@/hooks/useBrainPlaybook";
+import { useRolePrefix } from "@/hooks/useRolePath";
 
 function authorName(c: TaskComment): string {
   const a = c.author ?? {};
@@ -49,6 +54,29 @@ function Thread({ label, comments, testId }: { label: string; comments: TaskComm
         </ul>
       )}
     </div>
+  );
+}
+
+/** The Brain playbook section for the task's content type, or a quiet note when there is none. */
+function PlaybookLink({ contentType }: { contentType: string }) {
+  const prefix = useRolePrefix();
+  const { data, isLoading, isError } = useBrainPlaybook(contentType);
+  if (isLoading || isError) return null;
+  return (
+    <Section title="Playbook" testId="task-panel-playbook">
+      {data ? (
+        <Link
+          to={brainPagePath(prefix, sectionFromParam(data.section), data.slug, data.anchor)}
+          className="inline-flex items-center gap-1 text-sm underline"
+          data-testid="task-panel-playbook-link"
+        >
+          <BookOpen className="h-3 w-3" aria-hidden />
+          {data.heading ? `${data.title}: ${data.heading}` : data.title}
+        </Link>
+      ) : (
+        <p className="text-sm text-muted-foreground">No playbook section yet.</p>
+      )}
+    </Section>
   );
 }
 
@@ -116,6 +144,8 @@ export function TaskSidePanel({ task, today, onClose }: { task: MyTaskRow | null
                       </ul>
                     ) : null}
                   </Section>
+
+                  {detail?.content_type?.trim() ? <PlaybookLink contentType={detail.content_type} /> : null}
 
                   <Section title="Files" testId="task-panel-files">
                     {assetLink ? (

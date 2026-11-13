@@ -67,6 +67,8 @@ export interface TaskDetail {
   hooks: string[] | null;
   qa_checklist: Array<{ item?: string; result?: string }> | null;
   stuck_reason: string | null;
+  /** The ClickUp content type, used to link the task to its Brain playbook section (OS-026). */
+  content_type?: string | null;
 }
 
 export interface TaskComment {
@@ -85,7 +87,7 @@ export interface StatusChange {
   changed_at: string;
 }
 
-const DETAIL_COLUMNS = "id, brief, description, asset_url, clickup_url, hooks, qa_checklist, stuck_reason";
+const DETAIL_COLUMNS = "id, brief, description, asset_url, clickup_url, hooks, qa_checklist, stuck_reason, content_type";
 
 /** The side panel's details, loaded only when a row opens. Three requests in parallel. */
 export function useTaskDetail(taskId: string | null) {

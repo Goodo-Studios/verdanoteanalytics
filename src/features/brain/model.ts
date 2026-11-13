@@ -72,8 +72,46 @@ export function matchesSearch(row: BrainListRow, query: string): boolean {
 }
 
 /** Address of a Brain page inside the staff area, for links from other pages. */
-export function brainPagePath(prefix: string, section: BrainSection, slug: string): string {
-  return `${prefix}/knowledge/brain?section=${section.toLowerCase()}&page=${encodeURIComponent(slug)}`;
+export function brainPagePath(prefix: string, section: BrainSection, slug: string, anchor?: string | null): string {
+  const path = `${prefix}/knowledge/brain?section=${section.toLowerCase()}&page=${encodeURIComponent(slug)}`;
+  return anchor ? `${path}#${encodeURIComponent(anchor)}` : path;
+}
+
+/**
+ * Heading text to an anchor: lower case, runs of anything but letters and digits become "-".
+ * Matches public.brain_anchor in migration 20261204080001 (OS-026).
+ */
+export function brainAnchor(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+// ------------------------------------------------------------------ ask the Brain (OS-026)
+
+/** The answer when no Brain page matches. Same text as NO_MATCH in supabase/functions/brain-ask. */
+export const BRAIN_NO_MATCH = "Nothing in the Brain answers that yet.";
+
+export interface BrainCitation {
+  section: string;
+  slug: string;
+  title: string;
+}
+
+export interface BrainAnswer {
+  answer: string | null;
+  mode: "answer" | "passages" | "none";
+  citations: BrainCitation[];
+  passages: Array<{ section: string; slug: string; title: string; text: string }>;
+}
+
+/** Shapes the brain-ask reply; anything unexpected becomes the no-match answer. */
+export function toBrainAnswer(data: unknown): BrainAnswer {
+  const d = (data ?? {}) as Partial<BrainAnswer>;
+  const citations = Array.isArray(d.citations)
+    ? d.citations.filter((c): c is BrainCitation => !!c && typeof c.slug === "string" && typeof c.title === "string" && typeof c.section === "string")
+    : [];
+  const passages = Array.isArray(d.passages) ? d.passages.filter((p) => !!p && typeof p.text === "string") : [];
+  if (d.mode === "none" || citations.length === 0) return { answer: BRAIN_NO_MATCH, mode: "none", citations: [], passages: [] };
+  return { answer: typeof d.answer === "string" && d.answer.trim() ? d.answer : null, mode: d.mode === "answer" ? "answer" : "passages", citations, passages };
 }
 
 // ------------------------------------------------------------------ suggested fixes (OS-016)

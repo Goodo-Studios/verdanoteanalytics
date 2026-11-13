@@ -7,18 +7,23 @@
 // member can suggest a fix through the shared correction form; the page owner or a builder
 // accepts or rejects it. Accepting does not edit the page (HQ is the source): it records the fix
 // for the owner to apply in HQ, and it shows as applied once the page is published again.
+//
+// OS-026: headings carry anchors (brainAnchor) so a task can link straight to its playbook
+// section (#anchor in the address scrolls there), and a question box answers from Brain pages.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, TextField } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
 import { fmtDate } from "@/lib/formatters";
+import { BrainAsk } from "./BrainAsk";
 import { CorrectionForm, type CorrectionInput } from "@/features/knowledge/CorrectionForm";
 import { CLASS_LABEL, errorText } from "@/features/knowledge/model";
 import {
   BRAIN_SECTIONS,
+  brainAnchor,
   type BrainFix,
   type BrainListRow,
   type BrainPageRow,
@@ -53,6 +58,15 @@ const db = supabase as unknown as Untyped;
 const LIST_COLUMNS = "id, section, slug, title, owner, last_reviewed";
 const PAGE_COLUMNS = "id, section, slug, title, owner, owner_user_id, last_reviewed, body_md, published_at, content_hash, source_path";
 const FIX_COLUMNS = "*, brain_page_correction_reviews(*)";
+
+/** Plain text of rendered markdown children, for heading anchors. */
+function textOf(node: React.ReactNode): string {
+  if (node === null || node === undefined || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (typeof node === "object" && "props" in node) return textOf((node as { props: { children?: React.ReactNode } }).props.children);
+  return "";
+}
 
 function reviewedText(date: string | null): string {
   return date ? `Last reviewed ${fmtDate(date)}` : "Not reviewed yet";
@@ -175,6 +189,7 @@ function Fixes({ page }: { page: BrainPageRow }) {
 function PageView({ section, slug, onOpen }: { section: BrainSection; slug: string; onOpen: (section: BrainSection, slug: string) => void }) {
   const [page, setPage] = useState<BrainPageRow | null | undefined>(undefined);
   const [error, setError] = useState(false);
+  const { hash } = useLocation();
 
   useEffect(() => {
     let live = true;
@@ -188,9 +203,23 @@ function PageView({ section, slug, onOpen }: { section: BrainSection; slug: stri
     return () => { live = false; };
   }, [section, slug]);
 
+  // A link to a section of the page (#anchor) scrolls to that heading once the page is in.
+  useEffect(() => {
+    if (!page || !hash) return;
+    const el = document.getElementById(decodeURIComponent(hash.slice(1)));
+    el?.scrollIntoView?.({ block: "start" });
+  }, [page, hash]);
+
   // Links between Brain pages stay in the app; web links open in a new tab. react-markdown
   // renders no raw HTML and drops unsafe link targets.
-  const components = useMemo<Components>(() => ({
+  const components = useMemo<Components>(() => {
+    const heading = (Tag: "h1" | "h2" | "h3" | "h4" | "h5" | "h6") =>
+      function Heading({ children }: { children?: React.ReactNode }) {
+        const text = textOf(children);
+        return <Tag id={brainAnchor(text) || undefined}>{children}</Tag>;
+      };
+    return {
+    h1: heading("h1"), h2: heading("h2"), h3: heading("h3"), h4: heading("h4"), h5: heading("h5"), h6: heading("h6"),
     a: ({ href, children }) => {
       const target = parseBrainHref(href);
       if (target) {
@@ -202,7 +231,8 @@ function PageView({ section, slug, onOpen }: { section: BrainSection; slug: stri
       }
       return <a href={href} className="underline" target="_blank" rel="noopener noreferrer">{children}</a>;
     },
-  }), [onOpen]);
+    };
+  }, [onOpen]);
 
   if (error) return <ErrorState message="This page could not load." />;
   if (page === undefined) return <LoadingState label="Loading page" />;
@@ -270,6 +300,7 @@ export default function BrainPage() {
   return (
     <PageShell data-testid="brain">
       <PageHeader title="Brain" description="Goodo's handbook, playbooks, client notes and insights, published from HQ. To change a page, edit it in HQ and publish again, or suggest a fix to its owner." />
+      <BrainAsk onOpen={openPage} />
       <nav aria-label="Brain sections" className="flex flex-wrap gap-1 border-b border-input">
         {BRAIN_SECTIONS.map((s) => (
           <button

@@ -45,9 +45,9 @@ describe("function access manifest", () => {
     expect(Object.keys(manifest).sort()).toEqual(deployed);
   });
 
-  it("covers all 87 functions today", () => {
+  it("covers all 88 functions today", () => {
     // 83 + clickup-os-sync and clickup-webhook (OS-007) + clickup-writeback (OS-017) + client-invite (OS-021).
-    expect(deployed).toHaveLength(87);
+    expect(deployed).toHaveLength(88);
   });
 
   it("uses only known classes", () => {

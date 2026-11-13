@@ -130,6 +130,9 @@ const controls = [
   // Staging has no FIREFLIES_API_KEY or ANTHROPIC_API_KEY: staff pass the gate and meeting-recaps fails closed with 503.
   ["employee passes the meeting-recaps gate and it fails closed without keys", "meeting-recaps", employee, { body: { client_slug: "wall_probe", transcript_id: "wall_probe" } }, (s) => s === 503],
   ["builder passes the meeting-recaps gate and it fails closed without keys", "meeting-recaps", builder, { body: { client_slug: "wall_probe", transcript_id: "wall_probe" } }, (s) => s === 503],
+  // OS-026: brain-ask answers staff only. A client never gets a Brain answer.
+  ["employee accepted by brain-ask", "brain-ask", employee, { body: { question: "wall probe question" } }, (s) => s === 200],
+  ["client B refused by brain-ask", "brain-ask", clientB, { body: { question: "wall probe question" } }, refused],
   ["client B refused by meeting-recaps", "meeting-recaps", clientB, { body: { client_slug: "wall_probe", transcript_id: "wall_probe" } }, refused],
   // Staging has no ANTHROPIC_API_KEY: staff pass the gate and agent-evaluations fails closed with 503 before any read.
   ["employee passes the agent-evaluations gate and it fails closed without a key", "agent-evaluations", employee, { body: { agent_key: "meeting-recaps" } }, (s) => s === 503],

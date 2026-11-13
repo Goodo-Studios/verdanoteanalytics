@@ -1692,6 +1692,25 @@ try {
   }
 }
 
+// Brain links and ask-the-Brain (OS-026): a client gets no playbook link, no Brain passages and no
+// Brain answer. brain_answer_passages is service-role only; brain-ask refuses a client login.
+await refreshLogins(clientA, clientB);
+for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+  const links = await s.c.from("brain_playbook_links").select("*").limit(10);
+  check(`${label} reads no brain_playbook_links rows`, !links.error && (links.data ?? []).length === 0, `error=${links.error?.message ?? "none"} rows=${links.data?.length ?? "error"}`);
+  const pb = await s.c.rpc("brain_playbook_for_content_type", { p_content_type: "ugc" });
+  check(`${label} is refused brain_playbook_for_content_type`, pb.error?.code === "42501", `code=${pb.error?.code ?? "none"}`);
+  const passages = await s.c.rpc("brain_answer_passages", { p_question: "how do we film a founder story", p_limit: 6 });
+  check(`${label} gets no Brain passages`, !!passages.error && !(passages.data ?? []).length, `error=${passages.error?.code ?? "none"} rows=${passages.data?.length ?? 0}`);
+  const res = await fetch(`${url}/functions/v1/brain-ask`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${s.token}`, apikey: anon, "Content-Type": "application/json" },
+    body: JSON.stringify({ question: "how do we film a founder story" }),
+  });
+  const text = await res.text();
+  check(`${label} gets no Brain answer from brain-ask`, res.status === 403 && !text.includes("citations"), `status=${res.status}`);
+}
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

@@ -329,6 +329,10 @@ verify_jwt = true
 [functions.client-insights]
 verify_jwt = true
 
+# OS-026: ask the Brain. Staff only; validates the user JWT and roles internally via resolveCaller.
+[functions.brain-ask]
+verify_jwt = true
+
 # Phase 5b: a client approves a card or asks for changes. Validates the user JWT internally via auth.getUser().
 [functions.client-decision]
 verify_jwt = true

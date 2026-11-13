@@ -24,6 +24,7 @@ const h = vi.hoisted(() => ({
   rpcs: [] as Array<{ fn: string; args: unknown }>,
   builder: false,
   running: null as unknown,
+  playbook: [] as unknown[],
 }));
 
 vi.mock("@/integrations/supabase/client", () => {
@@ -62,6 +63,8 @@ vi.mock("@/integrations/supabase/client", () => {
       rpc: (fn: string, args: unknown) => {
         h.rpcs.push({ fn, args });
         if (fn === "list_task_version_comments") return Promise.resolve({ data: h.versionComments, error: null });
+        // OS-026: the playbook section for the task's content type.
+        if (fn === "brain_playbook_for_content_type") return Promise.resolve({ data: h.playbook, error: null });
         return Promise.resolve({ data: h.comments, error: null });
       },
     },
@@ -129,6 +132,7 @@ beforeEach(() => {
   ];
   h.versions = [];
   h.versionComments = [];
+  h.playbook = [];
   h.history = [
     { id: 10, from_status: null, to_status: "assigned", changed_at: "2026-11-01T10:00:00Z" },
     { id: 11, from_status: "assigned", to_status: "editing", changed_at: "2026-11-05T10:00:00Z" },
@@ -257,6 +261,34 @@ describe("task side panel", () => {
     expect(within(panel).getByText("Pass")).toBeInTheDocument();
     expect(within(panel).getByText("assigned → editing")).toBeInTheDocument();
     expect(h.rpcs).toEqual([{ fn: "list_task_comments", args: { p_task_id: "today" } }]);
+  });
+
+  it("links a task of a mapped content type to its Brain playbook section (OS-026)", async () => {
+    h.detail = { ...(h.detail as object), content_type: "Founder Story" };
+    h.playbook = [{ section: "Playbooks", slug: "video-playbook", title: "Video playbook", anchor: "founder-story", heading: "Founder Story" }];
+    const panel = await openToday();
+    const link = await within(panel).findByTestId("task-panel-playbook-link");
+    expect(link).toHaveAttribute("href", "/employee/knowledge/brain?section=playbooks&page=video-playbook#founder-story");
+    expect(link.textContent).toBe("Video playbook: Founder Story");
+    expect(h.rpcs).toContainEqual({ fn: "brain_playbook_for_content_type", args: { p_content_type: "Founder Story" } });
+  });
+
+  it("shows a quiet note for a content type with no playbook section, and nothing without a content type (OS-026)", async () => {
+    h.detail = { ...(h.detail as object), content_type: "Something new" };
+    h.playbook = [];
+    const panel = await openToday();
+    const section = await within(panel).findByTestId("task-panel-playbook");
+    expect(section.textContent).toContain("No playbook section yet.");
+    expect(within(panel).queryByTestId("task-panel-playbook-link")).toBeNull();
+    // Quiet: muted text, never an alarm colour.
+    expect(within(section).getByText("No playbook section yet.").className).toContain("text-muted-foreground");
+  });
+
+  it("shows no Playbook section and asks nothing when the task has no content type (OS-026)", async () => {
+    const panel = await openToday();
+    await within(panel).findByText("Film the unboxing in daylight.");
+    expect(within(panel).queryByTestId("task-panel-playbook")).toBeNull();
+    expect(h.rpcs.map((r) => r.fn)).not.toContain("brain_playbook_for_content_type");
   });
 
   it("shows the Versions section with each cut and its internal and client comments (OS-020)", async () => {
