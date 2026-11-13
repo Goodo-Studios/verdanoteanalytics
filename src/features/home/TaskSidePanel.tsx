@@ -4,6 +4,7 @@
 // A play button by the title starts or stops a timer on the task (OS-012).
 // Versions (OS-020): the cuts of the task with their timestamped internal and client comments.
 // Playbook (OS-026): a task with a content type links to the matching Brain playbook section.
+// Export checklist (OS-023): shown only when the os_settings switch is on.
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { BookOpen, ExternalLink, X } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -20,6 +21,9 @@ import { CutReview } from "@/features/cut-review/CutReview";
 import { brainPagePath, sectionFromParam } from "@/features/brain/model";
 import { useBrainPlaybook } from "@/hooks/useBrainPlaybook";
 import { useRolePrefix } from "@/hooks/useRolePath";
+import { useExportChecklistOn } from "@/hooks/useExportChecklist";
+import { displayStatus } from "@/lib/exportChecklist";
+import { ExportChecklist } from "./ExportChecklist";
 
 function authorName(c: TaskComment): string {
   const a = c.author ?? {};
@@ -80,6 +84,21 @@ function PlaybookLink({ contentType }: { contentType: string }) {
   );
 }
 
+// OS-023: the switch is off until the editors agree, so the four export statuses show as they always
+// have. These load only once a task is open.
+function TaskStatus({ status }: { status: string }) {
+  return <>{displayStatus(status, useExportChecklistOn())}</>;
+}
+
+function ExportChecklistSection({ taskId, readOnly }: { taskId: string; readOnly: boolean }) {
+  if (!useExportChecklistOn()) return null;
+  return (
+    <Section title="Export checklist" testId="task-panel-export-checklist">
+      <ExportChecklist taskId={taskId} readOnly={readOnly} />
+    </Section>
+  );
+}
+
 export function TaskSidePanel({ task, today, onClose }: { task: MyTaskRow | null; today: string; onClose: () => void }) {
   const phone = useIsPhone();
   const { user } = useAuth();
@@ -109,7 +128,7 @@ export function TaskSidePanel({ task, today, onClose }: { task: MyTaskRow | null
                 <div className="min-w-0 space-y-1">
                   <DialogPrimitive.Title className="text-lg font-semibold leading-snug">{task.title}</DialogPrimitive.Title>
                   <DialogPrimitive.Description className="text-sm text-muted-foreground">
-                    {task.client?.name || task.client_slug || "No client"} · {task.status} ·{" "}
+                    {task.client?.name || task.client_slug || "No client"} · <TaskStatus status={task.status} /> ·{" "}
                     <span className={late ? "font-medium text-[var(--gos-late)]" : undefined}>Due {shortDate(task.due_date)}</span>
                   </DialogPrimitive.Description>
                   <PhaseDots stage={task.status_info?.stage} />
@@ -181,6 +200,8 @@ export function TaskSidePanel({ task, today, onClose }: { task: MyTaskRow | null
                       <p className="text-sm text-muted-foreground">No QA checklist.</p>
                     )}
                   </Section>
+
+                  <ExportChecklistSection taskId={task.id} readOnly={!!task.read_only} />
 
                   <Section title="Status history" testId="task-panel-history">
                     {(data?.history ?? []).length === 0 ? (
