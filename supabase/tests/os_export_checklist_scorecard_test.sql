@@ -10,7 +10,7 @@
 -- no rows. All rows are made up.
 
 BEGIN;
-SELECT plan(24);
+SELECT plan(26);
 
 INSERT INTO auth.users (id, email) VALUES
   ('ec000000-0000-4000-8000-000000000001', 'oc-builder@example.test'),
@@ -87,7 +87,7 @@ UPDATE public.os_task_checklist_items SET done = true;
 SELECT set_config('request.jwt.claim.sub', 'ec000000-0000-4000-8000-000000000002', true);
 SELECT is((SELECT count(*)::int FROM public.os_task_checklist_items WHERE done), 1, 'a client update changed nothing');
 
--- ---------------------------------------------------------------- scorecard for October (19-24)
+-- ---------------------------------------------------------------- scorecard for October (19-26)
 CREATE TEMP TABLE sc AS SELECT * FROM public.os_scorecard('2026-10-15') WHERE client_slug = 'oc-alpha' AND NOT is_total;
 SELECT is((SELECT briefs_done || '/' || briefs_on_time FROM sc), '1/1',
   'one brief first reached in October and on time (task two first reached it in September)');
@@ -98,6 +98,10 @@ SELECT is((SELECT internal_revisions || '/' || client_revisions || '/' || comple
   'one internal round, one client round, one completed');
 SELECT ok((SELECT completed >= 1 AND briefs_done >= 1 FROM public.os_scorecard('2026-10-01') WHERE is_total), 'there is a total row');
 SELECT is((SELECT count(*)::int FROM public.os_scorecard('2026-08-01') WHERE client_slug = 'oc-alpha'), 0, 'August has nothing for the client');
+SELECT is((SELECT count(*)::int FROM public.os_scorecard('2026-10-01') WHERE is_total), 1, 'an employee gets the total row');
+SELECT set_config('request.jwt.claim.sub', 'ec000000-0000-4000-8000-000000000001', true);
+SELECT ok((SELECT count(*)::int FROM public.os_scorecard('2026-10-01') WHERE client_slug = 'oc-alpha' AND NOT is_total) = 1,
+  'a builder gets the client row');
 
 SELECT * FROM finish();
 ROLLBACK;

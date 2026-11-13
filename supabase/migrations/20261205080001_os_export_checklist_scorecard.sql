@@ -252,6 +252,8 @@ as $$
     from agg r, staff s
    where s.ok
    group by grouping sets ((r.client_slug), ())
+  -- The empty grouping set makes a total row even with no input rows, so check staff again here.
+  having (select ok from staff)
    order by grouping(r.client_slug), r.client_slug nulls last;
 $$;
 
