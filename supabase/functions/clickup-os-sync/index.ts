@@ -7,6 +7,7 @@ import {
   type ClickUpReader,
   clickupReader,
   type CommentRow,
+  type CuListStatus,
   ensureStatuses,
   type FetchLike,
   fetchComments,
@@ -16,6 +17,7 @@ import {
   loadExistingTasks,
   resolvePeople,
   startRun,
+  storeListStatuses,
   type SupabaseLike,
   upsertComments,
   upsertTasks,
@@ -30,8 +32,10 @@ import {
 //     pages. ClickUp is only read (GET).
 //   * Client folders resolve to a client like sync-clickup-tasks does. Ending clients' folders
 //     are read-only history. Production and social tasks have no client.
-//   * New statuses are added (stage Other) before tasks are written; tasks are upserted by
-//     clickup_task_id.
+//   * Every walked list's statuses are stored in os_clickup_list_statuses (the statuses an app user
+//     may set on that list's tasks). Statuses the app did not know are added to os_task_statuses
+//     first (stage from the list's order, see storeListStatuses), then any task status still
+//     unknown (stage Other), before tasks are written; tasks are upserted by clickup_task_id.
 //   * nightly: before writing, every compared field where the app differs from ClickUp is
 //     recorded in os_sync_discrepancies. Comments are read for tasks ClickUp updated since the
 //     last good run. full: comments for every asset task. Both capped (MAX_COMMENT_TASKS).
@@ -46,7 +50,7 @@ export const DEMO_SEED_ID_PATTERN = "demo-seed-%";
 interface CuList {
   id: string;
   name: string;
-  statuses?: { status?: string; orderindex?: number | string }[];
+  statuses?: CuListStatus[];
 }
 interface CuFolder {
   id: string;
@@ -129,6 +133,7 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
     // Lists of skipped folders: their rows are kept, not deleted, until the folder resolves again.
     const skippedListIds: string[] = [];
     const tasks = new Map<string, { task: CuTask; mapped: MappedTask }>();
+    const walkedLists: CuList[] = [];
     let lists = 0;
 
     for (const spaceId of OS_SPACE_IDS) {
@@ -155,6 +160,7 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
         }
         for (const list of group.lists) {
           lists++;
+          walkedLists.push(list);
           let listTasks: CuTask[];
           try {
             listTasks = await fetchListTasks(reader, list.id);
@@ -192,6 +198,14 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
       }
     }
 
+    let listStatuses: { lists: number; added: string[] } = { lists: 0, added: [] };
+    let listStatusesFailed = false;
+    try {
+      listStatuses = await storeListStatuses(db, walkedLists, nowIso);
+    } catch (err) {
+      listStatusesFailed = true;
+      console.error("List statuses could not be stored:", err);
+    }
     const statusesAdded = await ensureStatuses(db, [...tasks.values()].map((t) => t.mapped.row.status));
     const people = await resolvePeople(
       db,
@@ -256,6 +270,9 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
       seen: tasks.size,
       upserted: written.upserted,
       statusesAdded,
+      listStatusLists: listStatuses.lists,
+      listStatusesAdded: listStatuses.added,
+      listStatusesFailed,
       skippedFolders,
       failedSpaces,
       failedLists,
@@ -269,7 +286,7 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
       readOnly: [...tasks.values()].filter((t) => t.mapped.row.read_only).length,
       noClient: [...tasks.values()].filter((t) => t.mapped.row.client_slug === null).length,
     });
-    const ok = failedSpaces.length === 0 && failedLists.length === 0 && !written.failed && !comments.failed;
+    const ok = failedSpaces.length === 0 && failedLists.length === 0 && !written.failed && !comments.failed && !listStatusesFailed;
     await finishRun(db, runId, { ok, counts, discrepancyCount: discrepancies.length });
     return json({ success: ok, runId, discrepancies: discrepancies.length, ...counts });
   } catch (err) {
