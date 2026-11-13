@@ -100,7 +100,9 @@ INSERT INTO allow
     'set_client_scope_hours',
     -- OS-016: suggested fixes to Brain pages. Both refuse anyone who is not builder or employee;
     -- reviewing also needs the page owner or a builder.
-    'submit_brain_page_correction', 'review_brain_page_correction'
+    'submit_brain_page_correction', 'review_brain_page_correction',
+    -- OS-017: ClickUp write-back status for Integration health. Refuses anyone who is not a builder.
+    'clickup_writeback_overview'
   ]);
 
 -- SECURITY DEFINER functions in public (extension functions excluded).

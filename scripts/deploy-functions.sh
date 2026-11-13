@@ -65,6 +65,7 @@ FUNCTIONS=(
   sync-clickup-tasks
   clickup-os-sync
   clickup-webhook
+  clickup-writeback
   run-slack-jobs
   fireflies-transcript
   push-brief-to-clickup

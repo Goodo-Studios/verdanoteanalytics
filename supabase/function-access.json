@@ -67,6 +67,10 @@
       "class": "service",
       "note": "OS-007: ClickUp -> os_tasks full or nightly walk. GET only against ClickUp."
     },
+    "clickup-writeback": {
+      "class": "service",
+      "note": "OS-017: writes queued app changes to ClickUp. Off unless CLICKUP_WRITEBACK_ENABLED=true and the task's list is in CLICKUP_WRITEBACK_LIST_IDS; otherwise rows are held and ClickUp is not called."
+    },
     "clickup-webhook": {
       "class": "secret",
       "note": "OS-007: ClickUp task events, no JWT. HMAC X-Signature checked against CLICKUP_WEBHOOK_SECRET; 401 otherwise. GET only against ClickUp."

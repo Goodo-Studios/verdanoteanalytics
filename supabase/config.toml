@@ -116,6 +116,11 @@ verify_jwt = false
 [functions.clickup-webhook]
 verify_jwt = false
 
+# OS-017: app -> ClickUp write-back worker, every minute from pg_cron. Service-role only; gated
+# inside the function. Inert unless CLICKUP_WRITEBACK_ENABLED and CLICKUP_WRITEBACK_LIST_IDS are set.
+[functions.clickup-writeback]
+verify_jwt = false
+
 # US-005: one-time backfill re-tag of historical creatives. Invoked manually
 # (or by an internal caller) with the service-role bearer — no end-user JWT.
 [functions.backfill-retag]

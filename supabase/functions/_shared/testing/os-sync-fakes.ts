@@ -9,7 +9,7 @@ type Pred = (r: Row) => boolean;
 
 export interface FakeDbOptions {
   tables?: Record<string, Row[]>;
-  /** auth.users email -> id, for os_user_ids_by_email. */
+  /** auth.users email -> id, for os_user_ids_by_email and os_user_emails_by_id. */
   users?: Record<string, string>;
   /** "table:op" pairs that answer with an error (op: select, upsert, insert, update, delete). */
   fail?: string[];
@@ -160,6 +160,13 @@ export function fakeDb(opts: FakeDbOptions = {}) {
     from: (table: string) => query(table),
     rpc: (fn: string, args: Record<string, unknown>) => {
       log.push({ table: `rpc:${fn}`, op: "rpc", filters: [] });
+      if (fn === "os_user_emails_by_id") {
+        const ids = (args.p_ids as string[]).map(String);
+        const data = Object.entries(opts.users ?? {})
+          .filter(([, id]) => ids.includes(id))
+          .map(([email, user_id]) => ({ user_id, email: email.toLowerCase() }));
+        return Promise.resolve({ data, error: null });
+      }
       if (fn !== "os_user_ids_by_email") return Promise.resolve({ data: null, error: { message: "unknown rpc" } });
       const emails = (args.p_emails as string[]).map((e) => e.toLowerCase());
       const data = Object.entries(opts.users ?? {})

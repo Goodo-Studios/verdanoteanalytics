@@ -37,6 +37,7 @@ import {
 } from "./model";
 import { IngestTokensSection } from "./IngestTokensSection";
 import { StorageSecretsSection } from "./StorageSecretsSection";
+import { ClickUpWritebackSection } from "./ClickUpWritebackSection";
 
 const FN = "integration-health";
 
@@ -198,6 +199,7 @@ export default function IntegrationHealthPage() {
               <Link className="underline" to={`${prefix}/operations`}>Open Operations</Link> to replay, resolve or cancel jobs.
             </p>
           </section>
+          {isBuilder ? <ClickUpWritebackSection refresh={overview.checkedAt} /> : null}
           <StorageSecretsSection secrets={overview.vaultSecrets} />
           <IngestTokensSection isBuilder={isBuilder} environment={overview.environment} />
           <section aria-labelledby="ih-exceptions" className="space-y-2">
