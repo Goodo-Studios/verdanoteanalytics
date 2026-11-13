@@ -18,6 +18,8 @@ const h = vi.hoisted(() => ({
   detail: null as unknown,
   comments: [] as unknown[],
   history: [] as unknown[],
+  versions: [] as unknown[],
+  versionComments: [] as unknown[],
   calls: [] as Call[],
   rpcs: [] as Array<{ fn: string; args: unknown }>,
   builder: false,
@@ -29,6 +31,8 @@ vi.mock("@/integrations/supabase/client", () => {
     if (table === "os_tasks" && single) return { data: h.detail, error: null };
     if (table === "os_tasks") return { data: h.tasks, error: h.tasksError };
     if (table === "os_task_status_history") return { data: h.history, error: null };
+    // OS-020: the cuts of the task.
+    if (table === "os_task_versions") return { data: h.versions, error: null };
     // OS-012: the running timer (none unless a test sets one).
     if (table === "time_entries") return { data: single ? h.running : [], error: null };
     return { data: [], error: null };
@@ -57,6 +61,7 @@ vi.mock("@/integrations/supabase/client", () => {
       }),
       rpc: (fn: string, args: unknown) => {
         h.rpcs.push({ fn, args });
+        if (fn === "list_task_version_comments") return Promise.resolve({ data: h.versionComments, error: null });
         return Promise.resolve({ data: h.comments, error: null });
       },
     },
@@ -122,6 +127,8 @@ beforeEach(() => {
     { id: 1, thread: "internal", body: "Internal note here", author: { username: "Sam" }, created_at: "2026-11-10T10:00:00Z", from_clickup: true },
     { id: 2, thread: "client", body: "Client asks for a shorter cut", author: { name: "Pat" }, created_at: "2026-11-11T10:00:00Z", from_clickup: false },
   ];
+  h.versions = [];
+  h.versionComments = [];
   h.history = [
     { id: 10, from_status: null, to_status: "assigned", changed_at: "2026-11-01T10:00:00Z" },
     { id: 11, from_status: "assigned", to_status: "editing", changed_at: "2026-11-05T10:00:00Z" },
@@ -250,6 +257,26 @@ describe("task side panel", () => {
     expect(within(panel).getByText("Pass")).toBeInTheDocument();
     expect(within(panel).getByText("assigned → editing")).toBeInTheDocument();
     expect(h.rpcs).toEqual([{ fn: "list_task_comments", args: { p_task_id: "today" } }]);
+  });
+
+  it("shows the Versions section with each cut and its internal and client comments (OS-020)", async () => {
+    h.versions = [
+      { id: "ver-1", version_no: 1, label: null, video_url: "https://cdn.example.test/v1.mp4", created_at: "2026-11-01T10:00:00Z" },
+      { id: "ver-2", version_no: 2, label: "Shorter", video_url: "https://cdn.example.test/v2.mp4", created_at: "2026-11-02T10:00:00Z" },
+    ];
+    h.versionComments = [
+      { id: 71, thread: "internal", body: "Trim the intro", timecode_ms: 4000, created_at: "2026-11-02T11:00:00Z", author_user_id: null, author: { name: "Sam" } },
+      { id: 72, thread: "client", body: "Music is great", timecode_ms: 9000, created_at: "2026-11-02T12:00:00Z", author_user_id: null, author: {} },
+    ];
+    const panel = await openToday();
+    const versions = await within(panel).findByTestId("task-panel-versions");
+    const pills = await within(versions).findAllByTestId("cut-version");
+    expect(pills.map((p) => p.textContent)).toEqual([expect.stringContaining("Version 2: Shorter"), expect.stringContaining("Version 1")]);
+    await within(versions).findByText("Trim the intro");
+    expect(within(versions).getByTestId("cut-internal-label")).toHaveTextContent("Internal");
+    expect(within(versions).getByText("Music is great")).toBeInTheDocument();
+    expect(within(versions).getByTestId("cut-add-version")).toBeInTheDocument();
+    expect(h.rpcs).toContainEqual({ fn: "list_task_version_comments", args: { p_version_id: "ver-2" } });
   });
 
   it("closes with Escape", async () => {

@@ -11,7 +11,7 @@ import { hasLogins, NEEDS_PASSWORD, storagePath, watchConsole } from "./support"
 const INTERNAL_LABELS = [/strategist/i, /producer/i, /\beditor\b/i, /\bhooks\b/i, /QA checklist/i, /stuck/i, /internal/i, /ClickUp/i, /assignee/i];
 // Text the client or our team wrote (titles, brief text, comments) is left out: a brief may well
 // mention hooks or an editor. Only the page's own labels are checked.
-const CONTENT_IDS = ["client-card-title", "client-next-title", "client-brief-text", "client-comment"];
+const CONTENT_IDS = ["client-card-title", "client-next-title", "client-brief-text", "client-comment", "cut-comment", "cut-version"];
 
 async function expectNoInternalLabels(page: import("@playwright/test").Page, testId: string) {
   const text = await page.getByTestId(testId).evaluate((el, ids) => {

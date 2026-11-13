@@ -1,4 +1,5 @@
-// Review (OS-019): tasks in Client Review, oldest due first. Each shows the asset link, the client
+// Review (OS-019): tasks in Client Review, oldest due first. Each shows the cut review (OS-020:
+// versions, a player and timestamped comments), the asset link, the client
 // comment thread, and Approve / Request changes (with a note). Replaces the ClickUp client review view.
 // A client cannot change the title, date or status here; the only writes are a decision and a comment.
 import { memo, useMemo, useState } from "react";
@@ -10,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useClientCards, useClientComments, useClientDecide, usePostClientComment } from "@/hooks/useClientCards";
 import { MAX_NOTE, noteProblem, reviewCards, type ClientCard } from "@/lib/clientPages";
 import { shortDate, todayIso } from "@/lib/homeData";
+import { CutReview } from "@/features/cut-review/CutReview";
 import { AssetLink, ClientCardShell, DueLabel, PageIntro } from "./ClientCardBits";
 
 function Comments({ taskId }: { taskId: string }) {
@@ -78,6 +80,9 @@ export const ReviewCard = memo(function ReviewCard({ card, today }: { card: Clie
       <div className="flex flex-wrap items-center gap-3">
         <span className="min-w-0 flex-1 truncate font-medium" data-testid="client-card-title">{card.title}</span>
         <DueLabel due={card.due_date} today={today} />
+      </div>
+      <div className="mt-3" data-testid="client-cut-review">
+        <CutReview taskId={card.id} viewer="client" />
       </div>
       <div className="mt-2">
         {card.asset_url ? <AssetLink href={card.asset_url}>Open the asset</AssetLink> : <span className="text-sm text-muted-foreground">The asset link is on its way.</span>}
