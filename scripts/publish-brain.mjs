@@ -20,7 +20,9 @@
 //     --only TARGET_SUPABASE_URL,TARGET_SUPABASE_SERVICE_ROLE_KEY \
 //     -- node scripts/publish-brain.mjs --dry-run
 import { createClient } from '@supabase/supabase-js';
-import { assertTarget, buildPages, diffPages, parseArgs, readKnowledge, summariseSkips } from './publish-brain-lib.mjs';
+import {
+  assertTarget, buildPages, diffPages, parseArgs, pendingFixes, readKnowledge, summariseSkips, unmatchedOwnerLines,
+} from './publish-brain-lib.mjs';
 
 const BATCH = 200;
 
@@ -94,6 +96,29 @@ console.log(`Pages: ${pages.length} (${[...bySection.entries()].map(([s, n]) => 
 console.log(`Added ${plan.add.length}, updated ${plan.update.length}, unchanged ${plan.unchanged}, removed ${plan.remove.length}`);
 console.log(`Skipped ${allSkipped.length}:`);
 for (const [reason, count] of summariseSkips(allSkipped)) console.log(`  ${count}  ${reason}`);
+// OS-016: match page owners to staff logins again (names may have changed since the last run),
+// report the owners that match nobody, and list accepted fixes still to apply in HQ.
+if (db) {
+  if (!opts.dryRun) {
+    const { data, error } = await db.rpc('rematch_brain_page_owners');
+    if (error) console.log(`Could not match owners to logins: ${error.message}`);
+    else {
+      const lines = unmatchedOwnerLines(data);
+      console.log(`Owners with no staff login ${lines.length}${lines.length ? ' (their pages show on nobody\'s Today page):' : ''}`);
+      for (const line of lines) console.log(line);
+    }
+  }
+  const [{ data: fixes, error: fixError }, { data: current, error: pageError }] = await Promise.all([
+    db.from('brain_page_corrections').select('id, brain_page_id, source_path, page_content_hash, reason, created_at, brain_page_correction_reviews(decision)'),
+    db.from('brain_pages').select('id, content_hash'),
+  ]);
+  if (fixError || pageError) console.log(`Could not read suggested fixes: ${(fixError ?? pageError).message}`);
+  else {
+    const pending = pendingFixes(fixes, current);
+    console.log(`Accepted fixes to apply in HQ ${pending.length}${pending.length ? ':' : ''}`);
+    for (const f of pending) console.log(`  ${f.source_path}: ${f.reason}`);
+  }
+}
 const noteCounts = summariseSkips(notes.map((n) => ({ reason: n.note })));
 if (noteCounts.length) {
   console.log('Published with a fallback:');

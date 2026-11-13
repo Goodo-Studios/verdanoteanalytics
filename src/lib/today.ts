@@ -78,6 +78,23 @@ export function awaitingClientApproval(rows: MyTaskRow[]): MyTaskRow[] {
     .sort((a, b) => (a.due_date ?? "9999-12-31").localeCompare(b.due_date ?? "9999-12-31") || a.title.localeCompare(b.title));
 }
 
+/** A Brain page the person owns that needs review (OS-016), from my_brain_pages_to_review. */
+export interface BrainReviewRow {
+  id: string;
+  section: string;
+  slug: string;
+  title: string;
+  last_reviewed: string | null;
+}
+
+/** How many Brain pages to review the Today page lists before "and N more". */
+export const BRAIN_REVIEW_MAX = 5;
+
+/** The Brain pages shown on Today and how many more there are. */
+export function brainReviewList(rows: BrainReviewRow[]): { shown: BrainReviewRow[]; more: number } {
+  return { shown: rows.slice(0, BRAIN_REVIEW_MAX), more: Math.max(0, rows.length - BRAIN_REVIEW_MAX) };
+}
+
 /** Midnight at the start of `today` (local date, YYYY-MM-DD) as an ISO timestamp. */
 export function startOfDayIso(today: string): string {
   const [y, m, d] = today.split("-").map(Number);

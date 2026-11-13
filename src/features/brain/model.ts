@@ -11,8 +11,11 @@ export const SECTION_BLURB: Record<BrainSection, string> = {
   Insights: "What we have learned from the work.",
 };
 
-/** A page is marked stale when it has not been reviewed for this many days. */
-export const STALE_DAYS = 180;
+/**
+ * A page needs review when it was last reviewed more than this many days ago, or never. Matches
+ * public.brain_page_needs_review in migration 20261129080001 (OS-016).
+ */
+export const NEEDS_REVIEW_DAYS = 90;
 
 export interface BrainListRow {
   id: string;
@@ -26,6 +29,10 @@ export interface BrainListRow {
 export interface BrainPageRow extends BrainListRow {
   body_md: string;
   published_at: string;
+  content_hash: string;
+  source_path: string;
+  /** The staff login the owner text matched at publish time, or null. */
+  owner_user_id: string | null;
 }
 
 /** Section from the address (?section=playbooks), Handbook when missing or unknown. */
@@ -44,10 +51,10 @@ export function daysSince(date: string | null, now: Date = new Date()): number |
   return Math.floor((today - then) / 86_400_000);
 }
 
-/** Not reviewed for more than STALE_DAYS, or never reviewed. */
-export function isStale(date: string | null, now: Date = new Date()): boolean {
+/** Not reviewed for more than NEEDS_REVIEW_DAYS (91 days or more), or never reviewed. */
+export function needsReview(date: string | null, now: Date = new Date()): boolean {
   const days = daysSince(date, now);
-  return days === null || days > STALE_DAYS;
+  return days === null || days > NEEDS_REVIEW_DAYS;
 }
 
 /** A link between Brain pages, written by the publish script as #brain/<section>/<slug>. */
@@ -62,4 +69,68 @@ export function matchesSearch(row: BrainListRow, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
   return row.title.toLowerCase().includes(q) || row.owner.toLowerCase().includes(q);
+}
+
+/** Address of a Brain page inside the staff area, for links from other pages. */
+export function brainPagePath(prefix: string, section: BrainSection, slug: string): string {
+  return `${prefix}/knowledge/brain?section=${section.toLowerCase()}&page=${encodeURIComponent(slug)}`;
+}
+
+// ------------------------------------------------------------------ suggested fixes (OS-016)
+
+export type FixClass = "content" | "procedure" | "permission" | "factual";
+
+export interface FixReview {
+  decision: "accepted" | "rejected";
+  reason: string;
+  reviewer_id: string;
+  created_at: string;
+}
+
+export interface BrainFix {
+  id: string;
+  brain_page_id: string;
+  source_path: string;
+  page_title: string;
+  page_content_hash: string;
+  proposed_body: string;
+  reason: string;
+  classification: FixClass;
+  submitted_by: string;
+  created_at: string;
+  review: FixReview | null;
+}
+
+export type FixStatus = "open" | "accepted" | "applied" | "rejected";
+
+export const FIX_STATUS_LABEL: Record<FixStatus, string> = {
+  open: "Waiting for the owner",
+  accepted: "Accepted, to apply in HQ",
+  applied: "Accepted, page published again since",
+  rejected: "Rejected",
+};
+
+/**
+ * Where a fix stands. Accepting never edits the page here (HQ is the source), so an accepted fix
+ * counts as applied once the page has been published with different content.
+ */
+export function fixStatus(fix: BrainFix, currentHash: string): FixStatus {
+  if (!fix.review) return "open";
+  if (fix.review.decision === "rejected") return "rejected";
+  return fix.page_content_hash === currentHash ? "accepted" : "applied";
+}
+
+/** The page owner or a builder reviews an open fix, never their own. Mirrors review_brain_page_correction. */
+export function canReviewFix(fix: BrainFix, page: Pick<BrainPageRow, "owner_user_id">, me: string | undefined, isBuilder: boolean): boolean {
+  if (!me || fix.review || fix.submitted_by === me) return false;
+  return isBuilder || page.owner_user_id === me;
+}
+
+const asArray = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : v && typeof v === "object" ? [v as T] : []);
+
+/** Shapes the nested select (fix plus its review) into fixes, newest first. */
+export function toFixes(rows: unknown): BrainFix[] {
+  return asArray<Record<string, unknown>>(rows)
+    .map((r) => ({ ...(r as unknown as BrainFix), review: asArray<FixReview>(r.brain_page_correction_reviews)[0] ?? null }))
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
 }

@@ -97,7 +97,10 @@ INSERT INTO allow
     -- and acts only on the caller's own time_people row.
     'time_my_person', 'time_start_timer', 'time_stop_timer',
     -- OS-013: a client's monthly scope hours. Refuses anyone who is not a builder.
-    'set_client_scope_hours'
+    'set_client_scope_hours',
+    -- OS-016: suggested fixes to Brain pages. Both refuse anyone who is not builder or employee;
+    -- reviewing also needs the page owner or a builder.
+    'submit_brain_page_correction', 'review_brain_page_correction'
   ]);
 
 -- SECURITY DEFINER functions in public (extension functions excluded).

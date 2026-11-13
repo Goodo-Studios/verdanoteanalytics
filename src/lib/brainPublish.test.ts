@@ -18,9 +18,43 @@ import {
   readKnowledge,
   sectionFor,
   slugForPath,
+  pendingFixes,
   stripHqBits,
+  unmatchedOwnerLines,
   unpublishedReason,
 } from "../../scripts/publish-brain-lib.mjs";
+
+describe("OS-016 owner report and fixes to apply in HQ", () => {
+  it("lists owners with no staff login, sorted, with a page count", () => {
+    expect(unmatchedOwnerLines([{ owner: "Zed", pages: 2 }, { owner: "Ann Smith", pages: 1 }])).toEqual(["  Ann Smith (1 page)", "  Zed (2 pages)"]);
+    expect(unmatchedOwnerLines([])).toEqual([]);
+    expect(unmatchedOwnerLines(null)).toEqual([]);
+  });
+
+  const fix = (id: string, page: string, hash: string, decision: string | null, sp = `company/${page}.md`) => ({
+    id, brain_page_id: page, source_path: sp, page_content_hash: hash, reason: `why ${id}`, created_at: `2026-11-0${id}T00:00:00Z`,
+    brain_page_correction_reviews: decision ? [{ decision }] : [],
+  });
+
+  it("keeps accepted fixes whose page has not been published again", () => {
+    const pages = [{ id: "a", content_hash: "h1" }, { id: "b", content_hash: "h2-new" }];
+    const fixes = [
+      fix("1", "a", "h1", "accepted"),
+      fix("2", "a", "h1", "rejected"),
+      fix("3", "a", "h1", null),
+      fix("4", "b", "h2-old", "accepted"),
+      fix("5", "gone", "h9", "accepted"),
+      fix("6", "a", "h1", "accepted", "clients/a.md"),
+    ];
+    expect(pendingFixes(fixes, pages).map((f) => f.id)).toEqual(["6", "1"]);
+  });
+
+  it("reads a single review object as well as a list", () => {
+    const one = { ...fix("1", "a", "h1", null), brain_page_correction_reviews: { decision: "accepted" } };
+    expect(pendingFixes([one], [{ id: "a", content_hash: "h1" }])).toHaveLength(1);
+    expect(pendingFixes(null, null)).toEqual([]);
+  });
+});
 
 const fm = (fields: string, body = "# Heading\n\nText.") => `---\n${fields}\n---\n${body}\n`;
 const MTIME = Date.UTC(2026, 9, 5, 12);

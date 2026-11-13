@@ -20,6 +20,8 @@ const h = vi.hoisted(() => ({
   toasts: [] as Array<{ msg: string; opts?: { action?: { label: string; onClick: () => void } } }>,
   runningTaskId: null as string | null,
   toggled: [] as string[],
+  brain: [] as unknown[],
+  brainError: false,
 }));
 
 vi.mock("@/contexts/AuthContext", () => ({
@@ -36,6 +38,10 @@ vi.mock("@/hooks/useMyWork", () => ({
 vi.mock("@/hooks/useToday", () => ({
   useDoneTodayCount: () => ({ data: h.doneToday, isLoading: false, isError: false }),
   useSetTaskStatus: () => ({ mutate: (v: { id: string; status: string }) => h.mutations.push(v) }),
+}));
+// OS-016: the person's Brain pages to review. The query itself is covered by supabase/tests/os_brain_review_test.sql.
+vi.mock("@/hooks/useBrainReview", () => ({
+  useBrainPagesToReview: () => ({ data: h.brainError ? undefined : h.brain, isLoading: false, isError: h.brainError }),
 }));
 // OS-012: the play buttons. The hook itself is covered in timer.test.tsx.
 vi.mock("@/hooks/useTimer", () => ({
@@ -93,6 +99,8 @@ beforeEach(() => {
   h.toasts = [];
   h.runningTaskId = null;
   h.toggled = [];
+  h.brain = [];
+  h.brainError = false;
 });
 afterEach(() => vi.useRealTimers());
 
@@ -211,5 +219,48 @@ describe("Today (OS-010)", () => {
     const approvals = screen.getByTestId("today-approvals");
     expect(within(approvals).getAllByTestId("today-approvals-row").map((r) => r.textContent)).toEqual([expect.stringContaining("Awaiting Bloom")]);
     expect(within(screen.getByTestId("today-decisions")).getAllByTestId("today-decisions-row")).toHaveLength(1);
+  });
+});
+
+describe("Brain pages to review (OS-016)", () => {
+  const page = (n: number, over: Record<string, unknown> = {}) => ({
+    id: `p${n}`, section: "Playbooks", slug: `page-${n}`, title: `Page ${n}`, last_reviewed: "2026-05-01", ...over,
+  });
+
+  it("is hidden when the person owns no pages to review", () => {
+    renderPanel();
+    expect(screen.queryByTestId("today-brain")).toBeNull();
+  });
+
+  it("is hidden when the list fails to load, so Today stays calm", () => {
+    h.brainError = true;
+    renderPanel();
+    expect(screen.queryByTestId("today-brain")).toBeNull();
+  });
+
+  it("shows the pages below the short list, each linking to its Brain page", () => {
+    h.brain = [page(1), page(2, { section: "Handbook", last_reviewed: null })];
+    renderPanel();
+    const box = screen.getByTestId("today-brain");
+    expect(within(box).getByText("Brain pages to review")).toBeTruthy();
+    const links = within(box).getAllByRole("link");
+    expect(links.map((l) => l.getAttribute("href"))).toEqual([
+      "/builder/knowledge/brain?section=playbooks&page=page-1",
+      "/builder/knowledge/brain?section=handbook&page=page-2",
+    ]);
+    expect(links[0].textContent).toContain("Page 1");
+    expect(links[0].textContent).toContain("Reviewed May 1");
+    expect(links[1].textContent).toContain("Never reviewed");
+    expect(screen.queryByTestId("today-brain-more")).toBeNull();
+    // Below the next action and the short list.
+    const list = screen.getByTestId("today-list");
+    expect(list.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows at most five pages and says how many more", () => {
+    h.brain = Array.from({ length: 8 }, (_, i) => page(i + 1));
+    renderPanel();
+    expect(screen.getAllByTestId("today-brain-item")).toHaveLength(5);
+    expect(screen.getByTestId("today-brain-more").textContent).toBe("and 3 more");
   });
 });

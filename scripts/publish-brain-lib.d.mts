@@ -52,3 +52,12 @@ export function diffPages(
 ): { add: BrainPage[]; update: BrainPage[]; unchanged: number; remove: string[] };
 export function readKnowledge(root: string): Promise<{ files: KnowledgeFile[]; skipped: Skip[] }>;
 export function summariseSkips(skipped: { reason: string }[]): [string, number][];
+export function unmatchedOwnerLines(rows: { owner: string; pages: number }[] | null): string[];
+export interface BrainFixRow {
+  brain_page_id: string;
+  source_path: string;
+  page_content_hash: string;
+  created_at: string;
+  brain_page_correction_reviews: { decision: string }[] | { decision: string } | null;
+}
+export function pendingFixes<T extends BrainFixRow>(fixes: T[] | null, pages: { id: string; content_hash: string }[] | null): T[];

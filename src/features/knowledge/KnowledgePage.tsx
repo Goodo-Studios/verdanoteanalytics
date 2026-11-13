@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { ConfirmDialog, EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
+import { CorrectionForm, type CorrectionInput } from "./CorrectionForm";
 import { fmtDate } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,7 +16,6 @@ import {
   canReview,
   CLASS_LABEL,
   type Correction,
-  type CorrectionClass,
   correctionStatus,
   currentVersion,
   errorText,
@@ -122,24 +122,16 @@ function CorrectionRow({ c, source, onChanged }: { c: Correction; source: Knowle
 function SourceDetail({ source, onChanged }: { source: KnowledgeSource; onChanged: () => void }) {
   const { isBuilder } = useAuth();
   const current = currentVersion(source);
-  const [draft, setDraft] = useState(current?.body ?? "");
-  const [reason, setReason] = useState("");
-  const [classification, setClassification] = useState<CorrectionClass>("content");
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
   const [rollbackTo, setRollbackTo] = useState<number | null>(null);
-  useEffect(() => setDraft(current?.body ?? ""), [current?.body]);
 
-  const submit = async () => {
-    setError(null);
-    setMessage(null);
+  const submit = async (input: CorrectionInput): Promise<string | null> => {
     const { error: e } = await db.rpc("submit_knowledge_correction", {
-      p_source_id: source.id, p_source_version: source.current_version, p_proposed_body: draft, p_reason: reason.trim(), p_classification: classification,
+      p_source_id: source.id, p_source_version: source.current_version, p_proposed_body: input.text, p_reason: input.reason, p_classification: input.classification,
     });
-    if (e) return setError(errorText(e.code, "The correction could not be saved."));
-    setReason("");
-    setMessage("Correction sent for review.");
+    if (e) return errorText(e.code, "The correction could not be saved.");
     onChanged();
+    return null;
   };
   const rollback = async (to: number) => {
     setError(null);
@@ -187,17 +179,8 @@ function SourceDetail({ source, onChanged }: { source: KnowledgeSource; onChange
         }}
       />
 
-      <div className="space-y-2">
-        <h3 className="text-sm font-semibold">Propose a correction</h3>
-        <TextareaField label="Corrected text" hideLabel inputClassName="min-h-[100px]" value={draft} onChange={(e) => setDraft(e.target.value)} />
-        <div className="grid gap-2 sm:grid-cols-2">
-          <TextField label="Why" hideLabel placeholder="Why it needs correcting" value={reason} onChange={(e) => setReason(e.target.value)} />
-          <SelectField label="Kind of correction" hideLabel value={classification} onChange={(e) => setClassification(e.target.value as CorrectionClass)} options={(Object.keys(CLASS_LABEL) as CorrectionClass[]).map((k) => ({ value: k, label: CLASS_LABEL[k] }))} />
-        </div>
-        <Button size="sm" disabled={!reason.trim() || !draft.trim() || draft === current?.body} onClick={() => void submit()}>Send for review</Button>
-        {message ? <p role="status" className="text-sm">{message}</p> : null}
-        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-      </div>
+      <CorrectionForm heading="Propose a correction" initialText={current?.body ?? ""} sentMessage="Correction sent for review." onSubmit={submit} />
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
 
       {source.corrections.length ? (
         <div className="space-y-2">
