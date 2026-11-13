@@ -52,6 +52,8 @@ const h = vi.hoisted(() => ({
   fixes: [] as unknown[],
   fail: false,
   rpcError: null as null | { code: string; message: string },
+  invokes: [] as Array<{ name: string; body: unknown }>,
+  answer: null as unknown,
 }));
 let auth = { isBuilder: false, isEmployee: true, user: { id: ME } as { id: string } | null };
 
@@ -81,12 +83,19 @@ vi.mock("@/integrations/supabase/client", () => {
         h.rpcs.push({ name, args });
         return Promise.resolve({ data: "new-id", error: h.rpcError });
       },
+      // OS-026: ask the Brain.
+      functions: {
+        invoke: (name: string, opts: { body: unknown }) => {
+          h.invokes.push({ name, body: opts.body });
+          return Promise.resolve({ data: h.answer, error: null });
+        },
+      },
     },
   };
 });
 
 import BrainPage from "@/features/brain/BrainPage";
-import { type BrainFix, canReviewFix, fixStatus, needsReview, NEEDS_REVIEW_DAYS, parseBrainHref, sectionFromParam } from "@/features/brain/model";
+import { brainAnchor, brainPagePath, type BrainFix, canReviewFix, fixStatus, needsReview, NEEDS_REVIEW_DAYS, parseBrainHref, sectionFromParam } from "@/features/brain/model";
 
 function renderAt(search = "") {
   return render(
@@ -102,6 +111,8 @@ beforeEach(() => {
   h.fixes = [];
   h.fail = false;
   h.rpcError = null;
+  h.invokes = [];
+  h.answer = null;
   auth = { isBuilder: false, isEmployee: true, user: { id: ME } };
 });
 
@@ -324,5 +335,79 @@ describe("Brain model", () => {
     expect(canReviewFix({ ...base, submitted_by: ME }, { owner_user_id: ME }, ME, true)).toBe(false);
     expect(canReviewFix(accepted, { owner_user_id: ME }, ME, true)).toBe(false);
     expect(canReviewFix(base, { owner_user_id: ME }, undefined, true)).toBe(false);
+  });
+});
+
+describe("Ask the Brain (OS-026)", () => {
+  const ask = async (question: string) => {
+    renderAt();
+    await screen.findByTestId("brain-list");
+    fireEvent.change(screen.getByLabelText("Ask the Brain a question"), { target: { value: question } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    return screen.findByTestId("brain-answer");
+  };
+
+  it("asks brain-ask and shows the answer with its cited pages as links that open in the Brain", async () => {
+    h.answer = {
+      answer: "Film the founder in daylight.",
+      mode: "answer",
+      citations: [{ section: "Playbooks", slug: "editor-workflow", title: "Editor workflow" }],
+      passages: [{ section: "Playbooks", slug: "editor-workflow", title: "Editor workflow", text: "Step one." }],
+    };
+    const box = await ask("How do we film the founder?");
+    expect(h.invokes).toEqual([{ name: "brain-ask", body: { question: "How do we film the founder?" } }]);
+    expect(within(box).getByTestId("brain-answer-text").textContent).toBe("Film the founder in daylight.");
+    const sources = within(box).getByTestId("brain-answer-sources");
+    const link = within(sources).getByRole("link", { name: "Editor workflow" });
+    expect(link.getAttribute("href")).toBe("?section=playbooks&page=editor-workflow");
+    fireEvent.click(link);
+    expect(await screen.findByTestId("brain-page")).toBeTruthy();
+    expect(screen.getByText("Step one.")).toBeTruthy();
+  });
+
+  it("without a model, shows the matching passages and cites each page", async () => {
+    h.answer = {
+      answer: null,
+      mode: "passages",
+      citations: [
+        { section: "Playbooks", slug: "editor-workflow", title: "Editor workflow" },
+        { section: "Handbook", slug: "decision-rights", title: "Decision rights" },
+      ],
+      passages: [
+        { section: "Playbooks", slug: "editor-workflow", title: "Editor workflow", text: "Export at 1080 by 1920." },
+        { section: "Handbook", slug: "decision-rights", title: "Decision rights", text: "Strategists decide hooks." },
+      ],
+    };
+    const box = await ask("Who decides hooks?");
+    expect(within(box).getByTestId("brain-answer-passages").textContent).toContain("Strategists decide hooks.");
+    expect(within(within(box).getByTestId("brain-answer-sources")).getAllByRole("link").map((a) => a.textContent)).toEqual(["Editor workflow", "Decision rights"]);
+  });
+
+  it("says plainly when nothing matches, with no citations", async () => {
+    h.answer = { answer: "Nothing in the Brain answers that yet.", mode: "none", citations: [], passages: [] };
+    const box = await ask("What is the payroll deadline?");
+    expect(within(box).getByTestId("brain-answer-none").textContent).toBe("Nothing in the Brain answers that yet.");
+    expect(within(box).queryByTestId("brain-answer-sources")).toBeNull();
+    expect(within(box).queryAllByRole("link")).toHaveLength(0);
+  });
+
+  it("treats an answer with no citations as no match", async () => {
+    h.answer = { answer: "Made up.", mode: "answer", citations: [], passages: [] };
+    const box = await ask("Anything?");
+    expect(box.textContent).toBe("Nothing in the Brain answers that yet.");
+  });
+
+  it("is not shown to a client and nothing is asked", async () => {
+    auth = { isBuilder: false, isEmployee: false, user: { id: ME } };
+    renderAt();
+    expect(screen.queryByTestId("brain-ask")).toBeNull();
+    expect(h.invokes).toHaveLength(0);
+  });
+
+  it("gives heading anchors so a task can link to a playbook section", () => {
+    expect(brainAnchor("Founder Story")).toBe("founder-story");
+    expect(brainAnchor("  UGC / Testimonial!! ")).toBe("ugc-testimonial");
+    expect(brainPagePath("/employee", "Playbooks", "video", "founder-story")).toBe("/employee/knowledge/brain?section=playbooks&page=video#founder-story");
+    expect(brainPagePath("/employee", "Playbooks", "video")).toBe("/employee/knowledge/brain?section=playbooks&page=video");
   });
 });

@@ -73,6 +73,7 @@ FUNCTIONS=(
   clickup-folders
   invite-user
   meeting-recaps
+  brain-ask
   agent-evaluations
   integration-health
   system-health-check

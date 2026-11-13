@@ -206,6 +206,15 @@
         "query": "account_id=act_demo_glowdrip"
       }
     },
+    "brain-ask": {
+      "class": "staff",
+      "note": "OS-026 ask the Brain. Builder or employee login only. Reads matching Brain paragraphs through brain_answer_passages (service role only) and answers only from them, citing the pages. With no ANTHROPIC_API_KEY (staging) it returns the matching paragraphs as the answer. Writes nothing.",
+      "probe": {
+        "body": {
+          "question": "wall probe question"
+        }
+      }
+    },
     "meeting-recaps": {
       "class": "staff",
       "note": "Goodo OS meeting recaps. Builder or employee login only. Reads one named Fireflies transcript, sends only clean excerpts to the model and records the grounded items in meeting_recaps. Answers 503 with no request when FIREFLIES_API_KEY or ANTHROPIC_API_KEY is not set (staging has neither).",
