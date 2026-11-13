@@ -37,6 +37,27 @@ Migration `20261120080001_os_clickup_live_copy.sql` and two functions copy every
 - **Schedule:** the migration creates the cron job `clickup-os-sync-nightly` (07:30 UTC). On staging the lockdown script removes it, by design, so staging is refreshed only by hand (`{"mode":"full"}` with the service role key) and by the webhook if one is registered for the staging URL.
 - **Webhook:** `node scripts/register-clickup-webhook.mjs` lists the team's webhooks (dry run). With `--create` and `WEBHOOK_SECRET_OUT=<file>` it creates the team webhook for `WEBHOOK_ENDPOINT` if none exists and writes the signing secret only to that file. Set it with `supabase secrets set CLICKUP_WEBHOOK_SECRET=...`, then delete the file. Registering the webhook only reads tasks; it changes nothing in ClickUp's tasks.
 - Tests: `supabase/tests/os_clickup_live_copy_test.sql`, `supabase/functions/_shared/os-task-map.test.ts`, `supabase/functions/clickup-os-sync/index.test.ts`, `supabase/functions/clickup-webhook/index.test.ts`, `src/test/registerClickupWebhook.test.ts`.
+
+### OS-017: app changes written back to ClickUp (off by default)
+
+Migration `20261130080001_os_clickup_writeback.sql` queues every status, due date, strategist, producer and editor change, comment and client decision made in the app in `os_clickup_outbox`. Changes written by the ClickUp sync or webhook (service role) are never queued. The function `clickup-writeback` (service role only, every minute from the cron job `clickup-writeback-every-minute` in production; staging has no cron) sends them.
+
+**Write-back is off.** Nothing in the repo, CI or the deploy scripts turns it on. While off, each run marks queued rows `held` and does not call ClickUp. Integration health shows "Write-back is off" to builders, with the counts, failures and clashes.
+
+To turn it on for one test list (Matthew's call, not done yet):
+
+1. Pick a ClickUp test list that is not a client's Project View list, and note its id.
+2. Set both secrets on the functions of the project you are testing (Supabase dashboard, Edge Functions, Secrets, or `supabase secrets set ... --project-ref <ref>`):
+   - `CLICKUP_WRITEBACK_ENABLED=true`
+   - `CLICKUP_WRITEBACK_LIST_IDS=<list id>` (comma separated for more; empty means every row is held)
+3. On staging, also set `CLICKUP_WRITE_ALLOWED_LIST_IDS=<same list id>`; the staging write guard holds every other list whatever the two values above say.
+4. Redeploy `clickup-writeback` so it reads the new secrets. On staging there is no cron: call it by hand with the service role key (`POST /functions/v1/clickup-writeback`).
+
+To turn it off again, unset `CLICKUP_WRITEBACK_ENABLED` (or set it to anything but `true`) and redeploy. Rows held while it was off stay held; they are not sent later.
+
+How it behaves when on: a change older than ClickUp's own last change to the same field is a clash, ClickUp's value is kept and the app row takes it; a later app change is written. Both are logged in `os_clickup_clashes`. A failed write retries after 1, 5, 15 and 60 minutes, then shows as failed. A 429 waits for ClickUp's reset time. The webhook ignores the echo of our own write, and our own comments are never imported back. Client decisions are written as a ClickUp comment; the status is not moved by a decision.
+
+Tests: `supabase/tests/os_clickup_writeback_test.sql`, `supabase/functions/_shared/os-clickup-writeback.test.ts`, `supabase/functions/clickup-writeback/index.test.ts`, the OS-017 cases in `supabase/functions/clickup-webhook/index.test.ts`, `src/test/clickupWritebackSection.test.tsx`. None of them calls ClickUp.
 - **The site is behind a password.** `middleware.ts` asks for a shared password when the Vercel project has `STAGING_SITE=1`. If the password variable is missing it answers 503 instead of opening up. On production the file does nothing.
 - **Test logins only.** The four logins below are made up and exist only in staging. The demo ad account `act_demo_glowdrip` comes from `scripts/seed-demo-account.mjs`, and the `demo-` clients from `scripts/seed-staging-dashboard.mjs`.
 - **Staging holds real old-dashboard rows.** Before step 5a, rows were loaded from the old dashboard into staging, with no recorded run: 27 clients (the `demo-` ones included), 816 creators (796 email addresses), 253 creator assignments, 30 approval boards (their tokens still open live boards on the old dashboard), 80 applications, 20 shoots and 4 staff `app_users` rows, plus actor and applicant rows with emails, phone numbers and shipping addresses. They are staff only: client logins read none of them (pgTAP and both wall scripts check it). No Verdanote production data is copied into staging. Whether to keep these rows or remove them and keep only the `demo-` clients is open decision 10 in the plan; nothing has removed them.

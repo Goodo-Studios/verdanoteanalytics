@@ -18,6 +18,7 @@ import {
   upsertTasks,
   withPeople,
 } from "../_shared/os-clickup-sync.ts";
+import { isEchoOfOwnWrite, keepPendingAppValues } from "../_shared/os-clickup-writeback.ts";
 
 // ClickUp webhook receiver (Goodo OS story OS-007).
 //
@@ -29,6 +30,11 @@ import {
 // upserted into os_tasks; comment events also read its comments. taskDeleted removes the app row
 // unless it is read-only history. Tasks outside the three Goodo spaces are ignored. Each handled
 // event is recorded in os_sync_runs (kind webhook). ClickUp is never written to.
+//
+// OS-017 write-back: an event no newer than our own last write to the task (ClickUp's
+// date_updated) is our echo and is ignored ("echo_ignored"). A field with an app change still
+// waiting to be sent keeps the app value, so the writer can compare both sides. These writes use the
+// service role, which the outbox triggers never queue, so the webhook never starts a write-back.
 //
 // The answer is 200 as soon as the signature checks out; the work runs in the background
 // (EdgeRuntime.waitUntil) so ClickUp does not time out and retry.
@@ -78,7 +84,7 @@ export interface WebhookEvent {
 }
 
 export interface ProcessResult {
-  outcome: "upserted" | "deleted" | "kept_read_only" | "ignored" | "skipped_folder" | "not_found" | "failed";
+  outcome: "upserted" | "deleted" | "kept_read_only" | "ignored" | "echo_ignored" | "skipped_folder" | "not_found" | "failed";
   detail?: Record<string, unknown>;
 }
 
@@ -121,6 +127,9 @@ export async function processEvent(
     if (!OS_SPACE_IDS.includes(spaceId)) return await done({ outcome: "ignored", detail: { reason: "outside_spaces" } });
     const listId = String(task.list?.id ?? "");
     if (!listId) throw new Error("task has no list");
+    if (await isEchoOfOwnWrite(db, taskId, task.date_updated, Date.parse(nowIso))) {
+      return await done({ outcome: "echo_ignored" });
+    }
 
     const folder = task.folder && task.folder.id && !task.folder.hidden
       ? { id: String(task.folder.id), name: String(task.folder.name ?? "") }
@@ -149,7 +158,8 @@ export async function processEvent(
 
     await ensureStatuses(db, [mapped.row.status]);
     const people = await resolvePeople(db, [mapped.people.strategist, mapped.people.producer, mapped.people.editor]);
-    const written = await upsertTasks(db, [withPeople(mapped, people)]);
+    const row = prev ? await keepPendingAppValues(db, withPeople(mapped, people)) : withPeople(mapped, people);
+    const written = await upsertTasks(db, [row]);
     if (written.failed) throw new Error("os_tasks upsert failed");
 
     let comments = 0;

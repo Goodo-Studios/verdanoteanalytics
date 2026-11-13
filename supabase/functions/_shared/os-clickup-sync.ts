@@ -278,7 +278,14 @@ export async function upsertComments(db: SupabaseLike, rows: CommentRow[]): Prom
   let written = 0;
   let failed = false;
   for (let i = 0; i < rows.length; i += UPSERT_CHUNK) {
-    const chunk = rows.slice(i, i + UPSERT_CHUNK);
+    let chunk = rows.slice(i, i + UPSERT_CHUNK);
+    // OS-017: comments the app wrote to ClickUp are already in the app; never import them again.
+    const { data: own, error: ownError } = await db.from("os_clickup_outbox").select("clickup_ref")
+      .in("clickup_ref", chunk.map((c) => c.clickup_comment_id));
+    if (ownError) console.error(`os_clickup_outbox read failed: ${ownError.message}`);
+    const ownIds = new Set((own ?? []).map((r) => String(r.clickup_ref)));
+    chunk = chunk.filter((c) => !ownIds.has(c.clickup_comment_id));
+    if (chunk.length === 0) continue;
     const { error } = await db.from("os_task_comments").upsert(chunk, { onConflict: "clickup_comment_id" });
     if (error) {
       failed = true;

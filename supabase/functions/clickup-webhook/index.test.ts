@@ -213,3 +213,58 @@ Deno.test("the event list matches what the registration script subscribes to", (
     "taskDueDateUpdated", "taskMoved", "taskStatusUpdated", "taskUpdated",
   ]);
 });
+
+// ------------------------------------------------------------------ OS-017 echo suppression
+
+async function postWith(payload: unknown, extra: { outbox?: Record<string, unknown>[]; routes?: Record<string, unknown> }) {
+  const tables = { ...seed(), os_clickup_outbox: extra.outbox ?? [] } as Record<string, Record<string, unknown>[]>;
+  const db = fakeDb({ tables });
+  const cu = fakeClickUp({ ...ROUTES, ...(extra.routes ?? {}) });
+  const body = JSON.stringify(payload);
+  const res = await mod.handler(
+    new Request("https://fn.local/clickup-webhook", { method: "POST", headers: { "X-Signature": await sign(body) }, body }),
+    { supabase: db.supabase, fetch: cu.fetch, background: false },
+  );
+  return { res, json: await res.json(), db, cu, t: (id: string) => db.table("os_tasks").find((r) => r.clickup_task_id === id)! };
+}
+
+const recent = () => new Date(Date.now() - 30_000);
+
+Deno.test("OS-017: the echo of our own write is ignored and changes nothing", async () => {
+  const own = recent();
+  const { json, t, cu } = await postWith({ event: "taskStatusUpdated", task_id: "t2" }, {
+    routes: { "/task/t2": { ...bearabyTask("t2", "assigned"), date_updated: String(own.getTime()) } },
+    outbox: [{ id: 1, clickup_task_id: "t2", state: "sent", field: "status", sent_at: own.toISOString(), clickup_updated_at: own.toISOString() }],
+  });
+  assertEquals(json.outcome, "echo_ignored");
+  assertEquals(t("t2").status, "internal review");
+  assertEquals(cu.calls.filter((c) => c.method !== "GET"), []);
+});
+
+Deno.test("OS-017: a ClickUp change made after our write is applied", async () => {
+  const own = recent();
+  const { json, t } = await postWith({ event: "taskStatusUpdated", task_id: "t2" }, {
+    routes: { "/task/t2": { ...bearabyTask("t2", "assigned"), date_updated: String(own.getTime() + 5000) } },
+    outbox: [{ id: 1, clickup_task_id: "t2", state: "sent", field: "status", sent_at: own.toISOString(), clickup_updated_at: own.toISOString() }],
+  });
+  assertEquals(json.outcome, "upserted");
+  assertEquals(t("t2").status, "assigned");
+});
+
+Deno.test("OS-017: a field with an app change waiting keeps the app value", async () => {
+  const { json, t } = await postWith({ event: "taskStatusUpdated", task_id: "t2" }, {
+    routes: { "/task/t2": bearabyTask("t2", "assigned") },
+    outbox: [{ id: 1, clickup_task_id: "t2", state: "queued", field: "status" }],
+  });
+  assertEquals(json.outcome, "upserted");
+  assertEquals(t("t2").status, "internal review");
+  assertEquals(t("t2").raw_status, "assigned");
+});
+
+Deno.test("OS-017: a comment the app wrote to ClickUp is not imported again", async () => {
+  const { json, db } = await postWith({ event: "taskCommentPosted", task_id: "t1" }, {
+    outbox: [{ id: 1, clickup_task_id: "t1", state: "sent", kind: "comment", field: "comment", clickup_ref: "cm1" }],
+  });
+  assertEquals(json.outcome, "upserted");
+  assertEquals(db.table("os_task_comments").length, 0);
+});
