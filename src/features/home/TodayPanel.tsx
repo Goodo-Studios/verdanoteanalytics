@@ -21,6 +21,8 @@ import { isNewDecision, staffDecisionText } from "@/lib/clientDecisions";
 import { shortDate, todayIso } from "@/lib/homeData";
 import { DONE_STATUS, isLateDue, type MyTaskRow } from "@/lib/myWork";
 import { awaitingClientApproval, brainReviewList, type BrainReviewRow, lateAcrossClients, pickToday, todayProgress } from "@/lib/today";
+import { ProgressBar } from "@/components/ProgressBar";
+import { MOTION } from "@/lib/motion";
 import { PhaseDots } from "./PhaseDots";
 import { TaskSidePanel } from "./TaskSidePanel";
 
@@ -30,31 +32,6 @@ const BUILDER_LIST_MAX = 8;
 
 function clientName(t: MyTaskRow): string {
   return t.client?.name || t.client_slug || "No client";
-}
-
-export function ProgressBar({ done, total, percent, label }: { done: number; total: number; percent: number; label: string }) {
-  return (
-    <div data-testid="today-progress">
-      <div className="mb-1 flex items-baseline justify-between text-xs text-muted-foreground">
-        <span data-testid="today-progress-label">{label}</span>
-      </div>
-      <div
-        role="progressbar"
-        aria-label="Done today"
-        aria-valuemin={0}
-        aria-valuemax={total}
-        aria-valuenow={done}
-        aria-valuetext={label}
-        className="h-1 w-full overflow-hidden rounded-full bg-secondary"
-      >
-        <div
-          data-testid="today-progress-fill"
-          className="h-full rounded-full bg-primary"
-          style={{ width: `${percent}%`, transition: "width 400ms var(--gos-ease)" }}
-        />
-      </div>
-    </div>
-  );
 }
 
 function DoneButton({ task, onDone, big }: { task: MyTaskRow; onDone: (t: MyTaskRow) => void; big?: boolean }) {
@@ -67,7 +44,7 @@ function DoneButton({ task, onDone, big }: { task: MyTaskRow; onDone: (t: MyTask
       }}
       aria-label={`Mark ${task.title} done`}
       data-testid="today-done"
-      className={`shrink-0 rounded-full border border-input bg-background font-medium transition-colors hover:bg-secondary ${big ? "px-4 py-2 text-sm" : "px-3 py-1 text-xs"}`}
+      className={`${MOTION.press} shrink-0 rounded-full border border-input bg-background font-medium hover:bg-secondary ${big ? "px-4 py-2 text-sm" : "px-3 py-1 text-xs"}`}
     >
       Done
     </button>
@@ -232,7 +209,7 @@ export function TodayPanel() {
         </div>
       ) : (
         <>
-          <ProgressBar {...progress} />
+          <ProgressBar done={progress.done} total={progress.total} percent={progress.percent} label={progress.label} ariaLabel="Done today" testId="today-progress" />
           {next ? (
             <section aria-label="Next action" data-testid="today-next" className={slideClass(leaving.has(next.id))}>
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Next</p>

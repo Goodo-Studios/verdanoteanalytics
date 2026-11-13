@@ -1,0 +1,85 @@
+/*
+ * Goodo OS small motion (OS-025). Reuses the War Room timings in goodo-os-tokens.css:
+ * --gos-ease, --gos-dur-slow (320ms, the side panel), --gos-dur-bar (600ms, progress bars) and
+ * --gos-press-scale (0.97, a pressed button). Every rule here is CSS only and runs after React has
+ * already drawn the new state, so no animation holds up an update.
+ *
+ * With prefers-reduced-motion all of it is off (the block at the end, plus the global rule in the
+ * tokens file).
+ */
+
+/* Progress bars ease to their new width. */
+.gos-bar-fill {
+  transition: width var(--gos-dur-bar) var(--gos-ease);
+}
+
+/* Buttons press to 97%. */
+.gos-press {
+  transition-property: transform, background-color, color, border-color, box-shadow;
+  transition-duration: var(--gos-dur-fast);
+  transition-timing-function: var(--gos-ease);
+}
+.gos-press:active:not(:disabled) {
+  transform: scale(var(--gos-press-scale));
+}
+
+/* The task side panel slides in from the right (a sheet rises from the bottom on a phone). */
+@keyframes gos-panel-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@keyframes gos-panel-in-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.task-panel-side[data-state="open"] {
+  animation: gos-panel-in-right var(--gos-dur-slow) var(--gos-ease) both;
+}
+.task-panel-sheet[data-state="open"] {
+  animation: gos-panel-in-up var(--gos-dur-slow) var(--gos-ease) both;
+}
+
+/* A card that changed status settles into its new column. */
+@keyframes gos-settle {
+  from { transform: translateY(-6px) scale(0.98); opacity: 0.6; }
+  to { transform: none; opacity: 1; }
+}
+.gos-settle {
+  animation: gos-settle var(--gos-dur-slow) var(--gos-ease) both;
+}
+
+/* A brief check after a client approves. */
+@keyframes gos-check {
+  0% { transform: scale(0.6); opacity: 0; }
+  40% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.gos-check {
+  display: inline-flex;
+  animation: gos-check var(--gos-dur-slow) var(--gos-ease) both;
+}
+
+/* The running timer dot pulses slowly. */
+@keyframes gos-pulse-slow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.gos-pulse-slow {
+  animation: gos-pulse-slow 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gos-bar-fill,
+  .gos-press,
+  .gos-settle,
+  .gos-check,
+  .gos-pulse-slow,
+  .task-panel-side,
+  .task-panel-sheet {
+    transition: none !important;
+    animation: none !important;
+  }
+  .gos-press:active:not(:disabled) {
+    transform: none;
+  }
+}

@@ -12,6 +12,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { useMyTasks } from "@/hooks/useMyWork";
 import { useRunningTimer, useStartTimer, useStopTimer } from "@/hooks/useTimer";
+import { MOTION } from "@/lib/motion";
 import { durationSeconds, entryLabel, formatElapsed } from "@/lib/timeLog";
 
 /** The current time in ms, updated every second while mounted. */
@@ -108,7 +109,7 @@ function RunningPill({ userId }: { userId: string }) {
       role="status"
       aria-label={`Timer running on ${label}`}
     >
-      <span className="h-2 w-2 shrink-0 rounded-full bg-primary motion-safe:animate-pulse" aria-hidden />
+      <span className={`h-2 w-2 shrink-0 rounded-full bg-primary ${MOTION.pulse}`} aria-hidden data-testid="timer-pill-dot" />
       <span className="max-w-[12rem] truncate" data-testid="timer-pill-label" title={label}>{label}</span>
       <span className="font-mono tabular-nums text-muted-foreground" data-testid="timer-pill-elapsed">{elapsed}</span>
       <Popover open={open} onOpenChange={setOpen}>

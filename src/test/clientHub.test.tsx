@@ -51,7 +51,9 @@ vi.mock("@/integrations/supabase/client", () => ({
             },
           };
         }
-        return Promise.resolve({ data: h.tables[table] ?? [], error: null });
+        const result = { data: h.tables[table] ?? [], error: null };
+        // The header's monthly delivery bar (OS-025) filters pipeline_delivered by the client too.
+        return Object.assign(Promise.resolve(result), { eq: () => Promise.resolve(result) });
       },
     }),
   },
@@ -300,7 +302,9 @@ describe("Work", () => {
     h.taskResult = { data: [task("1"), task("2", { stage: "Client Review", due_date: "2026-11-20" }), task("3", { stage: "Editing" })], error: null };
     renderHub("/builder/clients/glow/work");
     await screen.findAllByTestId("client-work-card");
-    expect(h.taskCalls).toEqual([{ select: PIPELINE_TASK_COLUMNS, col: "client_slug", val: "glow" }]);
+    // The Work tab's read, plus the header's monthly delivery read, both by the client.
+    expect(h.taskCalls.filter((c) => c.select === PIPELINE_TASK_COLUMNS)).toEqual([{ select: PIPELINE_TASK_COLUMNS, col: "client_slug", val: "glow" }]);
+    expect(h.taskCalls.filter((c) => c.select !== PIPELINE_TASK_COLUMNS)).toEqual([{ select: "stage, cycle_month, due_date, delivered_at", col: "client_slug", val: "glow" }]);
     expect(screen.getAllByTestId("client-work-card")).toHaveLength(3);
     expect(within(screen.getByRole("region", { name: "Production" })).getByText("Asset 1")).toBeTruthy();
     expect(within(screen.getByRole("region", { name: "Client Review" })).getByText("Asset 2")).toBeTruthy();

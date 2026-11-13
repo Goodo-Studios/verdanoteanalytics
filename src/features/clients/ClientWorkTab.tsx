@@ -12,6 +12,7 @@ import { useStaffDecisions } from "@/hooks/useClientDecisions";
 import { currentDecision, decidedTaskIds, isNewDecision, staffDecisionText } from "@/lib/clientDecisions";
 import { dueDateLabel, lastSyncedAt } from "@/lib/pipelineBoard";
 import { CLIENT_REVIEW_STAGE, waitingOnYou } from "@/lib/pipelineSummary";
+import { MOTION, useChangedIds } from "@/lib/motion";
 import { ViewAssetLink } from "@/components/client/ViewAssetLink";
 import { PageHeader, PageShell, LoadingState, ErrorState, EmptyState } from "@/components/page-kit";
 
@@ -20,6 +21,8 @@ export default function ClientWorkTab() {
   const { selectedSlug, selectedClient } = useClientSelection();
   const { data: tasks, isLoading, isError, refetch } = useClientWork(selectedSlug);
   const decisions = useStaffDecisions(selectedSlug || undefined);
+  // A card whose status changed settles into its new column (OS-025).
+  const settled = useChangedIds(tasks, (t) => t.id, (t) => t.stage);
   const name = selectedClient?.name ?? selectedSlug;
 
   if (!selectedSlug) return null;
@@ -70,7 +73,13 @@ export default function ClientWorkTab() {
                   {columns[col].map((t) => {
                     const due = dueDateLabel(t.due_date, col);
                     return (
-                      <li key={t.id} className="rounded-md border border-input bg-background px-3 py-2" data-testid="client-work-card" data-stage={col}>
+                      <li
+                        key={t.id}
+                        className={`rounded-md border border-input bg-background px-3 py-2 ${settled.has(t.id) ? MOTION.settle : ""}`}
+                        data-testid="client-work-card"
+                        data-stage={col}
+                        data-settled={settled.has(t.id) ? "true" : undefined}
+                      >
                         {t.content_type ? <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.content_type}</p> : null}
                         <p className="text-[13px]">{t.task_name || "Untitled task"}</p>
                         {due ? <p className={`mt-1 text-[11px] ${due.urgent && col === CLIENT_REVIEW_STAGE ? "font-medium text-blue-600" : "text-muted-foreground"}`}>{due.text}</p> : null}

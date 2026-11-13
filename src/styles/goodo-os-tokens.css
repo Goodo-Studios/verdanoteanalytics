@@ -37,6 +37,8 @@
   --gos-dur-fast: 150ms;
   --gos-dur: 250ms;
   --gos-dur-slow: 320ms;
+  --gos-dur-bar: 600ms;
+  --gos-press-scale: 0.97;
 
   /* The app's shared colour variables (HSL triples), set from the values above */
   --background: 40 33% 96%; /* bg */

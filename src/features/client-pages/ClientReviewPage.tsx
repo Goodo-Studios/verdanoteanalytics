@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useClientCards, useClientComments, useClientDecide, usePostClientComment } from "@/hooks/useClientCards";
 import { MAX_NOTE, noteProblem, reviewCards, type ClientCard } from "@/lib/clientPages";
 import { shortDate, todayIso } from "@/lib/homeData";
+import { MOTION } from "@/lib/motion";
 import { CutReview } from "@/features/cut-review/CutReview";
 import { AssetLink, ClientCardShell, DueLabel, PageIntro } from "./ClientCardBits";
 
@@ -88,7 +89,15 @@ export const ReviewCard = memo(function ReviewCard({ card, today }: { card: Clie
         {card.asset_url ? <AssetLink href={card.asset_url}>Open the asset</AssetLink> : <span className="text-sm text-muted-foreground">The asset link is on its way.</span>}
       </div>
       {decide.isSuccess ? (
-        <p className="mt-4 text-sm text-forest" data-testid="client-decision-sent">Thanks, we have your answer.</p>
+        <p className="mt-4 flex items-center gap-2 text-sm text-forest" data-testid="client-decision-sent">
+          {decide.variables?.decision === "approved" ? (
+            // A brief check pops in once when the client approves (OS-025). Drawn with the answer, not before it.
+            <span className={`${MOTION.check} h-5 w-5 items-center justify-center rounded-full bg-[var(--gos-ink)] text-[11px] text-white`} aria-label="Approved" role="img" data-testid="client-approved-check">
+              ✓
+            </span>
+          ) : null}
+          <span>Thanks, we have your answer.</span>
+        </p>
       ) : (
         <div className="mt-4 space-y-2" data-testid="client-decision">
           {asking ? (

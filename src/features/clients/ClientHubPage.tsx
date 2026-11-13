@@ -17,6 +17,7 @@ import { useRolePrefix } from "@/hooks/useRolePath";
 import { HUB_TABS, SCOPE_SUBTABS, hubPath } from "@/lib/clientHub";
 import { isHiddenPage } from "@/lib/hiddenPages";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
+import { ClientMonthDelivery } from "./ClientMonthDelivery";
 
 const TAB_LINK = "whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors";
 const TAB_ON = "border-verdant font-semibold text-forest";
@@ -62,6 +63,7 @@ export default function ClientHubPage() {
         <p className="text-xs text-muted-foreground">
           <Link to={`${prefix}/clients`} className="underline">Clients</Link> / <span data-testid="client-hub-name">{name}</span>
         </p>
+        <ClientMonthDelivery slug={slug} />
         <nav aria-label="Client tabs" className="-mb-px mt-1 flex gap-1 overflow-x-auto">
           {HUB_TABS.filter((t) => !t.builderOnly || isBuilder).map((t) => (
             <Link
