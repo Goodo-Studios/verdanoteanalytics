@@ -30,6 +30,8 @@ async function timedSearch(page: Page, input: ReturnType<Page["getByTestId"]>, t
   await input.fill(text);
   const response = await responsePromise;
   expect(response.status()).toBe(200);
+  // Playwright fills responseEnd only once the body has fully arrived, so wait for it first.
+  await response.finished();
   const timing = response.request().timing();
   // requestStart and responseEnd are relative to startTime; responseEnd is -1 if not known.
   expect(timing.responseEnd).toBeGreaterThan(0);
