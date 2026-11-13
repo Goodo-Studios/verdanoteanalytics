@@ -19,16 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { FileText, Plus, Trash2, Loader2, Eye, Download, CalendarClock, Send, CalendarIcon, Link2, Files, Layers } from "lucide-react";
-import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
+import { DataTable, EmptyState, LoadingState, PageHeader, PageShell, type DataColumn } from "@/components/page-kit";
 import { format, subDays } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Calendar } from "@/components/ui/calendar";
@@ -48,6 +40,20 @@ const CADENCES = [
   { key: "weekly", label: "Weekly", defaultDays: 7, description: "Runs every Monday" },
   { key: "monthly", label: "Monthly", defaultDays: 30, description: "Runs on the 1st" },
 ] as const;
+
+/** The report fields the list shows. */
+interface ReportRow {
+  id: string;
+  report_name: string;
+  report_type?: string | null;
+  date_range_days?: number | null;
+  created_at: string;
+  creative_count: number | null;
+  total_spend: number | null;
+  blended_roas: number | null;
+  win_rate: number | null;
+  average_cpa: number | null;
+}
 
 const ReportsPage = () => {
   const { isClient, isBuilder, isEmployee } = useAuth();
@@ -169,17 +175,69 @@ const ReportsPage = () => {
 
   const fmt = fmtMetric;
 
-  return (
-    <>
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <h1 className="font-heading text-[32px] text-forest">Reports</h1>
-          <p className="font-body text-[13px] text-slate font-light mt-1">
-            Generate and view snapshot reports of your creative performance.
-          </p>
-        </div>
-        {!isClient && (
+  const columns: DataColumn<ReportRow>[] = [
+    {
+      key: "report",
+      header: "Report",
+      sortValue: (r) => r.report_name,
+      cell: (r) => (
+        <>
           <div className="flex items-center gap-2">
+            <span className="font-body text-[13px] font-semibold text-charcoal">{r.report_name}</span>
+            {r.report_type === "portfolio" && (
+              <Badge variant="secondary" className="text-[9px] px-1.5 py-0">Portfolio</Badge>
+            )}
+          </div>
+          <div className="font-data text-[11px] text-slate">{r.date_range_days ? `${r.date_range_days} days` : "—"}</div>
+        </>
+      ),
+    },
+    { key: "date", header: "Date", sortValue: (r) => r.created_at, className: "font-data text-slate", cell: (r) => new Date(r.created_at).toLocaleDateString() },
+    { key: "creatives", header: "Creatives", align: "right", sortValue: (r) => r.creative_count, className: "font-data", cell: (r) => r.creative_count },
+    { key: "spend", header: "Spend", align: "right", sortValue: (r) => r.total_spend, className: "font-data", cell: (r) => fmt(r.total_spend, "$") },
+    { key: "roas", header: "ROAS", align: "right", sortValue: (r) => r.blended_roas, className: "font-data", cell: (r) => fmt(r.blended_roas, "", "x") },
+    { key: "win_rate", header: "Win Rate", align: "right", sortValue: (r) => r.win_rate, className: "font-data", cell: (r) => fmt(r.win_rate, "", "%") },
+    { key: "cpa", header: "CPA", align: "right", sortValue: (r) => r.average_cpa, className: "font-data", cell: (r) => fmt(r.average_cpa, "$") },
+    {
+      key: "actions",
+      header: "Actions",
+      srOnlyHeader: true,
+      cell: (r) => (
+        <div className="flex items-center gap-1">
+          {!isClient && (
+            <Button variant="ghost" size="sm" className="h-7 px-2" title="Copy public link" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`${window.location.origin}/public/reports/${r.id}`); import("sonner").then(m => m.toast.success("Public link copied!")); }}>
+              <Link2 className="h-3 w-3" />
+            </Button>
+          )}
+          {!isClient && (
+            <Button variant="ghost" size="sm" className="h-7 px-2" title="Send to Slack" onClick={(e) => { e.stopPropagation(); slackMut.mutate(r.id); }} disabled={slackMut.isPending}>
+              <Send className="h-3 w-3" />
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" className="h-7 px-2" title="Download CSV" onClick={(e) => { e.stopPropagation(); exportReportCSV(r); }}>
+            <Download className="h-3 w-3" />
+          </Button>
+          <Button variant="ghost" size="sm" className="h-7 px-2" title="Open report" onClick={(e) => { e.stopPropagation(); navigate(`/reports/${r.id}`); }}>
+            <Eye className="h-3 w-3" />
+          </Button>
+          {!isClient && (
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive" title="Delete report" onClick={(e) => { e.stopPropagation(); deleteMut.mutate(r.id); }} disabled={deleteMut.isPending}>
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          )}
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <PageShell wide>
+      <PageHeader
+        title="Reports"
+        description="Generate and view snapshot reports of your creative performance."
+        className="mb-0"
+        actions={!isClient ? (
+          <>
             <Button size="sm" variant="secondary" onClick={() => setShowSchedule(true)}>
               <CalendarClock className="h-3.5 w-3.5 mr-1.5" />
               Schedules
@@ -190,95 +248,44 @@ const ReportsPage = () => {
                 Monthly Rollup
               </Button>
             )}
-            {!isClient && (
-              <Button size="sm" variant="secondary" onClick={() => setShowPortfolio(true)}>
-                <Layers className="h-3.5 w-3.5 mr-1.5" />
-                Portfolio Report
-              </Button>
-            )}
-            <Button size="sm" className="bg-verdant text-white hover:bg-verdant/90" onClick={() => setShowGenerate(true)}>
+            <Button size="sm" variant="secondary" onClick={() => setShowPortfolio(true)}>
+              <Layers className="h-3.5 w-3.5 mr-1.5" />
+              Portfolio Report
+            </Button>
+            <Button size="sm" onClick={() => setShowGenerate(true)}>
               <Plus className="h-3.5 w-3.5 mr-1.5" />
               Generate Report
             </Button>
-          </div>
-        )}
-      </div>
+          </>
+        ) : undefined}
+      />
 
       {isLoading ? (
-        <TableSkeleton rows={5} cols={8} />
+        <LoadingState label="Loading reports" variant="rows" count={5} />
       ) : !reports?.length ? (
-        <div className="glass-panel flex flex-col items-center justify-center py-20 text-center">
-          <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-4">
-            <FileText className="h-6 w-6 text-sage" />
-          </div>
-          <h3 className="font-heading text-[20px] text-forest mb-1">No reports yet</h3>
-          <p className="font-body text-[14px] text-slate max-w-[400px]">
-            Generate a snapshot report to capture your current creative performance metrics.
-          </p>
-        </div>
+        <EmptyState
+          icon={<FileText className="h-6 w-6" />}
+          title="No reports yet"
+          description={isClient ? "Your team has not shared a report yet." : "Generate a snapshot report to capture your current creative performance metrics."}
+          action={
+            isClient ? (
+              <Button size="sm" variant="outline" onClick={() => navigate("/")}>Back to Overview</Button>
+            ) : (
+              <Button size="sm" onClick={() => setShowGenerate(true)}>Generate Report</Button>
+            )
+          }
+        />
       ) : (
-        <div className="glass-panel overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-cream-dark">
-                <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold">Report</TableHead>
-                <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold">Date</TableHead>
-                <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">Creatives</TableHead>
-                <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">Spend</TableHead>
-                <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">ROAS</TableHead>
-                <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">Win Rate</TableHead>
-                <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold text-right">CPA</TableHead>
-                <TableHead className="font-label text-[11px] uppercase tracking-[0.04em] text-slate font-semibold"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {reports.map((r: any) => (
-                <TableRow key={r.id} className="cursor-pointer hover:bg-accent/50" onClick={() => navigate(`/reports/${r.id}`)}>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <span className="font-body text-[13px] font-semibold text-charcoal">{r.report_name}</span>
-                      {r.report_type === "portfolio" && (
-                        <Badge variant="secondary" className="text-[9px] px-1.5 py-0">Portfolio</Badge>
-                      )}
-                    </div>
-                    <div className="font-data text-[11px] text-slate">{r.date_range_days ? `${r.date_range_days} days` : "—"}</div>
-                  </TableCell>
-                  <TableCell className="font-data text-[17px] text-slate">{new Date(r.created_at).toLocaleDateString()}</TableCell>
-                  <TableCell className="font-data text-[17px] text-right tabular-nums">{r.creative_count}</TableCell>
-                  <TableCell className="font-data text-[17px] text-right tabular-nums">{fmt(r.total_spend, "$")}</TableCell>
-                  <TableCell className="font-data text-[17px] text-right tabular-nums">{fmt(r.blended_roas, "", "x")}</TableCell>
-                  <TableCell className="font-data text-[17px] text-right tabular-nums">{fmt(r.win_rate, "", "%")}</TableCell>
-                  <TableCell className="font-data text-[17px] text-right tabular-nums">{fmt(r.average_cpa, "$")}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      {!isClient && (
-                        <Button variant="ghost" size="sm" className="h-7 px-2" title="Copy public link" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`${window.location.origin}/public/reports/${r.id}`); import("sonner").then(m => m.toast.success("Public link copied!")); }}>
-                          <Link2 className="h-3 w-3" />
-                        </Button>
-                      )}
-                      {!isClient && (
-                        <Button variant="ghost" size="sm" className="h-7 px-2" title="Send to Slack" onClick={(e) => { e.stopPropagation(); slackMut.mutate(r.id); }} disabled={slackMut.isPending}>
-                          <Send className="h-3 w-3" />
-                        </Button>
-                      )}
-                      <Button variant="ghost" size="sm" className="h-7 px-2" onClick={(e) => { e.stopPropagation(); exportReportCSV(r); }}>
-                        <Download className="h-3 w-3" />
-                      </Button>
-                      <Button variant="ghost" size="sm" className="h-7 px-2" onClick={(e) => { e.stopPropagation(); navigate(`/reports/${r.id}`); }}>
-                        <Eye className="h-3 w-3" />
-                      </Button>
-                      {!isClient && (
-                        <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive" onClick={(e) => { e.stopPropagation(); deleteMut.mutate(r.id); }} disabled={deleteMut.isPending}>
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <DataTable
+          label="Reports"
+          columns={columns}
+          rows={reports as ReportRow[]}
+          rowKey={(r) => r.id}
+          rowTestId={(r) => `report-row-${r.id}`}
+          onRowClick={(r) => navigate(`/reports/${r.id}`)}
+          stickyHeader
+          minWidthClass="min-w-[52rem]"
+        />
       )}
 
       {/* Generate Dialog */}
@@ -430,7 +437,7 @@ const ReportsPage = () => {
       {/* Monthly Rollup Modal */}
       <MonthlyRollupModal open={showRollup} onOpenChange={setShowRollup} accounts={accounts || []} />
       <PortfolioReportModal open={showPortfolio} onOpenChange={setShowPortfolio} accounts={accounts || []} />
-    </>
+    </PageShell>
   );
 };
 

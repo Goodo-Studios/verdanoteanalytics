@@ -60,10 +60,9 @@ test.describe("Dashboard — authenticated", () => {
     const prefix = url.match(/\/(builder|employee|client)/)?.[0] ?? "/builder";
     await page.goto(`${prefix}/`);
 
-    // Either metric cards (text labels) or their loading skeletons (glass-panel) should appear.
-    // MetricCard uses Tailwind utility classes only — no component-named CSS class in the DOM.
-    // MetricCardSkeleton wraps each card in a glass-panel div while data loads.
-    const metricArea = page.locator(".glass-panel").or(page.locator("text=Total Spend"));
+    // Either metric cards or the page kit's loading skeleton should appear (Goodo OS OS-024:
+    // metric cards carry data-testid="metric-card", the skeleton data-testid="loading-state").
+    const metricArea = page.getByTestId("metric-card").or(page.getByTestId("loading-state")).or(page.locator("text=Total Spend"));
     await expect(metricArea.first()).toBeVisible({ timeout: 12_000 });
   });
 

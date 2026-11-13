@@ -12,37 +12,8 @@ import { useAccountContext } from "@/contexts/AccountContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { useOwnClientLinks } from "@/hooks/usePipelineTasks";
 import { clientLanding } from "@/lib/pipelineCycles";
-import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
+import { EmptyState, LoadingState, MetricCard, MetricGrid, PageHeader, PageShell } from "@/components/page-kit";
 import { fmt$, fmtN, fmtPct, delta, deltaInverse } from "@/lib/formatters";
-import { cn } from "@/lib/utils";
-
-function BigMetric({
-  label,
-  value,
-  trend,
-}: {
-  label: string;
-  value: string;
-  trend?: { value: number; positive: boolean };
-}) {
-  return (
-    <div className="bg-card p-8 space-y-3">
-      <p className="font-label text-[11px] uppercase tracking-widest text-sage font-medium">
-        {label}
-      </p>
-      <p className="font-data text-[48px] font-bold text-charcoal leading-none tracking-tight">
-        {value}
-      </p>
-      {trend ? (
-        <p className={cn("font-data text-[16px] font-medium", trend.positive ? "text-verdant" : "text-red-700")}>
-          {trend.positive ? "↑" : "↓"} {Math.abs(trend.value)}% vs prior period
-        </p>
-      ) : (
-        <p className="text-[16px] text-transparent select-none">—</p>
-      )}
-    </div>
-  );
-}
 
 const OverviewPage = () => {
   const sync = useSync();
@@ -80,74 +51,63 @@ const OverviewPage = () => {
   ].filter(Boolean).join(" · ");
 
   if (landing === "pipeline") return <Navigate to={`${prefix}/pipeline`} replace />;
-  if (landing === "wait") return <MetricCardSkeletonRow />;
+  if (landing === "wait") return <LoadingState label="Loading overview" variant="cards" />;
+
+  const syncNow = () => sync.mutate({ account_id: selectedAccountId && selectedAccountId !== "all" ? selectedAccountId : undefined });
+  const isEmpty = !isLoading && creatives.length === 0;
 
   return (
-    <div className="space-y-8">
+    <PageShell wide>
       {/* A client's first screen (OS-019): the one item that needs them and a short list, then the
           content pipeline line (waiting count and current cycle), then the metrics. Real client
           logins only. */}
       {isClient ? <ClientHomeLead /> : null}
       {isClient ? <WaitingOnYouLine /> : null}
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-        <div>
-          <h1 className="font-heading text-[24px] sm:text-[32px] text-forest">{accountName}</h1>
-          <p className="font-body text-[12px] sm:text-[13px] text-slate font-light mt-1">{subtitle}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <DateRangeFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDateRange} />
-          {!effectiveClient && (
-            <Button
-              size="sm"
-              className="bg-verdant hover:bg-verdant/90 text-white font-body text-[13px] font-medium"
-              onClick={() => sync.mutate({ account_id: selectedAccountId && selectedAccountId !== "all" ? selectedAccountId : undefined })}
-              disabled={sync.isPending}
-            >
-              <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", sync.isPending && "animate-spin")} />
-              Sync
-            </Button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title={accountName}
+        description={subtitle}
+        className="mb-0"
+        actions={
+          <>
+            <DateRangeFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDateRange} />
+            {!effectiveClient && (
+              <Button size="sm" onClick={syncNow} disabled={sync.isPending}>
+                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                {sync.isPending ? "Syncing" : "Sync"}
+              </Button>
+            )}
+          </>
+        }
+      />
 
       {/* Metrics */}
       {isLoading ? (
-        <MetricCardSkeletonRow />
+        <LoadingState label="Loading metrics" variant="cards" count={6} />
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-border-light border border-border-light rounded-[8px] overflow-hidden">
-          <BigMetric
-            label="Total Spend"
-            value={fmt$(metrics.totalSpend)}
-            trend={hasPrevPeriod ? delta(metrics.totalSpend, prevMetrics?.totalSpend) : undefined}
-          />
-          <BigMetric
-            label="Active Creatives"
-            value={fmtN(metrics.activeCount)}
-            trend={hasPrevPeriod ? delta(metrics.activeCount, prevMetrics?.activeCount) : undefined}
-          />
-          <BigMetric
-            label="Avg CPA"
-            value={fmt$(metrics.avgCpa)}
-            trend={hasPrevPeriod ? deltaInverse(metrics.avgCpa, prevMetrics?.avgCpa) : undefined}
-          />
-          <BigMetric
-            label="Avg ROAS"
-            value={`${metrics.avgRoas.toFixed(2)}x`}
-            trend={hasPrevPeriod ? delta(metrics.avgRoas, prevMetrics?.avgRoas) : undefined}
-          />
-          <BigMetric
-            label="Win Rate"
-            value={fmtPct(metrics.winRate)}
-          />
-          <BigMetric
-            label="Blended CTR"
-            value={fmtPct(metrics.avgCtr)}
-            trend={hasPrevPeriod ? delta(metrics.avgCtr, prevMetrics?.avgCtr) : undefined}
-          />
-        </div>
+        <MetricGrid className="sm:grid-cols-3">
+          <MetricCard label="Total Spend" value={fmt$(metrics.totalSpend)} trendLabel="vs prior period" trend={hasPrevPeriod ? delta(metrics.totalSpend, prevMetrics?.totalSpend) : undefined} />
+          <MetricCard label="Active Creatives" value={fmtN(metrics.activeCount)} trendLabel="vs prior period" trend={hasPrevPeriod ? delta(metrics.activeCount, prevMetrics?.activeCount) : undefined} />
+          <MetricCard label="Avg CPA" value={fmt$(metrics.avgCpa)} inverse trendLabel="vs prior period" trend={hasPrevPeriod ? deltaInverse(metrics.avgCpa, prevMetrics?.avgCpa) : undefined} />
+          <MetricCard label="Avg ROAS" value={`${metrics.avgRoas.toFixed(2)}x`} trendLabel="vs prior period" trend={hasPrevPeriod ? delta(metrics.avgRoas, prevMetrics?.avgRoas) : undefined} />
+          <MetricCard label="Win Rate" value={fmtPct(metrics.winRate)} />
+          <MetricCard label="Blended CTR" value={fmtPct(metrics.avgCtr)} trendLabel="vs prior period" trend={hasPrevPeriod ? delta(metrics.avgCtr, prevMetrics?.avgCtr) : undefined} />
+        </MetricGrid>
       )}
-    </div>
+      {/* Zero metrics are still shown above; this says why and offers the one way forward. */}
+      {isEmpty ? (
+        <EmptyState
+          title="No ad data for these dates"
+          description={effectiveClient ? "Nothing ran in this date range. Try a wider range." : "Nothing has synced for this range yet. Sync to pull in the latest spend."}
+          action={
+            effectiveClient ? (
+              <Button size="sm" variant="outline" onClick={() => setDateRange(undefined, undefined)}>Show all time</Button>
+            ) : (
+              <Button size="sm" onClick={syncNow} disabled={sync.isPending}>Sync now</Button>
+            )
+          }
+        />
+      ) : null}
+    </PageShell>
   );
 };
 

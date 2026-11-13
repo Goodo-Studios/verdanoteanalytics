@@ -1,5 +1,6 @@
 import { useState, useMemo, forwardRef } from "react";
-import { Loader2, LineChart, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { LoadingState, MetricCard } from "@/components/page-kit";
+import { LineChart } from "lucide-react";
 import { startOfWeek, startOfMonth, format } from "date-fns";
 import { MultiLineTrendChart, type TrendLine } from "@/components/MultiLineTrendChart";
 import { CHART_SERIES } from "@/lib/chartTheme";
@@ -72,25 +73,13 @@ function aggregateBuckets(data: DailyTrendPoint[], granularity: Granularity) {
 }
 
 function SummaryCard({ label, value, change, invertColor }: { label: string; value: string; change: number | null; invertColor: boolean }) {
-  const isPositive = change !== null && change > 0;
+  // Neutral change line from the page kit: the arrow shows direction, no green or red.
   const isNeutral = change === null || Math.abs(change) < 0.5;
-  const isGood = change !== null ? (invertColor ? change < 0 : change > 0) : false;
-
-  return (
-    <div className="py-3 px-4">
-      <p className="font-label text-[10px] uppercase tracking-[0.05em] text-sage font-medium mb-1.5">{label}</p>
-      <div className="flex items-end gap-2">
-        <span className="font-data text-[28px] font-semibold text-charcoal tracking-tight leading-none">{value}</span>
-        {change !== null && (
-          <span className={`inline-flex items-center gap-0.5 font-data text-[17px] font-medium mb-0.5 ${isNeutral ? "text-muted-foreground" : isGood ? "text-verdant" : "text-red-700"}`}>
-            {isNeutral ? <Minus className="h-3 w-3" /> : isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-            {isPositive ? "+" : ""}{change.toFixed(1)}%
-          </span>
-        )}
-      </div>
-      <p className="font-body text-[11px] text-sage mt-1">vs previous period</p>
-    </div>
-  );
+  const trend = change === null ? null : {
+    value: isNeutral ? 0 : Number(Math.abs(change).toFixed(1)),
+    positive: invertColor ? change < 0 : change > 0,
+  };
+  return <MetricCard label={label} value={value} trend={trend} inverse={invertColor} trendLabel="vs previous period" />;
 }
 
 export const TrendsTab = forwardRef<HTMLDivElement, TrendsTabProps>(function TrendsTab({ trendData, isLoading }, ref) {
@@ -153,9 +142,7 @@ export const TrendsTab = forwardRef<HTMLDivElement, TrendsTabProps>(function Tre
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
+      <LoadingState label="Loading trends" variant="rows" count={6} />
     );
   }
 

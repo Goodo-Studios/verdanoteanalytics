@@ -36,6 +36,16 @@ interface DataTableProps<T> {
   className?: string;
 }
 
+/**
+ * Table styling shared with tables that cannot use DataTable (editable grids, virtual lists):
+ * sticky header row, 1px row lines and the small uppercase header type.
+ */
+export const KIT_STICKY_HEADER = "[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-muted";
+export const KIT_ROW_LINES = "[&_tr]:border-b [&_tr]:border-border-light";
+export const KIT_HEAD_CELL = "font-label text-[11px] font-semibold uppercase tracking-[0.04em] text-slate";
+/** Right-aligned tabular numbers for number cells. */
+export const KIT_NUM_CELL = "text-right tabular-nums";
+
 const INTERACTIVE = "a,button,input,select,textarea,label,[role=button],[role=checkbox]";
 
 function compare(a: string | number | null | undefined, b: string | number | null | undefined): number {
@@ -104,8 +114,8 @@ export function DataTable<T>({
 
   return (
     <div data-testid="data-table" className={cn(stickyHeader && "[&>div]:max-h-[70vh]", className)}>
-      <Table aria-label={label} className={minWidthClass}>
-        <TableHeader className={cn(stickyHeader && "[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-muted")}>
+      <Table aria-label={label} className={cn(KIT_ROW_LINES, minWidthClass)}>
+        <TableHeader className={cn(stickyHeader && KIT_STICKY_HEADER)}>
           <TableRow>
             {columns.map((c) =>
               c.sortValue ? (
@@ -146,7 +156,7 @@ export function DataTable<T>({
                   className={cn(extra.className, rowClassName?.(row))}
                 >
                   {columns.map((c) => (
-                    <TableCell key={c.key} className={cn("align-top text-sm", c.align === "right" && "text-right", c.className)}>
+                    <TableCell key={c.key} className={cn("align-top text-sm", c.align === "right" && KIT_NUM_CELL, c.className)}>
                       {c.cell(row)}
                     </TableCell>
                   ))}

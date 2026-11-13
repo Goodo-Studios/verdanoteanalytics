@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { LoadingState } from "@/components/page-kit";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { getLibrary, type LibraryDimension } from "@/lib/api";
 
@@ -83,10 +83,7 @@ export function LeaderboardTab() {
           Pick a client to see its {dimension === "hook" ? "hook" : "angle"} leaderboard.
         </div>
       ) : isLoading ? (
-        <div className="rounded-xl border border-border bg-card p-8 text-center text-muted-foreground">
-          <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
-          Loading leaderboard…
-        </div>
+        <LoadingState label="Loading leaderboard" variant="rows" count={6} />
       ) : isError ? (
         <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-6 text-center text-sm text-destructive">
           Failed to load leaderboard{error instanceof Error ? `: ${error.message}` : "."}

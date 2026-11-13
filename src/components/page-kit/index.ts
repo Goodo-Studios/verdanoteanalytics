@@ -6,7 +6,8 @@
 export { PageShell } from "./PageShell";
 export { PageHeader } from "@/components/PageHeader";
 export { FilterBar } from "./FilterBar";
-export { DataTable, type DataColumn } from "./DataTable";
+export { DataTable, type DataColumn, KIT_STICKY_HEADER, KIT_ROW_LINES, KIT_HEAD_CELL, KIT_NUM_CELL } from "./DataTable";
+export { MetricCard, MetricGrid, type MetricChange } from "./MetricCard";
 export { StatusBadge } from "./StatusBadge";
 export { statusKeyOf, type StatusKey } from "./statusMap";
 export { EmptyState } from "./EmptyState";
