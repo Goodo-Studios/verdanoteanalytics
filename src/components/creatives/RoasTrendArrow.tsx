@@ -9,9 +9,10 @@ interface RoasTrendArrowProps {
 export function RoasTrendArrow({ trend, className }: RoasTrendArrowProps) {
   if (!trend || trend.direction === "insufficient") return null;
 
+  // Change is shown in neutral grey; the arrow carries the direction (no green or red).
   const config = {
-    up: { char: "↑", color: "text-success" },
-    down: { char: "↓", color: "text-destructive" },
+    up: { char: "↑", color: "text-muted-foreground" },
+    down: { char: "↓", color: "text-muted-foreground" },
     flat: { char: "→", color: "text-muted-foreground" },
   }[trend.direction];
 

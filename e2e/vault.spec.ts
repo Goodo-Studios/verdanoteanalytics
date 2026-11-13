@@ -306,8 +306,9 @@ test.describe("Vault — save analytics creative to global library (US-006)", ()
     // so a slow backend still passes and a genuinely stuck fetch still fails loud
     // at the bound. It does not wait on any async analysis — only the list read.
     const rows = creativeRows(page);
-    const emptyState = page.getByRole("heading", {
-      name: /no creatives yet|no data for this date range/i,
+    // The page kit empty state (OS-024) shows its title as text, not a heading.
+    const emptyState = page.getByTestId("empty-state").filter({
+      hasText: /no creatives yet|no data for this date range/i,
     });
     await expect(async () => {
       const [rowCount, emptyCount] = await Promise.all([rows.count(), emptyState.count()]);
