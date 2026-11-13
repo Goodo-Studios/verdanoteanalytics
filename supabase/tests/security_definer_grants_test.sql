@@ -39,6 +39,10 @@ INSERT INTO allow VALUES
   -- see and post in both threads; a client only the client thread of their own client's visible
   -- task (get_user_client_slugs); anyone else is refused or gets no rows.
   ('browser','post_task_comment'), ('browser','list_task_comments'),
+  -- OS-015: Cmd+K search. Checks the caller inside: staff get Brain pages, tasks and clients; a
+  -- client gets no pages, only their own clients' visible tasks (get_user_client_slugs) and their
+  -- own clients; no role or no sign-in gets nothing.
+  ('browser','os_search'),
   ('row_rules','has_role'), ('row_rules','get_user_account_ids'),
   ('row_rules','get_user_client_slugs'),
   ('row_rules','owns_ad_library_ad'), ('row_rules','owns_ad_library_board'),

@@ -158,7 +158,10 @@ describe("My work list", () => {
     expect(within(row).getByTestId("my-task-title")).toHaveTextContent("Task week");
     expect(within(row).getByTestId("my-task-client")).toHaveTextContent("Glow Drip");
     expect(within(row).getByRole("img", { name: "Phase 4 of 5: Client Review" })).toBeInTheDocument();
-    expect(row.querySelectorAll("[data-filled='true']")).toHaveLength(4);
+    // Four filled dots and one empty one.
+    const dots = within(row).getByTestId("phase-dots");
+    expect(dots.querySelector("[data-filled-count]")?.textContent).toBe("●".repeat(4));
+    expect(dots.textContent).toBe("●".repeat(5));
     expect(within(row).getByTestId("my-task-due").textContent).not.toBe("No date");
   });
 
