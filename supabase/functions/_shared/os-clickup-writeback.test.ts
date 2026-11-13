@@ -256,8 +256,8 @@ Deno.test("status: PUT with ClickUp's exact name of the list status", async () =
   const row = outbox({ payload: { from: "editing", to: "filming" } });
   const db = setup([row]);
   db.table("os_clickup_list_statuses").push(
-    { list_id: LIST, status: "filming", name: "Filming", position: 10 },
-    { list_id: OTHER_LIST, status: "filming", name: "FILMING", position: 10 },
+    { list_id: LIST, status: "filming", name: "Filming", order_index: 10 },
+    { list_id: OTHER_LIST, status: "filming", name: "FILMING", order_index: 10 },
   );
   const cu = fakeCu({ t1: cuTask("t1") });
   await runWriteback(db.supabase, envOf(ON), cu.fetch, NOW);

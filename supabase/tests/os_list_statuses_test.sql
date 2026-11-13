@@ -45,12 +45,12 @@ SELECT set_config('request.jwt.claim.role', 'service_role', true);
 SELECT set_config('request.jwt.claim.sub', '', true);
 
 INSERT INTO public.os_task_statuses (status, position, stage) VALUES ('filming', 9950, 'Production');
-SELECT lives_ok($$INSERT INTO public.os_clickup_list_statuses (list_id, status, name, position, color, type) VALUES
+SELECT lives_ok($$INSERT INTO public.os_clickup_list_statuses (list_id, status, name, order_index, color, type) VALUES
   ('l-ls', 'ready to shoot', 'READY TO SHOOT', 10, '#aaaaaa', 'open'),
   ('l-ls', 'filming', 'Filming', 20, '#ff0000', 'custom'),
   ('l-ls', 'editing', 'Editing', 30, '#00ff00', 'custom')$$,
   'the service role stores a list''s statuses');
-SELECT throws_ok($$INSERT INTO public.os_clickup_list_statuses (list_id, status, name, position) VALUES ('l-ls', 'stuck', 'stuck', 40)$$,
+SELECT throws_ok($$INSERT INTO public.os_clickup_list_statuses (list_id, status, name, order_index) VALUES ('l-ls', 'stuck', 'stuck', 40)$$,
   '23514', NULL, 'stuck is a flag, never a list status');
 
 INSERT INTO public.os_tasks (client_slug, title, status, raw_status, clickup_task_id, clickup_list_id, is_asset) VALUES
@@ -84,7 +84,7 @@ SELECT ok((SELECT count(*) FROM public.os_task_status_options((SELECT app FROM r
           AND NOT EXISTS (SELECT 1 FROM public.os_task_status_options((SELECT app FROM r)) o WHERE o.stage = 'Other'),
   'a task with no synced list is offered the app workflow, without the Other statuses');
 
-SELECT throws_ok($$INSERT INTO public.os_clickup_list_statuses (list_id, status, name, position) VALUES ('l-ls', 'complete', 'Complete', 50)$$,
+SELECT throws_ok($$INSERT INTO public.os_clickup_list_statuses (list_id, status, name, order_index) VALUES ('l-ls', 'complete', 'Complete', 50)$$,
   '42501', NULL, 'staff cannot write list statuses');
 
 -- ---------------------------------------------------------------- the sync is not checked (15)
@@ -104,7 +104,7 @@ SELECT is((SELECT count(*)::int FROM public.os_task_status_options((SELECT liste
   'a client gets no status options');
 SELECT is((SELECT count(*)::int FROM public.os_clickup_list_statuses), 0, 'a client cannot read list statuses');
 UPDATE public.os_tasks SET status = 'editing' WHERE id = (SELECT listed FROM r);
-SELECT throws_ok($$INSERT INTO public.os_clickup_list_statuses (list_id, status, name, position) VALUES ('l-ls', 'complete', 'Complete', 50)$$,
+SELECT throws_ok($$INSERT INTO public.os_clickup_list_statuses (list_id, status, name, order_index) VALUES ('l-ls', 'complete', 'Complete', 50)$$,
   '42501', NULL, 'a client cannot write list statuses');
 
 RESET role;

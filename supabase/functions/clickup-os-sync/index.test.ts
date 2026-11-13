@@ -201,8 +201,8 @@ Deno.test("every walked list's ClickUp statuses are stored, replacing the old on
     tables: {
       ...seed(),
       os_clickup_list_statuses: [
-        { list_id: "l-bpv", status: "old status", name: "Old Status", position: 10 },
-        { list_id: "l-mpv", status: "editing", name: "Editing", position: 10 },
+        { list_id: "l-bpv", status: "old status", name: "Old Status", order_index: 10 },
+        { list_id: "l-mpv", status: "editing", name: "Editing", order_index: 10 },
       ],
     },
     users: { "sam@goodo.test": "u-sam" },
@@ -225,7 +225,7 @@ Deno.test("every walked list's ClickUp statuses are stored, replacing the old on
 
   const rows = db.table("os_clickup_list_statuses");
   const of = (list: string) =>
-    rows.filter((r) => r.list_id === list).sort((a, b) => Number(a.position) - Number(b.position))
+    rows.filter((r) => r.list_id === list).sort((a, b) => Number(a.order_index) - Number(b.order_index))
       .map((r) => [r.status, r.name, r.color, r.type]);
   assertEquals(of("l-bpv"), [
     ["brief creation", "brief creation", "#aaaaaa", "open"],

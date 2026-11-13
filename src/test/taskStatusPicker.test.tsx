@@ -62,10 +62,10 @@ import type { MyTaskRow } from "@/lib/myWork";
 import { toStatusOptions } from "@/hooks/useTaskStatuses";
 
 const LIST_STATUSES = [
-  { status: "ready to shoot", name: "READY TO SHOOT", color: "#aaa", type: "open", stage: "Production", position: 10 },
-  { status: "filming", name: "Filming", color: "#f00", type: "custom", stage: "Production", position: 20 },
-  { status: "editing", name: "Editing", color: "#0f0", type: "custom", stage: "Editing", position: 30 },
-  { status: "complete", name: "Complete", color: "#00f", type: "closed", stage: "Ready to Launch", position: 40 },
+  { status: "ready to shoot", name: "READY TO SHOOT", color: "#aaa", type: "open", stage: "Production", order_index: 10 },
+  { status: "filming", name: "Filming", color: "#f00", type: "custom", stage: "Production", order_index: 20 },
+  { status: "editing", name: "Editing", color: "#0f0", type: "custom", stage: "Editing", order_index: 30 },
+  { status: "complete", name: "Complete", color: "#00f", type: "closed", stage: "Ready to Launch", order_index: 40 },
 ];
 
 const baseTask = {

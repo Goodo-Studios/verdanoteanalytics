@@ -33,7 +33,7 @@ create table public.os_clickup_list_statuses (
   list_id text not null,
   status text not null references public.os_task_statuses(status) on update cascade,
   name text not null check (length(btrim(name)) > 0),
-  position integer not null,
+  order_index integer not null,
   color text,
   type text,
   synced_at timestamptz not null default now(),
@@ -91,7 +91,7 @@ create trigger os_tasks_check_list_status before insert or update of status, cli
 -- The task's list statuses when the sync has stored them; otherwise (an app-made task, or a list
 -- not synced yet) the app's own asset workflow statuses, without the stage Other ones.
 create or replace function public.os_task_status_options(p_task_id uuid)
-returns table (status text, name text, color text, type text, stage text, position integer)
+returns table (status text, name text, color text, type text, stage text, order_index integer)
 language sql
 stable
 set search_path = public
@@ -100,7 +100,7 @@ as $$
     select clickup_list_id from public.os_tasks where id = p_task_id
   ),
   l as (
-    select ls.status, ls.name, ls.color, ls.type, s.stage, ls.position
+    select ls.status, ls.name, ls.color, ls.type, s.stage, ls.order_index
       from public.os_clickup_list_statuses ls
       join t on ls.list_id = t.clickup_list_id
       join public.os_task_statuses s on s.status = ls.status
@@ -114,7 +114,7 @@ as $$
        and not exists (select 1 from l)
        and s.stage <> 'Other'
   ) o
-  order by o.position, o.status;
+  order by o.order_index, o.status;
 $$;
 
 revoke all on function public.os_task_status_options(uuid) from public, anon;

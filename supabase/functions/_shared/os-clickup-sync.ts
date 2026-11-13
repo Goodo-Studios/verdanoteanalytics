@@ -199,7 +199,7 @@ export interface ListStatusRow {
   list_id: string;
   status: string;
   name: string;
-  position: number;
+  order_index: number;
   color: string | null;
   type: string | null;
   synced_at: string;
@@ -223,7 +223,7 @@ export function listStatusRows(listId: string, statuses: CuListStatus[] | null |
       list_id: String(listId),
       status: key,
       name: String(s.status).trim(),
-      position: out.length * 10 + 10,
+      order_index: out.length * 10 + 10,
       color: typeof s.color === "string" && s.color ? s.color : null,
       type: typeof s.type === "string" && s.type ? s.type.toLowerCase() : null,
       synced_at: nowIso,
