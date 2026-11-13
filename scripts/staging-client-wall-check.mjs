@@ -1618,6 +1618,41 @@ try {
   check("staff cannot use the client decision call", decideStaff.error?.code === "42501", `code=${decideStaff.error?.code ?? "none"}`);
 }
 
+// OS-020 cut review. Read only: nothing is added or posted. A client reads no os_task_versions row
+// directly, gets no versions of a task that is not theirs, and gets only client-thread comments from
+// list_task_version_comments on every version staff can see. A client posting an internal comment is
+// refused before anything is written.
+{
+  const versionsA = await clientA.c.from("os_task_versions").select("id");
+  check("client A reads no os_task_versions rows directly", !versionsA.error && (versionsA.data ?? []).length === 0, `error=${versionsA.error?.message ?? "none"} rows=${versionsA.data?.length ?? "error"}`);
+  const versionsB = await clientB.c.from("os_task_versions").select("id");
+  check("client B reads no os_task_versions rows directly", !versionsB.error && (versionsB.data ?? []).length === 0, `error=${versionsB.error?.message ?? "none"} rows=${versionsB.data?.length ?? "error"}`);
+  const insA = await clientA.c.from("os_task_versions").insert({ task_id: "00000000-0000-4000-8000-000000000000", version_no: 1, video_url: "https://example.test/x.mp4" });
+  check("client A cannot insert a version", !!insA.error, `error=${insA.error?.message ?? "none (write accepted)"}`);
+  const staffVersions = await staff.c.from("os_task_versions").select("id, task_id").order("created_at", { ascending: false }).limit(25);
+  check("builder can read os_task_versions", !staffVersions.error, `error=${staffVersions.error?.message ?? "none"}`);
+  let leaked = 0;
+  let seen = 0;
+  for (const v of staffVersions.data ?? []) {
+    for (const s of [clientA, clientB]) {
+      const r = await s.c.rpc("list_task_version_comments", { p_version_id: v.id });
+      if (r.error) { leaked++; continue; }
+      seen += (r.data ?? []).length;
+      leaked += (r.data ?? []).filter((c) => c.thread !== "client").length;
+    }
+  }
+  check("clients get no internal comments from list_task_version_comments", leaked === 0, `versions=${staffVersions.data?.length ?? 0} client rows=${seen} bad=${leaked}`);
+  const missing = "00000000-0000-4000-8000-000000000000";
+  const otherA = await clientA.c.rpc("os_client_task_versions", { p_task_id: missing });
+  check("client A gets no versions of a task that is not theirs", !otherA.error && (otherA.data ?? []).length === 0, `error=${otherA.error?.message ?? "none"} rows=${otherA.data?.length ?? "error"}`);
+  const staffClientVersions = await staff.c.rpc("os_client_task_versions", { p_task_id: staffVersions.data?.[0]?.task_id ?? missing });
+  check("staff get no rows from the client versions call", !staffClientVersions.error && (staffClientVersions.data ?? []).length === 0, `rows=${staffClientVersions.data?.length ?? "error"}`);
+  const postInternal = await clientA.c.rpc("post_task_version_comment", { p_version_id: staffVersions.data?.[0]?.id ?? missing, p_thread: "internal", p_body: "wall check", p_timecode_ms: 0 });
+  check("client A cannot post an internal cut comment", postInternal.error?.code === "42501", `code=${postInternal.error?.code ?? "none (post accepted)"}`);
+  const addA = await clientA.c.rpc("os_add_task_version", { p_task_id: missing, p_video_url: "https://example.test/x.mp4", p_label: null });
+  check("client A cannot add a version", addA.error?.code === "42501", `code=${addA.error?.code ?? "none"}`);
+}
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

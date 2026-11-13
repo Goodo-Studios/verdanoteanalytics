@@ -45,6 +45,13 @@ INSERT INTO allow VALUES
   -- clients' tasks (has_role client, get_user_client_slugs). os_client_decide refuses anyone who is
   -- not a client, and any task that is not their own client's and in Client Review.
   ('browser','os_client_task_cards'), ('browser','os_client_decide'),
+  -- OS-020: cut review. os_client_task_versions returns versions only for the caller's own
+  -- client's visible task in Client Review or Ready to Launch (os_client_can_see_cuts, which checks
+  -- has_role client and get_user_client_slugs). post_task_version_comment and
+  -- list_task_version_comments apply the same rule plus post_task_comment's thread rules: a client
+  -- posts and reads only the client thread; staff (has_role builder/employee) both threads.
+  ('browser','os_client_task_versions'), ('browser','post_task_version_comment'),
+  ('browser','list_task_version_comments'),
   ('row_rules','has_role'), ('row_rules','get_user_account_ids'),
   ('row_rules','get_user_client_slugs'),
   ('row_rules','owns_ad_library_ad'), ('row_rules','owns_ad_library_board'),
@@ -104,7 +111,9 @@ INSERT INTO allow
     -- reviewing also needs the page owner or a builder.
     'submit_brain_page_correction', 'review_brain_page_correction',
     -- OS-017: ClickUp write-back status for Integration health. Refuses anyone who is not a builder.
-    'clickup_writeback_overview'
+    'clickup_writeback_overview',
+    -- OS-020: adding a cut to a task. Refuses anyone who is not builder or employee.
+    'os_add_task_version'
   ]);
 
 -- SECURITY DEFINER functions in public (extension functions excluded).

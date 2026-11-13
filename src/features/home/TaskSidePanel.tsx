@@ -2,6 +2,7 @@
 // on the right on wider screens, a bottom sheet on phones. Radix Dialog gives the focus trap,
 // Escape to close and the aria labelling. Details load only when it opens (useTaskDetail).
 // A play button by the title starts or stops a timer on the task (OS-012).
+// Versions (OS-020): the cuts of the task with their timestamped internal and client comments.
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { ExternalLink, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -13,6 +14,7 @@ import { TimerToggle } from "@/components/TimerToggle";
 import { shortDate } from "@/lib/homeData";
 import { isLateDue, type MyTaskRow } from "@/lib/myWork";
 import { PhaseDots } from "./PhaseDots";
+import { CutReview } from "@/features/cut-review/CutReview";
 
 function authorName(c: TaskComment): string {
   const a = c.author ?? {};
@@ -124,6 +126,10 @@ export function TaskSidePanel({ task, today, onClose }: { task: MyTaskRow | null
                     ) : (
                       <p className="text-sm text-muted-foreground">No file link yet.</p>
                     )}
+                  </Section>
+
+                  <Section title="Versions" testId="task-panel-versions">
+                    <CutReview taskId={task.id} viewer="staff" canAdd={!task.read_only} />
                   </Section>
 
                   <Section title="Comments" testId="task-panel-comments">
