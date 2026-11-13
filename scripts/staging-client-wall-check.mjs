@@ -1593,7 +1593,10 @@ try {
 // Read only: the decision calls below use a task id that does not exist, so nothing is written.
 {
   const EXPECTED_ALLOW = ["asset_url", "brief", "due_date", "stage", "title"];
-  const allow = await clientA.c.from("os_client_visible_fields").select("field");
+  // Staff read the list; a client must read none of it (no open tables on the client wall).
+  const allowClient = await clientA.c.from("os_client_visible_fields").select("field");
+  check("client A reads nothing from the field allow-list", (allowClient.data ?? []).length === 0, `rows=${allowClient.data?.length ?? "error"}`);
+  const allow = await staff.c.from("os_client_visible_fields").select("field");
   const allowList = (allow.data ?? []).map((r) => r.field).sort();
   check("the client field allow-list is exactly title, stage, due_date, brief, asset_url", !allow.error && JSON.stringify(allowList) === JSON.stringify(EXPECTED_ALLOW), `error=${allow.error?.message ?? "none"} fields=${allowList}`);
   const cardsA = await clientA.c.rpc("os_client_task_cards");

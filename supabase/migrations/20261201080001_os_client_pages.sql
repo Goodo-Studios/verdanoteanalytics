@@ -53,10 +53,11 @@ revoke all on table public.os_client_visible_fields from public, anon, authentic
 grant select on table public.os_client_visible_fields to authenticated;
 grant all on table public.os_client_visible_fields to service_role;
 
--- The list itself is not secret: anyone signed in may read which fields are shown. Only the service
--- role (a migration) changes it.
-create policy "Signed-in users can read os_client_visible_fields" on public.os_client_visible_fields
-  for select to authenticated using (true);
+-- Staff may read the list; clients may not (the client wall allows no open tables). Clients never
+-- need it: os_client_task_cards() reads it as its owner. Only the service role (a migration) changes it.
+create policy "Staff can read os_client_visible_fields" on public.os_client_visible_fields
+  for select to authenticated
+  using (public.has_role(auth.uid(), 'builder'::public.app_role) or public.has_role(auth.uid(), 'employee'::public.app_role));
 
 -- ------------------------------------------------------------------ decisions
 
