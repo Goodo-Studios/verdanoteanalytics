@@ -1606,6 +1606,8 @@ try {
   check("staff get no rows from the client task cards", !cardsStaff.error && (cardsStaff.data ?? []).length === 0, `error=${cardsStaff.error?.message ?? "none"} rows=${cardsStaff.data?.length ?? "error"}`);
   const decisionsA = await clientA.c.from("os_task_client_decisions").select("id");
   check("client A reads no decision rows directly", !decisionsA.error && (decisionsA.data ?? []).length === 0, `error=${decisionsA.error?.message ?? "none"} rows=${decisionsA.data?.length ?? "error"}`);
+  const retired = await clientA.c.rpc("os_client_tasks");
+  check("client A cannot call the retired os_client_tasks", !!retired.error && retired.data == null, `error=${retired.error?.code ?? "none (call answered)"}`);
   const missing = "00000000-0000-4000-8000-000000000000";
   const decideA = await clientA.c.rpc("os_client_decide", { p_task_id: missing, p_decision: "approved", p_note: null });
   check("client A deciding a task that is not theirs gets not found", decideA.error?.code === "P0002", `code=${decideA.error?.code ?? "none"}`);

@@ -26,8 +26,9 @@
 -- long as someone runs the test. Building the output from the allow-list means the safe outcome (the
 -- field is hidden) is what happens when nobody does anything.
 --
--- os_client_tasks() (OS-006) is left as it is: nothing in the app calls it any more, and its own tests
--- still cover it. See the OS-019 notes for retiring it.
+-- os_client_tasks() (OS-006) is dropped: it returned task_type, raw status, content_type and
+-- cycle_month, which a client may not see, and nothing in the app, the functions or the scripts
+-- calls it. os_client_task_cards() replaces it.
 --
 -- Clients still read and write no task table directly. The OS-017 write-back trigger queues the
 -- status change (write-back is switched off).
@@ -149,6 +150,8 @@ $$;
 
 revoke all on function public.os_client_task_cards() from public, anon;
 grant execute on function public.os_client_task_cards() to authenticated, service_role;
+
+drop function public.os_client_tasks();
 
 -- ------------------------------------------------------------------ client decision
 
