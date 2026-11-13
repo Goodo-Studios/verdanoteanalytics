@@ -179,6 +179,74 @@ Deno.test("full: unknown statuses are added as Other after the rest, before the 
   assert(order.indexOf("os_task_statuses:upsert") < order.indexOf("os_tasks:upsert"));
 });
 
+Deno.test("every walked list's ClickUp statuses are stored, replacing the old ones, before the tasks", async () => {
+  const folders = routes()[`/space/${CLIENT_SPACE}/folder`] as { folders: Record<string, unknown>[] };
+  const bearaby = {
+    ...folders.folders[0],
+    lists: [
+      {
+        id: "l-bpv",
+        name: "Bearaby Project View",
+        statuses: [
+          { status: "Complete", orderindex: 3, color: "#00ff00", type: "closed" },
+          { status: "brief creation", orderindex: 0, color: "#aaaaaa", type: "open" },
+          { status: "stuck", orderindex: 2, color: "#ff0000", type: "custom" },
+          { status: "Filming", orderindex: 1, color: "#123456", type: "custom" },
+        ],
+      },
+      { id: "l-bcalls", name: "Meeting Calls" },
+    ],
+  };
+  const db = fakeDb({
+    tables: {
+      ...seed(),
+      os_clickup_list_statuses: [
+        { list_id: "l-bpv", status: "old status", name: "Old Status", order_index: 10 },
+        { list_id: "l-mpv", status: "editing", name: "Editing", order_index: 10 },
+      ],
+    },
+    users: { "sam@goodo.test": "u-sam" },
+  });
+  const cu = fakeClickUp(routes({
+    [`/space/${CLIENT_SPACE}/folder`]: { folders: [bearaby, ...folders.folders.slice(1)] },
+    [`/space/${SOCIAL_SPACE}/list`]: {
+      lists: [
+        { id: "901422029399", name: "Social Media Calendar", statuses: [{ status: "Idea", orderindex: 0, type: "open" }, { status: "Posted", orderindex: 1, type: "closed" }] },
+        { id: "901422314788", name: "Goodo Media day" },
+      ],
+    },
+  }));
+  const res = await mod.handler(
+    new Request("https://fn.local/clickup-os-sync", { method: "POST", body: JSON.stringify({ mode: "full" }) }),
+    { supabase: db.supabase, fetch: cu.fetch, now: () => NOW },
+  );
+  const body = await res.json();
+  assertEquals(body.success, true);
+
+  const rows = db.table("os_clickup_list_statuses");
+  const of = (list: string) =>
+    rows.filter((r) => r.list_id === list).sort((a, b) => Number(a.order_index) - Number(b.order_index))
+      .map((r) => [r.status, r.name, r.color, r.type]);
+  assertEquals(of("l-bpv"), [
+    ["brief creation", "brief creation", "#aaaaaa", "open"],
+    ["filming", "Filming", "#123456", "custom"],
+    ["complete", "Complete", "#00ff00", "closed"],
+  ], "ClickUp order and exact names; stuck is a flag, not stored; the old row is gone");
+  assertEquals(of("901422029399").map((r) => r[0]), ["idea", "posted"]);
+  assertEquals(of("l-mpv").map((r) => r[0]), ["editing"], "a list that was not walked keeps its rows");
+
+  const statuses = new Map(db.table("os_task_statuses").map((s) => [String(s.status), s]));
+  assertEquals(statuses.get("filming")!.stage, "Editing", "a new status takes the stage of the earlier known one on its list");
+  assertEquals(statuses.get("idea")!.stage, "Other");
+  assertEquals(statuses.get("posted")!.stage, "Ready to Launch", "a closed status with no known earlier one");
+  assertEquals(statuses.has("stuck"), false);
+  assertEquals(body.listStatusesAdded, ["filming", "idea", "posted"]);
+  assertEquals(cu.calls.filter((c) => c.method !== "GET"), []);
+
+  const order = db.log.map((l) => `${l.table}:${l.op}`);
+  assert(order.indexOf("os_clickup_list_statuses:insert") < order.indexOf("os_tasks:upsert"));
+});
+
 Deno.test("stuck keeps the app status; a new stuck task takes its list's first status", async () => {
   const { tasks } = await run("full");
   const t2 = tasks.get("t2")!;

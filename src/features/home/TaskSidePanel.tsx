@@ -5,6 +5,8 @@
 // Versions (OS-020): the cuts of the task with their timestamped internal and client comments.
 // Playbook (OS-026): a task with a content type links to the matching Brain playbook section.
 // Export checklist (OS-023): shown only when the os_settings switch is on.
+// Status (list statuses): staff pick from the statuses of the task's own ClickUp list.
+import { useEffect, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { BookOpen, ExternalLink, X } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -24,6 +26,8 @@ import { useRolePrefix } from "@/hooks/useRolePath";
 import { useExportChecklistOn } from "@/hooks/useExportChecklist";
 import { displayStatus } from "@/lib/exportChecklist";
 import { ExportChecklist } from "./ExportChecklist";
+import { useTaskStatusOptions } from "@/hooks/useTaskStatuses";
+import { useSetTaskStatus } from "@/hooks/useToday";
 
 function authorName(c: TaskComment): string {
   const a = c.author ?? {};
@@ -90,6 +94,61 @@ function TaskStatus({ status }: { status: string }) {
   return <>{displayStatus(status, useExportChecklistOn())}</>;
 }
 
+/**
+ * Staff change the status here. The choices are the statuses of the task's own ClickUp list, in
+ * ClickUp order with ClickUp's names (os_task_status_options); the database refuses any other.
+ * Hidden on read-only tasks and when there is nothing to offer.
+ */
+function StatusPicker({ task }: { task: MyTaskRow }) {
+  const options = useTaskStatusOptions(task.read_only ? null : task.id);
+  const setStatus = useSetTaskStatus();
+  const [value, setValue] = useState(task.status);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => setValue(task.status), [task.status]);
+  const list = options.data ?? [];
+  if (task.read_only || list.length === 0) return null;
+  const known = list.some((o) => o.status === value);
+  return (
+    <div className="space-y-1" data-testid="task-panel-status">
+      <label className="flex items-center gap-2 text-sm">
+        <span className="text-muted-foreground">Status</span>
+        <select
+          className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          value={value}
+          disabled={setStatus.isPending}
+          onChange={(e) => {
+            const next = e.target.value;
+            const before = value;
+            setValue(next);
+            setError(null);
+            setStatus.mutate(
+              { id: task.id, status: next },
+              {
+                onError: (err) => {
+                  setValue(before);
+                  setError(`Could not change the status: ${(err as Error).message}`);
+                },
+              },
+            );
+          }}
+        >
+          {known ? null : (
+            <option value={value} disabled>
+              {value}
+            </option>
+          )}
+          {list.map((o) => (
+            <option key={o.status} value={o.status}>
+              {o.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {error ? <p className="text-sm text-[var(--gos-late)]" role="alert">{error}</p> : null}
+    </div>
+  );
+}
+
 function ExportChecklistSection({ taskId, readOnly }: { taskId: string; readOnly: boolean }) {
   if (!useExportChecklistOn()) return null;
   return (
@@ -132,6 +191,7 @@ export function TaskSidePanel({ task, today, onClose }: { task: MyTaskRow | null
                     <span className={late ? "font-medium text-[var(--gos-late)]" : undefined}>Due {shortDate(task.due_date)}</span>
                   </DialogPrimitive.Description>
                   <PhaseDots stage={task.status_info?.stage} />
+                  <StatusPicker task={task} />
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   {task.read_only ? null : (

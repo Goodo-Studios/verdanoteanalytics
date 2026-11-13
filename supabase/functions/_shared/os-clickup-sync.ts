@@ -1,7 +1,7 @@
 // Shared database and ClickUp steps of the OS-007 copy (clickup-os-sync and clickup-webhook).
 //
 // ClickUp is only ever read: the reader below sends GET and nothing else. Writes go to os_tasks,
-// os_task_statuses (new statuses only), os_task_comments, os_sync_runs and
+// os_task_statuses (new statuses only), os_clickup_list_statuses, os_task_comments, os_sync_runs and
 // os_sync_discrepancies, with the service role. No login, role or member row is touched; people
 // are matched to logins through os_user_ids_by_email.
 
@@ -186,6 +186,99 @@ export async function ensureStatuses(db: SupabaseLike, statuses: Iterable<string
   const { error } = await db.from("os_task_statuses").upsert(rows, { onConflict: "status", ignoreDuplicates: true });
   if (error) throw new Error(`os_task_statuses insert failed: ${error.message}`);
   return add;
+}
+
+export interface CuListStatus {
+  status?: string;
+  orderindex?: number | string;
+  color?: string;
+  type?: string;
+}
+
+export interface ListStatusRow {
+  list_id: string;
+  status: string;
+  name: string;
+  order_index: number;
+  color: string | null;
+  type: string | null;
+  synced_at: string;
+}
+
+const STAGE_OTHER = "Other";
+const CLOSED_TYPES = new Set(["done", "closed"]);
+
+/** A list's statuses in ClickUp order, keyed like os_tasks.status. "stuck" is a flag, not a status. */
+export function listStatusRows(listId: string, statuses: CuListStatus[] | null | undefined, nowIso: string): ListStatusRow[] {
+  const seen = new Set<string>();
+  const out: ListStatusRow[] = [];
+  const sorted = [...(statuses ?? [])]
+    .map((s, i) => ({ s, i }))
+    .sort((a, b) => (Number(a.s.orderindex ?? a.i) - Number(b.s.orderindex ?? b.i)) || a.i - b.i);
+  for (const { s } of sorted) {
+    const key = normaliseStatus(s.status);
+    if (!key || key === "stuck" || seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      list_id: String(listId),
+      status: key,
+      name: String(s.status).trim(),
+      order_index: out.length * 10 + 10,
+      color: typeof s.color === "string" && s.color ? s.color : null,
+      type: typeof s.type === "string" && s.type ? s.type.toLowerCase() : null,
+      synced_at: nowIso,
+    });
+  }
+  return out;
+}
+
+/**
+ * Stores the statuses of every walked list (os_clickup_list_statuses: a list's rows are replaced)
+ * and adds the ones the app does not know to os_task_statuses first. A new status takes the stage
+ * of the closest earlier status on its list that has a real stage; with none, a done or closed
+ * status is Ready to Launch and anything else Other. Lists ClickUp sent without statuses are left
+ * as they are. Returns the statuses added to os_task_statuses.
+ */
+export async function storeListStatuses(
+  db: SupabaseLike,
+  lists: { id: string; statuses?: CuListStatus[] | null }[],
+  nowIso: string,
+): Promise<{ lists: number; added: string[] }> {
+  const perList = lists
+    .map((l) => ({ id: String(l.id), rows: listStatusRows(l.id, l.statuses, nowIso) }))
+    .filter((l) => l.rows.length > 0);
+  if (perList.length === 0) return { lists: 0, added: [] };
+
+  const known = await must(db.from("os_task_statuses").select("status, position, stage"), "os_task_statuses read");
+  const stageOf = new Map(known.map((k) => [String(k.status), String(k.stage)]));
+  let position = known.reduce((m, k) => Math.max(m, Number(k.position) || 0), 0);
+  const added: { status: string; position: number; stage: string }[] = [];
+  for (const list of perList) {
+    let previous: string | null = null;
+    for (const r of list.rows) {
+      let stage = stageOf.get(r.status);
+      if (stage === undefined) {
+        stage = previous ?? (r.type && CLOSED_TYPES.has(r.type) ? "Ready to Launch" : STAGE_OTHER);
+        stageOf.set(r.status, stage);
+        added.push({ status: r.status, position: (position += 10), stage });
+      }
+      if (stage !== STAGE_OTHER) previous = stage;
+    }
+  }
+  if (added.length > 0) {
+    const { error } = await db.from("os_task_statuses").upsert(added, { onConflict: "status", ignoreDuplicates: true });
+    if (error) throw new Error(`os_task_statuses insert failed: ${error.message}`);
+  }
+
+  const ids = perList.map((l) => l.id);
+  const { error: delError } = await db.from("os_clickup_list_statuses").delete().in("list_id", ids);
+  if (delError) throw new Error(`os_clickup_list_statuses delete failed: ${delError.message}`);
+  const rows = perList.flatMap((l) => l.rows);
+  for (let i = 0; i < rows.length; i += UPSERT_CHUNK) {
+    const { error } = await db.from("os_clickup_list_statuses").insert(rows.slice(i, i + UPSERT_CHUNK));
+    if (error) throw new Error(`os_clickup_list_statuses insert failed: ${error.message}`);
+  }
+  return { lists: perList.length, added: added.map((a) => a.status) };
 }
 
 /** ClickUp email -> login id, through the service-role-only os_user_ids_by_email. */

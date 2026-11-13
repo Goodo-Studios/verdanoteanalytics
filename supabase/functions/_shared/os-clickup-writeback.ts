@@ -10,7 +10,8 @@
 //   * clickup-write-guard.ts allows the list (on staging that also needs CLICKUP_WRITE_ALLOWED_LIST_IDS).
 //
 // What is written:
-//   status      PUT /task/{id} {status}. The app status is the lower-cased ClickUp status name.
+//   status      PUT /task/{id} {status}. The app status is the lower-cased ClickUp status name; the
+//               exact ClickUp name comes from os_clickup_list_statuses for the task's list.
 //   due_date    PUT /task/{id} {due_date, due_date_time: false}, noon UTC of the app date, or null.
 //   assignees   the Strategist, Producer or Editor people field: POST /task/{id}/field/{field}
 //               {value: {add, rem}}. Logins are matched to ClickUp members by email (GET /team).
@@ -340,6 +341,22 @@ async function applyClickUpValue(ctx: RunContext, row: OutboxRow, current: strin
   if (error) console.error(`os_tasks update after clash failed: ${error.message}`);
 }
 
+/**
+ * ClickUp's exact name of an app status on a list (os_clickup_list_statuses), e.g. "Filming" for
+ * "filming". Falls back to the app value when the list's statuses are not stored.
+ */
+export async function clickUpStatusName(db: SupabaseLike, listId: string | null, status: string | null): Promise<string | null> {
+  if (!status || !listId) return status;
+  const { data, error } = await db.from("os_clickup_list_statuses").select("name")
+    .eq("list_id", listId).eq("status", status).limit(1);
+  if (error) {
+    console.error(`os_clickup_list_statuses read failed: ${error.message}`);
+    return status;
+  }
+  const name = str(data?.[0]?.name);
+  return name ?? status;
+}
+
 async function sendRow(ctx: RunContext, row: OutboxRow): Promise<{ outcome: Outcome; clickupUpdatedMs: number | null; ref: string | null }> {
   const id = encodeURIComponent(row.clickup_task_id);
 
@@ -402,7 +419,8 @@ async function sendRow(ctx: RunContext, row: OutboxRow): Promise<{ outcome: Outc
 
   let res: Record<string, unknown>;
   if (row.kind === "status") {
-    res = await ctx.cu.request("PUT", `/task/${id}`, { status: to });
+    const listId = str(task.list?.id) ?? row.clickup_list_id;
+    res = await ctx.cu.request("PUT", `/task/${id}`, { status: await clickUpStatusName(ctx.db, listId, to) });
   } else if (row.kind === "due_date") {
     res = await ctx.cu.request("PUT", `/task/${id}`, { due_date: dateToMs(to), due_date_time: false });
   } else {

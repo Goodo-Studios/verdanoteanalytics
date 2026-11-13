@@ -252,6 +252,19 @@ Deno.test("status: PUT with the new status, marked sent with ClickUp's update ti
   assertEquals(db.table("os_clickup_writeback_state")[0].enabled, true);
 });
 
+Deno.test("status: PUT with ClickUp's exact name of the list status", async () => {
+  const row = outbox({ payload: { from: "editing", to: "filming" } });
+  const db = setup([row]);
+  db.table("os_clickup_list_statuses").push(
+    { list_id: LIST, status: "filming", name: "Filming", order_index: 10 },
+    { list_id: OTHER_LIST, status: "filming", name: "FILMING", order_index: 10 },
+  );
+  const cu = fakeCu({ t1: cuTask("t1") });
+  await runWriteback(db.supabase, envOf(ON), cu.fetch, NOW);
+  assertEquals(cu.writes(), [{ method: "PUT", path: "/task/t1", body: { status: "Filming" } }]);
+  assertEquals(one(db, row.id).state, "sent");
+});
+
 Deno.test("due date: PUT noon UTC, and null clears it", async () => {
   const set = outbox({ kind: "due_date", field: "due_date", payload: { from: null, to: "2026-12-05" } });
   const db = setup([set]);

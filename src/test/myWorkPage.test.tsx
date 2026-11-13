@@ -260,7 +260,11 @@ describe("task side panel", () => {
     expect(within(panel).getByText("Captions spelled right")).toBeInTheDocument();
     expect(within(panel).getByText("Pass")).toBeInTheDocument();
     expect(within(panel).getByText("assigned → editing")).toBeInTheDocument();
-    expect(h.rpcs).toEqual([{ fn: "list_task_comments", args: { p_task_id: "today" } }]);
+    // The status picker asks for the task's list statuses (taskStatusPicker.test.tsx covers it).
+    expect(h.rpcs).toEqual([
+      { fn: "list_task_comments", args: { p_task_id: "today" } },
+      { fn: "os_task_status_options", args: { p_task_id: "today" } },
+    ]);
   });
 
   it("links a task of a mapped content type to its Brain playbook section (OS-026)", async () => {
