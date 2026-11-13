@@ -98,6 +98,11 @@
         }
       }
     },
+    "client-invite": {
+      "class": "staff",
+      "minRole": "builder",
+      "note": "Client invites (OS-021). Builder only. Sends an approved batch of client invites (Supabase Auth invite or magic link). Refuses an unapproved email text or batch and any excluded or ending client. Dry run unless CLIENT_INVITES_SEND_ENABLED=true; CLIENT_INVITES_ALLOWED_DOMAINS limits who is sent. Never touches ClickUp."
+    },
     "cluster-creatives": {
       "class": "service"
     },

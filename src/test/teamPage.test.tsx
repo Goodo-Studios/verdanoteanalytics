@@ -31,6 +31,8 @@ function chain(table: string) {
   const q = {
     order: () => q,
     limit: () => q,
+    // The client invites section (OS-021) reads its one email-text row with maybeSingle.
+    maybeSingle: () => Promise.resolve({ data: (data[table] ?? [])[0] ?? null, error: null }),
     then: (resolve: (v: unknown) => unknown) => Promise.resolve(h.failTeam && table === "app_users" ? { data: null, error: { message: "down" } } : { data: data[table] ?? [], error: null }).then(resolve),
   };
   return q;
@@ -80,6 +82,8 @@ beforeEach(() => {
   h.auth = { isBuilder: true, role: "builder" };
   h.preview = { isClientPreview: false, isEmployeePreview: false };
   h.failTeam = false;
+  // The client invites section (OS-021) needs its email-text row to render without an error.
+  data.os_client_invite_template = [{ subject: "Hello", body: "Sign in", approved_at: null }];
   rpc.mockReset();
   rpc.mockImplementation((name: string) => Promise.resolve(name === "staff_reconciliation" ? { data: RECON, error: null } : { data: null, error: null }));
   data.app_users = [

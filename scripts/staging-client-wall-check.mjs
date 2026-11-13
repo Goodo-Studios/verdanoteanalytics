@@ -1661,6 +1661,37 @@ try {
   check("client A cannot add a version", addA.error?.code === "42501", `code=${addA.error?.code ?? "none"}`);
 }
 
+// OS-021 client invites. Read only: nothing is created, approved or sent. Clients read no row of any
+// invite table and cannot call the builder functions; client-invite refuses a client token before it
+// reads the body (the batch id below does not exist, so even a mistaken pass could send nothing).
+{
+  for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+    for (const table of ["os_invite_excluded_clients", "os_client_invite_template", "os_client_invite_batches", "os_client_invites"]) {
+      const r = await s.c.from(table).select("*").limit(50);
+      check(`${label} reads 0 rows from ${table}`, !r.error && (r.data ?? []).length === 0, `error=${r.error?.message ?? "none"} rows=${r.data?.length ?? "error"}`);
+    }
+    const st = await s.c.rpc("os_client_invite_pilot_status");
+    check(`${label} cannot read the invite status`, st.error?.code === "42501", `code=${st.error?.code ?? "none (call answered)"}`);
+    const ap = await s.c.rpc("os_client_invite_approve_template");
+    check(`${label} cannot approve the invite email text`, ap.error?.code === "42501", `code=${ap.error?.code ?? "none (call answered)"}`);
+  }
+  const ex = await staff.c.from("os_invite_excluded_clients").select("client_slug");
+  const exSlugs = (ex.data ?? []).map((r) => r.client_slug);
+  check("the invite exclusion list holds cattasaurus, marek, miracle-brand and royo-bread",
+    !ex.error && ["cattasaurus", "marek", "miracle-brand", "royo-bread"].every((s) => exSlugs.includes(s)), `error=${ex.error?.message ?? "none"} slugs=${exSlugs}`);
+
+  await refreshLogins(clientA, clientB);
+  for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
+    const res = await fetch(`${url}/functions/v1/client-invite`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${s.token}`, apikey: anon, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "send", batch_id: "00000000-0000-4000-8000-000000000000" }),
+    });
+    await res.text();
+    check(`${label} is refused by client-invite`, res.status === 403, `status=${res.status}`);
+  }
+}
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {
