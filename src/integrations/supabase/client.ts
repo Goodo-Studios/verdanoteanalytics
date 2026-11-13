@@ -13,5 +13,8 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     storage: localStorage,
     persistSession: true,
     autoRefreshToken: true,
+    // Email sign-in links land on "/" with the session in the URL hash.
+    // This is the supabase-js default; kept explicit so a regenerate can't drop it.
+    detectSessionInUrl: true,
   }
 });
