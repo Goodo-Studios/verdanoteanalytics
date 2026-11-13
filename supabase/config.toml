@@ -410,6 +410,9 @@ verify_jwt = false
 [functions.invite-user]
 verify_jwt = false
 
+[functions.client-invite]
+verify_jwt = false
+
 # Public links (approval boards, casting; location boards, call sheets and application forms
 # follow). Serves people with no login by design: the secret token in the link is the only
 # credential, it is hashed and looked up in public_link_registry, and every call is rate limited.

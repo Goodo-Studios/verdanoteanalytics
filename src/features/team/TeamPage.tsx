@@ -19,6 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import type { ConfirmCopy } from "@/components/page-kit/ConfirmAction";
 import { ClientsSettings } from "./ClientsSettings";
 import { InviteSection, type InvitePrefill } from "./InviteSection";
+import { ClientInvitesSection } from "./ClientInvitesSection";
 import {
   canAddToTeam,
   canPrepareInvite,
@@ -375,6 +376,7 @@ export default function TeamPage() {
       <Mappings mappings={mappings} builder={builder} onChanged={reload} />
       <ClientsSettings builder={builder} />
       {builder ? <InviteSection prefill={prefill} onSent={(id) => void invitedByEmail(id)} /> : null}
+      {builder ? <ClientInvitesSection /> : null}
       {builder ? (
         <section aria-label="Invites" className="space-y-2">
           <h2 className="text-lg font-semibold">Prepared invites</h2>

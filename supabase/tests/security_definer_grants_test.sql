@@ -52,6 +52,9 @@ INSERT INTO allow VALUES
   -- posts and reads only the client thread; staff (has_role builder/employee) both threads.
   ('browser','os_client_task_versions'), ('browser','post_task_version_comment'),
   ('browser','list_task_version_comments'),
+  -- OS-021: os_client_invite_mark_accepted marks only the caller's own sent invites accepted
+  -- (invited_user_id = auth.uid() or the caller's own login email).
+  ('browser','os_client_invite_mark_accepted'),
   ('row_rules','has_role'), ('row_rules','get_user_account_ids'),
   ('row_rules','get_user_client_slugs'),
   ('row_rules','owns_ad_library_ad'), ('row_rules','owns_ad_library_board'),
@@ -113,7 +116,11 @@ INSERT INTO allow
     -- OS-017: ClickUp write-back status for Integration health. Refuses anyone who is not a builder.
     'clickup_writeback_overview',
     -- OS-020: adding a cut to a task. Refuses anyone who is not builder or employee.
-    'os_add_task_version'
+    'os_add_task_version',
+    -- OS-021: client invites. Each refuses anyone who is not a builder.
+    'os_client_invite_save_template', 'os_client_invite_approve_template', 'os_client_invite_create_batch',
+    'os_client_invite_add_contact', 'os_client_invite_remove_contact', 'os_client_invite_approve_batch',
+    'os_client_invite_confirm_guest_removal', 'os_client_invite_pilot_status'
   ]);
 
 -- SECURITY DEFINER functions in public (extension functions excluded).
