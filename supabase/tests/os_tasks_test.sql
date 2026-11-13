@@ -6,7 +6,8 @@
 -- tasks, only a builder deletes; every status change writes a history row with who and when;
 -- history cannot be edited or deleted; brief due, cut to strategist and cut to client come
 -- from the history; a client reads no table directly and gets only their own client's tasks,
--- with only client-visible fields, through os_client_tasks(). All rows are made up.
+-- with only client-visible fields, through os_client_task_cards() (OS-019; the older
+-- os_client_tasks() is retired and must not exist). All rows are made up.
 
 BEGIN;
 SELECT plan(32);
@@ -38,7 +39,7 @@ SELECT is((SELECT count(*)::int FROM information_schema.role_table_grants
             WHERE table_schema = 'public' AND table_name = 'os_task_status_history'
               AND grantee = 'authenticated' AND privilege_type <> 'SELECT'), 0,
   'signed-in users cannot write status history directly');
-SELECT ok(NOT has_function_privilege('anon', 'public.os_client_tasks()', 'EXECUTE'), 'anon cannot call os_client_tasks');
+SELECT hasnt_function('public', 'os_client_tasks', ARRAY[]::text[], 'os_client_tasks is retired (OS-019), so nobody can call it');
 SELECT ok(NOT has_function_privilege('authenticated', 'public.os_tasks_record_status()', 'EXECUTE'), 'the history trigger function is not callable');
 
 -- ---------------------------------------------------------------- employee adds and moves a task (6-14)
@@ -114,12 +115,12 @@ INSERT INTO public.os_tasks (client_slug, title) VALUES ('ot-beta', 'Beta static
 SELECT set_config('request.jwt.claim.sub', 'e7000000-0000-4000-8000-000000000003', true);
 SELECT is((SELECT count(*)::int FROM public.os_tasks), 0, 'a client reads no task rows directly');
 SELECT is((SELECT count(*)::int FROM public.os_task_status_history), 0, 'a client reads no history directly');
-SELECT is((SELECT count(*)::int FROM public.os_client_tasks()), 1, 'a client gets only their own client''s tasks');
-SELECT is((SELECT title || ' ' || status || ' ' || stage FROM public.os_client_tasks()), 'Alpha UGC 1 v2 client review Client Review',
-  'a client sees the title, status and stage');
-SELECT ok((SELECT NOT (proargnames && ARRAY['brief', 'hooks', 'qa_checklist', 'stuck_reason', 'is_stuck',
-                                             'strategist_id', 'producer_id', 'editor_id', 'clickup_task_id', 'created_by'])
-             FROM pg_proc WHERE oid = 'public.os_client_tasks()'::regprocedure),
+SELECT is((SELECT count(*)::int FROM public.os_client_task_cards()), 1, 'a client gets only their own client''s tasks');
+SELECT throws_ok($$SELECT * FROM public.os_client_tasks()$$, '42883', NULL,
+  'a client cannot call the retired os_client_tasks (it returned raw status, type, content type and cycle)');
+SELECT is((SELECT count(*)::int FROM public.os_client_task_cards() c
+            WHERE c ?| ARRAY['status', 'task_type', 'content_type', 'cycle_month', 'hooks', 'qa_checklist', 'stuck_reason',
+                             'is_stuck', 'strategist_id', 'producer_id', 'editor_id', 'clickup_task_id', 'created_by']), 0,
   'the client view has no internal fields');
 SELECT throws_ok($$INSERT INTO public.os_tasks (client_slug, title) VALUES ('ot-alpha', 'Client made this')$$, '42501', NULL,
   'a client cannot add a task');
@@ -131,7 +132,7 @@ SELECT is((SELECT status FROM public.os_tasks WHERE id = (SELECT a FROM r)), 'cl
 SET LOCAL role authenticated;
 SELECT set_config('request.jwt.claim.sub', 'e7000000-0000-4000-8000-000000000004', true);
 SELECT is((SELECT count(*)::int FROM public.os_tasks), 0, 'a login with no role reads no tasks');
-SELECT is((SELECT count(*)::int FROM public.os_client_tasks()), 0, 'a login with no role gets nothing from os_client_tasks');
+SELECT is((SELECT count(*)::int FROM public.os_client_task_cards()), 0, 'a login with no role gets nothing from the client cards');
 
 SELECT * FROM finish();
 ROLLBACK;

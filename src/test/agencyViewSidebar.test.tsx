@@ -105,7 +105,7 @@ describe("staff sidebar", () => {
     h.selected = "act_a";
     renderSidebar("client");
     const main = screen.getByRole("navigation", { name: "Main" });
-    expect(Array.from(main.querySelectorAll("a")).map((a) => a.textContent)).toEqual(["Overview", "Creatives", "Analytics", "Content Pipeline", "Reports"]);
+    expect(Array.from(main.querySelectorAll("a")).map((a) => a.textContent)).toEqual(["Overview", "Briefs", "Review", "Assets", "Creatives", "Analytics", "Content Pipeline", "Reports"]);
     for (const name of EIGHT.filter((n) => n !== "Home")) expect(screen.queryByRole("link", { name })).toBeNull();
     expect(screen.queryByRole("link", { name: "Home" })).toBeNull();
   });

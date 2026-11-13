@@ -1587,6 +1587,37 @@ try {
   check("media probe: every throwaway file, row and owner was deleted again", residue === 0 && ownersLeft === 0, `files left=${residue} owners left=${ownersLeft}`);
 }
 
+// OS-019 client pages. os_client_task_cards returns, per task, exactly the id, the client's current
+// decision and the allow-listed fields (os_client_visible_fields). The allow-list itself must still be
+// the five fields the story agreed; a change to it is a product decision and should fail here first.
+// Read only: the decision calls below use a task id that does not exist, so nothing is written.
+{
+  const EXPECTED_ALLOW = ["asset_url", "brief", "due_date", "stage", "title"];
+  // Staff read the list; a client must read none of it (no open tables on the client wall).
+  const allowClient = await clientA.c.from("os_client_visible_fields").select("field");
+  check("client A reads nothing from the field allow-list", (allowClient.data ?? []).length === 0, `rows=${allowClient.data?.length ?? "error"}`);
+  const allow = await staff.c.from("os_client_visible_fields").select("field");
+  const allowList = (allow.data ?? []).map((r) => r.field).sort();
+  check("the client field allow-list is exactly title, stage, due_date, brief, asset_url", !allow.error && JSON.stringify(allowList) === JSON.stringify(EXPECTED_ALLOW), `error=${allow.error?.message ?? "none"} fields=${allowList}`);
+  const cardsA = await clientA.c.rpc("os_client_task_cards");
+  const wanted = JSON.stringify(["decision", "id", ...allowList].sort());
+  const badKeys = (cardsA.data ?? []).map((c) => Object.keys(c).sort()).filter((k) => JSON.stringify(k) !== wanted);
+  check("client A task cards have exactly id, decision and the allow-listed fields", !cardsA.error && badKeys.length === 0, `error=${cardsA.error?.message ?? "none"} cards=${cardsA.data?.length ?? "error"} bad=${JSON.stringify(badKeys[0] ?? [])}`);
+  const cardsB = await clientB.c.rpc("os_client_task_cards");
+  check("client B (no client) gets no task cards", !cardsB.error && (cardsB.data ?? []).length === 0, `error=${cardsB.error?.message ?? "none"} rows=${cardsB.data?.length ?? "error"}`);
+  const cardsStaff = await staff.c.rpc("os_client_task_cards");
+  check("staff get no rows from the client task cards", !cardsStaff.error && (cardsStaff.data ?? []).length === 0, `error=${cardsStaff.error?.message ?? "none"} rows=${cardsStaff.data?.length ?? "error"}`);
+  const decisionsA = await clientA.c.from("os_task_client_decisions").select("id");
+  check("client A reads no decision rows directly", !decisionsA.error && (decisionsA.data ?? []).length === 0, `error=${decisionsA.error?.message ?? "none"} rows=${decisionsA.data?.length ?? "error"}`);
+  const retired = await clientA.c.rpc("os_client_tasks");
+  check("client A cannot call the retired os_client_tasks", !!retired.error && retired.data == null, `error=${retired.error?.code ?? "none (call answered)"}`);
+  const missing = "00000000-0000-4000-8000-000000000000";
+  const decideA = await clientA.c.rpc("os_client_decide", { p_task_id: missing, p_decision: "approved", p_note: null });
+  check("client A deciding a task that is not theirs gets not found", decideA.error?.code === "P0002", `code=${decideA.error?.code ?? "none"}`);
+  const decideStaff = await staff.c.rpc("os_client_decide", { p_task_id: missing, p_decision: "approved", p_note: null });
+  check("staff cannot use the client decision call", decideStaff.error?.code === "42501", `code=${decideStaff.error?.code ?? "none"}`);
+}
+
 // Staff-only server call: a client token must be refused.
 const call = async (token) =>
   fetch(`${url}/functions/v1/user-management`, {

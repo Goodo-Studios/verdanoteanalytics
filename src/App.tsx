@@ -38,6 +38,9 @@ const CreativesPage = lazy(routeImports.creatives);
 const AnalyticsPage = lazy(routeImports.analytics);
 const ComparePage = lazy(routeImports.compare);
 const ClientReportsPage = lazy(routeImports.clientReports);
+const ClientBriefsPage = lazy(routeImports.clientBriefs);
+const ClientReviewPage = lazy(routeImports.clientReview);
+const ClientAssetsPage = lazy(routeImports.clientAssets);
 const ReportDetailPage = lazy(routeImports.reportDetail);
 const ReportBuilderPage = lazy(routeImports.reportBuilder);
 const PublicReportPage = lazy(() => import("./pages/PublicReportPage"));
@@ -204,6 +207,10 @@ export function RoleGuardedRoutes() {
           <Route path="/analytics" element={staffPage ? <Navigate to={`${prefix}/creative/analytics${location.search}`} replace /> : <AnalyticsPage />} />
           <Route path="/reports" element={staffPage ? <Navigate to={`${prefix}/creative/reports${location.search}`} replace /> : <ClientReportsPage />} />
           <Route path="/reports/:id" element={<ReportDetailPage />} />
+          {/* Client pages (OS-019): Briefs, Review and Assets. Client logins only; staff go to their home. */}
+          <Route path="/brief-review" element={staffPage ? <Navigate to={`${prefix}/`} replace /> : <ClientBriefsPage />} />
+          <Route path="/review" element={staffPage ? <Navigate to={`${prefix}/`} replace /> : <ClientReviewPage />} />
+          <Route path="/assets" element={staffPage ? <Navigate to={`${prefix}/`} replace /> : <ClientAssetsPage />} />
           {/* The report builder is a staff page. Clients read finished reports only. */}
           <Route path="/reports/:id/build" element={effectiveClient ? <Navigate to={`${prefix}/`} replace /> : <ReportBuilderPage />} />
           {/* Clients: the list, and the client hub (tabs) with the client in the address. */}

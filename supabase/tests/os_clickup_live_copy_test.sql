@@ -7,7 +7,7 @@
 -- row keeps its status; read-only (ending client) tasks refuse an employee or builder update or
 -- delete but take a service-role update; comments, sync runs and discrepancies are staff read
 -- only and invisible to clients; a client still gets only their own client's tasks through
--- os_client_tasks, never a row with no client and never a non-asset ClickUp task. All rows are
+-- os_client_task_cards (os_client_tasks is retired, OS-019), never a row with no client and never a non-asset ClickUp task. All rows are
 -- made up.
 
 BEGIN;
@@ -140,10 +140,12 @@ SELECT throws_ok($$UPDATE public.os_tasks SET title = 'Edited' WHERE id = (SELEC
 
 -- ---------------------------------------------------------------- client (29-36)
 SELECT set_config('request.jwt.claim.sub', 'e7100000-0000-4000-8000-000000000003', true);
-SELECT is((SELECT count(*)::int FROM public.os_client_tasks() WHERE client_slug = 'oc-alpha'), 2,
-  'a client gets their own asset tasks, including read-only history, and not meeting calls');
-SELECT is((SELECT count(*)::int FROM public.os_client_tasks() WHERE client_slug IS NULL), 0,
-  'a client never gets a task with no client');
+-- OS-019: the client reads tasks through os_client_task_cards (allow-listed fields only); this
+-- client belongs to oc-alpha only, so every card is an oc-alpha task. os_client_tasks is retired.
+SELECT is((SELECT count(*)::int FROM public.os_client_task_cards()), 2,
+  'a client gets their own asset tasks, including read-only history, and not meeting calls (no task with no client)');
+SELECT throws_ok($$SELECT * FROM public.os_client_tasks()$$, '42883', NULL,
+  'a client cannot call the retired os_client_tasks');
 SELECT is((SELECT count(*)::int FROM public.os_tasks), 0, 'a client reads no task rows directly');
 SELECT is((SELECT count(*)::int FROM public.os_task_comments), 0, 'a client reads no comments');
 SELECT is((SELECT count(*)::int FROM public.os_sync_runs), 0, 'a client reads no sync runs');
