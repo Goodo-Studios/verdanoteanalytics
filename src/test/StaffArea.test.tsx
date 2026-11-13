@@ -35,6 +35,8 @@ vi.mock("@/pages/BriefsPage", () => pageMock("briefs"));
 vi.mock("@/pages/AgencyDashboardPage", () => pageMock("agency"));
 vi.mock("@/pages/HomePage", () => pageMock("staff-home"));
 vi.mock("@/features/home/WorkPage", () => pageMock("work"));
+// The client hub header reads its delivery bar through React Query; this test only checks routing.
+vi.mock("@/features/clients/ClientMonthDelivery", () => ({ ClientMonthDelivery: () => null }));
 vi.mock("@/features/home/MyWorkPage", () => pageMock("my-work"));
 vi.mock("@/features/home/TimeLogPage", () => pageMock("time"));
 vi.mock("@/pages/ContentPipelinePage", () => pageMock("pipeline"));

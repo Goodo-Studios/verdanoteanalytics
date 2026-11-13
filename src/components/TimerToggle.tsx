@@ -1,6 +1,6 @@
 // The play / stop button on a task (OS-012). Presentational: the caller says whether this task's
 // timer is running and what to do on a press.
-const BASE = "inline-flex shrink-0 items-center justify-center rounded-full border transition-colors disabled:opacity-50";
+const BASE = "gos-press inline-flex shrink-0 items-center justify-center rounded-full border disabled:opacity-50";
 const IDLE = "border-input bg-background text-muted-foreground hover:bg-secondary hover:text-foreground";
 const ON = "border-primary bg-primary text-primary-foreground";
 

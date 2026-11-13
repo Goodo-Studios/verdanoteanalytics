@@ -145,8 +145,8 @@ describe("Today (OS-010)", () => {
     expect(bar.getAttribute("aria-valuemax")).toBe("3");
     const fill = screen.getByTestId("today-progress-fill");
     expect(fill.style.width).toBe("33%");
-    expect(fill.style.transition).toContain("width");
-    expect(fill.style.transition).toContain("var(--gos-ease)");
+    // The ease is the shared bar class (OS-025): width over --gos-dur-bar with --gos-ease.
+    expect(fill.className).toContain("gos-bar-fill");
   });
 
   it("marking an item done slides it away, moves the bar, and Undo brings it back", () => {
