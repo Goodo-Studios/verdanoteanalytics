@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { Button } from "@/components/ui/button";
 import { WaitingOnYouLine } from "@/components/client/WaitingOnYouLine";
+import { ClientHomeLead } from "@/features/client-pages/ClientHomeLead";
 import { RefreshCw } from "lucide-react";
 import { Navigate } from "react-router-dom";
 import { useAccountContext } from "@/contexts/AccountContext";
@@ -83,8 +84,10 @@ const OverviewPage = () => {
 
   return (
     <div className="space-y-8">
-      {/* A client's first screen: what is waiting on them, then the current cycle count, then the
-          metrics below. Real client logins only. */}
+      {/* A client's first screen (OS-019): the one item that needs them and a short list, then the
+          content pipeline line (waiting count and current cycle), then the metrics. Real client
+          logins only. */}
+      {isClient ? <ClientHomeLead /> : null}
       {isClient ? <WaitingOnYouLine /> : null}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">

@@ -1,20 +1,20 @@
 /**
  * The client login on the deployed staging site (client-a@staging.verdanote.test): it sees only
- * its five menu items, is sent away from every staff route, and its pipeline page shows work
+ * its eight menu items, is sent away from every staff route, and its pipeline page shows work
  * grouped by cycle or the plain empty state.
  */
 import { test, expect } from "@playwright/test";
 import { SECTIONS } from "../src/lib/sections";
 import { hasLogins, NEEDS_PASSWORD, storagePath, watchConsole } from "./support";
 
-const CLIENT_ITEMS = ["Overview", "Creatives", "Analytics", "Content Pipeline", "Reports"];
+const CLIENT_ITEMS = ["Overview", "Briefs", "Review", "Assets", "Creatives", "Analytics", "Content Pipeline", "Reports"];
 const STAFF_ITEMS = ["Home", "Clients", "Production", "Talent", "Creative", "Knowledge", "Admin"];
 
 test.describe("client: the wall in a real browser", () => {
   test.use({ storageState: storagePath("client") });
   test.skip(!hasLogins, NEEDS_PASSWORD);
 
-  test("the menu has exactly the five client items and no staff tools", async ({ page }) => {
+  test("the menu has exactly the eight client items and no staff tools", async ({ page }) => {
     await page.goto("/client/");
     const nav = page.getByRole("navigation", { name: "Main" });
     for (const name of CLIENT_ITEMS) {

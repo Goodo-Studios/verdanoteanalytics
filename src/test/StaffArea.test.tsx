@@ -247,7 +247,8 @@ describe("every menu item, tab and old address is covered", () => {
   it("has eight staff menu items, with Tools before Admin", () => {
     expect(staffNavItems.map((i) => i.title)).toEqual(["Home", "Clients", "Production", "Talent", "Creative", "Knowledge", "Tools", "Admin"]);
     expect(staffNavItems).toHaveLength(8);
-    expect(clientNavItems).toHaveLength(5);
+    // OS-019 added Briefs, Review and Assets to the client menu.
+    expect(clientNavItems).toHaveLength(8);
   });
 
   it("has a page marker for every page a tab shows", () => {

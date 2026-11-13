@@ -43,6 +43,10 @@ INSERT INTO allow VALUES
   -- client gets no pages, only their own clients' visible tasks (get_user_client_slugs) and their
   -- own clients; no role or no sign-in gets nothing.
   ('browser','os_search'),
+  -- OS-019: client pages. os_client_task_cards returns only allow-listed fields of the caller's own
+  -- clients' tasks (has_role client, get_user_client_slugs). os_client_decide refuses anyone who is
+  -- not a client, and any task that is not their own client's and in Client Review.
+  ('browser','os_client_task_cards'), ('browser','os_client_decide'),
   ('row_rules','has_role'), ('row_rules','get_user_account_ids'),
   ('row_rules','get_user_client_slugs'),
   ('row_rules','owns_ad_library_ad'), ('row_rules','owns_ad_library_board'),

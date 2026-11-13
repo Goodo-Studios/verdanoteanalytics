@@ -155,14 +155,17 @@ describe("nav model — clientNavItems (AC1)", () => {
     for (const url of excludedUrls) {
       expect(urls).not.toContain(url);
     }
-    const excludedTitles = ["Tagging", "Briefs", "Library", "Boards", "Hooks"];
+    const excludedTitles = ["Tagging", "Library", "Boards", "Hooks"];
     for (const title of excludedTitles) {
       expect(titles).not.toContain(title);
     }
+    // OS-019: the client "Briefs" item is the client page, never the strategist Briefs page.
+    expect(clientNavItems.find((i) => i.title === "Briefs")?.url).toBe("/brief-review");
   });
 
-  it("is the 5 client surfaces — Overview, Creatives, Analytics, Pipeline, Reports", () => {
-    expect(clientNavItems).toHaveLength(5);
+  it("is the 8 client surfaces: Overview, Briefs, Review, Assets, Creatives, Analytics, Pipeline, Reports", () => {
+    expect(clientNavItems).toHaveLength(8);
+    expect(urls).toEqual(["/", "/brief-review", "/review", "/assets", "/creatives", "/analytics", "/pipeline", "/reports"]);
   });
 });
 

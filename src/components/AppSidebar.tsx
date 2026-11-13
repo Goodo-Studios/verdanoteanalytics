@@ -19,6 +19,8 @@ import {
   BookOpen,
   ShieldCheck,
   Wrench,
+  CheckCircle2,
+  Download,
 } from "lucide-react";
 import { ATTIO_URL, GOODO_TIME_URL } from "@/lib/staffMenu";
 import { STAFF_NAV, type StaffNavId } from "@/lib/sections";
@@ -70,8 +72,15 @@ export const staffNavItems: NavItem[] = STAFF_NAV.map((entry) => ({
 // same OverviewPage builders see (the purpose-built ClientHomePage is retired).
 // Deeper strategist surfaces (Tagging, Briefs, Vault) stay
 // client-gated — see route guards in App.tsx.
+//
+// OS-019: Overview is the client home (it leads with the one item that needs the client). Briefs,
+// Review and Assets replace the three ClickUp client views. "Briefs" here is the client page at
+// /brief-review; the strategist Briefs page at /briefs stays staff only.
 export const clientNavItems: NavItem[] = [
   { title: "Overview", url: "/", icon: LayoutGrid },
+  { title: "Briefs", url: "/brief-review", icon: BookOpen },
+  { title: "Review", url: "/review", icon: CheckCircle2 },
+  { title: "Assets", url: "/assets", icon: Download },
   { title: "Creatives", url: "/creatives", icon: Zap },
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
