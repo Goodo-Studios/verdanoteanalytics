@@ -31,7 +31,14 @@ async function signIn(email) {
   const c = createClient(url, anon, { auth: { persistSession: false } });
   const { data, error } = await c.auth.signInWithPassword({ email, password });
   if (error) throw new Error(`sign-in failed for ${email}: ${error.message}`);
-  return { c, token: data.session.access_token, userId: data.user.id };
+  return { c, email, token: data.session.access_token, userId: data.user.id };
+}
+
+// Logins last one hour and a full run can take longer, so the checks that send a token to a server
+// function sign in again first. Without this a slow run fails those checks with "Invalid JWT", and the
+// "client token is refused" checks would pass for the wrong reason (an expired token, not the wall).
+async function refreshLogins(...sessions) {
+  for (const s of sessions) Object.assign(s, await signIn(s.email));
 }
 
 async function rows(c, table) {
@@ -1220,6 +1227,7 @@ for (const [table, select, filter] of SHELL_QUERIES) {
 // the ClickUp write-back stays queued and unsent with its switch off. The card is demo-seed-4 (demo-glowdrip,
 // Client Review, from scripts/seed-staging-dashboard.mjs). A run adds at most two history rows to that card; the
 // function allows 5 per person per card per 10 minutes, so wait 10 minutes before a third run in a row.
+await refreshLogins(staff, clientA, clientB, employee);
 {
   const DECISION_SELECT = "id, clickup_task_id, client_slug, task_name, decision, note, decided_by_label, decided_at, superseded_at";
   const CARD = "demo-seed-4";
@@ -1659,6 +1667,7 @@ const call = async (token) =>
     method: "GET",
     headers: { Authorization: `Bearer ${token}`, apikey: anon },
   });
+await refreshLogins(staff, clientA);
 const asClient = await call(clientA.token);
 check("client token is refused by user-management", [401, 403].includes(asClient.status), `status=${asClient.status}`);
 const asStaff = await call(staff.token);
