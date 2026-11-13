@@ -334,14 +334,22 @@ export function ClientInvitesSection({ now = () => new Date() }: { now?: () => D
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [t, c, x, b, i, s] = await Promise.all([
+    // A failed or thrown load shows the error state instead of an unhandled rejection.
+    let results: DbResult[];
+    try {
+      results = await Promise.all([
       db.from("os_client_invite_template").select("subject, body, approved_at").maybeSingle(),
       db.from("clients").select("slug, name, status, active").order("name"),
       db.from("os_invite_excluded_clients").select("client_slug, name_prefix").order("client_slug"),
       db.from("os_client_invite_batches").select("id, name, kind, client_slugs, created_at, approved_at, sent_at, guest_access_review_after, guest_access_removal_confirmed_at").order("created_at"),
       db.from("os_client_invites").select("id, batch_id, client_slug, email, display_name, status, accepted_at").order("created_at"),
       db.rpc("os_client_invite_pilot_status"),
-    ]);
+      ]);
+    } catch {
+      setLoadError("The client invites could not load.");
+      return;
+    }
+    const [t, c, x, b, i, s] = results;
     if (!t || t.error || !t.data) {
       setLoadError("The client invites could not load.");
       return;
