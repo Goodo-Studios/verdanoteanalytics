@@ -1,7 +1,7 @@
 /** Today (OS-010) helpers: next-action order, the short list, N of M done today, builder lists. */
 import { describe, expect, it } from "vitest";
 import type { MyTaskRow } from "@/lib/myWork";
-import { awaitingClientApproval, isForToday, lateAcrossClients, pickToday, SHORT_LIST_MAX, startOfDayIso, todayProgress } from "@/lib/today";
+import { awaitingClientApproval, BRAIN_REVIEW_MAX, brainReviewList, isForToday, lateAcrossClients, pickToday, SHORT_LIST_MAX, startOfDayIso, todayProgress } from "@/lib/today";
 
 const T = "2026-11-12";
 const mk = (id: string, over: Partial<MyTaskRow> = {}): MyTaskRow => ({
@@ -88,5 +88,17 @@ describe("startOfDayIso", () => {
   it("is local midnight of the given day", () => {
     const d = new Date(startOfDayIso(T));
     expect([d.getFullYear(), d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes()]).toEqual([2026, 11, 12, 0, 0]);
+  });
+});
+
+describe("brainReviewList (OS-016)", () => {
+  const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `${i}`, section: "Handbook", slug: `s${i}`, title: `T${i}`, last_reviewed: null }));
+  it("shows up to five pages and counts the rest", () => {
+    expect(BRAIN_REVIEW_MAX).toBe(5);
+    expect(brainReviewList([])).toEqual({ shown: [], more: 0 });
+    expect(brainReviewList(rows(5))).toEqual({ shown: rows(5), more: 0 });
+    const r = brainReviewList(rows(7));
+    expect(r.shown.map((x) => x.id)).toEqual(["0", "1", "2", "3", "4"]);
+    expect(r.more).toBe(2);
   });
 });

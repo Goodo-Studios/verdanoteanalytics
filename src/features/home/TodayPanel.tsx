@@ -2,20 +2,25 @@
 // progress bar for today (N of M done). Marking an item done slides it away and offers Undo. A builder
 // also sees decisions waiting, late items across every client, and client approvals outstanding.
 // No tables: one item, then plain lists. The next action and each list item have a play button
-// for the timer (OS-012).
+// for the timer (OS-012). Below the short list, an owner sees the Brain pages they own that need
+// review (OS-016), at most five plus "and N more", and nothing when there are none.
 import { useCallback, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { EmptyState, ErrorState, LoadingState } from "@/components/page-kit";
 import { useAuth } from "@/contexts/AuthContext";
 import { useStaffDecisions } from "@/hooks/useClientDecisions";
 import { useMyTasks } from "@/hooks/useMyWork";
 import { useDoneTodayCount, useSetTaskStatus } from "@/hooks/useToday";
+import { useBrainPagesToReview } from "@/hooks/useBrainReview";
+import { useRolePrefix } from "@/hooks/useRolePath";
+import { brainPagePath, sectionFromParam } from "@/features/brain/model";
 import { useTaskTimer } from "@/hooks/useTimer";
 import { TimerToggle } from "@/components/TimerToggle";
 import { isNewDecision, staffDecisionText } from "@/lib/clientDecisions";
 import { shortDate, todayIso } from "@/lib/homeData";
 import { DONE_STATUS, isLateDue, type MyTaskRow } from "@/lib/myWork";
-import { awaitingClientApproval, lateAcrossClients, pickToday, todayProgress } from "@/lib/today";
+import { awaitingClientApproval, brainReviewList, type BrainReviewRow, lateAcrossClients, pickToday, todayProgress } from "@/lib/today";
 import { PhaseDots } from "./PhaseDots";
 import { TaskSidePanel } from "./TaskSidePanel";
 
@@ -109,6 +114,29 @@ function BuilderList({ id, title, items, empty }: { id: string; title: string; i
   );
 }
 
+/** The person's Brain pages past their review window. Hidden when there are none or it fails. */
+function BrainToReview({ rows }: { rows: BrainReviewRow[] }) {
+  const prefix = useRolePrefix();
+  const { shown, more } = brainReviewList(rows);
+  if (shown.length === 0) return null;
+  return (
+    <section aria-labelledby="today-brain-title" data-testid="today-brain">
+      <p id="today-brain-title" className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Brain pages to review</p>
+      <ul className="space-y-1">
+        {shown.map((p) => (
+          <li key={p.id} data-testid="today-brain-item">
+            <Link to={brainPagePath(prefix, sectionFromParam(p.section), p.slug)} className="flex items-baseline gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-secondary">
+              <span className="min-w-0 flex-1 truncate">{p.title}</span>
+              <span className="w-28 shrink-0 text-right text-xs text-muted-foreground">{p.last_reviewed ? `Reviewed ${shortDate(p.last_reviewed)}` : "Never reviewed"}</span>
+            </Link>
+          </li>
+        ))}
+        {more > 0 ? <li className="px-2 text-xs text-muted-foreground" data-testid="today-brain-more">and {more} more</li> : null}
+      </ul>
+    </section>
+  );
+}
+
 export function TodayPanel() {
   const { user, isBuilder } = useAuth();
   const today = todayIso();
@@ -118,6 +146,7 @@ export function TodayPanel() {
   const decisions = useStaffDecisions();
   const setStatus = useSetTaskStatus();
   const timer = useTaskTimer(user?.id);
+  const brainToReview = useBrainPagesToReview(user?.id);
 
   // Items finished on this page: `leaving` while they slide out, then `hidden` until the list reloads.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
@@ -252,6 +281,7 @@ export function TodayPanel() {
               </ul>
             </section>
           ) : null}
+          <BrainToReview rows={brainToReview.data ?? []} />
         </>
       )}
 

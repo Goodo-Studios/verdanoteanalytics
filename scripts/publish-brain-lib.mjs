@@ -391,3 +391,29 @@ export function summariseSkips(skipped) {
   for (const s of skipped) counts.set(s.reason, (counts.get(s.reason) ?? 0) + 1);
   return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 }
+
+/**
+ * OS-016: the owners the app could not match to a staff login, from rematch_brain_page_owners
+ * ([{ owner, pages }]). Lines for the summary, sorted by owner.
+ */
+export function unmatchedOwnerLines(rows) {
+  return [...(rows ?? [])]
+    .sort((a, b) => a.owner.localeCompare(b.owner))
+    .map((r) => `  ${r.owner} (${r.pages} ${r.pages === 1 ? 'page' : 'pages'})`);
+}
+
+/**
+ * OS-016: accepted fixes still to apply in HQ. A fix counts as applied once its page was
+ * published with a different content hash, or the page is gone. `fixes` are brain_page_corrections
+ * rows with their brain_page_correction_reviews; `pages` are [{ id, content_hash }] after this run.
+ */
+export function pendingFixes(fixes, pages) {
+  const hashById = new Map((pages ?? []).map((p) => [p.id, p.content_hash]));
+  return (fixes ?? [])
+    .filter((f) => {
+      const raw = f.brain_page_correction_reviews;
+      const reviews = Array.isArray(raw) ? raw : raw ? [raw] : [];
+      return reviews.some((r) => r.decision === 'accepted') && hashById.get(f.brain_page_id) === f.page_content_hash;
+    })
+    .sort((a, b) => a.source_path.localeCompare(b.source_path) || a.created_at.localeCompare(b.created_at));
+}
