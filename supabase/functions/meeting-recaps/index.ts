@@ -30,6 +30,17 @@ import {
 //
 // Gate: a builder or employee login. Clients, logins with no role and the service
 // role get 403.
+//
+// Known gap, analysed in the data audit: nothing checks that the transcript belongs to
+// client_slug. The staff member who asks picks both, and the recap stays a draft until a
+// staff review. A check was not added because no reliable mapping exists. The clients
+// table holds no contact emails or domains. The only emails tied to a client are the
+// logins linked in client_members (a subset of each client's people, and absent for
+// clients with no portal login) and the pilot invite contacts in os_client_invites. The
+// Fireflies participant emails (see _shared/fireflies.ts) are whoever was on the call,
+// often personal or agency addresses. A "no linked login attended" block would refuse
+// real client calls, and an "any linked login attended" pass would still accept internal
+// meetings. Revisit when clients get an explicit contact and domain list.
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
