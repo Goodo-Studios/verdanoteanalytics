@@ -2,7 +2,7 @@
 
 Step 5a of the consolidation plan. The old Goodo Studios dashboard (Supabase project `qlvdvpchriyrsjtewwxx`, 35 tables) moves into Verdanote. This page covers the database side: what the migrations add, how staff roles map, and how to run the one-time data copy into staging.
 
-Staging only. Verdanote production (`gwyxaqoaldnaavkjqquv`) is not touched by anything here.
+The migrations and the staging copy come first. The copy script can also write to Verdanote production (`gwyxaqoaldnaavkjqquv`) as step 7 of the release, behind its own confirmation flag, a dry run and a receipt; see "Copying into production" below. Nothing here has run against production yet.
 
 ## What the migrations add
 
@@ -89,7 +89,7 @@ Safety rules built in and covered by `scripts/dashboard-copy-lib.test.mjs` and `
 
 - Dry run by default. `--write` is refused without `--confirm-source` and `--real-client-data-approved`, before any network call. Unknown options are refused.
 - The old dashboard is only read, through the Supabase read only query endpoint, which the database runs as `supabase_read_only_user`. The script also refuses anything that is not a select. It uses `SUPABASE_ACCESS_TOKEN` for that endpoint; no dashboard service role key is used.
-- The write target is hard wired to the `verdanote-staging` project (`mnvcksbhbvypuiwozvct`). Production and the old dashboard are refused as targets.
+- The write target is `verdanote-staging` (`mnvcksbhbvypuiwozvct`) unless `--target production` is given with `--confirm-production gwyxaqoaldnaavkjqquv`. The old dashboard is refused as a target, and so is any other project.
 - It will not read the old dashboard without `--confirm-source qlvdvpchriyrsjtewwxx`, which is passed only after Matthew confirms the read.
 - Credentials come from the vault through `hq secrets exec`. They are never printed or written.
 - Triggers are switched off during the load, so values such as `stage_changed_at` are copied, not recomputed.
@@ -114,10 +114,34 @@ hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN,VERDANOTE_S
 
 The report also lists, as counts only, how many people hold each dashboard role and how many already have a staging login, plus a per bucket file and size inventory for the storage copy.
 
+## Copying into production
+
+Step 7 of the release in `docs/staging.md`. Same script, same tables, same load order; the differences are the guards.
+
+Secret names (names only; never read or print a value): `SUPABASE_ACCESS_TOKEN` is the personal access token the old dashboard is read with and the one production is written with. `VERDANOTE_STAGING_SUPABASE_ACCESS_TOKEN` is for staging only and has no access to production. Find names with `hq secrets list --company goodo-studios`. The storage copy also uses `DASHBOARD_VIEWER_EMAIL`, `DASHBOARD_VIEWER_PASSWORD` and `DASHBOARD_ANON_KEY` (a read only viewer login on the old project and its public key).
+
+| Command (each run as `hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN -- node scripts/dashboard-copy.mjs ...`) | What it does |
+|---|---|
+| `--target production --confirm-source qlvdvpchriyrsjtewwxx` | Dry run. Reads counts and checksums from the old dashboard and from production, prints the row count per table and the report, and writes a receipt file. Production is read through the read only endpoint, which refuses anything but a select. Writes nothing. |
+| `--target production --confirm-production gwyxaqoaldnaavkjqquv --confirm-source qlvdvpchriyrsjtewwxx --write --real-client-data-approved` | The copy. |
+
+Rules, covered by `scripts/dashboard-copy-lib.test.mjs` and `scripts/dashboard-copy-dryrun.test.mjs`:
+
+- Production is refused as a target unless `--target production` and the exact ref in `--confirm-production` are both given. A ref anywhere else, or `--confirm-production` with staging, is an error.
+- `--write` on production needs every one of: `--confirm-source`, `--confirm-production`, `--real-client-data-approved` (owner decision 10) and a fresh dry-run receipt. Each is checked before any network call.
+- The receipt is a small file in the temp folder (override with `--receipt <path>`) with the two project refs, a fingerprint of the table list, the time and the row counts. It is only valid for the same source, target and table list, and for 120 minutes. A successful write deletes it, so each real run needs its own dry run.
+- `--replace` is refused on production. The script never deletes anything there.
+- Inserts use `on conflict do nothing`: a second run is safe, and a row that already exists in production is kept as it is. The checksum comparison afterwards can therefore differ for a table where production held rows of its own; read those lines before accepting the result.
+- The ad code counter is not touched on production by this script. `scripts/ad-code-counter.mjs` raises it at the moment the old generators are switched off (step 9).
+- Row counts per table are printed to stderr as `table | source rows | target rows | match`, and the report has the same table.
+
+Storage files (step 8): `scripts/dashboard-storage-copy.mjs` takes the same `--target production --confirm-production` pair, a mandatory dry run (`--dry-run`) that leaves a receipt, and `--verify` for the comparison afterwards. See `docs/dashboard-storage-copy-plan.md`.
+
 ## Tests
 
 - `supabase/tests/dashboard_data_foundation_test.sql` (pgTAP, runs in CI): row rules, no anon or client access, client refused by the staff functions, ad counter, role mapping.
 - `scripts/dashboard-copy-lib.test.mjs`: table list and load order agree with the migration, target and source guards, read only enforcement, SQL building.
-- `scripts/dashboard-copy-dryrun.test.mjs`: dry run by default, the owner approval gate, refused options, seed rows left out of checksums, `clients` kept by `--replace`.
+- `scripts/dashboard-copy-dryrun.test.mjs`: dry run by default, the owner approval gate, refused options, seed rows left out of checksums, `clients` kept by `--replace`, and the production target: refused without every confirmation, refused without a fresh receipt, `--replace` refused, staging stays refused for a production confirmation.
+- `scripts/prod-cutover.test.mjs`: the other release scripts (secrets status, Coda cleanup, ad code counter) and the production guards of the storage copy.
 - `scripts/seed-staging-dashboard.test.mjs`: the seed is made up, refuses non-staging projects, respects the dashboard constraints and carries its seed markers.
 - `supabase/tests/dashboard_batch1_test.sql` (pgTAP): the batch 1 tables are staff only, even for a client login linked to the client; the stage follow-up rule; the reworded refusals.
