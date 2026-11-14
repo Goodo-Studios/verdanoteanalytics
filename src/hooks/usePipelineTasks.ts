@@ -35,6 +35,28 @@ const STAGE_ORDER: Record<string, number> = {
   "Ready to Launch": 5,
 };
 
+type LinkReader = {
+  from(table: string): {
+    select(columns: string): { eq(column: string, value: string): PromiseLike<{ data: unknown; error: { message: string } | null }> };
+  };
+};
+
+/**
+ * The row filter for a staff member looking at one ad account. The sync writes `account_id` on a card only when
+ * the client has exactly one linked ad account, so a client with two accounts has cards with no account id. Staff
+ * therefore see the cards of the account itself and of every client that owns it (matched by `client_slug`),
+ * which shows a multi-account client's whole board under any one of its accounts.
+ */
+export async function staffAccountFilter(accountId: string): Promise<string> {
+  const { data, error } = await (supabase as unknown as LinkReader).from("client_ad_accounts").select(CLIENT_LINK_COLUMNS).eq("account_id", accountId);
+  if (error) throw new Error(error.message);
+  const slugs = ((data || []) as { client_slug: string | null }[])
+    .map((r) => r.client_slug)
+    .filter((v): v is string => !!v && /^[a-z0-9][a-z0-9-]*$/.test(v));
+  const own = `account_id.eq.${accountId}`;
+  return slugs.length ? `${own},client_slug.in.(${slugs.join(",")})` : own;
+}
+
 /**
  * Staff pass the selected ad account. A client login passes `own` instead: no
  * filter is sent, and the row rules return only rows of the client's linked ad
@@ -49,9 +71,10 @@ export function usePipelineTasks(accountId?: string, own = false) {
     enabled: own || (!!accountId && accountId !== "all"),
     refetchInterval: 15 * 60 * 1000, // 15 minutes
     queryFn: async () => {
+      const scope = own ? null : await staffAccountFilter(accountId!);
       const data = await fetchAllPages<PipelineTask>(async (from, to) => {
         const query = supabase.from("pipeline_tasks").select(CLIENT_BOARD_COLUMNS);
-        const { data: page, error } = await (own ? query : query.eq("account_id", accountId!)).order("id").range(from, to);
+        const { data: page, error } = await (scope ? query.or(scope) : query).order("id").range(from, to);
         if (error) throw error;
         return (page || []) as unknown as PipelineTask[];
       });
@@ -76,6 +99,7 @@ type Untyped = {
   from(table: string): {
     select(columns: string): PromiseLike<{ data: unknown; error: { message: string } | null }> & {
       eq(column: string, value: string): Ranged;
+      or(filter: string): Ranged;
       order(column: string): Ranged;
       range(from: number, to: number): PromiseLike<{ data: unknown; error: { message: string } | null }>;
     };
@@ -94,10 +118,11 @@ export function usePipelineDelivered(accountId?: string, own = false) {
     enabled: own || (!!accountId && accountId !== "all"),
     refetchInterval: 15 * 60 * 1000,
     queryFn: async () => {
+      const scope = own ? null : await staffAccountFilter(accountId!);
       // pipeline_delivered only grows, so it will pass the 1000-row response cap: read it in pages.
       const data = await fetchAllPages<Omit<PipelineTask, "stage" | "due_date">>(async (from, to) => {
         const query = db().from("pipeline_delivered").select(CLIENT_DELIVERED_COLUMNS);
-        const { data: page, error } = await (own ? query : query.eq("account_id", accountId!)).order("id").range(from, to);
+        const { data: page, error } = await (scope ? query.or(scope) : query).order("id").range(from, to);
         if (error) throw new Error(error.message);
         return (page || []) as Omit<PipelineTask, "stage" | "due_date">[];
       });
