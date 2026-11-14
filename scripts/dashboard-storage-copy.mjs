@@ -1,15 +1,30 @@
 #!/usr/bin/env node
-// One-time copy of dashboard media files into Verdanote STAGING storage.
-// Source (old dashboard) is only read, signed in as a viewer account whose
-// storage policies allow reads and no writes. Target is hard wired to staging.
-// Plan: docs/dashboard-storage-copy-plan.md
+// Copy of dashboard media files into Verdanote storage: staging by default,
+// production behind explicit confirmation (step 8 of the release). Source (old
+// dashboard) is only read, signed in as a viewer account whose storage policies
+// allow reads and no writes. Plan: docs/dashboard-storage-copy-plan.md
 //
 // Env (from the vault, via hq secrets exec):
 //   DASHBOARD_VIEWER_EMAIL, DASHBOARD_VIEWER_PASSWORD, DASHBOARD_ANON_KEY
-//   STAGING_SUPABASE_SERVICE_ROLE_KEY
-// Usage: node scripts/dashboard-storage-copy.mjs --confirm-source qlvdvpchriyrsjtewwxx [--bucket name] [--dry-run]
+//   staging:    STAGING_SUPABASE_SERVICE_ROLE_KEY
+//   production: SUPABASE_ACCESS_TOKEN (the production service role key is fetched with it for
+//               this run and never printed; or set PRODUCTION_SUPABASE_SERVICE_ROLE_KEY)
+//
+// Usage:
+//   node scripts/dashboard-storage-copy.mjs --confirm-source qlvdvpchriyrsjtewwxx [--bucket name] [--dry-run] [--verify]
+//
+// Production:
+//   1. Dry run: --target production --confirm-production gwyxaqoaldnaavkjqquv --dry-run
+//      Lists files and bytes per bucket, writes nothing, leaves a receipt.
+//   2. Copy: the same command without --dry-run. Refused unless the receipt from
+//      step 1 is for this source and target and no older than 120 minutes. A copy
+//      with no failures consumes the receipt. Files already there with the same size
+//      are skipped, so a second run is safe.
+//   3. Check: the same command with --verify (paths and sizes, source against production).
 
-import { DASHBOARD_REF, STAGING_REF } from './dashboard-copy-lib.mjs';
+import fs from 'node:fs';
+import { DASHBOARD_REF, STAGING_REF, PRODUCTION_REF } from './dashboard-copy-lib.mjs';
+import { assertConfirmedProduction, buildReceipt, assertReceipt, readReceipt, defaultReceiptPath, hashOf, makeManagementClient } from './prod-cutover-lib.mjs';
 
 const BUCKETS = [
   'creator-headshots', 'creator-family-pet-photos', 'creator-filming-locations', 'actor-headshots', 'actor-photos',
@@ -17,24 +32,44 @@ const BUCKETS = [
   'creator-application-videos', 'actor-application-videos', 'moodboard-refs',
 ];
 const SRC = `https://${DASHBOARD_REF}.supabase.co`;
-const DST = `https://${STAGING_REF}.supabase.co`;
 const CONCURRENCY = 4;
 
 const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i === -1 ? undefined : args[i + 1]; };
+const fail = (m) => { console.error(m); process.exit(2); };
 if (flag('--confirm-source') !== DASHBOARD_REF) {
-  console.error(`Refusing to read the old dashboard without --confirm-source ${DASHBOARD_REF}`);
-  process.exit(2);
+  fail(`Refusing to read the old dashboard without --confirm-source ${DASHBOARD_REF}`);
 }
+const targetName = flag('--target') ?? 'staging';
+if (targetName !== 'staging' && targetName !== 'production') fail('--target must be staging or production (a name, not a project ref)');
+const isProduction = targetName === 'production';
+const DST = `https://${isProduction ? PRODUCTION_REF : STAGING_REF}.supabase.co`;
 const dryRun = args.includes('--dry-run');
+const verifyOnly = args.includes('--verify');
 const only = flag('--bucket');
-if (only && !BUCKETS.includes(only)) { console.error(`Unknown bucket ${only}`); process.exit(2); }
+if (only && !BUCKETS.includes(only)) fail(`Unknown bucket ${only}`);
+
+// Production needs the typed ref for every use of its key, and a fresh dry-run receipt for a real copy.
+const receiptPath = flag('--receipt') ?? defaultReceiptPath('dashboard-storage-copy', targetName);
+const receiptScope = { kind: 'dashboard-storage-copy-dry-run', sourceRef: DASHBOARD_REF, targetRef: PRODUCTION_REF, fingerprint: hashOf(BUCKETS) };
+if (isProduction) {
+  try { assertConfirmedProduction(flag('--confirm-production')); } catch (e) { fail(String(e.message)); }
+  if (!dryRun && !verifyOnly) {
+    try { assertReceipt(readReceipt(receiptPath), receiptScope); } catch (e) { fail(String(e.message)); }
+  }
+} else if (flag('--confirm-production') !== undefined) {
+  fail('--confirm-production only goes with --target production');
+}
 
 const need = (n) => { const v = process.env[n]; if (!v) { console.error(`Missing ${n}`); process.exit(2); } return v; };
 const email = need('DASHBOARD_VIEWER_EMAIL');
 const password = need('DASHBOARD_VIEWER_PASSWORD');
 const anon = need('DASHBOARD_ANON_KEY');
-const stagingKey = need('STAGING_SUPABASE_SERVICE_ROLE_KEY');
+// The target's service role key. Named stagingKey for the staging case it started with.
+const stagingKey = !isProduction
+  ? need('STAGING_SUPABASE_SERVICE_ROLE_KEY')
+  : (process.env.PRODUCTION_SUPABASE_SERVICE_ROLE_KEY
+    || await makeManagementClient({ token: need('SUPABASE_ACCESS_TOKEN'), ref: PRODUCTION_REF }).serviceRoleKey());
 
 let session = null;
 async function signIn() {
@@ -140,7 +175,16 @@ for (const bucket of only ? [only] : BUCKETS) {
   results.push(row);
 }
 
+if (dryRun && isProduction) {
+  const counts = results.map((r) => ({ bucket: r.bucket, files: r.files, bytes: r.bytes }));
+  fs.writeFileSync(receiptPath, JSON.stringify(buildReceipt({ ...receiptScope, counts }), null, 2) + '\n');
+  console.log(`\nDry-run receipt written to ${receiptPath} (valid for 120 minutes, for this source and target only).`);
+}
+
 let bad = 0;
 console.log('\nbucket | source files | copied | skipped (already there) | failed');
 for (const r of results) { bad += r.failed.length; console.log(`${r.bucket} | ${r.files} | ${r.copied} | ${r.skipped} | ${r.failed.length}`); for (const f of r.failed) console.log(`  FAILED ${f}`); }
+if (!bad && !dryRun && isProduction) {
+  try { fs.unlinkSync(receiptPath); console.log('Dry-run receipt used up. Run the dry run again before another real copy.'); } catch { /* already gone */ }
+}
 process.exit(bad ? 1 : 0);

@@ -1,0 +1,239 @@
+-- Creatives list: one-statement page query for the `creatives` edge function.
+--
+-- Why: with no client picked the ad account is "all" (ClientSelectionProvider), and the
+-- default date range is 14 days. The edge function then paged through every matching
+-- creative_daily_metrics row 1000 at a time, each page re-running
+--   WHERE date BETWEEN .. ORDER BY ad_id, date  (no account filter)
+-- which cannot use idx_daily_metrics_account_date (account_id leads) and so scanned and
+-- sorted the whole range once per page; after that it fetched creatives 100 ad_ids at a
+-- time. At production size (52k creatives, hundreds of thousands of daily rows in range)
+-- that is hundreds of sequential round trips and the page stays on its loading skeleton.
+--
+-- This function does the same math in one statement and returns only the requested page:
+--   * per-ad sums and impression / video-view weighted rates, identical to
+--     _shared/creatives-aggregate.ts (aggregateDailyByAd)
+--   * spend-weighted portfolio aggregates over the whole filtered set (computeWeightedAggregates)
+--   * the daily-metrics read is scoped by account_id = ANY(array), so it uses
+--     idx_daily_metrics_account_date (one range probe per account) instead of a full scan
+--
+-- Trusts p_allowed_ids / p_account_id (the edge function resolves tenancy), so it is
+-- executable by service_role only, like the other RPCs that trust their account argument.
+
+CREATE OR REPLACE FUNCTION public.creatives_list_page(
+  p_allowed_ids text[]  DEFAULT NULL,
+  p_account_id  text    DEFAULT NULL,
+  p_date_from   date    DEFAULT NULL,
+  p_date_to     date    DEFAULT NULL,
+  p_ad_types    text[]  DEFAULT NULL,
+  p_person      text    DEFAULT NULL,
+  p_style       text    DEFAULT NULL,
+  p_hook        text    DEFAULT NULL,
+  p_product     text    DEFAULT NULL,
+  p_theme       text    DEFAULT NULL,
+  p_tag_source  text    DEFAULT NULL,
+  p_ad_status   text    DEFAULT NULL,
+  p_delivery    text    DEFAULT NULL,
+  p_search      text    DEFAULT NULL,
+  p_limit       integer DEFAULT 100,
+  p_offset      integer DEFAULT 0
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SET search_path = ''
+AS $$
+DECLARE
+  v_cols constant text[] := ARRAY[
+    'ad_id', 'account_id', 'ad_name', 'unique_code', 'ad_type', 'ad_status',
+    'person', 'style', 'hook', 'product', 'theme', 'tag_source', 'notes',
+    'spend', 'impressions', 'clicks', 'ctr', 'cpm', 'cpc', 'cpa', 'roas',
+    'purchases', 'purchase_value', 'adds_to_cart', 'cost_per_add_to_cart',
+    'video_views', 'thumb_stop_rate', 'hold_rate', 'frequency', 'video_avg_play_time',
+    'play_curve', 'retention_p25', 'retention_p50', 'retention_p75', 'retention_p100',
+    'campaign_name', 'adset_name', 'ad_post_url', 'thumbnail_url', 'full_res_url',
+    'video_url', 'meta_video_ids'
+  ];
+  v_search text := NULLIF(btrim(COALESCE(p_search, '')), '');
+  v_scope  text[];
+  v_limit  integer := GREATEST(COALESCE(p_limit, 100), 0);
+  v_offset integer := GREATEST(COALESCE(p_offset, 0), 0);
+  v_result jsonb;
+BEGIN
+  IF p_date_from IS NOT NULL OR p_date_to IS NOT NULL THEN
+    -- Accounts whose daily rows are read: the picked account, else every account the
+    -- caller may see (NULL allowed = staff = all accounts). Never wider than allowed.
+    v_scope := ARRAY(
+      SELECT a
+        FROM unnest(
+          CASE WHEN p_account_id IS NOT NULL THEN ARRAY[p_account_id]
+               ELSE COALESCE(p_allowed_ids, ARRAY(SELECT id FROM public.ad_accounts)) END
+        ) AS a
+       WHERE p_allowed_ids IS NULL OR a = ANY (p_allowed_ids)
+    );
+
+    IF NOT EXISTS (
+      SELECT 1 FROM public.creative_daily_metrics m
+       WHERE m.account_id = ANY (v_scope)
+         AND (p_date_from IS NULL OR m.date >= p_date_from)
+         AND (p_date_to   IS NULL OR m.date <= p_date_to)
+    ) THEN
+      RETURN jsonb_build_object(
+        'data', '[]'::jsonb, 'total', 0,
+        'aggregates', jsonb_build_object('total_spend', 0, 'avg_cpa', 0, 'avg_roas', 0),
+        'no_daily_data', true
+      );
+    END IF;
+
+    WITH agg AS (
+      SELECT
+        m.ad_id,
+        SUM(COALESCE(m.spend, 0))::numeric                AS spend,
+        SUM(COALESCE(m.impressions, 0))::numeric          AS impressions,
+        SUM(COALESCE(m.clicks, 0))::numeric               AS clicks,
+        SUM(COALESCE(m.purchases, 0))::numeric            AS purchases,
+        SUM(COALESCE(m.purchase_value, 0))::numeric       AS purchase_value,
+        SUM(COALESCE(m.adds_to_cart, 0))::numeric         AS adds_to_cart,
+        SUM(COALESCE(m.video_views, 0))::numeric          AS video_views,
+        SUM(m.frequency * m.impressions)      FILTER (WHERE m.frequency > 0 AND m.impressions > 0) AS freq_w,
+        SUM(m.impressions)                    FILTER (WHERE m.frequency > 0 AND m.impressions > 0) AS freq_n,
+        SUM(m.thumb_stop_rate * m.impressions) FILTER (WHERE m.thumb_stop_rate > 0 AND m.impressions > 0) AS tsr_w,
+        SUM(m.impressions)                    FILTER (WHERE m.thumb_stop_rate > 0 AND m.impressions > 0) AS tsr_n,
+        SUM(m.hold_rate * m.video_views)      FILTER (WHERE m.hold_rate > 0 AND m.video_views > 0) AS hr_w,
+        SUM(m.video_views)                    FILTER (WHERE m.hold_rate > 0 AND m.video_views > 0) AS hr_n,
+        SUM(m.video_avg_play_time * m.video_views) FILTER (WHERE m.video_avg_play_time > 0 AND m.video_views > 0) AS vpt_w,
+        SUM(m.video_views)                    FILTER (WHERE m.video_avg_play_time > 0 AND m.video_views > 0) AS vpt_n
+      FROM public.creative_daily_metrics m
+      WHERE m.account_id = ANY (v_scope)
+        AND (p_date_from IS NULL OR m.date >= p_date_from)
+        AND (p_date_to   IS NULL OR m.date <= p_date_to)
+      GROUP BY m.ad_id
+    ),
+    calc AS (
+      SELECT
+        a.ad_id,
+        a.spend, a.impressions, a.clicks, a.purchases, a.purchase_value, a.adds_to_cart, a.video_views,
+        CASE WHEN a.impressions > 0 THEN (a.clicks / a.impressions) * 100 ELSE 0 END      AS ctr,
+        CASE WHEN a.impressions > 0 THEN (a.spend / a.impressions) * 1000 ELSE 0 END      AS cpm,
+        CASE WHEN a.clicks > 0 THEN a.spend / a.clicks ELSE 0 END                         AS cpc,
+        CASE WHEN a.purchases > 0 THEN a.spend / a.purchases ELSE 0 END                   AS cpa,
+        CASE WHEN a.spend > 0 THEN a.purchase_value / a.spend ELSE 0 END                  AS roas,
+        CASE WHEN a.adds_to_cart > 0 THEN a.spend / a.adds_to_cart ELSE 0 END             AS cost_per_add_to_cart,
+        CASE WHEN a.tsr_n > 0 THEN a.tsr_w / a.tsr_n ELSE 0 END                           AS thumb_stop_rate,
+        CASE WHEN a.hr_n > 0 THEN a.hr_w / a.hr_n ELSE 0 END                              AS hold_rate,
+        CASE WHEN a.freq_n > 0 THEN a.freq_w / a.freq_n ELSE 0 END                        AS frequency,
+        CASE WHEN a.vpt_n > 0 THEN a.vpt_w / a.vpt_n ELSE 0 END                           AS video_avg_play_time
+      FROM agg a
+      JOIN public.creatives c ON c.ad_id = a.ad_id
+      WHERE (p_delivery IS DISTINCT FROM 'had_delivery' OR a.spend > 0)
+        AND (p_ad_types IS NULL OR c.ad_type = ANY (p_ad_types))
+        AND (p_person     IS NULL OR c.person     = p_person)
+        AND (p_style      IS NULL OR c.style      = p_style)
+        AND (p_hook       IS NULL OR c.hook       = p_hook)
+        AND (p_product    IS NULL OR c.product    = p_product)
+        AND (p_theme      IS NULL OR c.theme      = p_theme)
+        AND (p_tag_source IS NULL OR c.tag_source = p_tag_source)
+        AND (p_ad_status  IS NULL OR c.ad_status  = p_ad_status)
+        AND (v_search IS NULL
+             OR c.ad_name       ILIKE '%' || v_search || '%'
+             OR c.unique_code   ILIKE '%' || v_search || '%'
+             OR c.campaign_name ILIKE '%' || v_search || '%')
+    ),
+    page AS (
+      SELECT k.*
+        FROM calc k
+       ORDER BY k.spend DESC, k.ad_id
+       LIMIT v_limit OFFSET v_offset
+    )
+    SELECT jsonb_build_object(
+      'data', COALESCE((
+        SELECT jsonb_agg(
+                 (SELECT jsonb_object_agg(e.key, e.value)
+                    FROM jsonb_each(to_jsonb(c)) e
+                   WHERE e.key = ANY (v_cols))
+                 || jsonb_build_object(
+                      'spend', p.spend, 'impressions', p.impressions, 'clicks', p.clicks,
+                      'ctr', p.ctr, 'cpm', p.cpm, 'cpc', p.cpc, 'cpa', p.cpa, 'roas', p.roas,
+                      'purchases', p.purchases, 'purchase_value', p.purchase_value,
+                      'adds_to_cart', p.adds_to_cart,
+                      'cost_per_add_to_cart', p.cost_per_add_to_cart,
+                      'video_views', p.video_views,
+                      'thumb_stop_rate', p.thumb_stop_rate, 'hold_rate', p.hold_rate,
+                      'frequency', p.frequency, 'video_avg_play_time', p.video_avg_play_time)
+                 ORDER BY p.spend DESC, p.ad_id)
+          FROM page p
+          JOIN public.creatives c ON c.ad_id = p.ad_id
+      ), '[]'::jsonb),
+      'total', (SELECT count(*) FROM calc),
+      'aggregates', (
+        SELECT jsonb_build_object(
+          'total_spend', COALESCE(SUM(k.spend), 0),
+          'avg_cpa',  CASE WHEN COALESCE(SUM(k.purchases), 0) > 0 THEN SUM(k.spend) / SUM(k.purchases) ELSE 0 END,
+          'avg_roas', CASE WHEN COALESCE(SUM(k.spend), 0) > 0 THEN SUM(k.purchase_value) / SUM(k.spend) ELSE 0 END)
+          FROM calc k)
+    ) INTO v_result;
+
+    RETURN v_result;
+  END IF;
+
+  -- No date filter: lifetime totals stored on creatives.
+  WITH f AS (
+    SELECT c.ad_id, COALESCE(c.spend, 0) AS spend, COALESCE(c.purchases, 0) AS purchases,
+           COALESCE(c.purchase_value, 0) AS purchase_value, c.spend AS raw_spend
+      FROM public.creatives c
+     WHERE (p_allowed_ids IS NULL OR c.account_id = ANY (p_allowed_ids))
+       AND (p_account_id  IS NULL OR c.account_id = p_account_id)
+       AND (p_ad_types    IS NULL OR c.ad_type = ANY (p_ad_types))
+       AND (p_person      IS NULL OR c.person      = p_person)
+       AND (p_style       IS NULL OR c.style       = p_style)
+       AND (p_hook        IS NULL OR c.hook        = p_hook)
+       AND (p_product     IS NULL OR c.product     = p_product)
+       AND (p_theme       IS NULL OR c.theme       = p_theme)
+       AND (p_tag_source  IS NULL OR c.tag_source  = p_tag_source)
+       AND (p_ad_status   IS NULL OR c.ad_status   = p_ad_status)
+       AND (p_delivery IS DISTINCT FROM 'had_delivery' OR c.spend > 0)
+       AND (p_delivery IS DISTINCT FROM 'active' OR c.ad_status = 'ACTIVE')
+       AND (v_search IS NULL
+            OR c.ad_name       ILIKE '%' || v_search || '%'
+            OR c.unique_code   ILIKE '%' || v_search || '%'
+            OR c.campaign_name ILIKE '%' || v_search || '%')
+  ),
+  page AS (
+    SELECT f.ad_id, f.raw_spend
+      FROM f
+     ORDER BY f.raw_spend DESC, f.ad_id
+     LIMIT v_limit OFFSET v_offset
+  )
+  SELECT jsonb_build_object(
+    'data', COALESCE((
+      SELECT jsonb_agg(
+               (SELECT jsonb_object_agg(e.key, e.value)
+                  FROM jsonb_each(to_jsonb(c)) e
+                 WHERE e.key = ANY (v_cols))
+               ORDER BY p.raw_spend DESC, p.ad_id)
+        FROM page p
+        JOIN public.creatives c ON c.ad_id = p.ad_id
+    ), '[]'::jsonb),
+    'total', (SELECT count(*) FROM f),
+    'aggregates', (
+      SELECT jsonb_build_object(
+        'total_spend', COALESCE(SUM(f.spend), 0),
+        'avg_cpa',  CASE WHEN COALESCE(SUM(f.purchases), 0) > 0 THEN SUM(f.spend) / SUM(f.purchases) ELSE 0 END,
+        'avg_roas', CASE WHEN COALESCE(SUM(f.spend), 0) > 0 THEN SUM(f.purchase_value) / SUM(f.spend) ELSE 0 END)
+        FROM f)
+  ) INTO v_result;
+
+  RETURN v_result;
+END;
+$$;
+
+COMMENT ON FUNCTION public.creatives_list_page(
+  text[], text, date, date, text[], text, text, text, text, text, text, text, text, text, integer, integer
+) IS
+  'One-statement page for the creatives edge function (GET /creatives). Trusts p_allowed_ids / p_account_id, so service_role only. Same math as _shared/creatives-aggregate.ts.';
+
+REVOKE ALL ON FUNCTION public.creatives_list_page(
+  text[], text, date, date, text[], text, text, text, text, text, text, text, text, text, integer, integer
+) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.creatives_list_page(
+  text[], text, date, date, text[], text, text, text, text, text, text, text, text, text, integer, integer
+) TO service_role;

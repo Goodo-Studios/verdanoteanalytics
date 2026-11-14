@@ -45,8 +45,10 @@ test('creators is renamed to dashboard_creators', () => {
 test('refuses production, the old dashboard as a target, and unknown projects', () => {
   const ok = { sourceRef: DASHBOARD_REF, targetRef: STAGING_REF, confirmSource: DASHBOARD_REF };
   assert.doesNotThrow(() => assertTargets(ok));
-  assert.throws(() => assertTargets({ ...ok, targetRef: PRODUCTION_REF }), /production/);
-  assert.throws(() => assertTargets({ ...ok, targetRef: DASHBOARD_REF }), /old dashboard/);
+  assert.throws(() => assertTargets({ ...ok, targetRef: PRODUCTION_REF }), /--confirm-production/);
+  assert.throws(() => assertTargets({ ...ok, targetRef: PRODUCTION_REF, confirmProduction: 'wrong' }), /--confirm-production/);
+  assert.doesNotThrow(() => assertTargets({ ...ok, targetRef: PRODUCTION_REF, confirmProduction: PRODUCTION_REF }));
+  assert.throws(() => assertTargets({ ...ok, targetRef: DASHBOARD_REF, confirmProduction: PRODUCTION_REF }), /old dashboard/);
   assert.throws(() => assertTargets({ ...ok, targetRef: 'abcdefghijklmnopqrst' }), /staging/);
   assert.throws(() => assertTargets({ ...ok, sourceRef: PRODUCTION_REF }), /source/);
 });
@@ -69,10 +71,29 @@ test('source client only sends selects, to the read-only endpoint', async () => 
   assert.equal(calls.length, 1);
 });
 
-test('target client is staging only', () => {
-  assert.throws(() => makeTargetClient({ token: 't', ref: PRODUCTION_REF }), /staging only/);
-  assert.throws(() => makeTargetClient({ token: 't', ref: DASHBOARD_REF }), /staging only/);
-  assert.doesNotThrow(() => makeTargetClient({ token: 't' }));
+test('target client is staging, or production only with the confirmation', () => {
+  const t = 'tok';
+  assert.doesNotThrow(() => makeTargetClient({ token: t, ref: STAGING_REF }));
+  assert.throws(() => makeTargetClient({ token: t, ref: DASHBOARD_REF }), /staging or production only/);
+  assert.throws(() => makeTargetClient({ token: t, ref: 'abcdefghijklmnopqrst' }), /staging or production only/);
+  assert.throws(() => makeTargetClient({ token: t, ref: PRODUCTION_REF }), /--confirm-production/);
+  assert.throws(() => makeTargetClient({ token: t, ref: PRODUCTION_REF, confirmProduction: STAGING_REF }), /--confirm-production/);
+  assert.throws(() => makeTargetClient({ token: t, ref: STAGING_REF, confirmProduction: PRODUCTION_REF }), /only goes with --target production/);
+  assert.doesNotThrow(() => makeTargetClient({ token: t, ref: PRODUCTION_REF, confirmProduction: PRODUCTION_REF }));
+});
+
+test('production without write goes to the read-only endpoint and refuses anything but a select', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => { calls.push({ url, body: JSON.parse(init.body).query }); return { status: 201, text: async () => '[]' }; };
+  const dry = makeTargetClient({ token: 'tok', ref: PRODUCTION_REF, confirmProduction: PRODUCTION_REF, write: false, fetchImpl });
+  await dry.query('select 1');
+  assert.match(calls[0].url, new RegExp(`/${PRODUCTION_REF}/database/query/read-only$`));
+  await assert.rejects(() => dry.query('insert into public.clients select 1'), /only runs select/);
+  await assert.rejects(() => dry.query('begin; set local session_replication_role = replica; delete from public.clients; commit;'), /only runs select/);
+  assert.equal(calls.length, 1);
+  const live = makeTargetClient({ token: 'tok', ref: PRODUCTION_REF, confirmProduction: PRODUCTION_REF, write: true, fetchImpl });
+  await live.query('select 1');
+  assert.match(calls[1].url, new RegExp(`/${PRODUCTION_REF}/database/query$`));
 });
 
 test('insert SQL switches triggers off, is idempotent and survives hostile data', () => {
