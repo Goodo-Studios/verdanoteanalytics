@@ -5,14 +5,14 @@
  *   "Needs review" tag for pages not reviewed in more than 90 days (or never).
  * - Opening a page shows its markdown, owner and last-reviewed date; links to other Brain pages
  *   stay in the app; raw HTML in a page is not rendered.
- * - Suggest a fix (OS-016): opens the shared correction form with the page text, cancels, and
- *   sends a fix locked to the page's content hash. The page owner (or a builder) sees Accept and
- *   Reject on someone else's open fix; another employee and the author do not. An accepted fix
- *   says to apply it in HQ until the page is published again.
+ * - Edit a page: Edit opens the document editor with the page markdown, Cancel sends nothing,
+ *   Save calls edit_brain_page with the timestamp the page was opened at, the edited text shows
+ *   at once, a stale page says so, and an edited page says it was edited in the app. The old
+ *   suggest-a-fix and review controls are gone.
  * - A client sees nothing and no query is made. Clients are also kept out of the staff area by
  *   the router (src/test/StaffArea.test.tsx) and by the table's row rules
  *   (supabase/tests/os_brain_pages_test.sql, supabase/tests/os_brain_review_test.sql).
- * - model rules: section from the address, the 90 day review rule, Brain links, fix status.
+ * - model rules: section from the address, the 90 day review rule, Brain links.
  */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -31,25 +31,22 @@ const LIST = [
   { id: "2", section: "Handbook", slug: "old-policy", title: "Old policy", owner: "Unassigned", last_reviewed: daysAgo(91) },
   { id: "3", section: "Playbooks", slug: "editor-workflow", title: "Editor workflow", owner: "chloe@example.test", last_reviewed: null },
 ];
-const PAGES: Record<string, Record<string, unknown>> = {
+const basePages = (): Record<string, Record<string, unknown>> => ({
   "Handbook/decision-rights": {
     ...LIST[0], published_at: "2026-11-02T00:00:00Z", owner_user_id: ME, content_hash: "hash-1", source_path: "company/decision-rights.md",
+    updated_at: "2026-11-02T00:00:00.123456+00:00", edited_in_app: false, edited_at: null,
     body_md: "# Decision rights\n\nSee [the workflow](#brain/playbooks/editor-workflow) and [docs](https://example.test/a).\n\n<script>alert(1)</script><b>bold html</b>",
   },
   "Playbooks/editor-workflow": {
     ...LIST[2], published_at: "2026-11-02T00:00:00Z", owner_user_id: OTHER, content_hash: "hash-3", source_path: "processes/editor-workflow.md", body_md: "Step one.",
+    updated_at: "2026-11-02T00:00:00.654321+00:00", edited_in_app: false, edited_at: null,
   },
-};
-const fix = (id: string, page: string, over: Record<string, unknown> = {}) => ({
-  id, brain_page_id: page, source_path: "company/decision-rights.md", page_title: "Decision rights", page_content_hash: "hash-1",
-  proposed_body: `Fixed text ${id}`, reason: `Reason ${id}`, classification: "factual", submitted_by: OTHER,
-  created_at: `2026-11-1${id}T00:00:00Z`, brain_page_correction_reviews: [], ...over,
 });
+let PAGES = basePages();
 
 const h = vi.hoisted(() => ({
   queries: [] as string[],
   rpcs: [] as Array<{ name: string; args: Record<string, unknown> }>,
-  fixes: [] as unknown[],
   fail: false,
   rpcError: null as null | { code: string; message: string },
   invokes: [] as Array<{ name: string; body: unknown }>,
@@ -62,9 +59,6 @@ vi.mock("@/integrations/supabase/client", () => {
   const query = (table: string, columns: string) => {
     const filters: Record<string, string> = {};
     const result = () => {
-      if (table === "brain_page_corrections") {
-        return { data: h.fixes.filter((f) => (f as { brain_page_id: string }).brain_page_id === filters.brain_page_id), error: null };
-      }
       return h.fail ? { data: null, error: { message: "down" } } : { data: LIST, error: null };
     };
     const q = {
@@ -81,6 +75,10 @@ vi.mock("@/integrations/supabase/client", () => {
       from: (table: string) => ({ select: (columns: string) => query(table, columns) }),
       rpc: (name: string, args: Record<string, unknown>) => {
         h.rpcs.push({ name, args });
+        if (name === "edit_brain_page" && !h.rpcError) {
+          const page = Object.values(PAGES).find((pg) => pg.id === args.p_page_id);
+          if (page) Object.assign(page, { body_md: args.p_body_md, edited_in_app: true, edited_at: "2026-11-12T10:00:00Z", updated_at: "2026-11-12T10:00:00.5+00:00" });
+        }
         return Promise.resolve({ data: "new-id", error: h.rpcError });
       },
       // OS-026: ask the Brain.
@@ -95,7 +93,7 @@ vi.mock("@/integrations/supabase/client", () => {
 });
 
 import BrainPage from "@/features/brain/BrainPage";
-import { brainAnchor, brainPagePath, type BrainFix, canReviewFix, fixStatus, needsReview, NEEDS_REVIEW_DAYS, parseBrainHref, sectionFromParam, withoutRepeatedTitle } from "@/features/brain/model";
+import { brainAnchor, brainPagePath, needsReview, NEEDS_REVIEW_DAYS, parseBrainHref, sectionFromParam, withoutRepeatedTitle } from "@/features/brain/model";
 
 function renderAt(search = "") {
   return render(
@@ -108,7 +106,7 @@ function renderAt(search = "") {
 beforeEach(() => {
   h.queries.length = 0;
   h.rpcs.length = 0;
-  h.fixes = [];
+  PAGES = basePages();
   h.fail = false;
   h.rpcError = null;
   h.invokes = [];
@@ -209,95 +207,64 @@ describe("BrainPage", () => {
   });
 });
 
-describe("Suggest a fix", () => {
-  it("opens the correction form with the page text and cancels without sending", async () => {
-    renderAt("?section=playbooks&page=editor-workflow");
-    fireEvent.click(await screen.findByRole("button", { name: "Suggest a fix" }));
-    const form = screen.getByTestId("correction-form");
-    expect(within(form).getByLabelText("Corrected text")).toHaveProperty("value", "Step one.");
-    expect(within(form).getByRole("button", { name: "Send to the owner" })).toHaveProperty("disabled", true);
-    fireEvent.click(within(form).getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByTestId("correction-form")).toBeNull();
-    expect(screen.getByRole("button", { name: "Suggest a fix" })).toBeTruthy();
+describe("Edit a page", () => {
+  const openEditor = async (search = "?section=playbooks&page=editor-workflow") => {
+    renderAt(search);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit this page" }));
+    return screen.getByTestId("document-editor");
+  };
+
+  it("opens the editor with the page markdown and cancels without sending", async () => {
+    const editor = await openEditor();
+    expect(within(editor).getByLabelText("Page text")).toHaveProperty("value", "Step one.");
+    expect(within(editor).getByRole("button", { name: "Save" })).toHaveProperty("disabled", true);
+    fireEvent.click(within(editor).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByTestId("document-editor")).toBeNull();
+    expect(screen.getByRole("button", { name: "Edit this page" })).toBeTruthy();
     expect(h.rpcs).toEqual([]);
   });
 
-  it("sends a fix locked to the page's content hash", async () => {
-    renderAt("?section=playbooks&page=editor-workflow");
-    fireEvent.click(await screen.findByRole("button", { name: "Suggest a fix" }));
-    const form = screen.getByTestId("correction-form");
-    fireEvent.change(within(form).getByLabelText("Corrected text"), { target: { value: "Step one, then step two." } });
-    fireEvent.change(within(form).getByLabelText("Why"), { target: { value: "  Step two is missing " } });
-    fireEvent.change(within(form).getByLabelText("Kind of correction"), { target: { value: "procedure" } });
-    fireEvent.click(within(form).getByRole("button", { name: "Send to the owner" }));
-    expect(await screen.findByText("Fix sent to the page owner.")).toBeTruthy();
+  it("saves the edit against the timestamp the page was opened at and shows the new text at once", async () => {
+    const editor = await openEditor();
+    fireEvent.change(within(editor).getByLabelText("Page text"), { target: { value: "Step one, then step two." } });
+    fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Step one, then step two.")).toBeTruthy();
     expect(h.rpcs).toEqual([{
-      name: "submit_brain_page_correction",
-      args: { p_page_id: "3", p_content_hash: "hash-3", p_proposed_body: "Step one, then step two.", p_reason: "Step two is missing", p_classification: "procedure" },
+      name: "edit_brain_page",
+      args: { p_page_id: "3", p_body_md: "Step one, then step two.", p_expected_updated_at: "2026-11-02T00:00:00.654321+00:00" },
     }]);
+    expect(screen.queryByTestId("document-editor")).toBeNull();
+    expect(screen.getByTestId("brain-edited").textContent).toMatch(/^Edited in the app on .*Publishing from HQ keeps this text\.$/);
   });
 
-  it("says plainly when the page was published again since it was opened", async () => {
+  it("a second save uses the timestamp from the first save", async () => {
+    let editor = await openEditor();
+    fireEvent.change(within(editor).getByLabelText("Page text"), { target: { value: "One." } });
+    fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
+    await screen.findByTestId("brain-edited");
+    fireEvent.click(screen.getByRole("button", { name: "Edit this page" }));
+    editor = screen.getByTestId("document-editor");
+    fireEvent.change(within(editor).getByLabelText("Page text"), { target: { value: "Two." } });
+    fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(h.rpcs).toHaveLength(2));
+    expect(h.rpcs[1].args).toMatchObject({ p_body_md: "Two.", p_expected_updated_at: "2026-11-12T10:00:00.5+00:00" });
+  });
+
+  it("says plainly when the page changed since it was opened, and keeps the text", async () => {
     h.rpcError = { code: "40001", message: "stale" };
-    renderAt("?section=playbooks&page=editor-workflow");
-    fireEvent.click(await screen.findByRole("button", { name: "Suggest a fix" }));
-    const form = screen.getByTestId("correction-form");
-    fireEvent.change(within(form).getByLabelText("Corrected text"), { target: { value: "New" } });
-    fireEvent.change(within(form).getByLabelText("Why"), { target: { value: "Because" } });
-    fireEvent.click(within(form).getByRole("button", { name: "Send to the owner" }));
-    expect((await screen.findByRole("alert")).textContent).toBe("This page was published again since you opened it. Reload and try again.");
+    const editor = await openEditor();
+    fireEvent.change(within(editor).getByLabelText("Page text"), { target: { value: "New" } });
+    fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
+    expect((await within(editor).findByRole("alert")).textContent).toMatch(/changed this document since you opened it/);
+    expect(within(editor).getByLabelText("Page text")).toHaveProperty("value", "New");
   });
 
-  it("lets the page owner accept a fix with a reason", async () => {
-    h.fixes = [fix("1", "1")];
+  it("no longer offers to suggest a fix, and a page not edited in the app carries no edited note", async () => {
     renderAt("?section=handbook&page=decision-rights");
-    const row = await screen.findByTestId("brain-fix");
-    expect(within(row).getByTestId("brain-fix-status").textContent).toBe("Waiting for the owner");
-    fireEvent.click(within(row).getByRole("button", { name: "Accept" }));
-    expect(within(row).getByRole("alert").textContent).toBe("Add a reason before recording a decision.");
-    expect(h.rpcs).toEqual([]);
-    fireEvent.change(within(row).getByLabelText("Decision reason"), { target: { value: "Right, updating HQ" } });
-    fireEvent.click(within(row).getByRole("button", { name: "Accept" }));
-    await waitFor(() => expect(h.rpcs).toEqual([
-      { name: "review_brain_page_correction", args: { p_correction_id: "1", p_decision: "accepted", p_reason: "Right, updating HQ" } },
-    ]));
-  });
-
-  it("lets the page owner reject a fix", async () => {
-    h.fixes = [fix("1", "1")];
-    renderAt("?section=handbook&page=decision-rights");
-    const row = await screen.findByTestId("brain-fix");
-    fireEvent.change(within(row).getByLabelText("Decision reason"), { target: { value: "Already correct" } });
-    fireEvent.click(within(row).getByRole("button", { name: "Reject" }));
-    await waitFor(() => expect(h.rpcs[0]).toEqual({ name: "review_brain_page_correction", args: { p_correction_id: "1", p_decision: "rejected", p_reason: "Already correct" } }));
-  });
-
-  it("does not offer accept or reject to an employee who is not the owner, or to the author", async () => {
-    h.fixes = [fix("1", "3", { page_content_hash: "hash-3" }), fix("2", "3", { page_content_hash: "hash-3", submitted_by: ME })];
-    renderAt("?section=playbooks&page=editor-workflow");
-    const rows = await screen.findAllByTestId("brain-fix");
-    expect(rows).toHaveLength(2);
-    for (const row of rows) expect(within(row).queryByRole("button", { name: "Accept" })).toBeNull();
-  });
-
-  it("offers a builder accept and reject on a page they do not own, but not on their own fix", async () => {
-    auth = { isBuilder: true, isEmployee: false, user: { id: ME } };
-    h.fixes = [fix("1", "3", { page_content_hash: "hash-3" }), fix("2", "3", { page_content_hash: "hash-3", submitted_by: ME })];
-    renderAt("?section=playbooks&page=editor-workflow");
-    const rows = await screen.findAllByTestId("brain-fix");
-    expect(within(rows[0]).getByText(/Reason 2/)).toBeTruthy();
-    expect(within(rows[0]).queryByRole("button", { name: "Accept" })).toBeNull();
-    expect(within(rows[1]).getByRole("button", { name: "Accept" })).toBeTruthy();
-    expect(within(rows[1]).getByRole("button", { name: "Reject" })).toBeTruthy();
-  });
-
-  it("shows an accepted fix as one to apply in HQ, with no more buttons", async () => {
-    h.fixes = [fix("1", "1", { brain_page_correction_reviews: [{ decision: "accepted", reason: "Yes", reviewer_id: ME, created_at: "2026-11-12T00:00:00Z" }] })];
-    renderAt("?section=handbook&page=decision-rights");
-    const row = await screen.findByTestId("brain-fix");
-    expect(within(row).getByTestId("brain-fix-status").textContent).toBe("Accepted, to apply in HQ");
-    expect(within(row).getByTestId("brain-fix-apply").textContent).toBe("Apply this in HQ (company/decision-rights.md), then publish the Brain again.");
-    expect(within(row).queryByRole("button", { name: "Accept" })).toBeNull();
+    await screen.findByTestId("brain-page");
+    expect(screen.queryByRole("button", { name: "Suggest a fix" })).toBeNull();
+    expect(screen.queryByTestId("brain-fixes")).toBeNull();
+    expect(screen.queryByTestId("brain-edited")).toBeNull();
   });
 });
 
@@ -321,20 +288,6 @@ describe("Brain model", () => {
     expect(parseBrainHref("#brain/slack/x")).toBeNull();
     expect(parseBrainHref("https://example.test")).toBeNull();
     expect(parseBrainHref(undefined)).toBeNull();
-  });
-  it("works out where a fix stands and who may review it", () => {
-    const base = { ...fix("1", "1"), review: null } as unknown as BrainFix;
-    const accepted = { ...base, review: { decision: "accepted" as const, reason: "ok", reviewer_id: ME, created_at: "" } };
-    expect(fixStatus(base, "hash-1")).toBe("open");
-    expect(fixStatus(accepted, "hash-1")).toBe("accepted");
-    expect(fixStatus(accepted, "hash-2")).toBe("applied");
-    expect(fixStatus({ ...accepted, review: { ...accepted.review, decision: "rejected" } }, "hash-1")).toBe("rejected");
-    expect(canReviewFix(base, { owner_user_id: ME }, ME, false)).toBe(true);
-    expect(canReviewFix(base, { owner_user_id: OTHER }, ME, false)).toBe(false);
-    expect(canReviewFix(base, { owner_user_id: null }, ME, true)).toBe(true);
-    expect(canReviewFix({ ...base, submitted_by: ME }, { owner_user_id: ME }, ME, true)).toBe(false);
-    expect(canReviewFix(accepted, { owner_user_id: ME }, ME, true)).toBe(false);
-    expect(canReviewFix(base, { owner_user_id: ME }, undefined, true)).toBe(false);
   });
 });
 

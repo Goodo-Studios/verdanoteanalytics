@@ -1,56 +1,65 @@
 /**
- * Knowledge (consolidation step 4a, port of the Goodo OS knowledge correction and
- * publication pages).
+ * Knowledge: staff edit documents directly (replaces the correction and review flow).
  *
- * - Lists sources with search, opens one with its current text and versions.
- * - Proposing a correction calls submit_knowledge_correction with the version on
- *   screen; a stale version shows the reload message.
- * - Review buttons only for corrections the signed-in person may review (not their
- *   own; procedure and permission for builders); publish and rollback for builders.
- * - model rules: status, canReview, canPublish, errorText, toSources.
- * The database rules themselves are in supabase/tests/knowledge_pages_test.sql.
+ * - Lists sources with search and opens one with its current text (rendered markdown).
+ * - Only the newest version of each source is requested.
+ * - Edit opens the document editor; Save calls edit_knowledge_source with the version on screen
+ *   and the new text shows at once; Cancel sends nothing; a stale version shows the message.
+ * - The change-request controls (propose a correction, review, publish, roll back, version
+ *   list) are gone.
+ * - A builder still adds sources.
+ * - model rules: toSources, currentVersion, errorText.
+ * The database rules are in supabase/tests/os_edit_knowledge_documents_test.sql and
+ * supabase/tests/knowledge_pages_test.sql.
  */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const rpc = vi.fn();
+const calls: string[] = [];
 const rows: { current: unknown[] } = { current: [] };
 const fail: { current: boolean } = { current: false };
 let auth = { user: { id: "emp-1" }, isBuilder: false };
 
 vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => auth }));
-vi.mock("@/integrations/supabase/client", () => ({
-  supabase: {
-    rpc: (...args: unknown[]) => rpc(...args),
-    from: (table: string) => ({
-      select: () => ({
-        order: () => Promise.resolve(table === "clients" ? { data: [{ slug: "glow", name: "Glow Drip" }], error: null } : fail.current && table !== "clients" ? { data: null, error: { message: "down" } } : { data: rows.current, error: null }),
-      }),
-    }),
-  },
-}));
+vi.mock("@/integrations/supabase/client", () => {
+  const query = (table: string) => {
+    const q = {
+      order: (column: string, opts?: unknown) => { calls.push(`order ${column} ${JSON.stringify(opts ?? null)}`); return q; },
+      limit: (n: number, opts?: unknown) => { calls.push(`limit ${n} ${JSON.stringify(opts ?? null)}`); return q; },
+      then: (ok: (v: unknown) => unknown, bad?: (e: unknown) => unknown) =>
+        Promise.resolve(
+          table === "clients"
+            ? { data: [{ slug: "glow", name: "Glow Drip" }], error: null }
+            : fail.current ? { data: null, error: { message: "down" } } : { data: rows.current, error: null },
+        ).then(ok, bad),
+    };
+    return q;
+  };
+  return {
+    supabase: {
+      rpc: (...args: unknown[]) => rpc(...args),
+      from: (table: string) => ({ select: () => query(table) }),
+    },
+  };
+});
 
 import KnowledgePage from "@/features/knowledge/KnowledgePage";
-import { canPublish, canReview, correctionStatus, errorText, type KnowledgeSource, toSources } from "@/features/knowledge/model";
+import { currentVersion, errorText, matchesSearch, type KnowledgeSource, toSources } from "@/features/knowledge/model";
 
-const v = (version: number, body: string, kind = "create", extra: Record<string, unknown> = {}) => ({
-  id: `v${version}`, version, body, kind, correction_id: null, rolled_back_to: null, reason: null, published_by: "b1", created_at: "2026-11-01T00:00:00Z", ...extra,
+const v = (version: number, body: string, kind = "create") => ({
+  id: `v${version}`, version, body, kind, correction_id: null, rolled_back_to: null, reason: null, published_by: "b1", created_at: "2026-11-01T00:00:00Z",
 });
 const SOURCE = {
   id: "s1", title: "Hook rules", namespace: "process", classification: "staff", release_scope: "global", client_slug: null,
   citation_url: "https://example.test/doc", current_version: 2, updated_at: "2026-11-02T00:00:00Z",
-  knowledge_source_versions: [v(1, "Use three hooks."), v(2, "Use two hooks.", "publish", { correction_id: "c0" })],
-  knowledge_corrections: [
-    { id: "c1", source_id: "s1", source_version: 2, proposed_body: "Use four hooks.", reason: "New test", classification: "content", submitted_by: "emp-2", created_at: "2026-11-03T00:00:00Z", knowledge_correction_reviews: [] },
-    { id: "c2", source_id: "s1", source_version: 2, proposed_body: "Ask first.", reason: "Process", classification: "procedure", submitted_by: "emp-2", created_at: "2026-11-03T01:00:00Z", knowledge_correction_reviews: [] },
-    { id: "c3", source_id: "s1", source_version: 2, proposed_body: "Mine.", reason: "Mine", classification: "content", submitted_by: "emp-1", created_at: "2026-11-03T02:00:00Z", knowledge_correction_reviews: [] },
-    { id: "c4", source_id: "s1", source_version: 2, proposed_body: "Use five hooks.", reason: "Accepted", classification: "factual", submitted_by: "emp-2", created_at: "2026-11-03T03:00:00Z", knowledge_correction_reviews: { decision: "accepted", reason: "ok", reviewer_id: "emp-1", created_at: "x" } },
-  ],
+  knowledge_source_versions: [v(2, "Use two hooks.\n\n- keep it short", "edit")],
 };
-const OTHER = { ...SOURCE, id: "s2", title: "Glow brand voice", release_scope: "client", client_slug: "glow", current_version: 1, knowledge_source_versions: [v(1, "Warm and plain.")], knowledge_corrections: [] };
+const OTHER = { ...SOURCE, id: "s2", title: "Glow brand voice", release_scope: "client", client_slug: "glow", current_version: 1, knowledge_source_versions: [v(1, "Warm and plain.")] };
 
 beforeEach(() => {
   rpc.mockReset();
+  calls.length = 0;
   rows.current = [SOURCE, OTHER];
   fail.current = false;
   auth = { user: { id: "emp-1" }, isBuilder: false };
@@ -74,75 +83,66 @@ describe("KnowledgePage", () => {
     expect(screen.queryByText("Knowledge could not load.")).toBeNull();
   });
 
-  it("lists and searches sources, and shows the open review count", async () => {
+  it("lists and searches sources and asks for only the newest version of each", async () => {
     render(<KnowledgePage />);
-    expect(await screen.findByRole("button", { name: /Hook rules · v2 · all clients · 3 to review/ })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Hook rules · all clients/ })).toBeTruthy();
+    expect(calls).toContain('order version {"ascending":false,"referencedTable":"knowledge_source_versions"}');
+    expect(calls).toContain('limit 1 {"referencedTable":"knowledge_source_versions"}');
     fireEvent.change(screen.getByLabelText("Search knowledge"), { target: { value: "warm" } });
     expect(screen.queryByRole("button", { name: /Hook rules/ })).toBeNull();
     expect(screen.getByRole("button", { name: /Glow brand voice/ })).toBeTruthy();
     expect(screen.queryByText(/Add knowledge/)).toBeNull(); // employees do not add sources
   });
 
-  it("opens a source with its current text and sends a correction against the version on screen", async () => {
-    rpc.mockResolvedValue({ data: "c9", error: null });
+  it("opens a source and shows its current text as formatted text, with no change-request controls", async () => {
     const region = await open();
-    expect(within(region).getByTestId("knowledge-current-body")).toHaveTextContent("Use two hooks.");
-    const send = within(region).getByRole("button", { name: "Send for review" });
-    expect(send).toBeDisabled();
-    fireEvent.change(within(region).getByLabelText("Corrected text"), { target: { value: "Use one hook." } });
-    fireEvent.change(within(region).getByLabelText("Why"), { target: { value: "Fresh data" } });
-    fireEvent.change(within(region).getByLabelText("Kind of correction"), { target: { value: "factual" } });
-    fireEvent.click(send);
-    await waitFor(() => expect(rpc).toHaveBeenCalledWith("submit_knowledge_correction", {
-      p_source_id: "s1", p_source_version: 2, p_proposed_body: "Use one hook.", p_reason: "Fresh data", p_classification: "factual",
-    }));
-    expect(await within(region).findByRole("status")).toHaveTextContent("Correction sent for review.");
+    const body = within(region).getByTestId("knowledge-current-body");
+    expect(body).toHaveTextContent("Use two hooks.");
+    expect(body.querySelectorAll("li")).toHaveLength(1);
+    for (const gone of [/Propose a correction/, /Send for review/, /Roll back/, /Publish/, /Versions/, /Corrections/]) {
+      expect(within(region).queryByText(gone)).toBeNull();
+      expect(within(region).queryByRole("button", { name: gone })).toBeNull();
+    }
+    expect(screen.queryByText(/to review/)).toBeNull();
   });
 
-  it("explains a stale version", async () => {
+  it("an employee edits a source: Save sends the version on screen and the new text shows at once", async () => {
+    rpc.mockImplementation(async () => {
+      rows.current = [{ ...SOURCE, current_version: 3, knowledge_source_versions: [v(3, "Use one hook.", "edit")] }, OTHER];
+      return { data: 3, error: null };
+    });
+    const region = await open();
+    fireEvent.click(within(region).getByRole("button", { name: "Edit" }));
+    const editor = within(region).getByTestId("document-editor");
+    const save = within(editor).getByRole("button", { name: "Save" });
+    expect(save).toBeDisabled();
+    expect(within(editor).getByLabelText("Document text")).toHaveProperty("value", "Use two hooks.\n\n- keep it short");
+    fireEvent.change(within(editor).getByLabelText("Document text"), { target: { value: "Use one hook." } });
+    fireEvent.click(save);
+    await waitFor(() => expect(rpc).toHaveBeenCalledWith("edit_knowledge_source", { p_source_id: "s1", p_body: "Use one hook.", p_expected_version: 2 }));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Hook rules" })).getByTestId("knowledge-current-body")).toHaveTextContent("Use one hook."));
+    expect(screen.queryByTestId("document-editor")).toBeNull();
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it("Cancel leaves the text alone and sends nothing", async () => {
+    const region = await open();
+    fireEvent.click(within(region).getByRole("button", { name: "Edit" }));
+    fireEvent.change(within(region).getByLabelText("Document text"), { target: { value: "Changed" } });
+    fireEvent.click(within(region).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByTestId("document-editor")).toBeNull();
+    expect(within(region).getByTestId("knowledge-current-body")).toHaveTextContent("Use two hooks.");
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("explains a stale version and keeps the text in the editor", async () => {
     rpc.mockResolvedValue({ data: null, error: { code: "40001", message: "changed" } });
     const region = await open();
-    fireEvent.change(within(region).getByLabelText("Corrected text"), { target: { value: "Use one hook." } });
-    fireEvent.change(within(region).getByLabelText("Why"), { target: { value: "x" } });
-    fireEvent.click(within(region).getByRole("button", { name: "Send for review" }));
-    expect(await within(region).findByRole("alert")).toHaveTextContent("changed since you opened it");
-  });
-
-  it("an employee reviews another person's content correction, not their own and not a procedure one", async () => {
-    rpc.mockResolvedValue({ data: "r1", error: null });
-    const region = await open();
-    const c1 = within(region).getByTestId("correction-c1");
-    expect(within(within(region).getByTestId("correction-c2")).queryByRole("button", { name: "Accept" })).toBeNull();
-    expect(within(within(region).getByTestId("correction-c3")).queryByRole("button", { name: "Accept" })).toBeNull();
-    fireEvent.click(within(c1).getByRole("button", { name: "Accept" }));
-    expect(await within(c1).findByRole("alert")).toHaveTextContent("Add a reason");
-    fireEvent.change(within(c1).getByLabelText("Review reason"), { target: { value: "Checked" } });
-    fireEvent.click(within(c1).getByRole("button", { name: "Conflict" }));
-    await waitFor(() => expect(rpc).toHaveBeenCalledWith("review_knowledge_correction", { p_correction_id: "c1", p_decision: "conflict", p_reason: "Checked" }));
-    // No publish or rollback for an employee.
-    expect(within(region).queryByRole("button", { name: /Publish/ })).toBeNull();
-    expect(within(region).queryByRole("button", { name: /Roll back/ })).toBeNull();
-  });
-
-  it("a builder adds sources, publishes an accepted correction and rolls back", async () => {
-    auth = { user: { id: "b1" }, isBuilder: true };
-    rpc.mockResolvedValue({ data: 3, error: null });
-    const region = await open();
-    expect(screen.getByText(/Add knowledge/)).toBeTruthy();
-    expect(within(within(region).getByTestId("correction-c2")).getByRole("button", { name: "Accept" })).toBeTruthy();
-    fireEvent.click(within(within(region).getByTestId("correction-c4")).getByRole("button", { name: "Publish as version 3" }));
-    await waitFor(() => expect(rpc).toHaveBeenCalledWith("publish_knowledge_correction", { p_correction_id: "c4" }));
-    // Rolling back asks first; Cancel sends nothing.
-    rpc.mockClear();
-    fireEvent.click(within(region).getByRole("button", { name: "Roll back to this" }));
-    const dialog = await screen.findByRole("alertdialog");
-    expect(dialog).toHaveTextContent("Roll back to version 1?");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
-    expect(rpc).not.toHaveBeenCalledWith("rollback_knowledge_source", expect.anything());
-    fireEvent.click(within(region).getByRole("button", { name: "Roll back to this" }));
-    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Roll back" }));
-    await waitFor(() => expect(rpc).toHaveBeenCalledWith("rollback_knowledge_source", expect.objectContaining({ p_source_id: "s1", p_to_version: 1, p_expected_version: 2 })));
+    fireEvent.click(within(region).getByRole("button", { name: "Edit" }));
+    fireEvent.change(within(region).getByLabelText("Document text"), { target: { value: "Use one hook." } });
+    fireEvent.click(within(region).getByRole("button", { name: "Save" }));
+    expect(await within(region).findByRole("alert")).toHaveTextContent("changed this document since you opened it");
+    expect(within(region).getByLabelText("Document text")).toHaveProperty("value", "Use one hook.");
   });
 
   it("a builder adds a source for one client", async () => {
@@ -169,32 +169,26 @@ describe("KnowledgePage", () => {
 
 describe("model", () => {
   const [s] = toSources([SOURCE]) as KnowledgeSource[];
-  const byId = (id: string) => s.corrections.find((c) => c.id === id)!;
 
-  it("sorts versions newest first and takes the review from an object or an array", () => {
-    expect(s.versions.map((x) => x.version)).toEqual([2, 1]);
-    expect(byId("c4").review?.decision).toBe("accepted");
-    expect(byId("c1").review).toBeNull();
+  it("takes the current version, from an array or a single object, newest first", () => {
+    expect(currentVersion(s)?.body).toBe("Use two hooks.\n\n- keep it short");
+    const many = toSources([{ ...SOURCE, knowledge_source_versions: [v(1, "a"), v(2, "b")] }])[0];
+    expect(many.versions.map((x) => x.version)).toEqual([2, 1]);
+    expect(toSources([{ ...SOURCE, knowledge_source_versions: v(2, "one") }])[0].versions).toHaveLength(1);
+    expect(toSources(null)).toEqual([]);
   });
 
-  it("status, review and publish rules", () => {
-    expect(correctionStatus(byId("c1"), s)).toBe("open");
-    expect(correctionStatus(byId("c4"), s)).toBe("accepted");
-    expect(correctionStatus({ ...byId("c1"), id: "c0" }, s)).toBe("published");
-    expect(canReview(byId("c1"), "emp-1", false)).toBe(true);
-    expect(canReview(byId("c3"), "emp-1", false)).toBe(false);
-    expect(canReview(byId("c2"), "emp-1", false)).toBe(false);
-    expect(canReview(byId("c2"), "b1", true)).toBe(true);
-    expect(canReview(byId("c1"), undefined, true)).toBe(false);
-    expect(canPublish(byId("c4"), s, true)).toBe(true);
-    expect(canPublish(byId("c4"), s, false)).toBe(false);
-    expect(canPublish(byId("c4"), { ...s, current_version: 3 }, true)).toBe(false);
-    expect(canPublish({ ...byId("c4"), classification: "procedure" }, s, true)).toBe(false);
+  it("searches title, topic, client and text", () => {
+    expect(matchesSearch(s, "two hooks")).toBe(true);
+    expect(matchesSearch(s, "process")).toBe(true);
+    expect(matchesSearch(s, "nothing like this")).toBe(false);
+    expect(matchesSearch(s, "  ")).toBe(true);
   });
 
   it("errorText maps database codes", () => {
+    expect(errorText("40001", "x")).toMatch(/changed this document since you opened it/);
     expect(errorText("42501", "x")).toMatch(/not allowed/);
-    expect(errorText("23505", "x")).toMatch(/already has a review/);
+    expect(errorText("22023", "x")).toMatch(/Nothing changed/);
     expect(errorText("99999", "fallback")).toBe("fallback");
   });
 });

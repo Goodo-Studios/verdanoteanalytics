@@ -61,7 +61,8 @@ const MTIME = Date.UTC(2026, 9, 5, 12);
 
 describe("command line and target", () => {
   it("reads the flags, the root and refuses unknown ones", () => {
-    expect(parseArgs([])).toEqual({ dryRun: false, allowProduction: false, help: false, root: DEFAULT_ROOT });
+    expect(parseArgs([])).toEqual({ dryRun: false, allowProduction: false, overwriteEdited: false, help: false, root: DEFAULT_ROOT });
+    expect(parseArgs(["--overwrite-edited"]).overwriteEdited).toBe(true);
     expect(parseArgs(["--dry-run", "--root", "/tmp/k"])).toMatchObject({ dryRun: true, root: "/tmp/k" });
     expect(parseArgs(["--root=/tmp/x"]).root).toBe("/tmp/x");
     expect(() => parseArgs(["--root"])).toThrow(/needs a folder/);
@@ -218,6 +219,33 @@ describe("re-running publish", () => {
     expect(plan.add.map((p) => p.source_path)).toEqual(["company/c.md"]);
     expect(plan.update.map((p) => p.source_path)).toEqual(["company/b.md"]);
     expect(plan.unchanged).toBe(1);
+    expect(plan.remove).toEqual(["company/gone.md"]);
+  });
+
+  it("keeps a page edited in the app: not updated and not removed", () => {
+    const existing = [
+      { source_path: "company/a.md", content_hash: "old", edited_in_app: true },
+      { source_path: "company/b.md", content_hash: pages[1].content_hash, edited_in_app: true },
+      { source_path: "company/gone.md", content_hash: "x", edited_in_app: true },
+      { source_path: "company/gone2.md", content_hash: "x", edited_in_app: false },
+    ];
+    const plan = diffPages(existing, pages);
+    expect(plan.update).toEqual([]);
+    expect(plan.unchanged).toBe(0);
+    expect(plan.add.map((p) => p.source_path)).toEqual(["company/c.md"]);
+    expect(plan.kept).toEqual(["company/a.md", "company/b.md", "company/gone.md"]);
+    expect(plan.remove).toEqual(["company/gone2.md"]);
+  });
+
+  it("with overwriteEdited HQ wins again: edited pages are updated even with the same hash, or removed", () => {
+    const existing = [
+      { source_path: "company/a.md", content_hash: "old", edited_in_app: true },
+      { source_path: "company/b.md", content_hash: pages[1].content_hash, edited_in_app: true },
+      { source_path: "company/gone.md", content_hash: "x", edited_in_app: true },
+    ];
+    const plan = diffPages(existing, pages, { overwriteEdited: true });
+    expect(plan.update.map((p) => p.source_path)).toEqual(["company/a.md", "company/b.md"]);
+    expect(plan.kept).toEqual([]);
     expect(plan.remove).toEqual(["company/gone.md"]);
   });
 

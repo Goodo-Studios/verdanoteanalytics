@@ -9,19 +9,24 @@
 // hash) are not rewritten, changed pages are updated, and pages whose file is gone, or is now
 // skipped, are removed. Slack capture is never published.
 //
+// App edits win. Staff can edit a page in the app (edit_brain_page marks it edited_in_app). This
+// script never updates or removes such a page: it keeps it and lists it at the end of the run. To
+// let HQ replace the edited pages on purpose, pass --overwrite-edited (it clears the marker).
+//
 // Refuses any target other than the staging project unless --allow-production is passed.
 //
 //   --root <folder>     knowledge folder (default: the Goodo Studios HQ knowledge folder)
 //   --dry-run           read and map everything and print the plan; write nothing. With the
 //                       target variables set it also compares against the app (read only).
 //   --allow-production  allow a target that is not the staging project
+//   --overwrite-edited  replace pages edited in the app with the HQ text (default: keep them)
 //
 //   hq secrets exec --company goodo-studios \
 //     --only TARGET_SUPABASE_URL,TARGET_SUPABASE_SERVICE_ROLE_KEY \
 //     -- node scripts/publish-brain.mjs --dry-run
 import { createClient } from '@supabase/supabase-js';
 import {
-  assertTarget, buildPages, diffPages, parseArgs, pendingFixes, readKnowledge, summariseSkips, unmatchedOwnerLines,
+  assertTarget, buildPages, diffPages, parseArgs, readKnowledge, summariseSkips, unmatchedOwnerLines,
 } from './publish-brain-lib.mjs';
 
 const BATCH = 200;
@@ -38,7 +43,7 @@ try {
   fail(err.message);
 }
 if (opts.help) {
-  console.log('Usage: node scripts/publish-brain.mjs [--root <folder>] [--dry-run] [--allow-production]');
+  console.log('Usage: node scripts/publish-brain.mjs [--root <folder>] [--dry-run] [--allow-production] [--overwrite-edited]');
   process.exit(0);
 }
 
@@ -67,12 +72,12 @@ let existing = [];
 let db = null;
 if (canCompare || !opts.dryRun) {
   db = createClient(targetUrl, targetKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { data, error } = await db.from('brain_pages').select('source_path, content_hash');
+  const { data, error } = await db.from('brain_pages').select('source_path, content_hash, edited_in_app');
   if (error) fail(`Could not read brain_pages: ${error.message}`);
   existing = data ?? [];
 }
 
-const plan = diffPages(existing, pages);
+const plan = diffPages(existing, pages, { overwriteEdited: opts.overwriteEdited });
 
 if (!opts.dryRun) {
   // Remove first so a slug freed by a deleted or renamed file can be reused in this run.
@@ -80,7 +85,10 @@ if (!opts.dryRun) {
     const { error } = await db.from('brain_pages').delete().in('source_path', plan.remove.slice(i, i + BATCH));
     if (error) fail(`Could not remove pages: ${error.message}`);
   }
-  const writes = [...plan.add, ...plan.update].map((p) => ({ ...p, published_at: new Date().toISOString() }));
+  // An HQ write clears the app-edit marker, so a page replaced with --overwrite-edited is HQ's again.
+  const writes = [...plan.add, ...plan.update].map((p) => ({
+    ...p, published_at: new Date().toISOString(), edited_in_app: false, edited_at: null, edited_by: null,
+  }));
   for (let i = 0; i < writes.length; i += BATCH) {
     const { error } = await db.from('brain_pages').upsert(writes.slice(i, i + BATCH), { onConflict: 'source_path' });
     if (error) fail(`Could not write pages: ${error.message}`);
@@ -94,10 +102,12 @@ console.log(opts.dryRun ? 'Dry run: nothing was written.' : 'Published.');
 if (opts.dryRun && !canCompare) console.log('No target set, so every page counts as added.');
 console.log(`Pages: ${pages.length} (${[...bySection.entries()].map(([s, n]) => `${s} ${n}`).join(', ') || 'none'})`);
 console.log(`Added ${plan.add.length}, updated ${plan.update.length}, unchanged ${plan.unchanged}, removed ${plan.remove.length}`);
+console.log(`Kept as edited in the app ${plan.kept.length}${plan.kept.length ? ' (HQ changes to these are not published; use --overwrite-edited to replace them):' : ''}`);
+for (const sp of plan.kept) console.log(`  ${sp}`);
 console.log(`Skipped ${allSkipped.length}:`);
 for (const [reason, count] of summariseSkips(allSkipped)) console.log(`  ${count}  ${reason}`);
 // OS-016: match page owners to staff logins again (names may have changed since the last run),
-// report the owners that match nobody, and list accepted fixes still to apply in HQ.
+// and report the owners that match nobody.
 if (db) {
   if (!opts.dryRun) {
     const { data, error } = await db.rpc('rematch_brain_page_owners');
@@ -107,16 +117,6 @@ if (db) {
       console.log(`Owners with no staff login ${lines.length}${lines.length ? ' (their pages show on nobody\'s Today page):' : ''}`);
       for (const line of lines) console.log(line);
     }
-  }
-  const [{ data: fixes, error: fixError }, { data: current, error: pageError }] = await Promise.all([
-    db.from('brain_page_corrections').select('id, brain_page_id, source_path, page_content_hash, reason, created_at, brain_page_correction_reviews(decision)'),
-    db.from('brain_pages').select('id, content_hash'),
-  ]);
-  if (fixError || pageError) console.log(`Could not read suggested fixes: ${(fixError ?? pageError).message}`);
-  else {
-    const pending = pendingFixes(fixes, current);
-    console.log(`Accepted fixes to apply in HQ ${pending.length}${pending.length ? ':' : ''}`);
-    for (const f of pending) console.log(`  ${f.source_path}: ${f.reason}`);
   }
 }
 const noteCounts = summariseSkips(notes.map((n) => ({ reason: n.note })));

@@ -207,6 +207,8 @@ for (const [label, s] of [["client A", clientA], ["client B", clientB]]) {
     ["review_knowledge_correction", { p_correction_id: ZERO, p_decision: "accepted", p_reason: "x" }],
     ["publish_knowledge_correction", { p_correction_id: ZERO }],
     ["rollback_knowledge_source", { p_source_id: ZERO, p_to_version: 1, p_expected_version: 2, p_reason: "x" }],
+    ["edit_knowledge_source", { p_source_id: ZERO, p_body: "x", p_expected_version: 1 }],
+    ["edit_brain_page", { p_page_id: ZERO, p_body_md: "x", p_expected_updated_at: "2026-01-01T00:00:00Z" }],
   ]) {
     const r = await s.c.rpc(fn, args);
     check(`${label} is refused ${fn}`, r.error?.code === "42501", `code=${r.error?.code ?? "none"}`);

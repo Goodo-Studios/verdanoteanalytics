@@ -76,6 +76,8 @@ INSERT INTO allow
     'add_login_to_team_list', 'update_team_member', 'set_staff_role',
     'create_knowledge_source', 'submit_knowledge_correction', 'review_knowledge_correction',
     'publish_knowledge_correction', 'rollback_knowledge_source',
+    -- Edit a Knowledge source or Brain page in place. Both refuse anyone who is not builder or employee.
+    'edit_knowledge_source', 'edit_brain_page',
     'save_engagement_template', 'create_engagement_from_template', 'record_engagement_kickoff',
     'save_engagement_closeout',
     'add_engagement_deliverable', 'add_deliverable_revision', 'record_deliverable_client_decision',
