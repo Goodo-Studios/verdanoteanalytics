@@ -1,5 +1,5 @@
-// The task side panel on My work (OS-009). Opens over the list without leaving the page: a panel
-// on the right on wider screens, a bottom sheet on phones. Radix Dialog gives the focus trap,
+// The task modal on My work (OS-009) and Work. Opens over the list without leaving the page: a
+// centered modal on wider screens, a bottom sheet on phones. Radix Dialog gives the focus trap,
 // Escape to close and the aria labelling. Details load only when it opens (useTaskDetail).
 // A play button by the title starts or stops a timer on the task (OS-012).
 // Versions (OS-020): the cuts of the task with their timestamped internal and client comments.
@@ -170,15 +170,15 @@ export function TaskSidePanel({ task, today, onClose }: { task: MyTaskRow | null
   return (
     <DialogPrimitive.Root open={!!task} onOpenChange={(open) => (!open ? onClose() : undefined)}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/10" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/30" />
         <DialogPrimitive.Content
           data-testid="task-panel"
-          data-variant={phone ? "sheet" : "side"}
+          data-variant={phone ? "sheet" : "modal"}
           className={cn(
             "fixed z-50 flex flex-col overflow-y-auto bg-card p-5 shadow-[var(--gos-shadow-raised)] focus:outline-none",
             phone
               ? "task-panel-sheet inset-x-0 bottom-0 max-h-[85vh] rounded-t-[var(--gos-radius-panel)]"
-              : "task-panel-side inset-y-0 right-0 w-full max-w-[32rem] border-l border-border",
+              : "task-panel-modal left-1/2 top-1/2 max-h-[88vh] w-[calc(100%-2rem)] max-w-[40rem] -translate-x-1/2 -translate-y-1/2 rounded-[var(--gos-radius-panel)] border border-border",
           )}
         >
           {task ? (

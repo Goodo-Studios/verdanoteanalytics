@@ -106,7 +106,7 @@ describe("Creators page", () => {
     expect(await screen.findByTestId("creators-count")).toHaveTextContent("3 of 4 creators");
     expect(screen.queryByTestId("creator-row-c3")).toBeNull();
     const row = screen.getByTestId("creator-row-c1");
-    expect(within(row).getByRole("link", { name: "Avery Stone" }).getAttribute("href")).toBe("/employee/creators/c1");
+    expect(within(row).getByRole("link", { name: "Avery Stone" }).getAttribute("href")).toBe("/creators?creator=c1");
     expect(within(row).getByRole("link", { name: "Glow Co (Contract Sent)" }).getAttribute("href")).toBe("/employee/creator-pipeline?brand=glow");
   });
 
@@ -120,7 +120,7 @@ describe("Creators page", () => {
     await waitFor(() => expect(screen.getByTestId("creators-count")).toHaveTextContent("1 of 4 creators"));
   });
 
-  it("adds a creator by hand and opens their page", async () => {
+  it("adds a creator by hand and opens them in the modal", async () => {
     renderList();
     await screen.findByTestId("creators-count");
     fireEvent.click(screen.getByRole("button", { name: "Add creator" }));
@@ -130,7 +130,21 @@ describe("Creators page", () => {
     fireEvent.change(screen.getByLabelText("New creator email"), { target: { value: "new@example.test" } });
     fireEvent.click(screen.getByRole("button", { name: "Add creator" }));
     await waitFor(() => expect(createCreator).toHaveBeenCalledWith("New Person", "new@example.test"));
-    expect(await screen.findByTestId("opened")).toBeTruthy();
+    const modal = await screen.findByTestId("record-modal");
+    expect(await within(modal).findByTestId("creator-detail-page")).toBeTruthy();
+  });
+
+  it("opens a creator in a modal over the list, without a back link, and closing keeps the list", async () => {
+    renderList();
+    const row = await screen.findByTestId("creator-row-c1");
+    fireEvent.click(within(row).getByRole("link", { name: "Avery Stone" }));
+    const modal = await screen.findByTestId("record-modal");
+    expect(await within(modal).findByTestId("creator-detail-page")).toBeTruthy();
+    expect(within(modal).queryByRole("link", { name: "Back to Creators" })).toBeNull();
+    expect(screen.getByTestId("creators-count")).toBeTruthy();
+    fireEvent.keyDown(modal, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("record-modal")).toBeNull());
+    expect(screen.getByTestId("creator-row-c1")).toBeTruthy();
   });
 
   it("shows a load error instead of an empty list", async () => {

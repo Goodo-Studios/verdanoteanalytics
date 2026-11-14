@@ -321,10 +321,11 @@ describe("task side panel", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("is a side panel on a wide screen and a bottom sheet on a phone", async () => {
+  it("is a centered modal on a wide screen and a bottom sheet on a phone", async () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 1280 });
     const wide = await openToday();
-    expect(wide).toHaveAttribute("data-variant", "side");
+    expect(wide).toHaveAttribute("data-variant", "modal");
+    expect(wide.className).toContain("task-panel-modal");
     act(() => {
       Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 375 });
       window.dispatchEvent(new Event("resize"));

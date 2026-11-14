@@ -17,6 +17,7 @@ import { HeadshotControl, MediaSection } from "./media/MediaSection";
 import { MEDIA_KINDS } from "./media/mediaModel";
 import { actorFormToPatch, actorStageLabel, actorToForm, safeHref, type ActorForm } from "./rosterModel";
 import { errorText, formatDay } from "./model";
+import { EmbeddedShell } from "./RecordModal";
 
 const TEXT_FIELDS: { key: keyof ActorForm; label: string; type?: string }[] = [
   { key: "name", label: "Name" },
@@ -30,8 +31,11 @@ const TEXT_FIELDS: { key: keyof ActorForm; label: string; type?: string }[] = [
   { key: "additional_social_url", label: "Second social link" },
 ];
 
-export default function ActorDetailPage() {
-  const { id = "" } = useParams();
+/** `embedded` is the modal on the Actors page: the id comes in as a prop and the back link is hidden. */
+export default function ActorDetailPage({ actorId, embedded = false }: { actorId?: string; embedded?: boolean } = {}) {
+  const params = useParams();
+  const id = actorId ?? params.id ?? "";
+  const Shell = embedded ? EmbeddedShell : PageShell;
   const prefix = useRolePrefix();
   const [detail, setDetail] = useState<ActorDetail | null>(null);
   const [form, setForm] = useState<ActorForm | null>(null);
@@ -54,18 +58,18 @@ export default function ActorDetailPage() {
 
   if (!detail) {
     return (
-      <PageShell data-testid="actor-detail-page">
+      <Shell data-testid="actor-detail-page">
         {error ? <ErrorState message={error} onRetry={() => { setError(null); void load(); }} /> : <LoadingState label="Loading the actor" />}
-      </PageShell>
+      </Shell>
     );
   }
   const a = detail.actor;
   if (!a || !form) {
     return (
-      <PageShell data-testid="actor-detail-page">
+      <Shell data-testid="actor-detail-page">
         <p className="text-sm">No actor with this id.</p>
-        <Link to={`${prefix}/actors`} className="text-sm underline">Back to Actors</Link>
-      </PageShell>
+        {!embedded && <Link to={`${prefix}/actors`} className="text-sm underline">Back to Actors</Link>}
+      </Shell>
     );
   }
 
@@ -93,8 +97,8 @@ export default function ActorDetailPage() {
   const socials = [safeHref(a.social_url), safeHref(a.additional_social_url)].filter((x): x is string => !!x);
 
   return (
-    <PageShell data-testid="actor-detail-page">
-      <Link to={`${prefix}/actors`} className="text-sm underline">Back to Actors</Link>
+    <Shell data-testid="actor-detail-page">
+      {!embedded && <Link to={`${prefix}/actors`} className="text-sm underline">Back to Actors</Link>}
       <PageHeader
         title={a.name}
         description={[a.source === "application" ? "Added from an approved application" : a.source === "manual" ? "Added by hand" : `Source: ${a.source}`, a.import_notes].filter(Boolean).join(". ")}
@@ -157,6 +161,6 @@ export default function ActorDetailPage() {
         onChanged={load}
         onNotice={setNotice}
       />
-    </PageShell>
+    </Shell>
   );
 }

@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
 type Table = { data?: unknown; error?: { message: string } | null; pending?: boolean };
-const h = vi.hoisted(() => ({ table: {} as Table, decisions: [] as unknown[], calls: [] as string[] }));
+const h = vi.hoisted(() => ({ table: {} as Table, decisions: [] as unknown[], calls: [] as string[], task: null as null | { id: string; title: string } }));
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
@@ -17,6 +17,7 @@ vi.mock("@/integrations/supabase/client", () => ({
       select: () => {
         h.calls.push(table);
         return {
+          eq: () => ({ maybeSingle: () => Promise.resolve({ data: h.task, error: null }) }),
           then: (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => {
             const p = table === "client_task_decisions"
               ? Promise.resolve({ data: h.decisions, error: null })
@@ -31,6 +32,10 @@ vi.mock("@/integrations/supabase/client", () => ({
 vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ user: { id: "u1" }, isBuilder: true, isEmployee: false, isClient: false }) }));
 vi.mock("@/hooks/useClientPreviewMode", () => ({ useClientPreview: () => ({ isClientPreview: false, isEmployeePreview: false }) }));
 vi.mock("@/hooks/useRolePath", () => ({ useRolePrefix: () => "/builder" }));
+
+vi.mock("@/features/home/TaskSidePanel", () => ({
+  TaskSidePanel: ({ task }: { task: { title: string } | null }) => (task ? <div data-testid="task-modal">{task.title}</div> : null),
+}));
 
 import WorkPage from "@/features/home/WorkPage";
 import { WithClient } from "@/test/clientSelection";
@@ -127,12 +132,31 @@ describe("Work page", () => {
     expect((screen.getByLabelText("Stage") as HTMLSelectElement).value).toBe("Client Review");
   });
 
-  it("links each card out to ClickUp in a new tab", async () => {
+  it("keeps a small link out to ClickUp in a new tab on each card", async () => {
     renderWork("/builder/work?view=all");
-    const links = await screen.findAllByTestId("work-row-link");
+    const links = await screen.findAllByTestId("work-row-clickup");
     expect(links[0].getAttribute("href")).toBe("https://app.clickup.com/t/cu-Unboxing");
     expect(links[0].getAttribute("target")).toBe("_blank");
     expect(links[0].getAttribute("rel")).toContain("noopener");
+  });
+
+  it("opens the task modal when a card title is clicked", async () => {
+    h.task = { id: "t1", title: "Unboxing" };
+    renderWork("/builder/work?view=all");
+    const titles = await screen.findAllByTestId("work-row-link");
+    expect(screen.queryByTestId("task-modal")).toBeNull();
+    fireEvent.click(titles[0]);
+    expect((await screen.findByTestId("task-modal")).textContent).toBe("Unboxing");
+  });
+
+  it("falls back to the ClickUp page for a card with no task row", async () => {
+    h.task = null;
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    renderWork("/builder/work?view=all");
+    fireEvent.click((await screen.findAllByTestId("work-row-link"))[0]);
+    await waitFor(() => expect(open).toHaveBeenCalledWith("https://app.clickup.com/t/cu-Unboxing", "_blank", "noopener,noreferrer"));
+    expect(screen.queryByTestId("task-modal")).toBeNull();
+    open.mockRestore();
   });
 
   it("says plainly that there is no person filter", async () => {

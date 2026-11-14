@@ -24,6 +24,7 @@ import {
   type CreatorForm,
 } from "./rosterModel";
 import { errorText, formatDay, stageLabel } from "./model";
+import { EmbeddedShell } from "./RecordModal";
 
 const FLAGS: { key: keyof CreatorForm; label: string }[] = [
   { key: "trialed", label: "Trialed" },
@@ -49,8 +50,11 @@ function messageOf(e: unknown, fallback: string): string {
   return e instanceof Error ? e.message : fallback;
 }
 
-export default function CreatorDetailPage() {
-  const { id = "" } = useParams();
+/** `embedded` is the modal on the Creators page: the id comes in as a prop and the back link is hidden. */
+export default function CreatorDetailPage({ creatorId, embedded = false }: { creatorId?: string; embedded?: boolean } = {}) {
+  const params = useParams();
+  const id = creatorId ?? params.id ?? "";
+  const Shell = embedded ? EmbeddedShell : PageShell;
   const prefix = useRolePrefix();
   const [detail, setDetail] = useState<CreatorDetail | null>(null);
   const [brands, setBrands] = useState<BrandOption[]>([]);
@@ -80,18 +84,18 @@ export default function CreatorDetailPage() {
 
   if (!detail) {
     return (
-      <PageShell data-testid="creator-detail-page">
+      <Shell data-testid="creator-detail-page">
         {error ? <ErrorState message={error} onRetry={() => { setError(null); void load(); }} /> : <LoadingState label="Loading the creator" />}
-      </PageShell>
+      </Shell>
     );
   }
   const c = detail.creator;
   if (!c || !form) {
     return (
-      <PageShell data-testid="creator-detail-page">
+      <Shell data-testid="creator-detail-page">
         <p className="text-sm">No creator with this id.</p>
-        <Link to={`${prefix}/creators`} className="text-sm underline">Back to Creators</Link>
-      </PageShell>
+        {!embedded && <Link to={`${prefix}/creators`} className="text-sm underline">Back to Creators</Link>}
+      </Shell>
     );
   }
 
@@ -136,8 +140,8 @@ export default function CreatorDetailPage() {
   const portfolio = safeHref(c.portfolio_url) ?? safeHref(c.website);
 
   return (
-    <PageShell data-testid="creator-detail-page">
-      <Link to={`${prefix}/creators`} className="text-sm underline">Back to Creators</Link>
+    <Shell data-testid="creator-detail-page">
+      {!embedded && <Link to={`${prefix}/creators`} className="text-sm underline">Back to Creators</Link>}
       <PageHeader
         title={c.name}
         description={[c.source === "application" ? "Added from an approved application" : c.source === "manual" ? "Added by hand" : `Source: ${c.source}`, c.import_notes].filter(Boolean).join(". ")}
@@ -226,6 +230,6 @@ export default function CreatorDetailPage() {
         onChanged={load}
         onNotice={setNotice}
       />
-    </PageShell>
+    </Shell>
   );
 }

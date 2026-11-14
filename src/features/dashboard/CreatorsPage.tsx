@@ -26,6 +26,8 @@ import {
   type RosterCreator,
 } from "./rosterModel";
 import { errorText, stageLabel } from "./model";
+import CreatorDetailPage from "./CreatorDetailPage";
+import { RecordModal } from "./RecordModal";
 
 export default function CreatorsPage() {
   const prefix = useRolePrefix();
@@ -54,6 +56,16 @@ export default function CreatorsPage() {
     void load();
   }, [load]);
 
+  // The open record lives in the address (?creator=), so the modal can be linked, and Back closes it.
+  const hrefFor = (id: string | null) => {
+    const p = new URLSearchParams(params);
+    if (id) p.set("creator", id);
+    else p.delete("creator");
+    const s = p.toString();
+    return s ? `?${s}` : "?";
+  };
+  const openId = params.get("creator");
+
   const set = (patch: Partial<CreatorFilters>) => {
     setParams(creatorFiltersToParams({ ...filters, page: 1, ...patch }), { replace: true });
   };
@@ -78,7 +90,11 @@ export default function CreatorsPage() {
     setError(null);
     try {
       const id = await createCreator(name, newEmail.trim() || null);
-      navigate(`${prefix}/creators/${id}`);
+      setNewName("");
+      setNewEmail("");
+      setAdding(false);
+      await load();
+      navigate(hrefFor(id));
     } catch (e) {
       setError(e instanceof DashboardError ? errorText(e.code, e.message) : "The creator was not added.");
       setAdding(false);
@@ -91,7 +107,7 @@ export default function CreatorsPage() {
       header: "Creator",
       cell: (c) => (
         <>
-          <Link to={`${prefix}/creators/${c.id}`} className="font-medium underline">{c.name}</Link>
+          <Link to={hrefFor(c.id)} preventScrollReset className="font-medium underline">{c.name}</Link>
           {c.do_not_use_again && <span className="ml-2 rounded bg-destructive/10 px-1 text-xs text-destructive">Do not use</span>}
           {c.trialed && <span className="ml-2 rounded bg-muted px-1 text-xs">Trialed</span>}
         </>
@@ -157,6 +173,9 @@ export default function CreatorsPage() {
           )}
         </>
       )}
+      <RecordModal open={!!openId} label="Creator" onClose={() => { navigate(hrefFor(null), { replace: true, preventScrollReset: true }); void load(); }}>
+        {openId ? <CreatorDetailPage creatorId={openId} embedded /> : null}
+      </RecordModal>
     </PageShell>
   );
 }
