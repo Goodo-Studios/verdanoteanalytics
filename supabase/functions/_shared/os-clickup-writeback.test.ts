@@ -515,6 +515,15 @@ Deno.test("echo: a field with a change still waiting keeps the app value", async
   assertEquals([out.status, out.editor_id, out.due_date, out.strategist_id], ["client review", "u-sam", "2026-12-09", "u-ava"]);
 });
 
+Deno.test("echo: a change held while write-back is off keeps the app value too", async () => {
+  const db = setup([outbox({ field: "status", state: "held" })], {
+    tasks: [{ id: "app-t1", clickup_task_id: "t1", status: "client review", due_date: "2026-12-01", editor_id: null, strategist_id: null, producer_id: null }],
+  });
+  const incoming = { clickup_task_id: "t1", status: "editing", due_date: "2026-12-09" } as never;
+  const out = await keepPendingAppValues(db.supabase, incoming) as unknown as Row;
+  assertEquals([out.status, out.due_date], ["client review", "2026-12-09"]);
+});
+
 Deno.test("echo: the sync never imports a comment the app wrote to ClickUp", async () => {
   const db = setup([], { outboxSent: [outbox({ kind: "comment", field: "comment", state: "sent", clickup_ref: "cu-comment-1" })] });
   const row = (id: string): CommentRow => ({ task_id: "app-t1", clickup_comment_id: id, thread: "internal", author: {}, body: "x", created_at: null, synced_at: NOW });

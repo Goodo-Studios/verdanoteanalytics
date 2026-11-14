@@ -270,12 +270,13 @@ export async function isEchoOfOwnWrite(
 }
 
 /**
- * The webhook keeps the app's value for a field that still has a change waiting to be sent, so a
+ * The webhook and the nightly sync keep the app's value for a field that still has a change waiting
+ * to be sent (queued, or held while write-back is off), so a
  * ClickUp event cannot undo it first. The writer then compares both sides and logs any clash.
  */
 export async function keepPendingAppValues(db: SupabaseLike, row: OsTaskWrite): Promise<OsTaskWrite> {
   const { data: pending, error } = await db.from("os_clickup_outbox").select("field")
-    .eq("clickup_task_id", row.clickup_task_id).eq("state", "queued");
+    .eq("clickup_task_id", row.clickup_task_id).in("state", ["queued", "held"]);
   if (error || !pending || pending.length === 0) return row;
   const fields = new Set(pending.map((p) => String(p.field)));
   const { data: app } = await db.from("os_tasks").select(

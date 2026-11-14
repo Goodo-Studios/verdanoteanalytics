@@ -253,7 +253,7 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
 
     // Same protection as the webhook: a field with an app change still waiting to be sent keeps
     // the app's value, so the sync cannot undo it before the writer sends it.
-    const { data: queuedRows, error: queuedErr } = await db.from("os_clickup_outbox").select("clickup_task_id").eq("state", "queued");
+    const { data: queuedRows, error: queuedErr } = await db.from("os_clickup_outbox").select("clickup_task_id").in("state", ["queued", "held"]);
     if (queuedErr) throw new Error(`os_clickup_outbox read failed: ${queuedErr.message}`);
     const queuedTaskIds = new Set((queuedRows ?? []).map((r: Record<string, unknown>) => String(r.clickup_task_id)));
     const rowsToWrite = [];
