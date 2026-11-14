@@ -232,7 +232,7 @@ Lessons from that day:
 | 3 | Merge, functions ship | Done | 2026-11-14. |
 | 4 | Migrations | Done | 70 applied with `--include-all`. |
 | 5 | Confirm the functions | Ready to run | `hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN -- node scripts/coda-cleanup.mjs` (read only; lists deployed functions with no folder in the repo) and `bash scripts/smoke-test.sh`. |
-| 6 | Secrets | Blocked by missing secrets | Production lacks `CLICKUP_API_TOKEN`, `CLICKUP_WEBHOOK_SECRET`, `SITE_URL`, `RESEND_API_KEY`, `SLACK_BOT_TOKEN`, `SLACK_WEBHOOK_URL`, `FIREFLIES_API_KEY`, `CLICKUP_WRITEBACK_ENABLED`, `CLIENT_INVITES_SEND_ENABLED` (the last two are off by design until the owner decides) and has `ANTHROPIC_API_KEY`. Status: `hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN -- node scripts/prod-secrets-status.mjs`. The vault must hold each value first. |
+| 6 | Secrets | Done except two deferred | Set on production 2026-11-14: `SITE_URL`, `META_ACCESS_TOKEN`, `CLICKUP_API_TOKEN`, `CLICKUP_WEBHOOK_SECRET` (with the production ClickUp webhook), `FIREFLIES_API_KEY`, `SLACK_BOT_TOKEN`, both storage vault secrets, and `ANTHROPIC_API_KEY` was already there. Deferred by Matthew, to be supplied later and blocking nothing: `RESEND_API_KEY` (the weekly digest is not emailed) and `SLACK_WEBHOOK_URL` (failing health checks and report alerts post nothing). `CLICKUP_WRITEBACK_*` and `CLIENT_INVITES_SEND_ENABLED` stay off by design. Status: `hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN -- node scripts/prod-secrets-status.mjs`. |
 | 7 | Copy the old dashboard data | Blocked by an owner decision | Decision 10 (real client data) and the owner's confirmation of the read of the old dashboard database. Then: dry run, then the copy (see step 7 below). |
 | 8 | Copy the storage files | Blocked by step 7 | Same decision. Then the two commands in step 8 below. The vault secrets `storage_signing_project_url` and `storage_signing_service_role_key` must be set on production first (step 6 script checks them). |
 | 9 | Ad code counter | Blocked by step 7 | Run in one sitting with the old generators switched off: `node scripts/ad-code-counter.mjs` prints the checklist (see step 9 below). |
@@ -318,6 +318,8 @@ Rollback: as step 3.
 
 ### Step 6. Set the secrets
 
+Deferred, 2026-11-14: Matthew will supply `RESEND_API_KEY` and `SLACK_WEBHOOK_URL` later (no value is in the vault under any name). No other step waits on them. When they arrive, set them with the command below and redeploy `send-digest` (Resend) and `system-health-check`, `reports`, `scheduled-reports`, `sync`, `refresh-media-queue` (Slack webhook).
+
 Set each from the vault, never typed into a chat or a file. Names only here. After each `supabase secrets set`, force a redeploy of the functions that read it (`supabase functions deploy <name> --project-ref gwyxaqoaldnaavkjqquv`): running containers do not pick up a new secret on their own.
 
 `hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN -- node scripts/prod-secrets-status.mjs` lists which of the secrets below are set on production (names only, never values), for each missing one what stays off, and a `supabase secrets set` command for it. It also reads the two vault names from the database. Add `--strict` to make it exit 1 when something is missing. `--target staging` runs it against staging with the staging token.
@@ -347,7 +349,7 @@ Rollback: `supabase secrets unset <name> --project-ref gwyxaqoaldnaavkjqquv` and
 Reads of the old dashboard database (`qlvdvpchriyrsjtewwxx`) and writes to production both use the vault secret `SUPABASE_ACCESS_TOKEN`. Run the dry run first. It reads row counts and checksums from the old dashboard and from production (production through the read-only endpoint, so it cannot change anything), prints the row counts per table, writes the report, and leaves a receipt file:
 
 ```bash
-hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN -- node scripts/dashboard-copy.mjs --target production --confirm-source qlvdvpchriyrsjtewwxx --report dashboard-copy-production-dry-run.md
+hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN -- node scripts/dashboard-copy.mjs --target production --confirm-production gwyxaqoaldnaavkjqquv --confirm-source qlvdvpchriyrsjtewwxx --report dashboard-copy-production-dry-run.md
 ```
 
 Read the report. Then the copy, within 120 minutes of the dry run:
@@ -451,6 +453,12 @@ Two scheduled jobs exist only in production because they need `pg_cron`, `pg_net
 Rollback: `select cron.unschedule('<jobname>');`.
 
 ### Step 14. Delete the Coda functions and the Coda secret
+
+Done 2026-11-14: the three Coda functions were deleted from production with `scripts/coda-cleanup.mjs`.
+
+Run record 2026-11-14 for steps 6, 7 and 11b on production: step 7 copied the old dashboard tables (30 of 32 tables match exactly; `app_users` holds production's own rows too and `clients` differs in checksum only); step 6 set `SITE_URL`, `META_ACCESS_TOKEN`, `CLICKUP_API_TOKEN`, `FIREFLIES_API_KEY`, `SLACK_BOT_TOKEN` and both storage vault secrets (functions that read a new secret still need a redeploy); `CLICKUP_WEBHOOK_SECRET`, `RESEND_API_KEY` and `SLACK_WEBHOOK_URL` have no value in the vault; step 11b's `public_link_backfill_registry()` reported 0 missing and the registry holds all 57 links.
+
+Read only check on production, 2026-11-14 (after the release): the three Coda functions `create-coda-brief`, `sync-coda-names` and `sync-coda-tasks` are still deployed; `coda_tasks` is gone; no cron job has coda in its name; `CODA_API_KEY` is not set on production, so there is no Coda secret left to unset. The script also lists two secrets no function code mentions, `LINKEDIN_JSESSIONID` and `LINKEDIN_LI_AT`. They are not Coda; find out what uses them before anyone unsets them.
 
 Verdanote has no Coda code any more (Coda was retired on 2026-10-09). The plan's last record says `sync-coda-tasks`, `sync-coda-names` and `create-coda-brief` are still deployed in production, that CI does not delete functions, that migration `20261110000001` removes `coda_tasks` and unschedules `sync-coda-names-daily` when applied, and that removing `CODA_API_KEY` is Matthew's call. Do not write to Coda for any reason.
 

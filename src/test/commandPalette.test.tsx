@@ -114,11 +114,11 @@ describe("what it lists", () => {
     for (const to of ["/", "/work", "/clients"]) expect(items.some((i) => i.to === to), to).toBe(true);
   });
 
-  it("never offers the four hidden pages, and offers Early pages to a builder only", () => {
+  it("offers Agent evaluations and Learning to everyone, and Early pages to a builder only", () => {
     const labels = (b: boolean) => pageItems(b).map((i) => i.label);
-    for (const hidden of ["Agent evaluations", "Learning", "Recommendations", "Strategy"]) {
-      expect(labels(true), hidden).not.toContain(hidden);
-      expect(labels(false), hidden).not.toContain(hidden);
+    for (const shown of ["Agent evaluations", "Learning"]) {
+      expect(labels(true), shown).toContain(shown);
+      expect(labels(false), shown).toContain(shown);
     }
     expect(labels(true)).toContain("Early pages");
     expect(labels(false)).not.toContain("Early pages");

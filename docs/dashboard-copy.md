@@ -122,7 +122,7 @@ Secret names (names only; never read or print a value): `SUPABASE_ACCESS_TOKEN` 
 
 | Command (each run as `hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN -- node scripts/dashboard-copy.mjs ...`) | What it does |
 |---|---|
-| `--target production --confirm-source qlvdvpchriyrsjtewwxx` | Dry run. Reads counts and checksums from the old dashboard and from production, prints the row count per table and the report, and writes a receipt file. Production is read through the read only endpoint, which refuses anything but a select. Writes nothing. |
+| `--target production --confirm-production gwyxaqoaldnaavkjqquv --confirm-source qlvdvpchriyrsjtewwxx` | Dry run (the production ref is needed here too, but nothing is written). Reads counts and checksums from the old dashboard and from production, prints the row count per table and the report, and writes a receipt file. Production is read through the read only endpoint, which refuses anything but a select. Writes nothing. |
 | `--target production --confirm-production gwyxaqoaldnaavkjqquv --confirm-source qlvdvpchriyrsjtewwxx --write --real-client-data-approved` | The copy. |
 
 Rules, covered by `scripts/dashboard-copy-lib.test.mjs` and `scripts/dashboard-copy-dryrun.test.mjs`:

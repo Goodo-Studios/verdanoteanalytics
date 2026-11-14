@@ -1,6 +1,7 @@
 import { ContentPipeline } from "@/components/client/ContentPipeline";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useClientSelection } from "@/contexts/ClientSelectionContext";
 
 export default function ContentPipelinePage() {
   const { selectedAccountId, isLoading } = useAccountContext();
@@ -8,6 +9,9 @@ export default function ContentPipelinePage() {
   // is selected (or none). Staff, including a builder previewing as a client,
   // still pick an account: they have no row limit.
   const { isClient } = useAuth();
+  // A client is a valid pipeline with or without an ad account (ClickUp holds more clients than the ad
+  // accounts do), so staff who picked a client read that client's cards by client_slug.
+  const { selectedSlug } = useClientSelection();
 
   return (
     <>
@@ -22,6 +26,8 @@ export default function ContentPipelinePage() {
           </p>
         ) : isClient ? (
           <ContentPipeline own />
+        ) : selectedSlug ? (
+          <ContentPipeline clientSlug={selectedSlug} />
         ) : selectedAccountId && selectedAccountId !== "all" ? (
           <ContentPipeline accountId={selectedAccountId} />
         ) : (

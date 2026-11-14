@@ -6,13 +6,13 @@
 -- Checks: deactivating a team list member (through update_team_member and through a direct
 -- update) removes the builder or employee role of the login with the same email, so has_role
 -- and the staff functions refuse it; reactivating gives the mapped role back to a confirmed
--- login; the client role is never removed or granted; a second active row with the same email
+-- login; a viewer row also removes and restores the client role, staff rows never touch it; a second active row with the same email
 -- keeps the role; a login with an unconfirmed email never gets a role from the mapping
 -- (apply_app_user_role_mapping, app_user_role_mapping, goodo_os_user_role_plan) until it is
 -- confirmed. All people are made up.
 
 BEGIN;
-SELECT plan(26);
+SELECT plan(27);
 
 -- b builder, e employee (producer), k builder (admin, direct update path), c client (viewer),
 -- u producer whose login email is not confirmed, d employee with two active rows for one email,
@@ -73,9 +73,11 @@ UPDATE public.app_users SET active = true WHERE id = '5d100000-0000-4000-8000-00
 SELECT ok(public.has_role('5d000000-0000-4000-8000-000000000003', 'builder'::public.app_role), 'and a direct reactivation restores it');
 
 UPDATE public.app_users SET active = false WHERE id = '5d100000-0000-4000-8000-000000000004';
+SELECT is((SELECT count(*)::int FROM public.user_roles WHERE user_id = '5d000000-0000-4000-8000-000000000004'), 0,
+  'deactivating a viewer removes the client role (migration 20261215080002)');
 UPDATE public.app_users SET active = true WHERE id = '5d100000-0000-4000-8000-000000000004';
 SELECT is((SELECT string_agg(role::text, ',') FROM public.user_roles WHERE user_id = '5d000000-0000-4000-8000-000000000004'), 'client',
-  'a client login keeps exactly the client role through deactivation and reactivation');
+  'reactivating a viewer gives back exactly the client role');
 
 UPDATE public.app_users SET active = false WHERE id = '5d100000-0000-4000-8000-000000000006';
 SELECT ok(public.has_role('5d000000-0000-4000-8000-000000000006', 'employee'::public.app_role),

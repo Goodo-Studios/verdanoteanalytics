@@ -99,9 +99,9 @@ describe("section model", () => {
     ]);
   });
 
-  it("shows an employee five Admin items or fewer, and the Ad Name Generator under Tools (OS-002)", () => {
+  it("shows an employee six Admin items or fewer, and the Ad Name Generator under Tools (OS-002)", () => {
     const admin = tabsFor(SECTIONS.find((s) => s.id === "admin")!, false).map((t) => t.label);
-    expect(admin.length).toBeLessThanOrEqual(5);
+    expect(admin.length).toBeLessThanOrEqual(6);
     expect(admin).not.toContain("Ad Name Generator");
     const tools = tabsFor(SECTIONS.find((s) => s.id === "tools")!, false).map((t) => t.label);
     expect(tools).toEqual(["Ad Name Generator"]);
@@ -172,26 +172,26 @@ describe("role gating", () => {
     expect(names).not.toContain("Operating costs");
     expect(names).not.toContain("Growth Dashboard");
     expect(names).not.toContain("Early pages");
-    expect(names).not.toContain("Agent evaluations");
+    expect(names).toContain("Agent evaluations");
     expect(names).toContain("Notifications");
     expect(names).not.toContain("Ad Name Generator");
-    expect(names).toHaveLength(5);
+    expect(names).toHaveLength(6);
   });
 
-  it("a builder sees seven Admin tabs: Early pages in, Agent evaluations and Growth Dashboard out", async () => {
+  it("a builder sees eight Admin tabs: Early pages and Agent evaluations in, Growth Dashboard out", async () => {
     renderAt("/builder/admin/team");
     await screen.findByTestId("page-team");
     const names = tabNames("Admin");
-    expect(names).toHaveLength(7);
+    expect(names).toHaveLength(8);
     expect(names).not.toContain("Growth Dashboard");
     expect(names).toContain("Early pages");
-    expect(names).not.toContain("Agent evaluations");
+    expect(names).toContain("Agent evaluations");
   });
 
-  it("Learning is not a Knowledge tab, but a builder opens it by its address", async () => {
+  it("Learning is a Knowledge tab and opens by its address", async () => {
     renderAt("/builder/knowledge/shared");
     await screen.findByTestId("page-knowledge");
-    expect(tabNames("Knowledge")).not.toContain("Learning");
+    expect(tabNames("Knowledge")).toContain("Learning");
     renderAt("/builder/knowledge/learning");
     expect(await screen.findByTestId("page-learning")).toBeTruthy();
   });
@@ -203,12 +203,19 @@ describe("role gating", () => {
     expect(await screen.findByTestId("page-early-pages")).toBeTruthy();
   });
 
-  it.each(["/employee/knowledge/learning", "/employee/admin/agent-evaluations", "/employee/admin/early-pages"])("an employee typing %s is sent to the index", async (path) => {
+  it.each([
+    ["/employee/knowledge/learning", "page-learning"],
+    ["/employee/admin/agent-evaluations", "page-agent-evaluations"],
+  ])("an employee typing %s opens the page", async (path, testId) => {
     setRole("employee");
     renderAt(path);
+    expect(await screen.findByTestId(testId)).toBeTruthy();
+  });
+
+  it("an employee typing /employee/admin/early-pages is sent to the index", async () => {
+    setRole("employee");
+    renderAt("/employee/admin/early-pages");
     expect(await screen.findByTestId("index")).toBeTruthy();
-    expect(screen.queryByTestId("page-learning")).toBeNull();
-    expect(screen.queryByTestId("page-agent-evaluations")).toBeNull();
     expect(screen.queryByTestId("page-early-pages")).toBeNull();
   });
 
