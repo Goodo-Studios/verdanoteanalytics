@@ -59,7 +59,7 @@ How it behaves when on: a change older than ClickUp's own last change to the sam
 
 #### What the task modal queues (still off)
 
-The task modal (My work and Work rows) shows everything ClickUp holds for the task and edits it in place. The sync and webhook now also store the markdown description, priority, start date, tags, creator, creation date, time estimate and every custom field (`os_tasks.clickup_fields`, one entry per field with its type, canonical text and choices). The task reads for the sync and webhook ask ClickUp for `include_markdown_description=true`. Staff only: clients read no `os_tasks` row and `os_client_tasks()` returns none of the new columns.
+The task modal (My work and Work rows) shows everything ClickUp holds for the task and edits it in place. The sync and webhook now also store the markdown description, priority, start date, tags, creator, creation date, time estimate and every custom field (`os_tasks.clickup_fields`, one entry per field with its type, canonical text and choices). The task reads for the sync and webhook ask ClickUp for `include_markdown_description=true`. Staff only: clients read no `os_tasks` row and `os_client_task_cards()` returns none of the new columns.
 
 An edit made in the app is queued in `os_clickup_outbox` when the task comes from ClickUp, is not read-only, and the change is made by a signed-in user (not by the sync):
 

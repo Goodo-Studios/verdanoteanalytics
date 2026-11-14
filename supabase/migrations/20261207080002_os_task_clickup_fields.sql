@@ -17,7 +17,7 @@
 --                         value (drop-down option name, YYYY-MM-DD, "true"/"false", text, number).
 --                         Written by the ClickUp sync and webhook (service role) and by
 --                         os_set_task_field() for one field at a time.
--- Staff only: clients read no os_tasks row, and os_client_tasks() keeps its own column list, so none
+-- Staff only: clients read no os_tasks row, and os_client_task_cards() keeps its own column list, so none
 -- of these columns reaches a client.
 --
 -- os_set_task_field(task, field id, value): staff edit one ClickUp custom field. It checks the field

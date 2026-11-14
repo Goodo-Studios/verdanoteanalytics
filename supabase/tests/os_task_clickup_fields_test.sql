@@ -9,11 +9,11 @@
 -- field (a second edit folds into it, changing back skips it); an app edit of the description,
 -- priority or start date queues; a write by the ClickUp sync (service role) or with
 -- app.sync_source = 'clickup' queues nothing; the outbox accepts the new kinds only with a matching
--- field; a client reads no row, cannot edit and gets none of the new columns from os_client_tasks().
+-- field; a client reads no row, cannot edit and gets none of the new columns from os_client_task_cards().
 -- All rows are made up.
 
 BEGIN;
-SELECT plan(33);
+SELECT plan(34);
 
 INSERT INTO auth.users (id, email) VALUES
   ('e7180000-0000-4000-8000-000000000001', 'fx-builder@example.test'),
@@ -187,10 +187,14 @@ SELECT set_config('request.jwt.claim.role', 'authenticated', true);
 SELECT set_config('request.jwt.claim.sub', 'e7180000-0000-4000-8000-000000000003', true);
 
 SELECT is((SELECT count(*)::int FROM public.os_tasks), 0, 'a client reads no task rows directly');
-SELECT is((SELECT count(*)::int FROM public.os_client_tasks() t, jsonb_object_keys(to_jsonb(t)) k
+SELECT is((SELECT count(*)::int FROM public.os_client_task_cards() c, jsonb_object_keys(c) k
             WHERE k IN ('description_markdown', 'priority', 'start_date', 'clickup_tags', 'clickup_created_at',
                         'clickup_creator', 'time_estimate_ms', 'clickup_fields')), 0,
-  'os_client_tasks() returns none of the new columns to a client');
+  'os_client_task_cards() returns none of the new columns to a client');
+SELECT is((SELECT count(*)::int FROM public.os_client_visible_fields
+            WHERE field IN ('description_markdown', 'priority', 'start_date', 'clickup_tags', 'clickup_created_at',
+                            'clickup_creator', 'time_estimate_ms', 'clickup_fields')), 0,
+  'none of the new columns is on the client allow-list');
 SELECT throws_ok($$SELECT public.os_set_task_field((SELECT a FROM r), 'cf-num', '1')$$, 'P0002', NULL,
   'a client cannot edit a ClickUp field');
 
