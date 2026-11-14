@@ -9,12 +9,12 @@
 //      account (acc_a) — proving it uses the sidebar selection, not a private copy.
 //   3. The `matrix` read carries the shared default range (last 14 days → yesterday).
 
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { format, subDays } from "date-fns";
 
-const h = vi.hoisted(() => ({ invoke: vi.fn() }));
+const h = vi.hoisted(() => ({ invoke: vi.fn(), selected: "acc_b" as string | null }));
 
 const ACC_A = "acc_a";
 const ACC_B = "acc_b";
@@ -51,7 +51,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 // not the first account. Real DateRangeProvider reads selectedAccountId from here.
 vi.mock("@/contexts/AccountContext", () => ({
   useAccountContext: () => ({
-    selectedAccountId: ACC_B,
+    selectedAccountId: h.selected,
     accounts: [
       { id: ACC_A, name: "Account A" },
       { id: ACC_B, name: "Account B" },
@@ -75,14 +75,58 @@ function renderPage() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  h.selected = ACC_B;
   localStorage.clear();
   h.invoke.mockImplementation(async (name: string) => {
+    if (name.startsWith("matrix") && name.includes("view=cell")) {
+      return { data: { cell: { creative_type: "UGC Native", theme: "Busy parents", hooks: [] } }, error: null };
+    }
     if (name.startsWith("matrix")) return { data: { matrix: MATRIX_PAYLOAD }, error: null };
     if (name === "account-taxonomy") return { data: { taxonomy: TAXONOMY_PAYLOAD }, error: null };
     return { data: null, error: { message: `unexpected fn ${name}` } };
   });
 });
 afterEach(() => cleanup());
+
+describe("Creative Matrix names the account it shows (second-round audit M7)", () => {
+  it("shows the selected account's name with no fallback note", async () => {
+    renderPage();
+    await screen.findByText("Busy parents");
+    expect(screen.getByTestId("matrix-account")).toHaveTextContent("Account: Account B");
+    expect(screen.getByTestId("matrix-account")).not.toHaveTextContent(/All accounts/);
+  });
+
+  it("says so when the app is on All accounts and the board uses the first account", async () => {
+    h.selected = "all";
+    renderPage();
+    await screen.findByText("Busy parents");
+    expect(screen.getByTestId("matrix-account")).toHaveTextContent("Account: Account A");
+    expect(screen.getByTestId("matrix-account")).toHaveTextContent(/All accounts, so the board shows the first account/);
+    const matrixCall = h.invoke.mock.calls.map((c) => c[0] as string).find((n) => n.startsWith("matrix"));
+    expect(matrixCall).toContain(`account_id=${ACC_A}`);
+  });
+
+  it("closes an open cell when the account changes, so the strip never shows another board's numbers", async () => {
+    const view = renderPage();
+    await screen.findByText("Busy parents");
+    fireEvent.click(screen.getByRole("button", { name: /^UGC Native × Busy parents/ }));
+    expect(await screen.findByText("Split by Hook")).toBeInTheDocument();
+
+    h.selected = ACC_A;
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    view.rerender(
+      <QueryClientProvider client={qc}>
+        <DateRangeProvider>
+          <MatrixBoardPage />
+        </DateRangeProvider>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.queryByText("Split by Hook")).toBeNull());
+    // And no cell request was ever made for the new account with the old cell.
+    const cellCalls = h.invoke.mock.calls.map((c) => c[0] as string).filter((n) => n.includes("view=cell"));
+    expect(cellCalls.every((n) => n.includes(`account_id=${ACC_B}`))).toBe(true);
+  });
+});
 
 describe("Creative Matrix uses the app-wide account + shared date range", () => {
   it("renders no account-selector combobox even with multiple accounts", async () => {

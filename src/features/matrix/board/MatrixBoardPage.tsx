@@ -3,7 +3,7 @@
 // order, plus Other / untagged) × Theme / Persona columns (creatives.theme),
 // cells colored by SUM(spend) in every view mode
 // (verdanote-winners-decided-by-spend-first). Clicking a cell splits its ads by
-// exact Hook. Four view modes: performance (spend), coverage, volume, win rate.
+// exact Hook. Four view modes: performance (spend), coverage, volume, share of theme spend.
 //
 // Data comes from the session-authed `matrix` edge fn → rpc_creative_matrix and
 // rpc_creative_matrix_theme_cell. Route access is gated builder-only in App.tsx;
@@ -30,31 +30,46 @@ const MatrixBoardPage = () => {
   // it) — no private account dropdown. When the app selection is the agency
   // "all" bucket or null, fall back to the first available account so the
   // builder-only board always has a concrete account to render.
-  const accountId = useMemo(() => {
+  // The header names the account and says so when the board picked it, so a builder on "All
+  // accounts" is never shown one account's numbers without knowing.
+  const { accountId, usedFallback } = useMemo(() => {
     if (
       selectedAccountId &&
       selectedAccountId !== "all" &&
       accounts.some((a) => a.id === selectedAccountId)
     ) {
-      return selectedAccountId;
+      return { accountId: selectedAccountId, usedFallback: false };
     }
-    return accounts[0]?.id ?? null;
+    return { accountId: accounts[0]?.id ?? null, usedFallback: accounts.length > 0 };
   }, [accounts, selectedAccountId]);
+  const accountName = accounts.find((a) => a.id === accountId)?.name ?? null;
 
   // App-wide, per-account, persisted date range (shared with every other page).
   const { dateFrom, dateTo, setDateRange } = useDateRangeContext();
   const [mode, setMode] = useState<ViewMode>("performance");
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [selectedCell, setSelectedCell] = useState<MatrixCell | null>(null);
+  // Only the selected cell's identity is stored. The cell itself is read from the current matrix by
+  // key, so the strip always shows the same numbers as the board and the drill-down.
+  // The selection remembers which board (account and range) it was made on and only counts there, so
+  // no render pairs an open cell with a different account or range.
+  const scope = `${accountId}|${dateFrom}|${dateTo}`;
+  const [picked, setPicked] = useState<{ scope: string; creative_type: string | null; theme: string | null } | null>(null);
+  const selection = picked && picked.scope === scope ? picked : null;
+  const selectedKey = selection ? cellKey(selection.creative_type, selection.theme) : null;
 
   const matrixQuery = useCreativeMatrix(accountId, dateFrom, dateTo);
+  const matrix = matrixQuery.data;
+  const selectedCell = useMemo<MatrixCell | null>(() => {
+    if (!selectedKey || !matrix) return null;
+    return matrix.cells.find((c) => cellKey(c.creative_type, c.theme) === selectedKey) ?? null;
+  }, [matrix, selectedKey]);
+
   // The selected cell's hook split + atomic ads. Fires only once a cell is
   // open (hasCell), and re-keys on the cell selector.
   const cellQuery = useCreativeMatrixCell(
     accountId,
-    !!selectedCell,
-    selectedCell?.creative_type ?? null,
-    selectedCell?.theme ?? null,
+    !!selection,
+    selection?.creative_type ?? null,
+    selection?.theme ?? null,
     dateFrom,
     dateTo,
   );
@@ -67,28 +82,19 @@ const MatrixBoardPage = () => {
   );
 
   const handleSelectCell = (cell: MatrixCell | null) => {
-    if (!cell) {
-      setSelectedKey(null);
-      setSelectedCell(null);
-      return;
-    }
-    const key = cellKey(cell.creative_type, cell.theme);
-    if (key === selectedKey) {
-      setSelectedKey(null);
-      setSelectedCell(null);
+    if (!cell || cellKey(cell.creative_type, cell.theme) === selectedKey) {
+      setPicked(null);
     } else {
-      setSelectedKey(key);
-      setSelectedCell(cell);
+      setPicked({ scope, creative_type: cell.creative_type, theme: cell.theme });
     }
   };
 
-  // Reselecting the account clears any open cell selection.
+  // A different account or date range is a different board, so any open cell is closed for good
+  // (going back to the old range does not bring the old cell back).
   useEffect(() => {
-    setSelectedKey(null);
-    setSelectedCell(null);
-  }, [accountId]);
+    setPicked(null);
+  }, [scope]);
 
-  const matrix = matrixQuery.data;
   const isEmpty = !!matrix && matrix.cells.length === 0;
 
   return (
@@ -102,6 +108,19 @@ const MatrixBoardPage = () => {
           </div>
         }
       />
+
+      {accountName && (
+        <p data-testid="matrix-account" className="font-body text-[12px] text-muted-foreground">
+          Account: <span className="font-medium text-forest">{accountName}</span>
+          {usedFallback && (
+            <>
+              {" "}
+              (the app is set to All accounts, so the board shows the first account. Pick an account in
+              the sidebar to change it.)
+            </>
+          )}
+        </p>
+      )}
 
       {/* View-mode toggle */}
       <div className="flex items-center gap-1 rounded-md bg-muted/50 p-0.5 w-fit">
