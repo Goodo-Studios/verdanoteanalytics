@@ -327,11 +327,11 @@
 
   .text-table-data {
     font-family: var(--gos-sans); font-variant-numeric: tabular-nums;
-    font-size: 1.0625rem;
-    font-weight: 500;
+    font-size: 0.875rem;
+    font-weight: 400;
+    line-height: 1.45;
     color: hsl(var(--foreground));
     font-variant-numeric: tabular-nums;
-    letter-spacing: 0.01em;
   }
 
   .text-page-title {

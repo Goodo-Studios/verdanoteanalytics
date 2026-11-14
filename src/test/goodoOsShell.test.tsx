@@ -62,6 +62,18 @@ describe("Goodo OS tokens", () => {
     expect(tokens).toMatch(/textarea,\s*select,\s*button\[role="combobox"\]\s*\{\s*background-color: var\(--gos-card\);\s*border-color: var\(--gos-edge\);/);
   });
 
+  it("puts every signed-in page on one solid sheet, with a solid header bar", () => {
+    const layout = read("src/components/AppLayout.tsx");
+    expect(layout).toMatch(/data-testid="app-sheet" className="[^"]*\bbg-card\b[^"]*"/);
+    expect(layout).not.toContain("bg-sidebar/90");
+    expect(layout).not.toMatch(/sticky top-0[^"]*backdrop-blur/);
+  });
+
+  it("keeps table text at UI size, not 17px", () => {
+    expect(read("src/components/ui/table.tsx")).toContain("w-full caption-bottom text-sm");
+    expect(read("src/index.css")).toMatch(/\.text-table-data \{[^}]*font-size: 0\.875rem;/);
+  });
+
   it("styles long-form prose even though the typography plugin is not installed", () => {
     expect(tokens).toMatch(/\.prose \{\s*font-family: var\(--gos-read\);/);
     expect(tokens).toMatch(/\.prose:not\(\.max-w-none\) \{\s*max-width: 68ch;/);
