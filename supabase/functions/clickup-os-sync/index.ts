@@ -62,7 +62,7 @@ async function fetchListTasks(reader: ClickUpReader, listId: string): Promise<Cu
   const tasks: CuTask[] = [];
   for (let page = 0; page < MAX_PAGES_PER_LIST; page++) {
     const data = await reader.get(
-      `/list/${listId}/task?page=${page}&include_closed=true&subtasks=true&archived=false`,
+      `/list/${listId}/task?page=${page}&include_closed=true&subtasks=true&archived=false&include_markdown_description=true`,
     );
     const batch = (data.tasks as CuTask[] | undefined) ?? [];
     tasks.push(...batch);

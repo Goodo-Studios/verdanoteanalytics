@@ -261,6 +261,52 @@ Deno.test("OS-017: a field with an app change waiting keeps the app value", asyn
   assertEquals(t("t2").raw_status, "assigned");
 });
 
+const richTask = (id: string, over: Record<string, unknown> = {}) => ({
+  ...bearabyTask(id, "editing"),
+  text_content: "Their brief",
+  markdown_description: "**Their** brief",
+  priority: { priority: "urgent" },
+  start_date: String(Date.parse("2026-12-03T12:00:00Z")),
+  tags: [{ name: "gifting" }],
+  custom_fields: [{ id: "cf-num", name: "Budget", type: "number", value: 5 }],
+  ...over,
+});
+
+Deno.test("the task read asks ClickUp for the markdown description, and the new fields are stored", async () => {
+  const { json, t, cu } = await postWith({ event: "taskUpdated", task_id: "t2" }, { routes: { "/task/t2": richTask("t2") } });
+  assertEquals(json.outcome, "upserted");
+  assert(cu.calls.some((c) => c.url.includes("/task/t2?include_markdown_description=true")));
+  const row = t("t2");
+  assertEquals([row.description, row.description_markdown, row.priority, row.start_date], ["Their brief", "**Their** brief", "urgent", "2026-12-03"]);
+  assertEquals(row.clickup_tags, ["gifting"]);
+  assertEquals(row.clickup_fields, [{ id: "cf-num", name: "Budget", type: "number", display: "5" }]);
+});
+
+Deno.test("OS-017: a description, priority, start date or custom field with an app change waiting keeps the app value", async () => {
+  const tables = seed();
+  tables.os_tasks[0] = {
+    ...tables.os_tasks[0],
+    description: "My brief",
+    description_markdown: "My brief",
+    priority: "low",
+    start_date: "2026-12-09",
+    clickup_fields: [{ id: "cf-num", name: "Budget", type: "number", display: "99" }],
+  };
+  const outbox = ["description", "priority", "start_date", "cf:cf-num"].map((field, i) => ({ id: i + 1, clickup_task_id: "t2", state: "queued", field }));
+  const db = fakeDb({ tables: { ...tables, os_clickup_outbox: outbox } as Record<string, Record<string, unknown>[]> });
+  const cu = fakeClickUp({ ...ROUTES, "/task/t2": richTask("t2") });
+  const body = JSON.stringify({ event: "taskUpdated", task_id: "t2" });
+  const res = await mod.handler(
+    new Request("https://fn.local/clickup-webhook", { method: "POST", headers: { "X-Signature": await sign(body) }, body }),
+    { supabase: db.supabase, fetch: cu.fetch, background: false },
+  );
+  assertEquals((await res.json()).outcome, "upserted");
+  const row = db.table("os_tasks").find((r) => r.clickup_task_id === "t2")!;
+  assertEquals([row.description, row.description_markdown, row.priority, row.start_date], ["My brief", "My brief", "low", "2026-12-09"]);
+  assertEquals((row.clickup_fields as Record<string, unknown>[])[0].display, "99");
+  assertEquals(row.clickup_tags, ["gifting"]);
+});
+
 Deno.test("OS-017: a comment the app wrote to ClickUp is not imported again", async () => {
   const { json, db } = await postWith({ event: "taskCommentPosted", task_id: "t1" }, {
     outbox: [{ id: 1, clickup_task_id: "t1", state: "sent", kind: "comment", field: "comment", clickup_ref: "cm1" }],

@@ -150,6 +150,7 @@ Deno.test("full: walks the three spaces with GET only and paginates", async () =
   const bpv = urls.filter((u) => u.includes("/list/l-bpv/task"));
   assertEquals(bpv.length, 2, "two pages");
   assert(bpv.every((u) => u.includes("include_closed=true") && u.includes("subtasks=true") && u.includes("archived=false")));
+  assert(bpv.every((u) => u.includes("include_markdown_description=true")), "the markdown description is requested");
   assertEquals(urls.filter((u) => u.includes("l-mpv")), [], "a skipped folder is never read");
   assertEquals(body.seen, 8);
   assertEquals(body.skippedFolders, [{ name: "Mystery Co", reason: "unmatched" }]);

@@ -84,6 +84,12 @@ export interface CuTask {
   date_updated?: string | number | null;
   parent?: string | null;
   url?: string | null;
+  markdown_description?: string | null;
+  priority?: { priority?: string | null } | null;
+  start_date?: string | number | null;
+  tags?: { name?: string | null }[] | null;
+  creator?: CuUser | null;
+  time_estimate?: string | number | null;
   assignees?: CuUser[] | null;
   custom_fields?: CuField[] | null;
   list?: { id?: string; name?: string } | null;
@@ -118,6 +124,17 @@ export interface OsTaskRow {
   hooks: string[];
   qa_checklist: { item: string; result: string }[];
   description: string | null;
+  /** ClickUp's markdown description; the app edits and writes back this one. */
+  description_markdown: string | null;
+  /** urgent, high, normal or low; null when ClickUp has none. */
+  priority: string | null;
+  start_date: string | null;
+  clickup_tags: string[];
+  clickup_created_at: string | null;
+  clickup_creator: { id: string; username: string | null; email: string | null } | null;
+  time_estimate_ms: number | null;
+  /** Every custom field of the task as ClickUp returns it (see FieldEntry). */
+  clickup_fields: FieldEntry[];
   clickup_space_id: string;
   clickup_list_id: string;
   clickup_list_name: string;
@@ -247,6 +264,147 @@ export function hooksOf(fields: CuField[] | null | undefined): string[] {
     .filter((h): h is string => !!h);
 }
 
+// ------------------------------------------------------------------ all custom fields, priority, tags
+
+export const PRIORITIES = ["urgent", "high", "normal", "low"] as const;
+/** ClickUp's numeric priority for the app's name (PUT /task/{id} {priority}). */
+export const PRIORITY_IDS: Record<string, number> = { urgent: 1, high: 2, normal: 3, low: 4 };
+
+/** urgent, high, normal or low, or null. */
+export function priorityName(p: { priority?: string | null } | null | undefined): string | null {
+  const v = (p?.priority ?? "").trim().toLowerCase();
+  return (PRIORITIES as readonly string[]).includes(v) ? v : null;
+}
+
+export function tagNames(tags: { name?: string | null }[] | null | undefined): string[] {
+  return (Array.isArray(tags) ? tags : []).map((t) => (t?.name ?? "").trim()).filter((n) => n.length > 0);
+}
+
+export function positiveNumber(v: unknown): number | null {
+  if (isEmpty(v)) return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * One ClickUp custom field as stored in os_tasks.clickup_fields. `display` is the canonical text of
+ * the value, the same form the app edits and the write-back compares: the option name of a
+ * drop-down, YYYY-MM-DD for a date, "true" or "false" for a checkbox, the trimmed text, the
+ * number, or the people / labels joined with ", ". It is null when the field is empty.
+ */
+export interface FieldEntry {
+  id: string;
+  name: string;
+  type: string;
+  display: string | null;
+  /** Choices of a drop-down or labels field. */
+  options?: { id: string; name: string }[];
+}
+
+/** Field types the app can edit and write back. Everything else is shown read-only. */
+export const EDITABLE_FIELD_TYPES: readonly string[] = [
+  "short_text",
+  "text",
+  "url",
+  "email",
+  "phone",
+  "number",
+  "currency",
+  "date",
+  "drop_down",
+  "checkbox",
+];
+
+export function isEditableFieldType(type: string | null | undefined): boolean {
+  return EDITABLE_FIELD_TYPES.includes(type ?? "");
+}
+
+export function fieldDisplay(f: CuField): string | null {
+  const v = f.value;
+  switch (f.type) {
+    case "drop_down":
+      return dropdownName(f);
+    case "date":
+      return dateField(f);
+    case "checkbox":
+      return v === true || v === "true" ? "true" : "false";
+    case "users":
+      return usersField(f).map((u) => u.email ?? u.username ?? u.id).join(", ") || null;
+    case "labels": {
+      const ids = Array.isArray(v) ? v.map(String) : [];
+      const names = (f.type_config?.options ?? []).filter((o) => ids.includes(String(o.id))).map((o) => (o.name ?? "").trim());
+      return names.filter(Boolean).join(", ") || null;
+    }
+    case "number":
+    case "currency": {
+      if (isEmpty(v)) return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? String(n) : null;
+    }
+    default:
+      if (typeof v === "string") return v.trim() || null;
+      if (typeof v === "number" || typeof v === "boolean") return String(v);
+      return null;
+  }
+}
+
+export function fieldEntry(f: CuField): FieldEntry | null {
+  if (!f || isEmpty(f.id)) return null;
+  const type = f.type ?? "";
+  const entry: FieldEntry = { id: String(f.id), name: (f.name ?? "").trim() || String(f.id), type, display: fieldDisplay(f) };
+  if (type === "drop_down" || type === "labels") {
+    entry.options = (f.type_config?.options ?? [])
+      .filter((o) => !isEmpty(o.id) && (o.name ?? "").trim())
+      .map((o) => ({ id: String(o.id), name: String(o.name).trim() }));
+  }
+  return entry;
+}
+
+export function fieldEntries(fields: CuField[] | null | undefined): FieldEntry[] {
+  return (fields ?? []).map(fieldEntry).filter((e): e is FieldEntry => !!e);
+}
+
+/**
+ * The os_tasks columns that mirror a custom field, by field id. The app keeps both in step when a
+ * person edits one of these fields (os_set_task_field does the same in SQL).
+ */
+export const FIELD_COLUMNS: Record<string, string[]> = {
+  [FIELDS.contentType.id]: ["content_type"],
+  [FIELDS.assetLink.id]: ["asset_url"],
+  [FIELDS.brief.id]: ["brief_type"],
+  [FIELDS.hook1.id]: ["hooks"],
+  [FIELDS.hook2.id]: ["hooks"],
+  [FIELDS.briefDue.id]: ["brief_due_date"],
+  [FIELDS.cutToStrategist.id]: ["cut_to_strategist_date"],
+  [FIELDS.cutToClient.id]: ["cut_to_client_date"],
+  [FIELDS.editDue.id]: ["edit_due_date"],
+  [FIELDS.productionDate.id]: ["production_date"],
+  [FIELDS.briefHandedOff.id]: ["brief_handed_off_date"],
+};
+
+/** Column values that follow a set of field entries (only for the mirrored fields present). */
+export function columnsFromEntries(entries: FieldEntry[]): Record<string, unknown> {
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  const out: Record<string, unknown> = {};
+  const set = (col: string, ref: FieldRef, f: (e: FieldEntry) => unknown) => {
+    const e = byId.get(ref.id);
+    if (e) out[col] = f(e);
+  };
+  set("content_type", FIELDS.contentType, (e) => e.display);
+  set("asset_url", FIELDS.assetLink, (e) => safeLink(e.display));
+  set("brief_type", FIELDS.brief, (e) => e.display);
+  set("brief_due_date", FIELDS.briefDue, (e) => e.display);
+  set("cut_to_strategist_date", FIELDS.cutToStrategist, (e) => e.display);
+  set("cut_to_client_date", FIELDS.cutToClient, (e) => e.display);
+  set("edit_due_date", FIELDS.editDue, (e) => e.display);
+  set("production_date", FIELDS.productionDate, (e) => e.display);
+  set("brief_handed_off_date", FIELDS.briefHandedOff, (e) => e.display);
+  if (byId.has(FIELDS.hook1.id) || byId.has(FIELDS.hook2.id)) {
+    out.hooks = [byId.get(FIELDS.hook1.id)?.display, byId.get(FIELDS.hook2.id)?.display].filter((h): h is string => !!h);
+  }
+  return out;
+}
+
 /** A "{Client} Project View" list in the Client Operations space. */
 export function isAssetList(spaceId: string, listName: string): boolean {
   return spaceId === CLICKUP_CLIENT_SPACE_ID && /project view\s*$/i.test(listName ?? "");
@@ -289,6 +447,14 @@ export function mapTask(task: CuTask, ctx: MapContext): MappedTask {
     hooks: hooksOf(fields),
     qa_checklist: qaChecklist(fields),
     description,
+    description_markdown: (task.markdown_description ?? "").trim() || null,
+    priority: priorityName(task.priority),
+    start_date: msToDate(task.start_date),
+    clickup_tags: tagNames(task.tags),
+    clickup_created_at: msToIso(task.date_created),
+    clickup_creator: cleanUser(task.creator),
+    time_estimate_ms: positiveNumber(task.time_estimate),
+    clickup_fields: fieldEntries(fields),
     clickup_space_id: ctx.spaceId,
     clickup_list_id: ctx.list.id,
     clickup_list_name: ctx.list.name,
@@ -343,6 +509,9 @@ export const COMPARED_FIELDS = [
   "hooks",
   "qa_checklist",
   "description",
+  "description_markdown",
+  "priority",
+  "start_date",
   "clickup_list_id",
   "brief_due_date",
   "cut_to_strategist_date",

@@ -118,7 +118,7 @@ export async function processEvent(
 
     let task: CuTask;
     try {
-      task = (await reader.get(`/task/${encodeURIComponent(taskId)}`)) as unknown as CuTask;
+      task = (await reader.get(`/task/${encodeURIComponent(taskId)}?include_markdown_description=true`)) as unknown as CuTask;
     } catch (err) {
       if (err instanceof ClickUpNotFound) return await done({ outcome: "not_found" });
       throw err;

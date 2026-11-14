@@ -18,6 +18,12 @@
 //   comment     POST /task/{id}/comment, with the author and thread named in the text. ClickUp has
 //               one comment stream, which only staff see, so client-thread comments are labelled
 //               as such.
+//   description PUT /task/{id} {markdown_description}: the brief text staff edit in the task modal.
+//   priority    PUT /task/{id} {priority: 1..4 or null}.
+//   start_date  PUT /task/{id} {start_date, start_date_time: false}, noon UTC, or null.
+//   custom_field  any editable ClickUp custom field (text, url, email, phone, number, currency, date,
+//               drop-down, checkbox): POST /task/{id}/field/{field id} {value}, or DELETE of the
+//               value when the person cleared it. The field id is in the row's field ("cf:<id>").
 //   decision    a comment saying who approved or asked for changes, with the note. The ClickUp
 //               status is not moved: staff move it in the app, which queues its own status row.
 //
@@ -37,7 +43,25 @@
 // our last write, and the sync never imports our own comments.
 
 import { type ClickUpWritePolicy, clickUpWritePolicy, type Env, mayWriteToList } from "./clickup-write-guard.ts";
-import { CLICKUP_TEAM_ID, type CuTask, FIELDS, findField, msToDate, msToIso, normaliseStatus, usersField } from "./os-task-map.ts";
+import {
+  CLICKUP_TEAM_ID,
+  columnsFromEntries,
+  type CuField,
+  type CuTask,
+  type FieldEntry,
+  fieldDisplay,
+  fieldEntry,
+  FIELD_COLUMNS,
+  FIELDS,
+  findField,
+  isEditableFieldType,
+  msToDate,
+  msToIso,
+  normaliseStatus,
+  PRIORITY_IDS,
+  priorityName,
+  usersField,
+} from "./os-task-map.ts";
 import { CLICKUP_API, type FetchLike, type OsTaskWrite, resolvePeople, type SupabaseLike } from "./os-clickup-sync.ts";
 
 export const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
@@ -50,7 +74,7 @@ export const HELD_OFF = "held: write-back is off (CLICKUP_WRITEBACK_ENABLED is n
 export const HELD_LIST = "held: this ClickUp list is not in CLICKUP_WRITEBACK_LIST_IDS";
 export const HELD_GUARD = "held: ClickUp writes are blocked in this environment for this list";
 
-export type Kind = "status" | "assignees" | "due_date" | "comment" | "decision";
+export type Kind = "status" | "assignees" | "due_date" | "description" | "priority" | "start_date" | "custom_field" | "comment" | "decision";
 export type Role = "strategist" | "producer" | "editor";
 
 export interface OutboxRow {
@@ -140,7 +164,7 @@ export class ClickUpHttpError extends Error {
 }
 
 export interface ClickUpClient {
-  request(method: "GET" | "PUT" | "POST", path: string, body?: unknown): Promise<Record<string, unknown>>;
+  request(method: "GET" | "PUT" | "POST" | "DELETE", path: string, body?: unknown): Promise<Record<string, unknown>>;
 }
 
 export function clickupClient(token: string, fetchFn: FetchLike, nowMs: () => number = Date.now): ClickUpClient {
@@ -254,8 +278,9 @@ export async function keepPendingAppValues(db: SupabaseLike, row: OsTaskWrite): 
     .eq("clickup_task_id", row.clickup_task_id).eq("state", "queued");
   if (error || !pending || pending.length === 0) return row;
   const fields = new Set(pending.map((p) => String(p.field)));
-  const { data: app } = await db.from("os_tasks").select("status, due_date, strategist_id, producer_id, editor_id")
-    .eq("clickup_task_id", row.clickup_task_id).limit(1);
+  const { data: app } = await db.from("os_tasks").select(
+    "status, due_date, strategist_id, producer_id, editor_id, description, description_markdown, priority, start_date, clickup_fields",
+  ).eq("clickup_task_id", row.clickup_task_id).limit(1);
   const cur = app?.[0];
   if (!cur) return row;
   const out = { ...row } as OsTaskWrite & Record<string, unknown>;
@@ -264,8 +289,37 @@ export async function keepPendingAppValues(db: SupabaseLike, row: OsTaskWrite): 
   for (const role of ["strategist", "producer", "editor"] as const) {
     if (fields.has(role)) out[`${role}_id`] = str(cur[`${role}_id`]);
   }
+  if (fields.has("description")) {
+    out.description = str(cur.description);
+    out.description_markdown = str(cur.description_markdown);
+  }
+  if (fields.has("priority")) out.priority = str(cur.priority);
+  if (fields.has("start_date")) out.start_date = str(cur.start_date);
+
+  // Custom fields: keep the app's entry (and the columns that mirror it) for each field still waiting.
+  const pendingIds = [...fields].filter((f) => f.startsWith(CF_PREFIX)).map((f) => f.slice(CF_PREFIX.length));
+  if (pendingIds.length > 0) {
+    const appEntries = Array.isArray(cur.clickup_fields) ? (cur.clickup_fields as FieldEntry[]) : [];
+    const entries = [...(row.clickup_fields ?? [])];
+    const kept: FieldEntry[] = [];
+    for (const id of pendingIds) {
+      const mine = appEntries.find((e) => e.id === id);
+      if (!mine) continue;
+      kept.push(mine);
+      const at = entries.findIndex((e) => e.id === id);
+      if (at >= 0) entries[at] = mine;
+      else entries.push(mine);
+    }
+    out.clickup_fields = entries;
+    // Only the mirrored columns of the kept fields; hooks come from both hook fields.
+    const columns = columnsFromEntries(entries);
+    const wanted = new Set(kept.flatMap((e) => FIELD_COLUMNS[e.id] ?? []));
+    for (const col of wanted) if (col in columns) out[col] = columns[col];
+  }
   return out;
 }
+
+export const CF_PREFIX = "cf:";
 
 // ------------------------------------------------------------------ one row
 
@@ -323,7 +377,7 @@ async function logClash(ctx: RunContext, row: OutboxRow, appValue: string | null
 }
 
 /** ClickUp won a clash: the app row takes ClickUp's value (service role, so nothing is queued). */
-async function applyClickUpValue(ctx: RunContext, row: OutboxRow, current: string | null) {
+async function applyClickUpValue(ctx: RunContext, row: OutboxRow, current: string | null, live: CuField | null = null) {
   if (!row.task_id) return;
   const values: Record<string, unknown> = {};
   if (row.kind === "status") {
@@ -333,6 +387,23 @@ async function applyClickUpValue(ctx: RunContext, row: OutboxRow, current: strin
     values.status = current;
   } else if (row.kind === "due_date") {
     values.due_date = current;
+  } else if (row.kind === "start_date") {
+    values.start_date = current;
+  } else if (row.kind === "priority") {
+    values.priority = current;
+  } else if (row.kind === "description") {
+    values.description_markdown = current;
+    values.description = current;
+  } else if (row.kind === "custom_field") {
+    if (!live) return;
+    const entry = fieldEntry(live);
+    if (!entry) return;
+    const { data } = await ctx.db.from("os_tasks").select("clickup_fields").eq("id", row.task_id).limit(1);
+    const stored = Array.isArray(data?.[0]?.clickup_fields) ? (data![0].clickup_fields as FieldEntry[]) : [];
+    const entries = stored.some((e) => e.id === entry.id) ? stored.map((e) => (e.id === entry.id ? entry : e)) : [...stored, entry];
+    values.clickup_fields = entries;
+    const columns = columnsFromEntries(entries);
+    for (const col of FIELD_COLUMNS[entry.id] ?? []) if (col in columns) values[col] = columns[col];
   } else {
     const people = await resolvePeople(ctx.db, [current]);
     values[`${row.field}_id`] = current ? people.get(current) ?? null : null;
@@ -357,6 +428,46 @@ export async function clickUpStatusName(db: SupabaseLike, listId: string | null,
   return name ?? status;
 }
 
+const trimmed = (v: string | null): string | null => (v === null ? null : v.trim() || null);
+
+/**
+ * ClickUp's description as the write-back compares it. ClickUp keeps a markdown and a plain text
+ * form; a task copied before the markdown column existed has only the plain text in the app. So a
+ * value that matches either form counts as that value.
+ */
+function currentDescription(task: CuTask, from: string | null, to: string | null): string | null {
+  const md = trimmed(task.markdown_description ?? null);
+  const plain = trimmed(task.text_content ?? null);
+  if (to !== null && (md === to || plain === to)) return to;
+  if (from !== null && (md === from || plain === from)) return from;
+  return md ?? plain;
+}
+
+/** Sets or clears one custom field, then returns the task (for its new date_updated). */
+async function writeCustomField(ctx: RunContext, id: string, field: CuField, to: string | null): Promise<Record<string, unknown>> {
+  const path = `/task/${id}/field/${encodeURIComponent(String(field.id))}`;
+  if (to === null) {
+    await ctx.cu.request("DELETE", path);
+  } else if (field.type === "drop_down") {
+    const choice = (field.type_config?.options ?? []).find((o) => (o.name ?? "").trim().toLowerCase() === to.toLowerCase());
+    if (!choice?.id) throw new Permanent(`"${to}" is not a choice of this field in ClickUp`);
+    await ctx.cu.request("POST", path, { value: choice.id });
+  } else if (field.type === "date") {
+    const when = dateToMs(to);
+    if (when === null) throw new Permanent(`"${to}" is not a date`);
+    await ctx.cu.request("POST", path, { value: when, value_options: { time: false } });
+  } else if (field.type === "number" || field.type === "currency") {
+    const n = Number(to);
+    if (!Number.isFinite(n)) throw new Permanent(`"${to}" is not a number`);
+    await ctx.cu.request("POST", path, { value: n });
+  } else if (field.type === "checkbox") {
+    await ctx.cu.request("POST", path, { value: to === "true" });
+  } else {
+    await ctx.cu.request("POST", path, { value: to });
+  }
+  return await ctx.cu.request("GET", `/task/${id}`);
+}
+
 async function sendRow(ctx: RunContext, row: OutboxRow): Promise<{ outcome: Outcome; clickupUpdatedMs: number | null; ref: string | null }> {
   const id = encodeURIComponent(row.clickup_task_id);
 
@@ -369,7 +480,7 @@ async function sendRow(ctx: RunContext, row: OutboxRow): Promise<{ outcome: Outc
 
   let task: CuTask;
   try {
-    task = (await ctx.cu.request("GET", `/task/${id}`)) as unknown as CuTask;
+    task = (await ctx.cu.request("GET", `/task/${id}?include_markdown_description=true`)) as unknown as CuTask;
   } catch (err) {
     if (err instanceof ClickUpHttpError && err.status === 404) throw new Permanent("the task is not in ClickUp any more");
     throw err;
@@ -381,12 +492,27 @@ async function sendRow(ctx: RunContext, row: OutboxRow): Promise<{ outcome: Outc
   let current: string | null;
   let fieldId: string | null = null;
   let currentIds: string[] = [];
+  let live: CuField | null = null;
   if (row.kind === "status") {
     from = normaliseStatus(from);
     to = normaliseStatus(to);
     current = normaliseStatus(task.status?.status);
   } else if (row.kind === "due_date") {
     current = msToDate(task.due_date);
+  } else if (row.kind === "start_date") {
+    current = msToDate(task.start_date);
+  } else if (row.kind === "priority") {
+    current = priorityName(task.priority);
+  } else if (row.kind === "description") {
+    from = trimmed(from);
+    to = trimmed(to);
+    current = currentDescription(task, from, to);
+  } else if (row.kind === "custom_field") {
+    const cfId = row.field.slice(CF_PREFIX.length);
+    live = (task.custom_fields ?? []).find((f) => String(f.id) === cfId) ?? null;
+    if (!live) throw new Permanent("the field is not on this task in ClickUp");
+    if (!isEditableFieldType(live.type)) throw new Permanent(`a ${live.type} field cannot be written from the app`);
+    current = fieldDisplay(live);
   } else {
     const ref = FIELDS[row.field as Role];
     if (!ref) throw new Permanent(`unknown people field ${row.field}`);
@@ -413,7 +539,7 @@ async function sendRow(ctx: RunContext, row: OutboxRow): Promise<{ outcome: Outc
   if (decision.action === "noop") return { outcome: "noop", clickupUpdatedMs: null, ref: null };
   if (decision.action === "clash") {
     await logClash(ctx, row, to, current, "clickup", clickupChangedMs);
-    await applyClickUpValue(ctx, row, current);
+    await applyClickUpValue(ctx, row, current, live);
     return { outcome: "clash", clickupUpdatedMs: null, ref: null };
   }
 
@@ -423,6 +549,14 @@ async function sendRow(ctx: RunContext, row: OutboxRow): Promise<{ outcome: Outc
     res = await ctx.cu.request("PUT", `/task/${id}`, { status: await clickUpStatusName(ctx.db, listId, to) });
   } else if (row.kind === "due_date") {
     res = await ctx.cu.request("PUT", `/task/${id}`, { due_date: dateToMs(to), due_date_time: false });
+  } else if (row.kind === "start_date") {
+    res = await ctx.cu.request("PUT", `/task/${id}`, { start_date: dateToMs(to), start_date_time: false });
+  } else if (row.kind === "priority") {
+    res = await ctx.cu.request("PUT", `/task/${id}`, { priority: to ? PRIORITY_IDS[to] ?? null : null });
+  } else if (row.kind === "description") {
+    res = await ctx.cu.request("PUT", `/task/${id}`, { markdown_description: to ?? "" });
+  } else if (row.kind === "custom_field") {
+    res = await writeCustomField(ctx, id, live!, to);
   } else {
     let add: string[] = [];
     if (to) {

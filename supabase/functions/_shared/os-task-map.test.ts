@@ -5,14 +5,17 @@
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   asText,
+  columnsFromEntries,
   type CuTask,
   decideStatus,
   diffTask,
   dropdownName,
+  FIELD_COLUMNS,
   FIELDS,
   findField,
   firstListStatus,
   isAssetList,
+  isEditableFieldType,
   type MapContext,
   mapTask,
   msToDate,
@@ -254,6 +257,105 @@ Deno.test("diff reports only fields that differ, in text form", () => {
   const status = diffs.find((d) => d.field === "status")!;
   assertEquals(status, { clickup_task_id: "86abc", field: "status", app_value: "complete", clickup_value: "editing" });
   assertEquals(diffs.find((d) => d.field === "hooks")!.clickup_value, '["Hook one"]');
+});
+
+// ------------------------------------------------------------------ the rest of the ClickUp task
+
+const RICH: CuTask = {
+  ...TASK,
+  markdown_description: "Shoot at the **studio**.\n",
+  priority: { priority: "High" },
+  start_date: ms("2026-11-09T12:00:00Z"),
+  tags: [{ name: "gifting" }, { name: "  " }, { name: "q4" }],
+  creator: { id: 7, username: "Pat Strategist", email: "Pat.S@Goodo.test" },
+  time_estimate: 5400000,
+  custom_fields: [
+    ...(TASK.custom_fields ?? []),
+    { id: "cf-chk", name: "Rush", type: "checkbox", value: "true" },
+    { id: "cf-chk2", name: "Late", type: "checkbox", value: null },
+    { id: "cf-num", name: "Budget", type: "number", value: "1200.50" },
+    {
+      id: "cf-lbl",
+      name: "Channels",
+      type: "labels",
+      value: ["l1", "l3"],
+      type_config: { options: [{ id: "l1", name: "Meta" }, { id: "l2", name: "TikTok" }, { id: "l3", name: "YouTube" }] },
+    },
+  ],
+};
+
+Deno.test("maps the markdown description, priority, start date, tags, creator, estimate and creation time", () => {
+  const { row } = mapTask(RICH, CTX);
+  assertEquals(row.description, "Shoot at the studio.");
+  assertEquals(row.description_markdown, "Shoot at the **studio**.");
+  assertEquals(row.priority, "high");
+  assertEquals(row.start_date, "2026-11-09");
+  assertEquals(row.clickup_tags, ["gifting", "q4"]);
+  assertEquals(row.clickup_creator, { id: "7", username: "Pat Strategist", email: "pat.s@goodo.test" });
+  assertEquals(row.time_estimate_ms, 5400000);
+  assertEquals(row.clickup_created_at, "2026-11-01T12:00:00.000Z");
+});
+
+Deno.test("a task with none of those keeps them empty", () => {
+  const { row } = mapTask({ id: "bare", name: "x", status: { status: "assigned" } }, CTX);
+  assertEquals(
+    [row.description_markdown, row.priority, row.start_date, row.clickup_tags, row.clickup_creator, row.time_estimate_ms, row.clickup_fields],
+    [null, null, null, [], null, null, []],
+  );
+  assertEquals(mapTask({ id: "p", name: "x", priority: { priority: "someday" } }, CTX).row.priority, null);
+});
+
+Deno.test("clickup_fields keeps every custom field with its canonical text and choices", () => {
+  const { row } = mapTask(RICH, CTX);
+  const by = (id: string) => row.clickup_fields.find((f) => f.id === id)!;
+  assertEquals(row.clickup_fields.length, (RICH.custom_fields ?? []).length);
+  assertEquals([by(FIELDS.contentType.id).type, by(FIELDS.contentType.id).display], ["drop_down", "UGC"]);
+  assertEquals(by(FIELDS.contentType.id).options, [{ id: "ct-1", name: "UGC" }]);
+  assertEquals(by(FIELDS.briefDue.id).display, "2026-11-05");
+  assertEquals(by(FIELDS.briefHandedOff.id).display, null);
+  assertEquals(by(FIELDS.hook1.id).display, "Hook one");
+  assertEquals(by(FIELDS.hook2.id).display, null);
+  assertEquals(by(FIELDS.reviewedBy.id).display, "sam@goodo.test");
+  assertEquals([by("cf-chk").display, by("cf-chk2").display], ["true", "false"]);
+  assertEquals(by("cf-num").display, "1200.5");
+  assertEquals([by("cf-lbl").display, by("cf-lbl").options?.length], ["Meta, YouTube", 3]);
+});
+
+Deno.test("only text, number, date, drop-down and checkbox style fields are editable", () => {
+  for (const t of ["short_text", "text", "url", "email", "phone", "number", "currency", "date", "drop_down", "checkbox"]) {
+    assert(isEditableFieldType(t), t);
+  }
+  for (const t of ["users", "labels", "tasks", "attachments", "formula", "rating", "location", "", undefined]) {
+    assert(!isEditableFieldType(t), String(t));
+  }
+});
+
+Deno.test("columnsFromEntries gives the columns that mirror the fields, hooks in order", () => {
+  const { row } = mapTask(RICH, CTX);
+  const cols = columnsFromEntries(row.clickup_fields);
+  assertEquals(cols, {
+    content_type: "UGC",
+    asset_url: "https://app.air.inc/a/xyz",
+    brief_type: "UGC Video",
+    brief_due_date: "2026-11-05",
+    cut_to_strategist_date: "2026-11-14",
+    cut_to_client_date: "2026-11-17",
+    edit_due_date: "2026-11-13",
+    production_date: "2026-11-08",
+    brief_handed_off_date: null,
+    hooks: ["Hook one"],
+  });
+  assertEquals(columnsFromEntries([]), {});
+  // The mapped columns equal what mapTask puts in the row, so a sync and an edit agree.
+  for (const [k, v] of Object.entries(cols)) assertEquals((row as unknown as Record<string, unknown>)[k], v, k);
+  assertEquals(Object.keys(FIELD_COLUMNS).length, 11);
+});
+
+Deno.test("the nightly comparison also covers the description, markdown, priority and start date", () => {
+  const { row } = mapTask(RICH, CTX);
+  const app = { ...row, description_markdown: "old", priority: "low", start_date: "2026-11-01" } as Record<string, unknown>;
+  const fields = diffTask(app, row).map((d) => d.field);
+  assertEquals(fields, ["description_markdown", "priority", "start_date"]);
 });
 
 Deno.test("diff treats empty string, empty array and null alike", () => {

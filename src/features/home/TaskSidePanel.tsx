@@ -6,6 +6,8 @@
 // Playbook (OS-026): a task with a content type links to the matching Brain playbook section.
 // Export checklist (OS-023): shown only when the os_settings switch is on.
 // Status (list statuses): staff pick from the statuses of the task's own ClickUp list.
+// ClickUp fields: the brief, the details (dates, priority, people) and every ClickUp custom field
+// are edited in place (TaskFields.tsx). Edits to a ClickUp task are queued for write-back, which is off.
 import { useEffect, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { BookOpen, ExternalLink, X } from "lucide-react";
@@ -28,6 +30,8 @@ import { displayStatus } from "@/lib/exportChecklist";
 import { ExportChecklist } from "./ExportChecklist";
 import { useTaskStatusOptions } from "@/hooks/useTaskStatuses";
 import { useSetTaskStatus } from "@/hooks/useToday";
+import { toFieldEntries } from "@/lib/taskFields";
+import { BriefEditor, CustomFields, TaskDetails } from "./TaskFields";
 
 function authorName(c: TaskComment): string {
   const a = c.author ?? {};
@@ -166,6 +170,7 @@ export function TaskSidePanel({ task, today, onClose }: { task: MyTaskRow | null
   const late = task ? isLateDue(task.due_date, today) : false;
   const detail = data?.detail;
   const assetLink = detail?.asset_url || detail?.clickup_url || null;
+  const hasFieldEntries = toFieldEntries(detail?.clickup_fields).length > 0;
 
   return (
     <DialogPrimitive.Root open={!!task} onOpenChange={(open) => (!open ? onClose() : undefined)}>
@@ -210,18 +215,22 @@ export function TaskSidePanel({ task, today, onClose }: { task: MyTaskRow | null
               ) : (
                 <>
                   <Section title="Brief" testId="task-panel-brief">
-                    {detail?.brief || detail?.description ? (
-                      <p className="whitespace-pre-wrap break-words text-sm">{detail.brief || detail.description}</p>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">No brief yet.</p>
-                    )}
-                    {detail?.hooks && detail.hooks.length > 0 ? (
+                    <BriefEditor taskId={task.id} detail={detail ?? null} readOnly={!!task.read_only} />
+                    {detail?.hooks && detail.hooks.length > 0 && !hasFieldEntries ? (
                       <ul className="list-disc pl-5 text-sm">
                         {detail.hooks.map((h, i) => (
                           <li key={i}>{h}</li>
                         ))}
                       </ul>
                     ) : null}
+                  </Section>
+
+                  <Section title="Details" testId="task-panel-details">
+                    <TaskDetails taskId={task.id} detail={detail ?? null} readOnly={!!task.read_only} fallbackDue={task.due_date} />
+                  </Section>
+
+                  <Section title="ClickUp fields" testId="task-panel-fields">
+                    <CustomFields taskId={task.id} detail={detail ?? null} readOnly={!!task.read_only} />
                   </Section>
 
                   {detail?.content_type?.trim() ? <PlaybookLink contentType={detail.content_type} /> : null}
