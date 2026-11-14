@@ -1,4 +1,4 @@
--- Goodo OS: the task modal shows and edits every ClickUp field (migration 20261207080001).
+-- Goodo OS: the task modal shows and edits every ClickUp field (migration 20261207080002).
 --
 -- Run with the local stack (requires Docker):  supabase test db
 --

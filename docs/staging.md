@@ -40,7 +40,7 @@ Migration `20261120080001_os_clickup_live_copy.sql` and two functions copy every
 
 ### OS-017: app changes written back to ClickUp (off by default)
 
-Migration `20261130080001_os_clickup_writeback.sql` queues every status, due date, strategist, producer and editor change, comment and client decision made in the app in `os_clickup_outbox`. Migration `20261207080001_os_task_clickup_fields.sql` adds four more kinds to the same queue (see "What the task modal queues" below). Changes written by the ClickUp sync or webhook (service role) are never queued. The function `clickup-writeback` (service role only, every minute from the cron job `clickup-writeback-every-minute` in production; staging has no cron) sends them.
+Migration `20261130080001_os_clickup_writeback.sql` queues every status, due date, strategist, producer and editor change, comment and client decision made in the app in `os_clickup_outbox`. Migration `20261207080002_os_task_clickup_fields.sql` adds four more kinds to the same queue (see "What the task modal queues" below). Changes written by the ClickUp sync or webhook (service role) are never queued. The function `clickup-writeback` (service role only, every minute from the cron job `clickup-writeback-every-minute` in production; staging has no cron) sends them.
 
 **Write-back is off.** Nothing in the repo, CI or the deploy scripts turns it on. While off, each run marks queued rows `held` and does not call ClickUp. Integration health shows "Write-back is off" to builders, with the counts, failures and clashes.
 
@@ -77,7 +77,7 @@ Not queued: tags, creator, creation date, time estimate, list and ClickUp assign
 
 All of the guards above are unchanged: every row is held while `CLICKUP_WRITEBACK_ENABLED` is not `true`, only lists in `CLICKUP_WRITEBACK_LIST_IDS` are written, the staging write guard applies, ClickUp is read first so a later change in ClickUp wins a clash, and a webhook event keeps the app's value for any field with a change still waiting. **Write-back is still off.** Nothing in this change sets a secret, turns it on or calls ClickUp.
 
-Deploy order: apply migration `20261207080001_os_task_clickup_fields.sql` before deploying `clickup-os-sync` and `clickup-webhook`, because they now write the new columns and an upsert to a database without them fails.
+Deploy order: apply migration `20261207080002_os_task_clickup_fields.sql` before deploying `clickup-os-sync` and `clickup-webhook`, because they now write the new columns and an upsert to a database without them fails.
 
 Tests: `supabase/tests/os_clickup_writeback_test.sql`, `supabase/tests/os_task_clickup_fields_test.sql`, `supabase/functions/_shared/os-clickup-writeback.test.ts`, `supabase/functions/clickup-writeback/index.test.ts`, the OS-017 cases in `supabase/functions/clickup-webhook/index.test.ts`, `src/test/clickupWritebackSection.test.tsx`, `src/test/taskModalFields.test.tsx`, `src/test/taskFields.test.ts`, `src/test/taskEditHooks.test.tsx`. None of them calls ClickUp.
 - **The site is behind a password.** `middleware.ts` asks for a shared password when the Vercel project has `STAGING_SITE=1`. If the password variable is missing it answers 503 instead of opening up. On production the file does nothing.
