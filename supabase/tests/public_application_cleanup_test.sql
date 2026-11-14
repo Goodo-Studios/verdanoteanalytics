@@ -41,15 +41,16 @@ SELECT is(public.public_application_reserve_file((SELECT cap_draft FROM ids), 'c
 SELECT is((SELECT reserved_bytes FROM public.public_application_drafts WHERE id = (SELECT cap_draft FROM ids)), 4 * 262144000::bigint + 1000,
   'the draft records the bytes reserved');
 
-CREATE TEMP TABLE addr AS SELECT public.public_application_begin('creator', 'cl-ip-quota') AS d FROM generate_series(1, 4);
+CREATE TEMP TABLE addr AS SELECT n, public.public_application_begin('creator', 'cl-ip-quota') AS d FROM generate_series(1, 4) n;
 UPDATE public.public_application_drafts SET created_at = now() - interval '1 minute' WHERE ip_hash = 'cl-ip-quota';
-SELECT is((SELECT count(*)::int FROM (SELECT d FROM addr OFFSET 0 LIMIT 3) three, generate_series(1, 4) g
+SELECT is((SELECT count(*)::int FROM (SELECT d FROM addr WHERE n <= 3) three, generate_series(1, 4) g
             WHERE public.public_application_reserve_file(three.d, 'creator', 'video', 262144000, 'video/mp4') ->> 'status' = 'ok'), 12,
   'three drafts from one address take 3 x 1000 MB');
-SELECT is(public.public_application_reserve_file((SELECT d FROM addr OFFSET 3 LIMIT 1), 'creator', 'video', 262144000, 'video/mp4') ->> 'status', 'quota',
+SELECT diag(format('address bytes before the fourth draft: %s over %s drafts', (SELECT sum(reserved_bytes) FROM public.public_application_drafts WHERE ip_hash = 'cl-ip-quota'), (SELECT count(*) FROM public.public_application_drafts WHERE ip_hash = 'cl-ip-quota')));
+SELECT is(public.public_application_reserve_file((SELECT d FROM addr WHERE n = 4), 'creator', 'video', 262144000, 'video/mp4') ->> 'status', 'quota',
   'the next draft from the same address passes 3 GiB in 24 hours and is refused');
-UPDATE public.public_application_drafts SET created_at = now() - interval '2 days' WHERE ip_hash = 'cl-ip-quota' AND id <> (SELECT d FROM addr OFFSET 3 LIMIT 1);
-SELECT is(public.public_application_reserve_file((SELECT d FROM addr OFFSET 3 LIMIT 1), 'creator', 'video', 262144000, 'video/mp4') ->> 'status', 'ok',
+UPDATE public.public_application_drafts SET created_at = now() - interval '2 days' WHERE ip_hash = 'cl-ip-quota' AND id <> (SELECT d FROM addr WHERE n = 4);
+SELECT is(public.public_application_reserve_file((SELECT d FROM addr WHERE n = 4), 'creator', 'video', 262144000, 'video/mp4') ->> 'status', 'ok',
   'the address is free again once the old drafts are more than 24 hours old');
 SELECT is(public.public_application_reserve_file((SELECT keep_app FROM ids), 'creator', 'video', 262144000, 'video/mp4') ->> 'status', 'ok',
   'another address is not affected');
