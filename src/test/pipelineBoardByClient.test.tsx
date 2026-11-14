@@ -23,6 +23,7 @@ const board = [
 const tableRows = (table: string) => (table === "pipeline_tasks" ? board : []);
 const from = vi.fn();
 const eq = vi.fn();
+const or = vi.fn();
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     from: (table: string) => {
@@ -37,6 +38,10 @@ vi.mock("@/integrations/supabase/client", () => ({
               eq(col, val);
               return chain();
             },
+            or: (filter: string) => {
+              or(filter);
+              return chain();
+            },
           });
         },
       };
@@ -45,12 +50,20 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 import ContentPipelinePage from "@/pages/ContentPipelinePage";
+import { ClientSelectionContext, type ClientSelection } from "@/contexts/ClientSelectionContext";
 
-function renderPage() {
+function renderPage(selection?: Partial<ClientSelection>) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const page = <ContentPipelinePage />;
   return render(
     <QueryClientProvider client={qc}>
-      <ContentPipelinePage />
+      {selection ? (
+        <ClientSelectionContext.Provider value={{ clients: [], isLoading: false, loadError: null, selectedSlug: "", selectedClient: null, setSelectedSlug: () => {}, linkedAccounts: [], noAccount: false, ...selection }}>
+          {page}
+        </ClientSelectionContext.Provider>
+      ) : (
+        page
+      )}
     </QueryClientProvider>,
   );
 }
@@ -58,6 +71,7 @@ function renderPage() {
 afterEach(() => {
   from.mockReset();
   eq.mockReset();
+  or.mockReset();
   auth.isClient = false;
   account.selectedAccountId = null;
   account.isLoading = false;
@@ -96,7 +110,19 @@ describe("Content Pipeline board by client", () => {
     renderPage();
 
     expect(await screen.findByText("Slug-only card")).toBeInTheDocument();
+    // Staff read the client(s) that own the account, then filter the board by the account or those clients
+    // (a client with two ad accounts has cards with no account id; see pipelineMultiAccount.test.tsx).
     expect(eq).toHaveBeenCalledWith("account_id", "act_demo");
+    expect(or).toHaveBeenCalledWith("account_id.eq.act_demo");
+  });
+
+  it("staff who picked a client with no ad account see that client's board by client_slug", async () => {
+    account.selectedAccountId = "all";
+    renderPage({ selectedSlug: "autobrush", noAccount: true });
+
+    expect(await screen.findByText("Slug-only card")).toBeInTheDocument();
+    expect(or).toHaveBeenCalledWith("client_slug.eq.autobrush");
+    expect(eq).not.toHaveBeenCalled();
   });
 
   it("staff with no account selected are asked to pick one and load nothing", async () => {

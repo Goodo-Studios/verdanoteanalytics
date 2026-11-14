@@ -77,7 +77,7 @@ describe("ClientsSettings", () => {
     const { unmount } = renderWithRouter(<ClientsSettings builder={false} />);
     const lines = await screen.findAllByTestId("client-setup-line");
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toHaveTextContent("2 of 4 set up");
+    expect(lines[0]).toHaveTextContent("1 of 3 set up");
     expect(lines[0]).toHaveTextContent("✓ Ad account linked");
     expect(lines[0]).toHaveTextContent("○ ClickUp folder linked");
     expect(within(lines[0]).queryByRole("link", { name: "Set up" })).toBeNull();

@@ -316,8 +316,16 @@ describe("setupModel", () => {
     const items = buildChecklist({ client_slug: "a", ad_account_count: 2, clickup_folder_count: 0, member_count: 1, last_clickup_sync: null }, now);
     expect(items.map((i) => [i.key, i.done])).toEqual([["ad_account", true], ["clickup", false], ["login", true], ["sync", false]]);
     expect(items[0].detail).toBe("2 ad accounts");
-    expect(checklistSummary(items)).toBe("2 of 4 set up");
-    expect(checklistSummary(buildChecklist(null, now))).toBe("0 of 4 set up");
+    // The ad account step is optional (ClickUp holds more clients than the ad accounts do): not counted.
+    expect(items[0].optional).toBe(true);
+    expect(checklistSummary(items)).toBe("1 of 3 set up");
+    expect(checklistSummary(buildChecklist(null, now))).toBe("0 of 3 set up");
+  });
+
+  it("a client with a ClickUp folder, a login and a sync but no ad account is fully set up", () => {
+    const items = buildChecklist({ client_slug: "a", ad_account_count: 0, clickup_folder_count: 1, member_count: 1, last_clickup_sync: "2026-10-01T09:00:00Z" }, now);
+    expect(items[0]).toMatchObject({ key: "ad_account", done: false, optional: true, detail: "None (optional)" });
+    expect(checklistSummary(items)).toBe("3 of 3 set up");
   });
 
   it("words database errors plainly and keeps the login functions' own messages", () => {

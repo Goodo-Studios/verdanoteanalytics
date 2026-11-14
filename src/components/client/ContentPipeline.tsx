@@ -418,8 +418,8 @@ export function ContentPipelineView({
  * via `useClientCycles` and delegates rendering to `ContentPipelineView`.
  * `own` loads the signed-in client's own rows (see `usePipelineTasks`).
  */
-export function ContentPipeline({ accountId, own }: { accountId?: string; own?: boolean }) {
-  const { tasks, engagements, isLoading, isError, pastCyclesFailed, refetch } = useClientCycles(accountId, own);
+export function ContentPipeline({ accountId, own, clientSlug }: { accountId?: string; own?: boolean; clientSlug?: string }) {
+  const { tasks, engagements, isLoading, isError, pastCyclesFailed, refetch } = useClientCycles(accountId, own, clientSlug);
   const decisions = useOwnDecisions(!!own);
   const record = useRecordDecision();
   return (

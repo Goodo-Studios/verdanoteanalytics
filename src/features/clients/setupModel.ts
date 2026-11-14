@@ -16,6 +16,8 @@ export interface ChecklistItem {
   label: string;
   done: boolean;
   detail: string;
+  /** Not every client has an ad account (ClickUp holds more clients than the ad accounts do), so an optional step is shown but is not counted. */
+  optional?: boolean;
 }
 
 const MIN = 60_000;
@@ -39,7 +41,7 @@ export function syncAgo(iso: string | null | undefined, now: Date): string {
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-/** The four-line checklist for one client. A missing status row (not loaded yet) counts as nothing set up. */
+/** The four-line checklist for one client (three required steps and the optional ad account). A missing status row (not loaded yet) counts as nothing set up. */
 export function buildChecklist(status: SetupStatus | null | undefined, now: Date): ChecklistItem[] {
   const s: SetupStatus = status ?? { client_slug: "", ad_account_count: 0, clickup_folder_count: 0, member_count: 0, last_clickup_sync: null };
   return [
@@ -47,7 +49,8 @@ export function buildChecklist(status: SetupStatus | null | undefined, now: Date
       key: "ad_account",
       label: "Ad account linked",
       done: s.ad_account_count > 0,
-      detail: s.ad_account_count > 0 ? plural(s.ad_account_count, "ad account", "ad accounts") : "No ad account yet",
+      optional: true,
+      detail: s.ad_account_count > 0 ? plural(s.ad_account_count, "ad account", "ad accounts") : "None (optional)",
     },
     {
       key: "clickup",
@@ -70,10 +73,11 @@ export function buildChecklist(status: SetupStatus | null | undefined, now: Date
   ];
 }
 
-/** How many of the four steps are done, for the short line on the Team page. */
+/** How many of the required steps are done, for the short line on the Team page. The ad account step is optional and not counted. */
 export function checklistSummary(items: ChecklistItem[]): string {
-  const done = items.filter((i) => i.done).length;
-  return `${done} of ${items.length} set up`;
+  const required = items.filter((i) => !i.optional);
+  const done = required.filter((i) => i.done).length;
+  return `${done} of ${required.length} set up`;
 }
 
 export interface ParsedClickUpId {
