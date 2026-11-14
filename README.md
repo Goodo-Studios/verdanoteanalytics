@@ -76,8 +76,9 @@ supabase functions deploy <function-name>
 
 To deploy every function (required whenever `supabase/functions/_shared/` changes — each function bundles its own snapshot of `_shared/` at deploy time):
 ```sh
-./scripts/deploy-functions.sh
+SUPABASE_PROJECT_ID=<project-ref> ./scripts/deploy-functions.sh
 ```
+The script stops with a message when `SUPABASE_PROJECT_ID` is not set, so it never deploys to whichever project the CLI happens to be linked to.
 
 After any deploy, verify CORS preflight + auth gates with the smoke test:
 ```sh

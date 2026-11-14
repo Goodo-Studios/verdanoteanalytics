@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
@@ -93,6 +94,34 @@ describe("CI deployment safety", () => {
     const staging = readFileSync(`${process.cwd()}/playwright.staging.config.ts`, "utf8");
     expect(staging).toContain('testDir: "./e2e-staging"');
     expect(staging).toContain("points at production");
+  });
+
+  it("limits the default token to read access on repository contents (second-round audit L11)", () => {
+    // A top-level block, before any job, so every job inherits it.
+    const head = workflow.slice(0, workflow.search(/^jobs:\s*$/m));
+    expect(head).toMatch(/^permissions:\s*\n {2}contents: read\s*$/m);
+    // No job asks for more, and nothing in the file needs a write scope.
+    expect(workflow.match(/^[ \t]*permissions:/gm)?.length ?? 0).toBe(1);
+    expect(workflow).not.toMatch(/(contents|pull-requests|issues|packages|id-token):\s*write/);
+  });
+
+  it("names the project for every function deploy and refuses to run without it (second-round audit L11)", () => {
+    expect(job("deploy-functions")).toContain("SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}");
+    expect(job("deploy-staging")).toContain("SUPABASE_PROJECT_ID: ${{ secrets.STAGING_SUPABASE_PROJECT_ID }}");
+
+    const script = `${process.cwd()}/scripts/deploy-functions.sh`;
+    const env = { ...process.env };
+    delete env.SUPABASE_PROJECT_ID;
+    // Stops before it reaches the Supabase CLI, so nothing is deployed anywhere.
+    const run = spawnSync("bash", [script], { env, encoding: "utf8" });
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain("SUPABASE_PROJECT_ID is not set");
+    expect(run.stderr).toContain("Nothing was deployed");
+    expect(run.stdout).not.toContain("Deploying");
+
+    const source = readFileSync(script, "utf8");
+    expect(source).toContain('--project-ref "$SUPABASE_PROJECT_ID"');
+    expect(source).not.toContain("DEPLOY_ARGS");
   });
 
   it("gates the edge-function deploy on the database replay", () => {
