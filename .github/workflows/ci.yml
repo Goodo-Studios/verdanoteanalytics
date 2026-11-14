@@ -143,6 +143,10 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install chromium --with-deps
 
+      # Enforces the bundle budgets. The tests below do not use this build.
+      - name: Build app
+        run: npm run build:check
+
       - name: Wait for the live site
         run: |
           for i in $(seq 1 30); do
