@@ -8,7 +8,7 @@
 -- that the two new tables are closed to browser roles. All rows are made up, dates in 2020.
 
 BEGIN;
-SELECT plan(15);
+SELECT plan(17);
 
 INSERT INTO public.ad_accounts (id, name, last_synced_at) VALUES
   ('act_rl_a', 'RL A', now()), ('act_rl_b', 'RL B', now());
@@ -70,26 +70,42 @@ SELECT is(
   'an ad that starts spending gets a span'
 );
 
--- Delete: totals shrink, and a day with no raw rows left disappears.
+-- Delete: the deleted rows are subtracted; a day with nothing left is a row of zeros.
 DELETE FROM public.creative_daily_metrics WHERE ad_id = 'rl_a3';
 SELECT is(
-  (SELECT count(*)::int FROM public.creative_daily_rollup WHERE account_id = 'act_rl_a' AND date = '2020-03-15'),
-  0,
-  'delete removes a rollup day that has no raw rows left'
+  (SELECT spend FROM public.creative_daily_rollup WHERE account_id = 'act_rl_a' AND date = '2020-03-15'),
+  0::numeric,
+  'delete subtracts the removed rows (the day is left at zero)'
 );
+
+-- A move: an update that changes the day and the account carries the numbers with it.
+UPDATE public.creative_daily_metrics SET date = '2020-02-03', account_id = 'act_rl_b' WHERE ad_id = 'rl_b1';
+SELECT results_eq(
+  $$SELECT account_id, date, spend FROM public.creative_daily_rollup
+     WHERE account_id = 'act_rl_b' AND date IN ('2020-02-01', '2020-02-03') ORDER BY date$$,
+  $$VALUES ('act_rl_b'::text, '2020-02-01'::date, 0::numeric), ('act_rl_b', '2020-02-03', 80)$$,
+  'moving a row to another day subtracts it from the old day and adds it to the new one'
+);
+UPDATE public.creative_daily_metrics SET date = '2020-02-01', account_id = 'act_rl_b' WHERE ad_id = 'rl_b1';
 
 -- Re-add it and a spend gap for ad rl_a1 (spend on 02-01/02-02 and 03-20, nothing between).
 INSERT INTO public.creative_daily_metrics
   (ad_id, account_id, date, impressions, spend, clicks, purchases, purchase_value, adds_to_cart, video_views, frequency)
 VALUES ('rl_a1', 'act_rl_a', '2020-03-20', 100, 5, 1, 0, 0, 0, 0, 1);
 
-SELECT diag('DIAG role=' || current_user || ' rollup=' || (SELECT count(*) FROM public.creative_daily_rollup WHERE account_id LIKE 'act_rl_%')
-  || ' spans=' || (SELECT count(*) FROM public.creative_ad_spend_span WHERE ad_id LIKE 'rl_%')
-  || ' a1=' || coalesce((SELECT first_date::text || '..' || last_date::text FROM public.creative_ad_spend_span WHERE ad_id = 'rl_a1'), 'none')
-  || ' a2=' || coalesce((SELECT first_date::text || '..' || last_date::text FROM public.creative_ad_spend_span WHERE ad_id = 'rl_a2'), 'none')
-  || ' a3=' || coalesce((SELECT first_date::text || '..' || last_date::text FROM public.creative_ad_spend_span WHERE ad_id = 'rl_a3'), 'none')
-  || ' tbl_owner=' || (SELECT tableowner FROM pg_tables WHERE tablename = 'creative_ad_spend_span')
-  || ' bypassrls=' || (SELECT rolbypassrls::text FROM pg_roles WHERE rolname = current_user));
+-- The rollup equals the raw rows after all of the above (zero rows left behind are ignored).
+SELECT is(
+  (SELECT count(*)::int FROM (
+     SELECT account_id, date, sum(spend) s, sum(impressions) i, sum(clicks) c, sum(purchases) p,
+            sum(purchase_value) pv, sum(adds_to_cart) a, sum(video_views) v
+       FROM public.creative_daily_metrics WHERE account_id LIKE 'act_rl_%' GROUP BY account_id, date
+     EXCEPT
+     SELECT account_id, date, spend, impressions, clicks, purchases, purchase_value, adds_to_cart, video_views
+       FROM public.creative_daily_rollup WHERE account_id LIKE 'act_rl_%'
+   ) x),
+  0,
+  'every raw account-day has a matching rollup row after inserts, upserts, updates, a move and a delete'
+);
 
 SET LOCAL ROLE service_role;
 SET LOCAL request.jwt.claims TO '{"role":"service_role"}';
