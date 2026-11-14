@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
+import { ROLE_RETRY_DELAYS_MS } from "@/lib/roleRetry";
 
 type AppRole = "builder" | "employee" | "client";
 
@@ -31,9 +32,6 @@ const AuthContext = createContext<AuthContextType>({
   isClient: false,
 });
 
-// A failed role lookup is retried before the app gives up. The waits are in milliseconds: after the
-// first failure, then after the second.
-export const ROLE_RETRY_DELAYS_MS = [400, 1200];
 
 interface RoleState {
   role: AppRole | null;
@@ -144,7 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // A genuine identity change (first sign-in, switching accounts) still
           // re-enters loading, which is what keeps useRolePrefix() from
           // briefly returning the "/builder" default for a client or employee
-          // account — the /builder flash guarded by the US-009 redirect E2E. The previous
+          // account: the /builder flash guarded by the US-009 redirect E2E. The previous
           // identity's role is cleared in the same update, so the new user never sees it.
           if (roleUserIdRef.current !== session.user.id) {
             roleUserIdRef.current = session.user.id;

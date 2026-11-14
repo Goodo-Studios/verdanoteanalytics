@@ -14,7 +14,8 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 import { supabase } from "@/integrations/supabase/client";
-import { AuthProvider, useAuth, ROLE_RETRY_DELAYS_MS } from "@/contexts/AuthContext";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { ROLE_RETRY_DELAYS_MS } from "@/lib/roleRetry";
 
 const mockUnsub = { unsubscribe: vi.fn() };
 
@@ -349,27 +350,29 @@ describe("AuthContext", () => {
     );
   });
 
+  type AuthCallback = (event: string, session: { user: { id: string; email: string } } | null) => void;
+
   // Second-round audit M5. Role and isLoading used to change in separate commits, so one render could
   // hold the new user, the previous user's role and isLoading false.
   it("never renders a new user with the previous user's role and isLoading false", async () => {
-    let changeCallback!: (event: string, session: any) => void;
+    let changeCallback!: AuthCallback;
     const seen: string[] = [];
 
     function Recorder() {
       const { user, role, isLoading } = useAuth();
-      seen.push(`${(user as any)?.id ?? "none"}|${role ?? "none"}|${isLoading}`);
+      seen.push(`${(user as { id?: string } | null)?.id ?? "none"}|${role ?? "none"}|${isLoading}`);
       return null;
     }
 
     vi.mocked(supabase.auth.getSession).mockResolvedValue({
       data: { session: { user: { id: "m5-a", email: "a@test.com" } } },
       error: null,
-    } as any);
-    vi.mocked(supabase.auth.onAuthStateChange).mockImplementation((cb: any) => {
-      changeCallback = cb;
-      return { data: { subscription: mockUnsub } } as any;
+    } as never);
+    vi.mocked(supabase.auth.onAuthStateChange).mockImplementation((cb: unknown) => {
+      changeCallback = cb as AuthCallback;
+      return { data: { subscription: mockUnsub } } as never;
     });
-    vi.mocked(supabase.rpc).mockResolvedValue({ data: "builder", error: null } as any);
+    vi.mocked(supabase.rpc).mockResolvedValue({ data: "builder", error: null } as never);
 
     render(
       <AuthProvider>
@@ -378,8 +381,8 @@ describe("AuthContext", () => {
     );
     await waitFor(() => expect(seen).toContain("m5-a|builder|false"));
 
-    let resolveRole!: (v: any) => void;
-    vi.mocked(supabase.rpc).mockReturnValue(new Promise((res) => { resolveRole = res; }) as any);
+    let resolveRole!: (v: unknown) => void;
+    vi.mocked(supabase.rpc).mockReturnValue(new Promise((res) => { resolveRole = res; }) as never);
     await act(async () => {
       changeCallback("SIGNED_IN", { user: { id: "m5-b", email: "b@test.com" } });
     });
@@ -393,23 +396,23 @@ describe("AuthContext", () => {
   });
 
   it("drops a role result that arrives for a user who is no longer current", async () => {
-    let changeCallback!: (event: string, session: any) => void;
+    let changeCallback!: AuthCallback;
 
     vi.mocked(supabase.auth.getSession).mockResolvedValue({
       data: { session: { user: { id: "m5-slow", email: "slow@test.com" } } },
       error: null,
-    } as any);
-    vi.mocked(supabase.auth.onAuthStateChange).mockImplementation((cb: any) => {
-      changeCallback = cb;
-      return { data: { subscription: mockUnsub } } as any;
+    } as never);
+    vi.mocked(supabase.auth.onAuthStateChange).mockImplementation((cb: unknown) => {
+      changeCallback = cb as AuthCallback;
+      return { data: { subscription: mockUnsub } } as never;
     });
     // The first user's lookup stays pending until after the second user has resolved.
-    let resolveSlow!: (v: any) => void;
+    let resolveSlow!: (v: unknown) => void;
     vi.mocked(supabase.rpc).mockImplementation(((name: string, args: { _user_id: string }) => {
       if (name !== "get_user_role") return Promise.resolve({ data: null, error: null });
       if (args._user_id === "m5-slow") return new Promise((res) => { resolveSlow = res; });
       return Promise.resolve({ data: "client", error: null });
-    }) as any);
+    }) as never);
 
     render(
       <AuthProvider>
@@ -456,14 +459,14 @@ describe("AuthContext", () => {
       vi.mocked(supabase.auth.getSession).mockResolvedValue({
         data: { session: { user: { id: "m5-retry", email: "r@test.com" } } },
         error: null,
-      } as any);
+      } as never);
     }
 
     it("retries and recovers when a later attempt succeeds", async () => {
       signedIn();
       vi.mocked(supabase.rpc)
-        .mockResolvedValueOnce({ data: null, error: { message: "blip" } } as any)
-        .mockResolvedValueOnce({ data: "employee", error: null } as any);
+        .mockResolvedValueOnce({ data: null, error: { message: "blip" } } as never)
+        .mockResolvedValueOnce({ data: "employee", error: null } as never);
 
       render(
         <AuthProvider>
@@ -477,7 +480,7 @@ describe("AuthContext", () => {
 
     it("gives up after the retries with a null role, and the retry button looks it up again", async () => {
       signedIn();
-      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: { message: "down" } } as any);
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: { message: "down" } } as never);
 
       render(
         <AuthProvider>
@@ -489,7 +492,7 @@ describe("AuthContext", () => {
       // One try plus one retry per configured delay.
       expect(supabase.rpc).toHaveBeenCalledTimes(3);
 
-      vi.mocked(supabase.rpc).mockResolvedValue({ data: "client", error: null } as any);
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: "client", error: null } as never);
       fireEvent.click(screen.getByText("retry"));
       await waitFor(() => expect(screen.getByTestId("role").textContent).toBe("client"));
     });

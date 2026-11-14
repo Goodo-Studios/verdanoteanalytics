@@ -232,7 +232,7 @@ describe("US-007: builder board renders spend-ranked cells and mode toggles swit
     expect(await screen.findByText("5")).toBeInTheDocument();
     expect(screen.queryByText("$600")).toBeNull();
 
-    // Share of theme spend: spend share of the theme column — 600 / 800 = 75%.
+    // Share of theme spend: spend share of the theme column, 600 / 800 = 75%.
     fireEvent.click(screen.getByRole("button", { name: /^Share of theme spend$/i }));
     expect(await screen.findByText("75%")).toBeInTheDocument();
   });

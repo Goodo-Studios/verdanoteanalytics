@@ -58,7 +58,7 @@ function loadRange(key: string): { dateFrom?: string; dateTo?: string } {
       // A custom range, or an explicitly cleared one ({}), comes back exactly as saved.
       return { dateFrom: parsed.dateFrom, dateTo: parsed.dateTo };
     } catch {
-      // corrupt value — fall through to the default
+      // corrupt value, so fall through to the default
     }
   }
   return defaultRange();
