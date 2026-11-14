@@ -94,7 +94,7 @@ describe("Actors page", () => {
     renderList();
     expect(await screen.findByTestId("actors-count")).toHaveTextContent("2 of 3 actors");
     const row = screen.getByTestId("actor-row-a1");
-    expect(within(row).getByRole("link", { name: "Indigo Reyes" }).getAttribute("href")).toBe("/builder/actors/a1");
+    expect(within(row).getByRole("link", { name: "Indigo Reyes" }).getAttribute("href")).toBe("/actors?actor=a1");
     expect(row).toHaveTextContent("Harbor Home (Booked)");
     expect(screen.queryByTestId("actor-row-a3")).toBeNull();
   });
@@ -113,13 +113,27 @@ describe("Actors page", () => {
     expect(screen.queryByTestId("actor-row-a1")).toBeNull();
   });
 
-  it("adds an actor by hand and opens their page", async () => {
+  it("adds an actor by hand and opens them in the modal", async () => {
     renderList();
     await screen.findByTestId("actors-count");
     fireEvent.change(screen.getByLabelText("New actor name"), { target: { value: "New Actor" } });
     fireEvent.click(screen.getByRole("button", { name: "Add actor" }));
     await waitFor(() => expect(createActor).toHaveBeenCalledWith("New Actor", null));
-    expect(await screen.findByTestId("opened")).toBeTruthy();
+    const modal = await screen.findByTestId("record-modal");
+    expect(await within(modal).findByTestId("actor-detail-page")).toBeTruthy();
+  });
+
+  it("opens an actor in a modal over the list, without a back link, and closing keeps the list", async () => {
+    renderList();
+    const row = await screen.findByTestId("actor-row-a1");
+    fireEvent.click(within(row).getByRole("link", { name: "Indigo Reyes" }));
+    const modal = await screen.findByTestId("record-modal");
+    expect(await within(modal).findByTestId("actor-detail-page")).toBeTruthy();
+    expect(within(modal).queryByRole("link", { name: "Back to Actors" })).toBeNull();
+    expect(screen.getByTestId("actors-count")).toBeTruthy();
+    fireEvent.keyDown(modal, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("record-modal")).toBeNull());
+    expect(screen.getByTestId("actor-row-a1")).toBeTruthy();
   });
 });
 

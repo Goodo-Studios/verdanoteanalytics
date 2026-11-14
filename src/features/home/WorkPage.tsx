@@ -5,7 +5,7 @@
 // the address (?view=, ?for=, ?stage=, ?q=) so a link from Home opens the same list. The client
 // filter here is this page's own; it does not change the client picked at the top of the app.
 // The board does not store who a card is assigned to, so there is no person filter.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,11 +14,13 @@ import { ViewAssetLink } from "@/components/client/ViewAssetLink";
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { useAllWorkTasks } from "@/hooks/useHomeData";
+import { useTaskByClickupId } from "@/hooks/useMyWork";
 import { useStaffDecisions } from "@/hooks/useClientDecisions";
 import { currentDecision, isNewDecision, staffDecisionText } from "@/lib/clientDecisions";
 import { hubPath } from "@/lib/clientHub";
 import { ALL_STAGES, clickupTaskUrl, filterWork, isLate, shortDate, todayIso, type WorkView } from "@/lib/homeData";
 import { HomeTabs } from "./HomeTabs";
+import { TaskSidePanel } from "./TaskSidePanel";
 
 const PAGE_SIZE = 25;
 const VIEWS: Array<{ id: WorkView; label: string }> = [
@@ -36,6 +38,16 @@ export default function WorkPage() {
   const { data: tasks, isLoading, isError, refetch } = useAllWorkTasks();
   const decisions = useStaffDecisions();
   const [shown, setShown] = useState(PAGE_SIZE);
+  // A card opens the task modal. A card with no task row behind it falls back to its ClickUp page.
+  const [openCard, setOpenCard] = useState<Parameters<typeof clickupTaskUrl>[0] | null>(null);
+  const opened = useTaskByClickupId(openCard?.clickup_task_id ?? null);
+  const noTaskRow = !!openCard && opened.isFetched && opened.data === null;
+  useEffect(() => {
+    if (!noTaskRow || !openCard) return;
+    const fallback = clickupTaskUrl(openCard);
+    if (fallback) window.open(fallback, "_blank", "noopener,noreferrer");
+    setOpenCard(null);
+  }, [noTaskRow, openCard]);
 
   const view = asView(params.get("view"));
   const client = params.get("for") ?? "";
@@ -135,11 +147,17 @@ export default function WorkPage() {
                     {names[t.client_slug] ?? "A client"}
                   </Link>
                   <span className="min-w-0 flex-1 truncate">
-                    {url ? (
-                      <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium hover:underline" data-testid="work-row-link">
-                        <span className="truncate">{t.task_name || "Untitled task"}</span>
-                        <ExternalLink className="h-3 w-3 shrink-0 text-sage" aria-label="Opens in ClickUp" />
-                      </a>
+                    {t.clickup_task_id ? (
+                      <span className="inline-flex max-w-full items-center gap-1.5">
+                        <button type="button" onClick={() => setOpenCard(t)} className="truncate text-left font-medium hover:underline" data-testid="work-row-link">
+                          {t.task_name || "Untitled task"}
+                        </button>
+                        {url ? (
+                          <a href={url} target="_blank" rel="noopener noreferrer" className="shrink-0" data-testid="work-row-clickup" aria-label="Open in ClickUp">
+                            <ExternalLink className="h-3 w-3 text-sage" aria-hidden />
+                          </a>
+                        ) : null}
+                      </span>
                     ) : (
                       <span className="font-medium" data-testid="work-row-nolink" title="The link to this card is not available.">
                         {t.task_name || "Untitled task"}
@@ -176,6 +194,7 @@ export default function WorkPage() {
           ) : null}
         </>
       )}
+      {openCard ? <TaskSidePanel task={opened.data ?? null} today={today} onClose={() => setOpenCard(null)} /> : null}
     </PageShell>
   );
 }

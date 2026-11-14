@@ -58,6 +58,19 @@ export function useMyTasks(userId: string | undefined, everyone = false) {
   });
 }
 
+/** The os_tasks row behind a ClickUp card, so a row on Work opens the same task modal as My work. */
+export function useTaskByClickupId(clickupTaskId: string | null) {
+  return useQuery<MyTaskRow | null>({
+    queryKey: ["task-by-clickup-id", clickupTaskId],
+    enabled: !!clickupTaskId,
+    queryFn: async () => {
+      const { data, error } = await db().from("os_tasks").select(MY_TASK_COLUMNS).eq("clickup_task_id", clickupTaskId!).maybeSingle();
+      if (error) throw new Error(error.message);
+      return (data ?? null) as MyTaskRow | null;
+    },
+  });
+}
+
 export interface TaskDetail {
   id: string;
   brief: string | null;

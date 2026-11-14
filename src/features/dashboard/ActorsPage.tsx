@@ -27,6 +27,8 @@ import {
   type RosterActor,
 } from "./rosterModel";
 import { errorText } from "./model";
+import ActorDetailPage from "./ActorDetailPage";
+import { RecordModal } from "./RecordModal";
 
 export default function ActorsPage() {
   const prefix = useRolePrefix();
@@ -55,6 +57,16 @@ export default function ActorsPage() {
     void load();
   }, [load]);
 
+  // The open record lives in the address (?actor=), so the modal can be linked, and Back closes it.
+  const hrefFor = (id: string | null) => {
+    const p = new URLSearchParams(params);
+    if (id) p.set("actor", id);
+    else p.delete("actor");
+    const s = p.toString();
+    return s ? `?${s}` : "?";
+  };
+  const openId = params.get("actor");
+
   const set = (patch: Partial<ActorFilters>) => setParams(actorFiltersToParams({ ...filters, page: 1, ...patch }), { replace: true });
   const brandNames = useMemo(() => new Map(brands.map((b) => [b.slug, b.name])), [brands]);
   const byActor = useMemo(() => {
@@ -77,7 +89,11 @@ export default function ActorsPage() {
     setError(null);
     try {
       const id = await createActor(name, newEmail.trim() || null);
-      navigate(`${prefix}/actors/${id}`);
+      setNewName("");
+      setNewEmail("");
+      setAdding(false);
+      await load();
+      navigate(hrefFor(id));
     } catch (e) {
       setError(e instanceof DashboardError ? errorText(e.code, e.message) : "The actor was not added.");
       setAdding(false);
@@ -90,7 +106,7 @@ export default function ActorsPage() {
       header: "Actor",
       cell: (a) => (
         <>
-          <Link to={`${prefix}/actors/${a.id}`} className="font-medium underline">{a.name}</Link>
+          <Link to={hrefFor(a.id)} preventScrollReset className="font-medium underline">{a.name}</Link>
           {a.do_not_use_again && <span className="ml-2 rounded bg-destructive/10 px-1 text-xs text-destructive">Do not use</span>}
         </>
       ),
@@ -147,6 +163,9 @@ export default function ActorsPage() {
           )}
         </>
       )}
+      <RecordModal open={!!openId} label="Actor" onClose={() => { navigate(hrefFor(null), { replace: true, preventScrollReset: true }); void load(); }}>
+        {openId ? <ActorDetailPage actorId={openId} embedded /> : null}
+      </RecordModal>
     </PageShell>
   );
 }
