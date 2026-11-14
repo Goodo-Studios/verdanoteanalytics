@@ -17,7 +17,8 @@ import { type Caller, resolveCaller } from "../_shared/internal-auth.ts";
 //
 // Sending: a new address gets Supabase Auth's own invite (admin.inviteUserByEmail), which signs
 // in with one click and has no password to set; the login gets the client role and is linked to
-// its client. An address that already has a login gets a magic link (signInWithOtp, no new login).
+// its client. An address that already has a login gets the same client role and link, then a magic link
+// (signInWithOtp, no new login). One contact failing is listed in `failed` and does not stop the batch.
 // The approved subject and body go along as user metadata (invite_subject, invite_body) for the
 // Auth email template. The database triggers check the same rules again when a row is marked sent.
 // Nothing here calls ClickUp.
@@ -72,6 +73,8 @@ export interface Mailer {
     options: { data: Record<string, unknown>; redirectTo?: string },
   ): Promise<{ data: { user: { id: string } | null } | null; error: AuthErrorLike | null }>;
   sendMagicLink(email: string, redirectTo?: string): Promise<{ error: AuthErrorLike | null }>;
+  /** Removes a login this run just created, so a failed setup leaves no orphan behind. */
+  deleteUser(id: string): Promise<{ error: AuthErrorLike | null }>;
 }
 
 export interface Deps {
@@ -134,7 +137,7 @@ interface SupabaseLike {
   from(table: string): Table;
   rpc(name: string, args: Record<string, unknown>): PromiseLike<QueryResult>;
   auth: {
-    admin: { inviteUserByEmail: Mailer["inviteUserByEmail"] };
+    admin: { inviteUserByEmail: Mailer["inviteUserByEmail"]; deleteUser: Mailer["deleteUser"] };
     signInWithOtp(args: { email: string; options: { shouldCreateUser: boolean; emailRedirectTo?: string } }): Promise<{ error: AuthErrorLike | null }>;
   };
 }
@@ -195,6 +198,7 @@ function serviceClient(): SupabaseLike {
 function supabaseMailer(db: SupabaseLike): Mailer {
   return {
     inviteUserByEmail: (email, options) => db.auth.admin.inviteUserByEmail(email, options),
+    deleteUser: (id) => db.auth.admin.deleteUser(id),
     sendMagicLink: (email, redirectTo) =>
       db.auth.signInWithOtp({ email, options: { shouldCreateUser: false, ...(redirectTo ? { emailRedirectTo: redirectTo } : {}) } }),
   };
@@ -282,29 +286,51 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
     const sent: Planned[] = [];
     const failed: (Planned & { reason: string })[] = [];
     for (const p of plan) {
-      const login = await store.loginState(p.email);
-      if (login) {
-        const r = await mailer.sendMagicLink(p.email, redirectTo);
-        if (r.error) {
-          failed.push({ ...p, reason: r.error.code ?? "send_failed" });
+      // One contact failing never fails the batch: it is recorded in `failed` and the loop goes on.
+      let createdUserId: string | null = null;
+      try {
+        const login = await store.loginState(p.email);
+        if (login) {
+          // An existing login invited for another client still needs the client role and the link to
+          // this client. Set that up before the email goes out (duplicates are tolerated).
+          await store.setUpClientLogin(login.userId, p.client_slug, p.display_name);
+          const r = await mailer.sendMagicLink(p.email, redirectTo);
+          if (r.error) {
+            failed.push({ ...p, reason: r.error.code ?? "send_failed" });
+            continue;
+          }
+          await store.markSent(p.invite_id, login.userId, now);
+          sent.push(p);
           continue;
         }
-        await store.markSent(p.invite_id, login.userId, now);
+        const r = await mailer.inviteUserByEmail(p.email, {
+          data: { display_name: p.display_name, invite_subject: template.subject, invite_body: template.body },
+          ...(redirectTo ? { redirectTo } : {}),
+        });
+        const userId = r.data?.user?.id ?? null;
+        if (r.error || !userId) {
+          failed.push({ ...p, reason: r.error?.code ?? "send_failed" });
+          continue;
+        }
+        // A new login only exists once the invite is made, so its setup follows the call. If the
+        // setup or the sent mark fails, the login is removed again (as invite-user does).
+        createdUserId = userId;
+        await store.setUpClientLogin(userId, p.client_slug, p.display_name);
+        await store.markSent(p.invite_id, userId, now);
+        createdUserId = null;
         sent.push(p);
-        continue;
+      } catch (error) {
+        console.error("client-invite contact failed:", error instanceof Error ? error.message : error);
+        if (createdUserId) {
+          try {
+            const removed = await mailer.deleteUser(createdUserId);
+            if (removed.error) console.error("client-invite could not remove the half-made login:", removed.error.code ?? removed.error.status ?? "unknown");
+          } catch (cleanup) {
+            console.error("client-invite cleanup failed:", cleanup instanceof Error ? cleanup.message : cleanup);
+          }
+        }
+        failed.push({ ...p, reason: "setup_failed" });
       }
-      const r = await mailer.inviteUserByEmail(p.email, {
-        data: { display_name: p.display_name, invite_subject: template.subject, invite_body: template.body },
-        ...(redirectTo ? { redirectTo } : {}),
-      });
-      const userId = r.data?.user?.id ?? null;
-      if (r.error || !userId) {
-        failed.push({ ...p, reason: r.error?.code ?? "send_failed" });
-        continue;
-      }
-      await store.setUpClientLogin(userId, p.client_slug, p.display_name);
-      await store.markSent(p.invite_id, userId, now);
-      sent.push(p);
     }
     // The first send starts the two-week guest access clock; a later run for contacts that were
     // skipped or failed does not move it.
