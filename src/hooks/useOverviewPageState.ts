@@ -50,7 +50,10 @@ export function useOverviewPageState() {
     accountId: effectiveAccountId,
     dateFrom: prevPeriodDates?.dateFrom,
     dateTo: prevPeriodDates?.dateTo,
-    enabled: !!prevPeriodDates,
+    // Wait for the current period first. For the all-accounts view each call scans the whole
+    // date range on the server; firing both at once doubled the peak load and pushed the
+    // gateway past its limit (502). The previous-period delta is secondary, so it can follow.
+    enabled: !!prevPeriodDates && !!dailyMetrics,
   });
 
   const hasPrevPeriod = !!prevPeriodDates && !!prevDailyMetrics;
