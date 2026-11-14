@@ -16,8 +16,10 @@ vi.mock("@/integrations/supabase/client", () => ({
     from: (table: string) => ({
       select: () => {
         h.calls.push(table);
-        return {
+        const q = {
           eq: () => ({ maybeSingle: () => Promise.resolve({ data: h.task, error: null }) }),
+          order: () => q,
+          range: () => q,
           then: (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => {
             const p = table === "client_task_decisions"
               ? Promise.resolve({ data: h.decisions, error: null })
@@ -25,6 +27,7 @@ vi.mock("@/integrations/supabase/client", () => ({
             return p.then(res, rej);
           },
         };
+        return q;
       },
     }),
   },

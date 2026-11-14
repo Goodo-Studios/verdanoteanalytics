@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { DONE_STATUS, MY_TASK_COLUMNS, type MyTaskRow } from "@/lib/myWork";
+import { fetchAllPages } from "@/lib/pagedSelect";
 
 // os_tasks and its RPCs are not in the generated types yet, so the calls go through a small
 // untyped shape (as useClientWork does for pipeline_tasks).
@@ -11,6 +12,7 @@ interface Query extends Result {
   or(filter: string): Query;
   eq(column: string, value: string | boolean): Query;
   order(column: string, opts?: { ascending?: boolean }): Query;
+  range(from: number, to: number): Query;
   maybeSingle(): Result;
 }
 type Untyped = {
@@ -18,6 +20,12 @@ type Untyped = {
   rpc(fn: string, args: Record<string, unknown>): Result;
 };
 const db = () => supabase as unknown as Untyped;
+
+/** PostgREST filter: not done, or done and last updated within `days` days. */
+export function recentDoneFilter(days: number, now: Date = new Date()): string {
+  const since = new Date(now.getTime() - days * 86_400_000).toISOString();
+  return `status.neq.${DONE_STATUS},updated_at.gte.${since}`;
+}
 
 const UUID = /^[0-9a-f-]{36}$/i;
 
@@ -37,23 +45,26 @@ export function useIsPhone(): boolean {
 
 /**
  * The signed-in person's open tasks (strategist, producer or editor), in one request with only
- * the row columns. `everyone` (builder only) drops the person filter.
+ * the row columns. `everyone` (builder only) drops the person filter. `recentDoneDays` above 0
+ * also returns tasks that finished (and were last updated) within that many days, for pickers
+ * such as manual time entry; read-only tasks are still left out. The default leaves done tasks off.
  */
-export function useMyTasks(userId: string | undefined, everyone = false) {
+export function useMyTasks(userId: string | undefined, everyone = false, recentDoneDays = 0) {
   return useQuery<MyTaskRow[]>({
-    queryKey: ["my-tasks", everyone ? "everyone" : userId],
+    queryKey: ["my-tasks", everyone ? "everyone" : userId, ...(recentDoneDays > 0 ? ["recent-done", recentDoneDays] : [])],
     enabled: everyone || !!userId,
     queryFn: async () => {
-      let q = db().from("os_tasks").select(MY_TASK_COLUMNS).neq("status", DONE_STATUS)
+      if (!everyone && (!userId || !UUID.test(userId))) return [];
+      // The everyone view passes the 1000-row response cap, so read it in pages with a stable order.
+      return fetchAllPages<MyTaskRow>(async (from, to) => {
         // Ended clients' tasks are read-only history, not work to do.
-        .eq("read_only", false);
-      if (!everyone) {
-        if (!userId || !UUID.test(userId)) return [];
-        q = q.or(`strategist_id.eq.${userId},producer_id.eq.${userId},editor_id.eq.${userId}`);
-      }
-      const { data, error } = await q;
-      if (error) throw new Error(error.message);
-      return (data ?? []) as MyTaskRow[];
+        let q = db().from("os_tasks").select(MY_TASK_COLUMNS).eq("read_only", false);
+        q = recentDoneDays > 0 ? q.or(recentDoneFilter(recentDoneDays)) : q.neq("status", DONE_STATUS);
+        if (!everyone) q = q.or(`strategist_id.eq.${userId},producer_id.eq.${userId},editor_id.eq.${userId}`);
+        const { data, error } = await q.order("id").range(from, to);
+        if (error) throw new Error(error.message);
+        return (data ?? []) as MyTaskRow[];
+      });
     },
   });
 }

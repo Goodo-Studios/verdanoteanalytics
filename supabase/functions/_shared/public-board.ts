@@ -153,6 +153,15 @@ async function invalidAfterTokenCheck(db: Db, kind: BoardKind, tokenHash: string
   return statusResponse(String(data));
 }
 
+/** 404 responses that came from a real token with a missing photo. They are not a guess at a token. */
+export const validTokenMisses = new WeakSet<Response>();
+
+function photoMissing(): Response {
+  const res = notFound();
+  validTokenMisses.add(res);
+  return res;
+}
+
 export async function getPhoto(db: Db, kind: BoardKind, tokenHash: string, body: Record<string, unknown>): Promise<Response> {
   const mediaKind = str(body.kind);
   const id = str(body.id);
@@ -164,9 +173,23 @@ export async function getPhoto(db: Db, kind: BoardKind, tokenHash: string, body:
     p_id: id,
   });
   if (error || !data) return jsonResponse({ error: "server_error" }, 500);
-  if (data.status !== "ok") return data.status === "not_found" ? notFound() : statusResponse(String(data.status));
+  if (data.status === "not_found") {
+    // The database answers not_found for an unknown token and for a photo that is not on the board.
+    // Only the first is a guess at a token, so ask the same token check the vote path uses.
+    const { data: probe, error: probeError } = await db.rpc("public_board_vote", {
+      p_token_hash: tokenHash,
+      p_board_type: BOARD_TYPE[kind],
+      p_assignment_id: null,
+      p_vote: null,
+      p_voted_by: null,
+    });
+    if (!probeError && (probe === "invalid" || probe === "ok")) return photoMissing();
+    return notFound();
+  }
+  if (data.status !== "ok") return statusResponse(String(data.status));
   const urls = await signMany(db, String(data.bucket), [String(data.path)]);
   const url = urls.get(String(data.path));
-  if (!url) return notFound();
+  // A valid token whose storage object is missing is not a token guess either.
+  if (!url) return photoMissing();
   return jsonResponse({ url });
 }

@@ -218,7 +218,7 @@ describe("US-007: builder board renders spend-ranked cells and mode toggles swit
     expect(screen.getByRole("button", { name: /^Other \/ untagged × Untagged:/ })).toBeInTheDocument();
   });
 
-  it("shows spend in performance mode, then switches to volume and win rate", async () => {
+  it("shows spend in performance mode, then switches to volume and share of theme spend", async () => {
     renderPage();
     await screen.findByText("Busy Parents");
 
@@ -232,8 +232,8 @@ describe("US-007: builder board renders spend-ranked cells and mode toggles swit
     expect(await screen.findByText("5")).toBeInTheDocument();
     expect(screen.queryByText("$600")).toBeNull();
 
-    // Win rate: spend share of the theme column — 600 / 800 = 75%.
-    fireEvent.click(screen.getByRole("button", { name: /^Win rate$/i }));
+    // Share of theme spend: spend share of the theme column, 600 / 800 = 75%.
+    fireEvent.click(screen.getByRole("button", { name: /^Share of theme spend$/i }));
     expect(await screen.findByText("75%")).toBeInTheDocument();
   });
 

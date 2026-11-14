@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main, staging]
 
+# Least privilege for the default GITHUB_TOKEN. Every job only checks out the repository; none of
+# them writes to it, opens a PR or comments, and artifact upload does not use this token's scopes.
+permissions:
+  contents: read
+
 jobs:
   check:
     name: Lint, typecheck & test

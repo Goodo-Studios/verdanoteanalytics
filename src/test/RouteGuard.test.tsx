@@ -23,7 +23,7 @@
  * the guarded-page marker). Auth + client-preview are mocked per-test to drive
  * the role without a live Supabase session.
  */
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
@@ -321,5 +321,21 @@ describe("shared surfaces stay reachable for clients", () => {
     renderAt("/client/reports");
     expect(await screen.findByTestId("page-client-reports")).toBeInTheDocument();
     expect(screen.queryByTestId("page-reports")).toBeNull();
+  });
+});
+
+describe("route guard: a signed-in user whose role did not resolve has no access (second-round audit M5)", () => {
+  it.each(["/client/creatives", "/builder/creatives", "/builder/"])("%s shows the no-access screen with a retry button", async (path) => {
+    setRole(null);
+    const retryRole = vi.fn();
+    Object.assign(authValue, { retryRole, signOut: vi.fn().mockResolvedValue(undefined) });
+    renderAt(path);
+    expect(await screen.findByRole("alert")).toHaveTextContent("could not load your access");
+    // No page of any role mounts.
+    expect(screen.queryByTestId("page-creatives")).toBeNull();
+    expect(screen.queryByTestId("page-overview")).toBeNull();
+    expect(screen.queryByTestId("page-staff-home")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(retryRole).toHaveBeenCalledTimes(1);
   });
 });

@@ -210,13 +210,102 @@ Deno.test("PUT replaces the role and the account links", async () => {
     cfg: { tables: { user_roles: rolesFor(["builder"]) } },
   });
   assertEquals(res.status, 200);
+  // The new role is added before the old ones are removed, so a failure cannot leave no role.
   assertEquals(db.writes().map((w) => `${w.verb}:${w.table}`), [
     "update:profiles",
-    "delete:user_roles",
     "insert:user_roles",
+    "delete:user_roles",
     "delete:user_accounts",
     "insert:user_accounts",
   ]);
+  const del = db.writes()[2];
+  assert(del.filters.some(([m, c, v]) => m === "neq" && c === "role" && v === "employee"), "the delete spares the new role");
+});
+
+/** user_roles answers: the caller's roles, the target's roles, and the builder list. */
+function roleTable(o: { caller?: string[]; target?: string[]; builders?: string[] }) {
+  return (op: { filters: Array<[string, string, unknown]> }) => {
+    const eq = (col: string) => op.filters.find(([m, c]) => m === "eq" && c === col)?.[2];
+    if (eq("user_id") === "caller") return (o.caller ?? ["builder"]).map((role) => ({ role }));
+    if (eq("user_id") === "victim") return (o.target ?? []).map((role) => ({ role }));
+    if (eq("role") === "builder") return (o.builders ?? []).map((user_id) => ({ user_id }));
+    return [];
+  };
+}
+
+Deno.test("PUT: a failed insert of the new role stops before any role is removed", async () => {
+  const { res, db } = await call("PUT", "/victim", {
+    body: { role: "employee" },
+    cfg: { tables: { user_roles: roleTable({ target: ["client"] }) }, writeErrors: { "insert:user_roles": { message: "db down" } } },
+  });
+  assertEquals(res.status, 500);
+  assertEquals(db.writes().map((w) => `${w.verb}:${w.table}`), ["insert:user_roles"]);
+});
+
+Deno.test("PUT: a role the login already holds (duplicate) is not an error", async () => {
+  const { res } = await call("PUT", "/victim", {
+    body: { role: "employee" },
+    cfg: { tables: { user_roles: roleTable({ target: ["employee"] }) }, writeErrors: { "insert:user_roles": { message: "dup", code: "23505" } } },
+  });
+  assertEquals(res.status, 200);
+});
+
+Deno.test("PUT: a failed delete of the old roles is a 500 with a generic message", async () => {
+  const { res } = await call("PUT", "/victim", {
+    body: { role: "employee" },
+    cfg: { tables: { user_roles: roleTable({}) }, writeErrors: { "delete:user_roles": { message: "secret detail" } } },
+  });
+  assertEquals(res.status, 500);
+  const body = await res.json();
+  assertEquals(body.error, "The request could not be completed. Try again.");
+  assert(!JSON.stringify(body).includes("secret detail"));
+});
+
+Deno.test("PUT: the last builder cannot be demoted, and nothing is written", async () => {
+  const { res, db } = await call("PUT", "/victim", {
+    body: { role: "employee", display_name: "X" },
+    cfg: { tables: { user_roles: roleTable({ target: ["builder"], builders: ["victim"] }) } },
+  });
+  assertEquals(res.status, 409);
+  assertEquals(db.writes().length, 0);
+});
+
+Deno.test("PUT: a builder can be demoted when another builder remains, and can keep the builder role", async () => {
+  const demote = await call("PUT", "/victim", {
+    body: { role: "employee" },
+    cfg: { tables: { user_roles: roleTable({ target: ["builder"], builders: ["victim", "caller"] }) } },
+  });
+  assertEquals(demote.res.status, 200);
+  const keep = await call("PUT", "/victim", {
+    body: { role: "builder" },
+    cfg: { tables: { user_roles: roleTable({ target: ["builder"], builders: ["victim"] }) } },
+  });
+  assertEquals(keep.res.status, 200);
+});
+
+Deno.test("DELETE: the last builder cannot be removed", async () => {
+  const { res, db } = await call("DELETE", "/victim", {
+    cfg: { tables: { user_roles: roleTable({ target: ["builder"], builders: ["victim"] }) } },
+  });
+  assertEquals(res.status, 409);
+  assertEquals(db.admin.deleted, []);
+});
+
+Deno.test("DELETE: a failed removal is a 500, not a success", async () => {
+  const { res } = await call("DELETE", "/victim", {
+    cfg: { tables: { user_roles: roleTable({}) }, deleteUserError: { message: "auth exploded" } },
+  });
+  assertEquals(res.status, 500);
+  assertEquals((await res.json()).error, "The request could not be completed. Try again.");
+});
+
+Deno.test("a 500 never returns the raw error text", async () => {
+  const { res } = await call("POST", "", {
+    body: { email: "a@b.test", password: "pw-for-test", role: "employee" },
+    cfg: { tables: { user_roles: rolesFor(["builder"]) }, createUserError: { message: "duplicate key value violates constraint users_email_key" } },
+  });
+  assertEquals(res.status, 500);
+  assert(!JSON.stringify(await res.json()).includes("duplicate key"));
 });
 
 Deno.test("DELETE removes the login for a builder", async () => {

@@ -70,12 +70,17 @@ vi.mock("@/integrations/supabase/client", () => ({
 import { AuthProvider } from "@/contexts/AuthContext";
 import CaptureShareTarget from "@/pages/CaptureShareTarget";
 import {
+  SHARE_NONCE_PARAM,
+  SHARE_NONCE_PREFIX,
+  SHARE_STASH_TTL_MS,
   SHARE_TARGET_CACHE,
   SHARE_TARGET_PATH,
   SHARE_TARGET_STASH_PREFIX,
   SHARED_FILE_NAME_HEADER,
+  SHARED_FILE_STASHED_AT_HEADER,
   extractSharedUrl,
   resolvePostLoginPath,
+  takeShareNonce,
   takeSharedFile,
 } from "@/pwa/shareTarget";
 
@@ -122,6 +127,8 @@ beforeEach(() => {
   vaultSaveGate = null;
   uploadCalls.length = 0;
   uploadError = null;
+  // A fresh worker cache per test; the route reads the nonce and any stashed photo from it.
+  vi.stubGlobal("caches", fakeCacheStorage().storage);
   // The "already saved" marker is tab-scoped, so it would otherwise leak from
   // one test into the next and suppress a legitimate save.
   try {
@@ -163,10 +170,21 @@ function LocationProbe() {
   );
 }
 
-function renderShareTarget(search: string) {
+/**
+ * Render the route the way the OS share flow reaches it: the service worker issued a one-time
+ * nonce (seeded into the fake cache) and put it in the URL. Pass `direct: true` for a plain GET
+ * with no nonce (a link on another site, or a hand-typed URL), or `seed: false` for a URL whose
+ * nonce was already consumed (a reload).
+ */
+function renderShareTarget(
+  search: string,
+  { nonce = "n1", seed = true, direct = false }: { nonce?: string; seed?: boolean; direct?: boolean } = {},
+) {
+  if (!direct && seed) stashNonce(lastFakeCache!, nonce);
+  const url = direct ? search : `${search}${search.includes("?") ? "&" : "?"}${SHARE_NONCE_PARAM}=${nonce}`;
   return render(
     <AuthProvider>
-      <MemoryRouter initialEntries={[`${SHARE_TARGET_PATH}${search}`]}>
+      <MemoryRouter initialEntries={[`${SHARE_TARGET_PATH}${url}`]}>
         <LocationProbe />
         <Routes>
           <Route path={SHARE_TARGET_PATH} element={<CaptureShareTarget />} />
@@ -300,7 +318,7 @@ describe("US-003: extractSharedUrl", () => {
 /** Minimal in-memory CacheStorage, standing in for the worker's stash. */
 function fakeCacheStorage() {
   const entries = new Map<string, Response>();
-  return {
+  const made = {
     entries,
     storage: {
       open: async () => ({
@@ -310,6 +328,19 @@ function fakeCacheStorage() {
       }),
     } as unknown as CacheStorage,
   };
+  lastFakeCache = made;
+  return made;
+}
+
+/** The most recently created fake cache: where renderShareTarget seeds the worker's nonce. */
+let lastFakeCache: ReturnType<typeof fakeCacheStorage> | null = null;
+
+/** What the worker leaves behind for a share it delivered. */
+function stashNonce(cache: ReturnType<typeof fakeCacheStorage>, nonce: string, issuedAt = Date.now()) {
+  cache.entries.set(
+    SHARE_NONCE_PREFIX + nonce,
+    new Response("1", { headers: { [SHARED_FILE_STASHED_AT_HEADER]: String(issuedAt) } }),
+  );
 }
 
 function stashFile(cache: ReturnType<typeof fakeCacheStorage>, key: string, file: File) {
@@ -417,7 +448,8 @@ describe("US-003: reloading a share", () => {
 
     // Pull-to-refresh: same URL, fresh mount, same tab.
     first.unmount();
-    renderShareTarget(search);
+    // The nonce in the URL was consumed by the first mount, so this is a reload, not a new share.
+    renderShareTarget(search, { seed: false });
 
     expect(await screen.findByText("Saved ✓")).toBeInTheDocument();
     expect(screen.getByText(/already saved this one/i)).toBeInTheDocument();
@@ -431,7 +463,7 @@ describe("US-003: reloading a share", () => {
     await screen.findByText("Saved ✓");
     first.unmount();
 
-    renderShareTarget("?url=https%3A%2F%2Fexample.com%2Fother");
+    renderShareTarget("?url=https%3A%2F%2Fexample.com%2Fother", { nonce: "n2" });
     await screen.findByText("Saved ✓");
 
     expect(vaultSaveCalls).toHaveLength(2);
@@ -540,7 +572,7 @@ describe("US-003: unauthenticated visit", () => {
 
   it("carries the share forward so signing in returns to it", async () => {
     signOut();
-    renderShareTarget("?url=https%3A%2F%2Fexample.com%2Fpost");
+    renderShareTarget("?url=https%3A%2F%2Fexample.com%2Fpost", { direct: true });
 
     await waitFor(() =>
       expect(screen.getByTestId("location").dataset.pathname).toBe("/login"),
@@ -564,6 +596,93 @@ describe("US-003: unauthenticated visit", () => {
 // ---------------------------------------------------------------------------
 // Error handling — never a silent failure
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Second-round audit M6: the route is a plain GET, so a cross-site link or form can open it with a
+// payload. Only a share the service worker delivered (one-time nonce) saves without a tap.
+// ---------------------------------------------------------------------------
+
+describe("M6: share target needs the worker's nonce to save on arrival", () => {
+  const search = "?url=https%3A%2F%2Fexample.com%2Fpost";
+
+  it("a plain GET with a payload asks for a confirm tap and saves nothing until it is tapped", async () => {
+    signInAs("builder");
+    renderShareTarget(search, { direct: true });
+
+    expect(await screen.findByRole("button", { name: "Save to Vault" })).toBeInTheDocument();
+    expect(screen.queryByText("Saving…")).not.toBeInTheDocument();
+    expect(vaultSaveCalls).toHaveLength(0);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save to Vault" }));
+    });
+    expect(await screen.findByText("Saved ✓")).toBeInTheDocument();
+    expect(vaultSaveCalls).toHaveLength(1);
+    expect(vaultSaveCalls[0].body).toMatchObject({ url: "https://example.com/post" });
+  });
+
+  it("a nonce the worker never issued is the same as no nonce", async () => {
+    signInAs("builder");
+    renderShareTarget(search, { nonce: "forged", seed: false });
+
+    expect(await screen.findByRole("button", { name: "Save to Vault" })).toBeInTheDocument();
+    expect(vaultSaveCalls).toHaveLength(0);
+  });
+
+  it("a share delivered by the worker saves with no tap, and the nonce is used up", async () => {
+    signInAs("builder");
+    renderShareTarget(search);
+
+    expect(await screen.findByText("Saved ✓")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save to Vault" })).not.toBeInTheDocument();
+    expect(vaultSaveCalls).toHaveLength(1);
+    expect(lastFakeCache!.entries.has(SHARE_NONCE_PREFIX + "n1")).toBe(false);
+  });
+
+  it("a photo needs the nonce too", async () => {
+    signInAs("builder");
+    stashFile(lastFakeCache!, "abc", new File(["img"], "photo.png", { type: "image/png" }));
+    renderShareTarget("?shared-file=abc", { direct: true });
+
+    expect(await screen.findByRole("button", { name: "Save to Vault" })).toBeInTheDocument();
+    expect(uploadCalls).toHaveLength(0);
+    expect(vaultSaveCalls).toHaveLength(0);
+  });
+
+  it("a client account still sees the blocked screen, not the confirm button", async () => {
+    signInAs("client");
+    renderShareTarget(search, { direct: true });
+
+    expect(await screen.findByText("Not available")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save to Vault" })).not.toBeInTheDocument();
+  });
+});
+
+describe("M6: takeShareNonce", () => {
+  it("consumes a fresh nonce exactly once", async () => {
+    const cache = fakeCacheStorage();
+    stashNonce(cache, "abc");
+    expect(await takeShareNonce("abc", cache.storage)).toBe(true);
+    expect(await takeShareNonce("abc", cache.storage)).toBe(false);
+  });
+
+  it("rejects an expired, unknown, empty or missing nonce", async () => {
+    const cache = fakeCacheStorage();
+    stashNonce(cache, "old", Date.now() - SHARE_STASH_TTL_MS - 1000);
+    expect(await takeShareNonce("old", cache.storage)).toBe(false);
+    expect(await takeShareNonce("never-issued", cache.storage)).toBe(false);
+    expect(await takeShareNonce("", cache.storage)).toBe(false);
+    expect(await takeShareNonce(null, cache.storage)).toBe(false);
+    expect(await takeShareNonce("abc", undefined)).toBe(false);
+  });
+
+  it("the worker keeps the same nonce names and stores the nonce before it redirects", () => {
+    expect(serviceWorkerSource).toContain(`const SHARE_NONCE_PARAM = "${SHARE_NONCE_PARAM}"`);
+    expect(serviceWorkerSource).toContain(`const SHARE_NONCE_PREFIX = "${SHARE_NONCE_PREFIX}"`);
+    expect(serviceWorkerSource).toMatch(/crypto\.randomUUID\(\)/);
+    expect(serviceWorkerSource).toMatch(/searchParams\.set\(SHARE_NONCE_PARAM, nonce\)/);
+  });
+});
 
 describe("US-003: failure handling", () => {
   it("surfaces an edge-function failure and retries on demand", async () => {

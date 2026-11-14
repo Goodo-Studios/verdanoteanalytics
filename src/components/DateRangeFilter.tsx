@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { format, subDays, startOfMonth, startOfWeek, subMonths } from "date-fns";
+import { format } from "date-fns";
 import { CalendarIcon, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { parsePickerDate, formatPickerDate } from "@/lib/dateRange";
+import { parsePickerDate, formatPickerDate, ROLLING_PRESETS, utcToday, type RollingPreset } from "@/lib/dateRange";
 import type { DateRange } from "react-day-picker";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -12,23 +12,11 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 
-const yesterday = () => subDays(new Date(), 1);
-
-const PRESETS = [
-  { label: "Today", from: () => new Date(), to: () => new Date() },
-  { label: "Yesterday", from: () => subDays(new Date(), 1), to: () => subDays(new Date(), 1) },
-  { label: "Last 7 days", from: () => subDays(new Date(), 7), to: () => yesterday() },
-  { label: "Last 14 days", from: () => subDays(new Date(), 14), to: () => yesterday() },
-  { label: "Last 30 days", from: () => subDays(new Date(), 30), to: () => yesterday() },
-  { label: "This Week", from: () => startOfWeek(new Date(), { weekStartsOn: 1 }), to: () => yesterday() },
-  { label: "This Month", from: () => startOfMonth(new Date()), to: () => yesterday() },
-  { label: "Last Month", from: () => startOfMonth(subMonths(new Date(), 1)), to: () => subDays(startOfMonth(new Date()), 1) },
-];
-
 interface DateRangeFilterProps {
   dateFrom?: string;
   dateTo?: string;
-  onChange: (dateFrom?: string, dateTo?: string) => void;
+  /** presetId is set only when the range came from a rolling preset (see ROLLING_PRESETS). */
+  onChange: (dateFrom?: string, dateTo?: string, presetId?: string) => void;
 }
 
 export function DateRangeFilter({ dateFrom, dateTo, onChange }: DateRangeFilterProps) {
@@ -37,8 +25,10 @@ export function DateRangeFilter({ dateFrom, dateTo, onChange }: DateRangeFilterP
   const fromDate = dateFrom ? parsePickerDate(dateFrom) : undefined;
   const toDate = dateTo ? parsePickerDate(dateTo) : undefined;
 
-  const handlePreset = (preset: typeof PRESETS[number]) => {
-    onChange(format(preset.from(), "yyyy-MM-dd"), format(preset.to(), "yyyy-MM-dd"));
+  const handlePreset = (preset: RollingPreset) => {
+    // "Today" is the UTC date, the calendar the server windows use.
+    const today = utcToday();
+    onChange(format(preset.from(today), "yyyy-MM-dd"), format(preset.to(today), "yyyy-MM-dd"), preset.id);
     setOpen(false);
   };
 
@@ -52,9 +42,10 @@ export function DateRangeFilter({ dateFrom, dateTo, onChange }: DateRangeFilterP
     );
   };
 
-  const activePreset = PRESETS.find(p => {
+  const activePreset = ROLLING_PRESETS.find(p => {
     if (!dateFrom || !dateTo) return false;
-    return format(p.from(), "yyyy-MM-dd") === dateFrom && format(p.to(), "yyyy-MM-dd") === dateTo;
+    const today = utcToday();
+    return format(p.from(today), "yyyy-MM-dd") === dateFrom && format(p.to(today), "yyyy-MM-dd") === dateTo;
   });
 
   const hasRange = dateFrom || dateTo;
@@ -83,7 +74,7 @@ export function DateRangeFilter({ dateFrom, dateTo, onChange }: DateRangeFilterP
             {/* Presets sidebar */}
             <div className="border-r border-border-light pr-3 w-[160px] space-y-0.5">
               <p className="font-label text-[9px] font-semibold uppercase tracking-[0.1em] text-sage px-3.5 pb-1">Presets</p>
-              {PRESETS.map((p) => (
+              {ROLLING_PRESETS.map((p) => (
                 <button
                   key={p.label}
                   onClick={() => handlePreset(p)}

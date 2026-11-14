@@ -137,10 +137,14 @@ export async function checkRequestLimits(
   tokenHash: string | null,
   isWrite: boolean,
   limits: Limits = DEFAULT_LIMITS,
+  isPhoto = false,
 ): Promise<Response | null> {
   // Addresses that keep hitting tokens that do not exist are slowed down first (a look, no count).
   if (!(await rateHit(db, `miss:${ip}`, limits.missesPerTenMinutes, 600, 0))) return tooMany(600);
-  if (!(await rateHit(db, `ip:${ip}`, limits.ipPerMinute, 60))) return tooMany(60);
+  // A board page asks for one signed photo address per photo, so signing for a well formed token is
+  // held to the per-token limit only. Requests with no usable token keep the per-address limit.
+  const skipIp = isPhoto && !!tokenHash;
+  if (!skipIp && !(await rateHit(db, `ip:${ip}`, limits.ipPerMinute, 60))) return tooMany(60);
   if (tokenHash && !(await rateHit(db, `tok:${tokenHash}`, limits.tokenPerMinute, 60))) return tooMany(60);
   if (isWrite && !(await rateHit(db, `write:${ip}`, limits.writePerTenMinutes, 600))) return tooMany(600);
   return null;

@@ -1,27 +1,32 @@
 /**
- * Pure helpers for the timer and weekly log (OS-012): Monday-to-Sunday weeks in local time,
+ * Pure helpers for the timer and weekly log (OS-012): Monday-to-Sunday weeks in the studio zone,
  * durations, h:mm:ss and hours formatting, grouping by day with totals, entry labels, form checks
  * and plain words for database errors.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   addDays,
+  dayLabel,
   durationSeconds,
   entryLabel,
   formatElapsed,
   formatHours,
   friendlyTimeError,
   groupByDay,
-  localClock,
-  localIso,
+  studioClock,
+  studioDate,
+  studioToday,
   toTimestamp,
   validateEntryForm,
+  weekLabel,
   weekRange,
   weekStartIso,
   type TimeEntryRow,
 } from "@/lib/timeLog";
 
-const at = (y: number, mo: number, d: number, h: number, mi = 0) => new Date(y, mo - 1, d, h, mi).toISOString();
+const p2 = (n: number) => String(n).padStart(2, "0");
+// A studio-zone (America/New_York) wall-clock time as an instant, whatever zone the machine is in.
+const at = (y: number, mo: number, d: number, h: number, mi = 0) => toTimestamp(`${y}-${p2(mo)}-${p2(d)}`, `${p2(h)}:${p2(mi)}`);
 const entry = (id: string, start: string, end: string | null, over: Partial<TimeEntryRow> = {}): TimeEntryRow => ({
   id,
   person_id: "p",
@@ -52,8 +57,8 @@ describe("weeks", () => {
   it("lists seven days and queries from Monday midnight to the next Monday midnight", () => {
     const w = weekRange("2026-11-12");
     expect(w.days).toEqual(["2026-11-09", "2026-11-10", "2026-11-11", "2026-11-12", "2026-11-13", "2026-11-14", "2026-11-15"]);
-    expect(w.fromIso).toBe(new Date(2026, 10, 9).toISOString());
-    expect(w.toIso).toBe(new Date(2026, 10, 16).toISOString());
+    expect(w.fromIso).toBe("2026-11-09T05:00:00.000Z"); // Monday 00:00 EST
+    expect(w.toIso).toBe("2026-11-16T05:00:00.000Z");
   });
 });
 
@@ -76,9 +81,9 @@ describe("durations and formatting", () => {
 
   it("turns a date and a clock time into a timestamp and back", () => {
     const ts = toTimestamp("2026-11-10", "09:30");
-    expect(ts).toBe(new Date(2026, 10, 10, 9, 30).toISOString());
-    expect(localClock(ts)).toBe("09:30");
-    expect(localIso(new Date(ts))).toBe("2026-11-10");
+    expect(ts).toBe("2026-11-10T14:30:00.000Z"); // 09:30 EST
+    expect(studioClock(ts)).toBe("09:30");
+    expect(studioDate(ts)).toBe("2026-11-10");
   });
 });
 
@@ -104,7 +109,7 @@ describe("grouping", () => {
 
   it("counts a running entry up to now", () => {
     const w = weekRange("2026-11-09");
-    const now = new Date(2026, 10, 9, 10).getTime();
+    const now = Date.parse(at(2026, 11, 9, 10));
     const g = groupByDay([entry("r", at(2026, 11, 9, 9), null)], w.days, now);
     expect(g.seconds).toBe(3600);
   });
@@ -130,6 +135,16 @@ describe("labels, checks and errors", () => {
     expect(validateEntryForm({ ...ok, date: "" })).toBe("Fill in the date, start and end.");
   });
 
+  it("accepts an overnight entry when the end date is the next day", () => {
+    const ok = { date: "2026-11-10", start: "22:00", end: "06:00", taskId: "", client: "glow", category: "Admin" };
+    expect(validateEntryForm(ok)).toBe("The end must be after the start.");
+    expect(validateEntryForm({ ...ok, endDate: "2026-11-11" })).toBeNull();
+    expect(validateEntryForm({ ...ok, endDate: "2026-11-10" })).toBe("The end must be after the start.");
+    expect(validateEntryForm({ ...ok, endDate: "2026-11-09" })).toBe("The end must be after the start.");
+    // A blank end date means the start date, as before.
+    expect(validateEntryForm({ ...ok, end: "23:00", endDate: "" })).toBeNull();
+  });
+
   it("puts database errors in plain words", () => {
     expect(friendlyTimeError('conflicting key value violates exclusion constraint "time_entries_no_overlap"')).toMatch(/overlaps another/);
     expect(friendlyTimeError('new row for relation "time_entries" violates check constraint "time_entries_end_after_start"')).toBe(
@@ -140,5 +155,66 @@ describe("labels, checks and errors", () => {
       "An entry cannot be longer than 24 hours. Split it into separate entries.",
     );
     expect(friendlyTimeError('new row violates row-level security policy for table "time_entries"')).toBe("You can only change your own time.");
+  });
+});
+
+describe("one rule for days and weeks: the studio zone, whatever the browser's zone", () => {
+  const savedTz = process.env.TZ;
+  afterEach(() => {
+    if (savedTz === undefined) delete process.env.TZ;
+    else process.env.TZ = savedTz;
+  });
+  const zones = ["America/Los_Angeles", "Europe/London", "Asia/Tokyo", "Pacific/Auckland", "America/New_York"];
+
+  it("gives the same day, clock, week and totals in every browser zone near midnight", () => {
+    // 23:30 Sunday 15 Nov in New York (04:30 UTC Monday) and 00:30 Monday 16 Nov in New York.
+    const sunLate = "2026-11-16T04:30:00.000Z";
+    const monEarly = "2026-11-16T05:30:00.000Z";
+    for (const tz of zones) {
+      process.env.TZ = tz;
+      expect(studioDate(sunLate)).toBe("2026-11-15");
+      expect(studioClock(sunLate)).toBe("23:30");
+      expect(studioDate(monEarly)).toBe("2026-11-16");
+      expect(studioToday(new Date(sunLate))).toBe("2026-11-15");
+      const w = weekRange("2026-11-15");
+      expect(w.start).toBe("2026-11-09");
+      expect(w.fromIso).toBe("2026-11-09T05:00:00.000Z");
+      expect(w.toIso).toBe("2026-11-16T05:00:00.000Z");
+      const g = groupByDay(
+        [entry("late", sunLate, "2026-11-16T05:00:00.000Z"), entry("early", monEarly, "2026-11-16T06:30:00.000Z")],
+        w.days,
+      );
+      expect(g.days[6].entries.map((e) => e.id)).toEqual(["late"]);
+      expect(g.seconds).toBe(30 * 60);
+      expect(weekLabel("2026-11-09")).toBe("9 Nov to 15 Nov 2026");
+      expect(dayLabel("2026-11-09")).toBe("Mon 9 Nov");
+    }
+  });
+
+  it("handles the DST boundaries: fall back on 1 Nov and spring forward on 8 Mar", () => {
+    for (const tz of zones) {
+      process.env.TZ = tz;
+      // The week of 26 Oct holds the 25-hour day, so it ends at 05:00 UTC on 2 Nov (EST).
+      const fall = weekRange("2026-10-28");
+      expect(fall.fromIso).toBe("2026-10-26T04:00:00.000Z"); // EDT
+      expect(fall.toIso).toBe("2026-11-02T05:00:00.000Z"); // EST
+      expect(studioDate("2026-11-01T04:30:00.000Z")).toBe("2026-11-01");
+      expect(studioDate("2026-11-02T04:30:00.000Z")).toBe("2026-11-01"); // 23:30 EST on the 1st
+      expect(toTimestamp("2026-11-01", "12:00")).toBe("2026-11-01T17:00:00.000Z");
+      // The week of 2 Mar holds the 23-hour day.
+      const spring = weekRange("2026-03-08");
+      expect(spring.start).toBe("2026-03-02");
+      expect(spring.fromIso).toBe("2026-03-02T05:00:00.000Z"); // EST
+      expect(spring.toIso).toBe("2026-03-09T04:00:00.000Z"); // EDT
+      expect(toTimestamp("2026-03-08", "12:00")).toBe("2026-03-08T16:00:00.000Z"); // EDT
+      expect(studioClock("2026-03-08T07:30:00.000Z")).toBe("03:30"); // after the 02:00 jump
+    }
+  });
+
+  it("agrees with Reports: the same instant lands on the same date in both", async () => {
+    const { zonedDate } = await import("@/lib/timeReports");
+    for (const iso of ["2026-11-16T04:30:00.000Z", "2026-03-08T06:59:00.000Z", "2026-03-08T07:00:00.000Z", "2026-11-01T05:30:00.000Z"]) {
+      expect(studioDate(iso)).toBe(zonedDate(iso));
+    }
   });
 });

@@ -1,6 +1,7 @@
-// Pure helpers for the timer and the weekly log (OS-012): week ranges (Monday to Sunday, local
-// time), durations, h:mm:ss and hours formatting, grouping entries by day, turning a date and a
-// clock time into a timestamp, and plain words for database errors.
+// Pure helpers for the timer and the weekly log (OS-012): week ranges (Monday to Sunday, studio
+// time zone, as in Reports), durations, h:mm:ss and hours formatting, grouping entries by day,
+// turning a date and a clock time into a timestamp, and plain words for database errors.
+import { addDaysIso, zonedClock, zonedDate, zonedInstantUtc, zonedMidnightUtc } from "@/lib/timeReports";
 
 /** The fixed categories. Must match the check time_entries_category_known in the migration. */
 export const TIME_CATEGORIES = ["Editing", "Strategy", "Production", "Admin", "Meetings", "Other"] as const;
@@ -23,30 +24,35 @@ export interface TimeEntryRow {
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** YYYY-MM-DD for a Date in local time. */
-export function localIso(d: Date): string {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+// Every date and clock time here is in the studio time zone (America/New_York), the same zone
+// Reports and the CSV use, so a person outside Eastern time sees the same day, week and totals on
+// /time as in Reports. The browser's own zone is never used for these.
+
+/** Today's date (YYYY-MM-DD) in the studio zone. */
+export function studioToday(now: Date = new Date()): string {
+  return zonedDate(now);
 }
 
-/** Local midnight of a YYYY-MM-DD date. */
-export function fromLocalIso(iso: string): Date {
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, m - 1, d);
+/** The studio-zone calendar date (YYYY-MM-DD) of an instant. */
+export function studioDate(at: Date | string | number): string {
+  return zonedDate(at);
+}
+
+/** HH:MM of an instant in the studio zone. */
+export function studioClock(isoTs: string): string {
+  return zonedClock(isoTs);
 }
 
 /** The Monday (YYYY-MM-DD) of the week that holds `iso`. */
 export function weekStartIso(iso: string): string {
-  const d = fromLocalIso(iso);
-  const back = (d.getDay() + 6) % 7; // Monday 0 ... Sunday 6
-  d.setDate(d.getDate() - back);
-  return localIso(d);
+  const [y, m, d] = iso.split("-").map(Number);
+  const back = (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7; // Monday 0 ... Sunday 6
+  return addDaysIso(iso, -back);
 }
 
-/** Moves a date by whole days, in local time. */
+/** Moves a calendar date by whole days. */
 export function addDays(iso: string, days: number): string {
-  const d = fromLocalIso(iso);
-  d.setDate(d.getDate() + days);
-  return localIso(d);
+  return addDaysIso(iso, days);
 }
 
 export interface WeekRange {
@@ -54,7 +60,7 @@ export interface WeekRange {
   start: string;
   /** The seven days Monday to Sunday. */
   days: string[];
-  /** Timestamps for the query: Monday 00:00 local up to (not including) next Monday 00:00. */
+  /** Timestamps for the query: Monday 00:00 studio time up to (not including) next Monday 00:00. */
   fromIso: string;
   toIso: string;
 }
@@ -65,22 +71,28 @@ export function weekRange(anyDayIso: string): WeekRange {
   return {
     start,
     days,
-    fromIso: fromLocalIso(start).toISOString(),
-    toIso: fromLocalIso(addDays(start, 7)).toISOString(),
+    fromIso: zonedMidnightUtc(start),
+    toIso: zonedMidnightUtc(addDays(start, 7)),
   };
+}
+
+/** A calendar date as a UTC-midnight Date, for labels only (formatted with timeZone UTC). */
+function calendarDate(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
 }
 
 /** "10 Nov to 16 Nov 2026" for a week starting on `start`. */
 export function weekLabel(start: string): string {
-  const a = fromLocalIso(start);
-  const b = fromLocalIso(addDays(start, 6));
-  const dm = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  return `${dm(a)} to ${dm(b)} ${b.getFullYear()}`;
+  const a = calendarDate(start);
+  const b = calendarDate(addDays(start, 6));
+  const dm = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+  return `${dm(a)} to ${dm(b)} ${b.getUTCFullYear()}`;
 }
 
 /** "Mon 10 Nov". */
 export function dayLabel(iso: string): string {
-  return fromLocalIso(iso).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+  return calendarDate(iso).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 }
 
 /** Seconds from start to end, or to `nowMs` for a running entry. Never negative. */
@@ -102,18 +114,9 @@ export function formatHours(seconds: number): string {
   return h > 0 ? `${h}h ${pad(m % 60)}m` : `${m}m`;
 }
 
-/** HH:MM in local time. */
-export function localClock(isoTs: string): string {
-  const d = new Date(isoTs);
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-/** A date (YYYY-MM-DD) and a clock time (HH:MM) in local time, as an ISO timestamp. */
+/** A date (YYYY-MM-DD) and a clock time (HH:MM) in the studio zone, as an ISO timestamp. */
 export function toTimestamp(date: string, clock: string): string {
-  const [h, m] = clock.split(":").map(Number);
-  const d = fromLocalIso(date);
-  d.setHours(h, m, 0, 0);
-  return d.toISOString();
+  return zonedInstantUtc(date, clock);
 }
 
 /** What an entry was for: the task title, else the client or Internal with the category. */
@@ -130,12 +133,12 @@ export interface DayGroup {
   seconds: number;
 }
 
-/** Entries by the local day they start on, for each day of the week, with totals. */
+/** Entries by the studio-zone day they start on, for each day of the week, with totals. */
 export function groupByDay(entries: TimeEntryRow[], days: string[], nowMs: number = Date.now()): { days: DayGroup[]; seconds: number } {
   const groups: DayGroup[] = days.map((date) => ({ date, entries: [], seconds: 0 }));
   const byDate = new Map(groups.map((g) => [g.date, g]));
   for (const e of [...entries].sort((a, b) => a.start_at.localeCompare(b.start_at))) {
-    const g = byDate.get(localIso(new Date(e.start_at)));
+    const g = byDate.get(studioDate(e.start_at));
     if (!g) continue;
     g.entries.push(e);
     g.seconds += durationSeconds(e.start_at, e.end_at, nowMs);
@@ -163,13 +166,15 @@ export function validateEntryForm(f: {
   date: string;
   start: string;
   end: string;
+  /** The date the entry ends on. Blank means the start date. */
+  endDate?: string;
   taskId: string;
   client: string;
   category: string;
 }): string | null {
   if (!f.date || !f.start || !f.end) return "Fill in the date, start and end.";
   const start = Date.parse(toTimestamp(f.date, f.start));
-  const end = Date.parse(toTimestamp(f.date, f.end));
+  const end = Date.parse(toTimestamp(f.endDate || f.date, f.end));
   if (!(end > start)) return "The end must be after the start.";
   if (!f.taskId) {
     if (!f.client) return "Choose a task, or a client or Internal.";

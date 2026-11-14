@@ -30,6 +30,8 @@ vi.mock("@/integrations/supabase/client", () => ({
             call.eq++;
             return q;
           },
+          order: () => q,
+          range: () => q,
           then: (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => {
             const t = h.tables[table] ?? {};
             const p = t.pending ? new Promise(() => {}) : Promise.resolve({ data: t.data ?? [], error: t.error ?? null });

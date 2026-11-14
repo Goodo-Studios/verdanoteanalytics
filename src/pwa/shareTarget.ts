@@ -64,6 +64,41 @@ export const SHARED_FILE_PARAM = "shared-file";
 export const SHARE_ERROR_PARAM = "share-error";
 
 /**
+ * Query param carrying a one-time nonce the worker issues for every share it delivers.
+ *
+ * The route is a plain GET, so a link or form on another site can open it with a payload of its
+ * own. Only the worker, which saw a real share POST from the OS, can put a nonce in the cache. The
+ * route saves on arrival only when it can consume that nonce; any other visit gets a confirm button.
+ */
+export const SHARE_NONCE_PARAM = "share-nonce";
+
+/** Synthetic request path prefix used as the cache key for an issued nonce. */
+export const SHARE_NONCE_PREFIX = "/__verdanote-share-nonce/";
+
+/**
+ * Consume the nonce the worker issued for this share. True only when the entry exists, is still
+ * within the stash TTL, and was deleted by this call, so a nonce works once.
+ */
+export async function takeShareNonce(
+  nonce: string | null | undefined,
+  cacheStorage: CacheStorage | undefined = typeof caches === "undefined" ? undefined : caches,
+): Promise<boolean> {
+  if (!nonce || !cacheStorage) return false;
+
+  const cacheKey = SHARE_NONCE_PREFIX + nonce;
+  try {
+    const cache = await cacheStorage.open(SHARE_TARGET_CACHE);
+    const response = await cache.match(cacheKey);
+    if (!response) return false;
+    const issuedAt = Number(response.headers.get(SHARED_FILE_STASHED_AT_HEADER));
+    const deleted = await cache.delete(cacheKey);
+    return deleted && Number.isFinite(issuedAt) && Date.now() - issuedAt <= SHARE_STASH_TTL_MS;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Pull a shareable link out of the params Chrome handed us.
  *
  * Why this is not just `params.get("url")`: Android apps are inconsistent about

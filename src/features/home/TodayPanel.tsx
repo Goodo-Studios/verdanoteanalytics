@@ -148,10 +148,9 @@ export function TodayPanel() {
       timers.current.delete(task.id);
       setLeaving((s) => without(s, task.id));
       setHidden((s) => without(s, task.id));
-      setStatus.mutate(
-        { id: task.id, status: task.status },
-        { onError: (e) => toast.error(`Could not undo: ${(e as Error).message}`) },
-      );
+      void setStatus.mutateAsync({ id: task.id, status: task.status }).catch((e: unknown) => {
+        toast.error(`Could not undo: ${(e as Error).message}`);
+      });
     },
     [setStatus],
   );
@@ -167,19 +166,16 @@ export function TodayPanel() {
           setLeaving((s) => without(s, task.id));
         }, SLIDE_MS),
       );
-      setStatus.mutate(
-        { id: task.id, status: DONE_STATUS },
-        {
-          onError: (e) => {
-            const t = timers.current.get(task.id);
-            if (t) clearTimeout(t);
-            timers.current.delete(task.id);
-            setLeaving((s) => without(s, task.id));
-            setHidden((s) => without(s, task.id));
-            toast.error(`Could not mark it done: ${(e as Error).message}`);
-          },
-        },
-      );
+      // mutateAsync, not mutate with per-call callbacks: the rows share one mutation, and React
+      // Query only runs those callbacks for the latest call, so an earlier failure would be lost.
+      void setStatus.mutateAsync({ id: task.id, status: DONE_STATUS }).catch((e: unknown) => {
+        const t = timers.current.get(task.id);
+        if (t) clearTimeout(t);
+        timers.current.delete(task.id);
+        setLeaving((s) => without(s, task.id));
+        setHidden((s) => without(s, task.id));
+        toast.error(`Could not mark it done: ${(e as Error).message}`);
+      });
       toast(`Done: ${task.title}`, { action: { label: "Undo", onClick: () => undo(task) }, duration: 6000 });
     },
     [setStatus, undo],

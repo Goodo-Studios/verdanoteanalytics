@@ -10,9 +10,12 @@
 // with it the role gate and the session-authed edge-function path required by
 // policy verdanote-in-app-ui-uses-session-authed-edge-function-not-api.
 //
-// It saves on arrival with no confirm tap. That is the whole point of a share
-// target: the user already expressed intent in the OS share sheet, and asking
-// again would make this slower than opening the app.
+// It saves on arrival with no confirm tap when the service worker delivered the share. That is
+// the whole point of a share target: the user already expressed intent in the OS share sheet, and
+// asking again would make this slower than opening the app. The worker proves it delivered the
+// share by leaving a one-time nonce in the cache; the route consumes it. A plain GET (a link or
+// form on another site, or a hand-typed URL) carries no nonce, so it shows a confirm button and
+// saves only when the signed-in user taps it.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { CheckCircle2, Leaf, Loader2, ShieldOff, XCircle } from "lucide-react";
@@ -22,10 +25,12 @@ import { Button } from "@/components/ui/button";
 import { CLIENT_ROLE_MESSAGE, useVaultCapture } from "@/features/vault/hooks/useVaultCapture";
 import {
   SHARE_ERROR_PARAM,
+  SHARE_NONCE_PARAM,
   SHARE_TARGET_PATH,
   SHARED_FILE_PARAM,
   extractSharedUrl,
   markShareConsumed,
+  takeShareNonce,
   takeSharedFile,
   wasShareConsumed,
 } from "@/pwa/shareTarget";
@@ -73,6 +78,10 @@ export default function CaptureShareTarget() {
   const [payloadError, setPayloadError] = useState<string | null>(null);
   const [resolvingPayload, setResolvingPayload] = useState(true);
   const [alreadySaved, setAlreadySaved] = useState(false);
+  // True when the worker's one-time nonce was consumed: the share came from the OS share sheet.
+  const [workerDelivered, setWorkerDelivered] = useState(false);
+  // True once the user tapped the confirm button for a share the worker did not deliver.
+  const [userConfirmed, setUserConfirmed] = useState(false);
 
   const sharedFileKey = searchParams.get(SHARED_FILE_PARAM);
   const workerReportedError = searchParams.get(SHARE_ERROR_PARAM) === "1";
@@ -108,6 +117,11 @@ export default function CaptureShareTarget() {
         return;
       }
 
+      // Consume the nonce first. It works once, so a reload of the same URL is a confirm, not a save.
+      const delivered = await takeShareNonce(searchParams.get(SHARE_NONCE_PARAM));
+      if (cancelled) return;
+      setWorkerDelivered(delivered);
+
       // A photo share carries a key; a link share carries url/text/title.
       const file = await takeSharedFile(sharedFileKey);
       if (cancelled) return;
@@ -140,15 +154,23 @@ export default function CaptureShareTarget() {
     [captureUrl, captureFile],
   );
 
-  // Auto-save as soon as we know what was shared and who is signed in.
+  // Auto-save as soon as we know what was shared and who is signed in, but only for a share the
+  // worker delivered. Anything else waits for the confirm tap below.
   const savedRef = useRef(false);
   useEffect(() => {
     if (savedRef.current) return;
     if (authLoading || !user || isClient) return;
-    if (!payload) return;
+    if (!payload || !workerDelivered) return;
     savedRef.current = true;
     save(payload);
-  }, [authLoading, user, isClient, payload, save]);
+  }, [authLoading, user, isClient, payload, workerDelivered, save]);
+
+  const confirmSave = useCallback(() => {
+    if (!payload || savedRef.current) return;
+    savedRef.current = true;
+    setUserConfirmed(true);
+    save(payload);
+  }, [payload, save]);
 
   const retry = useCallback(() => {
     if (!payload) return;
@@ -220,6 +242,22 @@ export default function CaptureShareTarget() {
 
   const sharedLabel =
     payload?.type === "url" ? payload.url : (payload?.file.name ?? "Shared photo");
+
+  // A share that did not come through the worker. Saving needs one tap from the signed-in user.
+  if (payload && !workerDelivered && !userConfirmed) {
+    return (
+      <ShareTargetShell>
+        <h1 className="text-base font-semibold">Save to the Creative Vault?</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          This page was opened with something to save. Check it, then tap Save to add it.
+        </p>
+        <p className="mt-1 w-full truncate text-xs text-muted-foreground">{sharedLabel}</p>
+        <Button className="mt-5 w-full" onClick={confirmSave}>
+          Save to Vault
+        </Button>
+      </ShareTargetShell>
+    );
+  }
 
   if (status === "error") {
     return (

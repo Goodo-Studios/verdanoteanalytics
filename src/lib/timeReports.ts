@@ -110,10 +110,16 @@ function zoneOffset(ms: number, zone: string): number {
 
 /** The UTC instant (ISO string) of local midnight on `iso` in `zone`. */
 export function zonedMidnightUtc(iso: string, zone: string = STUDIO_ZONE): string {
+  return zonedInstantUtc(iso, "00:00", zone);
+}
+
+/** The UTC instant (ISO string) of wall-clock `clock` (HH:MM) on date `iso` in `zone`. */
+export function zonedInstantUtc(iso: string, clock: string, zone: string = STUDIO_ZONE): string {
   const [y, m, d] = iso.split("-").map(Number);
-  const guess = Date.UTC(y, m - 1, d);
+  const [h, mi] = clock.split(":").map(Number);
+  const guess = Date.UTC(y, m - 1, d, h, mi);
   let t = guess - zoneOffset(guess, zone);
-  // Correct once if the offset at the result differs (a DST change near midnight).
+  // Correct once if the offset at the result differs (a DST change near the time).
   t = guess - zoneOffset(t, zone);
   return new Date(t).toISOString();
 }

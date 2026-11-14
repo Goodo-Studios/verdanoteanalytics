@@ -5,9 +5,10 @@
 // search, "ask the Brain" and the publish script already read.
 //
 // The parent saves: onSave gets the text and returns an error message, or null when it was saved.
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/page-kit";
 import { insertLink, setHeading, toggleBullets, wrapSelection, type Edit } from "@/lib/markdownEdit";
 
 export function DocumentEditor({
@@ -15,12 +16,15 @@ export function DocumentEditor({
   label = "Document text",
   onSave,
   onCancel,
+  onDirtyChange,
 }: {
   initialText: string;
   label?: string;
   /** Returns an error message, or null when it was saved. */
   onSave: (text: string) => Promise<string | null>;
   onCancel: () => void;
+  /** Called with true while there are unsaved edits, and false when saved, cancelled or closed. */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [text, setText] = useState(initialText);
   const [tab, setTab] = useState<"write" | "preview">("write");
@@ -30,6 +34,7 @@ export function DocumentEditor({
   const [busy, setBusy] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
   const pendingSelection = useRef<{ start: number; end: number } | null>(null);
+  const { confirm, dialog } = useConfirm();
 
   // Put the selection back after a toolbar edit re-renders the textarea.
   useLayoutEffect(() => {
@@ -76,6 +81,23 @@ export function DocumentEditor({
   ];
   const changed = text !== initialText;
 
+  // While there are unsaved edits: tell the parent, and warn before the tab is closed or reloaded.
+  const dirtyCb = useRef(onDirtyChange);
+  dirtyCb.current = onDirtyChange;
+  useEffect(() => {
+    dirtyCb.current?.(changed);
+    if (!changed) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [changed]);
+  useEffect(() => () => dirtyCb.current?.(false), []);
+
+  const cancel = async () => {
+    if (changed && !(await confirm({ title: "Discard your changes?", description: "You have unsaved edits. Cancelling throws them away.", actionLabel: "Discard changes" }))) return;
+    onCancel();
+  };
+
   return (
     <div className="space-y-2" data-testid="document-editor">
       <div className="flex flex-wrap items-center gap-1" role="toolbar" aria-label="Formatting">
@@ -116,9 +138,10 @@ export function DocumentEditor({
       )}
       <div className="flex flex-wrap gap-2">
         <Button size="sm" disabled={busy || !changed || !text.trim()} onClick={() => void save()}>Save</Button>
-        <Button size="sm" variant="outline" disabled={busy} onClick={onCancel}>Cancel</Button>
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => void cancel()}>Cancel</Button>
       </div>
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+      {dialog}
     </div>
   );
 }
