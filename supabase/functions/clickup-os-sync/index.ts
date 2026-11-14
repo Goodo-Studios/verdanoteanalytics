@@ -71,6 +71,37 @@ async function fetchListTasks(reader: ClickUpReader, listId: string): Promise<Cu
   return tasks;
 }
 
+const RATE_LIMIT_RETRIES = 3;
+export const rateLimitWait = { ms: 2000 };
+
+/** reader.get, retried with a growing wait when ClickUp answers 429 (rate limited). */
+async function getRateLimited(reader: ClickUpReader, path: string): Promise<Record<string, unknown>> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await reader.get(path);
+    } catch (err) {
+      if (attempt >= RATE_LIMIT_RETRIES || !String(err).includes("[429]")) throw err;
+      await new Promise((r) => setTimeout(r, rateLimitWait.ms * (attempt + 1)));
+    }
+  }
+}
+
+/**
+ * Folderless lists from /space/{id}/list come without their statuses. Such a list's statuses are
+ * read from /list/{id}. If that read fails the list is walked as before, without stored statuses.
+ */
+async function withStatuses(reader: ClickUpReader, list: CuList): Promise<CuList> {
+  if (Array.isArray(list.statuses) && list.statuses.length > 0) return list;
+  try {
+    const full = await getRateLimited(reader, `/list/${list.id}`);
+    const statuses = full.statuses as CuListStatus[] | undefined;
+    return Array.isArray(statuses) && statuses.length > 0 ? { ...list, statuses } : list;
+  } catch (err) {
+    console.error(`Statuses of list ${list.name} could not be read:`, err);
+    return list;
+  }
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -158,7 +189,8 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
           for (const l of group.lists) skippedListIds.push(String(l.id));
           continue;
         }
-        for (const list of group.lists) {
+        for (const groupList of group.lists) {
+          const list = await withStatuses(reader, groupList);
           lists++;
           walkedLists.push(list);
           let listTasks: CuTask[];
