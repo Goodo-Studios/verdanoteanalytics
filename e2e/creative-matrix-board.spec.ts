@@ -45,7 +45,7 @@ test.describe("Creative Matrix — board + view modes (US-007)", () => {
 
     // Four view-mode toggles. Status was retired with the naming-convention
     // board (it read test status from angle_clusters, which themes no longer use).
-    for (const label of [/performance/i, /coverage/i, /volume/i, /win rate/i]) {
+    for (const label of [/performance/i, /coverage/i, /volume/i, /share of theme spend/i]) {
       await expect(page.getByRole("button", { name: label })).toBeVisible({ timeout: 10_000 });
     }
     await expect(page.getByRole("button", { name: /^status$/i })).toHaveCount(0);
@@ -70,7 +70,7 @@ test.describe("Creative Matrix — board + view modes (US-007)", () => {
       "false",
     );
 
-    const winRate = page.getByRole("button", { name: /win rate/i });
+    const winRate = page.getByRole("button", { name: /share of theme spend/i });
     await winRate.click();
     await expect(winRate).toHaveAttribute("aria-pressed", "true");
     await expect(coverage).toHaveAttribute("aria-pressed", "false");
