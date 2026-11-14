@@ -109,7 +109,6 @@ const MOVED: Record<string, string> = {
   "/talent/actors": "production/actors",
   "/applications": "talent/applications",
   "/creator-pipeline": "talent/pipeline",
-  "/follow-ups": "talent/follow-ups",
   "/approval-boards": "talent/approval-boards",
   "/agency": "creative/agency",
   "/creatives": "creative/creatives",
@@ -179,7 +178,7 @@ describe("the old route list", () => {
     const menuBefore = [
       "/", "/creatives", "/creative-library", "/analytics", "/matrix", "/tagging", "/pipeline", "/briefs", "/reports", "/landing-pages", "/creative-rotation", "/entities",
       "/ad-library", "/ad-library/boards", "/ad-library/hooks",
-      "/staff", "/ad-name-generator", "/integration-health", "/meeting-recaps", "/knowledge", "/follow-ups", "/creator-pipeline", "/clients", "/creators", "/actors",
+      "/staff", "/ad-name-generator", "/integration-health", "/meeting-recaps", "/knowledge", "/creator-pipeline", "/clients", "/creators", "/actors",
       "/applications", "/approval-boards", "/locations", "/props", "/crew", "/shipments", "/production-calendar", "/casting", "/call-sheets", "/engagements",
       "/deliverables", "/qa-gates", "/handoffs", "/agent-evaluations", "/operations", "/operating-costs", "/support", "/bids", "/team", "/learning", "/scope-changes",
       "/recommendations", "/strategy", "/growth-dashboard",

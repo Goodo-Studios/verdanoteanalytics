@@ -171,7 +171,6 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean; 
   { path: "/integration-health", marker: "integration-health" },
   { path: "/meeting-recaps", marker: "meeting-recaps" },
   { path: "/knowledge", marker: "knowledge" },
-  { path: "/follow-ups", marker: "follow-ups" },
   { path: "/creator-pipeline", marker: "creator-pipeline" },
   { path: "/clients/demo-glowdrip", marker: "clientDetail" },
   { path: "/clients", marker: "client-overview" },
@@ -211,7 +210,7 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean; 
 const PAGE_MARKER: Record<string, string> = {
   productionCalendar: "production-calendar", callSheets: "call-sheets", casting: "casting", crew: "crew", locations: "locations",
   props: "props", shipments: "shipments", creators: "creators", actors: "actors", applications: "applications",
-  creatorPipeline: "creator-pipeline", followUps: "follow-ups", approvalBoards: "approval-boards", overview: "overview",
+  creatorPipeline: "creator-pipeline", actorApplications: "applications", approvalBoards: "approval-boards", overview: "overview",
   agencyDashboard: "agency", creatives: "creatives", creativeLibrary: "creative-library", analytics: "analytics", matrix: "matrix",
   tagging: "tagging", briefs: "briefs", reports: "reports", landingPages: "landing-pages", creativeRotation: "creative-rotation",
   entityReport: "entities", adLibrary: "ad-library", boards: "boards", hooks: "hooks", knowledge: "knowledge", brain: "brain", learning: "learning",
