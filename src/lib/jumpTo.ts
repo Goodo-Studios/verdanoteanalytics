@@ -25,8 +25,12 @@ export function pageItems(effectiveBuilder: boolean): JumpItem[] {
     { id: "page-clients", kind: "page", label: "Clients", hint: "Menu", to: "/clients", haystack: "clients list" },
   ];
   for (const section of SECTIONS) {
+    const tabs = tabsFor(section, effectiveBuilder);
+    // A section whose tabs are all hidden from this person (Growth Dashboard for an employee)
+    // is not listed at all.
+    if (tabs.length === 0) continue;
     items.push({ id: `page-${section.id}`, kind: "page", label: section.label, hint: "Menu", to: `/${section.id}`, haystack: `${section.label} ${section.description}` });
-    for (const tab of tabsFor(section, effectiveBuilder)) {
+    for (const tab of tabs) {
       items.push({
         id: `page-${section.id}-${tab.slug}`,
         kind: "page",

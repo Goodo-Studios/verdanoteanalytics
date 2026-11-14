@@ -115,7 +115,7 @@ test.describe("client cannot load staff pages", () => {
         await expect(page.getByRole("heading", { name: "Home", exact: true })).toHaveCount(0);
         await expect(page.getByText("Moving in", { exact: true })).toHaveCount(0);
         // And a client never gets the staff sidebar entries or the client switcher.
-        for (const name of ["Clients", "Production", "Talent", "Creative", "Knowledge", "Tools", "Admin"]) {
+        for (const name of ["Clients", "Production", "Talent", "Creative", "Creative Vault", "Knowledge", "Growth Dashboard", "Ad Name Generator", "Admin"]) {
           await expect(page.getByRole("link", { name, exact: true })).toHaveCount(0);
         }
         await expect(page.getByTestId("client-switcher")).toHaveCount(0);
@@ -138,9 +138,10 @@ test.describe("employee reaches staff pages", () => {
     await expect(page.getByText("Growth Dashboard")).toHaveCount(0); // builder only
   });
 
-  test("the sidebar has the eight staff menu items, and the client switcher shows on Creative only", async ({ page }) => {
+  test("the sidebar has the nine employee menu items (no Growth Dashboard), and the client switcher shows on Creative only", async ({ page }) => {
     await page.goto("/employee/");
-    for (const name of ["Home", "Clients", "Production", "Talent", "Creative", "Knowledge", "Tools", "Admin"]) {
+    await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Growth Dashboard", exact: true })).toHaveCount(0);
+    for (const name of ["Home", "Clients", "Production", "Talent", "Creative", "Creative Vault", "Knowledge", "Ad Name Generator", "Admin"]) {
       await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link", { name, exact: true })).toBeVisible({ timeout: 30_000 });
     }
     await expect(page.getByRole("link", { name: "Staff menu" })).toHaveCount(0);

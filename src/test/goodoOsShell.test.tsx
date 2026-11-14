@@ -114,19 +114,19 @@ describe("Goodo OS tokens", () => {
   });
 });
 
-describe("Goodo OS name", () => {
+describe("Verdanote name", () => {
   it("is the app name", () => {
-    expect(APP_NAME).toBe("Goodo OS");
+    expect(APP_NAME).toBe("Verdanote");
   });
 
   it("shows in the sidebar mark", () => {
     render(<GoodoOsMark />);
-    expect(screen.getByTestId("app-name")).toHaveTextContent("Goodo OS");
+    expect(screen.getByTestId("app-name")).toHaveTextContent("Verdanote");
   });
 
   it("is the page title and the install name", () => {
-    expect(read("index.html")).toContain("<title>Goodo OS</title>");
-    expect(JSON.parse(read("public/manifest.json")).short_name).toBe("Goodo OS");
+    expect(read("index.html")).toContain("<title>Verdanote</title>");
+    expect(JSON.parse(read("public/manifest.json")).short_name).toBe("Verdanote");
   });
 
   it("is on the sign-in page", () => {

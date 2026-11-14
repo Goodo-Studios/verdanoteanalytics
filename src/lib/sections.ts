@@ -1,5 +1,5 @@
-// Staff menu model. Eight menu items: Home, Clients, Production, Talent, Creative,
-// Knowledge, Tools and Admin. Production, Talent, Creative, Knowledge, Tools and Admin are one page
+// Staff menu model. Ten menu items: Home, Clients, Production, Talent, Creative, Creative Vault,
+// Knowledge, Growth Dashboard, Ad Name Generator and Admin. All but Home and Clients are one page
 // each with tabs; every tab renders an existing page component unchanged. This file is
 // pure data so the sidebar, the section pages, the redirects and the tests all read the
 // same list.
@@ -7,7 +7,7 @@ import type { routeImports } from "@/lib/routePrefetch";
 import { isHiddenPage } from "@/lib/hiddenPages";
 
 export type PageKey = keyof typeof routeImports;
-export type SectionId = "production" | "talent" | "creative" | "knowledge" | "tools" | "admin";
+export type SectionId = "production" | "talent" | "creative" | "vault" | "knowledge" | "growth" | "tools" | "admin";
 
 export interface TabDef {
   /** Last URL segment: /production/calendar. */
@@ -85,13 +85,22 @@ export const SECTIONS: SectionDef[] = [
       { slug: "diversity", label: "Creative Diversity", page: "entityReport", legacy: ["/entities"], needsAccount: true, requireOneAccount: "Creative Diversity", group: "Performance" },
       { slug: "landing-pages", label: "Landing Pages", page: "landingPages", legacy: ["/landing-pages"], needsAccount: true, requireOneAccount: "Landing Pages", group: "Performance" },
       { slug: "library", label: "Creative Library", page: "creativeLibrary", legacy: ["/creative-library"], needsAccount: true, group: "Library" },
-      { slug: "vault", label: "Vault", page: "adLibrary", legacy: ["/ad-library"], group: "Library" },
-      { slug: "vault-boards", label: "Boards", page: "boards", legacy: ["/ad-library/boards"], group: "Library" },
-      { slug: "vault-hooks", label: "Hooks", page: "hooks", legacy: ["/ad-library/hooks"], group: "Library" },
       { slug: "tagging", label: "Tagging", page: "tagging", legacy: ["/tagging"], needsAccount: true, group: "Tagging" },
       { slug: "matrix", label: "Matrix", page: "matrix", legacy: ["/matrix"], builderOnly: true, needsAccount: true, group: "Tagging" },
       { slug: "reports", label: "Reports", page: "reports", legacy: ["/reports"], needsAccount: true, group: "Reports" },
       { slug: "briefs", label: "Briefs", page: "briefs", legacy: ["/briefs"], needsAccount: true, group: "Reports" },
+    ],
+  },
+  {
+    id: "vault",
+    label: "Creative Vault",
+    description: "The saved ad library, boards of saved creatives and the hook library.",
+    tabs: [
+      // Moved out of Creative so the Vault stands apart from analytics. The old Creative
+      // addresses redirect here.
+      { slug: "library", label: "Vault", page: "adLibrary", legacy: ["/ad-library", "/creative/vault"] },
+      { slug: "boards", label: "Boards", page: "boards", legacy: ["/ad-library/boards", "/creative/vault-boards"] },
+      { slug: "hooks", label: "Hooks", page: "hooks", legacy: ["/ad-library/hooks", "/creative/vault-hooks"] },
     ],
   },
   {
@@ -108,8 +117,17 @@ export const SECTIONS: SectionDef[] = [
     ],
   },
   {
+    id: "growth",
+    label: "Growth Dashboard",
+    description: "Revenue against the plan, call tracking and output trends.",
+    tabs: [
+      // Moved out of Admin so it sits in the side menu. The old Admin address redirects here.
+      { slug: "dashboard", label: "Growth Dashboard", page: "growthDashboard", legacy: ["/growth-dashboard", "/admin/growth"], builderOnly: true },
+    ],
+  },
+  {
     id: "tools",
-    label: "Tools",
+    label: "Ad Name Generator",
     description: "Everyday utilities for production work, such as naming ad files.",
     tabs: [
       // Moved out of Admin (Goodo OS OS-002). The old Admin address redirects here.
@@ -128,7 +146,6 @@ export const SECTIONS: SectionDef[] = [
       { slug: "early-pages", label: "Early pages", page: "earlyPages", legacy: [], builderOnly: true },
       { slug: "operating-costs", label: "Operating costs", page: "operatingCosts", legacy: ["/operating-costs"], builderOnly: true },
       { slug: "agent-evaluations", label: "Agent evaluations", page: "agentEvaluations", legacy: ["/agent-evaluations"] },
-      { slug: "growth", label: "Growth Dashboard", page: "growthDashboard", legacy: ["/growth-dashboard"], builderOnly: true },
       { slug: "support", label: "Support inbox", page: "supportInbox", legacy: ["/support"], usesClient: true },
     ],
   },
@@ -178,14 +195,16 @@ export interface StaffNavEntry {
   url: string;
 }
 
-/** The eight items of the staff menu, in order. */
+/** The ten items of the staff menu, in order. */
 export const STAFF_NAV: StaffNavEntry[] = [
   { id: "home", label: "Home", url: "/" },
   { id: "clients", label: "Clients", url: "/clients" },
   { id: "production", label: "Production", url: "/production" },
   { id: "talent", label: "Talent", url: "/talent" },
   { id: "creative", label: "Creative", url: "/creative" },
+  { id: "vault", label: "Creative Vault", url: "/vault" },
   { id: "knowledge", label: "Knowledge", url: "/knowledge" },
-  { id: "tools", label: "Tools", url: "/tools" },
+  { id: "growth", label: "Growth Dashboard", url: "/growth" },
+  { id: "tools", label: "Ad Name Generator", url: "/tools" },
   { id: "admin", label: "Admin", url: "/admin" },
 ];

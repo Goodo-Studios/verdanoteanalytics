@@ -26,8 +26,8 @@ export const LEGACY_REDIRECTS: LegacyRedirect[] = [
     ),
   ),
   { from: "/staff", to: "/" },
-  { from: "/viral-feed", to: "/creative/vault" },
-  { from: "/ad-library/viral", to: "/creative/vault" },
+  { from: "/viral-feed", to: "/vault/library" },
+  { from: "/ad-library/viral", to: "/vault/library" },
 ];
 
 /** Where an old role-relative path now lives, or null when it did not move. */

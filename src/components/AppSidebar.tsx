@@ -19,6 +19,8 @@ import {
   BookOpen,
   ShieldCheck,
   Wrench,
+  FolderOpen,
+  TrendingUp,
   CheckCircle2,
   Download,
 } from "lucide-react";
@@ -51,21 +53,26 @@ const STAFF_ICONS: Record<StaffNavId, typeof LayoutGrid> = {
   production: Clapperboard,
   talent: Contact,
   creative: Palette,
+  vault: FolderOpen,
   knowledge: BookOpen,
+  growth: TrendingUp,
   tools: Wrench,
   admin: ShieldCheck,
 };
 
 /**
- * Staff menu: eight items. Production, Talent, Creative, Knowledge, Tools and Admin are pages with
- * tabs (see src/lib/sections.ts). Admin shows for builders and employees; the tabs inside it
- * that are builder only stay hidden from employees.
+ * Staff menu: ten items. Everything except Home and Clients is a page with tabs (see
+ * src/lib/sections.ts). Admin shows for builders and employees; the tabs inside it that are
+ * builder only stay hidden from employees. Growth Dashboard is a builder only item.
  */
 export const staffNavItems: NavItem[] = STAFF_NAV.map((entry) => ({
   title: entry.label,
   url: entry.url,
   icon: STAFF_ICONS[entry.id],
 }));
+
+/** Menu items only a real builder sees (the section's tabs are all builder only). */
+const BUILDER_ONLY_URLS = new Set(STAFF_NAV.filter((e) => e.id === "growth").map((e) => e.url));
 
 // Client surface: clients get the core analytics tabs — Overview, Creatives,
 // Analytics — alongside their Content Pipeline + Reports. Overview routes to the
@@ -128,7 +135,11 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   // Work is a tab under Home, so Home stays lit on it.
   const onWork = /^\/(builder|employee)\/work\/?$/.test(useLocation().pathname);
-  const navItems = useMemo<NavItem[]>(() => (effectiveClient ? clientNavItems : staffNavItems), [effectiveClient]);
+  const effectiveBuilder = isBuilder && !isClientPreview && !isEmployeePreview;
+  const navItems = useMemo<NavItem[]>(
+    () => (effectiveClient ? clientNavItems : staffNavItems.filter((item) => effectiveBuilder || !BUILDER_ONLY_URLS.has(item.url))),
+    [effectiveClient, effectiveBuilder],
+  );
 
   return (
     <aside className="flex h-screen w-56 flex-col bg-sidebar border-r border-border">
