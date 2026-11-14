@@ -7,6 +7,7 @@ import "./styles/goodo-os-fonts.css";
 import "./styles/goodo-os-tokens.css";
 import "./styles/goodo-os-motion.css";
 import { registerServiceWorker } from "./pwa/registerServiceWorker";
+import { installChunkReload } from "./lib/chunkReload";
 
 Sentry.init({
   dsn: import.meta.env.VITE_SENTRY_DSN,
@@ -45,6 +46,8 @@ function scrubBreadcrumbData(data: Record<string, unknown>) {
     if (/authorization|apikey|token|cookie/i.test(key)) data[key] = "[redacted]";
   }
 }
+
+installChunkReload();
 
 createRoot(document.getElementById("root")!).render(<App />);
 
