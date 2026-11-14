@@ -7,6 +7,7 @@
 //     inactive clients too); production and social tasks have no client; an unresolved client
 //     folder is skipped, never read, and its rows are kept.
 //   * Unknown statuses are added with stage Other after the rest, before the tasks.
+//   * A list sent without statuses (folderless lists) has them read from /list/{id}, retried on 429.
 //   * Stuck keeps the app status (or the list's first status for a new task).
 //   * People map by email to login ids; unmatched emails leave the id empty.
 //   * full: comments of asset tasks. nightly: discrepancies recorded before the overwrite, and
@@ -245,6 +246,50 @@ Deno.test("every walked list's ClickUp statuses are stored, replacing the old on
 
   const order = db.log.map((l) => `${l.table}:${l.op}`);
   assert(order.indexOf("os_clickup_list_statuses:insert") < order.indexOf("os_tasks:upsert"));
+});
+
+Deno.test("a folderless list sent without statuses has them read from /list/{id} and stored", async () => {
+  mod.rateLimitWait.ms = 1;
+  const db = fakeDb({ tables: seed(), users: { "sam@goodo.test": "u-sam" } });
+  const cu = fakeClickUp(routes({
+    // As ClickUp sends it: /space/{id}/list has no statuses on its lists.
+    [`/space/${SOCIAL_SPACE}/list`]: { lists: [{ id: "901423283756", name: "Loose List" }] },
+    "/list/901423283756": {
+      id: "901423283756",
+      name: "Loose List",
+      statuses: [
+        { status: "idea", orderindex: 0, type: "open" },
+        { status: "filming", orderindex: 1, type: "custom" },
+        { status: "editing", orderindex: 2, type: "custom" },
+        { status: "posted", orderindex: 3, type: "closed" },
+      ],
+    },
+    "/list/901423283756/task": { last_page: true, tasks: [{ id: "s9", name: "Loose post", status: { status: "idea" } }] },
+  }));
+  // The first /list/{id} read is rate limited; the sync waits and reads it again.
+  const realFetch = cu.fetch;
+  let limited = false;
+  const fetchFn: typeof cu.fetch = (url, init) => {
+    if (!limited && url.endsWith("/list/901423283756")) {
+      limited = true;
+      cu.calls.push({ method: init?.method ?? "GET", url });
+      return Promise.resolve(new Response("rate limited", { status: 429 }));
+    }
+    return realFetch(url, init);
+  };
+  const res = await mod.handler(
+    new Request("https://fn.local/clickup-os-sync", { method: "POST", body: JSON.stringify({ mode: "full" }) }),
+    { supabase: db.supabase, fetch: fetchFn, now: () => NOW },
+  );
+  const body = await res.json();
+  assertEquals(body.success, true);
+  assertEquals(cu.calls.filter((c) => c.url.endsWith("/list/901423283756")).length, 2, "read again after the 429");
+  const rows = db.table("os_clickup_list_statuses").filter((r) => r.list_id === "901423283756")
+    .sort((a, b) => Number(a.order_index) - Number(b.order_index)).map((r) => r.status);
+  assertEquals(rows, ["idea", "filming", "editing", "posted"]);
+  assertEquals(cu.calls.filter((c) => c.method !== "GET"), []);
+  // A list that came with its statuses is not read again.
+  assertEquals(cu.calls.some((c) => c.url.endsWith("/list/l-bpv")), false);
 });
 
 Deno.test("stuck keeps the app status; a new stuck task takes its list's first status", async () => {
