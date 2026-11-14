@@ -110,10 +110,10 @@ export function decideStage(rawStatus: string | null | undefined): StageDecision
 }
 
 /**
- * Only asset tasks belong on the client board. Every deliverable is named
- * "{Month} Asset {N} ..." (the same name search the client Assets view in
- * ClickUp uses). Shoot days, creator production and onboarding checklist tasks
- * live in the same list and must not appear.
+ * True for a task named like a numbered deliverable ("{Month} Asset {N} ..."). The client board no
+ * longer filters on this (every task for the client is synced); it still decides which tasks the
+ * brief tools (clickup-brief, push-brief-to-clickup) offer, because a brief only makes sense for a
+ * numbered asset.
  */
 export function isAssetTask(name: string | null | undefined): boolean {
   return /\basset\s*\d+/i.test(name ?? "");
@@ -386,7 +386,10 @@ export function toPipelineRecord(
   owner: BoardOwner,
   nowMs: number,
 ): TaskOutcome {
-  if (!task?.id || !isAssetTask(task.name)) return { kind: "skip" };
+  // Every ClickUp task in the client's list belongs on its board, whatever it is named (owner
+  // decision, 2026-11-14: the board is "a ClickUp task for that client", not only "{Month} Asset N").
+  // A task can still be kept off with the "cleared" custom field, a skip status, or an unmapped status.
+  if (!task?.id) return { kind: "skip" };
   if (isClearedTask(task.custom_fields)) return { kind: "skip" };
 
   const decision = decideStage(task.status?.status);

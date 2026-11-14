@@ -91,7 +91,7 @@ supabase functions list --project-ref gwyxaqoaldnaavkjqquv
 
 ## Step 3. First pipeline sync (read-only)
 
-`sync-clickup-tasks` reads the Client Operations space, keeps asset tasks from each client's "Project View" list, and fills `pipeline_tasks` (current board plus work delivered in the last 30 days) and `pipeline_delivered` (delivered up to a year back). Run it first because its answer names every folder that did not match a client.
+`sync-clickup-tasks` reads the Client Operations space, keeps every task from each client's "Project View" list (not only "{Month} Asset N" names; a task is left off by a skip status, an unmapped status or the cleared custom field), and fills `pipeline_tasks` (current board plus work delivered in the last 30 days) and `pipeline_delivered` (delivered up to a year back). Run it first because its answer names every folder that did not match a client.
 
 Call it with the service role key, passed through the vault and never printed:
 

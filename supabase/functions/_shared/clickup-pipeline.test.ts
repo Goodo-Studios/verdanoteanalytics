@@ -410,7 +410,7 @@ Deno.test("the cycle is the month in the task name, with the year nearest the ta
   assertEquals(parseCycleMonth("", ref("2026-11-02")), null);
 });
 
-Deno.test("stuck, cleared, non-asset and unknown-status tasks are left out", () => {
+Deno.test("stuck, cleared and unknown-status tasks are left out; non-asset names are kept", () => {
   const base = { id: "t", name: "November Asset 3", date_updated: String(NOW) };
   assertEquals(toPipelineRecord({ ...base, status: { status: "stuck" } }, OWNER, NOW).kind, "skip");
   assertEquals(
@@ -421,9 +421,19 @@ Deno.test("stuck, cleared, non-asset and unknown-status tasks are left out", () 
     ).kind,
     "skip",
   );
+  // Owner decision 2026-11-14: every ClickUp task for the client is synced, not only "Month Asset N".
+  assertEquals(
+    toPipelineRecord({ ...base, name: "TV Spot - Hero cut", status: { status: "assigned" } }, OWNER, NOW).kind,
+    "record",
+  );
   assertEquals(
     toPipelineRecord({ ...base, name: "Nov Shoot Day", status: { status: "assigned" } }, OWNER, NOW).kind,
+    "record",
+  );
+  assertEquals(
+    toPipelineRecord({ ...base, name: "Nov Shoot Day", status: { status: "stuck" } }, OWNER, NOW).kind,
     "skip",
+    "a skip status still leaves a non-asset task off",
   );
   assertEquals(toPipelineRecord({ ...base, status: { status: "brand new" } }, OWNER, NOW), {
     kind: "unknown",
