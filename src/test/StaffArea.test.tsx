@@ -186,6 +186,7 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean; 
   { path: "/applications", marker: "applications" },
   { path: "/applications/creators/de5a0000-0000-4000-8000-000000000700", marker: "applicationDetail" },
   { path: "/actors", marker: "actors" },
+  { path: "/talent/actors", marker: "actors" },
   { path: "/actors/de5a0000-0000-4000-8000-000000000500", marker: "actorDetail" },
   { path: "/creators", marker: "creators" },
   { path: "/creators/de5a0000-0000-4000-8000-000000000300", marker: "creatorDetail" },
@@ -250,9 +251,9 @@ const SHARED_OLD_PAGES = [
 ];
 
 describe("every menu item, tab and old address is covered", () => {
-  it("has ten staff menu items, with the Ad Name Generator before Admin", () => {
-    expect(staffNavItems.map((i) => i.title)).toEqual(["Home", "Clients", "Production", "Talent", "Creative", "Creative Vault", "Knowledge", "Growth Dashboard", "Ad Name Generator", "Admin"]);
-    expect(staffNavItems).toHaveLength(10);
+  it("has eleven staff menu items, with Time before Admin", () => {
+    expect(staffNavItems.map((i) => i.title)).toEqual(["Home", "Clients", "Production", "Creators", "Creative", "Creative Vault", "Knowledge", "Growth Dashboard", "Ad Name Generator", "Time", "Admin"]);
+    expect(staffNavItems).toHaveLength(11);
     // OS-019 added Briefs, Review and Assets to the client menu.
     expect(clientNavItems).toHaveLength(8);
   });

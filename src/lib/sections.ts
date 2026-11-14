@@ -1,5 +1,5 @@
-// Staff menu model. Ten menu items: Home, Clients, Production, Talent, Creative, Creative Vault,
-// Knowledge, Growth Dashboard, Ad Name Generator and Admin. All but Home and Clients are one page
+// Staff menu model. Eleven menu items: Home, Clients, Production, Creators, Creative, Creative Vault,
+// Knowledge, Growth Dashboard, Ad Name Generator, Time and Admin. All but Home and Clients are one page
 // each with tabs; every tab renders an existing page component unchanged. This file is
 // pure data so the sidebar, the section pages, the redirects and the tests all read the
 // same list.
@@ -50,6 +50,8 @@ export const SECTIONS: SectionDef[] = [
       { slug: "calendar", label: "Production calendar", page: "productionCalendar", legacy: ["/production-calendar"] },
       { slug: "call-sheets", label: "Call sheets", page: "callSheets", legacy: ["/call-sheets"] },
       { slug: "casting", label: "Casting", page: "casting", legacy: ["/casting"], usesClient: true },
+      // Moved out of Talent. The old addresses redirect here.
+      { slug: "actors", label: "Actors", page: "actors", legacy: ["/actors", "/talent/actors"] },
       { slug: "crew", label: "Crew", page: "crew", legacy: ["/crew"] },
       { slug: "locations", label: "Locations", page: "locations", legacy: ["/locations"] },
       { slug: "props", label: "Props", page: "props", legacy: ["/props"] },
@@ -58,11 +60,10 @@ export const SECTIONS: SectionDef[] = [
   },
   {
     id: "talent",
-    label: "Talent",
-    description: "Creators, actors, applications and the creator pipeline.",
+    label: "Creators",
+    description: "Creators, applications and the creator pipeline.",
     tabs: [
       { slug: "creators", label: "Creators", page: "creators", legacy: ["/creators"] },
-      { slug: "actors", label: "Actors", page: "actors", legacy: ["/actors"] },
       { slug: "applications", label: "Applications", page: "applications", legacy: ["/applications"] },
       { slug: "pipeline", label: "Creator pipeline", page: "creatorPipeline", legacy: ["/creator-pipeline"], usesClient: true },
       { slug: "follow-ups", label: "Follow-ups", page: "followUps", legacy: ["/follow-ups"] },
@@ -187,7 +188,7 @@ export const sectionPath = (section: SectionDef, tab?: TabDef): string => `/${se
 
 // ---------------------------------------------------------------- Sidebar items
 
-export type StaffNavId = "home" | "clients" | SectionId;
+export type StaffNavId = "home" | "clients" | "time" | SectionId;
 export interface StaffNavEntry {
   id: StaffNavId;
   label: string;
@@ -195,16 +196,17 @@ export interface StaffNavEntry {
   url: string;
 }
 
-/** The ten items of the staff menu, in order. */
+/** The eleven items of the staff menu, in order. */
 export const STAFF_NAV: StaffNavEntry[] = [
   { id: "home", label: "Home", url: "/" },
   { id: "clients", label: "Clients", url: "/clients" },
   { id: "production", label: "Production", url: "/production" },
-  { id: "talent", label: "Talent", url: "/talent" },
+  { id: "talent", label: "Creators", url: "/talent" },
   { id: "creative", label: "Creative", url: "/creative" },
   { id: "vault", label: "Creative Vault", url: "/vault" },
   { id: "knowledge", label: "Knowledge", url: "/knowledge" },
   { id: "growth", label: "Growth Dashboard", url: "/growth" },
   { id: "tools", label: "Ad Name Generator", url: "/tools" },
+  { id: "time", label: "Time", url: "/time" },
   { id: "admin", label: "Admin", url: "/admin" },
 ];
