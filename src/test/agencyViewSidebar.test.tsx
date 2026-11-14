@@ -57,7 +57,7 @@ function renderSidebar(role: Role) {
   );
 }
 
-const TEN = ["Home", "Clients", "Production", "Talent", "Creative", "Creative Vault", "Knowledge", "Growth Dashboard", "Ad Name Generator", "Admin"];
+const TEN = ["Home", "Clients", "Production", "Creators", "Creative", "Creative Vault", "Knowledge", "Growth Dashboard", "Ad Name Generator", "Time", "Admin"];
 // An employee does not see the builder-only Growth Dashboard.
 const EMPLOYEE_MENU = TEN.filter((t) => t !== "Growth Dashboard");
 

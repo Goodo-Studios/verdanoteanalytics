@@ -170,7 +170,7 @@ export default function CastingPage() {
       <div className="flex flex-wrap items-center gap-2 text-sm">
         {brand && <Link to={`${prefix}/clients/${encodeURIComponent(brand)}`} className="underline">Client page</Link>}
         <Link to={`${prefix}/production/calendar`} className="underline">Production calendar</Link>
-        <Link to={`${prefix}/talent/actors`} className="underline">Actors</Link>
+        <Link to={`${prefix}/production/actors`} className="underline">Actors</Link>
       </div>
       <p className="text-xs text-muted-foreground" data-testid="old-dashboard-note">
         Clients open this link on Verdanote with no login. Revoke stops it at once, and answers show here as they come in.

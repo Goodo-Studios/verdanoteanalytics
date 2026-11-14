@@ -10,7 +10,6 @@ import {
   LogOut,
   Eye,
   ListChecks,
-  ExternalLink,
   House,
   Building2,
   Clapperboard,
@@ -21,10 +20,10 @@ import {
   Wrench,
   FolderOpen,
   TrendingUp,
+  Clock,
   CheckCircle2,
   Download,
 } from "lucide-react";
-import { ATTIO_URL, GOODO_TIME_URL } from "@/lib/staffMenu";
 import { STAFF_NAV, type StaffNavId } from "@/lib/sections";
 import { GoodoOsMark } from "@/components/GoodoOsMark";
 import {
@@ -57,11 +56,12 @@ const STAFF_ICONS: Record<StaffNavId, typeof LayoutGrid> = {
   knowledge: BookOpen,
   growth: TrendingUp,
   tools: Wrench,
+  time: Clock,
   admin: ShieldCheck,
 };
 
 /**
- * Staff menu: ten items. Everything except Home and Clients is a page with tabs (see
+ * Staff menu: eleven items. Everything except Home and Clients is a page with tabs (see
  * src/lib/sections.ts). Admin shows for builders and employees; the tabs inside it that are
  * builder only stay hidden from employees. Growth Dashboard is a builder only item.
  */
@@ -224,27 +224,8 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
           </button>
         </div>
       )}
-      {/* Other apps (staff only), Settings and sign out */}
+      {/* Settings and sign out */}
       <div className="px-3 pb-4 pt-1">
-        {!effectiveClient && (
-          <div className="pb-1">
-            {[
-              { title: "Goodo Time", href: GOODO_TIME_URL },
-              { title: "Attio", href: ATTIO_URL },
-            ].map((link) => (
-              <a
-                key={link.href}
-                href={link.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 rounded-md px-3 py-2 font-body text-[13px] font-medium text-slate hover:text-forest hover:bg-accent"
-              >
-                <ExternalLink className="h-3.5 w-3.5 flex-shrink-0" />
-                {link.title}
-              </a>
-            ))}
-          </div>
-        )}
         <div className="flex items-center justify-between">
           <NavLink
             to={`${prefix}/settings`}
