@@ -52,7 +52,7 @@ BEGIN
     END LOOP;
   END LOOP;
 END $$;
-SELECT is((SELECT sum(reserved_bytes) FROM public.public_application_drafts WHERE ip_hash = 'cl-ip-quota'), 3 * 4 * 262144000::bigint,
+SELECT is((SELECT sum(reserved_bytes) FROM public.public_application_drafts WHERE ip_hash = 'cl-ip-quota')::bigint, 3 * 4 * 262144000::bigint,
   'three drafts from one address take 3 x 1000 MB');
 SELECT diag(format('address bytes before the fourth draft: %s over %s drafts', (SELECT sum(reserved_bytes) FROM public.public_application_drafts WHERE ip_hash = 'cl-ip-quota'), (SELECT count(*) FROM public.public_application_drafts WHERE ip_hash = 'cl-ip-quota')));
 SELECT is(public.public_application_reserve_file((SELECT d FROM addr WHERE n = 4), 'creator', 'video', 262144000, 'video/mp4') ->> 'status', 'quota',
