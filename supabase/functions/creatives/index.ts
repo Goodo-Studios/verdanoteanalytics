@@ -4,7 +4,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { resolveConvention } from "../_shared/naming-convention.ts";
 import { parseAdName } from "../_shared/parse-ad-name.ts";
 import { parsedDisplayTags } from "../_shared/ad-name-display.ts";
-import { applyAdTypeFilter, distinctValues } from "../_shared/creative-filters.ts";
+import { adTypeFilterValues, applyAdTypeFilter, distinctValues } from "../_shared/creative-filters.ts";
 import { buildNameSyncChange, nameSyncUpdate, validateSyncFromNameBody, type NameSyncRow } from "../_shared/name-sync-logic.ts";
 import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
 import { sanitizeSearchTerm } from "../_shared/postgrest-search.ts";
@@ -263,6 +263,37 @@ serve(async (req) => {
       };
 
       const hasDateFilter = dateFrom || dateTo;
+
+      // Paged list (the Creatives page): one SQL statement returns just the requested
+      // page plus total and aggregates. The loops below page through every daily-metrics
+      // row 1000 at a time, which for the all-accounts view (no client picked, default
+      // 14-day range) is hundreds of sequential scans at production size. They remain
+      // only for ?all=1, which has no caller in the app today.
+      if (!all) {
+        const adTypes = adTypeFilterValues(adType);
+        const { data: pageResult, error: pageError } = await supabase.rpc("creatives_list_page", {
+          p_allowed_ids: allowedIds,
+          p_account_id: accountId,
+          p_date_from: dateFrom || null,
+          p_date_to: dateTo || null,
+          p_ad_types: adTypes.length > 0 ? adTypes : null,
+          p_person: person,
+          p_style: style,
+          p_hook: hook,
+          p_product: product,
+          p_theme: theme,
+          p_tag_source: tagSource,
+          p_ad_status: adStatus,
+          p_delivery: delivery,
+          p_search: search || null,
+          p_limit: Number.isFinite(limit) ? limit : 100,
+          p_offset: Number.isFinite(offset) ? offset : 0,
+        });
+        if (pageError) throw pageError;
+        return new Response(JSON.stringify(pageResult), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
       if (hasDateFilter) {
         // Page turns (and repeat renders a few seconds apart) re-request this
