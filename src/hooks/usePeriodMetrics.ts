@@ -15,6 +15,8 @@ export interface PeriodMetrics {
   avgCtr: number;
 }
 
+const ALL_ACCOUNTS_STALE_MS = 10 * 60 * 1000;
+
 /**
  * Aggregates metrics from creative_daily_metrics for a specific date range.
  * Uses the get_period_metrics Postgres RPC to perform a single server-side SUM()
@@ -27,11 +29,16 @@ export function usePeriodMetrics(opts: {
   enabled?: boolean;
 }) {
   const { accountId, dateFrom, dateTo, enabled = true } = opts;
+  const isAllAccounts = !accountId || accountId === "all";
 
   return useQuery<PeriodMetrics>({
     queryKey: ["period-metrics", accountId || "all", dateFrom, dateTo],
     enabled: enabled && !!dateFrom && !!dateTo,
-    staleTime: 2 * 60 * 1000,
+    // The all-accounts form is the heavy one (it aggregates every account's rows), so keep it
+    // fresh longer and do not hammer it with retries when the gateway times out.
+    staleTime: isAllAccounts ? ALL_ACCOUNTS_STALE_MS : 2 * 60 * 1000,
+    gcTime: isAllAccounts ? ALL_ACCOUNTS_STALE_MS * 2 : undefined,
+    retry: isAllAccounts ? 1 : 3,
     refetchOnWindowFocus: false,
     // Intentionally no keepPreviousData — on account switch, stale cross-account data must not render.
     queryFn: async () => {
