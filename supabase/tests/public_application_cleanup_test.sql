@@ -43,8 +43,16 @@ SELECT is((SELECT reserved_bytes FROM public.public_application_drafts WHERE id 
 
 CREATE TEMP TABLE addr AS SELECT n, public.public_application_begin('creator', 'cl-ip-quota') AS d FROM generate_series(1, 4) n;
 UPDATE public.public_application_drafts SET created_at = now() - interval '1 minute' WHERE ip_hash = 'cl-ip-quota';
-SELECT is((SELECT count(*)::int FROM (SELECT d FROM addr WHERE n <= 3) three, generate_series(1, 4) g
-            WHERE public.public_application_reserve_file(three.d, 'creator', 'video', 262144000, 'video/mp4') ->> 'status' = 'ok'), 12,
+DO $$
+DECLARE r record; i integer;
+BEGIN
+  FOR r IN SELECT d FROM addr WHERE n <= 3 ORDER BY n LOOP
+    FOR i IN 1..4 LOOP
+      PERFORM public.public_application_reserve_file(r.d, 'creator', 'video', 262144000, 'video/mp4');
+    END LOOP;
+  END LOOP;
+END $$;
+SELECT is((SELECT sum(reserved_bytes) FROM public.public_application_drafts WHERE ip_hash = 'cl-ip-quota'), 3 * 4 * 262144000::bigint,
   'three drafts from one address take 3 x 1000 MB');
 SELECT diag(format('address bytes before the fourth draft: %s over %s drafts', (SELECT sum(reserved_bytes) FROM public.public_application_drafts WHERE ip_hash = 'cl-ip-quota'), (SELECT count(*) FROM public.public_application_drafts WHERE ip_hash = 'cl-ip-quota')));
 SELECT is(public.public_application_reserve_file((SELECT d FROM addr WHERE n = 4), 'creator', 'video', 262144000, 'video/mp4') ->> 'status', 'quota',
