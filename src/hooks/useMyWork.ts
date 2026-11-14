@@ -19,6 +19,12 @@ type Untyped = {
 };
 const db = () => supabase as unknown as Untyped;
 
+/** PostgREST filter: not done, or done and last updated within `days` days. */
+export function recentDoneFilter(days: number, now: Date = new Date()): string {
+  const since = new Date(now.getTime() - days * 86_400_000).toISOString();
+  return `status.neq.${DONE_STATUS},updated_at.gte.${since}`;
+}
+
 const UUID = /^[0-9a-f-]{36}$/i;
 
 const PHONE_MAX = 639;
@@ -37,16 +43,18 @@ export function useIsPhone(): boolean {
 
 /**
  * The signed-in person's open tasks (strategist, producer or editor), in one request with only
- * the row columns. `everyone` (builder only) drops the person filter.
+ * the row columns. `everyone` (builder only) drops the person filter. `recentDoneDays` above 0
+ * also returns tasks that finished (and were last updated) within that many days, for pickers
+ * such as manual time entry; read-only tasks are still left out. The default leaves done tasks off.
  */
-export function useMyTasks(userId: string | undefined, everyone = false) {
+export function useMyTasks(userId: string | undefined, everyone = false, recentDoneDays = 0) {
   return useQuery<MyTaskRow[]>({
-    queryKey: ["my-tasks", everyone ? "everyone" : userId],
+    queryKey: ["my-tasks", everyone ? "everyone" : userId, ...(recentDoneDays > 0 ? ["recent-done", recentDoneDays] : [])],
     enabled: everyone || !!userId,
     queryFn: async () => {
-      let q = db().from("os_tasks").select(MY_TASK_COLUMNS).neq("status", DONE_STATUS)
-        // Ended clients' tasks are read-only history, not work to do.
-        .eq("read_only", false);
+      // Ended clients' tasks are read-only history, not work to do.
+      let q = db().from("os_tasks").select(MY_TASK_COLUMNS).eq("read_only", false);
+      q = recentDoneDays > 0 ? q.or(recentDoneFilter(recentDoneDays)) : q.neq("status", DONE_STATUS);
       if (!everyone) {
         if (!userId || !UUID.test(userId)) return [];
         q = q.or(`strategist_id.eq.${userId},producer_id.eq.${userId},editor_id.eq.${userId}`);
