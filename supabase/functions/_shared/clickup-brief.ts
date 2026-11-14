@@ -1,5 +1,4 @@
-// Pure rules for push-brief-to-clickup (replaces the removed "Push to Coda" and
-// "Create brief in Coda" actions; Coda was retired on 2026-10-09).
+// Pure rules for push-brief-to-clickup.
 //
 // No network and no database here, so every rule is covered by plain Deno tests.
 
@@ -114,7 +113,7 @@ export interface CreativeReference {
   ad_name?: string | null;
 }
 
-/** The Meta Ad Library link the Coda version put in the brief note. */
+/** The Meta Ad Library link put in the brief note. */
 export function adLibraryUrl(adId: string): string {
   return `https://www.facebook.com/ads/library/?id=${encodeURIComponent(adId)}`;
 }

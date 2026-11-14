@@ -15,8 +15,7 @@ import {
 } from "../_shared/clickup-pipeline.ts";
 
 // ClickUp -> pipeline_tasks. Feeds the client-facing Content Pipeline board
-// (/pipeline). Replaces sync-coda-tasks: Coda was retired on 2026-10-09 and
-// ClickUp is the task system.
+// (/pipeline). ClickUp is the task system.
 //
 // Read-only against ClickUp (GET only). For every client folder in the Client
 // Operations space it reads the "{Client} Project View" list, keeps asset tasks,

@@ -142,6 +142,6 @@ Storage files (step 8): `scripts/dashboard-storage-copy.mjs` takes the same `--t
 - `supabase/tests/dashboard_data_foundation_test.sql` (pgTAP, runs in CI): row rules, no anon or client access, client refused by the staff functions, ad counter, role mapping.
 - `scripts/dashboard-copy-lib.test.mjs`: table list and load order agree with the migration, target and source guards, read only enforcement, SQL building.
 - `scripts/dashboard-copy-dryrun.test.mjs`: dry run by default, the owner approval gate, refused options, seed rows left out of checksums, `clients` kept by `--replace`, and the production target: refused without every confirmation, refused without a fresh receipt, `--replace` refused, staging stays refused for a production confirmation.
-- `scripts/prod-cutover.test.mjs`: the other release scripts (secrets status, Coda cleanup, ad code counter) and the production guards of the storage copy.
+- `scripts/prod-cutover.test.mjs`: the other release scripts (secrets status, ad code counter) and the production guards of the storage copy.
 - `scripts/seed-staging-dashboard.test.mjs`: the seed is made up, refuses non-staging projects, respects the dashboard constraints and carries its seed markers.
 - `supabase/tests/dashboard_batch1_test.sql` (pgTAP): the batch 1 tables are staff only, even for a client login linked to the client; the stage follow-up rule; the reworded refusals.

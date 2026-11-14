@@ -88,7 +88,7 @@ describe("US-005: body is AI review-only (framework / value_structure)", () => {
 describe("US-005 e2e: backfill raises coverage and demotes no manual/csv tag", () => {
   // A representative historical account: a mix of untagged, deterministically
   // placeable, manual, and csv rows. `protected` marks rows whose lane/type were
-  // human/Coda-curated and MUST survive the sweep unchanged.
+  // human/curated and MUST survive the sweep unchanged.
   interface Row {
     id: string;
     current: CurrentMatrixColumns;

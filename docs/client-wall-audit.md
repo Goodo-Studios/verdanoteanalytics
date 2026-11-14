@@ -26,7 +26,6 @@ Before this change a client token (a signed-in client account) was accepted by t
 | `vault-slack-connect`, `vault-slack-import` | Store Slack credentials and import channels with the service role | Staff gate |
 | `vault-share-item` | Mint or revoke public share links (owner check only) | Mint and revoke need staff. `resolve` stays public by share token |
 | `scrape-ad`, `transcribe-ad` | Spend Apify and Deepgram budget | Staff gate |
-| `create-coda-brief` | Create rows in the shared Coda doc for any creative | Staff gate |
 | `account-taxonomy` | Create, rename and archive Themes and Personas for a linked account (service-role write) | Staff gate for the whole function |
 | `creative-library`, `creative-media-archive` | Archive media and build ZIP exports for a linked account (service-role writes) | Staff gate |
 | `send-digest` | Digest email built with the service role from `user_preferences.digest_accounts`. A client could list any account id, or leave the list empty (meaning all accounts), and receive other accounts' numbers by email | Accounts are filtered to the caller's linked accounts for non-staff |

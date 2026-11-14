@@ -1,8 +1,8 @@
 // Client settings (consolidation step 5d, the old dashboard Settings "Active clients" half).
 // Pure helpers. The database functions are the old dashboard's, already in Verdanote since
 // PR 133: create_client (staff), update_client and set_client_active (builder). Dropped from
-// the old page because they only made sense for Coda or are replaced: the "synced from Coda"
-// wording (a synced client is "Updated by the HQ sync", origin 'coda' is the legacy value) and
+// the old page because they are replaced: the old "synced from" wording
+// (a synced client is "Updated by the HQ sync"; the stored origin value 'coda' is an old name) and
 // the single Verdanote account id field (client_ad_accounts replaces it, see the client page).
 
 export const CLIENT_SELECT = "slug, name, active, status, origin, does_creators, does_production";

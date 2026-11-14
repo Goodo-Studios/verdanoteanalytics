@@ -19,7 +19,7 @@ Nothing in staging reaches real people or real outside accounts:
 
 - **Scheduled jobs are off.** Migrations create pg_cron jobs. After every staging push, `scripts/staging-lockdown.sql` removes all of them and fails the run if any remain.
 - **Production URLs are rewritten.** Some migrations hard-code the production function URL inside database functions. The same script rewrites them to the staging project and fails the run if any reference to production is left.
-- **Outside accounts are not connected.** The staging project has no Meta, Slack, Resend (email), Apify, Deepgram, Anthropic or OpenRouter secrets. Server functions that need them fail or skip. Verdanote has no Coda code any more (Coda was retired on 2026-10-09; `coda_tasks` and the Coda functions were removed by migration 20261110000001). Attio has no Verdanote server function today. Fireflies has one, `fireflies-transcript` (staff, read-only); staging has no `FIREFLIES_API_KEY`, so it answers 503 there and makes no request. If a later change adds a key to staging, use a test workspace only, never a real one. ClickUp has two. `sync-clickup-tasks` only reads (GET). `push-brief-to-clickup` (staff) writes a brief into an empty asset task or a new one, from the "Push to ClickUp" and "Create brief in ClickUp" buttons. A new task is created with the ClickUp task type "Asset": the function looks the type up by name (`GET /team`, then `GET /team/{id}/custom_item`, read-only) and sets `custom_item_id`; if the type cannot be found it creates the task without a type and the answer carries a note that the dialog shows. A task that already exists keeps its type. The id in the workspace at the time of writing is 1001, but it is never hard coded. **ClickUp is read-only on staging.** Matthew decided on 2026-11-11 that staging gets the real `CLICKUP_API_TOKEN` with as much read access as possible, so the Goodo OS work can be built against real task data (real client task names are therefore in staging; client logins still see only their own client's rows). Writes are blocked in code by `_shared/clickup-write-guard.ts`:
+- **Outside accounts are not connected.** The staging project has no Meta, Slack, Resend (email), Apify, Deepgram, Anthropic or OpenRouter secrets. Server functions that need them fail or skip. Verdanote calls no outside task system other than ClickUp. Attio has no Verdanote server function today. Fireflies has one, `fireflies-transcript` (staff, read-only); staging has no `FIREFLIES_API_KEY`, so it answers 503 there and makes no request. If a later change adds a key to staging, use a test workspace only, never a real one. ClickUp has two. `sync-clickup-tasks` only reads (GET). `push-brief-to-clickup` (staff) writes a brief into an empty asset task or a new one, from the "Push to ClickUp" and "Create brief in ClickUp" buttons. A new task is created with the ClickUp task type "Asset": the function looks the type up by name (`GET /team`, then `GET /team/{id}/custom_item`, read-only) and sets `custom_item_id`; if the type cannot be found it creates the task without a type and the answer carries a note that the dialog shows. A task that already exists keeps its type. The id in the workspace at the time of writing is 1001, but it is never hard coded. **ClickUp is read-only on staging.** Matthew decided on 2026-11-11 that staging gets the real `CLICKUP_API_TOKEN` with as much read access as possible, so the Goodo OS work can be built against real task data (real client task names are therefore in staging; client logins still see only their own client's rows). Writes are blocked in code by `_shared/clickup-write-guard.ts`:
 
 - On the staging project (detected by its project ref in `SUPABASE_URL`, so no flag is needed and none can switch it off), or anywhere `CLICKUP_WRITES=off` is set, `push-brief-to-clickup` answers 403 with `read_only: true` and sends no POST or PUT. Reading (`list`) still works. Tests in `push-brief-to-clickup/index.test.ts` cover it.
 - To lift the block for one test list in stage 4, set `CLICKUP_WRITE_ALLOWED_LIST_IDS` on the staging project to that list's id (comma separated for more). Every other list stays blocked. Never put a client's Project View list in it.
@@ -231,7 +231,7 @@ Lessons from that day:
 | 2 | Rehearse | Not recorded | Moot for this release. Do it before the next one. |
 | 3 | Merge, functions ship | Done | 2026-11-14. |
 | 4 | Migrations | Done | 70 applied with `--include-all`. |
-| 5 | Confirm the functions | Ready to run | `hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN -- node scripts/coda-cleanup.mjs` (read only; lists deployed functions with no folder in the repo) and `bash scripts/smoke-test.sh`. |
+| 5 | Confirm the functions | Ready to run | `bash scripts/smoke-test.sh` against production, and compare the deployed functions in the Supabase dashboard with the folders in `supabase/functions`. |
 | 6 | Secrets | Done except two deferred | Set on production 2026-11-14: `SITE_URL`, `META_ACCESS_TOKEN`, `CLICKUP_API_TOKEN`, `CLICKUP_WEBHOOK_SECRET` (with the production ClickUp webhook), `FIREFLIES_API_KEY`, `SLACK_BOT_TOKEN`, both storage vault secrets, and `ANTHROPIC_API_KEY` was already there. Deferred by Matthew, to be supplied later and blocking nothing: `RESEND_API_KEY` (the weekly digest is not emailed) and `SLACK_WEBHOOK_URL` (failing health checks and report alerts post nothing). `CLICKUP_WRITEBACK_*` and `CLIENT_INVITES_SEND_ENABLED` stay off by design. Status: `hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN -- node scripts/prod-secrets-status.mjs`. |
 | 7 | Copy the old dashboard data | Blocked by an owner decision | Decision 10 (real client data) and the owner's confirmation of the read of the old dashboard database. Then: dry run, then the copy (see step 7 below). |
 | 8 | Copy the storage files | Blocked by step 7 | Same decision. Then the two commands in step 8 below. The vault secrets `storage_signing_project_url` and `storage_signing_service_role_key` must be set on production first (step 6 script checks them). |
@@ -241,7 +241,7 @@ Lessons from that day:
 | 11b | Old public links | Blocked by owner decision 4 and the final copy | Decision 4 (keep links on the old address or forward them) and step 7 as the final copy. Then the checklist in step 11b. |
 | 12 | Check production | Ready to run, by hand | The wall check script refuses production, so the check is manual (step 12 below). A production version of the script does not exist. |
 | 13 | Cron jobs | Ready to run | Read only SQL in step 13. |
-| 14 | Coda functions and secret | Ready to run | `node scripts/coda-cleanup.mjs`, then `--delete` with the printed list. The secret needs Matthew's word (step 14). |
+| 14 | Coda removal | Done | Functions, tables, cron jobs and secrets are gone on production and staging (step 14). |
 | 15 | Staff list | Blocked by an owner decision | Decision 3 (who is builder or employee). Decision 2 is settled. Run `staff_reconciliation()` when it is made. |
 | 16 | Redirects from the old dashboard | Blocked by step 12 and owner decisions 4 and 9 | Only after step 12 passes. |
 
@@ -262,7 +262,7 @@ Do these in order. Functions, then migrations, then the site.
 6. **Re-run the production E2E job** on the pull request or the merge commit now that the backend is live, and read its conclusion the same way as in step 1.
 7. **Verify** (all read only):
    - Migrations: `supabase migration list --linked --workdir <worktree path>` shows no migration as local only.
-   - Functions: `hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN -- node scripts/coda-cleanup.mjs` shows no deployed function without a folder, other than ones you are about to delete in step 14. `bash scripts/smoke-test.sh` passes.
+   - Functions: the deployed functions in the Supabase dashboard match the folders in `supabase/functions`. `bash scripts/smoke-test.sh` passes.
    - Secrets: `hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN -- node scripts/prod-secrets-status.mjs`.
    - Site: the served script changed. `curl -s https://www.verdanote.com/ | grep -o '/assets/index-[A-Za-z0-9_-]*\.js'` before and after step 5 prints a different file name.
    - Cron: the SQL in step 13.
@@ -312,7 +312,7 @@ Rollback: no clean rollback. Fix forward with a new migration. If data was damag
 
 ### Step 5. Confirm the functions
 
-`hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN -- node scripts/coda-cleanup.mjs` lists every deployed function that has no folder in `supabase/functions` (read only). Then run `bash scripts/smoke-test.sh` against production (it defaults to the production URL; CI also does this at step 3). Functions that need a secret answer 503 until step 6 sets it; that is expected.
+Compare the deployed functions in the Supabase dashboard with the folders in `supabase/functions` (CI never deletes a function, so a removed folder leaves its function deployed until someone deletes it). Then run `bash scripts/smoke-test.sh` against production (it defaults to the production URL; CI also does this at step 3). Functions that need a secret answer 503 until step 6 sets it; that is expected.
 
 Rollback: as step 3.
 
@@ -409,7 +409,7 @@ Checklist (do in order, with the HQ processes paused):
 
 What Verdanote derives instead of ingesting: the delivery numbers (delivered N of M, last delivery day) come from the ClickUp tasks that `sync-clickup-tasks` stores, for any month that has tasks. HQ still sends `pct_complete`, status, contract dates, strategist and the `cycle_brief`, `report` and `performance` deliverables, and `delivery` for months with no ClickUp task.
 
-Decision made 2026-11-11: hand-made clients (`origin = 'manual'`) are accepted by the feed. The feed never changes `origin`, so a hand-made client stays editable on the client page and a value entered by hand can be replaced by the next feed update that names it. `clients.origin = 'coda'` is the legacy name for the clients these processes sync; those clients stay read only on the client page because of it.
+Decision made 2026-11-11: hand-made clients (`origin = 'manual'`) are accepted by the feed. The feed never changes `origin`, so a hand-made client stays editable on the client page and a value entered by hand can be replaced by the next feed update that names it. The stored value `clients.origin = 'coda'` is an old name, kept on purpose for the clients these processes sync (owner decision 2026-11-15: 12 production and 14 staging clients keep it); those clients stay read only on the client page because of it. Likewise the table `name_mappings` (668 production rows) keeps its curated ad-name to tag mappings; the tag resolver reads it before the ad-name parser.
 
 Rollback: set `DASHBOARD_LEGACY_WRITE=1` and `VERDANOTE_INGEST_TARGET=staging` to point the processes back at the old database, and revoke the production token. Rows written to Verdanote in between are copied back by hand, so keep a note of when each process was switched.
 
@@ -452,29 +452,13 @@ Two scheduled jobs exist only in production because they need `pg_cron`, `pg_net
 
 Rollback: `select cron.unschedule('<jobname>');`.
 
-### Step 14. Delete the Coda functions and the Coda secret
+### Step 14. Coda removal (done)
 
-Done 2026-11-14: the three Coda functions were deleted from production with `scripts/coda-cleanup.mjs`.
+Done 2026-11-14 and 2026-11-15: Coda is gone from Verdanote production and staging. The three Coda functions (`create-coda-brief`, `sync-coda-names`, `sync-coda-tasks`) were deleted from production, `coda_tasks` and the Coda cron jobs were removed by migration `20261110000001`, and no Coda secret exists in the Supabase function secrets, the Supabase vault, the HQ vault, GitHub Actions or Vercel (`CODA_API_KEY` was never set on production or staging). The one-off tool that did this, `scripts/coda-cleanup.mjs`, was removed once it had nothing left to do. Do not write to Coda for any reason.
 
 Run record 2026-11-14 for steps 6, 7 and 11b on production: step 7 copied the old dashboard tables (30 of 32 tables match exactly; `app_users` holds production's own rows too and `clients` differs in checksum only); step 6 set `SITE_URL`, `META_ACCESS_TOKEN`, `CLICKUP_API_TOKEN`, `FIREFLIES_API_KEY`, `SLACK_BOT_TOKEN` and both storage vault secrets (functions that read a new secret still need a redeploy); `CLICKUP_WEBHOOK_SECRET`, `RESEND_API_KEY` and `SLACK_WEBHOOK_URL` have no value in the vault; step 11b's `public_link_backfill_registry()` reported 0 missing and the registry holds all 57 links.
 
-Read only check on production, 2026-11-14 (after the release): the three Coda functions `create-coda-brief`, `sync-coda-names` and `sync-coda-tasks` are still deployed; `coda_tasks` is gone; no cron job has coda in its name; `CODA_API_KEY` is not set on production, so there is no Coda secret left to unset. The script also lists two secrets no function code mentions, `LINKEDIN_JSESSIONID` and `LINKEDIN_LI_AT`. They are not Coda; find out what uses them before anyone unsets them.
-
-Verdanote has no Coda code any more (Coda was retired on 2026-10-09). The plan's last record says `sync-coda-tasks`, `sync-coda-names` and `create-coda-brief` are still deployed in production, that CI does not delete functions, that migration `20261110000001` removes `coda_tasks` and unschedules `sync-coda-names-daily` when applied, and that removing `CODA_API_KEY` is Matthew's call. Do not write to Coda for any reason.
-
-```bash
-hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN -- node scripts/coda-cleanup.mjs
-```
-
-This read only run lists every deployed function with no folder in `supabase/functions` (the three Coda ones and any others), every secret that no function code mentions (`CODA_API_KEY`), whether a cron job with coda in its name exists and whether `coda_tasks` is gone. It prints the exact delete command and the `supabase secrets unset` commands. To delete the functions, pass the list it printed:
-
-```bash
-hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN -- node scripts/coda-cleanup.mjs --delete create-coda-brief,sync-coda-names,sync-coda-tasks --confirm-production gwyxaqoaldnaavkjqquv
-```
-
-The list must match the current list exactly (otherwise the script refuses and prints the right one), so a function that is not on the list you reviewed is never deleted. The script never unsets a secret: with Matthew's word, run the printed `supabase secrets unset CODA_API_KEY --project-ref gwyxaqoaldnaavkjqquv` yourself. The script is production only for `--delete`.
-
-Rollback: a deleted function comes back by redeploying it from the git history before PR 150. The secret value comes back from the vault copy if one exists.
+Two production secrets, `LINKEDIN_JSESSIONID` and `LINKEDIN_LI_AT`, are not read by any function code. They are not Coda; find out what uses them before anyone unsets them.
 
 ### Step 15. Staff list
 

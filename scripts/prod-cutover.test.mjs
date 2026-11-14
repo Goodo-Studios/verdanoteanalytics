@@ -1,5 +1,5 @@
 // Tests for the production cutover scripts: prod-cutover-lib, prod-secrets-status,
-// coda-cleanup, ad-code-counter and the production target of the storage copy.
+// ad-code-counter and the production target of the storage copy.
 // No network: the Management API client gets a fake fetch, the CLIs are run with no
 // credentials and must stop before any call.
 import test from 'node:test';
@@ -11,10 +11,9 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   DASHBOARD_REF, PRODUCTION_REF, STAGING_REF, parseFlags, assertConfirmedProduction, buildReceipt, assertReceipt, hashOf,
-  makeManagementClient, isSelectOnly, localFunctionNames, secretsReadByCode, namesMentionedInCode, orphanFunctions, unreadSecrets, projectTarget,
+  makeManagementClient, isSelectOnly, localFunctionNames, secretsReadByCode, namesMentionedInCode, projectTarget,
 } from './prod-cutover-lib.mjs';
 import { SECRET_CATALOG, evaluateSecrets, renderStatus, setCommand } from './prod-secrets-lib.mjs';
-import { planCleanup, assertDeleteAllowed, renderCleanup, unsetCommand, deleteCommand } from './coda-cleanup-lib.mjs';
 import { decideRaise, assertApplyAllowed, verifyCounter, peekAsBuilderSql, checklist, raiseSql } from './ad-code-counter-lib.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -104,10 +103,7 @@ test('the repo has no Coda function folder and no code reads a Coda secret', () 
   assert.ok(secretsReadByCode(functionsDir).has('SUPABASE_SERVICE_ROLE_KEY'));
 });
 
-test('orphan functions and unread secrets', () => {
-  const deployed = ['accounts', 'create-coda-brief', 'sync-coda-names', 'sync-coda-tasks', 'old-thing'].map((slug) => ({ slug }));
-  assert.deepEqual(orphanFunctions(deployed, ['accounts']), ['create-coda-brief', 'old-thing', 'sync-coda-names', 'sync-coda-tasks']);
-  assert.deepEqual(unreadSecrets(['CODA_API_KEY', 'SUPABASE_URL', 'ANTHROPIC_API_KEY'], new Set(['ANTHROPIC_API_KEY'])), ['CODA_API_KEY']);
+test('project targets are names, never refs', () => {
   assert.throws(() => projectTarget('gwyxaqoaldnaavkjqquv'), /a name, not a project ref/);
   assert.equal(projectTarget().ref, PRODUCTION_REF);
   assert.equal(projectTarget('staging').tokenEnv, 'VERDANOTE_STAGING_SUPABASE_ACCESS_TOKEN');
@@ -130,14 +126,14 @@ test('the catalog covers every secret the release notes say production lacks, an
 });
 
 test('evaluateSecrets marks set, missing, off by design and could-not-check, and never needs a value', () => {
-  const { rows, other } = evaluateSecrets({ deployedNames: ['ANTHROPIC_API_KEY', 'SUPABASE_URL', 'ODD_ONE', 'CODA_API_KEY'], vaultNames: null });
+  const { rows, other } = evaluateSecrets({ deployedNames: ['ANTHROPIC_API_KEY', 'SUPABASE_URL', 'ODD_ONE', 'OLD_KEY'], vaultNames: null });
   const by = Object.fromEntries(rows.map((r) => [r.name, r.status]));
   assert.equal(by.ANTHROPIC_API_KEY, 'set');
   assert.equal(by.CLICKUP_API_TOKEN, 'missing');
   assert.equal(by.CLICKUP_WRITEBACK_ENABLED, 'off');
   assert.equal(by.CLIENT_INVITES_SEND_ENABLED, 'off');
   assert.equal(by.storage_signing_project_url, 'could not check');
-  assert.deepEqual(other, ['CODA_API_KEY', 'ODD_ONE']);
+  assert.deepEqual(other, ['ODD_ONE', 'OLD_KEY']);
   const checked = evaluateSecrets({ deployedNames: [], vaultNames: ['storage_signing_project_url'] }).rows;
   assert.equal(checked.find((r) => r.name === 'storage_signing_project_url').status, 'set');
   assert.equal(checked.find((r) => r.name === 'storage_signing_service_role_key').status, 'missing');
@@ -161,58 +157,6 @@ test('prod-secrets-status refuses a missing token and a project ref as target, w
   assert.equal(t.status, 2);
   assert.match(t.stderr, /project ref is not accepted|a name, not a project ref/);
   assert.equal(runScript('prod-secrets-status.mjs', ['--delete']).status, 2);
-});
-
-// ------------------------------------------------------------------ coda-cleanup
-
-const deployed = ['accounts', 'create-coda-brief', 'sync-coda-names', 'sync-coda-tasks'].map((slug) => ({ slug }));
-
-test('the cleanup plan lists Coda functions and the unread Coda secret', () => {
-  const plan = planCleanup({ deployed, local: ['accounts'], secretNames: ['CODA_API_KEY', 'SUPABASE_URL', 'ANTHROPIC_API_KEY'], mentioned: new Set(['ANTHROPIC_API_KEY']) });
-  assert.deepEqual(plan.orphans, ['create-coda-brief', 'sync-coda-names', 'sync-coda-tasks']);
-  assert.deepEqual(plan.codaOrphans, plan.orphans);
-  assert.deepEqual(plan.unread, ['CODA_API_KEY']);
-  const text = renderCleanup({ plan, projectName: 'production', ref: PRODUCTION_REF, checks: [{ label: 'x', result: 'none' }] });
-  assert.ok(text.includes(deleteCommand('sync-coda-tasks')));
-  assert.ok(text.includes(unsetCommand('CODA_API_KEY')));
-  assert.match(text, /never run by this script/);
-  assert.ok(!text.includes('\u2014'));
-  assert.ok(text.includes('--delete create-coda-brief,sync-coda-names,sync-coda-tasks'));
-});
-
-test('a delete needs production, the typed ref and the exact printed list', () => {
-  const orphans = ['create-coda-brief', 'sync-coda-names', 'sync-coda-tasks'];
-  const ok = { target: 'production', deleteList: orphans.join(','), confirmProduction: PRODUCTION_REF, orphans };
-  assert.deepEqual(assertDeleteAllowed(ok), orphans);
-  assert.deepEqual(assertDeleteAllowed({ ...ok, deleteList: [...orphans].reverse().join(',') }), orphans);
-  assert.throws(() => assertDeleteAllowed({ ...ok, target: 'staging' }), /only runs on production/);
-  assert.throws(() => assertDeleteAllowed({ ...ok, confirmProduction: undefined }), /--confirm-production/);
-  assert.throws(() => assertDeleteAllowed({ ...ok, confirmProduction: STAGING_REF }), /--confirm-production/);
-  assert.throws(() => assertDeleteAllowed({ ...ok, deleteList: 'sync-coda-tasks' }), /does not match/);
-  assert.throws(() => assertDeleteAllowed({ ...ok, deleteList: `${orphans.join(',')},accounts` }), /does not match/);
-  assert.throws(() => assertDeleteAllowed({ ...ok, orphans: [], deleteList: 'x' }), /nothing to delete/);
-});
-
-test('coda-cleanup stops before any network call on a bad --delete', () => {
-  const noRef = runScript('coda-cleanup.mjs', ['--delete', 'sync-coda-tasks']);
-  assert.equal(noRef.status, 2);
-  assert.match(noRef.stderr, /--confirm-production/);
-  const staging = runScript('coda-cleanup.mjs', ['--target', 'staging', '--delete', 'x', '--confirm-production', PRODUCTION_REF]);
-  assert.equal(staging.status, 2);
-  assert.match(staging.stderr, /only runs on production/);
-  const strayConfirm = runScript('coda-cleanup.mjs', ['--confirm-production', PRODUCTION_REF]);
-  assert.equal(strayConfirm.status, 2);
-  assert.match(strayConfirm.stderr, /only goes with --delete/);
-  const noToken = runScript('coda-cleanup.mjs', []);
-  assert.equal(noToken.status, 2);
-  assert.match(noToken.stderr, /SUPABASE_ACCESS_TOKEN/);
-});
-
-test('the cleanup script never calls secrets unset and never calls Coda', () => {
-  const src = fs.readFileSync(path.join(here, 'coda-cleanup.mjs'), 'utf8');
-  assert.ok(!/execSync|spawn|child_process/.test(src));
-  assert.ok(!/api\.coda\.io|coda\.io/.test(src));
-  assert.ok(!/secrets unset|deleteSecret|'DELETE', '\/secrets/.test(src.replace(/\/\/.*$/gm, '')));
 });
 
 // ------------------------------------------------------------------ ad-code-counter

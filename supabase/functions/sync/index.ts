@@ -369,7 +369,7 @@ export function rollupDailyRows(rows: DailyRollupInputRow[]) {
 // output (canonical vocab) is mapped through the shared parsedDisplayTags (_shared/ad-name-display.ts) before the resolver.
 
 
-/** A name_mappings row -> PartialTags for the resolver's Coda (csv_match) layer. */
+/** A name_mappings row -> PartialTags for the resolver's name_mappings (csv_match) layer. */
 function mappingTags(m: Record<string, unknown> | null): PartialTags | null {
   if (!m) return null;
   return {
@@ -1747,7 +1747,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       try {
         // Resolve the account's naming convention once; preload its name_mappings
         // into a Map keyed by unique_code. No manual layer in sync, so the locked
-        // precedence reduces to: Coda(name_mappings) > parser > untagged.
+        // precedence reduces to: name_mappings > parser > untagged.
         const convention = await resolveConvention(supabase, accountId);
         const { data: mappings } = await supabase
           .from("name_mappings")

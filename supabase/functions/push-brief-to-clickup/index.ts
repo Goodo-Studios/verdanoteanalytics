@@ -31,8 +31,7 @@ import {
   taskUrl,
 } from "../_shared/clickup-brief.ts";
 
-// Push a brief to ClickUp (replaces "Push to Coda" and "Create brief in Coda";
-// Coda was retired on 2026-10-09 and ClickUp is the task system).
+// Push a brief to ClickUp (ClickUp is the task system).
 //
 // POST { action: "list", client_slug | account_id }
 //   -> the client's asset tasks that can take a brief: asset name, empty
