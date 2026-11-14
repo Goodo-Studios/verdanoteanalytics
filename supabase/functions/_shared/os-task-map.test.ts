@@ -170,7 +170,10 @@ Deno.test("drop-downs resolve from orderindex (number or string) or option id", 
 
 Deno.test("dates: ms epoch strings become YYYY-MM-DD; junk is null", () => {
   assertEquals(msToDate(ms("2026-02-28T23:00:00Z")), "2026-02-28");
-  assertEquals(msToDate(1767225600000), "2026-01-01");
+  // Dates are the studio (Eastern) day since the due-date fix, not the UTC day: 2026-01-01T00:00Z
+  // is 7 pm on 31 Dec in Eastern. Noon UTC, which the app writes, is the same day in both.
+  assertEquals(msToDate(1767225600000), "2025-12-31");
+  assertEquals(msToDate(1767268800000), "2026-01-01");
   assertEquals(msToDate(""), null);
   assertEquals(msToDate("abc"), null);
   assertEquals(msToDate(0), null);
