@@ -163,6 +163,29 @@ export function selectMediaSources(input: {
   return { videoSrc: video, imageSrc: storageFull ?? storageThumb ?? fullRes ?? thumb };
 }
 
+/**
+ * The source media could not be fetched (expired or forbidden CDN link, host not allowed, not
+ * media). That is a problem with the input, not a server fault, so the function answers 422
+ * instead of 500. The message names the host only: Meta CDN links carry signed query strings
+ * that must not end up in logs or responses.
+ */
+export class MediaSourceError extends Error {
+  readonly status = 422;
+  constructor(message: string) {
+    super(message);
+    this.name = "MediaSourceError";
+  }
+}
+
+/** Host of a URL for messages and logs, never the path or query. */
+export function safeHost(u: string): string {
+  try {
+    return new URL(u).host;
+  } catch {
+    return "unknown-host";
+  }
+}
+
 /** Pick a storage extension from a content-type, defaulting per media kind. */
 export function extFor(contentType: string, kind: "image" | "video"): string {
   const ct = contentType.toLowerCase();
