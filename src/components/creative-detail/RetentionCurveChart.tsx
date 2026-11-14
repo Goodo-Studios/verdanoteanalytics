@@ -194,7 +194,7 @@ function CurveChart({
                 offset: -2,
                 fill: axisProps.tick.fill,
                 fontSize: 9,
-                fontFamily: "'Space Grotesk', sans-serif",
+                fontFamily: "var(--gos-sans)",
               }}
             />
           ))}

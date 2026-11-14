@@ -28,11 +28,29 @@ describe("Goodo OS tokens", () => {
     expect(tokens).toContain(`${name}: ${value};`);
   });
 
-  it("uses Inter and Instrument Serif", () => {
-    expect(tokens).toMatch(/--gos-sans: "Inter"/);
+  it("uses Instrument Sans, Instrument Serif and Source Serif 4", () => {
+    expect(tokens).toMatch(/--gos-sans: "Instrument Sans"/);
     expect(tokens).toMatch(/--gos-serif: "Instrument Serif"/);
-    expect(read("index.html")).toContain("family=Inter");
-    expect(read("index.html")).toContain("family=Instrument+Serif");
+    expect(tokens).toMatch(/--gos-read: "Source Serif 4"/);
+    const html = read("index.html");
+    expect(html).toContain("family=Instrument+Sans");
+    expect(html).toContain("family=Instrument+Serif");
+    expect(html).toContain("family=Source+Serif+4");
+    expect(html).not.toContain("family=Space+Grotesk");
+    expect(read("tailwind.config.ts")).not.toContain("Space Grotesk");
+  });
+
+  it("puts text on solid panels instead of the page grid", () => {
+    // Bordered, rounded boxes with no fill of their own get the white card fill.
+    expect(tokens).toMatch(/#app-scroll-container[\s\S]*\[class~="border"\][\s\S]*:not\(\[class\*="bg-"\]\)\s*\{\s*background-color: var\(--gos-card\);/);
+    // Inputs are white with the darker edge so they read against cream.
+    expect(tokens).toMatch(/textarea,\s*select,\s*button\[role="combobox"\]\s*\{\s*background-color: var\(--gos-card\);\s*border-color: var\(--gos-edge\);/);
+  });
+
+  it("styles long-form prose even though the typography plugin is not installed", () => {
+    expect(tokens).toMatch(/\.prose \{\s*font-family: var\(--gos-read\);/);
+    expect(tokens).toMatch(/\.prose:not\(\.max-w-none\) \{\s*max-width: 68ch;/);
+    expect(tokens).toMatch(/\.prose p,[\s\S]*margin: 0 0 1em;/);
   });
 
   it("switches motion off when the device asks for reduced motion", () => {

@@ -172,3 +172,11 @@ export function toFixes(rows: unknown): BrainFix[] {
     .map((r) => ({ ...(r as unknown as BrainFix), review: asArray<FixReview>(r.brain_page_correction_reviews)[0] ?? null }))
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
+
+/** Drops a leading "# Title" line when it repeats the page title already shown in the page header. */
+export function withoutRepeatedTitle(body: string, title: string): string {
+  const m = /^\s*#\s+(.+?)\s*#*\s*(?:\r?\n|$)/.exec(body);
+  if (!m) return body;
+  const norm = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
+  return norm(m[1]) === norm(title) ? body.slice(m[0].length) : body;
+}

@@ -293,7 +293,7 @@
   }
 
   .metric-label {
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--gos-sans);
     font-size: 0.6875rem;
     font-weight: 500;
     color: hsl(var(--muted-foreground));
@@ -317,7 +317,7 @@
 
   /* ── Data Table typography ── */
   .text-table-header {
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--gos-sans);
     font-size: 0.6875rem;
     font-weight: 600;
     color: hsl(var(--muted-foreground));
@@ -342,7 +342,7 @@
   }
 
   .text-badge {
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--gos-sans);
     font-size: 0.6875rem;
     font-weight: 600;
     letter-spacing: 0.03em;

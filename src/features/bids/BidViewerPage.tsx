@@ -108,7 +108,7 @@ export default function BidViewerPage() {
               {bid.title} · version {bid.version} · generated {fmtDate(bid.generated_at, "unknown")} · loaded {fmtDate(bid.imported_at, "unknown")} · {originLabel(bid)}
             </div>
             {sections.map((s) => (
-              <section key={s.anchor} id={s.anchor} aria-label={s.heading || "Introduction"} className="prose prose-sm max-w-none dark:prose-invert">
+              <section key={s.anchor} id={s.anchor} aria-label={s.heading || "Introduction"} className="prose">
                 {s.heading ? <h2>{s.heading}</h2> : null}
                 <ReactMarkdown>{s.body}</ReactMarkdown>
               </section>
