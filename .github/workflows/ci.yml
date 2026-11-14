@@ -119,7 +119,12 @@ jobs:
       PLAYWRIGHT_TEST_PASSWORD: ${{ secrets.PLAYWRIGHT_TEST_PASSWORD }}
       PLAYWRIGHT_CLIENT_EMAIL: ${{ secrets.PLAYWRIGHT_CLIENT_EMAIL }}
       PLAYWRIGHT_CLIENT_PASSWORD: ${{ secrets.PLAYWRIGHT_CLIENT_PASSWORD }}
-      PLAYWRIGHT_BASE_URL: http://localhost:8080
+      # The tests run against the live production site, not a local preview server.
+      # Production's edge functions only allow the SITE_URL origin (CORS), so a
+      # localhost origin gets an empty account list and Settings tests fail. This
+      # means a pull request run exercises the build that is already deployed; the
+      # run on main after a release is the check for the new build.
+      PLAYWRIGHT_BASE_URL: https://www.verdanote.com
 
     steps:
       - uses: actions/checkout@v4
@@ -138,21 +143,18 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install chromium --with-deps
 
+      # Enforces the bundle budgets. The tests below do not use this build.
       - name: Build app
         run: npm run build:check
 
-      - name: Start preview server
-        run: npx vite preview --port 8080 &
-        # Give the server a moment to bind before Playwright connects
-        # Playwright's built-in webServer config handles this more robustly,
-        # but the preview server is fast enough that a short sleep suffices.
-
-      - name: Wait for server
+      - name: Wait for the live site
         run: |
           for i in $(seq 1 30); do
-            curl -sf http://localhost:8080 > /dev/null && break
-            sleep 1
+            curl -sf https://www.verdanote.com > /dev/null && exit 0
+            sleep 2
           done
+          echo "https://www.verdanote.com did not answer" >&2
+          exit 1
 
       - name: Run E2E tests
         run: npm run test:e2e
