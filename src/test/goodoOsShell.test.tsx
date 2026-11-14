@@ -2,7 +2,7 @@
  * OS-005: Goodo OS name and War Room tokens. Checks the one token file against the War Room
  * values, that the shell reads them, and that the app is called Goodo OS where people see it.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -32,12 +32,27 @@ describe("Goodo OS tokens", () => {
     expect(tokens).toMatch(/--gos-sans: "Instrument Sans"/);
     expect(tokens).toMatch(/--gos-serif: "Instrument Serif"/);
     expect(tokens).toMatch(/--gos-read: "Source Serif 4"/);
-    const html = read("index.html");
-    expect(html).toContain("family=Instrument+Sans");
-    expect(html).toContain("family=Instrument+Serif");
-    expect(html).toContain("family=Source+Serif+4");
-    expect(html).not.toContain("family=Space+Grotesk");
     expect(read("tailwind.config.ts")).not.toContain("Space Grotesk");
+  });
+
+  it("serves its fonts from the app, because the CSP blocks Google Fonts", () => {
+    // vercel.json allows font-src and style-src from 'self' only.
+    expect(read("vercel.json")).toMatch(/font-src 'self'/);
+    const html = read("index.html");
+    expect(html).not.toContain("fonts.googleapis.com");
+    expect(html).not.toContain("fonts.gstatic.com");
+    const fonts = read("src/styles/goodo-os-fonts.css");
+    const main = read("src/main.tsx");
+    expect(main.indexOf("./styles/goodo-os-fonts.css")).toBeGreaterThan(-1);
+    for (const [family, file] of [
+      ["Instrument Sans", "instrument-sans-latin.woff2"],
+      ["Instrument Serif", "instrument-serif-italic-latin.woff2"],
+      ["Source Serif 4", "source-serif-4-latin.woff2"],
+    ]) {
+      expect(fonts).toContain(`font-family: "${family}"`);
+      expect(fonts).toContain(`url("/fonts/${file}")`);
+      expect(existsSync(resolve(root, "public/fonts", file))).toBe(true);
+    }
   });
 
   it("puts text on solid panels instead of the page grid", () => {

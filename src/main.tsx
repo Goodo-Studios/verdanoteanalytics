@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 // Goodo OS tokens (OS-005). After index.css so they win.
+import "./styles/goodo-os-fonts.css";
 import "./styles/goodo-os-tokens.css";
 import "./styles/goodo-os-motion.css";
 import { registerServiceWorker } from "./pwa/registerServiceWorker";
