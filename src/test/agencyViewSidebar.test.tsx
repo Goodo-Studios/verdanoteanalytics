@@ -1,5 +1,5 @@
 /**
- * The staff menu has eight items whatever client is selected (including "All clients", the
+ * The staff menu has ten items whatever client is selected (including "All clients", the
  * old Agency View), Admin shows for builders and employees, a client's sidebar is unchanged,
  * pages that need one client ask for one, and the mobile menu button is labelled.
  */
@@ -57,7 +57,9 @@ function renderSidebar(role: Role) {
   );
 }
 
-const EIGHT = ["Home", "Clients", "Production", "Talent", "Creative", "Knowledge", "Tools", "Admin"];
+const TEN = ["Home", "Clients", "Production", "Talent", "Creative", "Creative Vault", "Knowledge", "Growth Dashboard", "Ad Name Generator", "Admin"];
+// An employee does not see the builder-only Growth Dashboard.
+const EMPLOYEE_MENU = TEN.filter((t) => t !== "Growth Dashboard");
 
 beforeEach(() => {
   h.selected = "all";
@@ -66,15 +68,19 @@ beforeEach(() => {
 });
 
 describe("staff sidebar", () => {
-  it("has exactly the eight menu items, in order", () => {
-    expect(staffNavItems.map((i) => i.title)).toEqual(EIGHT);
+  it("has exactly the ten menu items, in order", () => {
+    expect(staffNavItems.map((i) => i.title)).toEqual(TEN);
   });
 
-  it.each(["builder", "employee"] as const)("%s sees the eight items with role-prefixed links", (role) => {
+  it.each(["builder", "employee"] as const)("%s sees their menu items with role-prefixed links", (role) => {
     renderSidebar(role);
     const main = screen.getByRole("navigation", { name: "Main" });
     const links = Array.from(main.querySelectorAll("a")).map((a) => a.textContent);
-    expect(links).toEqual(EIGHT);
+    expect(links).toEqual(role === "builder" ? TEN : EMPLOYEE_MENU);
+    expect(screen.getByRole("link", { name: "Creative Vault" }).getAttribute("href")).toBe(`/${role}/vault`);
+    expect(screen.getByRole("link", { name: "Ad Name Generator" }).getAttribute("href")).toBe(`/${role}/tools`);
+    if (role === "builder") expect(screen.getByRole("link", { name: "Growth Dashboard" }).getAttribute("href")).toBe("/builder/growth");
+    else expect(screen.queryByRole("link", { name: "Growth Dashboard" })).toBeNull();
     expect(screen.getByRole("link", { name: "Production" }).getAttribute("href")).toBe(`/${role}/production`);
     expect(screen.getByRole("link", { name: "Clients" }).getAttribute("href")).toBe(`/${role}/clients`);
     expect(screen.getByRole("link", { name: "Home" }).getAttribute("href")).toBe(`/${role}/`);
@@ -93,7 +99,7 @@ describe("staff sidebar", () => {
     h.selected = "act_a";
     renderSidebar("builder");
     const main = screen.getByRole("navigation", { name: "Main" });
-    expect(Array.from(main.querySelectorAll("a")).map((a) => a.textContent)).toEqual(EIGHT);
+    expect(Array.from(main.querySelectorAll("a")).map((a) => a.textContent)).toEqual(TEN);
   });
 
   it("keeps Settings in the footer", () => {
@@ -106,7 +112,7 @@ describe("staff sidebar", () => {
     renderSidebar("client");
     const main = screen.getByRole("navigation", { name: "Main" });
     expect(Array.from(main.querySelectorAll("a")).map((a) => a.textContent)).toEqual(["Overview", "Briefs", "Review", "Assets", "Creatives", "Analytics", "Content Pipeline", "Reports"]);
-    for (const name of EIGHT.filter((n) => n !== "Home")) expect(screen.queryByRole("link", { name })).toBeNull();
+    for (const name of TEN.filter((n) => n !== "Home")) expect(screen.queryByRole("link", { name })).toBeNull();
     expect(screen.queryByRole("link", { name: "Home" })).toBeNull();
   });
 });

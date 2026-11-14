@@ -178,7 +178,7 @@ describe("nav model: the staff menu and its tabs retain the full internal surfac
     for (const url of ["/creatives", "/analytics", "/tagging", "/briefs", "/ad-library", "/ad-library/boards", "/ad-library/hooks"]) {
       expect(oldUrls).toContain(url);
     }
-    expect(tabSlugs).toEqual(expect.arrayContaining(["creative/creatives", "creative/vault", "creative/vault-boards", "creative/vault-hooks"]));
+    expect(tabSlugs).toEqual(expect.arrayContaining(["creative/creatives", "vault/library", "vault/boards", "vault/hooks"]));
   });
 
   it("also keeps the shared surfaces (Overview, Reports) and a Home item", () => {

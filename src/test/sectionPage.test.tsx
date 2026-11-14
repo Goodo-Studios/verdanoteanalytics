@@ -81,19 +81,21 @@ beforeEach(() => {
 });
 
 describe("section model", () => {
-  it("has the six tabbed sections with the agreed tabs", () => {
-    expect(SECTIONS.map((s) => s.label)).toEqual(["Production", "Talent", "Creative", "Knowledge", "Tools", "Admin"]);
+  it("has the eight tabbed sections with the agreed tabs", () => {
+    expect(SECTIONS.map((s) => s.label)).toEqual(["Production", "Talent", "Creative", "Creative Vault", "Knowledge", "Growth Dashboard", "Ad Name Generator", "Admin"]);
     const labels = (id: string) => SECTIONS.find((s) => s.id === id)!.tabs.map((t) => t.label);
     expect(labels("production")).toEqual(["Production calendar", "Call sheets", "Casting", "Crew", "Locations", "Props", "Shipments"]);
     expect(labels("talent")).toEqual(["Creators", "Actors", "Applications", "Creator pipeline", "Follow-ups", "Approval boards"]);
     expect(labels("creative")).toEqual([
       "Overview", "Agency overview", "Creatives", "Analytics", "Creative Rotation", "Creative Diversity", "Landing Pages",
-      "Creative Library", "Vault", "Boards", "Hooks", "Tagging", "Matrix", "Reports", "Briefs",
+      "Creative Library", "Tagging", "Matrix", "Reports", "Briefs",
     ]);
+    expect(labels("vault")).toEqual(["Vault", "Boards", "Hooks"]);
+    expect(labels("growth")).toEqual(["Growth Dashboard"]);
     expect(labels("knowledge")).toEqual(["Knowledge", "Brain", "Learning", "Meeting recaps", "Client BIDs"]);
     expect(labels("tools")).toEqual(["Ad Name Generator"]);
     expect(labels("admin")).toEqual([
-      "Team and settings", "Integration health", "Notifications", "Operations", "Early pages", "Operating costs", "Agent evaluations", "Growth Dashboard", "Support inbox",
+      "Team and settings", "Integration health", "Notifications", "Operations", "Early pages", "Operating costs", "Agent evaluations", "Support inbox",
     ]);
   });
 
@@ -133,13 +135,13 @@ describe("role gating", () => {
   });
 
   it("each group link opens its first tab, and a tab opens inside its own group", () => {
-    renderAt("/builder/creative/vault-hooks");
+    renderAt("/builder/creative/library");
     const groupLinks = within(screen.getByRole("navigation", { name: "Creative groups" })).getAllByRole("link");
     expect(groupLinks.map((a) => a.getAttribute("href"))).toEqual([
       "/builder/creative/overview", "/builder/creative/library", "/builder/creative/tagging", "/builder/creative/reports",
     ]);
     expect(groupLinks.find((a) => a.textContent === "Library")?.getAttribute("aria-current")).toBe("true");
-    expect(tabNames("Library")).toEqual(["Creative Library", "Vault", "Boards", "Hooks"]);
+    expect(tabNames("Library")).toEqual(["Creative Library"]);
   });
 
   it("no Creative row has more than seven tabs, so nothing scrolls sideways", () => {
@@ -176,11 +178,12 @@ describe("role gating", () => {
     expect(names).toHaveLength(5);
   });
 
-  it("a builder sees eight Admin tabs: Early pages in, Agent evaluations out", async () => {
+  it("a builder sees seven Admin tabs: Early pages in, Agent evaluations and Growth Dashboard out", async () => {
     renderAt("/builder/admin/team");
     await screen.findByTestId("page-team");
     const names = tabNames("Admin");
-    expect(names).toHaveLength(8);
+    expect(names).toHaveLength(7);
+    expect(names).not.toContain("Growth Dashboard");
     expect(names).toContain("Early pages");
     expect(names).not.toContain("Agent evaluations");
   });
@@ -209,7 +212,7 @@ describe("role gating", () => {
     expect(screen.queryByTestId("page-early-pages")).toBeNull();
   });
 
-  it.each(["/employee/creative/matrix", "/employee/admin/growth", "/employee/admin/operating-costs"])("an employee typing %s is sent to the index", async (path) => {
+  it.each(["/employee/creative/matrix", "/employee/growth/dashboard", "/employee/admin/operating-costs"])("an employee typing %s is sent to the index", async (path) => {
     setRole("employee");
     renderAt(path);
     expect(await screen.findByTestId("index")).toBeTruthy();
@@ -221,7 +224,7 @@ describe("role gating", () => {
   it("a builder reaches the builder-only tabs", async () => {
     renderAt("/builder/creative/matrix");
     expect(await screen.findByTestId("page-matrix")).toBeTruthy();
-    renderAt("/builder/admin/growth");
+    renderAt("/builder/growth/dashboard");
     expect(await screen.findByTestId("page-growth")).toBeTruthy();
   });
 
@@ -278,7 +281,7 @@ describe("a client with no ad account", () => {
   });
 
   it("still shows tabs that do not read an ad account, like the Vault and Production", async () => {
-    renderAt("/builder/creative/vault-hooks");
+    renderAt("/builder/vault/hooks");
     expect(await screen.findByTestId("page-vault-hooks")).toBeTruthy();
     expect(screen.queryByTestId("no-ad-account")).toBeNull();
     renderAt("/builder/production/calendar");

@@ -162,6 +162,10 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean; 
   { path: "/entities", marker: "entities" },
   { path: "/matrix", marker: "matrix", builderOnly: true },
   { path: "/growth-dashboard", marker: "growth-dashboard", builderOnly: true },
+  { path: "/admin/growth", marker: "growth-dashboard", builderOnly: true },
+  { path: "/creative/vault", marker: "ad-library" },
+  { path: "/creative/vault-boards", marker: "boards" },
+  { path: "/creative/vault-hooks", marker: "hooks" },
   { path: "/ad-name-generator", marker: "ad-name-generator" },
   { path: "/admin/ad-name-generator", marker: "ad-name-generator" },
   { path: "/integration-health", marker: "integration-health" },
@@ -246,9 +250,9 @@ const SHARED_OLD_PAGES = [
 ];
 
 describe("every menu item, tab and old address is covered", () => {
-  it("has eight staff menu items, with Tools before Admin", () => {
-    expect(staffNavItems.map((i) => i.title)).toEqual(["Home", "Clients", "Production", "Talent", "Creative", "Knowledge", "Tools", "Admin"]);
-    expect(staffNavItems).toHaveLength(8);
+  it("has ten staff menu items, with the Ad Name Generator before Admin", () => {
+    expect(staffNavItems.map((i) => i.title)).toEqual(["Home", "Clients", "Production", "Talent", "Creative", "Creative Vault", "Knowledge", "Growth Dashboard", "Ad Name Generator", "Admin"]);
+    expect(staffNavItems).toHaveLength(10);
     // OS-019 added Briefs, Review and Assets to the client menu.
     expect(clientNavItems).toHaveLength(8);
   });
@@ -386,7 +390,7 @@ describe("staff reach the staff pages", () => {
 
   it("the builder-only list holds the Matrix, the Growth Dashboard, Operating costs and Early pages, old and new addresses", () => {
     const paths = ALL.filter(isBuilderOnly).map((p) => p.path).sort();
-    expect(paths).toEqual(["/admin/early-pages", "/admin/growth", "/admin/operating-costs", "/creative/matrix", "/growth-dashboard", "/matrix", "/operating-costs"]);
+    expect(paths).toEqual(["/admin/early-pages", "/admin/growth", "/admin/operating-costs", "/creative/matrix", "/growth-dashboard", "/growth/dashboard", "/matrix", "/operating-costs"]);
   });
 
   it("/staff goes to Home", async () => {
