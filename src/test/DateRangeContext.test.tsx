@@ -21,9 +21,10 @@ vi.mock("@/contexts/AccountContext", () => ({
 }));
 
 import { DateRangeProvider, useDateRangeContext } from "@/contexts/DateRangeContext";
+import { utcToday } from "@/lib/dateRange";
 
-const DEFAULT_FROM = format(subDays(new Date(), 14), "yyyy-MM-dd");
-const DEFAULT_TO = format(subDays(new Date(), 1), "yyyy-MM-dd");
+const DEFAULT_FROM = format(subDays(utcToday(), 14), "yyyy-MM-dd");
+const DEFAULT_TO = format(subDays(utcToday(), 1), "yyyy-MM-dd");
 
 function Harness() {
   const { dateFrom, dateTo, setDateRange } = useDateRangeContext();
@@ -87,6 +88,98 @@ describe("DateRangeProvider — app-wide, per-account, persisted range", () => {
     );
     expect(screen.getByTestId("from")).toHaveTextContent(DEFAULT_FROM);
     expect(screen.getByTestId("to")).toHaveTextContent(DEFAULT_TO);
+  });
+
+  // Second-round audit L7.
+  describe("rolling presets and UTC today", () => {
+    afterEach(() => vi.useRealTimers());
+
+    function PresetHarness() {
+      const { dateFrom, dateTo, setDateRange } = useDateRangeContext();
+      return (
+        <div>
+          <span data-testid="from">{dateFrom ?? "∅"}</span>
+          <span data-testid="to">{dateTo ?? "∅"}</span>
+          <button onClick={() => setDateRange("2026-11-07", "2026-11-13", "last7")}>last7</button>
+          <button onClick={() => setDateRange("2026-11-07", "2026-11-13")}>custom-same-dates</button>
+        </div>
+      );
+    }
+    const renderPresetProvider = () =>
+      render(
+        <DateRangeProvider>
+          <PresetHarness />
+        </DateRangeProvider>,
+      );
+
+    it("saves a rolling preset by id and moves it forward when it is loaded on a later day", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-11-14T12:00:00Z"));
+      const first = renderPresetProvider();
+      fireEvent.click(screen.getByText("last7"));
+      expect(screen.getByTestId("from")).toHaveTextContent("2026-11-07");
+      expect(screen.getByTestId("to")).toHaveTextContent("2026-11-13");
+      expect(JSON.parse(localStorage.getItem("dateRange_acc_a")!).preset).toBe("last7");
+      first.unmount();
+
+      // A week later the same saved preset covers the new last 7 days, not the old fixed dates.
+      vi.setSystemTime(new Date("2026-11-21T12:00:00Z"));
+      renderPresetProvider();
+      expect(screen.getByTestId("from")).toHaveTextContent("2026-11-14");
+      expect(screen.getByTestId("to")).toHaveTextContent("2026-11-20");
+    });
+
+    it("keeps a custom range as fixed dates, even when it equals a preset's dates today", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-11-14T12:00:00Z"));
+      const first = renderPresetProvider();
+      fireEvent.click(screen.getByText("custom-same-dates"));
+      expect(JSON.parse(localStorage.getItem("dateRange_acc_a")!)).toEqual({ dateFrom: "2026-11-07", dateTo: "2026-11-13" });
+      first.unmount();
+
+      vi.setSystemTime(new Date("2026-11-21T12:00:00Z"));
+      renderPresetProvider();
+      expect(screen.getByTestId("from")).toHaveTextContent("2026-11-07");
+      expect(screen.getByTestId("to")).toHaveTextContent("2026-11-13");
+    });
+
+    it("ignores an unknown preset id in storage and keeps its saved dates", () => {
+      localStorage.setItem("dateRange_acc_a", JSON.stringify({ preset: "nope", dateFrom: "2026-02-01", dateTo: "2026-02-03" }));
+      renderPresetProvider();
+      expect(screen.getByTestId("from")).toHaveTextContent("2026-02-01");
+      expect(screen.getByTestId("to")).toHaveTextContent("2026-02-03");
+    });
+
+    it("builds the default window from the UTC date, not the browser's", () => {
+      vi.useFakeTimers();
+      // Late evening UTC on the 14th: yesterday is the 13th whatever the browser's timezone is.
+      vi.setSystemTime(new Date("2026-11-14T23:30:00Z"));
+      renderPresetProvider();
+      expect(screen.getByTestId("to")).toHaveTextContent("2026-11-13");
+      expect(screen.getByTestId("from")).toHaveTextContent("2026-10-31");
+    });
+
+    it("never renders the new account with the previous account's range", () => {
+      localStorage.setItem("dateRange_acc_a", JSON.stringify({ dateFrom: "2026-01-01", dateTo: "2026-01-31" }));
+      localStorage.setItem("dateRange_acc_b", JSON.stringify({ dateFrom: "2026-03-01", dateTo: "2026-03-31" }));
+      const seen: string[] = [];
+      function Recorder() {
+        const { dateFrom } = useDateRangeContext();
+        seen.push(`${h.selectedAccountId}:${dateFrom}`);
+        return null;
+      }
+      const tree = () => (
+        <DateRangeProvider>
+          <Recorder />
+        </DateRangeProvider>
+      );
+      const { rerender } = render(tree());
+      h.selectedAccountId = "acc_b";
+      rerender(tree());
+      expect(seen).toContain("acc_a:2026-01-01");
+      expect(seen).toContain("acc_b:2026-03-01");
+      expect(seen).not.toContain("acc_b:2026-01-01");
+    });
   });
 
   it("an explicitly cleared range persists and is restored as empty (not the default)", () => {

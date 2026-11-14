@@ -61,6 +61,7 @@ vi.mock("@/contexts/AccountContext", () => ({
 
 import MatrixBoardPage from "@/features/matrix/board/MatrixBoardPage";
 import { DateRangeProvider } from "@/contexts/DateRangeContext";
+import { utcToday } from "@/lib/dateRange";
 
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -146,7 +147,7 @@ describe("Creative Matrix uses the app-wide account + shared date range", () => 
     expect(matrixCall).toContain(`account_id=${ACC_B}`);
     expect(matrixCall).not.toContain(`account_id=${ACC_A}`);
     // Shared default range: last 14 days → yesterday.
-    expect(matrixCall).toContain(`date_from=${format(subDays(new Date(), 14), "yyyy-MM-dd")}`);
-    expect(matrixCall).toContain(`date_to=${format(subDays(new Date(), 1), "yyyy-MM-dd")}`);
+    expect(matrixCall).toContain(`date_from=${format(subDays(utcToday(), 14), "yyyy-MM-dd")}`);
+    expect(matrixCall).toContain(`date_to=${format(subDays(utcToday(), 1), "yyyy-MM-dd")}`);
   });
 });
