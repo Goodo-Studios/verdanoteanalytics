@@ -34,7 +34,7 @@ vi.mock("@/integrations/supabase/client", () => {
   return { supabase: { from: (table: string) => ({ select: () => chain(table) }) } };
 });
 
-import { staffAccountFilter, usePipelineDelivered, usePipelineTasks } from "@/hooks/usePipelineTasks";
+import { staffAccountFilter, staffClientFilter, usePipelineDelivered, usePipelineTasks } from "@/hooks/usePipelineTasks";
 
 function wrapper() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -90,5 +90,31 @@ describe("staff board and delivered list for a multi-account client", () => {
     await waitFor(() => expect(r.result.current.data).toHaveLength(1));
     expect(h.log.some((e) => e.table === "client_ad_accounts")).toBe(false);
     expect(h.log.find((e) => e.table === "pipeline_tasks")!.ops.some((o) => o.startsWith("or ") || o.startsWith("eq "))).toBe(false);
+  });
+});
+
+describe("staff who picked a client (with or without an ad account)", () => {
+  it("builds a client_slug filter and refuses a slug that could add a filter", () => {
+    expect(staffClientFilter("autobrush")).toBe("client_slug.eq.autobrush");
+    expect(() => staffClientFilter("x),account_id.neq.y")).toThrow("Unknown client");
+    expect(() => staffClientFilter("")).toThrow("Unknown client");
+  });
+
+  it("the board and delivered list filter by client_slug and never read ad account links", async () => {
+    h.tables.pipeline_tasks = [{ id: "a", stage: "Editing", due_date: null }];
+    h.tables.pipeline_delivered = [{ id: "d" }];
+    const board = renderHook(() => usePipelineTasks(undefined, false, "autobrush"), { wrapper: wrapper() });
+    const done = renderHook(() => usePipelineDelivered(undefined, false, "autobrush"), { wrapper: wrapper() });
+    await waitFor(() => expect(board.result.current.data).toHaveLength(1));
+    await waitFor(() => expect(done.result.current.data).toHaveLength(1));
+    expect(h.log.find((e) => e.table === "pipeline_tasks")!.ops).toContain("or client_slug.eq.autobrush");
+    expect(h.log.find((e) => e.table === "pipeline_delivered")!.ops).toContain("or client_slug.eq.autobrush");
+    expect(h.log.some((e) => e.table === "client_ad_accounts")).toBe(false);
+  });
+
+  it("stays off with no client, no account and no client login", () => {
+    const board = renderHook(() => usePipelineTasks(undefined, false, undefined), { wrapper: wrapper() });
+    expect(board.result.current.fetchStatus).toBe("idle");
+    expect(h.log).toHaveLength(0);
   });
 });

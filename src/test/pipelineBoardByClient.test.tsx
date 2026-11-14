@@ -50,12 +50,20 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 import ContentPipelinePage from "@/pages/ContentPipelinePage";
+import { ClientSelectionContext, type ClientSelection } from "@/contexts/ClientSelectionContext";
 
-function renderPage() {
+function renderPage(selection?: Partial<ClientSelection>) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const page = <ContentPipelinePage />;
   return render(
     <QueryClientProvider client={qc}>
-      <ContentPipelinePage />
+      {selection ? (
+        <ClientSelectionContext.Provider value={{ clients: [], isLoading: false, loadError: null, selectedSlug: "", selectedClient: null, setSelectedSlug: () => {}, linkedAccounts: [], noAccount: false, ...selection }}>
+          {page}
+        </ClientSelectionContext.Provider>
+      ) : (
+        page
+      )}
     </QueryClientProvider>,
   );
 }
@@ -106,6 +114,15 @@ describe("Content Pipeline board by client", () => {
     // (a client with two ad accounts has cards with no account id; see pipelineMultiAccount.test.tsx).
     expect(eq).toHaveBeenCalledWith("account_id", "act_demo");
     expect(or).toHaveBeenCalledWith("account_id.eq.act_demo");
+  });
+
+  it("staff who picked a client with no ad account see that client's board by client_slug", async () => {
+    account.selectedAccountId = "all";
+    renderPage({ selectedSlug: "autobrush", noAccount: true });
+
+    expect(await screen.findByText("Slug-only card")).toBeInTheDocument();
+    expect(or).toHaveBeenCalledWith("client_slug.eq.autobrush");
+    expect(eq).not.toHaveBeenCalled();
   });
 
   it("staff with no account selected are asked to pick one and load nothing", async () => {

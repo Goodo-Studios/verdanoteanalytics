@@ -357,8 +357,9 @@ export async function handler(
         staleMappingFolders,
         failedFolders,
         // Clients whose rows carry no account_id (no linked ad account, or more
-        // than one). The current /pipeline page filters by ad account, so their
-        // board is stored but not shown there yet.
+        // than one). Information only, not an error: ClickUp holds more clients
+        // than there are ad accounts. Client logins, and staff who pick the client,
+        // read its board by client_slug, so it shows on /pipeline.
         clientsWithoutBoardAccount: [...clientsWithoutBoardAccount].sort(),
         seen,
         upserted,
