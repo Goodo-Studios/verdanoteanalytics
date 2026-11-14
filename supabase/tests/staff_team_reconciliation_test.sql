@@ -38,7 +38,7 @@ INSERT INTO auth.users (id, email) VALUES
   ('f5d00000-0000-4000-8000-000000000011', 'v3@srt.example.test'),
   ('f5d00000-0000-4000-8000-000000000012', 'v4@srt.example.test'),
   ('f5d00000-0000-4000-8000-000000000013', 'v5@srt.example.test');
--- Role mapping matches only confirmed emails (migration 20261208080002); these fixtures are confirmed logins.
+-- Role mapping matches only confirmed emails (migration 20261208100002); these fixtures are confirmed logins.
 UPDATE auth.users SET email_confirmed_at = now() WHERE id::text LIKE 'f5d00000-0000-4000-8000-%';
 INSERT INTO public.clients (slug, name, status) VALUES ('srt-alpha', 'SRT Alpha', 'active');
 INSERT INTO public.user_roles (user_id, role) VALUES

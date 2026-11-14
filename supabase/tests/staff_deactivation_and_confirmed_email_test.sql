@@ -1,5 +1,5 @@
 -- Deactivated staff lose access, and role mapping needs a confirmed email
--- (migrations 20261208080001 and 20261208080002).
+-- (migrations 20261208100001 and 20261208100002).
 --
 -- Run with the local stack (requires Docker):  supabase test db
 --

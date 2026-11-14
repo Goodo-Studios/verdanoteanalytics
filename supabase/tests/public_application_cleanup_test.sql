@@ -1,5 +1,5 @@
 -- Public application uploads: byte caps, the discard marker and the cleanup candidates
--- (migration 20261208080003). Run with the local stack:  supabase test db
+-- (migration 20261208100003). Run with the local stack:  supabase test db
 --
 -- Checks: a draft cannot reserve more than 1 GiB in total and one address not more than 3 GiB in
 -- 24 hours; a submit dropped as a repeat of a pending email marks the draft discarded; the cleanup

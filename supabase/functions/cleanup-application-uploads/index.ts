@@ -3,7 +3,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 
 // Deletes the uploaded files of public application drafts that will never become an application.
-// Service role only (the daily cron job in migration 20261208080004, or a person with the key).
+// Service role only (the daily cron job in migration 20261208100004, or a person with the key).
 //
 //   POST { dry_run?: boolean (default true), limit?: number (1 to 100, default 25) }
 //
