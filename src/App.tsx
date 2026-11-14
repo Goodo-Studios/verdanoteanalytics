@@ -1,6 +1,6 @@
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useParams, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
@@ -11,7 +11,7 @@ import { ClientPreviewBanner } from "@/components/ClientPreviewBanner";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { Loader2 } from "lucide-react";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppLayout } from "@/components/AppLayout";
 import { RequireOneAccount } from "@/components/RequireOneAccount";
@@ -79,6 +79,20 @@ const CaptureShareTarget = lazy(() => import("./pages/CaptureShareTarget"));
 const CaptureQuickAdd = lazy(() => import("./pages/CaptureQuickAdd"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
+// Cached data belongs to one login. Drop all of it when someone signs out or a different user
+// signs in, so the next person on this tab never sees the previous client's cards or decisions.
+export function ClearCacheOnUserChange() {
+  const client = useQueryClient();
+  const { user } = useAuth();
+  const previous = useRef<string | null>(null);
+  const id = user?.id ?? null;
+  useEffect(() => {
+    if (previous.current !== null && previous.current !== id) client.clear();
+    previous.current = id;
+  }, [id, client]);
+  return null;
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -89,6 +103,7 @@ const queryClient = new QueryClient({
     },
   },
 });
+
 
 function PageFallback() {
   return (
@@ -250,6 +265,7 @@ const App = () => {
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
+          <ClearCacheOnUserChange />
           <ClientPreviewContext.Provider value={clientPreview}>
             <TooltipProvider>
               <Sonner />
