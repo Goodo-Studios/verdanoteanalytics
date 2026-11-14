@@ -151,6 +151,7 @@ The Vault is a creative-inspiration library: paste a TikTok, Instagram, YouTube,
 | `integration-health` | Staff (Integration health page, `/integration-health`) | Builder or employee login only. Read-only status of the ClickUp, Fireflies, Slack and Verdanote data connectors, the `durable_jobs` queue and the latest owner alert jobs (port of the Goodo OS Integration health page). Says whether each secret is set, never its value. Calls no outside service. Rules in `_shared/integration-health.ts`. |
 | `spend-diagnostic` | Manual | Diagnoses discrepancies between Meta-reported spend and spend stored in `creative_daily_metrics`. |
 | `cleanup-stuck-syncs` | Cron | Clears sync locks that have been held for over 30 minutes (stuck syncs). |
+| `cleanup-application-uploads` | pg_cron daily (production), service role only | Deletes files left by public application drafts that were never submitted, or whose submit was dropped as a repeat. Dry run by default. A real run needs the `outbound_switches` row `application_upload_cleanup` to be on (no row is created, so it is off until a builder adds it). |
 | `cleanup-stuck-media` | Manual (repair only) | Clears orphaned/stuck media jobs. No longer on a cron — the `drain-media-queue` worker owns the media pipeline; this is kept for manual repair/force use only. |
 | `clear-media-cache` | Manual | Clears the media URL cache for an account, forcing re-fetch on next load. |
 

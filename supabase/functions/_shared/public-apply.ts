@@ -61,6 +61,7 @@ export async function uploadUrl(db: Db, kind: ApplyKind, ip: string, body: Recor
     case "expired": case "used": return jsonResponse({ error: "expired" }, 410);
     case "too_many": return jsonResponse({ error: "too_many_files" }, 400);
     case "too_large": return jsonResponse({ error: "too_large" }, 413);
+    case "quota": return tooMany(3600);
     default: return jsonResponse({ error: "bad_type" }, 400);
   }
   const path = `applications/${draftId}/${fileKind}/${randomName()}.${EXT[mime]}`;

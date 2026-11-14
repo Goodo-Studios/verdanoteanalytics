@@ -28,6 +28,8 @@ INSERT INTO auth.users (id, email) VALUES
   ('c0000000-0000-4000-8000-000000000006', 'os-owner@example.test'),
   ('c0000000-0000-4000-8000-000000000007', 'os-staff@example.test'),
   ('c0000000-0000-4000-8000-000000000008', 'os-newclient@example.test');
+-- Role mapping matches only confirmed emails (migration 20261208100002); these fixtures are confirmed logins.
+UPDATE auth.users SET email_confirmed_at = now() WHERE id::text LIKE 'c0000000-0000-4000-8000-%';
 INSERT INTO public.user_roles (user_id, role) VALUES
   ('c0000000-0000-4000-8000-000000000001', 'builder'),
   ('c0000000-0000-4000-8000-000000000002', 'employee'),
