@@ -60,6 +60,7 @@ FUNCTIONS=(
   portfolio
   public-link
   public-apply
+  cleanup-application-uploads
   quick-save
   refresh-thumbnails
   reports

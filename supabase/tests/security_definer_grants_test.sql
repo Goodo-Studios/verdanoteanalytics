@@ -110,6 +110,9 @@ INSERT INTO allow
     -- OS-012: the timer and the weekly log. Each refuses anyone who is not builder or employee
     -- and acts only on the caller's own time_people row.
     'time_my_person', 'time_start_timer', 'time_stop_timer',
+    -- Data audit: a client's month total over everyone's time, and the database clock for the timer
+    -- pill. Both refuse anyone who is not builder or employee.
+    'time_client_month_seconds', 'time_server_now',
     -- OS-013: a client's monthly scope hours. Refuses anyone who is not a builder.
     'set_client_scope_hours',
     -- OS-016: suggested fixes to Brain pages. Both refuse anyone who is not builder or employee;

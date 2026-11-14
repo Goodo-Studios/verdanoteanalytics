@@ -4,9 +4,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import {
-  DASHBOARD_REF, PRODUCTION_REF, TABLES, parseArgs, runMode, assertWriteAllowed, seedFilter, checksumSql, clearSql, renderPlan,
+  DASHBOARD_REF, PRODUCTION_REF, STAGING_REF, TABLES, parseArgs, runMode, assertWriteAllowed, seedFilter, checksumSql, clearSql, renderPlan,
+  buildReceipt, assertReceipt, tableFingerprint, RECEIPT_MAX_AGE_MINUTES, targetRefFor,
 } from './dashboard-copy-lib.mjs';
 import { SEED_MARKERS } from './seed-staging-dashboard-lib.mjs';
 
@@ -38,7 +41,8 @@ test('--write needs the source confirmation and the owner approval flag', () => 
 });
 
 test('unknown options, stray values, --replace without --write and project refs in paths are refused', () => {
-  assert.throws(() => parseArgs(['--target', PRODUCTION_REF]), /unknown option/);
+  assert.throws(() => parseArgs(['--target', PRODUCTION_REF]), /a name, not a project ref/);
+  assert.throws(() => parseArgs(['--target', 'dashboard']), /staging or production/);
   assert.throws(() => parseArgs(['--counts-only']), /unknown option/);
   assert.throws(() => parseArgs([PRODUCTION_REF]), /unexpected argument/);
   assert.throws(() => parseArgs(['--replace']), /only makes sense with --write/);
@@ -82,4 +86,82 @@ test('the plan names the owner decision and the refused production project', () 
   assert.match(p, /decision 10/);
   assert.ok(p.includes(PRODUCTION_REF));
   assert.match(p, /clients \(key slug\).*never emptied by --replace/);
+});
+
+// ---------------------------------------------------------------- production target
+
+const prodWrite = ['--target', 'production', '--confirm-source', DASHBOARD_REF, '--write', '--real-client-data-approved'];
+
+test('staging stays the default target and stays refused for a production confirmation', () => {
+  assert.equal(parseArgs([]).target, 'staging');
+  assert.equal(targetRefFor('staging'), STAGING_REF);
+  assert.equal(targetRefFor('production'), PRODUCTION_REF);
+  const r = run(['--confirm-source', DASHBOARD_REF, '--confirm-production', PRODUCTION_REF]);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /only goes with --target production/);
+});
+
+test('--write on production is refused without every confirmation, before any network call', () => {
+  const refused = (extra, pattern) => {
+    assert.throws(() => assertWriteAllowed(parseArgs(extra)), pattern, extra.join(' '));
+  };
+  refused(['--target', 'production', '--write'], /confirm-source/);
+  refused(['--target', 'production', '--confirm-source', DASHBOARD_REF, '--write', '--real-client-data-approved'], /--confirm-production/);
+  refused(['--target', 'production', '--confirm-source', DASHBOARD_REF, '--confirm-production', 'wrong', '--write', '--real-client-data-approved'], /--confirm-production/);
+  refused(['--target', 'production', '--confirm-source', DASHBOARD_REF, '--confirm-production', STAGING_REF, '--write', '--real-client-data-approved'], /--confirm-production/);
+  refused(['--target', 'production', '--confirm-source', DASHBOARD_REF, '--confirm-production', PRODUCTION_REF, '--write'], /Decision 10/);
+  assert.doesNotThrow(() => assertWriteAllowed(parseArgs([...prodWrite, '--confirm-production', PRODUCTION_REF])));
+  const r = run(prodWrite);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, new RegExp(`--confirm-production ${PRODUCTION_REF}`));
+});
+
+test('--replace is refused on production', () => {
+  assert.throws(() => parseArgs([...prodWrite, '--confirm-production', PRODUCTION_REF, '--replace']), /never allowed on production/);
+});
+
+test('a production write with every flag still stops without a dry-run receipt', () => {
+  const missing = path.join(os.tmpdir(), `no-such-receipt-${process.pid}.json`);
+  const r = run([...prodWrite, '--confirm-production', PRODUCTION_REF, '--receipt', missing]);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /no dry-run receipt found/);
+  assert.ok(!r.stderr.includes('Source (read only)'), 'the network section was not reached');
+});
+
+test('a stale, mismatched or foreign receipt is refused and a fresh one passes', () => {
+  const now = new Date('2026-11-15T12:00:00Z');
+  const base = { sourceRef: DASHBOARD_REF, targetRef: PRODUCTION_REF };
+  const fresh = buildReceipt({ ...base, now: new Date('2026-11-15T11:30:00Z'), rows: [{ target: 'actors', sourceCount: 3, targetCount: 0 }] });
+  assert.doesNotThrow(() => assertReceipt(fresh, { ...base, now }));
+  const old = buildReceipt({ ...base, now: new Date(now.getTime() - (RECEIPT_MAX_AGE_MINUTES + 1) * 60000), rows: [] });
+  assert.throws(() => assertReceipt(old, { ...base, now }), /older than 120 minutes/);
+  assert.throws(() => assertReceipt(fresh, { ...base, targetRef: STAGING_REF, now }), /different source or target/);
+  assert.throws(() => assertReceipt(fresh, { sourceRef: PRODUCTION_REF, targetRef: PRODUCTION_REF, now }), /different source or target/);
+  assert.throws(() => assertReceipt({ ...fresh, tables: 'changed' }, { ...base, now }), /table list changed/);
+  assert.throws(() => assertReceipt({ ...fresh, createdAt: '2027-01-01T00:00:00Z' }, { ...base, now }), /invalid time/);
+  assert.throws(() => assertReceipt({ ...fresh, createdAt: 'nope' }, { ...base, now }), /invalid time/);
+  assert.throws(() => assertReceipt(null, { ...base, now }), /no dry-run receipt/);
+  assert.throws(() => assertReceipt({ kind: 'something-else' }, { ...base, now }), /no dry-run receipt/);
+  assert.equal(fresh.tables, tableFingerprint());
+  assert.deepEqual(fresh.counts, [{ table: 'actors', source: 3, target: 0 }]);
+});
+
+test('the script itself refuses a stale receipt file', () => {
+  const file = path.join(os.tmpdir(), `stale-receipt-${process.pid}.json`);
+  const stale = buildReceipt({ sourceRef: DASHBOARD_REF, targetRef: PRODUCTION_REF, now: new Date('2020-01-01T00:00:00Z'), rows: [] });
+  fs.writeFileSync(file, JSON.stringify(stale));
+  try {
+    const r = run([...prodWrite, '--confirm-production', PRODUCTION_REF, '--receipt', file]);
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /older than 120 minutes/);
+  } finally { fs.unlinkSync(file); }
+});
+
+test('production has no seed filter and the plan names the production rules', () => {
+  assert.equal(seedFilter('clients', 'production'), null);
+  assert.equal(seedFilter('actors', 'production'), null);
+  assert.equal(typeof seedFilter('clients', 'staging'), 'string');
+  const p = renderPlan();
+  assert.match(p, /--target production --confirm-production/);
+  assert.match(p, /receipt/);
 });

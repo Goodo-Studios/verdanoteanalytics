@@ -429,6 +429,12 @@ verify_jwt = false
 [functions.public-apply]
 verify_jwt = false
 
+# Daily cleanup of files left by public application drafts that were never submitted. Service role
+# only (handler checks the key); pg_cron calls it with the key from the vault. Deletes nothing unless
+# the outbound_switches row application_upload_cleanup is on.
+[functions.cleanup-application-uploads]
+verify_jwt = false
+
 # Functions that had no block (so they ran on the platform default, verify_jwt = true). Each is
 # now explicit. The three staff functions are called with a signed-in login token, which the
 # gateway can verify; the handler still checks the role through resolveCaller.

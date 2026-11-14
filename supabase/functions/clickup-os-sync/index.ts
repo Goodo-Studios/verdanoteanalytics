@@ -9,6 +9,7 @@ import {
   clickupReader,
   type CommentRow,
   type CuListStatus,
+  closeStaleRuns,
   ensureStatuses,
   type FetchLike,
   fetchComments,
@@ -42,7 +43,15 @@ import {
 //     last good run. full: comments for every asset task. Both capped (MAX_COMMENT_TASKS).
 //   * App rows whose ClickUp task is gone are deleted only after a clean walk: every space and
 //     list read, every write chunk saved, at least one task seen. Same rule as the board sync.
-//   * Every run is recorded in os_sync_runs.
+//   * Every run is recorded in os_sync_runs, and always finished: an error, an unexpected exit or a
+//     time budget all write an ending. A run the edge runtime stopped before it could write one is
+//     closed as failed by the next run (closeStaleRuns).
+//   * Every ClickUp read is retried with a growing wait on 429 (rate limited).
+//   * Time budget: the walk stops starting new lists after WALK_SHARE of the budget, and comments
+//     stop at the budget. The run is then recorded as partial (ok false, counts.partial true, with
+//     counts.nextListId), the rows already read are written, and nothing is deleted. The next run
+//     resumes after nextListId (or the body's startAfterListId), so a big workspace is covered over
+//     several runs. Only a run that walked every list from the start may delete.
 
 const MAX_PAGES_PER_LIST = 100; // 100 tasks per page
 export const MAX_COMMENT_TASKS = 400;
@@ -58,6 +67,13 @@ interface CuFolder {
   name: string;
   lists?: CuList[];
 }
+
+/** Time budget for one run, in ms. The edge runtime stops a function at its wall limit (150 s on the free plan). */
+export const DEFAULT_BUDGET_MS = 110_000;
+/** The walk stops starting new lists after this share of the budget; the rest is for writes and comments. */
+export const WALK_SHARE = 0.6;
+/** A run with no ending that started this long ago was stopped by the runtime. */
+export const STALE_RUN_MS = 30 * 60_000;
 
 async function fetchListTasks(reader: ClickUpReader, listId: string): Promise<CuTask[]> {
   const tasks: CuTask[] = [];
@@ -76,7 +92,7 @@ const RATE_LIMIT_RETRIES = 3;
 export const rateLimitWait = { ms: 2000 };
 
 /** reader.get, retried with a growing wait when ClickUp answers 429 (rate limited). */
-async function getRateLimited(reader: ClickUpReader, path: string): Promise<Record<string, unknown>> {
+export async function getRateLimited(reader: ClickUpReader, path: string): Promise<Record<string, unknown>> {
   for (let attempt = 0; ; attempt++) {
     try {
       return await reader.get(path);
@@ -94,7 +110,7 @@ async function getRateLimited(reader: ClickUpReader, path: string): Promise<Reco
 async function withStatuses(reader: ClickUpReader, list: CuList): Promise<CuList> {
   if (Array.isArray(list.statuses) && list.statuses.length > 0) return list;
   try {
-    const full = await getRateLimited(reader, `/list/${list.id}`);
+    const full = await reader.get(`/list/${list.id}`);
     const statuses = full.statuses as CuListStatus[] | undefined;
     return Array.isArray(statuses) && statuses.length > 0 ? { ...list, statuses } : list;
   } catch (err) {
@@ -114,6 +130,10 @@ export interface Deps {
   supabase?: SupabaseLike;
   fetch?: FetchLike;
   now?: () => number;
+  /** A clock for the time budget only (default Date.now). */
+  clock?: () => number;
+  /** Time budget for the run in ms (default CLICKUP_OS_SYNC_BUDGET_MS or DEFAULT_BUDGET_MS). */
+  budgetMs?: number;
 }
 
 export async function handler(req: Request, deps: Deps = {}): Promise<Response> {
@@ -127,10 +147,12 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
 
   let mode: "full" | "nightly" = "nightly";
+  let startAfterListId: string | null = null;
   try {
     const body = await req.json();
     if (body?.mode === "full" || body?.mode === "nightly") mode = body.mode;
     else if (body?.mode !== undefined) return json({ success: false, error: "mode must be full or nightly" }, 400);
+    if (typeof body?.startAfterListId === "string" && body.startAfterListId) startAfterListId = body.startAfterListId;
   } catch {
     // empty body: nightly
   }
@@ -143,18 +165,52 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
 
   const db: SupabaseLike = deps.supabase ??
     (createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!) as unknown as SupabaseLike);
-  const reader = clickupReader(token, deps.fetch ?? fetch);
+  const rawReader = clickupReader(token, deps.fetch ?? fetch);
+  // Every ClickUp read goes through the 429 retry.
+  const reader: ClickUpReader = { get: (path) => getRateLimited(rawReader, path) };
   const nowMs = (deps.now ?? Date.now)();
   const nowIso = new Date(nowMs).toISOString();
+  const clock = deps.clock ?? Date.now;
+  const budgetMs = deps.budgetMs ?? (Number(Deno.env.get("CLICKUP_OS_SYNC_BUDGET_MS")) || DEFAULT_BUDGET_MS);
+  const startedClock = clock();
+  const elapsed = () => clock() - startedClock;
+
+  // Runs the runtime stopped before they could write an ending are closed first.
+  const closedStale = await closeStaleRuns(db, new Date(nowMs - STALE_RUN_MS).toISOString(), nowIso);
 
   const runId = await startRun(db, mode, nowIso);
   const counts: Record<string, unknown> = { mode };
+  if (closedStale > 0) counts.closedStaleRuns = closedStale;
+  let recorded = false;
+  const record = async (result: Parameters<typeof finishRun>[2]) => {
+    recorded = true;
+    try {
+      await finishRun(db, runId, result);
+    } catch (err) {
+      console.error("os_sync_runs could not be finished:", err);
+    }
+  };
   try {
     // When the last good walk started: tasks ClickUp updated after it get their comments read.
     const lastRuns = await db.from("os_sync_runs").select("started_at").in("kind", ["full", "nightly"]).eq("ok", true)
       .order("started_at", { ascending: false }).limit(1);
     if (lastRuns.error) throw new Error(`os_sync_runs read failed: ${lastRuns.error.message}`);
     const lastOkMs = lastRuns.data?.[0]?.started_at ? Date.parse(String(lastRuns.data[0].started_at)) : 0;
+
+    // Resume after the last list a time-limited run reached, unless the caller named a list.
+    let resumeAfter = startAfterListId;
+    if (!resumeAfter) {
+      // This run's own row is already there (startRun), so look at the two latest and skip it.
+      const prev = await db.from("os_sync_runs").select("id, counts").in("kind", ["full", "nightly"]).order("started_at", { ascending: false }).limit(2);
+      const prevRow = (prev.data ?? []).find((r) => String(r.id) !== runId);
+      const prevCounts = prevRow?.counts as Record<string, unknown> | null | undefined;
+      if (prevCounts?.partial === true && typeof prevCounts.nextListId === "string" && prevCounts.nextListId) resumeAfter = prevCounts.nextListId;
+    }
+    const resumed = resumeAfter !== null;
+    let skippingToResume = resumed;
+    let partialWalk = false;
+    let nextListId: string | null = null;
+    let lastWalkedListId: string | null = null;
 
     const ctx = await loadClientContext(db);
     const existing = await loadExistingTasks(db);
@@ -168,7 +224,7 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
     const walkedLists: CuList[] = [];
     let lists = 0;
 
-    for (const spaceId of OS_SPACE_IDS) {
+    walk: for (const spaceId of OS_SPACE_IDS) {
       let folders: CuFolder[];
       let loose: CuList[];
       try {
@@ -191,9 +247,20 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
           continue;
         }
         for (const groupList of group.lists) {
+          if (skippingToResume) {
+            if (String(groupList.id) === resumeAfter) skippingToResume = false;
+            continue;
+          }
+          // At least one list per run, so a run always moves the resume point forward.
+          if (lastWalkedListId !== null && elapsed() > budgetMs * WALK_SHARE) {
+            partialWalk = true;
+            nextListId = lastWalkedListId ?? resumeAfter;
+            break walk;
+          }
           const list = await withStatuses(reader, groupList);
           lists++;
           walkedLists.push(list);
+          lastWalkedListId = String(list.id);
           let listTasks: CuTask[];
           try {
             listTasks = await fetchListTasks(reader, list.id);
@@ -221,6 +288,11 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
         }
       }
     }
+
+    // A resume point that no longer exists (the list was deleted or moved): nothing was walked, so
+    // the next run starts from the beginning.
+    const resumeLost = skippingToResume;
+    if (resumeLost) partialWalk = true;
 
     // Nightly: what the app holds that ClickUp does not, recorded before it is overwritten.
     const discrepancies: Discrepancy[] = [];
@@ -278,7 +350,14 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
     const capped = Math.max(0, commentTargets.length - MAX_COMMENT_TASKS);
     const commentRows: CommentRow[] = [];
     let commentReadFailures = 0;
-    for (const { task } of commentTargets.slice(0, MAX_COMMENT_TASKS)) {
+    let commentsDeferred = 0;
+    const commentWork = commentTargets.slice(0, MAX_COMMENT_TASKS);
+    for (let i = 0; i < commentWork.length; i++) {
+      if (elapsed() > budgetMs) {
+        commentsDeferred = commentWork.length - i;
+        break;
+      }
+      const { task } = commentWork[i];
       const appId = written.ids.get(String(task.id));
       if (!appId) continue;
       try {
@@ -291,7 +370,11 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
     const comments = await upsertComments(db, commentRows);
 
     // Authoritative delete, only after a clean walk.
-    const clean = failedSpaces.length === 0 && failedLists.length === 0 && !written.failed && tasks.size > 0;
+    // Never after a partial run: a walk that stopped early, resumed from a list, or left comments
+    // unread has not seen every task.
+    const partial = partialWalk || commentsDeferred > 0;
+    const clean = failedSpaces.length === 0 && failedLists.length === 0 && !written.failed && tasks.size > 0 &&
+      !partial && !resumed;
     let deleted = 0;
     if (clean) {
       let del = db.from("os_tasks").delete({ count: "exact" })
@@ -322,6 +405,9 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
       commentTasks: Math.min(commentTargets.length, MAX_COMMENT_TASKS),
       commentsCapped: capped,
       commentReadFailures,
+      partial,
+      ...(partial ? { partialReason: "time budget", nextListId, commentsDeferred, resumeLost } : {}),
+      resumedAfterListId: resumeAfter,
       comments: comments.written,
       deleted,
       deleteSkipped: !clean,
@@ -329,14 +415,18 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
       readOnly: [...tasks.values()].filter((t) => t.mapped.row.read_only).length,
       noClient: [...tasks.values()].filter((t) => t.mapped.row.client_slug === null).length,
     });
-    const ok = failedSpaces.length === 0 && failedLists.length === 0 && !written.failed && !comments.failed && !listStatusesFailed;
-    await finishRun(db, runId, { ok, counts, discrepancyCount: discrepancies.length });
+    const ok = failedSpaces.length === 0 && failedLists.length === 0 && !written.failed && !comments.failed && !listStatusesFailed &&
+      !partial;
+    await record({ ok, counts, discrepancyCount: discrepancies.length });
     return json({ success: ok, runId, discrepancies: discrepancies.length, ...counts });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     console.error("clickup-os-sync error:", msg);
-    await finishRun(db, runId, { ok: false, counts, error: msg });
+    await record({ ok: false, counts, error: msg });
     return json({ success: false, runId, error: msg }, 500);
+  } finally {
+    // Whatever happened above, the run row gets an ending.
+    if (!recorded) await record({ ok: false, counts, error: "The run ended before it recorded a result." });
   }
 }
 

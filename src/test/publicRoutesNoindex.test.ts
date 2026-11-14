@@ -58,7 +58,10 @@ describe("public token routes are not indexed", () => {
     const csp = rule.headers.find((h) => h.key === "Content-Security-Policy")!.value;
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("font-src 'self' data:");
-    expect(csp).toContain("connect-src 'self' https://*.supabase.co wss://*.supabase.co");
+    // connect-src names the two exact project hosts, not a wildcard (see cspConnectSrc.test.ts).
+    expect(csp).toContain(
+      "connect-src 'self' https://gwyxaqoaldnaavkjqquv.supabase.co wss://gwyxaqoaldnaavkjqquv.supabase.co https://mnvcksbhbvypuiwozvct.supabase.co wss://mnvcksbhbvypuiwozvct.supabase.co",
+    );
     // The new rules are separate entries; they do not add a header to the catch-all rule.
     expect(rule.headers.some((h) => h.key === "X-Robots-Tag")).toBe(false);
   });

@@ -53,6 +53,10 @@
     "cache-creative-image": {
       "class": "account-scoped"
     },
+    "cleanup-application-uploads": {
+      "class": "service",
+      "note": "Deletes files left by public application drafts that were never submitted or whose submit was dropped as a repeat. Service role key only. Dry run by default; a real run needs the outbound_switches row application_upload_cleanup to be on. Never touches files an application points at."
+    },
     "cleanup-stuck-media": {
       "class": "service"
     },

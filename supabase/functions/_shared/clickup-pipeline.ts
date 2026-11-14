@@ -22,6 +22,7 @@
 // The "Client Operations/Views" space. One folder per client, each holding a
 // "{Client} Project View" list with one task per asset.
 import { parseAssetLink } from "./air-link.ts";
+import { clickupMsToDate } from "./clickup-dates.ts";
 
 export const CLICKUP_CLIENT_SPACE_ID = "90146671303";
 
@@ -161,12 +162,9 @@ export function cleanTaskName(name: string | null | undefined): string | null {
   return cleaned || null;
 }
 
-/** ClickUp sends dates as millisecond epoch strings. Returns YYYY-MM-DD or null. */
+/** ClickUp sends dates as millisecond epoch strings. Returns YYYY-MM-DD in the studio zone, or null. */
 export function toIsoDate(ms: string | number | null | undefined): string | null {
-  if (ms === null || ms === undefined || ms === "") return null;
-  const n = Number(ms);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return new Date(n).toISOString().slice(0, 10);
+  return clickupMsToDate(ms);
 }
 
 export interface ClickUpCustomField {

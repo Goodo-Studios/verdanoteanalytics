@@ -98,20 +98,54 @@ function errorText(e: unknown): string {
   return String(e);
 }
 
-type Rows = { state: unknown; plan: unknown };
+// Each row is saved whole, so two tabs (or two builders) would overwrite each other. Every save
+// therefore says which version of the row it was based on: the row's updated_at as it was read. The
+// write goes through only if the stored version is still that one; otherwise nothing is written and
+// the person is told to reload. A row that did not exist when it was read is inserted, and an
+// insert that finds the row already there is a conflict too.
+type Versions = { state: string | null; plan: string | null };
+type Rows = { state: unknown; plan: unknown; versions: Versions };
 
-async function loadRows(): Promise<Rows> {
-  const { data, error } = await supabase.from(GROWTH_TABLE).select("key, data");
-  if (error) throw error;
-  const byKey = new Map((data ?? []).map((r) => [r.key, r.data]));
-  return { state: byKey.get("state") ?? null, plan: byKey.get("plan") ?? null };
+export const CONFLICT_MESSAGE =
+  "The numbers were changed in another tab or by another builder since you opened this page. Nothing was overwritten. Reload to see the latest, then make your change again.";
+
+class SaveConflict extends Error {
+  constructor() {
+    super(CONFLICT_MESSAGE);
+  }
 }
 
-async function saveRow(key: "state" | "plan", payload: GrowthState | GrowthPlan): Promise<void> {
-  const { error } = await supabase
-    .from(GROWTH_TABLE)
-    .upsert({ key, data: payload as unknown as Json }, { onConflict: "key" });
+async function loadRows(): Promise<Rows> {
+  const { data, error } = await supabase.from(GROWTH_TABLE).select("key, data, updated_at");
   if (error) throw error;
+  const byKey = new Map((data ?? []).map((r) => [r.key, r]));
+  return {
+    state: byKey.get("state")?.data ?? null,
+    plan: byKey.get("plan")?.data ?? null,
+    versions: { state: byKey.get("state")?.updated_at ?? null, plan: byKey.get("plan")?.updated_at ?? null },
+  };
+}
+
+/** Writes a row only if it is still at version `expected` (null: it was not there). Returns the new version. */
+async function writeRow(key: "state" | "plan", payload: GrowthState | GrowthPlan, expected: string | null): Promise<string | null> {
+  const data = payload as unknown as Json;
+  if (expected === null) {
+    const { data: rows, error } = await supabase.from(GROWTH_TABLE).insert({ key, data }).select("updated_at");
+    if (error) {
+      if (error.code === "23505") throw new SaveConflict();
+      throw error;
+    }
+    return rows?.[0]?.updated_at ?? null;
+  }
+  const { data: rows, error } = await supabase
+    .from(GROWTH_TABLE)
+    .update({ data })
+    .eq("key", key)
+    .eq("updated_at", expected)
+    .select("updated_at");
+  if (error) throw error;
+  if (!rows || rows.length === 0) throw new SaveConflict();
+  return rows[0].updated_at;
 }
 
 // ---------------------------------------------------------------- small pieces
@@ -886,7 +920,11 @@ function ImportTab({ hasData, onImport }: { hasData: boolean; onImport: (s: Grow
 
 // ---------------------------------------------------------------- page
 
-type SaveStatus = { kind: "idle" } | { kind: "saving" } | { kind: "saved"; at: Date } | { kind: "error"; message: string };
+type SaveStatus =
+  | { kind: "idle" }
+  | { kind: "saving" }
+  | { kind: "saved"; at: Date }
+  | { kind: "error"; message: string; conflict?: boolean };
 
 function hasNumbers(s: GrowthState): boolean {
   return Object.keys(s.rev).length + Object.keys(s.calls).length + s.deals.length + Object.keys(s.weeks).length > 0;
@@ -908,10 +946,22 @@ export default function GrowthDashboardPage({ now: nowProp }: { now?: Date } = {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialised = useRef(false);
   const pending = useRef<GrowthState | null>(null);
+  // The version of each row this page last read or wrote, and a queue so two saves never overlap.
+  const versions = useRef<Versions>({ state: null, plan: null });
+  const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
+
+  const saveRow = useCallback((key: "state" | "plan", payload: GrowthState | GrowthPlan): Promise<void> => {
+    const run = saveQueue.current.then(async () => {
+      versions.current[key] = await writeRow(key, payload, versions.current[key]);
+    });
+    saveQueue.current = run.catch(() => undefined);
+    return run;
+  }, []);
 
   useEffect(() => {
     if (!query.data || initialised.current) return;
     initialised.current = true;
+    versions.current = { ...query.data.versions };
     const s = stateFromRow(query.data.state);
     if (s.error) setLoadError(s.error);
     stateRef.current = s.state;
@@ -926,9 +976,9 @@ export default function GrowthDashboardPage({ now: nowProp }: { now?: Date } = {
       await saveRow("state", next);
       setSaveStatus({ kind: "saved", at: new Date() });
     } catch (e) {
-      setSaveStatus({ kind: "error", message: errorText(e) });
+      setSaveStatus({ kind: "error", message: errorText(e), conflict: e instanceof SaveConflict });
     }
-  }, []);
+  }, [saveRow]);
 
   // Leaving the page inside the save delay must not drop the last edit: save it now.
   useEffect(
@@ -936,7 +986,7 @@ export default function GrowthDashboardPage({ now: nowProp }: { now?: Date } = {
       if (timer.current) clearTimeout(timer.current);
       if (pending.current) void saveRow("state", pending.current).catch(() => undefined);
     },
-    [],
+    [saveRow],
   );
 
   const update = useCallback(
@@ -959,7 +1009,7 @@ export default function GrowthDashboardPage({ now: nowProp }: { now?: Date } = {
       setPlan(p);
       void queryClient.invalidateQueries({ queryKey: GROWTH_QUERY_KEY });
     },
-    [queryClient],
+    [queryClient, saveRow],
   );
 
   const importState = useCallback(
@@ -973,7 +1023,7 @@ export default function GrowthDashboardPage({ now: nowProp }: { now?: Date } = {
       setSaveStatus({ kind: "saved", at: new Date() });
       void queryClient.invalidateQueries({ queryKey: GROWTH_QUERY_KEY });
     },
-    [queryClient],
+    [queryClient, saveRow],
   );
 
   const header = (
@@ -1052,7 +1102,16 @@ export default function GrowthDashboardPage({ now: nowProp }: { now?: Date } = {
         {saveStatus.kind === "saving" && "Saving..."}
         {saveStatus.kind === "saved" &&
           `Saved ${saveStatus.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`}
-        {saveStatus.kind === "error" && <span className="text-destructive">Not saved: {saveStatus.message}</span>}
+        {saveStatus.kind === "error" && (
+          <span className="text-destructive" role="alert">
+            Not saved: {saveStatus.message}
+            {saveStatus.conflict && (
+              <button type="button" className="ml-2 underline" onClick={() => window.location.reload()}>
+                Reload
+              </button>
+            )}
+          </span>
+        )}
       </div>
     </PageShell>
   );

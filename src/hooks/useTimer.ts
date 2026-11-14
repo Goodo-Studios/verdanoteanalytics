@@ -6,7 +6,7 @@ import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { friendlyTimeError, type TimeEntryRow } from "@/lib/timeLog";
+import { clockOffsetMs, friendlyTimeError, type TimeEntryRow } from "@/lib/timeLog";
 
 type Result = PromiseLike<{ data: unknown; error: { message: string } | null }>;
 interface Query extends Result {
@@ -53,6 +53,30 @@ export function useRunningTimer(userId: string | undefined, enabled = true) {
         .maybeSingle();
       if (error) throw new Error(error.message);
       return (data ?? null) as TimeEntryRow | null;
+    },
+  });
+}
+
+export const CLOCK_KEY = "timer-clock-offset";
+
+/**
+ * How far the database clock is ahead of this browser's (ms). A running entry's start_at is set by
+ * the database, so elapsed time is measured against the database clock: a browser clock that is a
+ * minute off no longer shows a timer a minute off. Falls back to 0 (the browser clock) if the
+ * call fails. Asked again when the window regains focus.
+ */
+export function useServerClockOffset(enabled = true) {
+  return useQuery<number>({
+    queryKey: [CLOCK_KEY],
+    enabled,
+    refetchOnWindowFocus: true,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const sent = Date.now();
+      const { data, error } = await db().rpc("time_server_now", {});
+      const received = Date.now();
+      if (error || typeof data !== "string") return 0;
+      return clockOffsetMs(data, sent, received);
     },
   });
 }
