@@ -10,6 +10,7 @@ import { ClientPreviewContext, useClientPreviewMode } from "@/hooks/useClientPre
 import { ClientPreviewBanner } from "@/components/ClientPreviewBanner";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { Loader2 } from "lucide-react";
+import { NoAccessScreen } from "@/components/NoAccessScreen";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -146,7 +147,7 @@ export function RoleGuardedRoutes() {
   const { role: urlRole } = useParams<{ role: string }>();
   const prefix = useRolePrefix();
   const location = useLocation();
-  const { user, isLoading, isClient, isBuilder, isEmployee } = useAuth();
+  const { user, role, isLoading, isClient, isBuilder, isEmployee, retryRole, signOut } = useAuth();
   const { isClientPreview, isEmployeePreview } = useClientPreview();
   const effectiveClient = isClient || isClientPreview;
   // Employee feature parity (owner decision 2026-07-21): employees get every
@@ -171,6 +172,10 @@ export function RoleGuardedRoutes() {
   }
 
   if (!user) return <Navigate to="/login" replace />;
+
+  // A signed-in user whose role did not resolve has no access. useRolePrefix() would fall through to
+  // /builder for them and render pages meant for another role, so stop here with a retry.
+  if (role === null) return <NoAccessScreen onRetry={retryRole} onSignOut={() => void signOut()} />;
 
   // Validate URL role matches user role — redirect if mismatch
   if (`/${urlRole}` !== prefix) {
