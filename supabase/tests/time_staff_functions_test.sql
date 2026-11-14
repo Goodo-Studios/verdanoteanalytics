@@ -31,14 +31,14 @@ INSERT INTO public.time_people (id, email, name, user_id, source_role) VALUES
   ('ea200000-0000-4000-8000-000000000002', 'cm-bob@example.test', 'Bob', 'ea100000-0000-4000-8000-000000000003', 'member');
 
 -- Alice: 1 h in the period. Bob: 2 h 30 min 59 s in the period, 1 h just before it, 1 h starting
--- exactly at its end, a running timer, and 1 h on another client.
+-- exactly at its end, a running timer (started last: an open-ended entry may not overlap later ones), and 1 h on another client.
 INSERT INTO public.time_entries (client_slug, category, person_id, description, start_at, end_at) VALUES
   ('cm-alpha', 'Editing', 'ea200000-0000-4000-8000-000000000001', 'Alice cut',   '2026-11-05 14:00Z', '2026-11-05 15:00Z'),
   ('cm-alpha', 'Editing', 'ea200000-0000-4000-8000-000000000002', 'Bob cut',     '2026-11-06 14:00Z', '2026-11-06 16:30:59Z'),
   ('cm-alpha', 'Editing', 'ea200000-0000-4000-8000-000000000002', 'Bob before',  '2026-10-31 20:00Z', '2026-10-31 21:00Z'),
   ('cm-alpha', 'Editing', 'ea200000-0000-4000-8000-000000000002', 'Bob at end',  '2026-12-01 05:00Z', '2026-12-01 06:00Z'),
   ('cm-beta',  'Editing', 'ea200000-0000-4000-8000-000000000002', 'Bob beta',    '2026-11-07 14:00Z', '2026-11-07 15:00Z'),
-  ('cm-alpha', 'Editing', 'ea200000-0000-4000-8000-000000000002', 'Bob running', '2026-11-20 14:00Z', NULL);
+  ('cm-alpha', 'Editing', 'ea200000-0000-4000-8000-000000000002', 'Bob running', '2026-12-02 14:00Z', NULL);
 
 SELECT ok(NOT has_function_privilege('anon', 'public.time_client_month_seconds(text, timestamptz, timestamptz)', 'EXECUTE'),
   'anon may not call time_client_month_seconds');
