@@ -4,10 +4,14 @@
 // them under Admin > Early pages, so nothing is lost.
 //
 // To show a page again, remove its key from HIDDEN_PAGES (one line). Showing all of them again
-// is an empty list.
+// is an empty list. To hide a page, add its key and a note in EARLY_PAGE_NOTES.
+//
+// Agent evaluations, Learning, Recommendations and Strategy were hidden here until they had data.
+// They are now shown in the menu, so the list is empty. Their notes stay so they can be hidden
+// again with one line.
 import type { PageKey } from "@/lib/sections";
 
-export const HIDDEN_PAGES: readonly PageKey[] = ["agentEvaluations", "learning", "recommendations", "strategy"];
+export const HIDDEN_PAGES: readonly PageKey[] = [];
 
 export interface EarlyPageNote {
   label: string;

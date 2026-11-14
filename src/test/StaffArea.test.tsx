@@ -189,13 +189,13 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean; 
   { path: "/actors/de5a0000-0000-4000-8000-000000000500", marker: "actorDetail" },
   { path: "/creators", marker: "creators" },
   { path: "/creators/de5a0000-0000-4000-8000-000000000300", marker: "creatorDetail" },
-  { path: "/agent-evaluations", marker: "agent-evaluations", hidden: true },
+  { path: "/agent-evaluations", marker: "agent-evaluations", hidden: isHiddenPage("agentEvaluations") },
   { path: "/operations", marker: "operations" },
   { path: "/operating-costs", marker: "operating-costs", builderOnly: true },
   { path: "/support", marker: "support" },
   { path: "/bids", marker: "bids" },
   { path: "/team", marker: "team" },
-  { path: "/learning", marker: "learning", hidden: true },
+  { path: "/learning", marker: "learning", hidden: isHiddenPage("learning") },
   { path: "/ad-library", marker: "ad-library" },
   { path: "/viral-feed", marker: "ad-library" },
   { path: "/ad-library/viral", marker: "ad-library" },
@@ -384,8 +384,9 @@ describe("staff reach the staff pages", () => {
     },
   );
 
-  it("the four pages with no data yet are the hidden ones", () => {
-    expect([...HIDDEN_PAGES].sort()).toEqual(["agentEvaluations", "learning", "recommendations", "strategy"]);
+  it("no page is hidden: Agent evaluations, Learning, Recommendations and Strategy are in the menu", () => {
+    expect([...HIDDEN_PAGES]).toEqual([]);
+    expect(ALL.filter(isHidden)).toEqual([]);
   });
 
   it("the builder-only list holds the Matrix, the Growth Dashboard, Operating costs and Early pages, old and new addresses", () => {
