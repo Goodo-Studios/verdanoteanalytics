@@ -39,6 +39,11 @@ vi.mock("@/contexts/AccountContext", () => ({
     isLoading: false,
   }),
 }));
+// Reads are paged (.order("id").range(...)); every range answers with the whole result.
+function pageable(result: unknown): Promise<unknown> {
+  return Object.assign(Promise.resolve(result), { order: () => pageable(result), range: () => pageable(result) });
+}
+
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     from: (table: string) => ({
@@ -47,13 +52,13 @@ vi.mock("@/integrations/supabase/client", () => ({
           return {
             eq: (col: string, val: string) => {
               h.taskCalls.push({ select: columns, col, val });
-              return Promise.resolve(h.taskResult);
+              return pageable(h.taskResult);
             },
           };
         }
         const result = { data: h.tables[table] ?? [], error: null };
         // The header's monthly delivery bar (OS-025) filters pipeline_delivered by the client too.
-        return Object.assign(Promise.resolve(result), { eq: () => Promise.resolve(result) });
+        return Object.assign(Promise.resolve(result), { eq: () => pageable(result) });
       },
     }),
   },

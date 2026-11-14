@@ -130,9 +130,74 @@ describe("KnowledgePage", () => {
     fireEvent.click(within(region).getByRole("button", { name: "Edit" }));
     fireEvent.change(within(region).getByLabelText("Document text"), { target: { value: "Changed" } });
     fireEvent.click(within(region).getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByTestId("document-editor")).toBeNull();
+    // Edits would be lost, so it asks first; keeping them leaves the editor open.
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(screen.getByLabelText("Document text")).toHaveValue("Changed");
+    fireEvent.click(within(region).getByRole("button", { name: "Cancel" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Discard changes" }));
+    await waitFor(() => expect(screen.queryByTestId("document-editor")).toBeNull());
     expect(within(region).getByTestId("knowledge-current-body")).toHaveTextContent("Use two hooks.");
     expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("Cancel on an untouched editor closes it without asking", async () => {
+    const region = await open();
+    fireEvent.click(within(region).getByRole("button", { name: "Edit" }));
+    fireEvent.click(within(region).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.queryByTestId("document-editor")).toBeNull();
+  });
+
+  it("opening another document with unsaved edits asks first, and keeping the edits stays put", async () => {
+    const region = await open();
+    fireEvent.click(within(region).getByRole("button", { name: "Edit" }));
+    fireEvent.change(within(region).getByLabelText("Document text"), { target: { value: "Half written" } });
+    fireEvent.click(screen.getByRole("button", { name: /Glow brand voice/ }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(screen.getByLabelText("Document text")).toHaveValue("Half written");
+    expect(screen.queryByRole("region", { name: "Glow brand voice" })).toBeNull();
+    // Agreeing opens the other document.
+    fireEvent.click(screen.getByRole("button", { name: /Glow brand voice/ }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Discard changes" }));
+    expect(await screen.findByRole("region", { name: "Glow brand voice" })).toBeTruthy();
+    expect(screen.queryByLabelText("Document text")).toBeNull();
+  });
+
+  it("opening another document with nothing unsaved does not ask", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: /Glow brand voice/ }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(await screen.findByRole("region", { name: "Glow brand voice" })).toBeTruthy();
+  });
+
+  it("warns before the tab closes while edits are unsaved, and stops once they are gone", async () => {
+    const region = await open();
+    fireEvent.click(within(region).getByRole("button", { name: "Edit" }));
+    const fire = () => {
+      const e = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    expect(fire()).toBe(false);
+    fireEvent.change(within(region).getByLabelText("Document text"), { target: { value: "Changed" } });
+    expect(fire()).toBe(true);
+    fireEvent.change(within(region).getByLabelText("Document text"), { target: { value: "Use two hooks.\n\n- keep it short" } });
+    expect(fire()).toBe(false);
+  });
+
+  it("a failed reload keeps the documents already on screen and shows the error", async () => {
+    const region = await open();
+    expect(region).toBeTruthy();
+    fail.current = true;
+    fireEvent.click(within(region).getByRole("button", { name: "Edit" }));
+    fireEvent.change(within(region).getByLabelText("Document text"), { target: { value: "Use one hook." } });
+    rpc.mockResolvedValue({ data: null, error: null });
+    fireEvent.click(within(region).getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Knowledge could not load.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Hook rules/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Glow brand voice/ })).toBeTruthy();
   });
 
   it("explains a stale version and keeps the text in the editor", async () => {

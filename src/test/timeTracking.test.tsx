@@ -40,7 +40,7 @@ vi.mock("@/integrations/supabase/client", () => {
   };
   const chain = (call: Call, single = false): Record<string, unknown> => {
     const b: Record<string, unknown> = {};
-    for (const m of ["eq", "neq", "is", "gte", "lt", "or", "order", "limit"]) {
+    for (const m of ["eq", "neq", "is", "gte", "lt", "or", "order", "limit", "range"]) {
       b[m] = (c: unknown, v?: unknown) => (call.filters.push(`${m}:${String(c)}:${String(v)}`), b);
     }
     b.maybeSingle = () => chain(call, true);
