@@ -50,7 +50,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       {/* Main content */}
       <main id="app-scroll-container" className="flex-1 overflow-auto min-w-0 md:ml-56">
         {/* Header bar */}
-        <div className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 border-b border-border bg-sidebar/90 backdrop-blur">
+        <div className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 border-b border-border bg-sidebar">
           <div className="flex items-center gap-3 md:hidden">
             <Button
               variant="ghost"
@@ -73,8 +73,11 @@ export function AppLayout({ children }: AppLayoutProps) {
             <PresenceAvatars />
           </div>
         </div>
-        <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
-          {children}
+        <div className="p-3 md:p-5 max-w-[1400px] mx-auto">
+          {/* Readability pass: every page sits on one solid sheet; the grid shows only around it. */}
+          <div data-testid="app-sheet" className="min-h-[calc(100vh-6rem)] rounded-panel border border-border bg-card p-4 shadow-card md:p-8">
+            {children}
+          </div>
         </div>
       </main>
     </div>
