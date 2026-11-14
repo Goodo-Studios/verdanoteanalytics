@@ -162,29 +162,10 @@ REVOKE ALL ON FUNCTION public.creative_daily_metrics_rollup_insert() FROM PUBLIC
 REVOKE ALL ON FUNCTION public.creative_daily_metrics_rollup_update() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.creative_daily_metrics_rollup_delete() FROM PUBLIC, anon, authenticated;
 
--- Backfill from the existing rows first, then attach the triggers, in one explicit transaction
--- (the migration runner adds none), so no write is missed between the two.
-BEGIN;
-LOCK TABLE public.creative_daily_metrics IN SHARE ROW EXCLUSIVE MODE;
-
-INSERT INTO public.creative_daily_rollup
-  (account_id, date, spend, impressions, clicks, purchases, purchase_value, adds_to_cart, video_views)
-SELECT account_id, date,
-       COALESCE(SUM(spend), 0), COALESCE(SUM(impressions), 0), COALESCE(SUM(clicks), 0),
-       COALESCE(SUM(purchases), 0), COALESCE(SUM(purchase_value), 0),
-       COALESCE(SUM(adds_to_cart), 0), COALESCE(SUM(video_views), 0)
-  FROM public.creative_daily_metrics
- WHERE account_id IS NOT NULL
- GROUP BY account_id, date
-ON CONFLICT (account_id, date) DO NOTHING;
-
-INSERT INTO public.creative_ad_spend_span (ad_id, account_id, first_date, last_date)
-SELECT ad_id, (array_agg(account_id))[1], MIN(date), MAX(date)
-  FROM public.creative_daily_metrics
- WHERE spend > 0 AND ad_id IS NOT NULL
- GROUP BY ad_id
-ON CONFLICT (ad_id) DO NOTHING;
-
+-- Attach the triggers first, then backfill from the existing rows. A write that lands during the
+-- backfill is already handled by its trigger, and the backfill recomputes each day from the raw
+-- rows, so the order leaves no gap. (No explicit transaction: the migration runner adds its own,
+-- and an explicit BEGIN/COMMIT inside the file did not behave in CI.)
 DROP TRIGGER IF EXISTS creative_daily_metrics_rollup_ins ON public.creative_daily_metrics;
 CREATE TRIGGER creative_daily_metrics_rollup_ins
   AFTER INSERT ON public.creative_daily_metrics
@@ -202,6 +183,31 @@ CREATE TRIGGER creative_daily_metrics_rollup_del
   AFTER DELETE ON public.creative_daily_metrics
   REFERENCING OLD TABLE AS old_rows
   FOR EACH STATEMENT EXECUTE FUNCTION public.creative_daily_metrics_rollup_delete();
+
+-- Backfill (idempotent: it recomputes every account and day from the raw rows).
+INSERT INTO public.creative_daily_rollup
+  (account_id, date, spend, impressions, clicks, purchases, purchase_value, adds_to_cart, video_views)
+SELECT account_id, date,
+       COALESCE(SUM(spend), 0), COALESCE(SUM(impressions), 0), COALESCE(SUM(clicks), 0),
+       COALESCE(SUM(purchases), 0), COALESCE(SUM(purchase_value), 0),
+       COALESCE(SUM(adds_to_cart), 0), COALESCE(SUM(video_views), 0)
+  FROM public.creative_daily_metrics
+ WHERE account_id IS NOT NULL
+ GROUP BY account_id, date
+ON CONFLICT (account_id, date) DO UPDATE
+  SET spend = EXCLUDED.spend, impressions = EXCLUDED.impressions, clicks = EXCLUDED.clicks,
+      purchases = EXCLUDED.purchases, purchase_value = EXCLUDED.purchase_value,
+      adds_to_cart = EXCLUDED.adds_to_cart, video_views = EXCLUDED.video_views;
+
+INSERT INTO public.creative_ad_spend_span (ad_id, account_id, first_date, last_date)
+SELECT ad_id, (array_agg(account_id))[1], MIN(date), MAX(date)
+  FROM public.creative_daily_metrics
+ WHERE spend > 0 AND ad_id IS NOT NULL
+ GROUP BY ad_id
+ON CONFLICT (ad_id) DO UPDATE
+  SET first_date = LEAST(creative_ad_spend_span.first_date, EXCLUDED.first_date),
+      last_date = GREATEST(creative_ad_spend_span.last_date, EXCLUDED.last_date),
+      account_id = COALESCE(EXCLUDED.account_id, creative_ad_spend_span.account_id);
 
 -- get_period_metrics now reads the rollup. Same signature, caller gate, search_path and grants.
 CREATE OR REPLACE FUNCTION public.get_period_metrics(
