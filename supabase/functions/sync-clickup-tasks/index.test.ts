@@ -207,7 +207,7 @@ Deno.test("syncs matched folders, reports unmatched ones, writes client-safe row
     assertEquals(json.ambiguousFolders, []);
     assertEquals(json.staleMappingFolders, []);
     assertEquals(json.clientsWithoutBoardAccount, ["shared-co", "tea"]);
-    assertEquals(json.upserted, 4);
+    assertEquals(json.upserted, 5, "every task for the client is synced, a shoot day included");
     assertEquals(json.archived, 1);
     assertEquals(json.deleted, 8, "the stand-in reports 4 deleted rows from each table");
 
@@ -227,7 +227,7 @@ Deno.test("syncs matched folders, reports unmatched ones, writes client-safe row
     const upsert = calls.find((c) => c.method === "upsert" && c.table === "pipeline_tasks");
     assert(upsert, "must upsert into pipeline_tasks");
     const rows = upsertedRows(calls);
-    assertEquals(rows.map((r) => r.clickup_task_id).sort(), ["t-edit", "t-review", "t-shared", "t-tea"]);
+    assertEquals(rows.map((r) => r.clickup_task_id).sort(), ["t-edit", "t-review", "t-shared", "t-shoot", "t-tea"]);
     const allowed = [
       "account_id",
       "asset_link",
@@ -252,6 +252,7 @@ Deno.test("syncs matched folders, reports unmatched ones, writes client-safe row
       return [r.client_slug, r.account_id];
     };
     assertEquals(owner("t-edit"), ["bearaby", "act_bearaby"]);
+    assertEquals(owner("t-shoot"), ["bearaby", "act_bearaby"], "a task not named Month Asset N is still the client's");
     assertEquals(owner("t-review"), ["osmo", "act_osmo"]);
     assertEquals(owner("t-shared"), ["shared-co", null], "two ad accounts: no account_id");
     assertEquals(owner("t-tea"), ["tea", null], "no ad account: client_slug only");
@@ -379,7 +380,7 @@ Deno.test("the delete is skipped when a client folder cannot be read", async () 
     assertEquals(json.success, false);
     assertEquals(json.failedFolders, ["Osmo"]);
     assertEquals(json.deleteSkipped, true);
-    assertEquals(json.upserted, 3, "the folders that did read are still refreshed");
+    assertEquals(json.upserted, 4, "the folders that did read are still refreshed");
     assertEquals(json.archived, 1, "delivered work of a folder that did read is still refreshed");
     assert(!calls.some((c) => c.method === "delete"), "must not delete from either table after a partial read");
   } finally {
@@ -407,7 +408,7 @@ Deno.test("nothing is swept from either table when only the delivered upsert fai
     const json = await (await mod.handler(makeReq(), supabase)).json();
     assertEquals(json.success, false);
     assertEquals(json.deleteSkipped, true);
-    assertEquals(json.upserted, 4);
+    assertEquals(json.upserted, 5);
     assertEquals(json.archived, 0);
     assert(!calls.some((c) => c.method === "delete"), "a failed delivered write must not trigger any delete");
   } finally {

@@ -18,8 +18,10 @@ import {
   dedupeDecision,
   extFor,
   isMediaContentType,
+  MediaSourceError,
   needsMediaRecovery,
   normalizeVaultPlatform,
+  safeHost,
   selectMediaSources,
 } from "../_shared/vault-save-logic.ts";
 import { errorMessage } from "../_shared/error-message.ts";
@@ -110,7 +112,14 @@ async function copyMedia(
     clearTimeout(fetchTimeout);
   }
   if (!res.ok) {
-    throw new Error(`Failed to download ${kind} (${res.status}) from ${srcUrl}`);
+    // 4xx from the CDN means the link is expired or forbidden (Meta signed URLs expire):
+    // an input problem, so a 422 without the signed URL, not a 500.
+    if (res.status >= 400 && res.status < 500) {
+      throw new MediaSourceError(
+        `The ${kind} link is no longer available (${res.status} from ${safeHost(srcUrl)}). Refresh the creative and save again.`,
+      );
+    }
+    throw new Error(`Failed to download ${kind} (${res.status}) from ${safeHost(srcUrl)}`);
   }
   const contentType = res.headers.get("content-type") ||
     (kind === "video" ? "video/mp4" : "image/jpeg");
@@ -384,6 +393,10 @@ Deno.serve(async (req) => {
 
     return json({ ok: true, item_id: item.id, already_saved: false });
   } catch (err) {
+    if (err instanceof MediaSourceError) {
+      console.warn("vault-save-creative: source media unavailable:", err.message);
+      return json({ error: err.message }, err.status);
+    }
     console.error("vault-save-creative error:", errorMessage(err));
     return json({ error: errorMessage(err) }, 500);
   }
