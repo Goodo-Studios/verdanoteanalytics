@@ -13,12 +13,13 @@
  *      rendered task carries one of the canonical display stages produced by the
  *      sync's STAGE_MAP (Preparing Content | Production | Editing | Client
  *      Review | Ready to Launch — the five-column model reconciled 2026-06-02).
- *   2. CLIENT read-only invariant: the surface exposes no comment / approve /
- *      request-changes / upload controls and never leaks an internal ClickUp URL.
- *   3. STAFF/AGENCY: signs in as a builder, opens /pipeline, and — selecting
- *      accounts via the account switcher — confirms at least one account renders a
- *      populated pipeline with live tasks. This proves staff see the same live
- *      pipeline data across client accounts.
+ *   2. CLIENT interaction invariant: the surface exposes no comment / upload
+ *      controls, Approve and Request changes appear only inside a decision panel
+ *      (Client Review and delivered cards), and no internal ClickUp URL leaks.
+ *   3. STAFF/AGENCY: signs in as a builder, reads the Clients list for clients
+ *      with content-board cards, and confirms their Work tab (/clients/<slug>/work)
+ *      renders the live board with canonical stages. Staff have no separate
+ *      /pipeline page; it redirects to the Clients list.
  *
  * Authenticated checks require real test accounts in env (tests skip otherwise,
  * never silently pass):
@@ -129,11 +130,21 @@ test.describe("Content Pipeline — live ClickUp sync (US-005)", () => {
       // Sanity: every observed stage is one the client UI knows how to colour.
       for (const s of stages) expect(DISPLAY_STAGES.has(s)).toBeTruthy();
 
-      // Read-only invariant: no write/interaction affordances on the surface.
+      // Interaction invariant. Phase 5b gave the client Approve and Request changes on cards in
+      // Client Review and on delivered work, so those two buttons are expected. They must live only
+      // inside a decision panel. Comment and upload controls must still never appear.
       const panel = page.locator('[data-testid="content-pipeline"]');
-      await expect(
-        panel.getByRole("button", { name: /comment|approve|request changes|upload/i })
-      ).toHaveCount(0);
+      await expect(panel.getByRole("button", { name: /comment|upload/i })).toHaveCount(0);
+      const decisionButtons = /approve|request changes/i;
+      const allDecisionButtons = await panel.getByRole("button", { name: decisionButtons }).count();
+      const panelDecisionButtons = await panel
+        .locator('[data-testid="decision-panel"]')
+        .getByRole("button", { name: decisionButtons })
+        .count();
+      expect(
+        allDecisionButtons,
+        "Approve and Request changes may only appear inside a decision panel"
+      ).toBe(panelDecisionButtons);
       // No internal task-system URL may be surfaced to the client.
       await expect(panel.locator('a[href*="clickup.com"]')).toHaveCount(0);
       await expect(panel.locator('a[href*="coda.io"]')).toHaveCount(0);
@@ -149,54 +160,53 @@ test.describe("Content Pipeline — live ClickUp sync (US-005)", () => {
       await gotoRoleHome(page);
       const prefix = rolePrefix(page);
 
-      await page.goto(`${prefix}/pipeline`);
+      // Staff no longer have a separate /pipeline page: the board is the Work tab of each
+      // client's hub (/clients/<slug>/work), and /pipeline redirects to the Clients list. The
+      // Clients list shows each client's content board as "N cards". Find the clients that
+      // have cards and check that their Work tab renders the live board.
+      await page.goto(`${prefix}/clients`);
+      const clientLinks = page.locator('a[href*="/clients/"]');
+      await expect(clientLinks.first()).toBeVisible({ timeout: 20_000 });
 
-      // The account switcher (Radix Select, role=combobox) lets staff pick a
-      // specific client account. Enumerate the real account options (excluding
-      // the "Agency View" aggregate) and select each until one renders a
-      // populated pipeline — proving staff see live data across client accounts.
-      const switcher = page.getByRole("combobox").first();
-      await expect(switcher).toBeVisible({ timeout: 15_000 });
-      await switcher.click();
+      const withCards: string[] = [];
+      for (const link of await clientLinks.all()) {
+        const text = (await link.innerText()).replace(/\s+/g, " ");
+        const href = (await link.getAttribute("href")) || "";
+        const m = text.match(/Content board\s+(\d+) cards?/i);
+        const slug = href.match(/\/clients\/([^/?#]+)$/)?.[1];
+        if (m && Number(m[1]) > 0 && slug) withCards.push(slug);
+      }
+      expect(
+        withCards.length,
+        "expected staff to see at least one client with cards on its content board"
+      ).toBeGreaterThan(0);
 
-      const optionEls = page.getByRole("option");
-      await expect(optionEls.first()).toBeVisible({ timeout: 10_000 });
-      const allNames = await optionEls.allInnerTexts();
-      // Close the dropdown before iterating (we'll reopen per selection).
-      await page.keyboard.press("Escape");
-
-      const accountNames = allNames
-        .map((n) => n.trim())
-        .filter((n) => n && !/agency view/i.test(n));
-      expect(accountNames.length, "expected staff to see selectable client accounts").toBeGreaterThan(0);
-
-      // Bounded scan: most active clients have live tasks, so a populated
-      // account is found quickly. Cap the scan so the test stays well within
-      // the suite timeout even if early accounts happen to be empty.
-      const MAX_SCAN = Math.min(accountNames.length, 8);
+      // Bounded scan, same reason as before: keep the test inside the suite timeout.
+      const MAX_SCAN = Math.min(withCards.length, 5);
       let populated = false;
       for (let i = 0; i < MAX_SCAN && !populated; i++) {
-        await switcher.click();
-        await page.getByRole("option", { name: accountNames[i], exact: true }).click();
-
-        // Wait for the pipeline to resolve to either populated or empty for the
-        // newly-selected account.
-        const panel = page.locator('[data-testid="content-pipeline"]');
-        const empty = page.locator('[data-testid="pipeline-empty"]');
-        await expect(panel.or(empty).first()).toBeVisible({ timeout: 15_000 });
-
-        if ((await panel.count()) > 0 && (await page.locator('[data-testid="pipeline-task"]').count()) > 0) {
+        await page.goto(`${prefix}/clients/${withCards[i]}/work`);
+        const board = page.locator('[data-testid="client-work"]');
+        await expect(board).toBeVisible({ timeout: 15_000 });
+        const cards = page.locator('[data-testid="client-work-card"]');
+        const empty = page.locator('[data-testid="client-work-empty"]');
+        await expect(cards.first().or(empty)).toBeVisible({ timeout: 15_000 });
+        if ((await cards.count()) > 0) {
           populated = true;
+          for (let c = 0; c < (await cards.count()); c++) {
+            const stage = await cards.nth(c).getAttribute("data-stage");
+            expect(
+              DISPLAY_STAGES.has(stage as string),
+              `work card #${c} stage "${stage}" must be a canonical display stage`
+            ).toBeTruthy();
+          }
         }
       }
 
       expect(
         populated,
-        `expected at least one of the first ${MAX_SCAN} client accounts to render live pipeline tasks for staff`
+        `expected at least one of the first ${MAX_SCAN} clients with cards to render its live work board for staff`
       ).toBeTruthy();
-
-      // Re-assert the full populated-pipeline invariant on the account we landed on.
-      await expectPopulatedPipeline(page);
     });
   });
 });
