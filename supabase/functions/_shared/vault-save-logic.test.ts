@@ -1,7 +1,7 @@
 // deno test supabase/functions/_shared/vault-save-logic.test.ts
 
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { selectMediaSources, needsMediaRecovery, cleanUrl, isDurableStorageUrl, isImageOnlyItem } from "./vault-save-logic.ts";
+import { assert, assertEquals, assertFalse } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { selectMediaSources, needsMediaRecovery, cleanUrl, isDurableStorageUrl, isImageOnlyItem, MediaSourceError, safeHost } from "./vault-save-logic.ts";
 
 const STORAGE = "https://gwyxaqoaldnaavkjqquv.supabase.co/storage/v1/object/public/ad-thumbnails/abc/123.jpg";
 const CDN = "https://video.xx.fbcdn.net/v/signed-token/abc.jpg";
@@ -111,4 +111,25 @@ Deno.test("isImageOnlyItem: webm video → false", () => {
 Deno.test("isImageOnlyItem: missing/empty paths → false", () => {
   assertEquals(isImageOnlyItem({ file_path: null, thumbnail_path: null }), false);
   assertEquals(isImageOnlyItem({}), false);
+});
+
+// ── MediaSourceError / safeHost ───────────────────────────────────────────────
+// Production 500s: an expired Meta CDN link (403) made vault-save-creative answer 500 and write
+// the whole signed URL to the logs. It is now a 422 that names the host only.
+
+Deno.test("MediaSourceError carries a 422 status and is an Error", () => {
+  const e = new MediaSourceError("link gone");
+  assertEquals(e.status, 422);
+  assert(e instanceof Error);
+  assertEquals(e.name, "MediaSourceError");
+});
+
+Deno.test("safeHost drops the path and the signed query string", () => {
+  const signed = "https://scontent-iad6-1.xx.fbcdn.net/v/t15/abc.jpg?_nc_sid=e3495b&_nc_oc=SECRET";
+  assertEquals(safeHost(signed), "scontent-iad6-1.xx.fbcdn.net");
+  assertFalse(safeHost(signed).includes("SECRET"));
+});
+
+Deno.test("safeHost does not throw on garbage", () => {
+  assertEquals(safeHost("not a url"), "unknown-host");
 });
