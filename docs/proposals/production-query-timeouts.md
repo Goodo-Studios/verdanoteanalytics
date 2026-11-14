@@ -1,6 +1,6 @@
 # Proposal: production query timeouts
 
-Status: proposal only. Nothing here has been applied to production. The SQL below is deliberately not in `supabase/migrations`, so merging this file changes nothing. Applying it to production needs the owner's go.
+Status: the two indexes and the function rewrite are now migration `20261214100001_timeout_indexes_and_analysis_rpc.sql`, so they ride the production release. It uses plain `CREATE INDEX` (a migration runs in a transaction), which blocks writes to the two tables for a few seconds while it builds. The statements ran on staging inside a rolled-back transaction (the function returned the same result and both indexes were created). The vacuum and the compute-size check are not in the migration and stay manual.
 
 ## What was seen
 
