@@ -14,6 +14,7 @@
 //     through os_user_ids_by_email and leaves the uuid empty when there is no match.
 
 import { CLICKUP_CLIENT_SPACE_ID, parseCycleMonth } from "./clickup-pipeline.ts";
+import { clickupMsToDate } from "./clickup-dates.ts";
 
 export const CLICKUP_TEAM_ID = "90141422254";
 export const PRODUCTION_SPACE_ID = "90147169333";
@@ -199,12 +200,10 @@ export function textValue(field: CuField | null): string | null {
   return t || null;
 }
 
-/** Milliseconds epoch (string or number) -> YYYY-MM-DD, or null. */
+/** Milliseconds epoch (string or number) -> YYYY-MM-DD in the studio zone (see clickup-dates.ts), or null. */
 export function msToDate(ms: unknown): string | null {
   if (isEmpty(ms)) return null;
-  const n = Number(ms);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return new Date(n).toISOString().slice(0, 10);
+  return clickupMsToDate(ms);
 }
 
 export function msToIso(ms: unknown): string | null {

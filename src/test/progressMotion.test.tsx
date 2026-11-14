@@ -113,6 +113,7 @@ describe("running timer dot", () => {
     vi.doMock("@/hooks/useMyWork", () => ({ useMyTasks: () => ({ data: [], isLoading: false }) }));
     vi.doMock("@/hooks/useTimer", () => ({
       useRunningTimer: () => ({ data: { id: "e1", task_id: "t1", start_at: new Date().toISOString(), task: { title: "Cut v1" } } }),
+      useServerClockOffset: () => ({ data: 0 }),
       useStartTimer: () => ({ mutate: vi.fn(), isPending: false }),
       useStopTimer: () => ({ mutate: vi.fn(), isPending: false }),
     }));

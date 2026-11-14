@@ -1,16 +1,21 @@
 /**
  * Growth Dashboard page: loads its numbers from growth_dashboard_data, imports the old
  * localStorage export once, saves edits back, and never edits a stored row that fails
- * its checks. The Supabase client is mocked; all numbers are made up.
+ * its checks. Saves are guarded by a version (the row's updated_at as it was read): a save based
+ * on an old version is refused and the person is told to reload. The Supabase client is mocked;
+ * all numbers are made up.
  */
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const db = vi.hoisted(() => ({
-  rows: [] as Array<{ key: string; data: unknown }>,
+  rows: [] as Array<{ key: string; data: unknown; updated_at?: string }>,
   selectError: null as null | { message: string },
+  insertError: null as null | { code: string; message: string },
+  /** Records every write the mock accepted: (row, { op, expected }). */
   upsert: vi.fn(),
+  version: 1,
   from: vi.fn(),
 }));
 
@@ -51,12 +56,42 @@ function openTab(name: string) {
 beforeEach(() => {
   db.rows = [];
   db.selectError = null;
-  db.upsert.mockReset().mockResolvedValue({ error: null });
+  db.insertError = null;
+  db.version = 1;
+  db.upsert.mockReset();
   db.from.mockReset().mockImplementation((table: string) => {
     expect(table).toBe("growth_dashboard_data");
     return {
       select: vi.fn(async () => (db.selectError ? { data: null, error: db.selectError } : { data: db.rows, error: null })),
-      upsert: db.upsert,
+      // The first save of a row that was not there.
+      insert: (row: { key: string; data: unknown }) => ({
+        select: async () => {
+          if (db.insertError) return { data: null, error: db.insertError };
+          const updated_at = `v${++db.version}`;
+          db.rows.push({ ...row, updated_at });
+          db.upsert(row, { op: "insert" });
+          return { data: [{ updated_at }], error: null };
+        },
+      }),
+      // A save based on a version: it changes the row only if the stored version is still the one given.
+      update: (values: { data: unknown }) => {
+        const where: Record<string, string> = {};
+        const q = {
+          eq: (col: string, val: string) => {
+            where[col] = val;
+            return q;
+          },
+          select: async () => {
+            const stored = db.rows.find((r) => r.key === where.key && r.updated_at === where.updated_at);
+            if (!stored) return { data: [], error: null };
+            stored.data = values.data;
+            stored.updated_at = `v${++db.version}`;
+            db.upsert({ key: where.key, data: values.data }, { op: "update", expected: where.updated_at });
+            return { data: [{ updated_at: stored.updated_at }], error: null };
+          },
+        };
+        return q;
+      },
     };
   });
 });
@@ -84,7 +119,7 @@ describe("Growth Dashboard page", () => {
     await screen.findByText(/Imported\. The numbers are now stored in Verdanote\./);
     expect(db.upsert).toHaveBeenCalledTimes(1);
     const [row, opts] = db.upsert.mock.calls[0];
-    expect(opts).toEqual({ onConflict: "key" });
+    expect(opts).toEqual({ op: "insert" });
     expect(row.key).toBe("state");
     expect(row.data.rev).toEqual({ "6": 4321 });
     expect(row.data.deals).toEqual(exported.deals);
@@ -128,7 +163,7 @@ describe("Growth Dashboard page", () => {
 
   it("renders the stored plan and progress, and saves an edited day of calls", async () => {
     db.rows = [
-      { key: "plan", data: plan() },
+      { key: "plan", data: plan(), updated_at: "v1" },
       {
         key: "state",
         data: {
@@ -138,6 +173,7 @@ describe("Growth Dashboard page", () => {
           weeks: {},
           targets: {},
         },
+        updated_at: "v1",
       },
     ];
     renderPage();
@@ -164,7 +200,7 @@ describe("Growth Dashboard page", () => {
   });
 
   it("adds and deletes a deal", async () => {
-    db.rows = [{ key: "plan", data: plan() }];
+    db.rows = [{ key: "plan", data: plan(), updated_at: "v1" }];
     renderPage();
     await screen.findByTestId("growth-plan-tiles");
     openTab("Progress");
@@ -179,8 +215,8 @@ describe("Growth Dashboard page", () => {
 
   it("colours output cells against the weekly target on the Outputs tab", async () => {
     db.rows = [
-      { key: "plan", data: plan() },
-      { key: "state", data: { weeks: { "2026-11-06": { total: null, paid: null, spend: null, acts: { liPosts: 5, twPosts: 2 } } } } },
+      { key: "plan", data: plan(), updated_at: "v1" },
+      { key: "state", data: { weeks: { "2026-11-06": { total: null, paid: null, spend: null, acts: { liPosts: 5, twPosts: 2 } } } }, updated_at: "v1" },
     ];
     renderPage();
     await screen.findByTestId("growth-plan-tiles");
@@ -192,12 +228,94 @@ describe("Growth Dashboard page", () => {
   });
 
   it("refuses to edit a stored row that fails its checks", async () => {
-    db.rows = [{ key: "state", data: { rev: { "6": "lots" } } }];
+    db.rows = [{ key: "state", data: { rev: { "6": "lots" } }, updated_at: "v1" }];
     renderPage();
     expect((await screen.findByRole("alert")).textContent).toMatch(/editing is off/);
     expect(screen.getByRole("tab", { name: "Progress" }).hasAttribute("disabled")).toBe(true);
     expect(screen.getByRole("tab", { name: "Outputs" }).hasAttribute("disabled")).toBe(true);
     expect(db.upsert).not.toHaveBeenCalled();
+  });
+
+  describe("two tabs or two builders saving over each other", () => {
+    const storedState = () => ({
+      rev: {},
+      calls: { "2026-11-03": 2 },
+      deals: [],
+      weeks: {},
+      targets: {},
+    });
+
+    it("refuses a save based on an old version, writes nothing, and tells the person to reload", async () => {
+      db.rows = [
+        { key: "plan", data: plan(), updated_at: "v1" },
+        { key: "state", data: storedState(), updated_at: "v1" },
+      ];
+      renderPage();
+      await screen.findByTestId("growth-plan-tiles");
+      openTab("Progress");
+      await screen.findByTestId("growth-progress-tiles");
+
+      // Another tab saves the state row after this page loaded it.
+      const other = { ...storedState(), calls: { "2026-11-03": 9 } };
+      db.rows[1].data = other;
+      db.rows[1].updated_at = "v-other";
+
+      fireEvent.change(screen.getByLabelText("Calls on 2026-11-10"), { target: { value: "4" } });
+      const status = await screen.findByTestId("growth-save-status", undefined, { timeout: 3000 });
+      await waitFor(() => expect(status.textContent).toMatch(/Not saved: The numbers were changed in another tab/), { timeout: 3000 });
+      expect(within(status).getByRole("button", { name: "Reload" })).toBeTruthy();
+      expect(db.upsert).not.toHaveBeenCalled();
+      expect(db.rows[1].data).toEqual(other); // the other tab's numbers are untouched
+      expect(db.rows[1].updated_at).toBe("v-other");
+    });
+
+    it("two saves in a row from one tab both go through (the version moves forward)", async () => {
+      db.rows = [
+        { key: "plan", data: plan(), updated_at: "v1" },
+        { key: "state", data: storedState(), updated_at: "v1" },
+      ];
+      renderPage();
+      await screen.findByTestId("growth-plan-tiles");
+      openTab("Progress");
+      await screen.findByTestId("growth-progress-tiles");
+
+      fireEvent.change(screen.getByLabelText("Calls on 2026-11-10"), { target: { value: "4" } });
+      await waitFor(() => expect(db.upsert).toHaveBeenCalledTimes(1), { timeout: 3000 });
+      fireEvent.change(screen.getByLabelText("Calls on 2026-11-11"), { target: { value: "2" } });
+      await waitFor(() => expect(db.upsert).toHaveBeenCalledTimes(2), { timeout: 3000 });
+      const [first, firstOpts] = db.upsert.mock.calls[0];
+      const [second, secondOpts] = db.upsert.mock.calls[1];
+      expect(firstOpts).toEqual({ op: "update", expected: "v1" });
+      expect(secondOpts.expected).not.toBe("v1"); // based on the version the first save returned
+      expect(first.data.calls).toEqual({ "2026-11-03": 2, "2026-11-10": 4 });
+      expect(second.data.calls).toEqual({ "2026-11-03": 2, "2026-11-10": 4, "2026-11-11": 2 });
+      expect(screen.getByTestId("growth-save-status").textContent).toMatch(/^Saved \d/);
+    });
+
+    it("a first save that finds the row already there (another tab got in first) is refused", async () => {
+      renderPage();
+      await screen.findByText("Enter the plan");
+      db.insertError = { code: "23505", message: "duplicate key value violates unique constraint" };
+      fireEvent.change(screen.getByLabelText("Full-year goal"), { target: { value: "20000" } });
+      fireEvent.change(screen.getByLabelText("Plan year"), { target: { value: "2026" } });
+      fireEvent.change(screen.getByLabelText("Dec Total"), { target: { value: "3000" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save plan" }));
+      expect((await screen.findByRole("alert")).textContent).toMatch(/changed in another tab or by another builder/);
+      expect(db.upsert).not.toHaveBeenCalled();
+    });
+
+    it("an import onto numbers another tab already changed is refused", async () => {
+      db.rows = [{ key: "state", data: storedState(), updated_at: "v1" }];
+      renderPage();
+      await screen.findByText("Enter the plan");
+      db.rows[0].updated_at = "v-other";
+      openTab("Import");
+      fireEvent.change(screen.getByLabelText("Exported JSON"), { target: { value: JSON.stringify({ rev: { "6": 1 }, calls: {}, deals: [], weeks: {}, targets: {} }) } });
+      fireEvent.click(screen.getByRole("button", { name: "Check" }));
+      fireEvent.click(await screen.findByRole("button", { name: /Replace saved numbers/ }));
+      expect((await screen.findAllByText(/changed in another tab or by another builder/)).length).toBeGreaterThan(0);
+      expect(db.upsert).not.toHaveBeenCalled();
+    });
   });
 
   it("shows the database error when the rows cannot be read", async () => {

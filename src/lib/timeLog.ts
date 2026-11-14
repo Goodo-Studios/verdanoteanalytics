@@ -101,6 +101,17 @@ export function durationSeconds(startAt: string, endAt: string | null, nowMs: nu
   return Math.max(0, Math.floor((end - Date.parse(startAt)) / 1000));
 }
 
+/**
+ * How far the database clock is ahead of this browser's clock (ms, negative when behind), from one
+ * request: the server time is taken to be the reading at the midpoint of the round trip. Returns 0
+ * when the server time is missing or not a date, so the timer falls back to the browser clock.
+ */
+export function clockOffsetMs(serverIso: string | null | undefined, sentMs: number, receivedMs: number): number {
+  const server = serverIso ? Date.parse(serverIso) : Number.NaN;
+  if (!Number.isFinite(server)) return 0;
+  return Math.round(server - (sentMs + receivedMs) / 2);
+}
+
 /** h:mm:ss, for the ticking pill. */
 export function formatElapsed(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
