@@ -224,6 +224,56 @@ describe("Edit a page", () => {
     expect(h.rpcs).toEqual([]);
   });
 
+  it("Cancel after typing asks before throwing the edits away", async () => {
+    const editor = await openEditor();
+    fireEvent.change(within(editor).getByLabelText("Page text"), { target: { value: "Step one, changed." } });
+    fireEvent.click(within(editor).getByRole("button", { name: "Cancel" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(screen.getByLabelText("Page text")).toHaveProperty("value", "Step one, changed.");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Discard changes" }));
+    await waitFor(() => expect(screen.queryByTestId("document-editor")).toBeNull());
+    expect(h.rpcs).toEqual([]);
+  });
+
+  it("leaving the page with unsaved edits asks first (Back, a section tab), and keeping them stays on the page", async () => {
+    const editor = await openEditor();
+    fireEvent.change(within(editor).getByLabelText("Page text"), { target: { value: "Half written" } });
+    fireEvent.click(screen.getByRole("button", { name: "Back to Playbooks" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(screen.getByLabelText("Page text")).toHaveProperty("value", "Half written");
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Brain sections" })).getByRole("button", { name: /Handbook/ }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(screen.getByLabelText("Page text")).toHaveProperty("value", "Half written");
+    // Agreeing leaves, and the next page is not marked as having unsaved edits.
+    fireEvent.click(screen.getByRole("button", { name: "Back to Playbooks" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Discard changes" }));
+    expect(await screen.findByTestId("brain-list")).toBeTruthy();
+    expect(screen.queryByLabelText("Page text")).toBeNull();
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Brain sections" })).getByRole("button", { name: /Handbook/ }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("leaving with nothing unsaved does not ask, and the tab warns before closing only while edits are unsaved", async () => {
+    const editor = await openEditor();
+    const fire = () => {
+      const e = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    expect(fire()).toBe(false);
+    fireEvent.change(within(editor).getByLabelText("Page text"), { target: { value: "Typed" } });
+    expect(fire()).toBe(true);
+    fireEvent.change(within(editor).getByLabelText("Page text"), { target: { value: "Step one." } });
+    expect(fire()).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Back to Playbooks" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(await screen.findByTestId("brain-list")).toBeTruthy();
+  });
+
   it("saves the edit against the timestamp the page was opened at and shows the new text at once", async () => {
     const editor = await openEditor();
     fireEvent.change(within(editor).getByLabelText("Page text"), { target: { value: "Step one, then step two." } });

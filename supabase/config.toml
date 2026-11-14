@@ -428,3 +428,25 @@ verify_jwt = false
 # a token. Writes only the application tables, through service-only database functions.
 [functions.public-apply]
 verify_jwt = false
+
+# Functions that had no block (so they ran on the platform default, verify_jwt = true). Each is
+# now explicit. The three staff functions are called with a signed-in login token, which the
+# gateway can verify; the handler still checks the role through resolveCaller.
+#
+# integration-health is also called by the 30-minute pg_cron job (check-integration-alerts-30m),
+# which sends the service-role key from the vault. The handler authenticates that itself
+# (resolveCaller accepts the service role for the evaluate action only), so the gateway check is off.
+[functions.integration-health]
+verify_jwt = false
+
+# Goodo OS agent evaluations. Builder or employee login; gated inside the function.
+[functions.agent-evaluations]
+verify_jwt = true
+
+# Goodo OS meeting recaps. Builder or employee login; gated inside the function.
+[functions.meeting-recaps]
+verify_jwt = true
+
+# Push to ClickUp. Builder or employee login; gated inside the function.
+[functions.push-brief-to-clickup]
+verify_jwt = true

@@ -86,6 +86,11 @@ export function useClientDecide() {
       if (error) throw new Error(decideErrorMessage(error.code));
       return data as { status: string; task_status: string };
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: CLIENT_CARDS_KEY }),
+    onSuccess: () => {
+      // Same keys useRecordDecision refreshes: the board, the delivered list, decisions and home.
+      for (const key of [CLIENT_CARDS_KEY, ["client-decisions"], ["pipeline-tasks"], ["pipeline-delivered"], ["client-work"], ["home"]]) {
+        void qc.invalidateQueries({ queryKey: key });
+      }
+    },
   });
 }

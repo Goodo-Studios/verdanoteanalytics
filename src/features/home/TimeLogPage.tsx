@@ -2,7 +2,7 @@
 // previous and next week, a total for each day and for the week, and my entries under each day.
 // I can add an entry by hand (date, start, end, and a task or a client or Internal with a
 // category), edit one, and delete one after confirming. Database errors (overlap, end before
-// start, longer than 24 hours) are shown in plain words. The week is in the address (?week=).
+// start, longer than 24 hours) are shown in plain words. The week is in the address (?week=). Dates and clock times are in the studio time zone (Eastern), as in Reports.
 // A small form starts a timer for a client or Internal with a category, for time with no task.
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -15,7 +15,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { useMyTasks } from "@/hooks/useMyWork";
 import { useDeleteEntry, useSaveEntry, useStartTimer, useWeekEntries, type EntryInput } from "@/hooks/useTimer";
-import { todayIso } from "@/lib/homeData";
 import {
   addDays,
   dayLabel,
@@ -23,8 +22,9 @@ import {
   entryLabel,
   formatHours,
   groupByDay,
-  localClock,
-  localIso,
+  studioClock,
+  studioDate,
+  studioToday,
   toTimestamp,
   validateEntryForm,
   weekLabel,
@@ -33,12 +33,17 @@ import {
 } from "@/lib/timeLog";
 import { HomeTabs } from "./HomeTabs";
 
+/** Finished tasks stay in the manual-entry Task picker for this many days. */
+const RECENT_DONE_DAYS = 14;
+
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 interface FormState {
   date: string;
   start: string;
   end: string;
+  /** The date the entry ends on; differs from `date` for an overnight entry. */
+  endDate: string;
   taskId: string;
   client: string;
   category: string;
@@ -46,14 +51,15 @@ interface FormState {
 }
 
 function emptyForm(date: string): FormState {
-  return { date, start: "09:00", end: "10:00", taskId: "", client: "", category: "", description: "" };
+  return { date, start: "09:00", end: "10:00", endDate: date, taskId: "", client: "", category: "", description: "" };
 }
 
 function formFromEntry(e: TimeEntryRow): FormState {
   return {
-    date: localIso(new Date(e.start_at)),
-    start: localClock(e.start_at),
-    end: e.end_at ? localClock(e.end_at) : "",
+    date: studioDate(e.start_at),
+    start: studioClock(e.start_at),
+    end: e.end_at ? studioClock(e.end_at) : "",
+    endDate: studioDate(e.end_at ?? e.start_at),
     taskId: e.task_id ?? "",
     client: e.task_id ? "" : e.is_internal ? INTERNAL : e.client_slug ?? "",
     category: e.category ?? "",
@@ -71,7 +77,7 @@ function toInput(f: FormState): EntryInput {
     category: f.category || null,
     description: f.description.trim(),
     start_at: toTimestamp(f.date, f.start),
-    end_at: toTimestamp(f.date, f.end),
+    end_at: toTimestamp(f.endDate || f.date, f.end),
   };
 }
 
@@ -93,6 +99,8 @@ function EntryForm({
   const [f, setF] = useState<FormState>(initial);
   const [error, setError] = useState<string | null>(null);
   const set = (k: keyof FormState) => (v: string) => setF((s) => ({ ...s, [k]: v }));
+  // Moving the start date also moves the end date while they were the same day.
+  const setDate = (v: string) => setF((s) => ({ ...s, date: v, endDate: s.endDate === s.date ? v : s.endDate }));
 
   return (
     <form
@@ -109,10 +117,11 @@ function EntryForm({
         setError(await onSave(f));
       }}
     >
-      <div className="grid gap-3 sm:grid-cols-3">
-        <TextField label="Date" type="date" value={f.date} onChange={(e) => set("date")(e.target.value)} data-testid="time-form-date" required />
+      <div className="grid gap-3 sm:grid-cols-4">
+        <TextField label="Date" type="date" value={f.date} onChange={(e) => setDate(e.target.value)} data-testid="time-form-date" required />
         <TextField label="Start" type="time" value={f.start} onChange={(e) => set("start")(e.target.value)} data-testid="time-form-start" required />
         <TextField label="End" type="time" value={f.end} onChange={(e) => set("end")(e.target.value)} data-testid="time-form-end" required />
+        <TextField label="End date" type="date" value={f.endDate} onChange={(e) => set("endDate")(e.target.value)} data-testid="time-form-end-date" required />
       </div>
       <SelectField
         label="Task"
@@ -197,11 +206,11 @@ export default function TimeLogPage() {
   const { user } = useAuth();
   const prefix = useRolePrefix();
   const [params, setParams] = useSearchParams();
-  const today = todayIso();
+  const today = studioToday();
   const asked = params.get("week") ?? "";
   const week = useMemo(() => weekRange(ISO_DAY.test(asked) ? asked : today), [asked, today]);
   const entries = useWeekEntries(user?.id, week.fromIso, week.toIso);
-  const tasks = useMyTasks(user?.id);
+  const tasks = useMyTasks(user?.id, false, RECENT_DONE_DAYS);
   const save = useSaveEntry();
   const remove = useDeleteEntry();
   const { confirm, dialog } = useConfirm();
@@ -241,7 +250,7 @@ export default function TimeLogPage() {
   const onDelete = async (e: TimeEntryRow) => {
     const ok = await confirm({
       title: "Delete this entry?",
-      description: `${entryLabel(e)}, ${localClock(e.start_at)} to ${e.end_at ? localClock(e.end_at) : "now"}. This cannot be undone.`,
+      description: `${entryLabel(e)}, ${studioClock(e.start_at)} to ${e.end_at ? studioClock(e.end_at) : "now"}. This cannot be undone.`,
       actionLabel: "Delete",
       tone: "danger",
     });
@@ -326,7 +335,7 @@ export default function TimeLogPage() {
                     return (
                       <li key={e.id} className="flex flex-wrap items-center gap-3 px-4 py-2 text-sm" data-testid="time-entry">
                         <span className="w-28 shrink-0 tabular-nums text-muted-foreground">
-                          {localClock(e.start_at)} to {e.end_at ? localClock(e.end_at) : "now"}
+                          {studioClock(e.start_at)} to {e.end_at ? studioClock(e.end_at) : "now"}
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="font-medium" data-testid="time-entry-label">{entryLabel(e)}</span>

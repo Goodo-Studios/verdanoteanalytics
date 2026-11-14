@@ -29,11 +29,13 @@ vi.mock("@/integrations/supabase/client", () => ({
       from(table);
       return {
         select: () => {
-          const result = Promise.resolve({ data: tableRows(table), error: null });
-          return Object.assign(result, {
+          // Reads are paged (.order("id").range(...)); every range answers with the whole table.
+          const chain = (): Promise<unknown> =>
+            Object.assign(Promise.resolve({ data: tableRows(table), error: null }), { order: () => chain(), range: () => chain() });
+          return Object.assign(chain(), {
             eq: (col: string, val: string) => {
               eq(col, val);
-              return Promise.resolve({ data: tableRows(table), error: null });
+              return chain();
             },
           });
         },

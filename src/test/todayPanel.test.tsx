@@ -17,6 +17,7 @@ const h = vi.hoisted(() => ({
   decisions: [] as unknown[],
   builder: false,
   mutations: [] as Array<{ id: string; status: string }>,
+  failIds: new Set<string>(),
   toasts: [] as Array<{ msg: string; opts?: { action?: { label: string; onClick: () => void } } }>,
   runningTaskId: null as string | null,
   toggled: [] as string[],
@@ -37,7 +38,12 @@ vi.mock("@/hooks/useMyWork", () => ({
 }));
 vi.mock("@/hooks/useToday", () => ({
   useDoneTodayCount: () => ({ data: h.doneToday, isLoading: false, isError: false }),
-  useSetTaskStatus: () => ({ mutate: (v: { id: string; status: string }) => h.mutations.push(v) }),
+  useSetTaskStatus: () => ({
+    mutateAsync: (v: { id: string; status: string }) => {
+      h.mutations.push(v);
+      return h.failIds.has(v.id) ? Promise.reject(new Error("boom")) : Promise.resolve();
+    },
+  }),
 }));
 // OS-016: the person's Brain pages to review. The query itself is covered by supabase/tests/os_brain_review_test.sql.
 vi.mock("@/hooks/useBrainReview", () => ({
@@ -96,6 +102,7 @@ beforeEach(() => {
   h.decisions = [];
   h.builder = false;
   h.mutations = [];
+  h.failIds = new Set();
   h.toasts = [];
   h.runningTaskId = null;
   h.toggled = [];
@@ -171,6 +178,23 @@ describe("Today (OS-010)", () => {
     expect(h.mutations.at(-1)).toEqual({ id: "late", status: "editing" });
     expect(screen.getByTestId("today-next-title").textContent).toBe("Task late");
     expect(screen.getByTestId("today-progress-label").textContent).toBe("1 of 3 done today");
+  });
+
+  it("a failed update puts its task back even when another task was finished right after it", async () => {
+    vi.useFakeTimers();
+    h.failIds = new Set(["late"]);
+    renderPanel();
+    fireEvent.click(within(screen.getByTestId("today-next")).getByTestId("today-done"));
+    // Finish a second task before the first one has settled (the rows share one mutation).
+    const today = screen.getAllByTestId("today-list-item").find((el) => el.textContent?.includes("Task today"))!;
+    fireEvent.click(within(today).getByTestId("today-done"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SLIDE_MS + 10);
+    });
+    expect(h.toasts.some((t) => t.msg === "Could not mark it done: boom")).toBe(true);
+    // The failed task is back in view; the one that worked stays gone.
+    expect(screen.getByTestId("today-next-title").textContent).toBe("Task late");
+    expect(screen.queryByText("Task today")).toBeNull();
   });
 
   it("an item in the short list can be marked done too", () => {

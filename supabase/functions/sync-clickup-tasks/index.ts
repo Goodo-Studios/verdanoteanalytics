@@ -45,6 +45,10 @@ import {
 const CLICKUP_API = "https://api.clickup.com/api/v2";
 const MAX_PAGES_PER_LIST = 50; // 100 tasks per page
 const UPSERT_CHUNK = 500;
+// The authoritative delete is skipped when more than this share of the space's folders did not
+// resolve to a client. Real spaces carry a few non-client folders (internal, ended clients), so a
+// majority unmatched means the client list or the folder read is wrong, not that the board emptied.
+export const UNMATCHED_FOLDER_MAX_SHARE = 0.5;
 
 // The small part of the Supabase client this handler uses. Tests inject a
 // recording stand-in; production passes a real createClient().
@@ -288,10 +292,23 @@ export async function handler(
     // SAFETY: skipped when an upsert chunk failed OR when any client folder could
     // not be read. In both cases live rows still carry an old synced_at, and
     // deleting by timestamp would empty a client's board over a transient error.
+    //
+    // Also skipped when the run saw nothing or looks implausible, since a 200 from ClickUp with an
+    // empty or mostly unmatched folder list (a wrong space, an outage that answers 200, a token that
+    // lost access) would otherwise sweep every row: no folders at all, no folder matched, no record
+    // collected for either table, or more than UNMATCHED_FOLDER_MAX_SHARE of the folders unmatched.
     let deleted = 0;
-    const deleteSkipped = upsertFailed || failedFolders.length > 0;
+    const unmatchedShare = folders.length > 0 ? unmatchedFolders.length / folders.length : 1;
+    const collectedNothing = records.size === 0 && delivered.size === 0;
+    const implausible =
+      folders.length === 0 || matchedFolders === 0 || collectedNothing || unmatchedShare > UNMATCHED_FOLDER_MAX_SHARE;
+    const deleteSkipped = upsertFailed || failedFolders.length > 0 || implausible;
     if (deleteSkipped) {
-      console.warn("Skipping authoritative delete: this run was not clean.");
+      console.warn(
+        implausible && !upsertFailed && failedFolders.length === 0
+          ? `Skipping authoritative delete: the run saw too little to trust (folders ${folders.length}, matched ${matchedFolders}, unmatched ${unmatchedFolders.length}, board rows ${records.size}, delivered rows ${delivered.size}).`
+          : "Skipping authoritative delete: this run was not clean.",
+      );
     } else {
       const { error: deleteError, count } = await supabase
         .from("pipeline_tasks")

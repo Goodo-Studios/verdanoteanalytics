@@ -69,6 +69,16 @@ export const STAGE_MAP: Record<string, string> = {
 export const SKIP_STATUSES = new Set<string>(["stuck"]);
 
 export const LAUNCH_STAGE = "Ready to Launch";
+// The statuses in the launch stage that mean the work was delivered. The others in that stage
+// ("ready to transfer", "ready for launch") are approved and waiting.
+export const DELIVERED_STATUSES = new Set<string>(["complete"]);
+
+/** A ClickUp millisecond timestamp as a number, or null when it is missing, zero or not a number. */
+function positiveMs(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
 // Delivered work newer than this stays on the board (pipeline_tasks).
 export const LAUNCH_WINDOW_DAYS = 30;
 // Delivered work older than the window, up to this age, is kept in pipeline_delivered so past
@@ -394,11 +404,18 @@ export function toPipelineRecord(
 
   let deliveredMs: number | null = null;
   if (decision.stage === LAUNCH_STAGE) {
-    // The day it was finished: closed, else marked done, else last touched.
-    const finished = Number(task.date_closed ?? task.date_done ?? task.date_updated ?? NaN);
-    if (!Number.isFinite(finished) || finished <= 0) return { kind: "skip" };
-    if (finished < nowMs - DELIVERED_RETENTION_DAYS * DAY) return { kind: "skip" };
-    deliveredMs = finished;
+    // Delivered means a delivered status ("complete") or a real closed/done date. A task parked in
+    // "ready to transfer" or "ready for launch" with neither is approved, not delivered: it stays
+    // on the board however long it has been idle, and is never archived off its last-touched date.
+    const closed = positiveMs(task.date_closed) ?? positiveMs(task.date_done);
+    const inDeliveredStatus = DELIVERED_STATUSES.has((task.status?.status ?? "").trim().toLowerCase());
+    if (closed !== null || inDeliveredStatus) {
+      // The day it was finished: closed, else marked done, else (delivered status only) last touched.
+      const finished = closed ?? positiveMs(task.date_updated);
+      if (finished === null) return { kind: "skip" };
+      if (finished < nowMs - DELIVERED_RETENTION_DAYS * DAY) return { kind: "skip" };
+      deliveredMs = finished;
+    }
   }
 
   // Year for a month named in the task: nearest to the due date, else the delivery, else creation.

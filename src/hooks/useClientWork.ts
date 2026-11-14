@@ -1,16 +1,28 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { PIPELINE_TASK_COLUMNS } from "@/lib/pageQueries";
+import { fetchAllPages } from "@/lib/pagedSelect";
 import { sortByDue, type WorkTask } from "@/lib/clientWork";
 import type { DerivedTask } from "@/features/dashboard/model";
 
+type Page = PromiseLike<{ data: unknown; error: { message: string } | null }>;
 type Untyped = {
   from(table: string): {
     select(columns: string): {
-      eq(column: string, value: string): PromiseLike<{ data: unknown; error: { message: string } | null }>;
+      eq(column: string, value: string): { order(column: string): { range(from: number, to: number): Page } };
     };
   };
 };
+
+/** One client's rows from a table, in pages: one response is capped at 1000 rows. */
+function clientRows<T>(table: string, columns: string, clientSlug: string): Promise<T[]> {
+  const db = supabase as unknown as Untyped;
+  return fetchAllPages<T>(async (from, to) => {
+    const { data, error } = await db.from(table).select(columns).eq("client_slug", clientSlug).order("id").range(from, to);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as T[];
+  });
+}
 
 /**
  * The ClickUp cards for one client, by the client (client_slug), not by ad account. A client with no
@@ -23,9 +35,7 @@ export function useClientWork(clientSlug: string) {
     enabled: !!clientSlug,
     refetchInterval: 15 * 60 * 1000,
     queryFn: async () => {
-      const { data, error } = await (supabase as unknown as Untyped).from("pipeline_tasks").select(PIPELINE_TASK_COLUMNS).eq("client_slug", clientSlug);
-      if (error) throw new Error(error.message);
-      return sortByDue((data ?? []) as WorkTask[]);
+      return sortByDue(await clientRows<WorkTask>("pipeline_tasks", PIPELINE_TASK_COLUMNS, clientSlug));
     },
   });
 }
@@ -40,14 +50,11 @@ export function useClientDeliveryTasks(clientSlug: string) {
     enabled: !!clientSlug,
     refetchInterval: 15 * 60 * 1000,
     queryFn: async () => {
-      const db = supabase as unknown as Untyped;
       const [open, delivered] = await Promise.all([
-        db.from("pipeline_tasks").select("stage, cycle_month, due_date, delivered_at").eq("client_slug", clientSlug),
-        db.from("pipeline_delivered").select("cycle_month, delivered_at").eq("client_slug", clientSlug),
+        clientRows<DerivedTask>("pipeline_tasks", "stage, cycle_month, due_date, delivered_at", clientSlug),
+        clientRows<DerivedTask>("pipeline_delivered", "cycle_month, delivered_at", clientSlug),
       ]);
-      if (open.error) throw new Error(open.error.message);
-      if (delivered.error) throw new Error(delivered.error.message);
-      return { open: (open.data ?? []) as DerivedTask[], delivered: (delivered.data ?? []) as DerivedTask[] };
+      return { open, delivered };
     },
   });
 }

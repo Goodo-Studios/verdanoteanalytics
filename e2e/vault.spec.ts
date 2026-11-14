@@ -27,6 +27,26 @@ const VAULT_PATHS = {
   hooks: "/ad-library/hooks",
 } as const;
 
+// The Vault moved to its own menu item (src/lib/sections.ts, section "vault"). The old addresses
+// (/ad-library, /viral-feed, /creative/vault) still work but the app redirects them to
+// <role>/vault/library (src/lib/legacyRoutes.ts), so a page that has settled is on that address.
+const VAULT_LIBRARY_URL = /\/(ad-library|vault\/library|creative\/vault)/;
+const VAULT_LIBRARY_OR_VIRAL_URL = /\/(viral-feed|vault\/library|creative\/vault)/;
+
+/**
+ * Item cards in the Vault grid: the link inside each card (src/features/vault/components/
+ * InspirationCard.tsx) that points at the item detail page and holds its thumbnail or video.
+ * Do NOT match on class*='card': since the one solid page sheet (src/components/AppLayout.tsx,
+ * data-testid="app-sheet", class bg-card) every page is wrapped in an element whose class contains
+ * "card" and which contains the thumbnails, so a class match picks the whole page and clicking
+ * its centre does not open an item.
+ */
+function vaultItemCards(page: Page) {
+  return page
+    .locator("a[href*='/ad-library/']:not([href$='/boards']):not([href$='/hooks'])")
+    .filter({ has: page.locator("img, video, [class*='thumb']") });
+}
+
 async function loginAs(page: Page, email: string, password: string): Promise<string> {
   await page.goto("/login");
   await page.fill("#email", email);
@@ -100,7 +120,7 @@ test.describe("Vault features — authenticated golden path", () => {
 
     const prefix = await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
     await page.goto(`${prefix}/ad-library`);
-    await expect(page).toHaveURL(/\/(ad-library|creative\/vault)/);
+    await expect(page).toHaveURL(VAULT_LIBRARY_URL);
 
     // Either a content grid OR a recognisable empty state
     const content = page.locator(
@@ -120,7 +140,7 @@ test.describe("Vault features — authenticated golden path", () => {
 
     const prefix = await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
     await page.goto(`${prefix}/viral-feed`);
-    await expect(page).toHaveURL(/\/(viral-feed|creative\/vault)/);
+    await expect(page).toHaveURL(VAULT_LIBRARY_OR_VIRAL_URL);
 
     const content = page.locator(
       "[class*='grid'], [class*='card'], [class*='empty'], [class*='skeleton'], h1, h2"
@@ -202,11 +222,11 @@ test.describe("Vault features — authenticated golden path", () => {
     const prefix = await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
 
     await page.goto(`${prefix}/ad-library`);
-    await expect(page).toHaveURL(/\/(ad-library(?!\/)|creative\/vault(?!-))/);
+    await expect(page).toHaveURL(/\/(ad-library(?!\/)|vault\/library|creative\/vault(?!-))/);
     await expectNoErrorPage(page);
 
     await page.goto(`${prefix}/viral-feed`);
-    await expect(page).toHaveURL(/\/(viral-feed|creative\/vault)/);
+    await expect(page).toHaveURL(VAULT_LIBRARY_OR_VIRAL_URL);
     await expectNoErrorPage(page);
 
     await page.goto(`${prefix}/ad-library/boards`);
@@ -225,15 +245,12 @@ test.describe("Vault features — authenticated golden path", () => {
 
     const prefix = await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
     await page.goto(`${prefix}/ad-library`);
-    await expect(page).toHaveURL(/\/(ad-library|creative\/vault)/);
+    await expect(page).toHaveURL(VAULT_LIBRARY_URL);
 
     // Give the grid a moment to fetch
     await page.waitForTimeout(2_500);
 
-    const firstCard = page
-      .locator("a[href*='/ad-library/'], [role='link'][href*='/ad-library/'], [class*='card']")
-      .filter({ has: page.locator("img, video, [class*='thumb']") })
-      .first();
+    const firstCard = vaultItemCards(page).first();
 
     const cardCount = await firstCard.count();
     if (cardCount === 0) {
@@ -250,12 +267,13 @@ test.describe("Vault features — authenticated golden path", () => {
 
     // Detail page URL pattern: /:role/ad-library/:id
     // Or a modal/sheet may open instead — accept either
-    const detailUrlMatch = page.url().match(/\/ad-library\/[a-z0-9-]+/i);
+    // (Polled, because the router and a lazy detail page settle just after the click.)
     const modal = page.locator("[role='dialog'], [class*='modal' i], [class*='sheet' i]");
-    const hasDetailRoute = !!detailUrlMatch;
-    const hasModal = (await modal.count()) > 0;
-
-    expect(hasDetailRoute || hasModal).toBeTruthy();
+    await expect(async () => {
+      const hasDetailRoute = /\/ad-library\/[a-z0-9-]+/i.test(page.url());
+      const hasModal = (await modal.count()) > 0;
+      expect(hasDetailRoute || hasModal).toBeTruthy();
+    }).toPass({ timeout: 10_000 });
     await expectNoErrorPage(page);
   });
 });
@@ -469,14 +487,12 @@ test.describe("Vault — save analytics creative to global library (US-006)", ()
 
     // --- AC2: navigate to the global vault library and assert presence ---
     await page.goto(`${prefix}/ad-library`);
-    await expect(page).toHaveURL(/\/(ad-library|creative\/vault)/);
+    await expect(page).toHaveURL(VAULT_LIBRARY_URL);
     await page.waitForTimeout(2_500); // let the library grid fetch
 
     // The library is global; the just-saved item should render as a card with
     // media. We assert at least one item card is present (global read works).
-    const libraryItems = page
-      .locator("a[href*='/ad-library/'], [role='link'][href*='/ad-library/'], [class*='card']")
-      .filter({ has: page.locator("img, video, [class*='thumb']") });
+    const libraryItems = vaultItemCards(page);
     await expect(libraryItems.first()).toBeVisible({ timeout: 15_000 });
     await expectNoErrorPage(page);
 

@@ -9,10 +9,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { HOME_BUDGET_ALERT_COLUMNS, HOME_HANDOFF_COLUMNS, HOME_SUPPORT_COLUMNS, HOME_TASK_COLUMNS } from "@/lib/pageQueries";
+import { fetchAllPages } from "@/lib/pagedSelect";
 import { monthStartIso, type HomeBudgetAlert, type HomeHandoff, type HomeSupport, type HomeTask } from "@/lib/homeData";
 
 type Result = { data: unknown; error: { message: string } | null };
-type Query = PromiseLike<Result> & { eq(column: string, value: string): Query };
+type Query = PromiseLike<Result> & { eq(column: string, value: string): Query; order(column: string): Query; range(from: number, to: number): Query };
 type Untyped = { from(table: string): { select(columns: string): Query } };
 const db = () => supabase as unknown as Untyped;
 
@@ -20,6 +21,11 @@ async function rows<T>(q: PromiseLike<Result>): Promise<T[]> {
   const { data, error } = await q;
   if (error) throw new Error(error.message);
   return (data ?? []) as T[];
+}
+
+/** Every row, in pages: one response is capped at 1000 rows, and cards across all clients pass that. */
+function allRows<T>(make: () => Query): Promise<T[]> {
+  return fetchAllPages<T>((from, to) => rows<T>(make().order("id").range(from, to)));
 }
 
 /** True for a real staff login that is not previewing the client view. */
@@ -39,7 +45,7 @@ export function useAllWorkTasks() {
     queryKey: ["home", "tasks"],
     enabled,
     refetchInterval: REFRESH,
-    queryFn: () => rows<HomeTask>(db().from("pipeline_tasks").select(HOME_TASK_COLUMNS)),
+    queryFn: () => allRows<HomeTask>(() => db().from("pipeline_tasks").select(HOME_TASK_COLUMNS)),
   });
 }
 

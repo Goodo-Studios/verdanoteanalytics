@@ -3,11 +3,11 @@
 // checked database function edit_knowledge_source (migration 20261207080001) and the page shows it
 // at once. A builder adds new sources. Clients see none of it. The older request-a-change flow
 // (corrections, reviews, publish, rollback) is no longer shown; its tables and functions are kept.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
+import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField, TextField, TextareaField, useConfirm } from "@/components/page-kit";
 import { DocumentEditor } from "./DocumentEditor";
 import { Button } from "@/components/ui/button";
 import { currentVersion, errorText, type KnowledgeSource, matchesSearch, toSources } from "./model";
@@ -70,7 +70,7 @@ function AddSource({ clients, onAdded }: { clients: ClientOption[]; onAdded: () 
   );
 }
 
-function SourceDetail({ source, onChanged }: { source: KnowledgeSource; onChanged: () => Promise<void> }) {
+function SourceDetail({ source, onChanged, onDirtyChange }: { source: KnowledgeSource; onChanged: () => Promise<void>; onDirtyChange: (dirty: boolean) => void }) {
   const current = currentVersion(source);
   const [editing, setEditing] = useState(false);
 
@@ -95,7 +95,7 @@ function SourceDetail({ source, onChanged }: { source: KnowledgeSource; onChange
         {editing ? null : <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit</Button>}
       </div>
       {editing ? (
-        <DocumentEditor initialText={current?.body ?? ""} onSave={save} onCancel={() => setEditing(false)} />
+        <DocumentEditor initialText={current?.body ?? ""} onSave={save} onCancel={() => setEditing(false)} onDirtyChange={onDirtyChange} />
       ) : (
         <div className="prose max-w-none text-sm" data-testid="knowledge-current-body">
           <ReactMarkdown>{current?.body ?? ""}</ReactMarkdown>
@@ -112,6 +112,17 @@ export default function KnowledgePage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const dirty = useRef(false);
+  const { confirm, dialog } = useConfirm();
+
+  // Opening another document would reset the editor, so ask first when there are unsaved edits.
+  const select = async (id: string) => {
+    if (id !== selected && dirty.current) {
+      const ok = await confirm({ title: "Discard your changes?", description: "You have unsaved edits to this document. Opening another one throws them away.", actionLabel: "Discard changes" });
+      if (!ok) return;
+    }
+    setSelected(id);
+  };
 
   const load = useCallback(async () => {
     const { data, error: e } = await db
@@ -121,9 +132,13 @@ export default function KnowledgePage() {
       .order("version", { ascending: false, referencedTable: VERSIONS })
       .limit(1, { referencedTable: VERSIONS });
     if (e) {
+      // Keep what is already on screen; an empty list would hide every document.
       setError("Knowledge could not load.");
-      setSources([]);
-    } else setSources(toSources(data));
+      setSources((prev) => prev ?? []);
+    } else {
+      setError(null);
+      setSources(toSources(data));
+    }
   }, []);
 
   useEffect(() => {
@@ -141,20 +156,21 @@ export default function KnowledgePage() {
       <PageHeader title="Knowledge" description="Shared Goodo knowledge. Open a document and press Edit to add to it or remove from it. Your change shows right away." />
       {isBuilder ? <AddSource clients={clients} onAdded={() => void load()} /> : null}
       <FilterBar search={{ value: query, onChange: setQuery, label: "Search knowledge", placeholder: "Search" }} />
-      {error ? <ErrorState message={error} onRetry={() => { setError(null); setSources(null); void load(); }} /> : null}
+      {error ? <ErrorState message={error} onRetry={() => { setError(null); void load(); }} /> : null}
       {sources === null ? <LoadingState label="Loading knowledge" /> : null}
       {sources && !error && visible.length === 0 ? <EmptyState title={sources.length ? "Nothing matches." : "No knowledge has been added yet."} /> : null}
       <ul className="space-y-1">
         {visible.map((s) => (
           <li key={s.id}>
-            <button type="button" className={`w-full rounded border px-3 py-2 text-left text-sm ${s.id === selected ? "border-foreground" : "border-input"}`} onClick={() => setSelected(s.id)}>
+            <button type="button" className={`w-full rounded border px-3 py-2 text-left text-sm ${s.id === selected ? "border-foreground" : "border-input"}`} onClick={() => void select(s.id)}>
               <span className="font-medium">{s.title}</span>
               <span className="text-muted-foreground"> · {s.release_scope === "client" ? s.client_slug : "all clients"}</span>
             </button>
           </li>
         ))}
       </ul>
-      {active ? <SourceDetail key={active.id} source={active} onChanged={load} /> : null}
+      {active ? <SourceDetail key={active.id} source={active} onChanged={load} onDirtyChange={(d) => { dirty.current = d; }} /> : null}
+      {dialog}
     </PageShell>
   );
 }
