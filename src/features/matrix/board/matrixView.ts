@@ -28,7 +28,7 @@ export const VIEW_MODES: ViewModeMeta[] = [
   { key: "performance", label: "Performance" },
   { key: "coverage", label: "Coverage" },
   { key: "volume", label: "Volume" },
-  { key: "winrate", label: "Win rate" },
+  { key: "winrate", label: "Share of theme spend" },
 ];
 
 // Brand verdant green (#1B7A4E) as an rgb triple, so we can vary alpha by spend.
@@ -72,7 +72,7 @@ export function tagLabel(value: string | null): string {
  * whitespace (no ads in that type×theme combo).
  *
  * `themeSpend` is the total spend of this cell's Theme column, used by the
- * win-rate mode: the share of the theme's spend won by this Creative Type,
+ * share-of-theme-spend mode (internal id "winrate"): the share of the theme's spend won by this Creative Type,
  * derived PURELY from spend (never ROAS).
  */
 export function cellDisplay(

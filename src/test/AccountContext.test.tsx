@@ -9,7 +9,7 @@
 // previously stored account — that silent fallback is exactly the bug this
 // story closes.
 
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Account } from "@/types/account";
@@ -22,6 +22,9 @@ const h = vi.hoisted(() => ({
   isClient: false,
   userId: "user_1" as string | null,
   linkedAccountIds: [] as string[],
+  linkedError: false,
+  linkedGate: null as Promise<void> | null,
+  linkedCalls: 0,
 }));
 
 vi.mock("@/hooks/useAccountsApi", () => ({
@@ -36,11 +39,12 @@ vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     from: () => ({
       select: () => ({
-        eq: () =>
-          Promise.resolve({
-            data: h.linkedAccountIds.map((account_id) => ({ account_id })),
-            error: null,
-          }),
+        eq: async () => {
+          h.linkedCalls += 1;
+          if (h.linkedGate) await h.linkedGate;
+          if (h.linkedError) return { data: null, error: { message: "network down" } };
+          return { data: h.linkedAccountIds.map((account_id) => ({ account_id })), error: null };
+        },
       }),
     }),
   },
@@ -49,9 +53,11 @@ vi.mock("@/integrations/supabase/client", () => ({
 import { AccountProvider, useAccountContext } from "@/contexts/AccountContext";
 
 function Harness() {
-  const { selectedAccountId, accountAccessError } = useAccountContext();
+  const { selectedAccountId, accountAccessError, accounts, isLoading } = useAccountContext();
   return (
     <div>
+      <span data-testid="accounts">{accounts.map((a) => a.id).join(",") || "none"}</span>
+      <span data-testid="loading">{String(isLoading)}</span>
       <span data-testid="selected">{selectedAccountId ?? "∅"}</span>
       <span data-testid="error">{String(accountAccessError)}</span>
     </div>
@@ -74,6 +80,9 @@ beforeEach(() => {
   h.isClient = false;
   h.userId = "user_1";
   h.linkedAccountIds = [];
+  h.linkedError = false;
+  h.linkedGate = null;
+  h.linkedCalls = 0;
 });
 afterEach(() => cleanup());
 
@@ -114,5 +123,83 @@ describe("AccountProvider — ?account= deep-link contract (US-008)", () => {
 
     expect(await screen.findByTestId("account-access-denied")).toBeInTheDocument();
     expect(screen.queryByTestId("selected")).not.toBeInTheDocument();
+  });
+});
+
+describe("AccountProvider: a client's linked accounts (second-round audit L6)", () => {
+  beforeEach(() => {
+    h.isClient = true;
+    h.linkedAccountIds = ["acc_a"];
+  });
+
+  it("a failed linked-accounts fetch shows an error with a retry, not a spinner, and retry recovers", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    h.linkedError = true;
+    renderAt("/client/overview");
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("could not load your accounts");
+    expect(screen.queryByTestId("selected")).not.toBeInTheDocument();
+
+    h.linkedError = false;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(screen.getByTestId("accounts")).toHaveTextContent("acc_a"));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(h.linkedCalls).toBe(2);
+    vi.restoreAllMocks();
+  });
+
+  it("shows a client no accounts at all until the linked ids are known", async () => {
+    let release!: () => void;
+    h.linkedGate = new Promise<void>((resolve) => { release = resolve; });
+    renderAt("/client/overview");
+
+    expect(screen.getByTestId("accounts")).toHaveTextContent("none");
+    expect(screen.getByTestId("loading")).toHaveTextContent("true");
+
+    await act(async () => { release(); });
+    await waitFor(() => expect(screen.getByTestId("accounts")).toHaveTextContent("acc_a"));
+    expect(screen.getByTestId("accounts")).not.toHaveTextContent("acc_b");
+  });
+
+  it("rejects ?account=all for a client", async () => {
+    renderAt("/client/overview?account=all");
+    expect(await screen.findByTestId("account-access-denied")).toBeInTheDocument();
+    expect(screen.queryByTestId("selected")).not.toBeInTheDocument();
+  });
+
+  it("ignores a stored 'all' selection for a client", async () => {
+    localStorage.setItem("selectedAccountId_user_1", "all");
+    renderAt("/client/overview");
+    await waitFor(() => expect(screen.getByTestId("selected")).toHaveTextContent("acc_a"));
+  });
+
+  it("still lets staff use ?account=all", async () => {
+    h.isClient = false;
+    renderAt("/builder/overview?account=all");
+    expect(await screen.findByTestId("selected")).toHaveTextContent("all");
+  });
+
+  it("drops the previous user's linked ids when the user changes", async () => {
+    let release!: () => void;
+    const view = renderAt("/client/overview");
+    await waitFor(() => expect(screen.getByTestId("accounts")).toHaveTextContent("acc_a"));
+
+    // A different client signs in. Their lookup is held open: they must not inherit user_1's ids.
+    h.userId = "user_2";
+    h.linkedAccountIds = ["acc_b"];
+    h.linkedGate = new Promise<void>((resolve) => { release = resolve; });
+    view.rerender(
+      <MemoryRouter initialEntries={["/client/overview"]}>
+        <AccountProvider>
+          <Harness />
+        </AccountProvider>
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId("accounts")).toHaveTextContent("none");
+
+    await act(async () => { release(); });
+    await waitFor(() => expect(screen.getByTestId("accounts")).toHaveTextContent("acc_b"));
+    expect(screen.getByTestId("accounts")).not.toHaveTextContent("acc_a");
   });
 });

@@ -9,7 +9,9 @@
 //   - the token is hashed here and the database looks the hash up (see the public_links migration);
 //   - a malformed token, an unknown token and a token of another link type all answer the same 404;
 //   - a revoked or expired link answers 410 to a holder of a real token only;
-//   - every call is limited per address and per token, and writes per address, before any work;
+//   - every call is limited per address and per token, and writes per address, before any work
+//     (photo signing for a well formed token skips the per-address limit because a board page asks
+//     once per photo; the per-token limit still applies);
 //   - the body is capped at 8 KB by bytes read;
 //   - the only tables it can touch are through service-only functions that scope to the token's own
 //     link and write only the vote table for that link type.
@@ -24,7 +26,7 @@ import {
   notFound,
   readJsonBody,
 } from "../_shared/public-link.ts";
-import { castVote, getBoard, getPhoto, type BoardKind } from "../_shared/public-board.ts";
+import { castVote, getBoard, getPhoto, validTokenMisses, type BoardKind } from "../_shared/public-board.ts";
 import { getCallSheet, getLocationBoard } from "../_shared/public-sheet.ts";
 
 const BOARD_TYPES: Record<string, BoardKind> = { approval: "approval", casting: "casting" };
@@ -53,7 +55,7 @@ export async function handler(req: Request, injectedDb?: any): Promise<Response>
   const ip = await clientKey(req);
   const tokenHash = await hashToken(body.token);
 
-  const limited = await checkRequestLimits(db, ip, tokenHash, isWrite);
+  const limited = await checkRequestLimits(db, ip, tokenHash, isWrite, undefined, action === "photo");
   if (limited) return limited;
   if (!tokenHash) {
     await countMiss(db, ip);
@@ -68,7 +70,8 @@ export async function handler(req: Request, injectedDb?: any): Promise<Response>
     else if (action === "get") res = await getBoard(db, kind, tokenHash, countOpen);
     else if (action === "vote") res = await castVote(db, kind, tokenHash, body);
     else res = await getPhoto(db, kind, tokenHash, body);
-    if (res.status === 404) await countMiss(db, ip);
+    // A missing photo behind a real token is not a guess at a token, so it is not a miss.
+    if (res.status === 404 && !validTokenMisses.has(res)) await countMiss(db, ip);
     return res;
   } catch {
     return jsonResponse({ error: "server_error" }, 500);

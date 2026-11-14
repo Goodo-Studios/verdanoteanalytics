@@ -37,11 +37,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Quick Add" />
 
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <!-- Non-blocking font load: media="print" prevents render-blocking; onload swaps to "all" -->
-    <link href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Display&family=Crimson+Pro:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-    <noscript><link href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Display&family=Crimson+Pro:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet"></noscript>
+    <!-- Fonts are served from /fonts (src/styles/goodo-os-fonts.css, imported by main.tsx), like
+         index.html. The CSP blocks Google Fonts, so nothing here loads from another origin. -->
+    <link rel="preload" href="/fonts/instrument-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="/fonts/instrument-serif-italic-latin.woff2" as="font" type="font/woff2" crossorigin>
     <title>Quick add · Verdanote</title>
     <meta name="description" content="Save a link or a photo straight into the Verdanote Creative Vault." />
     <meta name="author" content="Verdanote" />

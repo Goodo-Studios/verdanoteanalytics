@@ -7,6 +7,15 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Always name the target project. Without --project-ref the CLI deploys to whichever project this
+# checkout happens to be linked to, which can be production when staging was meant (or the reverse).
+if [[ -z "${SUPABASE_PROJECT_ID:-}" ]]; then
+  echo "SUPABASE_PROJECT_ID is not set. Set it to the project ref you mean to deploy to, for example:" >&2
+  echo "  SUPABASE_PROJECT_ID=<project-ref> ./scripts/deploy-functions.sh" >&2
+  echo "Nothing was deployed." >&2
+  exit 1
+fi
+
 FUNCTIONS=(
   accounts
   account-taxonomy
@@ -106,13 +115,8 @@ FAILED_NAMES=()
 echo "Deploying $TOTAL edge functions..."
 echo ""
 
-DEPLOY_ARGS=()
-if [[ -n "${SUPABASE_PROJECT_ID:-}" ]]; then
-  DEPLOY_ARGS=(--project-ref "$SUPABASE_PROJECT_ID")
-fi
-
 for fn in "${FUNCTIONS[@]}"; do
-  if supabase functions deploy "$fn" --yes "${DEPLOY_ARGS[@]+"${DEPLOY_ARGS[@]}"}" 2>&1; then
+  if supabase functions deploy "$fn" --yes --project-ref "$SUPABASE_PROJECT_ID" 2>&1; then
     echo "✓ $fn"
     ((PASSED++)) || true
   else

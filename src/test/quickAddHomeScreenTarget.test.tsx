@@ -115,7 +115,12 @@ describe("quick-add document: no manifest, so iOS bookmarks this URL", () => {
     expect(quickAddMarkup).toMatch(/<link rel="icon"[^>]+href="\/favicon\.png"/);
     expect(quickAddMarkup).toMatch(/<link rel="icon"[^>]+href="\/favicon\.ico"/);
     expect(quickAddMarkup).toMatch(/<meta[^>]+name="theme-color"[^>]+content="#1B7A4E"/);
-    expect(quickAddMarkup).toContain("fonts.googleapis.com");
+    // Fonts are self-hosted like index.html: the CSP forbids Google Fonts, and an inline onload
+    // handler would be blocked too.
+    expect(quickAddMarkup).not.toMatch(/fonts\.(googleapis|gstatic)\.com/);
+    expect(quickAddMarkup).not.toMatch(/\sonload=/);
+    expect(quickAddMarkup).toMatch(/<link rel="preload" href="\/fonts\/instrument-sans-latin\.woff2"/);
+    expect(quickAddMarkup).toMatch(/<link rel="preload" href="\/fonts\/instrument-serif-italic-latin\.woff2"/);
   });
 });
 

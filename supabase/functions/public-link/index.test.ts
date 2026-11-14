@@ -32,6 +32,10 @@ interface FakeOpts {
   /** Rate limit keys (prefix) that answer false. */
   limited?: string[];
   people?: unknown[];
+  /** Answer of public_board_media (default: a photo on the board). */
+  media?: Record<string, unknown>;
+  /** Answer of the null-argument token probe on public_board_vote. */
+  probe?: string;
 }
 
 function fakeDb(opts: FakeOpts = {}) {
@@ -60,9 +64,12 @@ function fakeDb(opts: FakeOpts = {}) {
         if (status !== "ok") return Promise.resolve({ data: { status }, error: null });
         return Promise.resolve({ data: name === "public_call_sheet_get" ? SHEET : LOCATIONS, error: null });
       }
-      if (name === "public_board_vote") return Promise.resolve({ data: opts.voteAnswer ?? "ok", error: null });
+      if (name === "public_board_vote") {
+        const answer = args.p_assignment_id === null && opts.probe ? opts.probe : opts.voteAnswer ?? "ok";
+        return Promise.resolve({ data: answer, error: null });
+      }
       if (name === "public_board_media") {
-        return Promise.resolve({ data: { status: "ok", bucket: "creator-family-pet-photos", path: "c1/p1.jpg" }, error: null });
+        return Promise.resolve({ data: opts.media ?? { status: "ok", bucket: "creator-family-pet-photos", path: "c1/p1.jpg" }, error: null });
       }
       return Promise.resolve({ data: null, error: { message: "unexpected" } });
     },
@@ -173,6 +180,43 @@ Deno.test("photo returns a signed address for a photo on the board", async () =>
   const res = await mod.handler(req({ type: "approval", action: "photo", token: TOKEN, kind: "photo", id: UUID }), fakeDb());
   assertEquals(res.status, 200);
   assertEquals((await res.json()).url, "https://signed.example/creator-family-pet-photos/c1/p1.jpg");
+});
+
+const missCount = (db: ReturnType<typeof fakeDb>) =>
+  db.calls.filter((c) => c.name === "public_link_rate_hit" && String(c.args.p_key).startsWith("miss:") && c.args.p_cost === 1).length;
+const photoReq = () => req({ type: "approval", action: "photo", token: TOKEN, kind: "photo", id: UUID });
+
+Deno.test("a missing photo on a valid token is 404 but not counted as a miss", async () => {
+  const db = fakeDb({ media: { status: "not_found" }, probe: "invalid" });
+  const res = await mod.handler(photoReq(), db);
+  assertEquals(res.status, 404);
+  assertEquals((await res.json()).error, "not_found");
+  assertEquals(missCount(db), 0);
+});
+
+Deno.test("a photo whose storage object cannot be signed is 404 and not a miss", async () => {
+  const db = fakeDb();
+  db.storage.from = () => ({ createSignedUrls: () => Promise.resolve({ data: [], error: null }) });
+  const res = await mod.handler(photoReq(), db);
+  assertEquals(res.status, 404);
+  assertEquals(missCount(db), 0);
+});
+
+Deno.test("a photo request with an unknown token is the same 404 and is counted as a miss", async () => {
+  const db = fakeDb({ media: { status: "not_found" }, probe: "not_found" });
+  const res = await mod.handler(photoReq(), db);
+  assertEquals(res.status, 404);
+  assertEquals((await res.json()).error, "not_found");
+  assertEquals(missCount(db), 1);
+});
+
+Deno.test("photo signing for a real token skips the per-address limit but keeps the per-token limit", async () => {
+  const ipBlocked = fakeDb({ limited: ["ip:"] });
+  assertEquals((await mod.handler(photoReq(), ipBlocked)).status, 200);
+  assert(!ipBlocked.calls.some((c) => String(c.args.p_key ?? "").startsWith("ip:")));
+  assertEquals((await mod.handler(photoReq(), fakeDb({ limited: ["tok:"] }))).status, 429);
+  // Other actions still count against the address.
+  assertEquals((await mod.handler(req({ type: "approval", action: "get", token: TOKEN }), fakeDb({ limited: ["ip:"] }))).status, 429);
 });
 
 Deno.test("an oversized payload is 413", async () => {
