@@ -40,7 +40,7 @@ Migration `20261120080001_os_clickup_live_copy.sql` and two functions copy every
 
 ### OS-017: app changes written back to ClickUp (off by default)
 
-Migration `20261130080001_os_clickup_writeback.sql` queues every status, due date, strategist, producer and editor change, comment and client decision made in the app in `os_clickup_outbox`. Changes written by the ClickUp sync or webhook (service role) are never queued. The function `clickup-writeback` (service role only, every minute from the cron job `clickup-writeback-every-minute` in production; staging has no cron) sends them.
+Migration `20261130080001_os_clickup_writeback.sql` queues every status, due date, strategist, producer and editor change, comment and client decision made in the app in `os_clickup_outbox`. Migration `20261207080002_os_task_clickup_fields.sql` adds four more kinds to the same queue (see "What the task modal queues" below). Changes written by the ClickUp sync or webhook (service role) are never queued. The function `clickup-writeback` (service role only, every minute from the cron job `clickup-writeback-every-minute` in production; staging has no cron) sends them.
 
 **Write-back is off.** Nothing in the repo, CI or the deploy scripts turns it on. While off, each run marks queued rows `held` and does not call ClickUp. Integration health shows "Write-back is off" to builders, with the counts, failures and clashes.
 
@@ -57,7 +57,29 @@ To turn it off again, unset `CLICKUP_WRITEBACK_ENABLED` (or set it to anything b
 
 How it behaves when on: a change older than ClickUp's own last change to the same field is a clash, ClickUp's value is kept and the app row takes it; a later app change is written. Both are logged in `os_clickup_clashes`. A failed write retries after 1, 5, 15 and 60 minutes, then shows as failed. A 429 waits for ClickUp's reset time. The webhook ignores the echo of our own write, and our own comments are never imported back. Client decisions are written as a ClickUp comment; the status is not moved by a decision.
 
-Tests: `supabase/tests/os_clickup_writeback_test.sql`, `supabase/functions/_shared/os-clickup-writeback.test.ts`, `supabase/functions/clickup-writeback/index.test.ts`, the OS-017 cases in `supabase/functions/clickup-webhook/index.test.ts`, `src/test/clickupWritebackSection.test.tsx`. None of them calls ClickUp.
+#### What the task modal queues (still off)
+
+The task modal (My work and Work rows) shows everything ClickUp holds for the task and edits it in place. The sync and webhook now also store the markdown description, priority, start date, tags, creator, creation date, time estimate and every custom field (`os_tasks.clickup_fields`, one entry per field with its type, canonical text and choices). The task reads for the sync and webhook ask ClickUp for `include_markdown_description=true`. Staff only: clients read no `os_tasks` row and `os_client_task_cards()` returns none of the new columns.
+
+An edit made in the app is queued in `os_clickup_outbox` when the task comes from ClickUp, is not read-only, and the change is made by a signed-in user (not by the sync):
+
+| Edit in the modal | Queued kind and field | Written to ClickUp as |
+| --- | --- | --- |
+| Status | `status` | `PUT /task/{id} {status}` (existing) |
+| Due date | `due_date` | `PUT /task/{id} {due_date}` (existing) |
+| Strategist, producer, editor | `assignees` | people field add / remove (existing) |
+| Brief (ClickUp description) | `description` | `PUT /task/{id} {markdown_description}` |
+| Priority | `priority` | `PUT /task/{id} {priority: 1..4 or null}` |
+| Start date | `start_date` | `PUT /task/{id} {start_date}` |
+| Any text, link, email, phone, number, currency, date, drop-down or checkbox custom field (content type, link to asset, hooks, brief type, brief due, cut dates, edit due, production date, brief handed off and any other) | `custom_field`, field `cf:<ClickUp field id>` | `POST /task/{id}/field/{field id} {value}`, or `DELETE` of the value when cleared |
+
+Not queued: tags, creator, creation date, time estimate, list and ClickUp assignees (shown only), and custom fields of the people, label, task, attachment, formula or rating types (shown, not edited). Comments and client decisions are queued as before.
+
+All of the guards above are unchanged: every row is held while `CLICKUP_WRITEBACK_ENABLED` is not `true`, only lists in `CLICKUP_WRITEBACK_LIST_IDS` are written, the staging write guard applies, ClickUp is read first so a later change in ClickUp wins a clash, and a webhook event keeps the app's value for any field with a change still waiting. **Write-back is still off.** Nothing in this change sets a secret, turns it on or calls ClickUp.
+
+Deploy order: apply migration `20261207080002_os_task_clickup_fields.sql` before deploying `clickup-os-sync` and `clickup-webhook`, because they now write the new columns and an upsert to a database without them fails.
+
+Tests: `supabase/tests/os_clickup_writeback_test.sql`, `supabase/tests/os_task_clickup_fields_test.sql`, `supabase/functions/_shared/os-clickup-writeback.test.ts`, `supabase/functions/clickup-writeback/index.test.ts`, the OS-017 cases in `supabase/functions/clickup-webhook/index.test.ts`, `src/test/clickupWritebackSection.test.tsx`, `src/test/taskModalFields.test.tsx`, `src/test/taskFields.test.ts`, `src/test/taskEditHooks.test.tsx`. None of them calls ClickUp.
 - **The site is behind a password.** `middleware.ts` asks for a shared password when the Vercel project has `STAGING_SITE=1`. If the password variable is missing it answers 503 instead of opening up. On production the file does nothing.
 - **Test logins only.** The four logins below are made up and exist only in staging. The demo ad account `act_demo_glowdrip` comes from `scripts/seed-demo-account.mjs`, and the `demo-` clients from `scripts/seed-staging-dashboard.mjs`.
 - **Staging holds real old-dashboard rows.** Before step 5a, rows were loaded from the old dashboard into staging, with no recorded run: 27 clients (the `demo-` ones included), 816 creators (796 email addresses), 253 creator assignments, 30 approval boards (their tokens still open live boards on the old dashboard), 80 applications, 20 shoots and 4 staff `app_users` rows, plus actor and applicant rows with emails, phone numbers and shipping addresses. They are staff only: client logins read none of them (pgTAP and both wall scripts check it). No Verdanote production data is copied into staging. Whether to keep these rows or remove them and keep only the `demo-` clients is open decision 10 in the plan; nothing has removed them.

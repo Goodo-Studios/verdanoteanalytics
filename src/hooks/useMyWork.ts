@@ -82,6 +82,26 @@ export interface TaskDetail {
   stuck_reason: string | null;
   /** The ClickUp content type, used to link the task to its Brain playbook section (OS-026). */
   content_type?: string | null;
+  /** Null for a task made in the app: its brief lives in `brief`, not in the ClickUp description. */
+  clickup_task_id?: string | null;
+  /** ClickUp's description: markdown first, plain text as the older copy. */
+  description_markdown?: string | null;
+  due_date?: string | null;
+  start_date?: string | null;
+  /** urgent, high, normal or low. */
+  priority?: string | null;
+  strategist_id?: string | null;
+  producer_id?: string | null;
+  editor_id?: string | null;
+  raw_status?: string | null;
+  clickup_list_name?: string | null;
+  assignees?: Array<{ id?: string; username?: string | null; email?: string | null }> | null;
+  clickup_tags?: string[] | null;
+  clickup_created_at?: string | null;
+  clickup_creator?: { username?: string | null; email?: string | null } | null;
+  time_estimate_ms?: number | null;
+  /** Every ClickUp custom field of the task (os_tasks.clickup_fields). */
+  clickup_fields?: unknown;
 }
 
 export interface TaskComment {
@@ -100,7 +120,10 @@ export interface StatusChange {
   changed_at: string;
 }
 
-const DETAIL_COLUMNS = "id, brief, description, asset_url, clickup_url, hooks, qa_checklist, stuck_reason, content_type";
+const DETAIL_COLUMNS =
+  "id, brief, description, asset_url, clickup_url, hooks, qa_checklist, stuck_reason, content_type, clickup_task_id, " +
+  "description_markdown, due_date, start_date, priority, strategist_id, producer_id, editor_id, raw_status, clickup_list_name, " +
+  "assignees, clickup_tags, clickup_created_at, clickup_creator, time_estimate_ms, clickup_fields";
 
 /** The side panel's details, loaded only when a row opens. Three requests in parallel. */
 export function useTaskDetail(taskId: string | null) {

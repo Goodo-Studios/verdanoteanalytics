@@ -75,12 +75,33 @@ function fakeCu(tasks: Record<string, Row>, opts: { fail?: Record<string, { stat
     if (method === "PUT" && !m[2]) {
       if (body && "status" in body) task.status = { status: body.status };
       if (body && "due_date" in body) task.due_date = body.due_date === null ? null : String(body.due_date);
+      if (body && "start_date" in body) task.start_date = body.start_date === null ? null : String(body.start_date);
+      if (body && "markdown_description" in body) {
+        task.markdown_description = body.markdown_description;
+        task.text_content = body.markdown_description;
+      }
+      if (body && "priority" in body) {
+        task.priority = body.priority === null ? null : { priority: ["", "urgent", "high", "normal", "low"][Number(body.priority)] };
+      }
       task.date_updated = String(clock += 1000);
       return ok(task);
     }
     if (method === "POST" && m[2] === "/comment") {
       task.date_updated = String(clock += 1000);
       return ok({ id: `cu-comment-${++commentN}`, date: clock });
+    }
+    if (method === "DELETE" && m[3]) {
+      const field = (task.custom_fields as Row[]).find((f) => f.id === m[3]);
+      if (field) field.value = null;
+      task.date_updated = String(clock += 1000);
+      return ok({});
+    }
+    const isPeopleWrite = !!body?.value && typeof body.value === "object" && ("add" in body.value || "rem" in body.value);
+    if (method === "POST" && m[3] && !isPeopleWrite) {
+      const field = (task.custom_fields as Row[]).find((f) => f.id === m[3]);
+      if (field) field.value = body?.value;
+      task.date_updated = String(clock += 1000);
+      return ok({});
     }
     if (method === "POST" && m[3]) {
       const field = (task.custom_fields as Row[]).find((f) => f.id === m[3]);
@@ -500,4 +521,234 @@ Deno.test("echo: the sync never imports a comment the app wrote to ClickUp", asy
   const res = await upsertComments(db.supabase, [row("cu-comment-1"), row("cu-comment-2")]);
   assertEquals(res.failed, false);
   assertEquals(db.table("os_task_comments").map((c) => c.clickup_comment_id), ["cu-comment-2"]);
+});
+
+// ------------------------------------------------------------------ brief, priority, start date, custom fields
+
+const TYPE_ID = FIELDS.contentType.id;
+const typeField = (value: unknown = 0): Row => ({
+  id: TYPE_ID,
+  name: "Type of Content",
+  type: "drop_down",
+  value,
+  type_config: {
+    options: [
+      { id: "opt-hook", name: "Hook", orderindex: 0 },
+      { id: "opt-ugc", name: "UGC", orderindex: 1 },
+      { id: "opt-testimonial", name: "Testimonial", orderindex: 2 },
+    ],
+  },
+});
+const withFields = (...extra: Row[]) => cuTask("t1", { custom_fields: [...(cuTask("t1").custom_fields as Row[]), ...extra] });
+const cfRow = (id: string, from: string | null, to: string | null, over: Row = {}) =>
+  outbox({ kind: "custom_field", field: `cf:${id}`, payload: { from, to }, ...over });
+
+Deno.test("description: PUT markdown_description, marked sent", async () => {
+  const row = outbox({ kind: "description", field: "description", payload: { from: "Old brief", to: "New brief" } });
+  const db = setup([row]);
+  const cu = fakeCu({ t1: cuTask("t1", { markdown_description: "Old brief", text_content: "Old brief" }) });
+  await runWriteback(db.supabase, envOf(ON), cu.fetch, NOW);
+  assertEquals(cu.writes(), [{ method: "PUT", path: "/task/t1", body: { markdown_description: "New brief" } }]);
+  assertEquals(one(db, row.id).state, "sent");
+  assertEquals(db.table("os_clickup_clashes").length, 0);
+});
+
+Deno.test("description: a task copied before the markdown column existed (plain text only) is not a clash", async () => {
+  const row = outbox({ kind: "description", field: "description", payload: { from: "Old brief", to: "New brief" } });
+  const db = setup([row]);
+  const cu = fakeCu({ t1: cuTask("t1", { markdown_description: "**Old** brief", text_content: "Old brief" }) });
+  await runWriteback(db.supabase, envOf(ON), cu.fetch, NOW);
+  assertEquals(cu.writes().length, 1);
+  assertEquals(one(db, row.id).state, "sent");
+  assertEquals(db.table("os_clickup_clashes").length, 0);
+});
+
+Deno.test("description: clearing the brief writes an empty description", async () => {
+  const row = outbox({ kind: "description", field: "description", payload: { from: "Old brief", to: null } });
+  const db = setup([row]);
+  const cu = fakeCu({ t1: cuTask("t1", { markdown_description: "Old brief", text_content: "Old brief" }) });
+  await runWriteback(db.supabase, envOf(ON), cu.fetch, NOW);
+  assertEquals(cu.writes()[0].body, { markdown_description: "" });
+});
+
+Deno.test("description clash, ClickUp later: ClickUp's text is kept and copied into the app", async () => {
+  const row = outbox({ kind: "description", field: "description", payload: { from: "Old brief", to: "My brief" }, app_changed_at: BEFORE(5) });
+  const db = setup([row]);
+  const cu = fakeCu({
+    t1: cuTask("t1", { markdown_description: "Their brief", text_content: "Their brief", date_updated: String(Date.parse(BEFORE(2))) }),
+  });
+  await runWriteback(db.supabase, envOf(ON), cu.fetch, NOW);
+  assertEquals(cu.writes().length, 0);
+  assertEquals(one(db, row.id).state, "clash");
+  const t = db.table("os_tasks").find((x) => x.id === "app-t1")!;
+  assertEquals([t.description_markdown, t.description], ["Their brief", "Their brief"]);
+  assertEquals(db.table("os_clickup_clashes")[0].field, "description");
+});
+
+Deno.test("priority: PUT ClickUp's number for the name, and null clears it", async () => {
+  const set = outbox({ kind: "priority", field: "priority", payload: { from: "normal", to: "urgent" } });
+  const db = setup([set]);
+  const cu = fakeCu({ t1: cuTask("t1", { priority: { priority: "normal" } }) });
+  await runWriteback(db.supabase, envOf(ON), cu.fetch, NOW);
+  assertEquals(cu.writes()[0].body, { priority: 1 });
+  assertEquals(one(db, set.id).state, "sent");
+
+  const clear = outbox({ kind: "priority", field: "priority", payload: { from: "low", to: null } });
+  const db2 = setup([clear]);
+  const cu2 = fakeCu({ t1: cuTask("t1", { priority: { priority: "low" } }) });
+  await runWriteback(db2.supabase, envOf(ON), cu2.fetch, NOW);
+  assertEquals(cu2.writes()[0].body, { priority: null });
+});
+
+Deno.test("start date: PUT noon UTC with no time, and null clears it", async () => {
+  const set = outbox({ kind: "start_date", field: "start_date", payload: { from: null, to: "2026-12-03" } });
+  const db = setup([set]);
+  const cu = fakeCu({ t1: cuTask("t1") });
+  await runWriteback(db.supabase, envOf(ON), cu.fetch, NOW);
+  assertEquals(cu.writes()[0].body, { start_date: Date.parse("2026-12-03T12:00:00Z"), start_date_time: false });
+
+  const clear = outbox({ kind: "start_date", field: "start_date", payload: { from: "2026-12-03", to: null } });
+  const db2 = setup([clear]);
+  const cu2 = fakeCu({ t1: cuTask("t1", { start_date: String(Date.parse("2026-12-03T12:00:00Z")) }) });
+  await runWriteback(db2.supabase, envOf(ON), cu2.fetch, NOW);
+  assertEquals(cu2.writes()[0].body, { start_date: null, start_date_time: false });
+});
+
+Deno.test("custom field drop-down: POST the option id found by name", async () => {
+  const row = cfRow(TYPE_ID, "Hook", "UGC");
+  const db = setup([row]);
+  const cu = fakeCu({ t1: withFields(typeField(0)) });
+  await runWriteback(db.supabase, envOf(ON), cu.fetch, NOW);
+  assertEquals(cu.writes(), [{ method: "POST", path: `/task/t1/field/${TYPE_ID}`, body: { value: "opt-ugc" } }]);
+  assertEquals(one(db, row.id).state, "sent");
+});
+
+Deno.test("custom field date, number, checkbox and text: each written in ClickUp's form", async () => {
+  const fields = [
+    { id: FIELDS.briefDue.id, name: "Brief due", type: "date", value: null },
+    { id: "cf-num", name: "Budget", type: "number", value: 5 },
+    { id: "cf-chk", name: "Rush", type: "checkbox", value: false },
+    { id: FIELDS.hook1.id, name: "Goodo Ad Name Hook 1", type: "short_text", value: "Old hook" },
+  ];
+  const rows = [
+    cfRow(FIELDS.briefDue.id, null, "2026-12-12"),
+    cfRow("cf-num", "5", "7.5"),
+    cfRow("cf-chk", "false", "true"),
+    cfRow(FIELDS.hook1.id, "Old hook", "New hook"),
+  ];
+  const db = setup(rows);
+  const cu = fakeCu({ t1: withFields(...fields) });
+  await runWriteback(db.supabase, envOf(ON), cu.fetch, NOW);
+  assertEquals(cu.writes().map((w) => [w.method, w.path.split("/field/")[1], w.body]), [
+    ["POST", FIELDS.briefDue.id, { value: Date.parse("2026-12-12T12:00:00Z"), value_options: { time: false } }],
+    ["POST", "cf-num", { value: 7.5 }],
+    ["POST", "cf-chk", { value: true }],
+    ["POST", FIELDS.hook1.id, { value: "New hook" }],
+  ]);
+  assert(db.table("os_clickup_outbox").every((r) => r.state === "sent"));
+});
+
+Deno.test("custom field cleared in the app: DELETE the value in ClickUp", async () => {
+  const row = cfRow(FIELDS.hook1.id, "Old hook", null);
+  const db = setup([row]);
+  const cu = fakeCu({ t1: withFields({ id: FIELDS.hook1.id, name: "Goodo Ad Name Hook 1", type: "short_text", value: "Old hook" }) });
+  await runWriteback(db.supabase, envOf(ON), cu.fetch, NOW);
+  assertEquals(cu.writes(), [{ method: "DELETE", path: `/task/t1/field/${FIELDS.hook1.id}`, body: null }]);
+  assertEquals(one(db, row.id).state, "sent");
+});
+
+Deno.test("custom field: a choice ClickUp does not have, a field the task lacks and a field type the app cannot write all fail at once", async () => {
+  const rows = [
+    cfRow(TYPE_ID, "Hook", "Podcast"),
+    cfRow("cf-gone", "a", "b"),
+    cfRow(FIELDS.reviewedBy.id, null, "x@goodo.test"),
+  ];
+  const db = setup(rows);
+  const cu = fakeCu({
+    t1: withFields(typeField(0), { id: FIELDS.reviewedBy.id, name: "Reviewed By", type: "users", value: [] }),
+  });
+  await runWriteback(db.supabase, envOf(ON), cu.fetch, NOW);
+  assertEquals(cu.writes().length, 0);
+  const out = db.table("os_clickup_outbox");
+  assert(out.every((r) => r.state === "failed" && r.attempts === 1));
+  assertEquals(out.map((r) => r.last_error), [
+    `"Podcast" is not a choice of this field in ClickUp`,
+    "the field is not on this task in ClickUp",
+    "a users field cannot be written from the app",
+  ]);
+});
+
+Deno.test("custom field clash, ClickUp later: ClickUp's value is kept in the field entry and the mirrored column", async () => {
+  const row = cfRow(TYPE_ID, "Hook", "UGC", { app_changed_at: BEFORE(5) });
+  const db = setup([row], {
+    tasks: [{
+      id: "app-t1",
+      clickup_task_id: "t1",
+      clickup_list_id: LIST,
+      read_only: false,
+      content_type: "UGC",
+      clickup_fields: [{ id: TYPE_ID, name: "Type of Content", type: "drop_down", display: "UGC" }],
+    }],
+  });
+  const cu = fakeCu({ t1: { ...withFields(typeField(2)), date_updated: String(Date.parse(BEFORE(2))) } });
+  await runWriteback(db.supabase, envOf(ON), cu.fetch, NOW);
+  assertEquals(cu.writes().length, 0);
+  assertEquals(one(db, row.id).state, "clash");
+  const t = db.table("os_tasks").find((x) => x.id === "app-t1")!;
+  assertEquals(t.content_type, "Testimonial");
+  assertEquals((t.clickup_fields as Row[])[0].display, "Testimonial");
+  const c = db.table("os_clickup_clashes")[0];
+  assertEquals([c.winner, c.app_value, c.clickup_value], ["clickup", "UGC", "Testimonial"]);
+});
+
+Deno.test("write-back off: the new kinds are held too and ClickUp is never called", async () => {
+  const db = setup([
+    outbox({ kind: "description", field: "description", payload: { from: "a", to: "b" } }),
+    outbox({ kind: "priority", field: "priority", payload: { from: null, to: "high" } }),
+    outbox({ kind: "start_date", field: "start_date", payload: { from: null, to: "2026-12-03" } }),
+    cfRow(TYPE_ID, "Hook", "UGC"),
+  ]);
+  const cu = fakeCu({ t1: withFields(typeField(0)) });
+  const counts = await runWriteback(db.supabase, envOf({ CLICKUP_WRITEBACK_LIST_IDS: LIST }), cu.fetch, NOW);
+  assertEquals(cu.calls.length, 0);
+  assertEquals(counts.held, 4);
+  assert(db.table("os_clickup_outbox").every((r) => r.state === "held" && r.last_error === HELD_OFF));
+});
+
+Deno.test("echo: description, priority, start date and a custom field with a change waiting keep the app value", async () => {
+  const entry = (display: string) => ({ id: FIELDS.hook1.id, name: "Goodo Ad Name Hook 1", type: "short_text", display });
+  const db = setup(
+    [
+      outbox({ kind: "description", field: "description", payload: { to: "My brief" } }),
+      outbox({ kind: "priority", field: "priority", payload: { to: "high" } }),
+      outbox({ kind: "start_date", field: "start_date", payload: { to: "2026-12-03" } }),
+      cfRow(FIELDS.hook1.id, "Old", "My hook"),
+    ],
+    {
+      tasks: [{
+        id: "app-t1",
+        clickup_task_id: "t1",
+        status: "editing",
+        description: "My brief",
+        description_markdown: "My brief",
+        priority: "high",
+        start_date: "2026-12-03",
+        clickup_fields: [entry("My hook")],
+      }],
+    },
+  );
+  const incoming = {
+    clickup_task_id: "t1",
+    description: "Theirs",
+    description_markdown: "Theirs",
+    priority: "low",
+    start_date: null,
+    hooks: ["Their hook", "Second"],
+    clickup_fields: [entry("Their hook"), { id: FIELDS.hook2.id, name: "Goodo Ad Name Hook 2", type: "short_text", display: "Second" }, { id: "cf-other", name: "Other", type: "short_text", display: "kept" }],
+  } as never;
+  const out = await keepPendingAppValues(db.supabase, incoming) as unknown as Row;
+  assertEquals([out.description, out.description_markdown, out.priority, out.start_date], ["My brief", "My brief", "high", "2026-12-03"]);
+  const fields = out.clickup_fields as Row[];
+  assertEquals(fields.map((f) => f.display), ["My hook", "Second", "kept"]);
+  assertEquals(out.hooks, ["My hook", "Second"]);
 });
