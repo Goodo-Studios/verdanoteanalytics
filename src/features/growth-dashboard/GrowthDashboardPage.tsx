@@ -894,7 +894,9 @@ function hasNumbers(s: GrowthState): boolean {
 
 export default function GrowthDashboardPage({ now: nowProp }: { now?: Date } = {}) {
   const queryClient = useQueryClient();
-  const query = useQuery({ queryKey: GROWTH_QUERY_KEY, queryFn: loadRows });
+  // Always read the saved rows on open: autosave does not update the cache, so a cached copy
+  // from before the last edit would be shown and the next edit would overwrite the saved one.
+  const query = useQuery({ queryKey: GROWTH_QUERY_KEY, queryFn: loadRows, staleTime: 0, refetchOnMount: "always" });
   const [state, setState] = useState<GrowthState | null>(null);
   const [plan, setPlan] = useState<GrowthPlan | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -905,6 +907,7 @@ export default function GrowthDashboardPage({ now: nowProp }: { now?: Date } = {
   const stateRef = useRef<GrowthState | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialised = useRef(false);
+  const pending = useRef<GrowthState | null>(null);
 
   useEffect(() => {
     if (!query.data || initialised.current) return;
@@ -916,14 +919,8 @@ export default function GrowthDashboardPage({ now: nowProp }: { now?: Date } = {
     setPlan(planFromRow(query.data.plan));
   }, [query.data]);
 
-  useEffect(
-    () => () => {
-      if (timer.current) clearTimeout(timer.current);
-    },
-    [],
-  );
-
   const persistState = useCallback(async (next: GrowthState) => {
+    pending.current = null;
     setSaveStatus({ kind: "saving" });
     try {
       await saveRow("state", next);
@@ -933,6 +930,15 @@ export default function GrowthDashboardPage({ now: nowProp }: { now?: Date } = {
     }
   }, []);
 
+  // Leaving the page inside the save delay must not drop the last edit: save it now.
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+      if (pending.current) void saveRow("state", pending.current).catch(() => undefined);
+    },
+    [],
+  );
+
   const update = useCallback(
     (fn: (s: GrowthState) => GrowthState) => {
       const cur = stateRef.current;
@@ -940,6 +946,7 @@ export default function GrowthDashboardPage({ now: nowProp }: { now?: Date } = {
       const next = fn(cur);
       stateRef.current = next;
       setState(next);
+      pending.current = next;
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => void persistState(next), SAVE_DELAY_MS);
     },
@@ -958,6 +965,7 @@ export default function GrowthDashboardPage({ now: nowProp }: { now?: Date } = {
   const importState = useCallback(
     async (s: GrowthState) => {
       if (timer.current) clearTimeout(timer.current);
+      pending.current = null;
       await saveRow("state", s);
       stateRef.current = s;
       setState(s);

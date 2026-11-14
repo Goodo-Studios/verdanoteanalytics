@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
+import { keepPendingAppValues } from "../_shared/os-clickup-writeback.ts";
 import { CLICKUP_NO_TOKEN_STATE } from "../_shared/clickup-pipeline.ts";
 import { type CuTask, diffTask, type Discrepancy, firstListStatus, type MappedTask, mapTask, OS_SPACE_IDS } from "../_shared/os-task-map.ts";
 import {
@@ -250,7 +251,17 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
       }
     }
 
-    const written = await upsertTasks(db, [...tasks.values()].map((t) => withPeople(t.mapped, people)));
+    // Same protection as the webhook: a field with an app change still waiting to be sent keeps
+    // the app's value, so the sync cannot undo it before the writer sends it.
+    const { data: queuedRows, error: queuedErr } = await db.from("os_clickup_outbox").select("clickup_task_id").eq("state", "queued");
+    if (queuedErr) throw new Error(`os_clickup_outbox read failed: ${queuedErr.message}`);
+    const queuedTaskIds = new Set((queuedRows ?? []).map((r: Record<string, unknown>) => String(r.clickup_task_id)));
+    const rowsToWrite = [];
+    for (const t of tasks.values()) {
+      const row = withPeople(t.mapped, people);
+      rowsToWrite.push(queuedTaskIds.has(String(row.clickup_task_id)) ? await keepPendingAppValues(db, row) : row);
+    }
+    const written = await upsertTasks(db, rowsToWrite);
 
     if (runId && discrepancies.length > 0) {
       for (let i = 0; i < discrepancies.length; i += 500) {
