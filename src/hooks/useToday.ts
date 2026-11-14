@@ -49,6 +49,9 @@ export function useSetTaskStatus() {
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["my-tasks"] });
       void qc.invalidateQueries({ queryKey: ["today-done"] });
+      // The task modal and the by-ClickUp-id lookup read the same row.
+      void qc.invalidateQueries({ queryKey: ["task-by-clickup-id"] });
+      void qc.invalidateQueries({ queryKey: ["my-task-detail"] });
     },
   });
 }

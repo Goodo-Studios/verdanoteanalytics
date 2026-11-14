@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { DONE_STATUS, MY_TASK_COLUMNS, type MyTaskRow } from "@/lib/myWork";
+import { fetchAllPages } from "@/lib/pagedSelect";
 
 // os_tasks and its RPCs are not in the generated types yet, so the calls go through a small
 // untyped shape (as useClientWork does for pipeline_tasks).
@@ -11,6 +12,7 @@ interface Query extends Result {
   or(filter: string): Query;
   eq(column: string, value: string | boolean): Query;
   order(column: string, opts?: { ascending?: boolean }): Query;
+  range(from: number, to: number): Query;
   maybeSingle(): Result;
 }
 type Untyped = {
@@ -52,16 +54,17 @@ export function useMyTasks(userId: string | undefined, everyone = false, recentD
     queryKey: ["my-tasks", everyone ? "everyone" : userId, ...(recentDoneDays > 0 ? ["recent-done", recentDoneDays] : [])],
     enabled: everyone || !!userId,
     queryFn: async () => {
-      // Ended clients' tasks are read-only history, not work to do.
-      let q = db().from("os_tasks").select(MY_TASK_COLUMNS).eq("read_only", false);
-      q = recentDoneDays > 0 ? q.or(recentDoneFilter(recentDoneDays)) : q.neq("status", DONE_STATUS);
-      if (!everyone) {
-        if (!userId || !UUID.test(userId)) return [];
-        q = q.or(`strategist_id.eq.${userId},producer_id.eq.${userId},editor_id.eq.${userId}`);
-      }
-      const { data, error } = await q;
-      if (error) throw new Error(error.message);
-      return (data ?? []) as MyTaskRow[];
+      if (!everyone && (!userId || !UUID.test(userId))) return [];
+      // The everyone view passes the 1000-row response cap, so read it in pages with a stable order.
+      return fetchAllPages<MyTaskRow>(async (from, to) => {
+        // Ended clients' tasks are read-only history, not work to do.
+        let q = db().from("os_tasks").select(MY_TASK_COLUMNS).eq("read_only", false);
+        q = recentDoneDays > 0 ? q.or(recentDoneFilter(recentDoneDays)) : q.neq("status", DONE_STATUS);
+        if (!everyone) q = q.or(`strategist_id.eq.${userId},producer_id.eq.${userId},editor_id.eq.${userId}`);
+        const { data, error } = await q.order("id").range(from, to);
+        if (error) throw new Error(error.message);
+        return (data ?? []) as MyTaskRow[];
+      });
     },
   });
 }

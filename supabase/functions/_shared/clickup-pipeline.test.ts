@@ -308,7 +308,6 @@ Deno.test("delivered work stays on the board for the launch window, then moves t
   });
   assertEquals(toPipelineRecord(task(NOW - 5 * DAY), OWNER, NOW).kind, "record");
   assertEquals(toPipelineRecord(task(NOW - 5 * DAY, true), OWNER, NOW).kind, "record");
-  assertEquals(toPipelineRecord(task(NOW - (LAUNCH_WINDOW_DAYS + 1) * DAY), OWNER, NOW).kind, "archive");
   assertEquals(toPipelineRecord(task(NOW - (LAUNCH_WINDOW_DAYS + 1) * DAY, true), OWNER, NOW).kind, "archive");
   assertEquals(toPipelineRecord(task(NOW - (DELIVERED_RETENTION_DAYS - 1) * DAY, true), OWNER, NOW).kind, "archive");
   assertEquals(toPipelineRecord(task(NOW - (DELIVERED_RETENTION_DAYS + 1) * DAY, true), OWNER, NOW).kind, "skip");
@@ -317,6 +316,35 @@ Deno.test("delivered work stays on the board for the launch window, then moves t
     toPipelineRecord({ id: "t1", name: "October Asset 1", status: { status: "complete" } }, OWNER, NOW).kind,
     "skip",
   );
+});
+
+Deno.test("a task idle in a not-delivered launch status is never archived as delivered", () => {
+  for (const status of ["ready for launch", "ready to transfer"]) {
+    for (const idleDays of [LAUNCH_WINDOW_DAYS + 1, 90, DELIVERED_RETENTION_DAYS + 30]) {
+      const out = toPipelineRecord(
+        { id: "t1", name: "October Asset 1", status: { status }, date_updated: String(NOW - idleDays * DAY), date_closed: null },
+        OWNER,
+        NOW,
+      );
+      assert(out.kind === "record", `${status} idle ${idleDays} days stays on the board`);
+      assertEquals(out.record.stage, "Ready to Launch");
+      assertEquals(out.record.delivered_at, null);
+    }
+  }
+  // A real closed date still counts as delivered, whatever the status label.
+  const closed = toPipelineRecord(
+    { id: "t2", name: "October Asset 2", status: { status: "ready for launch" }, date_updated: String(NOW), date_closed: String(NOW - 40 * DAY) },
+    OWNER,
+    NOW,
+  );
+  assertEquals(closed.kind, "archive");
+  // A delivered status with no closed or done date falls back to last touched.
+  const complete = toPipelineRecord(
+    { id: "t3", name: "October Asset 3", status: { status: "complete" }, date_updated: String(NOW - 40 * DAY) },
+    OWNER,
+    NOW,
+  );
+  assertEquals(complete.kind, "archive");
 });
 
 Deno.test("a delivered task carries its delivery day and cycle, and an old one lands in the delivered list", () => {

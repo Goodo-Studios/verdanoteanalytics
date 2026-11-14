@@ -347,6 +347,18 @@ Deno.test("comments: posted once with author and thread, ClickUp id kept", async
   assertEquals(again.table("os_clickup_outbox")[0].state, "sent");
 });
 
+Deno.test("comments: a failed follow-up read still stamps the row sent with the ClickUp id, and a second run does not post again", async () => {
+  const row = outbox({ kind: "comment", field: "comment", payload: { thread: "internal", body: "Once only", author: "Sam" } });
+  const db = setup([row]);
+  const cu = fakeCu({ t1: cuTask("t1") }, { fail: { "GET /task/t1": { status: 500 } } });
+  await runWriteback(db.supabase, envOf(ON), cu.fetch, NOW);
+  assertEquals(cu.writes().length, 1);
+  const stored = one(db, row.id);
+  assertEquals([stored.state, stored.clickup_ref], ["sent", "cu-comment-1"]);
+  await runWriteback(db.supabase, envOf(ON), cu.fetch, NOW);
+  assertEquals(cu.writes().length, 1);
+});
+
 Deno.test("decisions: a comment saying who decided, with the note; no status move", async () => {
   const ok = outbox({ kind: "decision", field: "decision", payload: { decision: "approved", note: null, author: "Alex" } });
   const change = outbox({ kind: "decision", field: "decision", payload: { decision: "changes_requested", note: "Shorter intro", author: "Alex" } });

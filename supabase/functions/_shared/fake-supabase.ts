@@ -30,6 +30,10 @@ export interface FakeConfig {
   rpc?: Record<string, unknown>;
   /** Error returned by auth.admin.createUser. */
   createUserError?: { message: string };
+  /** Error returned by auth.admin.deleteUser. */
+  deleteUserError?: { message: string };
+  /** Errors for writes, keyed "verb:table" (for example "insert:user_roles"). */
+  writeErrors?: Record<string, { message: string; code?: string }>;
 }
 
 export function fakeSupabase(cfg: FakeConfig = {}) {
@@ -38,7 +42,7 @@ export function fakeSupabase(cfg: FakeConfig = {}) {
   const admin = { created: [] as unknown[], deleted: [] as string[] };
 
   const answerFor = (op: Op, single: boolean): Result => {
-    if (op.verb !== "select") return { data: null, error: null };
+    if (op.verb !== "select") return { data: null, error: cfg.writeErrors?.[`${op.verb}:${op.table}`] ?? null };
     let t = cfg.tables?.[op.table];
     if (typeof t === "function") t = t(op);
     if (t && !Array.isArray(t) && typeof t === "object" && "data" in t) return t as Result;
@@ -103,7 +107,7 @@ export function fakeSupabase(cfg: FakeConfig = {}) {
         },
         deleteUser: (id: string) => {
           admin.deleted.push(id);
-          return Promise.resolve({ data: null, error: null });
+          return Promise.resolve({ data: null, error: cfg.deleteUserError ?? null });
         },
       },
     },

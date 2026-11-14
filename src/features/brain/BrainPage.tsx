@@ -11,12 +11,12 @@
 //
 // OS-026: headings carry anchors (brainAnchor) so a task can link straight to its playbook
 // section (#anchor in the address scrolls there), and a question box answers from Brain pages.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell } from "@/components/page-kit";
+import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, useConfirm } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
 import { fmtDate } from "@/lib/formatters";
 import { BrainAsk } from "./BrainAsk";
@@ -92,7 +92,7 @@ function Meta({ owner, lastReviewed }: { owner: string; lastReviewed: string | n
   );
 }
 
-function PageView({ section, slug, onOpen }: { section: BrainSection; slug: string; onOpen: (section: BrainSection, slug: string) => void }) {
+function PageView({ section, slug, onOpen, onDirtyChange }: { section: BrainSection; slug: string; onOpen: (section: BrainSection, slug: string) => void; onDirtyChange: (dirty: boolean) => void }) {
   const [page, setPage] = useState<BrainPageRow | null | undefined>(undefined);
   const [error, setError] = useState(false);
   const { hash } = useLocation();
@@ -170,7 +170,7 @@ function PageView({ section, slug, onOpen }: { section: BrainSection; slug: stri
       </header>
       {editing ? (
         <div className="mx-auto max-w-[68ch]">
-          <DocumentEditor key={page.updated_at} initialText={page.body_md} label="Page text" onSave={(text) => save(page, text)} onCancel={() => setEditing(false)} />
+          <DocumentEditor key={page.updated_at} initialText={page.body_md} label="Page text" onSave={(text) => save(page, text)} onCancel={() => setEditing(false)} onDirtyChange={onDirtyChange} />
         </div>
       ) : (
         <>
@@ -195,27 +195,39 @@ export default function BrainPage() {
   const [rows, setRows] = useState<BrainListRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const dirty = useRef(false);
+  const { confirm, dialog } = useConfirm();
 
   const load = useCallback(async () => {
     const { data, error: e } = await db.from("brain_pages").select(LIST_COLUMNS).order("title");
     if (e) {
+      // Keep the list already on screen; an empty one would hide every page.
       setError("The Brain could not load.");
-      setRows([]);
-    } else setRows((data ?? []) as BrainListRow[]);
+      setRows((prev) => prev ?? []);
+    } else {
+      setError(null);
+      setRows((data ?? []) as BrainListRow[]);
+    }
   }, []);
 
   useEffect(() => {
     if (staff) void load();
   }, [load, staff]);
 
-  const open = useCallback((s: BrainSection, pageSlug: string | null) => {
+  const open = useCallback(async (s: BrainSection, pageSlug: string | null) => {
+    // Leaving the page being edited would drop its unsaved text, so ask first.
+    if (dirty.current) {
+      const ok = await confirm({ title: "Discard your changes?", description: "You have unsaved edits to this page. Leaving it throws them away.", actionLabel: "Discard changes" });
+      if (!ok) return;
+      dirty.current = false;
+    }
     const next = new URLSearchParams(params);
     next.set("section", s.toLowerCase());
     if (pageSlug) next.set("page", pageSlug);
     else next.delete("page");
     setParams(next);
-  }, [params, setParams]);
-  const openPage = useCallback((s: BrainSection, pageSlug: string) => open(s, pageSlug), [open]);
+  }, [params, setParams, confirm]);
+  const openPage = useCallback((s: BrainSection, pageSlug: string) => { void open(s, pageSlug); }, [open]);
 
   const counts = useMemo(() => {
     const c = new Map<BrainSection, number>();
@@ -243,7 +255,7 @@ export default function BrainPage() {
             type="button"
             aria-current={s === section ? "page" : undefined}
             className={`-mb-px border-b-2 px-3 py-2 text-sm ${s === section ? "border-foreground font-medium" : "border-transparent text-muted-foreground"}`}
-            onClick={() => open(s, null)}
+            onClick={() => void open(s, null)}
           >
             {s}
             {rows ? <span className="text-muted-foreground"> {counts.get(s) ?? 0}</span> : null}
@@ -253,14 +265,14 @@ export default function BrainPage() {
 
       {slug ? (
         <div className="space-y-3">
-          <button type="button" className="text-sm underline" onClick={() => open(section, null)}>Back to {section}</button>
-          <PageView section={section} slug={slug} onOpen={openPage} />
+          <button type="button" className="text-sm underline" onClick={() => void open(section, null)}>Back to {section}</button>
+          <PageView section={section} slug={slug} onOpen={openPage} onDirtyChange={(d) => { dirty.current = d; }} />
         </div>
       ) : (
         <>
           <p className="text-sm text-muted-foreground">{SECTION_BLURB[section]}</p>
           <FilterBar search={{ value: query, onChange: setQuery, label: "Search the Brain", placeholder: "Search titles and owners" }} />
-          {error ? <ErrorState message={error} onRetry={() => { setError(null); setRows(null); void load(); }} /> : null}
+          {error ? <ErrorState message={error} onRetry={() => { setError(null); void load(); }} /> : null}
           {rows === null ? <LoadingState label="Loading the Brain" /> : null}
           {rows && !error && visible.length === 0 ? (
             <EmptyState title={query ? "Nothing matches." : `Nothing has been published to ${section} yet.`} />
@@ -269,7 +281,7 @@ export default function BrainPage() {
             <ul className="divide-y divide-input rounded-lg border border-input" data-testid="brain-list">
               {visible.map((r) => (
                 <li key={r.id}>
-                  <button type="button" className="w-full px-3 py-2 text-left text-sm hover:bg-muted/40" onClick={() => open(section, r.slug)}>
+                  <button type="button" className="w-full px-3 py-2 text-left text-sm hover:bg-muted/40" onClick={() => void open(section, r.slug)}>
                     <span className="font-medium">{r.title}</span>
                     <span className="block text-[12px] text-muted-foreground">
                       {r.owner} · {reviewedText(r.last_reviewed)}
@@ -282,6 +294,7 @@ export default function BrainPage() {
           ) : null}
         </>
       )}
+      {dialog}
     </PageShell>
   );
 }

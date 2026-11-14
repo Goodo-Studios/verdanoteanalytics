@@ -24,6 +24,35 @@ export interface Deps {
   createClient?: typeof createClient;
 }
 
+// Shown for every unexpected failure; the detail is logged, never returned.
+const GENERIC_ERROR = "The request could not be completed. Try again.";
+const LAST_BUILDER_ERROR = "This is the last builder. Make another login a builder first.";
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+/** Throws when a database call came back with an error, so the catch below answers 500. */
+function must(label: string, result: { error?: { message?: string } | null }): void {
+  if (result.error) throw new Error(`${label}: ${result.error.message ?? "failed"}`);
+}
+
+/**
+ * True when changing or removing this login would leave the app with no builder: the login holds
+ * the builder role and no other login does. Reads fail closed (an error throws, so nothing changes).
+ */
+async function isLastBuilder(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  userId: string,
+): Promise<boolean> {
+  const own = await supabase.from("user_roles").select("role").eq("user_id", userId);
+  must("user_roles read", own);
+  if (!((own.data ?? []) as { role?: string }[]).some((r) => r.role === "builder")) return false;
+  const builders = await supabase.from("user_roles").select("user_id").eq("role", "builder");
+  must("builders read", builders);
+  return !((builders.data ?? []) as { user_id?: string }[]).some((r) => r.user_id !== userId);
+}
+
 export async function handler(req: Request, deps: Deps = {}): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -152,20 +181,28 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
         role = mapped.role;
       }
 
+      // The last builder cannot be demoted: nobody would be left to manage logins.
+      if (role && role !== "builder" && await isLastBuilder(supabase, userId)) {
+        return json({ error: LAST_BUILDER_ERROR }, 409);
+      }
+
       if (display_name !== undefined) {
-        await supabase.from("profiles").update({ display_name }).eq("user_id", userId);
+        must("profiles", await supabase.from("profiles").update({ display_name }).eq("user_id", userId));
       }
 
       if (role) {
-        await supabase.from("user_roles").delete().eq("user_id", userId);
-        await supabase.from("user_roles").insert({ user_id: userId, role });
+        // Give the new role first, then drop the others, so a failure never leaves the login with
+        // no role. A role it already holds answers 23505 and is fine.
+        const added = await supabase.from("user_roles").insert({ user_id: userId, role });
+        if (added.error && added.error.code !== "23505") must("user_roles insert", added);
+        must("user_roles delete", await supabase.from("user_roles").delete().eq("user_id", userId).neq("role", role));
       }
 
       if (account_ids !== undefined) {
-        await supabase.from("user_accounts").delete().eq("user_id", userId);
+        must("user_accounts delete", await supabase.from("user_accounts").delete().eq("user_id", userId));
         if (account_ids.length > 0) {
           const links = account_ids.map((account_id: string) => ({ user_id: userId, account_id }));
-          await supabase.from("user_accounts").insert(links);
+          must("user_accounts insert", await supabase.from("user_accounts").insert(links));
         }
       }
 
@@ -177,7 +214,10 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
     // DELETE /user-management/:userId — delete user
     if (req.method === "DELETE" && path) {
       const userId = path;
-      await supabase.auth.admin.deleteUser(userId);
+      if (await isLastBuilder(supabase, userId)) {
+        return json({ error: LAST_BUILDER_ERROR }, 409);
+      }
+      must("deleteUser", await supabase.auth.admin.deleteUser(userId));
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -188,9 +228,7 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
     });
   } catch (e) {
     console.error("User management error:", e);
-    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json({ error: GENERIC_ERROR }, 500);
   }
 }
 
