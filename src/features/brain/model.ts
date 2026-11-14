@@ -1,5 +1,5 @@
 // Brain (OS-014): rules for the staff Brain page. Pages come from HQ knowledge through
-// scripts/publish-brain.mjs and are read only in the app.
+// scripts/publish-brain.mjs; staff can edit them in the app and the publish script keeps edited pages.
 
 export const BRAIN_SECTIONS = ["Handbook", "Playbooks", "Clients", "Insights"] as const;
 export type BrainSection = (typeof BRAIN_SECTIONS)[number];
@@ -33,6 +33,11 @@ export interface BrainPageRow extends BrainListRow {
   source_path: string;
   /** The staff login the owner text matched at publish time, or null. */
   owner_user_id: string | null;
+  /** Row timestamp the editor saves against, so a save over someone else's edit is refused. */
+  updated_at: string;
+  /** True once staff edited the page in the app; the publish script then keeps it. */
+  edited_in_app: boolean;
+  edited_at: string | null;
 }
 
 /** Section from the address (?section=playbooks), Handbook when missing or unknown. */
@@ -112,65 +117,6 @@ export function toBrainAnswer(data: unknown): BrainAnswer {
   const passages = Array.isArray(d.passages) ? d.passages.filter((p) => !!p && typeof p.text === "string") : [];
   if (d.mode === "none" || citations.length === 0) return { answer: BRAIN_NO_MATCH, mode: "none", citations: [], passages: [] };
   return { answer: typeof d.answer === "string" && d.answer.trim() ? d.answer : null, mode: d.mode === "answer" ? "answer" : "passages", citations, passages };
-}
-
-// ------------------------------------------------------------------ suggested fixes (OS-016)
-
-export type FixClass = "content" | "procedure" | "permission" | "factual";
-
-export interface FixReview {
-  decision: "accepted" | "rejected";
-  reason: string;
-  reviewer_id: string;
-  created_at: string;
-}
-
-export interface BrainFix {
-  id: string;
-  brain_page_id: string;
-  source_path: string;
-  page_title: string;
-  page_content_hash: string;
-  proposed_body: string;
-  reason: string;
-  classification: FixClass;
-  submitted_by: string;
-  created_at: string;
-  review: FixReview | null;
-}
-
-export type FixStatus = "open" | "accepted" | "applied" | "rejected";
-
-export const FIX_STATUS_LABEL: Record<FixStatus, string> = {
-  open: "Waiting for the owner",
-  accepted: "Accepted, to apply in HQ",
-  applied: "Accepted, page published again since",
-  rejected: "Rejected",
-};
-
-/**
- * Where a fix stands. Accepting never edits the page here (HQ is the source), so an accepted fix
- * counts as applied once the page has been published with different content.
- */
-export function fixStatus(fix: BrainFix, currentHash: string): FixStatus {
-  if (!fix.review) return "open";
-  if (fix.review.decision === "rejected") return "rejected";
-  return fix.page_content_hash === currentHash ? "accepted" : "applied";
-}
-
-/** The page owner or a builder reviews an open fix, never their own. Mirrors review_brain_page_correction. */
-export function canReviewFix(fix: BrainFix, page: Pick<BrainPageRow, "owner_user_id">, me: string | undefined, isBuilder: boolean): boolean {
-  if (!me || fix.review || fix.submitted_by === me) return false;
-  return isBuilder || page.owner_user_id === me;
-}
-
-const asArray = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : v && typeof v === "object" ? [v as T] : []);
-
-/** Shapes the nested select (fix plus its review) into fixes, newest first. */
-export function toFixes(rows: unknown): BrainFix[] {
-  return asArray<Record<string, unknown>>(rows)
-    .map((r) => ({ ...(r as unknown as BrainFix), review: asArray<FixReview>(r.brain_page_correction_reviews)[0] ?? null }))
-    .sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 
 /** Drops a leading "# Title" line when it repeats the page title already shown in the page header. */

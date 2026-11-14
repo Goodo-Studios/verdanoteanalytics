@@ -156,6 +156,8 @@ Not ported: transcript authorization records (choosing the transcript and client
 
 Page `/knowledge` (builder and employee) and migration `20261110000003_knowledge_pages.sql`, no edge function. Port of the Goodo OS knowledge correction and publication pages (`knowledge_sources`, `knowledge_source_versions`, `knowledge_corrections`, `knowledge_correction_reviews`).
 
+Editing (migration `20261207080001_os_edit_knowledge_documents.sql`): staff edit a Knowledge source or a Brain page directly in a markdown document editor. The change-request flow, the version list and rollback are no longer shown; the correction tables and functions are kept with their rows but unused. `edit_knowledge_source` adds the next version (kind `edit`) and the page shows the newest one. `edit_brain_page` writes `brain_pages.body_md` and sets `edited_in_app`. Publishing rule: `scripts/publish-brain.mjs` never updates or removes a page with `edited_in_app = true` (app edits win) and lists the pages it kept; `--overwrite-edited` lets HQ replace them and clears the marker. Deploy the migration before running the new publish script.
+
 A source has a title, a topic, a scope (all clients or one client) and numbered versions; each version keeps its full text and a sha256 fingerprint. Staff read every table through row rules (`has_role` builder or employee); clients read nothing, including sources scoped to their own client. Signed-in users hold no write grants. Every change goes through a checked function that tests the role in its body and is on the `staff_area` allow-list:
 
 - `create_knowledge_source`: builder only.

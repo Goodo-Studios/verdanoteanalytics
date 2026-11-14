@@ -1,42 +1,34 @@
-// Knowledge: staff page (consolidation step 4a, port of the Goodo OS pages
-// KnowledgeCorrections.tsx and KnowledgePublication.tsx). Staff read knowledge
-// sources and propose corrections against the version on screen; another staff
-// member reviews; a builder publishes accepted content and factual corrections
-// as a new version or rolls a source back. Every write goes through a checked
-// database function (migration 20261110000003); clients see none of it.
+// Knowledge: staff page. Staff read knowledge sources and edit them directly in a simple document
+// editor (headings, bold, italic, bullet lists, links). Saving adds the next version through the
+// checked database function edit_knowledge_source (migration 20261207080001) and the page shows it
+// at once. A builder adds new sources. Clients see none of it. The older request-a-change flow
+// (corrections, reviews, publish, rollback) is no longer shown; its tables and functions are kept.
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { ConfirmDialog, EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
-import { CorrectionForm, type CorrectionInput } from "./CorrectionForm";
-import { fmtDate } from "@/lib/formatters";
+import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
+import { DocumentEditor } from "./DocumentEditor";
 import { Button } from "@/components/ui/button";
-import {
-  canPublish,
-  canReview,
-  CLASS_LABEL,
-  type Correction,
-  correctionStatus,
-  currentVersion,
-  errorText,
-  type KnowledgeSource,
-  matchesSearch,
-  STATUS_LABEL,
-  toSources,
-  versionLabel,
-} from "./model";
+import { currentVersion, errorText, type KnowledgeSource, matchesSearch, toSources } from "./model";
 
 // The knowledge tables and functions are not in the generated types yet.
 interface DbResult {
   data: unknown;
   error: { code?: string; message: string } | null;
 }
+interface Query extends PromiseLike<DbResult> {
+  order(column: string, opts?: { ascending?: boolean; referencedTable?: string }): Query;
+  limit(count: number, opts?: { referencedTable?: string }): Query;
+}
 interface Untyped {
-  from(table: string): { select(columns: string): { order(column: string): PromiseLike<DbResult> } };
+  from(table: string): { select(columns: string): Query };
   rpc(name: string, args: Record<string, unknown>): PromiseLike<DbResult>;
 }
 const db = supabase as unknown as Untyped;
-const SELECT = "*, knowledge_source_versions(*), knowledge_corrections(*, knowledge_correction_reviews(*))";
+// Only the newest version of each source is loaded (it is the current text); edits add versions.
+const SELECT = "*, knowledge_source_versions(*)";
+const VERSIONS = "knowledge_source_versions";
 
 interface ClientOption {
   slug: string;
@@ -78,118 +70,37 @@ function AddSource({ clients, onAdded }: { clients: ClientOption[]; onAdded: () 
   );
 }
 
-function CorrectionRow({ c, source, onChanged }: { c: Correction; source: KnowledgeSource; onChanged: () => void }) {
-  const { user, isBuilder } = useAuth();
-  const [reason, setReason] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const status = correctionStatus(c, source);
-  const call = async (name: string, args: Record<string, unknown>, fallback: string) => {
-    setError(null);
-    const { error: e } = await db.rpc(name, args);
-    if (e) return setError(errorText(e.code, fallback));
-    onChanged();
-  };
-  const review = (decision: "accepted" | "rejected" | "conflict") => {
-    if (!reason.trim()) return setError("Add a reason before recording a decision.");
-    void call("review_knowledge_correction", { p_correction_id: c.id, p_decision: decision, p_reason: reason.trim() }, "The review could not be saved.");
-  };
-  return (
-    <li className="space-y-2 rounded border border-input p-3 text-sm" data-testid={`correction-${c.id}`}>
-      <p className="font-medium">{CLASS_LABEL[c.classification]} correction to version {c.source_version} · {STATUS_LABEL[status]}</p>
-      <p className="text-muted-foreground">{c.reason}</p>
-      <p className="whitespace-pre-wrap rounded bg-muted/40 p-2">{c.proposed_body}</p>
-      {c.review ? <p className="text-muted-foreground">Review: {c.review.reason}</p> : null}
-      {canReview(c, user?.id, isBuilder) ? (
-        <div className="space-y-2">
-          <TextField label="Review reason" hideLabel value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason" />
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" onClick={() => review("accepted")}>Accept</Button>
-            <Button size="sm" variant="outline" onClick={() => review("rejected")}>Reject</Button>
-            <Button size="sm" variant="outline" onClick={() => review("conflict")}>Conflict</Button>
-          </div>
-        </div>
-      ) : null}
-      {canPublish(c, source, isBuilder) ? (
-        <Button size="sm" onClick={() => void call("publish_knowledge_correction", { p_correction_id: c.id }, "The correction could not be published.")}>
-          Publish as version {source.current_version + 1}
-        </Button>
-      ) : null}
-      {error ? <p role="alert" className="text-destructive">{error}</p> : null}
-    </li>
-  );
-}
-
-function SourceDetail({ source, onChanged }: { source: KnowledgeSource; onChanged: () => void }) {
-  const { isBuilder } = useAuth();
+function SourceDetail({ source, onChanged }: { source: KnowledgeSource; onChanged: () => Promise<void> }) {
   const current = currentVersion(source);
-  const [error, setError] = useState<string | null>(null);
-  const [rollbackTo, setRollbackTo] = useState<number | null>(null);
+  const [editing, setEditing] = useState(false);
 
-  const submit = async (input: CorrectionInput): Promise<string | null> => {
-    const { error: e } = await db.rpc("submit_knowledge_correction", {
-      p_source_id: source.id, p_source_version: source.current_version, p_proposed_body: input.text, p_reason: input.reason, p_classification: input.classification,
-    });
-    if (e) return errorText(e.code, "The correction could not be saved.");
-    onChanged();
+  const save = async (text: string): Promise<string | null> => {
+    const { error: e } = await db.rpc("edit_knowledge_source", { p_source_id: source.id, p_body: text, p_expected_version: source.current_version });
+    if (e) return errorText(e.code, "The document could not be saved.");
+    await onChanged();
+    setEditing(false);
     return null;
-  };
-  const rollback = async (to: number) => {
-    setError(null);
-    const { error: e } = await db.rpc("rollback_knowledge_source", {
-      p_source_id: source.id, p_to_version: to, p_expected_version: source.current_version, p_reason: `Rolled back to version ${to} from the knowledge page`,
-    });
-    if (e) return setError(errorText(e.code, "The rollback failed."));
-    onChanged();
   };
 
   return (
     <section aria-label={source.title} className="space-y-4 rounded-lg border border-input bg-background p-4">
-      <div>
-        <h2 className="text-base font-semibold">{source.title}</h2>
-        <p className="text-[12px] text-muted-foreground">
-          Version {source.current_version} · {source.release_scope === "client" ? `client ${source.client_slug}` : "all clients"} · {source.namespace}
-          {source.citation_url ? <> · <a className="underline" href={source.citation_url} target="_blank" rel="noopener noreferrer">source</a></> : null}
-        </p>
-      </div>
-      <p className="whitespace-pre-wrap text-sm" data-testid="knowledge-current-body">{current?.body}</p>
-
-      <details>
-        <summary className="cursor-pointer text-sm font-medium">Versions ({source.versions.length})</summary>
-        <ul className="mt-2 space-y-1 text-sm">
-          {source.versions.map((v) => (
-            <li key={v.id} className="flex items-center justify-between gap-2">
-              <span>{versionLabel(v)} · {fmtDate(v.created_at)}</span>
-              {isBuilder && v.version < source.current_version ? (
-                <Button size="sm" variant="outline" onClick={() => setRollbackTo(v.version)}>Roll back to this</Button>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      </details>
-      <ConfirmDialog
-        open={rollbackTo !== null}
-        onOpenChange={(open) => { if (!open) setRollbackTo(null); }}
-        title={`Roll back to version ${rollbackTo ?? ""}?`}
-        description={`"${source.title}" will go back to version ${rollbackTo ?? ""}. Version ${source.current_version} stays in the history.`}
-        actionLabel="Roll back"
-        onConfirm={() => {
-          const to = rollbackTo;
-          setRollbackTo(null);
-          if (to !== null) void rollback(to);
-        }}
-      />
-
-      <CorrectionForm heading="Propose a correction" initialText={current?.body ?? ""} sentMessage="Correction sent for review." onSubmit={submit} />
-      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-
-      {source.corrections.length ? (
-        <div className="space-y-2">
-          <h3 className="text-sm font-semibold">Corrections</h3>
-          <ul className="space-y-2">
-            {source.corrections.map((c) => <CorrectionRow key={c.id} c={c} source={source} onChanged={onChanged} />)}
-          </ul>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="text-base font-semibold">{source.title}</h2>
+          <p className="text-[12px] text-muted-foreground">
+            {source.release_scope === "client" ? `client ${source.client_slug}` : "all clients"} · {source.namespace}
+            {source.citation_url ? <> · <a className="underline" href={source.citation_url} target="_blank" rel="noopener noreferrer">source</a></> : null}
+          </p>
         </div>
-      ) : null}
+        {editing ? null : <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit</Button>}
+      </div>
+      {editing ? (
+        <DocumentEditor initialText={current?.body ?? ""} onSave={save} onCancel={() => setEditing(false)} />
+      ) : (
+        <div className="prose max-w-none text-sm" data-testid="knowledge-current-body">
+          <ReactMarkdown>{current?.body ?? ""}</ReactMarkdown>
+        </div>
+      )}
     </section>
   );
 }
@@ -203,7 +114,12 @@ export default function KnowledgePage() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const { data, error: e } = await db.from("knowledge_sources").select(SELECT).order("title");
+    const { data, error: e } = await db
+      .from("knowledge_sources")
+      .select(SELECT)
+      .order("title")
+      .order("version", { ascending: false, referencedTable: VERSIONS })
+      .limit(1, { referencedTable: VERSIONS });
     if (e) {
       setError("Knowledge could not load.");
       setSources([]);
@@ -219,11 +135,10 @@ export default function KnowledgePage() {
 
   const visible = useMemo(() => (sources ?? []).filter((s) => matchesSearch(s, query)), [sources, query]);
   const active = (sources ?? []).find((s) => s.id === selected) ?? null;
-  const openCount = (s: KnowledgeSource) => s.corrections.filter((c) => correctionStatus(c, s) === "open").length;
 
   return (
     <PageShell data-testid="knowledge">
-      <PageHeader title="Knowledge" description="Shared Goodo knowledge. Propose a correction to what is on screen; another person reviews it before it is published." />
+      <PageHeader title="Knowledge" description="Shared Goodo knowledge. Open a document and press Edit to add to it or remove from it. Your change shows right away." />
       {isBuilder ? <AddSource clients={clients} onAdded={() => void load()} /> : null}
       <FilterBar search={{ value: query, onChange: setQuery, label: "Search knowledge", placeholder: "Search" }} />
       {error ? <ErrorState message={error} onRetry={() => { setError(null); setSources(null); void load(); }} /> : null}
@@ -234,12 +149,12 @@ export default function KnowledgePage() {
           <li key={s.id}>
             <button type="button" className={`w-full rounded border px-3 py-2 text-left text-sm ${s.id === selected ? "border-foreground" : "border-input"}`} onClick={() => setSelected(s.id)}>
               <span className="font-medium">{s.title}</span>
-              <span className="text-muted-foreground"> · v{s.current_version} · {s.release_scope === "client" ? s.client_slug : "all clients"}{openCount(s) ? ` · ${openCount(s)} to review` : ""}</span>
+              <span className="text-muted-foreground"> · {s.release_scope === "client" ? s.client_slug : "all clients"}</span>
             </button>
           </li>
         ))}
       </ul>
-      {active ? <SourceDetail key={active.id} source={active} onChanged={() => void load()} /> : null}
+      {active ? <SourceDetail key={active.id} source={active} onChanged={load} /> : null}
     </PageShell>
   );
 }

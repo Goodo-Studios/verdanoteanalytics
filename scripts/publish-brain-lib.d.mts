@@ -32,7 +32,7 @@ export interface Published {
   slug: string;
 }
 
-export function parseArgs(argv: string[]): { dryRun: boolean; allowProduction: boolean; help: boolean; root: string };
+export function parseArgs(argv: string[]): { dryRun: boolean; allowProduction: boolean; overwriteEdited: boolean; help: boolean; root: string };
 export function assertTarget(url: string | undefined, opts?: { allowProduction?: boolean }): string;
 export function toPosix(relPath: string): string;
 export function hasSlackSegment(relPath: string): boolean;
@@ -47,9 +47,10 @@ export function stripHqBits(body: string, opts: { relPath: string; published: Ma
 export function contentHash(page: Omit<BrainPage, "content_hash">): string;
 export function buildPages(files: KnowledgeFile[]): { pages: BrainPage[]; skipped: Skip[]; notes: { path: string; note: string }[] };
 export function diffPages(
-  existing: { source_path: string; content_hash: string }[],
+  existing: { source_path: string; content_hash: string; edited_in_app?: boolean }[],
   pages: BrainPage[],
-): { add: BrainPage[]; update: BrainPage[]; unchanged: number; remove: string[] };
+  opts?: { overwriteEdited?: boolean },
+): { add: BrainPage[]; update: BrainPage[]; unchanged: number; remove: string[]; kept: string[] };
 export function readKnowledge(root: string): Promise<{ files: KnowledgeFile[]; skipped: Skip[] }>;
 export function summariseSkips(skipped: { reason: string }[]): [string, number][];
 export function unmatchedOwnerLines(rows: { owner: string; pages: number }[] | null): string[];

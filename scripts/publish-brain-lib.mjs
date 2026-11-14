@@ -33,11 +33,12 @@ const GENERATED_MARKER = 'hq-generated-sha256';
 
 /** Read the command line. Unknown flags are refused so a typo cannot slip through. */
 export function parseArgs(argv) {
-  const opts = { dryRun: false, allowProduction: false, help: false, root: DEFAULT_ROOT };
+  const opts = { dryRun: false, allowProduction: false, overwriteEdited: false, help: false, root: DEFAULT_ROOT };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--dry-run') opts.dryRun = true;
     else if (arg === '--allow-production') opts.allowProduction = true;
+    else if (arg === '--overwrite-edited') opts.overwriteEdited = true;
     else if (arg === '--help' || arg === '-h') opts.help = true;
     else if (arg === '--root') {
       const value = argv[++i];
@@ -46,7 +47,7 @@ export function parseArgs(argv) {
     } else if (arg.startsWith('--root=')) {
       opts.root = arg.slice('--root='.length);
       if (!opts.root) throw new Error('--root needs a folder.');
-    } else throw new Error(`Unknown option "${arg}". Use --root, --dry-run, --allow-production or --help.`);
+    } else throw new Error(`Unknown option "${arg}". Use --root, --dry-run, --allow-production, --overwrite-edited or --help.`);
   }
   return opts;
 }
@@ -328,23 +329,36 @@ export function buildPages(files) {
 }
 
 /**
- * Compare this run with what the app holds. `existing` is [{ source_path, content_hash }].
- * Returns the pages to add and update, the count unchanged and the source paths to remove.
+ * Compare this run with what the app holds. `existing` is [{ source_path, content_hash,
+ * edited_in_app }]. Returns the pages to add and update, the count unchanged, the source paths to
+ * remove and `kept`, the source paths of pages edited in the app.
+ *
+ * App edits win: a page with edited_in_app is never updated or removed (it lands in `kept`), unless
+ * `overwriteEdited` is set, in which case HQ wins again: it is updated to the HQ text whatever its
+ * hash (so the edited_in_app marker is cleared by the write) or removed if its file is gone.
  */
-export function diffPages(existing, pages) {
-  const have = new Map(existing.map((r) => [r.source_path, r.content_hash]));
+export function diffPages(existing, pages, { overwriteEdited = false } = {}) {
+  const have = new Map(existing.map((r) => [r.source_path, r]));
   const seen = new Set();
   const add = [];
   const update = [];
+  const kept = [];
   let unchanged = 0;
   for (const p of pages) {
     seen.add(p.source_path);
-    if (!have.has(p.source_path)) add.push(p);
-    else if (have.get(p.source_path) !== p.content_hash) update.push(p);
+    const row = have.get(p.source_path);
+    if (!row) add.push(p);
+    else if (row.edited_in_app && !overwriteEdited) kept.push(p.source_path);
+    else if (row.edited_in_app || row.content_hash !== p.content_hash) update.push(p);
     else unchanged++;
   }
-  const remove = existing.map((r) => r.source_path).filter((sp) => !seen.has(sp));
-  return { add, update, unchanged, remove };
+  const remove = [];
+  for (const r of existing) {
+    if (seen.has(r.source_path)) continue;
+    if (r.edited_in_app && !overwriteEdited) kept.push(r.source_path);
+    else remove.push(r.source_path);
+  }
+  return { add, update, unchanged, remove, kept };
 }
 
 /**

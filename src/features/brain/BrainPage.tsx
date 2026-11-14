@@ -1,12 +1,13 @@
 // Brain (Goodo OS OS-014): the company brain, published from HQ knowledge by
-// scripts/publish-brain.mjs. Four sections: Handbook, Playbooks, Clients and Insights. Pages are
-// read only here; changes are made in HQ and published again. Staff only: the table's row
-// rules give clients nothing, and this page shows nothing to a client either.
+// scripts/publish-brain.mjs. Four sections: Handbook, Playbooks, Clients and Insights. Staff only:
+// the table's row rules give clients nothing, and this page shows nothing to a client either.
 //
-// OS-016: a page not reviewed in more than 90 days carries a calm "Needs review" tag. Any staff
-// member can suggest a fix through the shared correction form; the page owner or a builder
-// accepts or rejects it. Accepting does not edit the page (HQ is the source): it records the fix
-// for the owner to apply in HQ, and it shows as applied once the page is published again.
+// Staff edit a page directly with the shared document editor. Saving calls edit_brain_page
+// (migration 20261207080001), which writes the page and marks it edited in the app; the next
+// publish from HQ keeps such a page instead of overwriting it (see scripts/publish-brain.mjs).
+// The older suggest-a-fix flow is no longer shown; its tables are kept.
+//
+// OS-016: a page not reviewed in more than 90 days carries a calm "Needs review" tag.
 //
 // OS-026: headings carry anchors (brainAnchor) so a task can link straight to its playbook
 // section (#anchor in the address scrolls there), and a question box answers from Brain pages.
@@ -15,22 +16,18 @@ import { useLocation, useSearchParams } from "react-router-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, TextField } from "@/components/page-kit";
+import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
 import { fmtDate } from "@/lib/formatters";
 import { BrainAsk } from "./BrainAsk";
-import { CorrectionForm, type CorrectionInput } from "@/features/knowledge/CorrectionForm";
-import { CLASS_LABEL, errorText } from "@/features/knowledge/model";
+import { DocumentEditor } from "@/features/knowledge/DocumentEditor";
+import { errorText } from "@/features/knowledge/model";
 import {
   BRAIN_SECTIONS,
   brainAnchor,
-  type BrainFix,
   type BrainListRow,
   type BrainPageRow,
   type BrainSection,
-  canReviewFix,
-  FIX_STATUS_LABEL,
-  fixStatus,
   matchesSearch,
   NEEDS_REVIEW_DAYS,
   withoutRepeatedTitle,
@@ -38,10 +35,9 @@ import {
   parseBrainHref,
   SECTION_BLURB,
   sectionFromParam,
-  toFixes,
 } from "./model";
 
-// brain_pages and the fix tables are not in the generated types yet.
+// brain_pages and its functions are not in the generated types yet.
 interface DbResult {
   data: unknown;
   error: { code?: string; message: string } | null;
@@ -57,8 +53,7 @@ interface Untyped {
 }
 const db = supabase as unknown as Untyped;
 const LIST_COLUMNS = "id, section, slug, title, owner, last_reviewed";
-const PAGE_COLUMNS = "id, section, slug, title, owner, owner_user_id, last_reviewed, body_md, published_at, content_hash, source_path";
-const FIX_COLUMNS = "*, brain_page_correction_reviews(*)";
+const PAGE_COLUMNS = "id, section, slug, title, owner, owner_user_id, last_reviewed, body_md, published_at, content_hash, source_path, updated_at, edited_in_app, edited_at";
 
 /** Plain text of rendered markdown children, for heading anchors. */
 function textOf(node: React.ReactNode): string {
@@ -97,105 +92,18 @@ function Meta({ owner, lastReviewed }: { owner: string; lastReviewed: string | n
   );
 }
 
-function FixRow({ fix, page, onChanged }: { fix: BrainFix; page: BrainPageRow; onChanged: () => void }) {
-  const { user, isBuilder } = useAuth();
-  const [reason, setReason] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const status = fixStatus(fix, page.content_hash);
-  const review = async (decision: "accepted" | "rejected") => {
-    if (!reason.trim()) return setError("Add a reason before recording a decision.");
-    setError(null);
-    const { error: e } = await db.rpc("review_brain_page_correction", { p_correction_id: fix.id, p_decision: decision, p_reason: reason.trim() });
-    if (e) return setError(errorText(e.code, "The decision could not be saved."));
-    onChanged();
-  };
-  return (
-    <li className="space-y-2 rounded border border-input p-3 text-sm" data-testid="brain-fix">
-      <p className="font-medium">
-        {CLASS_LABEL[fix.classification]} fix · <span data-testid="brain-fix-status">{FIX_STATUS_LABEL[status]}</span>
-        <span className="font-normal text-muted-foreground"> · {fmtDate(fix.created_at)}</span>
-      </p>
-      <p className="text-muted-foreground">{fix.reason}</p>
-      <p className="max-h-60 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2">{fix.proposed_body}</p>
-      {fix.review ? <p className="text-muted-foreground">Decision: {fix.review.reason}</p> : null}
-      {status === "accepted" ? (
-        <p className="text-muted-foreground" data-testid="brain-fix-apply">Apply this in HQ ({fix.source_path}), then publish the Brain again.</p>
-      ) : null}
-      {canReviewFix(fix, page, user?.id, isBuilder) ? (
-        <div className="space-y-2">
-          <TextField label="Decision reason" hideLabel value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason" />
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" onClick={() => void review("accepted")}>Accept</Button>
-            <Button size="sm" variant="outline" onClick={() => void review("rejected")}>Reject</Button>
-          </div>
-        </div>
-      ) : null}
-      {error ? <p role="alert" className="text-destructive">{error}</p> : null}
-    </li>
-  );
-}
-
-function Fixes({ page }: { page: BrainPageRow }) {
-  const [fixes, setFixes] = useState<BrainFix[] | null>(null);
-  const [suggesting, setSuggesting] = useState(false);
-  const [loadError, setLoadError] = useState(false);
-
-  const load = useCallback(async () => {
-    const { data, error } = await db.from("brain_page_corrections").select(FIX_COLUMNS).eq("brain_page_id", page.id).order("created_at", { ascending: false });
-    if (error) setLoadError(true);
-    else setFixes(toFixes(data));
-  }, [page.id]);
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const submit = async (input: CorrectionInput): Promise<string | null> => {
-    const { error } = await db.rpc("submit_brain_page_correction", {
-      p_page_id: page.id, p_content_hash: page.content_hash, p_proposed_body: input.text, p_reason: input.reason, p_classification: input.classification,
-    });
-    if (error) {
-      return error.code === "40001" ? "This page was published again since you opened it. Reload and try again." : errorText(error.code, "The fix could not be saved.");
-    }
-    void load();
-    return null;
-  };
-
-  return (
-    <section aria-label="Suggested fixes" className="space-y-3 border-t border-input pt-3" data-testid="brain-fixes">
-      {suggesting ? (
-        <CorrectionForm
-          heading="Suggest a fix"
-          initialText={page.body_md}
-          submitLabel="Send to the owner"
-          sentMessage="Fix sent to the page owner."
-          onSubmit={submit}
-          onCancel={() => setSuggesting(false)}
-        />
-      ) : (
-        <Button size="sm" variant="outline" onClick={() => setSuggesting(true)}>Suggest a fix</Button>
-      )}
-      {loadError ? <p className="text-sm text-muted-foreground">Suggested fixes could not load.</p> : null}
-      {fixes?.length ? (
-        <div className="space-y-2">
-          <h3 className="text-sm font-semibold">Suggested fixes</h3>
-          <ul className="space-y-2">
-            {fixes.map((f) => <FixRow key={f.id} fix={f} page={page} onChanged={() => void load()} />)}
-          </ul>
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
 function PageView({ section, slug, onOpen }: { section: BrainSection; slug: string; onOpen: (section: BrainSection, slug: string) => void }) {
   const [page, setPage] = useState<BrainPageRow | null | undefined>(undefined);
   const [error, setError] = useState(false);
   const { hash } = useLocation();
 
+  const [editing, setEditing] = useState(false);
+
   useEffect(() => {
     let live = true;
     setPage(undefined);
     setError(false);
+    setEditing(false);
     void db.from("brain_pages").select(PAGE_COLUMNS).eq("section", section).eq("slug", slug).maybeSingle().then(({ data, error: e }) => {
       if (!live) return;
       if (e) setError(true);
@@ -203,6 +111,17 @@ function PageView({ section, slug, onOpen }: { section: BrainSection; slug: stri
     });
     return () => { live = false; };
   }, [section, slug]);
+
+  const save = async (current: BrainPageRow, text: string): Promise<string | null> => {
+    const { error: e } = await db.rpc("edit_brain_page", { p_page_id: current.id, p_body_md: text, p_expected_updated_at: current.updated_at });
+    if (e) return errorText(e.code, "The page could not be saved.");
+    // Read the page again so the new text, and the timestamp the next save needs, are on screen.
+    const { data, error: readError } = await db.from("brain_pages").select(PAGE_COLUMNS).eq("section", section).eq("slug", slug).maybeSingle();
+    if (readError || !data) return "Saved, but the page could not be reloaded. Reload it to keep editing.";
+    setPage(data as BrainPageRow);
+    setEditing(false);
+    return null;
+  };
 
   // A link to a section of the page (#anchor) scrolls to that heading once the page is in.
   useEffect(() => {
@@ -243,11 +162,26 @@ function PageView({ section, slug, onOpen }: { section: BrainSection; slug: stri
       <header className="mx-auto max-w-[68ch] space-y-2 border-b border-input pb-5">
         <h2 className="gos-page-title">{page.title}</h2>
         <Meta owner={page.owner} lastReviewed={page.last_reviewed} />
+        {page.edited_in_app ? (
+          <p className="text-[12px] text-muted-foreground" data-testid="brain-edited">
+            Edited in the app{page.edited_at ? ` on ${fmtDate(page.edited_at)}` : ""}. Publishing from HQ keeps this text.
+          </p>
+        ) : null}
       </header>
-      <div className="prose mx-auto" data-testid="brain-page-body">
-        <ReactMarkdown components={components}>{withoutRepeatedTitle(page.body_md, page.title)}</ReactMarkdown>
-      </div>
-      <Fixes key={page.id} page={page} />
+      {editing ? (
+        <div className="mx-auto max-w-[68ch]">
+          <DocumentEditor key={page.updated_at} initialText={page.body_md} label="Page text" onSave={(text) => save(page, text)} onCancel={() => setEditing(false)} />
+        </div>
+      ) : (
+        <>
+          <div className="prose mx-auto" data-testid="brain-page-body">
+            <ReactMarkdown components={components}>{withoutRepeatedTitle(page.body_md, page.title)}</ReactMarkdown>
+          </div>
+          <div className="mx-auto max-w-[68ch] border-t border-input pt-3">
+            <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit this page</Button>
+          </div>
+        </>
+      )}
     </article>
   );
 }
@@ -300,7 +234,7 @@ export default function BrainPage() {
 
   return (
     <PageShell data-testid="brain">
-      <PageHeader title="Brain" description="Goodo's handbook, playbooks, client notes and insights, published from HQ. To change a page, edit it in HQ and publish again, or suggest a fix to its owner." />
+      <PageHeader title="Brain" description="Goodo's handbook, playbooks, client notes and insights, published from HQ. Open a page and press Edit to add to it or remove from it. Your change shows right away and is kept when HQ publishes again." />
       <BrainAsk onOpen={openPage} />
       <nav aria-label="Brain sections" className="flex flex-wrap gap-1 border-b border-input">
         {BRAIN_SECTIONS.map((s) => (
