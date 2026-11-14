@@ -347,7 +347,7 @@ Rollback: `supabase secrets unset <name> --project-ref gwyxaqoaldnaavkjqquv` and
 Reads of the old dashboard database (`qlvdvpchriyrsjtewwxx`) and writes to production both use the vault secret `SUPABASE_ACCESS_TOKEN`. Run the dry run first. It reads row counts and checksums from the old dashboard and from production (production through the read-only endpoint, so it cannot change anything), prints the row counts per table, writes the report, and leaves a receipt file:
 
 ```bash
-hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN -- node scripts/dashboard-copy.mjs --target production --confirm-source qlvdvpchriyrsjtewwxx --report dashboard-copy-production-dry-run.md
+hq secrets exec --company goodo-studios --only SUPABASE_ACCESS_TOKEN -- node scripts/dashboard-copy.mjs --target production --confirm-production gwyxaqoaldnaavkjqquv --confirm-source qlvdvpchriyrsjtewwxx --report dashboard-copy-production-dry-run.md
 ```
 
 Read the report. Then the copy, within 120 minutes of the dry run:
@@ -451,6 +451,10 @@ Two scheduled jobs exist only in production because they need `pg_cron`, `pg_net
 Rollback: `select cron.unschedule('<jobname>');`.
 
 ### Step 14. Delete the Coda functions and the Coda secret
+
+Done 2026-11-14: the three Coda functions were deleted from production with `scripts/coda-cleanup.mjs`.
+
+Run record 2026-11-14 for steps 6, 7 and 11b on production: step 7 copied the old dashboard tables (30 of 32 tables match exactly; `app_users` holds production's own rows too and `clients` differs in checksum only); step 6 set `SITE_URL`, `META_ACCESS_TOKEN`, `CLICKUP_API_TOKEN`, `FIREFLIES_API_KEY`, `SLACK_BOT_TOKEN` and both storage vault secrets (functions that read a new secret still need a redeploy); `CLICKUP_WEBHOOK_SECRET`, `RESEND_API_KEY` and `SLACK_WEBHOOK_URL` have no value in the vault; step 11b's `public_link_backfill_registry()` reported 0 missing and the registry holds all 57 links.
 
 Read only check on production, 2026-11-14 (after the release): the three Coda functions `create-coda-brief`, `sync-coda-names` and `sync-coda-tasks` are still deployed; `coda_tasks` is gone; no cron job has coda in its name; `CODA_API_KEY` is not set on production, so there is no Coda secret left to unset. The script also lists two secrets no function code mentions, `LINKEDIN_JSESSIONID` and `LINKEDIN_LI_AT`. They are not Coda; find out what uses them before anyone unsets them.
 
