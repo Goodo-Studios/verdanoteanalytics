@@ -88,7 +88,7 @@ SELECT is((SELECT rate_note FROM public.call_sheet_talent_entries WHERE actor_as
 SELECT is((public.create_call_sheet('c5500000-0000-4000-8000-0000000000e2', 'c55EmployeeMadeToken0000000000000000000000001', '07:30', ' about 6 PM ', NULL, ARRAY['c5500000-0000-4000-8000-0000000000a1', 'c5500000-0000-4000-8000-0000000000a2']::uuid[]))->>'wrap_time_estimate', 'about 6 PM', 'employee makes a call sheet, wrap estimate trimmed');
 -- The token must have the shape the public link honors (migration 20261207090002).
 SELECT throws_ok($$SELECT public.create_call_sheet('c5500000-0000-4000-8000-0000000000e2', 'too-short')$$, '22023', NULL, 'a token under 32 characters is refused');
-SELECT throws_ok($$SELECT public.create_call_sheet('c5500000-0000-4000-8000-0000000000e2', 'c55-token-with-a-space-in-it-0000000000000000')$$, '22023', NULL, 'a token with a character outside the url-safe set is refused');
+SELECT throws_ok($$SELECT public.create_call_sheet('c5500000-0000-4000-8000-0000000000e2', 'c55 token with a space in it 0000000000000000')$$, '22023', NULL, 'a token with a character outside the url-safe set is refused');
 SELECT throws_ok($$SELECT public.create_call_sheet('c5500000-0000-4000-8000-0000000000e2', repeat('a', 129))$$, '22023', NULL, 'a token over 128 characters is refused');
 SELECT is((SELECT count(*)::int FROM public.call_sheet_crew cc JOIN public.call_sheets cs ON cs.id = cc.call_sheet_id WHERE cs.shoot_id = 'c5500000-0000-4000-8000-0000000000e2'), 2, 'with both crew on it');
 SELECT lives_ok($$SELECT public.update_call_sheet('c5500000-0000-4000-8000-0000000000f1', '06:45', '5 PM', 'Park on the street', ARRAY['c5500000-0000-4000-8000-0000000000a2']::uuid[])$$, 'employee edits a call sheet');
