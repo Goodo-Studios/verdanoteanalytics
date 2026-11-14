@@ -162,8 +162,9 @@ REVOKE ALL ON FUNCTION public.creative_daily_metrics_rollup_insert() FROM PUBLIC
 REVOKE ALL ON FUNCTION public.creative_daily_metrics_rollup_update() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.creative_daily_metrics_rollup_delete() FROM PUBLIC, anon, authenticated;
 
--- Backfill from the existing rows first, then attach the triggers, in one transaction (the
--- migration), so no write is missed between the two.
+-- Backfill from the existing rows first, then attach the triggers, in one explicit transaction
+-- (the migration runner adds none), so no write is missed between the two.
+BEGIN;
 LOCK TABLE public.creative_daily_metrics IN SHARE ROW EXCLUSIVE MODE;
 
 INSERT INTO public.creative_daily_rollup
