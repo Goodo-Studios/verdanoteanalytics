@@ -44,7 +44,12 @@ function world(over: Partial<World> = {}): World {
   };
 }
 
-function setup(w: World, env: Record<string, string> = {}, caller: Caller = builder) {
+interface Faults {
+  setUpFails?: boolean;
+  markSentFails?: boolean;
+}
+
+function setup(w: World, env: Record<string, string> = {}, caller: Caller = builder, faults: Faults = {}) {
   const writes: string[] = [];
   const mails: string[] = [];
   const store: Store = {
@@ -54,10 +59,12 @@ function setup(w: World, env: Record<string, string> = {}, caller: Caller = buil
     blockedReason: (slug) => Promise.resolve(w.blocked[slug] ?? null),
     loginState: (email) => Promise.resolve(w.logins[email] ? { userId: w.logins[email], confirmed: true } : null),
     setUpClientLogin: (userId, slug) => {
+      if (faults.setUpFails) return Promise.reject(new Error("user_roles: boom"));
       writes.push(`login:${userId}:${slug}`);
       return Promise.resolve();
     },
     markSent: (id) => {
+      if (faults.markSentFails) return Promise.reject(new Error("invite sent: boom"));
       writes.push(`sent:${id}`);
       return Promise.resolve();
     },
@@ -73,6 +80,10 @@ function setup(w: World, env: Record<string, string> = {}, caller: Caller = buil
     },
     sendMagicLink: (email) => {
       mails.push(`magic:${email}`);
+      return Promise.resolve({ error: null });
+    },
+    deleteUser: (id) => {
+      writes.push(`deleted:${id}`);
       return Promise.resolve({ error: null });
     },
   };
@@ -180,7 +191,42 @@ Deno.test("an address with a login gets a magic link and no new login", async ()
   const r = await t.call();
   assertEquals(r.status, 200);
   assertEquals(t.mails, ["magic:ann@staging.verdanote.test"]);
-  assert(!t.writes.some((w) => w.startsWith("login:")));
+  assert(!t.writes.some((w) => w.startsWith("deleted:")));
+});
+
+Deno.test("an existing login gets the client role and membership before it is marked sent", async () => {
+  const t = setup(world({ logins: { "ann@staging.verdanote.test": "u-ann" } }), { ...ON, CLIENT_INVITES_ALLOWED_DOMAINS: "staging.verdanote.test" });
+  const r = await t.call();
+  assertEquals(r.body.sent.length, 1);
+  assert(t.writes.includes("login:u-ann:alpha"));
+  assert(t.writes.indexOf("login:u-ann:alpha") < t.writes.indexOf("sent:i1"));
+});
+
+Deno.test("an existing login whose setup fails gets no email and is listed as failed", async () => {
+  const t = setup(world({ logins: { "ann@staging.verdanote.test": "u-ann" } }), { ...ON, CLIENT_INVITES_ALLOWED_DOMAINS: "staging.verdanote.test" }, builder, { setUpFails: true });
+  const r = await t.call();
+  assertEquals(r.status, 200);
+  assertEquals(t.mails, []);
+  assertEquals(r.body.failed.map((f: { invite_id: string }) => f.invite_id), ["i1"]);
+});
+
+Deno.test("a failed setup for a new login removes it, records it as failed and the batch goes on", async () => {
+  const t = setup(world(), ON, builder, { setUpFails: true });
+  const r = await t.call();
+  assertEquals(r.status, 200);
+  assertEquals(r.body.failed.map((f: { invite_id: string }) => f.invite_id), ["i1", "i2"]);
+  assertEquals(r.body.sent, []);
+  assert(t.writes.includes("deleted:new-ann@staging.verdanote.test"));
+  assert(t.writes.includes("deleted:new-bob@beta.example"));
+  assert(!t.writes.some((w) => w.startsWith("batch:")));
+});
+
+Deno.test("a failed sent mark removes a new login and does not become a 500", async () => {
+  const t = setup(world(), ON, builder, { markSentFails: true });
+  const r = await t.call();
+  assertEquals(r.status, 200);
+  assertEquals(r.body.failed.length, 2);
+  assertEquals(t.writes.filter((w) => w.startsWith("deleted:")).length, 2);
 });
 
 Deno.test("a later run does not move the batch's sent date", async () => {

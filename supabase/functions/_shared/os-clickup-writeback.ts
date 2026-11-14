@@ -475,8 +475,26 @@ async function sendRow(ctx: RunContext, row: OutboxRow): Promise<{ outcome: Outc
   if (row.kind === "comment" || row.kind === "decision") {
     if (row.clickup_ref) return { outcome: "noop", clickupUpdatedMs: null, ref: row.clickup_ref };
     const res = await ctx.cu.request("POST", `/task/${id}/comment`, { comment_text: commentText(row), notify_all: false });
-    const after = await ctx.cu.request("GET", `/task/${id}`);
-    return { outcome: "sent", clickupUpdatedMs: ms(msToIso((after as unknown as CuTask).date_updated)), ref: str(res.id) };
+    const ref = str(res.id);
+    // Keep ClickUp's comment id as soon as the POST succeeds, in its own update, so a later failure
+    // (the GET below, or the final stamp) retries as a no-op instead of posting the comment again.
+    if (ref) {
+      try {
+        await update(ctx.db, row.id, { clickup_ref: ref });
+      } catch (err) {
+        console.error(`could not keep the ClickUp comment id: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+    // The follow-up read only supplies the echo timestamp; the comment is already posted, so a
+    // failure here must not fail or retry the row.
+    let updatedMs: number | null = null;
+    try {
+      const after = await ctx.cu.request("GET", `/task/${id}`);
+      updatedMs = ms(msToIso((after as unknown as CuTask).date_updated));
+    } catch (err) {
+      console.error(`ClickUp task read after a comment failed: ${err instanceof Error ? err.message : err}`);
+    }
+    return { outcome: "sent", clickupUpdatedMs: updatedMs, ref };
   }
 
   let task: CuTask;

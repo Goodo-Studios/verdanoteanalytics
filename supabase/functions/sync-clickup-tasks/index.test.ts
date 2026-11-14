@@ -165,7 +165,7 @@ const TASKS: Record<string, unknown[]> = {
   ],
 };
 
-function stubClickUp({ failList = "" } = {}): { restore: () => void; urls: string[] } {
+function stubClickUp({ failList = "", folders = FOLDERS as unknown, tasks = TASKS }: { failList?: string; folders?: unknown; tasks?: Record<string, unknown[]> } = {}): { restore: () => void; urls: string[] } {
   const original = globalThis.fetch;
   const urls: string[] = [];
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
@@ -176,10 +176,10 @@ function stubClickUp({ failList = "" } = {}): { restore: () => void; urls: strin
       Promise.resolve(
         new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }),
       );
-    if (url.includes("/space/")) return json(FOLDERS);
+    if (url.includes("/space/")) return json(folders);
     const listId = url.match(/\/list\/([^/]+)\/task/)?.[1] ?? "";
     if (listId === failList) return json({ err: "rate limited" }, 429);
-    return json({ tasks: TASKS[listId] ?? [], last_page: true });
+    return json({ tasks: tasks[listId] ?? [], last_page: true });
   }) as typeof fetch;
   return { restore: () => (globalThis.fetch = original), urls };
 }
@@ -410,6 +410,53 @@ Deno.test("nothing is swept from either table when only the delivered upsert fai
     assertEquals(json.upserted, 4);
     assertEquals(json.archived, 0);
     assert(!calls.some((c) => c.method === "delete"), "a failed delivered write must not trigger any delete");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("the delete is skipped when ClickUp answers 200 with no folders", async () => {
+  const { restore } = stubClickUp({ folders: { folders: [] } });
+  try {
+    const { supabase, calls } = makeRecorder();
+    const json = await (await mod.handler(makeReq(), supabase)).json();
+    assertEquals(json.folders, 0);
+    assertEquals(json.deleteSkipped, true);
+    assert(!calls.some((c) => c.method === "delete"), "an empty folder list must not empty the board");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("the delete is skipped when matched folders returned no tasks at all", async () => {
+  const { restore } = stubClickUp({ tasks: {} });
+  try {
+    const { supabase, calls } = makeRecorder();
+    const json = await (await mod.handler(makeReq(), supabase)).json();
+    assertEquals(json.seen, 0);
+    assertEquals(json.deleteSkipped, true);
+    assert(!calls.some((c) => c.method === "delete"), "nothing collected must not sweep either table");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("the delete is skipped when most folders do not resolve to a client", async () => {
+  const folders = {
+    folders: [
+      FOLDERS.folders[0],
+      { id: "f-a", name: "Unknown A", lists: [{ id: "l-a", name: "A Project View" }] },
+      { id: "f-b", name: "Unknown B", lists: [{ id: "l-b", name: "B Project View" }] },
+      { id: "f-c", name: "Unknown C", lists: [{ id: "l-c", name: "C Project View" }] },
+    ],
+  };
+  const { restore } = stubClickUp({ folders });
+  try {
+    const { supabase, calls } = makeRecorder();
+    const json = await (await mod.handler(makeReq(), supabase)).json();
+    assertEquals(json.matchedFolders, 1);
+    assertEquals(json.deleteSkipped, true);
+    assert(!calls.some((c) => c.method === "delete"));
   } finally {
     restore();
   }
