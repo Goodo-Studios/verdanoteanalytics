@@ -37,6 +37,8 @@ const SHARE_TARGET_STASH_PREFIX = "/__verdanote-shared-file/";
 const SHARED_FILE_NAME_HEADER = "x-verdanote-shared-file-name";
 const SHARED_FILE_STASHED_AT_HEADER = "x-verdanote-shared-at";
 const SHARE_STASH_TTL_MS = 600000; // 10 minutes
+const SHARE_NONCE_PARAM = "share-nonce";
+const SHARE_NONCE_PREFIX = "/__verdanote-share-nonce/";
 
 self.addEventListener("install", () => {
   // Take over immediately instead of waiting for every tab to close, so a
@@ -124,6 +126,10 @@ async function handleShareTarget(request: Request): Promise<Response> {
       );
       target.searchParams.set("shared-file", key);
     }
+    // Proof that this redirect came from a real share POST. The route saves on arrival only when it
+    // can consume this nonce; a plain GET with a payload cannot have one.
+    const nonce = await issueShareNonce();
+    if (nonce) target.searchParams.set(SHARE_NONCE_PARAM, nonce);
   } catch {
     target.searchParams.set("share-error", "1");
   }
@@ -133,7 +139,25 @@ async function handleShareTarget(request: Request): Promise<Response> {
 }
 
 /**
- * Delete stashed files older than the TTL.
+ * Store a one-time nonce in the share cache and return it, or null when it could not be stored.
+ * Null only costs the user one confirm tap on the route, so a failure here never fails the share.
+ */
+async function issueShareNonce(): Promise<string | null> {
+  try {
+    const nonce = crypto.randomUUID();
+    const cache = await caches.open(SHARE_TARGET_CACHE);
+    await cache.put(
+      SHARE_NONCE_PREFIX + nonce,
+      new Response("1", { headers: { [SHARED_FILE_STASHED_AT_HEADER]: String(Date.now()) } }),
+    );
+    return nonce;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Delete stashed files and nonces older than the TTL.
  *
  * The page consumes its own entry on a successful handoff, so anything left
  * belongs to a share that never landed (tab killed, user navigated away). Never
