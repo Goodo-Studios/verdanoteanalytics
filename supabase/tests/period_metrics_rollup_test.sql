@@ -8,7 +8,7 @@
 -- that the two new tables are closed to browser roles. All rows are made up, dates in 2020.
 
 BEGIN;
-SELECT plan(16);
+SELECT plan(15);
 
 INSERT INTO public.ad_accounts (id, name, last_synced_at) VALUES
   ('act_rl_a', 'RL A', now()), ('act_rl_b', 'RL B', now());
@@ -82,6 +82,14 @@ SELECT is(
 INSERT INTO public.creative_daily_metrics
   (ad_id, account_id, date, impressions, spend, clicks, purchases, purchase_value, adds_to_cart, video_views, frequency)
 VALUES ('rl_a1', 'act_rl_a', '2020-03-20', 100, 5, 1, 0, 0, 0, 0, 1);
+
+SELECT diag('DIAG role=' || current_user || ' rollup=' || (SELECT count(*) FROM public.creative_daily_rollup WHERE account_id LIKE 'act_rl_%')
+  || ' spans=' || (SELECT count(*) FROM public.creative_ad_spend_span WHERE ad_id LIKE 'rl_%')
+  || ' a1=' || coalesce((SELECT first_date::text || '..' || last_date::text FROM public.creative_ad_spend_span WHERE ad_id = 'rl_a1'), 'none')
+  || ' a2=' || coalesce((SELECT first_date::text || '..' || last_date::text FROM public.creative_ad_spend_span WHERE ad_id = 'rl_a2'), 'none')
+  || ' a3=' || coalesce((SELECT first_date::text || '..' || last_date::text FROM public.creative_ad_spend_span WHERE ad_id = 'rl_a3'), 'none')
+  || ' tbl_owner=' || (SELECT tableowner FROM pg_tables WHERE tablename = 'creative_ad_spend_span')
+  || ' bypassrls=' || (SELECT rolbypassrls::text FROM pg_roles WHERE rolname = current_user));
 
 SET LOCAL ROLE service_role;
 SET LOCAL request.jwt.claims TO '{"role":"service_role"}';
