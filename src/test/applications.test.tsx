@@ -85,6 +85,22 @@ const renderDetail = (url = "/applications/creators/c1") => render(
 );
 
 describe("Applications page", () => {
+  it("is pinned to actors under Production, with no creator switch", async () => {
+    render(<MemoryRouter initialEntries={["/applications"]}><Routes><Route path="/applications" element={<ApplicationsPage lockedKind="actors" />} /></Routes></MemoryRouter>);
+    expect(await screen.findByTestId("application-a1")).toBeTruthy();
+    expect(loadApplications).toHaveBeenLastCalledWith("actors");
+    expect(screen.queryByRole("button", { name: "Creator applications" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Actor applications" })).toBeNull();
+    expect(screen.getByRole("link", { name: `${window.location.origin}/actorapply` })).toBeTruthy();
+  });
+
+  it("is pinned to creators under Creators, with no actor switch", async () => {
+    render(<MemoryRouter initialEntries={["/applications?kind=actors"]}><Routes><Route path="/applications" element={<ApplicationsPage lockedKind="creators" />} /></Routes></MemoryRouter>);
+    expect(await screen.findByTestId("application-c1")).toBeTruthy();
+    expect(loadApplications).toHaveBeenLastCalledWith("creators");
+    expect(screen.queryByRole("button", { name: "Actor applications" })).toBeNull();
+  });
+
   it("shows the pending creator queue newest first, with counts, the form link and roster matches", async () => {
     renderList();
     const first = await screen.findByTestId("application-c1");

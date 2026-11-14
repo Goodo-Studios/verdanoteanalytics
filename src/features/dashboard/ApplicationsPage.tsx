@@ -37,11 +37,15 @@ function summaryOf(a: Application): string {
   return [a.gender, a.age_range.join(", ")].filter(Boolean).join(" · ");
 }
 
-export default function ApplicationsPage() {
+/**
+ * `lockedKind` pins the page to one kind and hides the creator/actor switch. The Creators menu opens it on
+ * creators and Production opens it on actors. Without it (the old address) the switch shows.
+ */
+export default function ApplicationsPage({ lockedKind }: { lockedKind?: ApplicationKind } = {}) {
   const prefix = useRolePrefix();
   const { confirm, dialog } = useConfirm();
   const [params, setParams] = useSearchParams();
-  const kind = parseKind(params.get("kind"));
+  const kind = lockedKind ?? parseKind(params.get("kind"));
   const status = parseQueueStatus(params.get("status"));
   const [search, setSearch] = useState("");
   const [rows, setRows] = useState<Application[] | null>(null);
@@ -126,9 +130,12 @@ export default function ApplicationsPage() {
 
   return (
     <PageShell data-testid="applications-page">
-      <PageHeader title="Applications" description="Review creator and actor applications. Approving adds the applicant to the roster." />
+      <PageHeader
+        title={lockedKind ? KIND_LABEL[lockedKind] : "Applications"}
+        description={lockedKind ? `Review ${lockedKind === "actors" ? "actor" : "creator"} applications. Approving adds the applicant to the roster.` : "Review creator and actor applications. Approving adds the applicant to the roster."}
+      />
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        {(["creators", "actors"] as const).map((k) => (
+        {(lockedKind ? [] : (["creators", "actors"] as const)).map((k) => (
           <Button key={k} type="button" variant={kind === k ? "secondary" : "outline"} size="sm" aria-pressed={kind === k} onClick={() => go({ kind: k })}>{KIND_LABEL[k]}</Button>
         ))}
         <span className="ml-2 text-xs text-muted-foreground">

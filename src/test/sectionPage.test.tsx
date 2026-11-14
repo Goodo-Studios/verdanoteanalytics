@@ -84,8 +84,8 @@ describe("section model", () => {
   it("has the eight tabbed sections with the agreed tabs", () => {
     expect(SECTIONS.map((s) => s.label)).toEqual(["Production", "Creators", "Creative", "Creative Vault", "Knowledge", "Growth Dashboard", "Ad Name Generator", "Admin"]);
     const labels = (id: string) => SECTIONS.find((s) => s.id === id)!.tabs.map((t) => t.label);
-    expect(labels("production")).toEqual(["Production calendar", "Call sheets", "Casting", "Actors", "Crew", "Locations", "Props", "Shipments"]);
-    expect(labels("talent")).toEqual(["Creators", "Applications", "Creator pipeline", "Follow-ups", "Approval boards"]);
+    expect(labels("production")).toEqual(["Production calendar", "Call sheets", "Casting", "Actors", "Actor applications", "Crew", "Locations", "Props", "Shipments"]);
+    expect(labels("talent")).toEqual(["Creators", "Applications", "Creator pipeline", "Approval boards"]);
     expect(labels("creative")).toEqual([
       "Overview", "Agency overview", "Creatives", "Analytics", "Creative Rotation", "Creative Diversity", "Landing Pages",
       "Creative Library", "Tagging", "Matrix", "Reports", "Briefs",

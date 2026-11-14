@@ -52,6 +52,7 @@ export const SECTIONS: SectionDef[] = [
       { slug: "casting", label: "Casting", page: "casting", legacy: ["/casting"], usesClient: true },
       // Moved out of Talent. The old addresses redirect here.
       { slug: "actors", label: "Actors", page: "actors", legacy: ["/actors", "/talent/actors"] },
+      { slug: "actor-applications", label: "Actor applications", page: "actorApplications", legacy: [] },
       { slug: "crew", label: "Crew", page: "crew", legacy: ["/crew"] },
       { slug: "locations", label: "Locations", page: "locations", legacy: ["/locations"] },
       { slug: "props", label: "Props", page: "props", legacy: ["/props"] },
@@ -61,12 +62,11 @@ export const SECTIONS: SectionDef[] = [
   {
     id: "talent",
     label: "Creators",
-    description: "Creators, applications and the creator pipeline.",
+    description: "Creators, their applications and the creator pipeline.",
     tabs: [
       { slug: "creators", label: "Creators", page: "creators", legacy: ["/creators"] },
       { slug: "applications", label: "Applications", page: "applications", legacy: ["/applications"] },
       { slug: "pipeline", label: "Creator pipeline", page: "creatorPipeline", legacy: ["/creator-pipeline"], usesClient: true },
-      { slug: "follow-ups", label: "Follow-ups", page: "followUps", legacy: ["/follow-ups"] },
       { slug: "approval-boards", label: "Approval boards", page: "approvalBoards", legacy: ["/approval-boards"], usesClient: true },
     ],
   },
