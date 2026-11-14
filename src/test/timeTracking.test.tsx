@@ -217,7 +217,7 @@ describe("timer pill", () => {
   });
 });
 
-const at = (d: number, hh: number, mm = 0) => new Date(2026, 10, d, hh, mm).toISOString();
+const at = (d: number, hh: number, mm = 0) => toTimestamp(`2026-11-${String(d).padStart(2, "0")}`, `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`);
 const row = (id: string, start: string, end: string | null, over: Record<string, unknown> = {}) => ({
   id,
   person_id: "person-1",
@@ -258,8 +258,8 @@ describe("weekly log", () => {
     // The query asks for my entries in this week only.
     const q = h.calls.find((c) => c.table === "time_entries")!;
     expect(q.filters).toContain(`eq:person.user_id:${USER}`);
-    expect(q.filters).toContain(`gte:start_at:${new Date(2026, 10, 9).toISOString()}`);
-    expect(q.filters).toContain(`lt:start_at:${new Date(2026, 10, 16).toISOString()}`);
+    expect(q.filters).toContain(`gte:start_at:${toTimestamp("2026-11-09", "00:00")}`);
+    expect(q.filters).toContain(`lt:start_at:${toTimestamp("2026-11-16", "00:00")}`);
   });
 
   it("previous and next week move the week in the address", async () => {
@@ -362,6 +362,65 @@ describe("weekly log", () => {
         p_description: "Payroll",
       }),
     );
+  });
+
+  it("keeps an overnight entry whole when it is edited, and shows its end date", async () => {
+    h.entries = [row("n1", at(9, 9), at(10, 10), { task_id: "t1", client_slug: "glow", is_internal: false, category: null, task: { title: "Cut v1" } })];
+    renderWith(<TimeLogPage />, WEEK);
+    await screen.findAllByTestId("time-entry");
+    fireEvent.click(screen.getByRole("button", { name: "Edit Cut v1" }));
+    const form = screen.getByTestId("time-entry-form");
+    expect((within(form).getByLabelText("Date") as HTMLInputElement).value).toBe("2026-11-09");
+    expect((within(form).getByLabelText("End date") as HTMLInputElement).value).toBe("2026-11-10");
+    expect((within(form).getByLabelText("End") as HTMLInputElement).value).toBe("10:00");
+    fireEvent.change(within(form).getByLabelText("Description"), { target: { value: "Notes" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(h.calls.find((c) => c.op === "update")).toBeTruthy());
+    const upd = h.calls.find((c) => c.op === "update")!;
+    expect(upd.values).toMatchObject({ start_at: toTimestamp("2026-11-09", "09:00"), end_at: toTimestamp("2026-11-10", "10:00") });
+  });
+
+  it("adds an overnight entry with an end date, and refuses an end that is not after the start", async () => {
+    renderWith(<TimeLogPage />, WEEK);
+    await screen.findAllByTestId("time-entry");
+    fireEvent.click(screen.getByTestId("time-add"));
+    const form = screen.getByTestId("time-entry-form");
+    fireEvent.change(within(form).getByLabelText("Date"), { target: { value: "2026-11-10" } });
+    // Moving the date also moved the end date, which started on the same day.
+    expect((within(form).getByLabelText("End date") as HTMLInputElement).value).toBe("2026-11-10");
+    fireEvent.change(within(form).getByLabelText("Start"), { target: { value: "22:00" } });
+    fireEvent.change(within(form).getByLabelText("End"), { target: { value: "06:00" } });
+    fireEvent.change(within(form).getByLabelText("Client or Internal"), { target: { value: "__internal__" } });
+    fireEvent.change(within(form).getByLabelText("Category"), { target: { value: "Admin" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Add entry" }));
+    expect((await within(form).findByRole("alert")).textContent).toBe("The end must be after the start.");
+    expect(h.calls.filter((c) => c.op !== "select")).toEqual([]);
+    fireEvent.change(within(form).getByLabelText("End date"), { target: { value: "2026-11-11" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Add entry" }));
+    await waitFor(() => expect(h.calls.find((c) => c.op === "insert")).toBeTruthy());
+    expect(h.calls.find((c) => c.op === "insert")!.values).toMatchObject({
+      start_at: toTimestamp("2026-11-10", "22:00"),
+      end_at: toTimestamp("2026-11-11", "06:00"),
+    });
+  });
+
+  it("offers recently finished tasks in the Task picker, but not read-only ones", async () => {
+    h.tasks = [task("t1", "Cut v1"), { ...task("t9", "Shipped yesterday"), status: "complete" }];
+    renderWith(<TimeLogPage />, WEEK);
+    await screen.findAllByTestId("time-entry");
+    fireEvent.click(screen.getByTestId("time-add"));
+    const form = screen.getByTestId("time-entry-form");
+    expect(await within(form).findByRole("option", { name: "Shipped yesterday (Glow Drip)" })).toBeTruthy();
+    const q = h.calls.filter((c) => c.table === "os_tasks")[0];
+    expect(q.filters).toContain("eq:read_only:false");
+    // Done tasks come back only for the last 14 days, through one OR filter.
+    expect(q.filters.some((f) => f.startsWith("neq:status:"))).toBe(false);
+    const recent = q.filters.find((f) => f.startsWith("or:status.neq.complete,updated_at.gte."));
+    expect(recent).toBeTruthy();
+    const stamp = /updated_at\.gte\.(\d{4}-\d{2}-\d{2}T[\d:.]+Z)/.exec(recent!)![1];
+    const ageDays = (Date.now() - Date.parse(stamp)) / 86_400_000;
+    expect(ageDays).toBeGreaterThan(13.9);
+    expect(ageDays).toBeLessThan(14.1);
   });
 
   it("shows an overlap error from the database in plain words", async () => {
