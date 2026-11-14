@@ -95,7 +95,7 @@ vi.mock("@/integrations/supabase/client", () => {
 });
 
 import BrainPage from "@/features/brain/BrainPage";
-import { brainAnchor, brainPagePath, type BrainFix, canReviewFix, fixStatus, needsReview, NEEDS_REVIEW_DAYS, parseBrainHref, sectionFromParam } from "@/features/brain/model";
+import { brainAnchor, brainPagePath, type BrainFix, canReviewFix, fixStatus, needsReview, NEEDS_REVIEW_DAYS, parseBrainHref, sectionFromParam, withoutRepeatedTitle } from "@/features/brain/model";
 
 function renderAt(search = "") {
   return render(
@@ -409,5 +409,14 @@ describe("Ask the Brain (OS-026)", () => {
     expect(brainAnchor("  UGC / Testimonial!! ")).toBe("ugc-testimonial");
     expect(brainPagePath("/employee", "Playbooks", "video", "founder-story")).toBe("/employee/knowledge/brain?section=playbooks&page=video#founder-story");
     expect(brainPagePath("/employee", "Playbooks", "video")).toBe("/employee/knowledge/brain?section=playbooks&page=video");
+  });
+
+  it("shows the page title once: a leading # heading that repeats it is dropped", () => {
+    expect(withoutRepeatedTitle("# Goodo Studios Overview\nBody text.", "Goodo Studios Overview")).toBe("Body text.");
+    expect(withoutRepeatedTitle("\n#  goodo studios   overview  \n\nBody", "Goodo Studios Overview")).toBe("Body");
+    // A different first heading, or a second-level one, stays.
+    expect(withoutRepeatedTitle("# Something else\nBody", "Goodo Studios Overview")).toBe("# Something else\nBody");
+    expect(withoutRepeatedTitle("## Goodo Studios Overview\nBody", "Goodo Studios Overview")).toBe("## Goodo Studios Overview\nBody");
+    expect(withoutRepeatedTitle("Body only", "Title")).toBe("Body only");
   });
 });

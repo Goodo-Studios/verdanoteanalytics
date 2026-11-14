@@ -15,14 +15,15 @@ export default {
     },
     extend: {
       fontFamily: {
-        // Goodo OS (OS-005): Inter, with Instrument Serif italic for accents.
+        // Goodo OS: Instrument Sans, Instrument Serif italic for titles, Source Serif 4 for reading.
         sans: ["var(--gos-sans)"],
         heading: ["var(--gos-sans)"],
         body: ["var(--gos-sans)"],
         serif: ["var(--gos-serif)"],
+        read: ["var(--gos-read)"],
         data: ["var(--gos-sans)"],
         mono: ["var(--gos-sans)"],
-        label: ['"Space Grotesk"', "sans-serif"],
+        label: ["var(--gos-sans)"],
       },
       colors: {
         border: "hsl(var(--border))",

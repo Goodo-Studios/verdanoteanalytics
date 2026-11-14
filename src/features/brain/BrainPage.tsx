@@ -33,6 +33,7 @@ import {
   fixStatus,
   matchesSearch,
   NEEDS_REVIEW_DAYS,
+  withoutRepeatedTitle,
   needsReview,
   parseBrainHref,
   SECTION_BLURB,
@@ -87,7 +88,7 @@ function NeedsReviewTag() {
 
 function Meta({ owner, lastReviewed }: { owner: string; lastReviewed: string | null }) {
   return (
-    <p className="text-[12px] text-muted-foreground" data-testid="brain-page-meta">
+    <p className="text-[13px] text-muted-foreground" data-testid="brain-page-meta">
       <span data-testid="brain-owner">Owner: {owner}</span>
       {" · "}
       <span data-testid="brain-reviewed">{reviewedText(lastReviewed)}</span>
@@ -238,13 +239,13 @@ function PageView({ section, slug, onOpen }: { section: BrainSection; slug: stri
   if (page === undefined) return <LoadingState label="Loading page" />;
   if (page === null) return <EmptyState title="This page is not in the Brain. It may have been removed in HQ." />;
   return (
-    <article aria-label={page.title} className="space-y-3 rounded-lg border border-input bg-background p-4" data-testid="brain-page">
-      <div>
-        <h2 className="text-lg font-semibold">{page.title}</h2>
+    <article aria-label={page.title} className="space-y-6 rounded-card border border-input bg-card px-6 py-8 shadow-card sm:px-10 sm:py-10" data-testid="brain-page">
+      <header className="mx-auto max-w-[68ch] space-y-2 border-b border-input pb-5">
+        <h2 className="gos-page-title">{page.title}</h2>
         <Meta owner={page.owner} lastReviewed={page.last_reviewed} />
-      </div>
-      <div className="prose prose-sm max-w-none dark:prose-invert" data-testid="brain-page-body">
-        <ReactMarkdown components={components}>{page.body_md}</ReactMarkdown>
+      </header>
+      <div className="prose mx-auto" data-testid="brain-page-body">
+        <ReactMarkdown components={components}>{withoutRepeatedTitle(page.body_md, page.title)}</ReactMarkdown>
       </div>
       <Fixes key={page.id} page={page} />
     </article>
