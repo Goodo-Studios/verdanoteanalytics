@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import type { Account } from "@/types/account";
 import { AccountAccessDeniedState } from "@/components/AccountAccessDeniedState";
+import { Button } from "@/components/ui/button";
 
 interface AccountContextType {
   selectedAccountId: string | null;
@@ -14,6 +15,9 @@ interface AccountContextType {
   selectedAccount: Account | null;
   /** True when the URL's ?account= id doesn't exist or isn't accessible (US-008). */
   accountAccessError: boolean;
+  /** True when a client's linked accounts could not be loaded. The provider shows a retry screen. */
+  linkedAccountsError: boolean;
+  retryLinkedAccounts: () => void;
 }
 
 const AccountContext = createContext<AccountContextType>({
@@ -23,6 +27,8 @@ const AccountContext = createContext<AccountContextType>({
   isLoading: false,
   selectedAccount: null,
   accountAccessError: false,
+  linkedAccountsError: false,
+  retryLinkedAccounts: () => {},
 });
 
 function storageKey(userId: string) {
@@ -33,7 +39,14 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const { isClient, user } = useAuth();
   const { data: allAccounts, isLoading: accountsLoading } = useAccounts(user?.id);
   const needsAccountFilter = isClient;
-  const [linkedAccountIds, setLinkedAccountIds] = useState<string[] | null>(null);
+  // A client's linked account ids, tagged with the user they were loaded for. Reading them back
+  // through the current user id means ids loaded for a previous user are never used for the next.
+  const [linked, setLinked] = useState<{ userId: string; ids: string[] | null; failed: boolean } | null>(null);
+  const [retryTick, setRetryTick] = useState(0);
+  const userId = user?.id;
+  const linkedForUser = linked && linked.userId === userId ? linked : null;
+  const linkedAccountIds = linkedForUser && !linkedForUser.failed ? linkedForUser.ids : null;
+  const linkedAccountsError = needsAccountFilter && !!linkedForUser?.failed;
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [accountAccessError, setAccountAccessError] = useState(false);
   // ?account= on the URL is the deep-link contract (US-008): a client-scoped
@@ -45,19 +58,31 @@ export function AccountProvider({ children }: { children: ReactNode }) {
 
   // Fetch linked accounts for clients
   useEffect(() => {
-    if (needsAccountFilter && user) {
-      supabase
-        .from("user_accounts")
-        .select("account_id")
-        .eq("user_id", user.id)
-        .then(({ data, error }) => {
-          if (error) { console.error('Failed to fetch linked accounts:', error); return; }
-          setLinkedAccountIds((data || []).map((d) => d.account_id));
-        });
-    } else {
-      setLinkedAccountIds(null);
+    if (!needsAccountFilter || !userId) {
+      setLinked(null);
+      return;
     }
-  }, [needsAccountFilter, user]);
+    let cancelled = false;
+    setLinked(null);
+    supabase
+      .from("user_accounts")
+      .select("account_id")
+      .eq("user_id", userId)
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          console.error("Failed to fetch linked accounts:", error);
+          setLinked({ userId, ids: null, failed: true });
+          return;
+        }
+        setLinked({ userId, ids: (data || []).map((d) => d.account_id), failed: false });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [needsAccountFilter, userId, retryTick]);
+
+  const retryLinkedAccounts = () => setRetryTick((n) => n + 1);
 
   // Clear selection on logout. The selection-resolution effect below already
   // bails on !user?.id, so it can never re-apply a stale selection after
@@ -67,15 +92,19 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     if (!user) setSelectedAccountId(null);
   }, [user]);
 
-  // Filter accounts for clients
-  const accounts = useMemo(() =>
-    needsAccountFilter && linkedAccountIds
-      ? (allAccounts || []).filter((a) => linkedAccountIds.includes(a.id))
-      : (allAccounts || []),
-    [needsAccountFilter, linkedAccountIds, allAccounts]
-  );
+  // Filter accounts for clients. Until the linked ids are known a client sees no accounts at all,
+  // never the unfiltered list.
+  const accounts = useMemo(() => {
+    if (!needsAccountFilter) return allAccounts || [];
+    if (!linkedAccountIds) return [];
+    return (allAccounts || []).filter((a) => linkedAccountIds.includes(a.id));
+  }, [needsAccountFilter, linkedAccountIds, allAccounts]);
 
-  const isLoading = accountsLoading || (needsAccountFilter && linkedAccountIds === null);
+  // A failed lookup is not "loading": the retry screen below takes over instead of a spinner.
+  const isLoading = accountsLoading || (needsAccountFilter && linkedAccountIds === null && !linkedAccountsError);
+
+  // The agency-wide "all" bucket is for staff. A client is only ever scoped to their own accounts.
+  const allowAll = !isClient;
 
   // Resolve account selection once user + accounts are ready.
   // Reads localStorage inline here so there's no race with a separate "load from
@@ -92,7 +121,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     // is exactly the bug this exists to close, where a client-scoped link could
     // render a different client's data with no visible sign anything was wrong.
     if (urlAccountId) {
-      if (urlAccountId === "all" || accounts.some(a => a.id === urlAccountId)) {
+      if ((urlAccountId === "all" && allowAll) || accounts.some(a => a.id === urlAccountId)) {
         setAccountAccessError(false);
         if (selectedAccountId !== urlAccountId) setSelectedAccountId(urlAccountId);
       } else {
@@ -103,7 +132,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     setAccountAccessError(false);
 
     // Current selection is valid — keep it (only lock single-account clients)
-    if (selectedAccountId && (selectedAccountId === "all" || accounts.some(a => a.id === selectedAccountId))) {
+    if (selectedAccountId && ((selectedAccountId === "all" && allowAll) || accounts.some(a => a.id === selectedAccountId))) {
       if (isClient && accounts.length === 1 && selectedAccountId !== accounts[0].id) {
         setSelectedAccountId(accounts[0].id);
       }
@@ -112,7 +141,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
 
     // Restore from localStorage
     const stored = localStorage.getItem(storageKey(user.id));
-    if (stored && (stored === "all" || accounts.some(a => a.id === stored))) {
+    if (stored && ((stored === "all" && allowAll) || accounts.some(a => a.id === stored))) {
       setSelectedAccountId(stored);
       return;
     }
@@ -137,7 +166,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
 
   const selectedAccount = accounts.find(a => a.id === selectedAccountId) || null;
 
-  const value = { selectedAccountId, setSelectedAccountId, accounts, isLoading, selectedAccount, accountAccessError };
+  const value = { selectedAccountId, setSelectedAccountId, accounts, isLoading, selectedAccount, accountAccessError, linkedAccountsError, retryLinkedAccounts };
 
   // A bad ?account= id renders the denial state INSTEAD of children — never
   // alongside them. Downstream pages read selectedAccount without checking
@@ -147,6 +176,22 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     return (
       <AccountContext.Provider value={value}>
         <AccountAccessDeniedState />
+      </AccountContext.Provider>
+    );
+  }
+
+  // The client's accounts could not be loaded. Say so and offer a retry instead of a spinner that
+  // never ends.
+  if (linkedAccountsError) {
+    return (
+      <AccountContext.Provider value={value}>
+        <div className="min-h-screen flex items-center justify-center bg-background p-6">
+          <div role="alert" className="max-w-sm text-center space-y-4">
+            <h1 className="text-lg font-semibold">We could not load your accounts</h1>
+            <p className="text-sm text-muted-foreground">Check your connection and try again.</p>
+            <Button onClick={retryLinkedAccounts}>Try again</Button>
+          </div>
+        </div>
       </AccountContext.Provider>
     );
   }
