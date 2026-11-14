@@ -162,6 +162,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       subscription.unsubscribe();
       if (fetchRoleTimerRef.current !== null) clearTimeout(fetchRoleTimerRef.current);
     };
+    // fetchRole only reads refs and calls state setters, so the copy from the first render is correct.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const signIn = async (email: string, password: string) => {
