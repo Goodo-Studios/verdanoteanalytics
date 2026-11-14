@@ -30,7 +30,7 @@ Not known yet. The data copy report ends with a per bucket inventory (file count
 ## Method
 
 1. Run after the row copy, so the rows and buckets exist. Migration 4 must be applied first.
-2. A script, `scripts/dashboard-storage-copy.mjs`, to be written once the inventory is in. It follows the same rules as the row copy: source is only read, target is hard wired to `verdanote-staging`, refuses production, needs the confirmation flag, credentials from the vault.
+2. The script is `scripts/dashboard-storage-copy.mjs`. It follows the same rules as the row copy: the source is only read, the target is `verdanote-staging` unless `--target production` comes with `--confirm-production gwyxaqoaldnaavkjqquv`, it needs `--confirm-source`, and credentials come from the vault. A production copy also needs a dry run (`--dry-run`) that left a receipt for the same source and target in the last 120 minutes; a copy with no failed file uses the receipt up. `--verify` compares every path and size afterwards (works on both targets).
 3. For each bucket: list objects in the old project (paged), download each object, upload it to the same bucket and path in staging with the same content type. Streamed one file at a time, four at a time in parallel, so a 250 MB video never sits fully in memory.
 4. Safe to repeat: skip an object if staging already has the same path with the same size. A failed run resumes where it stopped.
 5. Order: headshots and photos first (small, visible in the pages soonest), then videos, then the four application buckets.
@@ -44,7 +44,7 @@ Storage has no database style read only role, so one of these is needed. Matthew
 
 Recommendation: option 2 if a viewer account can be created quickly, otherwise option 1.
 
-Staging writes use the staging service role key, which is already in the vault as `STAGING_SUPABASE_SERVICE_ROLE_KEY`.
+The option 2 viewer login is in the vault as `DASHBOARD_VIEWER_EMAIL`, `DASHBOARD_VIEWER_PASSWORD` and `DASHBOARD_ANON_KEY`. Staging writes use the staging service role key, in the vault as `STAGING_SUPABASE_SERVICE_ROLE_KEY`. Production writes use the production service role key, which the script fetches from the Supabase API with `SUPABASE_ACCESS_TOKEN` for the one run and never prints (or set `PRODUCTION_SUPABASE_SERVICE_ROLE_KEY` to pass one in). The commands are in step 8 of `docs/staging.md`.
 
 ## Checks
 

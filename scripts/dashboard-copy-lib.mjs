@@ -2,11 +2,14 @@
 // See docs/dashboard-copy.md. Pure functions plus two small API clients so the
 // safety rules can be tested without a network.
 
+import { createHash } from 'node:crypto';
+import os from 'node:os';
+import path from 'node:path';
 import { SEED_MARKERS } from './seed-staging-dashboard-lib.mjs';
 
 export const DASHBOARD_REF = 'qlvdvpchriyrsjtewwxx'; // old dashboard (read only)
 export const STAGING_REF = 'mnvcksbhbvypuiwozvct'; // verdanote-staging (write)
-export const PRODUCTION_REF = 'gwyxaqoaldnaavkjqquv'; // Verdanote production (never touched)
+export const PRODUCTION_REF = 'gwyxaqoaldnaavkjqquv'; // Verdanote production (a target only with --target production --confirm-production)
 
 // Source name -> target name. Verdanote already owns public.creators.
 export const RENAMED = { creators: 'dashboard_creators' };
@@ -56,15 +59,28 @@ const ident = (s) => {
 
 // ------------------------------------------------------------------ guards
 
-export function assertTargets({ sourceRef, targetRef, confirmSource }) {
+export function assertTargets({ sourceRef, targetRef, confirmSource, confirmProduction }) {
   if (sourceRef !== DASHBOARD_REF) throw new Error(`source must be the old dashboard (${DASHBOARD_REF})`);
-  if (targetRef === PRODUCTION_REF) throw new Error('refusing to write to Verdanote production');
   if (targetRef === DASHBOARD_REF) throw new Error('refusing to write to the old dashboard');
-  if (targetRef !== STAGING_REF) throw new Error(`target must be verdanote-staging (${STAGING_REF})`);
+  if (targetRef !== STAGING_REF && targetRef !== PRODUCTION_REF) throw new Error(`target must be verdanote-staging (${STAGING_REF}) or Verdanote production (${PRODUCTION_REF})`);
   if (confirmSource !== DASHBOARD_REF) {
     throw new Error(`pass --confirm-source ${DASHBOARD_REF} once Matthew has confirmed the read of the production dashboard database`);
   }
+  assertProductionConfirmed({ targetRef, confirmProduction });
 }
+
+// Production is only ever a write target when --target production comes with
+// the exact production project ref, typed out. Staging never needs it.
+export function assertProductionConfirmed({ targetRef, confirmProduction }) {
+  if (targetRef === PRODUCTION_REF && confirmProduction !== PRODUCTION_REF) {
+    throw new Error(`refusing to touch Verdanote production without --confirm-production ${PRODUCTION_REF}`);
+  }
+  if (targetRef !== PRODUCTION_REF && confirmProduction !== undefined) {
+    throw new Error('--confirm-production only goes with --target production');
+  }
+}
+
+export const targetRefFor = (target) => (target === 'production' ? PRODUCTION_REF : STAGING_REF);
 
 // ------------------------------------------------------------------ arguments
 //
@@ -75,11 +91,11 @@ export function assertTargets({ sourceRef, targetRef, confirmSource }) {
 // owner's decision 10 in the consolidation plan (default: made-up test clients
 // only), so the flag is only passed once Matthew has said yes.
 
-const VALUE_FLAGS = new Set(['confirm-source', 'report', 'page']);
+const VALUE_FLAGS = new Set(['confirm-source', 'confirm-production', 'target', 'receipt', 'report', 'page']);
 const BOOL_FLAGS = new Set(['write', 'replace', 'real-client-data-approved']);
 
 export function parseArgs(argv) {
-  const out = { write: false, replace: false, realClientDataApproved: false, confirmSource: undefined, report: undefined, page: 400 };
+  const out = { write: false, replace: false, realClientDataApproved: false, confirmSource: undefined, confirmProduction: undefined, target: 'staging', receipt: undefined, report: undefined, page: 400 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith('--')) throw new Error(`unexpected argument ${a}`);
@@ -95,16 +111,23 @@ export function parseArgs(argv) {
     if (v === undefined || v.startsWith('--')) throw new Error(`--${name} needs a value`);
     if (name === 'confirm-source') out.confirmSource = v;
     if (name === 'report') out.report = v;
+    if (name === 'confirm-production') out.confirmProduction = v;
+    if (name === 'receipt') out.receipt = v;
+    if (name === 'target') {
+      if (v !== 'staging' && v !== 'production') throw new Error('--target must be staging or production (a name, not a project ref)');
+      out.target = v;
+    }
     if (name === 'page') {
       out.page = Number(v);
       if (!Number.isInteger(out.page) || out.page < 1 || out.page > 5000) throw new Error('--page must be a whole number from 1 to 5000');
     }
   }
   // A production or old-dashboard ref may only appear as the read confirmation.
-  for (const v of [out.report].filter(Boolean)) {
+  for (const v of [out.report, out.receipt].filter(Boolean)) {
     if (v.includes(PRODUCTION_REF) || v.includes(DASHBOARD_REF)) throw new Error('a project ref is not accepted here');
   }
   if (out.replace && !out.write) throw new Error('--replace only makes sense with --write');
+  if (out.replace && out.target === 'production') throw new Error('--replace is never allowed on production');
   return out;
 }
 
@@ -117,15 +140,52 @@ export function runMode(args) {
 export function assertWriteAllowed(args) {
   if (!args.write) return;
   if (args.confirmSource !== DASHBOARD_REF) throw new Error(`--write needs --confirm-source ${DASHBOARD_REF}`);
+  assertProductionConfirmed({ targetRef: targetRefFor(args.target), confirmProduction: args.confirmProduction });
   if (!args.realClientDataApproved) {
-    throw new Error('--write copies real client data into staging. Decision 10 (owner): made-up test clients only unless Matthew says otherwise. Pass --real-client-data-approved only after he has.');
+    const where = args.target === 'production' ? 'Verdanote production' : 'staging';
+    throw new Error(`--write copies real client data into ${where}. Decision 10 (owner): made-up test clients only unless Matthew says otherwise. Pass --real-client-data-approved only after he has.`);
   }
+}
+
+// ------------------------------------------------------------------ dry-run receipt
+//
+// A write to production is refused unless a dry run for the same source, the
+// same target and the same table list ran recently. The dry run (--confirm-source
+// without --write) writes the receipt; a successful write consumes it, so every
+// real run needs its own fresh dry run. Receipts hold project refs, table names
+// and row counts only.
+
+export const RECEIPT_MAX_AGE_MINUTES = 120;
+
+export const tableFingerprint = () => createHash('sha256').update(JSON.stringify(TABLES)).digest('hex').slice(0, 16);
+
+export const defaultReceiptPath = (target) => path.join(os.tmpdir(), `dashboard-copy-receipt-${target}.json`);
+
+export function buildReceipt({ sourceRef, targetRef, now = new Date(), rows }) {
+  return {
+    kind: 'dashboard-copy-dry-run',
+    sourceRef,
+    targetRef,
+    tables: tableFingerprint(),
+    createdAt: now.toISOString(),
+    counts: rows.map((r) => ({ table: r.target, source: r.sourceCount, target: r.targetCount })),
+  };
+}
+
+export function assertReceipt(receipt, { sourceRef, targetRef, now = new Date(), maxAgeMinutes = RECEIPT_MAX_AGE_MINUTES }) {
+  if (!receipt || receipt.kind !== 'dashboard-copy-dry-run') throw new Error('no dry-run receipt found. Run the dry run first (same command without --write).');
+  if (receipt.sourceRef !== sourceRef || receipt.targetRef !== targetRef) throw new Error('the dry-run receipt is for a different source or target. Run the dry run again.');
+  if (receipt.tables !== tableFingerprint()) throw new Error('the table list changed since the dry run. Run the dry run again.');
+  const age = now.getTime() - new Date(receipt.createdAt).getTime();
+  if (!Number.isFinite(age) || age < -60000) throw new Error('the dry-run receipt has an invalid time. Run the dry run again.');
+  if (age > maxAgeMinutes * 60000) throw new Error(`the dry-run receipt is older than ${maxAgeMinutes} minutes. Run the dry run again.`);
+  return receipt;
 }
 
 // Rows the made-up staging seed owns (scripts/seed-staging-dashboard-lib.mjs).
 // Checksums on the staging side leave them out so a seeded staging can still
 // match the source.
-export const seedFilter = (table) => SEED_MARKERS[table]?.sql ?? null;
+export const seedFilter = (table, target = 'staging') => (target === 'production' ? null : SEED_MARKERS[table]?.sql ?? null);
 
 // --replace never empties `clients`: since the one client model (PR 143) other
 // tables (engagements, client_ad_accounts, pipeline_tasks, knowledge, meeting
@@ -136,7 +196,7 @@ export const REPLACE_SKIP = new Set(['clients']);
 export function renderPlan() {
   const lines = ['Dashboard copy plan (dry run, nothing read or written).', ''];
   lines.push(`Source, read only: old dashboard ${DASHBOARD_REF} (Management API read-only endpoint).`);
-  lines.push(`Target: verdanote-staging ${STAGING_REF}. Production ${PRODUCTION_REF} is refused.`);
+  lines.push(`Target: verdanote-staging ${STAGING_REF} by default. Production ${PRODUCTION_REF} only with --target production --confirm-production ${PRODUCTION_REF}, after a dry run left a receipt (fresh within ${RECEIPT_MAX_AGE_MINUTES} minutes).`);
   lines.push('', 'Tables in load order:');
   for (const [t, pk] of TABLES) {
     const src = sourceName(t);
@@ -173,19 +233,26 @@ export function makeSourceClient({ token, ref = DASHBOARD_REF, fetchImpl = fetch
   };
 }
 
-export function makeTargetClient({ token, ref = STAGING_REF, fetchImpl = fetch }) {
-  if (!token) throw new Error('missing token for the staging project');
-  if (ref !== STAGING_REF) throw new Error('target client is staging only');
+// Staging, or production when --confirm-production names it. Production without
+// write: true goes to the read-only endpoint and refuses anything but a select,
+// so a dry run cannot change production.
+export function makeTargetClient({ token, ref = STAGING_REF, fetchImpl = fetch, confirmProduction, write = true }) {
+  if (!token) throw new Error('missing token for the target project');
+  if (ref !== STAGING_REF && ref !== PRODUCTION_REF) throw new Error('target client is staging or production only');
+  assertProductionConfirmed({ targetRef: ref, confirmProduction });
+  const readOnly = ref === PRODUCTION_REF && !write;
   return {
     ref,
+    readOnly,
     async query(sql) {
-      const r = await fetchImpl(`${API}/${ref}/database/query`, {
+      if (readOnly && !isReadOnlySql(sql)) throw new Error('production dry run only runs select statements');
+      const r = await fetchImpl(`${API}/${ref}/database/query${readOnly ? '/read-only' : ''}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: sql }),
       });
       const text = await r.text();
-      if (r.status >= 300) throw new Error(`staging query failed (${r.status}): ${text.slice(0, 300)}`);
+      if (r.status >= 300) throw new Error(`target query failed (${r.status}): ${text.slice(0, 300)}`);
       return JSON.parse(text);
     },
   };
@@ -234,19 +301,21 @@ on conflict (id) do update set value = greatest(public.ad_name_counter.value, ex
 
 // ------------------------------------------------------------------ report
 
-export function renderReport({ startedAt, rows, counter, roles, storage, notes }) {
+export function renderReport({ startedAt, rows, counter, roles, storage, notes, target = 'staging' }) {
+  const targetLabel = target === 'production' ? `Verdanote production (${PRODUCTION_REF})` : `verdanote-staging (${STAGING_REF})`;
+  const shortLabel = target === 'production' ? 'Production' : 'Staging';
   const ok = rows.every((r) => r.match);
   const lines = [];
-  lines.push('# Dashboard to Verdanote staging: data copy report', '');
-  lines.push(`Run at ${startedAt}. Source: old dashboard (${DASHBOARD_REF}), read only. Target: verdanote-staging (${STAGING_REF}).`, '');
+  lines.push(`# Dashboard to Verdanote ${target}: data copy report`, '');
+  lines.push(`Run at ${startedAt}. Source: old dashboard (${DASHBOARD_REF}), read only. Target: ${targetLabel}.`, '');
   lines.push(`Result: ${ok ? 'every table matches' : 'MISMATCH, see below'}.`, '');
-  lines.push('| Table | Source rows | Staging rows | Match |', '|---|---:|---:|---|');
+  lines.push(`| Table | Source rows | ${shortLabel} rows | Match |`, '|---|---:|---:|---|');
   for (const r of rows) lines.push(`| ${r.source} -> ${r.target} | ${r.sourceCount} | ${r.targetCount} | ${r.match ? 'yes' : 'NO'} |`);
   lines.push('');
-  if (counter) lines.push(`Ad code counter: source ${counter.source}, staging ${counter.target}.`, '');
+  if (counter) lines.push(`Ad code counter: source ${counter.source}, ${target} ${counter.target}.`, '');
   if (roles) {
     lines.push('## Team roles', '');
-    lines.push('| Dashboard role | People | Verdanote role | Already has a staging login |', '|---|---:|---|---:|');
+    lines.push(`| Dashboard role | People | Verdanote role | Already has a ${target} login |`, '|---|---:|---|---:|');
     for (const r of roles) lines.push(`| ${r.role} | ${r.n} | ${r.mapped || 'none (viewer)'} | ${r.with_login} |`);
     lines.push('');
   }
