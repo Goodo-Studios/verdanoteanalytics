@@ -257,7 +257,7 @@ export function VideoTab({ creatives, onCreativeClick }: VideoTabProps) {
                       position: "center",
                       fill: q.tint,
                       fontSize: 11,
-                      fontFamily: "'Space Grotesk', sans-serif",
+                      fontFamily: "var(--gos-sans)",
                       fontWeight: 600,
                       opacity: 0.85,
                     }}
@@ -276,7 +276,7 @@ export function VideoTab({ creatives, onCreativeClick }: VideoTabProps) {
                   tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`}
                   label={{
                     value: "Hold Rate →", position: "insideBottom", offset: -16,
-                    fill: axisProps.tick.fill, fontSize: 11, fontFamily: "'Space Grotesk', sans-serif",
+                    fill: axisProps.tick.fill, fontSize: 11, fontFamily: "var(--gos-sans)",
                   }}
                 />
                 <YAxis
@@ -288,7 +288,7 @@ export function VideoTab({ creatives, onCreativeClick }: VideoTabProps) {
                   label={{
                     value: "Hook Rate →", angle: -90, position: "insideLeft",
                     style: { textAnchor: "middle" },
-                    fill: axisProps.tick.fill, fontSize: 11, fontFamily: "'Space Grotesk', sans-serif",
+                    fill: axisProps.tick.fill, fontSize: 11, fontFamily: "var(--gos-sans)",
                   }}
                 />
                 <ZAxis type="number" dataKey="z" range={[60, 2200]} domain={[0, maxSpend]} name="Spend" />

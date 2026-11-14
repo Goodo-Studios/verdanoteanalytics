@@ -88,6 +88,14 @@ OTHER_FUNCTIONS=(
   send-digest
   spend-diagnostic
   sync
+  sync-clickup-tasks
+  run-slack-jobs
+  fireflies-transcript
+  push-brief-to-clickup
+  meeting-recaps
+  brain-ask
+  agent-evaluations
+  integration-health
   system-health-check
   transcribe-ad
   user-management
@@ -100,7 +108,7 @@ done
 
 echo ""
 echo "── Internal auth-only functions ───────────────"
-INTERNAL_FUNCTIONS=(cleanup-stuck-media cleanup-stuck-syncs)
+INTERNAL_FUNCTIONS=(cleanup-stuck-media cleanup-stuck-syncs clickup-os-sync clickup-webhook clickup-writeback)
 for fn in "${INTERNAL_FUNCTIONS[@]}"; do
   check_auth_gate "$fn"
 done

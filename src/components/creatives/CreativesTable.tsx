@@ -11,6 +11,7 @@ import { LayoutGrid } from "lucide-react";
 import { HEAD_LABELS, NUMERIC_COLS, fmt, CELL_CONFIG, MOBILE_HIDDEN_COLS } from "./constants";
 import { useCachedMedia } from "@/hooks/useCachedMedia";
 import { cn } from "@/lib/utils";
+import { KIT_STICKY_HEADER } from "@/components/page-kit/DataTable";
 import { RoasTrendArrow } from "./RoasTrendArrow";
 import type { WoWTrend } from "@/hooks/useWoWTrends";
 import type { GradeInfo } from "@/lib/creativeGrading";
@@ -208,12 +209,10 @@ export function CreativesTable({
   };
 
   return (
-    <div
-      className="glass-panel overflow-x-auto -mx-4 sm:mx-0"
-      style={{ height: "600px", overflowY: "auto" }}
-    >
+    // The inner table wrapper scrolls both ways, so the header row can stick to its top.
+    <div data-testid="creatives-table" className="glass-panel -mx-4 sm:mx-0 [&>div]:h-[600px]">
       <Table className="min-w-[700px]">
-        <TableHeader>
+        <TableHeader className={KIT_STICKY_HEADER}>
          <TableRow className="bg-cream-dark">
             {bulkMode && (
               <TableHead className="w-10">

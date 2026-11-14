@@ -93,12 +93,14 @@ supabase secrets set WRITE_BRIEF_SECRET=<random-secret>  # write-brief
 | `send-digest` | User action / Cron | Sends a weekly performance summary email via Resend to users with digest enabled. |
 | `portfolio` | Public GET | Returns public-facing portfolio data for an account's `portfolio_slug`. No auth required. |
 
-### Briefs & Coda
+### Content pipeline
 
 | Function | Trigger | Purpose |
 |---|---|---|
-| `create-coda-brief` | User action | Creates a creative brief row in a Coda doc via the Coda API. |
-| `sync-coda-tasks` | Cron (every 4h) / User action | Syncs active brief tasks from Coda into the `coda_tasks` table, mapping Coda stages → canonical display stages (Planning / Production / Review / Your Review / Complete). Powers the live `/pipeline` surface for staff and clients. Scheduled via pg_cron (`0 */4 * * *`). |
+| `sync-clickup-tasks` | Cron (every 4h) | Reads asset tasks from every client folder in ClickUp (GET only) into the `pipeline_tasks` table, mapping each ClickUp status to one of five client-facing columns (Preparing Content / Production / Editing / Client Review / Ready to Launch) and storing client-safe fields only. Each folder resolves to a client (`source_mappings` folder row first, then name rules against clients and their ad accounts); rows carry `client_slug`, and `account_id` when the client has exactly one ad account. Powers the `/pipeline` board for staff and clients. Rules live in `_shared/clickup-pipeline.ts`. Needs the `CLICKUP_API_TOKEN` secret. |
+| `push-brief-to-clickup` | Staff ("Push to ClickUp" in the brief editor, "Create brief in ClickUp" in the creative detail modal) | Builder or employee login only. `list` returns the client's empty asset tasks in `assigned` or `brief creation`; `push` writes the brief (plain markdown, no HTML tags) into a picked empty asset task, or creates `{Month} Asset {next N} - {title}`, and sets status `brief creation`. Refuses a task that has a description, is in another list or is not an asset task. Writes nothing else. Folder resolved like `sync-clickup-tasks`. Rules in `_shared/clickup-brief.ts`. Answers 503 without `CLICKUP_API_TOKEN`. |
+| `clickup-folders` | Staff (client hub Setup tab, "Find folders in ClickUp") | Builder login only. Read-only: one GET for the client space, returns folder and list ids and names. Answers 503 without `CLICKUP_API_TOKEN` and the Setup tab then asks for a pasted folder link or id. |
+| `invite-user` | Staff (Team and settings, "Invite by email") | Builder login only. `invite` creates a login with Supabase Auth's own invite (no typed password, the standard invite email; no secret of ours), gives it its role and, for a client login, its client, and logs who invited whom in `user_invites`. `resend` waits a minute between sends; `revoke` removes a login that never accepted. Plain answers for an email that already has a login or is already invited. The create-with-password path stays in `user-management`. |
 
 ### Creative Vault
 
@@ -137,13 +139,16 @@ The Vault is a creative-inspiration library: paste a TikTok, Instagram, YouTube,
 |---|---|---|
 | `user-management` | Admin action | Creates/updates user accounts, assigns roles (`builder`, `employee`, `client`), and links users to accounts. |
 | `settings` | User action | Reads and writes user preferences (digest settings, notification config). |
-| `webhooks-dispatch` | Webhook | Receives inbound webhooks (e.g. Meta, Coda) and routes them to the appropriate handler. |
+| `webhooks-dispatch` | Webhook | Receives inbound webhooks (e.g. Meta) and routes them to the appropriate handler. |
 
 ### Maintenance & Health
 
 | Function | Trigger | Purpose |
 |---|---|---|
 | `system-health-check` | Cron / Manual | Runs sanity checks on data freshness, sync status, and edge function reachability. Returns a JSON health report. |
+| `meeting-recaps` | Staff (Meeting recaps page, `/meeting-recaps`) | Builder or employee login only. Reads one named Fireflies transcript, sends only clean excerpts to the model (`ANTHROPIC_RECAP_MODEL`, default `claude-sonnet-5-5`), keeps items whose citations are exact quotes and records the outcome through `record_meeting_recap`. Writes nothing outside Verdanote. Answers 503 without `FIREFLIES_API_KEY` or `ANTHROPIC_API_KEY`. Rules in `_shared/meeting-recaps.ts`. |
+| `agent-evaluations` | Staff (Agent evaluations page, `/agent-evaluations`) | Builder or employee login only. Sends each staff-written sample of a registered agent (today `meeting-recaps`) to the model with that agent's instructions (`ANTHROPIC_EVAL_MODEL`, default `claude-sonnet-5-5`), one call per sample, and records the run through `record_agent_evaluation_run`, which keeps a decision only when its quote is an exact part of the sample and computes the status. A provider failure part way records a failed run with no results. Writes nothing outside Verdanote. Answers 503 without `ANTHROPIC_API_KEY`. Rules in `_shared/agent-evaluations.ts`. |
+| `integration-health` | Staff (Integration health page, `/integration-health`) | Builder or employee login only. Read-only status of the ClickUp, Fireflies, Slack and Verdanote data connectors, the `durable_jobs` queue and the latest owner alert jobs (port of the Goodo OS Integration health page). Says whether each secret is set, never its value. Calls no outside service. Rules in `_shared/integration-health.ts`. |
 | `spend-diagnostic` | Manual | Diagnoses discrepancies between Meta-reported spend and spend stored in `creative_daily_metrics`. |
 | `cleanup-stuck-syncs` | Cron | Clears sync locks that have been held for over 30 minutes (stuck syncs). |
 | `cleanup-stuck-media` | Manual (repair only) | Clears orphaned/stuck media jobs. No longer on a cron — the `drain-media-queue` worker owns the media pipeline; this is kept for manual repair/force use only. |

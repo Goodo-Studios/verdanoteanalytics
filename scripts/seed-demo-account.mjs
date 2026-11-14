@@ -339,7 +339,7 @@ async function teardown() {
   console.log(`\n=== Teardown — removing demo account ${ACCOUNT_ID} ===`);
   // Child/extra tables first, then metrics, creatives, and the account last.
   // Extra tables (from seed-demo-extras.mjs) are best-effort — ignore if absent.
-  const extras = ["coda_tasks", "briefs", "reports", "creative_clusters"];
+  const extras = ["briefs", "reports", "creative_clusters"];
   const steps = [
     ...extras.map((t) => [t, () => db.from(t).delete().eq("account_id", ACCOUNT_ID), true]),
     ["creative_daily_metrics", () => db.from("creative_daily_metrics").delete().eq("account_id", ACCOUNT_ID), false],

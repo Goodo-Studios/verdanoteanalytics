@@ -1,4 +1,5 @@
 import { Component, ErrorInfo, ReactNode } from "react";
+import { isChunkLoadError, reloadOnceForNewBuild } from "@/lib/chunkReload";
 
 interface Props {
   children: ReactNode;
@@ -17,6 +18,8 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("[ErrorBoundary]", error, info.componentStack);
+    // A stale tab after a deploy fails to load a page chunk. Reload once to get the new build.
+    if (isChunkLoadError(error)) reloadOnceForNewBuild();
   }
 
   render() {

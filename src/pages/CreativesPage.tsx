@@ -1,5 +1,4 @@
-import { PageHeader } from "@/components/PageHeader";
-import { MetricCard } from "@/components/MetricCard";
+import { EmptyState, LoadingState, MetricCard, MetricGrid, PageHeader, PageShell } from "@/components/page-kit";
 import { CreativeDetailModal, useAdPreviewPrefetch } from "@/components/CreativeDetailModal";
 
 import { CreativesTable } from "@/components/creatives/CreativesTable";
@@ -20,11 +19,9 @@ import { ColumnPicker } from "@/components/ColumnPicker";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { RefreshCw, LayoutGrid, Loader2, Download, Search, X, CalendarDays, SlidersHorizontal } from "lucide-react";
+import { RefreshCw, LayoutGrid, Download, Search, X, CalendarDays, SlidersHorizontal } from "lucide-react";
 import { useMemo, useState, useCallback } from "react";
 import { useRoleNavigate } from "@/hooks/useRolePath";
-import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
-import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { useCreatives, CREATIVES_PAGE_SIZE, useCreativeFilters } from "@/hooks/useCreatives";
 import { useSync } from "@/hooks/useSyncApi";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
@@ -297,20 +294,20 @@ const CreativesPage = () => {
   }, [sortedCreatives, groupBy]);
 
   return (
-    <>
-
+    <PageShell wide>
       <SyncStatusBanner />
       <MediaRefreshBanner />
       <PageHeader
         title="Creatives"
         description="View and manage your ad creatives with performance data and tags."
+        className="mb-0"
         actions={
           <div className="flex items-center gap-2">
             
             <ColumnPicker columns={TABLE_COLUMNS} visibleColumns={visibleCols} onToggle={toggleCol} columnOrder={columnOrder} onReorder={handleReorder} />
             {!effectiveClient && (
               <Button size="sm" onClick={() => syncMut.mutate({ account_id: "all" })} disabled={syncMut.isPending || isSyncing}>
-                {(syncMut.isPending || isSyncing) ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}Sync
+                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />{(syncMut.isPending || isSyncing) ? "Syncing" : "Sync"}
               </Button>
             )}
             {creatives.length > 0 && (
@@ -322,17 +319,17 @@ const CreativesPage = () => {
 
 
       {isLoading ? (
-        <MetricCardSkeletonRow />
+        <LoadingState label="Loading metrics" variant="cards" count={4} />
       ) : (
-        <div className="flex items-stretch divide-x divide-border-light mb-4">
+        <MetricGrid>
           <MetricCard label="Ad Spend" value={avgMetrics.totalSpend} />
           <MetricCard label="Total Creatives" value={totalCreatives} />
           <MetricCard label="Avg CPA" value={avgMetrics.cpa} />
           <MetricCard label="Avg ROAS" value={avgMetrics.roas} />
-        </div>
+        </MetricGrid>
       )}
 
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex items-center gap-2">
         <div className="relative max-w-sm flex-1 group">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input id="creatives-search" placeholder="Search by ad name, code, or campaign…" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} className="h-8 font-body text-[13px] pl-8 pr-14 placeholder:text-sage" />
@@ -354,19 +351,21 @@ const CreativesPage = () => {
       />
 
       {isLoading ? (
-        <TableSkeleton rows={10} cols={8} />
+        <LoadingState label="Loading creatives" variant="rows" count={10} />
       ) : creatives.length === 0 && noDailyData ? (
-        <div className="glass-panel flex flex-col items-center justify-center py-20 text-center">
-          <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-4"><CalendarDays className="h-6 w-6 text-sage" /></div>
-          <h3 className="font-heading text-[20px] text-forest mb-1">No data for this date range</h3>
-          <p className="font-body text-[14px] text-slate max-w-md">No spend was synced for the selected dates. Try widening the range or picking earlier dates — today's metrics usually aren't available until the next sync.</p>
-        </div>
+        <EmptyState
+          icon={<CalendarDays className="h-6 w-6" />}
+          title="No data for this date range"
+          description="No spend was synced for the selected dates. Try widening the range or picking earlier dates. Today's metrics usually arrive with the next sync."
+          action={<Button size="sm" variant="outline" onClick={() => setDateRange(undefined, undefined)}>Show all time</Button>}
+        />
       ) : creatives.length === 0 ? (
-        <div className="glass-panel flex flex-col items-center justify-center py-20 text-center">
-          <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-4"><LayoutGrid className="h-6 w-6 text-sage" /></div>
-          <h3 className="font-heading text-[20px] text-forest mb-1">No creatives yet</h3>
-          <p className="font-body text-[14px] text-slate max-w-md">Add a Meta ad account in the Accounts tab and sync to pull in your creatives.</p>
-        </div>
+        <EmptyState
+          icon={<LayoutGrid className="h-6 w-6" />}
+          title="No creatives yet"
+          description="Add a Meta ad account in Settings and sync to pull in your creatives."
+          action={<Button size="sm" onClick={() => navigate("/settings")}>Open Settings</Button>}
+        />
       ) : groupBy !== "__none__" && groupedData ? (
         <CreativesGroupTable groupBy={groupBy} data={groupedData} />
       ) : viewMode === "timeline" && selectedAccountId && selectedAccountId !== "all" ? (
@@ -446,7 +445,7 @@ const CreativesPage = () => {
         onChange={setAdvancedConditions}
         accountId={selectedAccountId}
       />
-    </>
+    </PageShell>
   );
 };
 

@@ -11,6 +11,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { detectPlatform, isVideoUrl, VIDEO_URL_PATTERN } from "../_shared/platform.ts";
+import { requireStaffOrServiceRole } from "../_shared/internal-auth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -341,6 +342,15 @@ async function processMessage(
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // Staff-only: this function reads or writes staff data, or spends the org's
+  // third-party budget. Client accounts are refused here, not only in the menu.
+  // Service-role callers (cron, other functions) still pass.
+  const staffGate = await requireStaffOrServiceRole(
+    req,
+    createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!),
+  );
+  if (staffGate) return staffGate;
   if (req.method !== "POST") return json({ error: "Method Not Allowed" }, 405);
 
   const authHeader = req.headers.get("Authorization");

@@ -1,9 +1,9 @@
 /**
- * Content Pipeline E2E (US-005) — the live Coda→Verdanote pipeline surface.
+ * Content Pipeline E2E (US-005) — the live ClickUp→Verdanote pipeline surface.
  *
- * This is the truth signal for the coda-pipeline-live-sync project: it proves
+ * This is the truth signal for the pipeline sync: it proves
  * that the once-DARK /pipeline page now renders LIVE task data sourced from the
- * 4-hourly `sync-coda-tasks` edge function into the `coda_tasks` table, for both
+ * 4-hourly `sync-clickup-tasks` edge function into the `pipeline_tasks` table, for both
  * the client (brand owner) surface and the staff/agency surface.
  *
  * What it asserts end-to-end against the running app + prod data:
@@ -14,7 +14,7 @@
  *      sync's STAGE_MAP (Preparing Content | Production | Editing | Client
  *      Review | Ready to Launch — the five-column model reconciled 2026-06-02).
  *   2. CLIENT read-only invariant: the surface exposes no comment / approve /
- *      request-changes / upload controls and never leaks the internal coda.io URL.
+ *      request-changes / upload controls and never leaks an internal ClickUp URL.
  *   3. STAFF/AGENCY: signs in as a builder, opens /pipeline, and — selecting
  *      accounts via the account switcher — confirms at least one account renders a
  *      populated pipeline with live tasks. This proves staff see the same live
@@ -23,7 +23,7 @@
  * Authenticated checks require real test accounts in env (tests skip otherwise,
  * never silently pass):
  *   PLAYWRIGHT_CLIENT_EMAIL / PLAYWRIGHT_CLIENT_PASSWORD   (a client-role user
- *       whose linked account has resolvable live Coda tasks — see US-002)
+ *       whose linked account has asset tasks in its ClickUp client folder)
  *   PLAYWRIGHT_TEST_EMAIL   / PLAYWRIGHT_TEST_PASSWORD     (a builder/staff user)
  *   PLAYWRIGHT_BASE_URL                                    (local dev or staging)
  */
@@ -40,9 +40,9 @@ const hasStaffCreds = !!STAFF_EMAIL && !!STAFF_PASSWORD;
 /**
  * The canonical display stages produced by the sync's STAGE_MAP. Reconciled
  * 2026-06-02 with the column-model change (PR #17): the board now mirrors the
- * real Coda workflow as five client-facing columns. These MUST stay in lockstep
+ * delivery workflow as five client-facing columns. These MUST stay in lockstep
  * with the STAGE_MAP values in
- * supabase/functions/sync-coda-tasks/index.ts — a drift here is what silently
+ * supabase/functions/_shared/clickup-pipeline.ts — a drift here is what silently
  * red-lined this spec after PR #17 (the old collapsed buckets — Planning /
  * Review / Your Review / Complete — no longer exist in synced data).
  */
@@ -97,12 +97,12 @@ async function expectPopulatedPipeline(page: Page): Promise<Set<string>> {
     ).toBeTruthy();
     stages.add(stage as string);
   }
-  // At least one task in an expected display column (matching its Coda stage).
+  // At least one task in an expected display column (mapped from its ClickUp status).
   expect(stages.size, "expected at least one populated display stage").toBeGreaterThan(0);
   return stages;
 }
 
-test.describe("Content Pipeline — live Coda sync (US-005)", () => {
+test.describe("Content Pipeline — live ClickUp sync (US-005)", () => {
   test.describe("client surface", () => {
     test.skip(!hasClientCreds, "Set PLAYWRIGHT_CLIENT_EMAIL and PLAYWRIGHT_CLIENT_PASSWORD to run");
     // Reuse the client session authenticated once by the `setup` project.
@@ -120,8 +120,9 @@ test.describe("Content Pipeline — live Coda sync (US-005)", () => {
       // accounts-loading window.
       const stages = await expectPopulatedPipeline(page);
 
-      // The client's single linked account auto-selects, so the "Select an
-      // account" prompt must NOT appear once the pipeline has rendered.
+      // A client login loads its own board without choosing an account (rows of
+      // its linked ad accounts or of its own clients by client_slug), so the
+      // "Select an account" prompt must NOT appear.
       await expect(
         page.getByText(/select an account to view the content pipeline/i)
       ).toHaveCount(0);
@@ -133,7 +134,8 @@ test.describe("Content Pipeline — live Coda sync (US-005)", () => {
       await expect(
         panel.getByRole("button", { name: /comment|approve|request changes|upload/i })
       ).toHaveCount(0);
-      // The internal Coda URL must never be surfaced to the client.
+      // No internal task-system URL may be surfaced to the client.
+      await expect(panel.locator('a[href*="clickup.com"]')).toHaveCount(0);
       await expect(panel.locator('a[href*="coda.io"]')).toHaveCount(0);
     });
   });

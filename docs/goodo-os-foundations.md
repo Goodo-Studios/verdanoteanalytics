@@ -1,0 +1,402 @@
+# Goodo OS foundations in Verdanote (consolidation step 3)
+
+Step 3 of the consolidation plan moves the base that Goodo OS's pages stand on into Verdanote: one client model, engagements, source mappings, Goodo OS users mapped onto Verdanote roles, a job queue with reminders, and the outside connectors (ClickUp, Fireflies, Slack) as Verdanote server functions. The Goodo OS waves (4a to 4d) build on it. Staging only.
+
+This note records the client model and why, then the job queue. The later sections are filled in as each pull request lands.
+
+## The problem: three client lists
+
+| List | Where it came from | Key | What it holds |
+|---|---|---|---|
+| `clients` | the old dashboard, copied by migration 20261101000001 | `slug` (text) | name, status, strategist, contract dates, scope, notes, one optional `verdanote_account_id`. Eight dashboard tables point at it by `client_slug` (shoots, deliverables, approval boards, assignments and so on) |
+| Goodo OS `clients` and `engagements` | Goodo OS's own database (not copied) | text id, scoped by company | client id and active flag; engagements are 45-day cycles with a kickoff date and day 30 and day 45 dates |
+| `ad_accounts` and `user_accounts` | Verdanote | ad account id (`act_...`) | the ad account, and which client logins may see it. Every client row rule goes through `get_user_account_ids(auth.uid())` |
+
+A Verdanote "account" is an ad account, not a client. A client with no ad account (work that is not ad performance) has nowhere to hang, so it cannot have a login that sees anything, including the ClickUp-fed Content Pipeline board.
+
+## The design
+
+The dashboard's `clients` table becomes the one client list, and its `slug` is the one client id. New tables reference `clients(slug)` as `client_slug`, the same column name the eight dashboard tables already use.
+
+| Table | Purpose | Who reads | Who writes |
+|---|---|---|---|
+| `clients` (existing) | one row per client. `slug` is the id | staff | staff (unchanged) |
+| `client_ad_accounts` (new) | links a client to zero or more ad accounts. `account_id` is the primary key, so an ad account belongs to at most one client | staff | staff |
+| `client_members` (new) | links a client login to a client directly, for clients with no ad account | staff, and a user reads their own rows | staff |
+| `engagements` (new) | one row per 45-day cycle. Each is a separate purchase: `cycle_number`, type, status, `start_date`, and `day30_date` and `day45_date` worked out from the start date for a standard sprint | staff, and a client reads the rows of its own client | staff |
+| `engagement_notes` (new) | the internal side of an engagement: purchase reference and notes | staff only | staff |
+| `source_mappings` (new) | links a client (and optionally one engagement) to an id in an outside system: a ClickUp folder or list, a Slack channel, a Goodo OS client id | staff only | staff |
+| `goodo_os_workspace_users` (new) | a copy of Goodo OS's `workspace_users` for the one-time role mapping | builder only | builder, copy script |
+
+### Client access
+
+Client access still starts from `get_user_account_ids`. A new helper, `get_user_client_slugs()`, returns the clients the signed-in user belongs to:
+
+1. clients that own an ad account the user is linked to in `user_accounts` (through `get_user_account_ids(auth.uid())`), so every existing client login sees its client with no new rows, and
+2. clients the user is linked to in `client_members`, for clients without an ad account.
+
+It takes no argument and only ever answers for `auth.uid()`, so unlike `get_user_account_ids` it cannot be asked about another user. A client row rule on a client-keyed table reads `has_role(auth.uid(), 'client') AND client_slug IN (SELECT get_user_client_slugs())`. No existing policy or helper changes. Existing account-keyed tables keep their current rules, and the generic wall tests (`rls_enabled_on_all_tables_test.sql`, `no_open_policies_test.sql`, `client_reads_only_own_rows_test.sql`) cover the new tables with no edit. `goodo_os_foundations_test.sql` tests each new table as client A (linked through an ad account), client B (linked only through `client_members`, no ad account), an employee and a builder.
+
+Linking an ad account to a client in `client_ad_accounts` therefore lets every login of that ad account read that client's engagement dates. Only staff can write the link.
+
+### ClickUp folder
+
+The ClickUp folder of a client is a `source_mappings` row (`provider = 'clickup'`, `kind = 'folder'`, `external_id` = folder id). See "ClickUp (PR 5)" under Connectors for how the sync uses it.
+
+### Engagements
+
+An engagement belongs to one client. `cycle_number` is unique per client. A standard sprint gets `day30_date = start_date + 29` and `day45_date = start_date + 44`, the same arithmetic Goodo OS uses. `start_date` may be empty while an engagement is planned, and must be set once it is active or closed. A client has at most one active standard sprint. The purchase reference and notes live in `engagement_notes`, which clients never read, because row rules cannot hide single columns from one role while showing them to another.
+
+### Goodo OS users and roles
+
+| Goodo OS role | Verdanote role |
+|---|---|
+| owner | builder |
+| staff | employee |
+| client | client, plus `client_members` rows for its Goodo OS client memberships |
+| agent | none. Jobs and agents run as the service role |
+
+There is no read-only staff role and none is added (that is Matthew's open decision). Goodo OS users sign in through the old dashboard's login pool, so a person is matched to a Verdanote login by email: the row's own `email`, or the email of the dashboard `app_users` row whose `auth_user_id` equals the Goodo OS `auth_subject`. `goodo_os_user_role_mapping()` (builder only) shows what would happen for each person. `apply_goodo_os_user_role_mapping()` (service role only) adds a role only to a login that has no role yet, and never removes or changes one. A login that already holds a role in the other group (a staff role for a Goodo OS client, or the client role for Goodo OS staff) is reported as a conflict and left alone, so the mapping can never turn a client login into staff. A Goodo OS client membership is resolved to a Verdanote client through a `source_mappings` row (`provider = 'goodo_os'`, `kind = 'client'`). Goodo OS has no client users today, so in practice only staff rows map.
+
+The legacy `clients.verdanote_account_id` column is copied once into `client_ad_accounts` (where the ad account exists) and is not read by anything new. It goes when the dashboard client pages are ported.
+
+## Job queue and reminders (PR 2)
+
+Migration `20261109000005_durable_jobs_and_reminders.sql`. Goodo OS's queue is kept in shape (lease, fence, attempts, recovery, append-only audit, manual resolution) and its multi-company authority layer (runtime identities, capability grants, command receipts) is dropped: in Verdanote only the service role runs jobs.
+
+| Table | Purpose | Who reads | Who writes |
+|---|---|---|---|
+| `durable_jobs` | one row per unit of outside work. `dedupe_key` makes enqueueing idempotent | staff | queue functions only (service role) |
+| `job_audit` | append-only history of every transition | staff | queue functions only |
+| `slack_destinations` | Slack channels reminders and owner alerts may go to, with quiet hours | staff | builder (adding or confirming a channel is the owner's call) |
+| `reminders` | a message due at a time for one destination; its state follows its job | staff | staff |
+
+Service-role functions: `enqueue_job`, `claim_jobs` (skip locked, lease and fence), `mark_job_sending`, `finish_job`, `fail_job` (retry, or recovery when permanent or out of attempts), `cancel_job`, `enqueue_due_reminders`. Staff functions, each checking `has_role(auth.uid(), ...)`: `replay_job` (recovery back to queued) and `resolve_job_manually` (closes a job after a manual check, never as delivered).
+
+At most once: a worker calls `mark_job_sending` right before it posts to an outside service. If its lease then runs out without a finish or fail, the next claim moves the job to recovery instead of running it again, because the message may already be out. Goodo OS instead reads the Slack channel history to prove absence; that needs channel read scopes and is not ported.
+
+`enqueue_due_reminders` queues only reminders whose destination is active, confirmed by a builder and outside quiet hours (an unknown time zone counts as quiet). It writes to the database only. Nothing in this PR is scheduled: the worker that sends, and the pg_cron entries that call it and `enqueue_due_reminders`, come with the Slack connector behind an off-by-default switch. `scripts/staging-lockdown.sql` removes every cron job after each staging push whatever its name, so later schedules are covered.
+
+## Connectors
+
+### Fireflies (PR 3)
+
+`fireflies-transcript` (staff). POST `{ transcript_id, include_excerpts? }` returns one transcript's metadata (start time, organiser, participants, a content-hash `source_version`) and, when asked, its excerpts: consecutive sentences of one speaker, at most 2,000 characters. Each excerpt is classed clean, personnel, legal or financial by the same word rules Goodo OS uses; only clean excerpts carry text. Shared code in `_shared/fireflies.ts`, a port of Goodo OS `connectors/fireflies`.
+
+Read-only: the only request is the single-transcript GraphQL `query` for the id given. The account's transcript list is never browsed, no mutation is sent, and nothing is stored. Goodo OS's transcript authorization records and meeting recaps are not part of this step; they come with the meeting recap page (wave 4a), which will store what it needs. Without `FIREFLIES_API_KEY` the function answers 503 and makes no request. Staging has no key.
+
+### Slack (PR 4)
+
+`run-slack-jobs` (service role, called by pg_cron every 5 minutes, migration `20261109000006_slack_sends.sql`) turns due reminders into jobs and sends `slack.reminder` and `slack.owner_alert` jobs with `chat.postMessage`. Shared client in `_shared/slack-web-api.ts`, a port of Goodo OS `connectors/slack/webApi.ts`. `enqueue_owner_alert(key, text)` (service role) queues one owner alert for the builder-confirmed `owner_alerts` destination, once per key; integration health (wave 4a) will call it.
+
+It sends only when all three locks hold:
+
+1. The function runs in the production project. Checked in the function code against `SUPABASE_URL`, not in the database, because `scripts/staging-lockdown.sql` rewrites the production ref inside database functions. Anywhere else it answers 409 before touching the database.
+2. `outbound_switches` has a row `slack_sends` with `enabled = true`. No row is inserted, so it is off. Only a builder can add or change a switch.
+3. `SLACK_BOT_TOKEN` is set. Without it the function answers 503 and sends nothing.
+
+Each send is marked first (`mark_job_sending`). A rejection (bad channel, missing scope) or an unclear answer (timeout, 5xx) puts the job in recovery for staff, so a message is never posted twice automatically; a rate limit retries after Retry-After. The destination is checked again just before sending. Goodo OS's reminder proof by reading channel history is not ported (it needs channel read scopes).
+
+To turn it on in production after the release: a builder adds the Slack channel in `slack_destinations` and confirms it, the bot token is set as `SLACK_BOT_TOKEN`, and a builder inserts `outbound_switches ('slack_sends', true)`. Staging never sends: the cron entry is removed after each push and the function refuses outside production.
+
+### ClickUp (PR 5)
+
+Migration `20261109000007_clickup_client_model.sql`. `sync-clickup-tasks` (service role, GET only against ClickUp) now resolves each ClickUp client folder to a client, not an ad account:
+
+1. An active `source_mappings` row (`provider = 'clickup'`, `kind = 'folder'`), set by staff. A mapping to a missing or inactive client is not followed and not replaced by a name guess.
+2. Otherwise the name rules from before (exact, alias, then a 4+ character name contained in the folder name), matched against the names of active clients and of their linked active ad accounts. A folder resolves only when every matching name belongs to one client.
+
+A folder that does not resolve, resolves to two clients, or has a stale mapping is skipped, never read, and listed in the result (`unmatchedFolders`, with `ambiguousFolders` and `staleMappingFolders` saying why). Other result fields: `matchedByMapping`, `matchedByName`, and `clientsWithoutBoardAccount`.
+
+`pipeline_tasks.client_slug` is required. `account_id` is optional and written only when the client has exactly one linked ad account. Rows of a client with no ad account, or with two or more, carry only `client_slug`; `clientsWithoutBoardAccount` lists those clients. The `/pipeline` page (`src/pages/ContentPipelinePage.tsx`, `src/hooks/usePipelineTasks.ts`) loads a client login's board with no account filter, so the client read rule below returns its rows by either key. A login linked to more than one client sees the cards of all of them on one board. Staff keep filtering by the selected ad account (staff have no row limit), including a builder previewing as a client.
+
+The client read rule is `has_role(auth.uid(), 'client') AND (account_id IN (SELECT get_user_account_ids(auth.uid())) OR client_slug IN (SELECT get_user_client_slugs()))`. The staff rule is unchanged. Tests: `supabase/tests/clickup_client_model_test.sql` (client A through both rules, client B none, a `client_members`-only client its own client's rows only, employee and builder all).
+
+`clickup_client_folders` is dropped. The migration first copies its rows into `source_mappings` through `client_ad_accounts`, and stops with an error instead of dropping when a row's ad account belongs to no client, when a row disagrees with an existing folder mapping, or when anything else in the database still references the table. Existing `pipeline_tasks` rows take the client of their ad account; rows whose ad account belongs to no client are removed (the next sync rewrites the table). Before the release, every ad account whose board is in use needs a `client_ad_accounts` row, or a `source_mappings` folder row has to point at its client, otherwise its folder is listed as unmatched.
+
+### Push to ClickUp
+
+`push-brief-to-clickup` (staff: a builder or employee login; clients and the service role get 403) replaces the removed "Push to Coda" and "Create brief in Coda" buttons. The brief editor shows "Push to ClickUp" and the creative detail modal shows "Create brief in ClickUp", for staff only and not while a builder previews the client view. Both open one dialog (`src/components/clickup/PushToClickUpDialog.tsx`) with a picker: an empty asset task, or "New asset task".
+
+- `list`: the client's asset tasks with an empty description in status `assigned` or `brief creation`. Read-only.
+- `push` to a task id: the task must be in the client's Project View list, have an asset name and an empty description (description, text content and markdown description all empty). A task that already has a description is refused and nothing is changed, so a strategist's work is never overwritten. Otherwise the brief goes into the description and the status becomes `brief creation`.
+- `push` to `new`: creates `{Current month} Asset {next N} - {title}` in the list, with the brief as description and status `brief creation`. N is the highest asset number in the list plus one, across months (lists number assets on from one month to the next). The month is the current month in Los Angeles time.
+
+Only the description and status are written (and the name of a new task); assignees and other fields are left alone. The description is plain markdown: HTML tags are removed and a sub-tag note becomes an italic line, because ClickUp shows tags in a markdown description as raw text. The creative modal adds the creative's name and Meta Ad Library link, as the Coda version did. The client is given as `client_slug` or as an ad account (`account_id`, resolved through `client_ad_accounts`), and its folder is resolved like the sync: a `source_mappings` row first, then the name rules; no folder or two folders is refused. Without `CLICKUP_API_TOKEN` it answers 503 before any database read or ClickUp call. Staging has no token. Rules in `_shared/clickup-brief.ts`; tests in `supabase/functions/push-brief-to-clickup/index.test.ts` and `src/test/pushToClickUp.test.tsx`.
+
+### Verdanote data
+
+Goodo OS reads ad performance from Verdanote over HTTP (`connectors/verdanote/performance.ts`: spend, impressions, clicks and conversions for one ad account, ad and date window). Inside Verdanote that is the same database, so it collapses to direct queries on `creatives` and `creative_daily_metrics`, or the existing `get_period_metrics` and `get_daily_trends` functions, which already check staff role or account membership. No connector function is added.
+
+## Wave A pages (step 4a)
+
+### Integration health
+
+Page `/integration-health` (builder and employee) and staff function `integration-health`. Port of the Goodo OS Integration health page (`src/pages/staff/IntegrationHealth.tsx`) and its overview route (`backend/monitoring/overview.ts`).
+
+Goodo OS stored health observations, incidents and baseline exceptions, written by an owner "evaluate" command run against configured engagement scopes. In Verdanote the connectors write to the same database the page reads, so the check runs on read instead and no table is added. The function reads, with the service role after the staff check: when `pipeline_tasks` was last synced and how many rows it holds, the `slack_sends` switch and confirmed owner alert destinations, the Meta ad sync log (`sync_logs`: runs still going after 30 minutes, failures in the last 24 hours, last completed run), active ad accounts not synced in 48 hours, the `durable_jobs` queue (queued jobs 15 minutes overdue, expired leases, jobs in recovery) and the last 10 owner alert jobs. For each connector secret (`CLICKUP_API_TOKEN`, `FIREFLIES_API_KEY`, `SLACK_BOT_TOKEN`) it reports only whether it is set. It calls no outside service and writes nothing.
+
+ClickUp counts as stale 8 hours after its last sync (the sync runs every 4 hours) and as unconfirmed when it has a token but no synced row. Slack sends being off, or the project not being production, are shown as notes, not problems, because both are expected in staging. Pattern codes keep the Goodo OS names where one exists (`connector.stale`, `connector.unconfirmed`, `queue.recovery`).
+
+Not ported: baseline exceptions (owner-set suppressions with an expiry) and the owner "evaluate" and "acknowledge" commands, because nothing is stored to suppress or acknowledge. Rules in `_shared/integration-health.ts`; tests in `supabase/functions/integration-health/index.test.ts` and `src/test/integrationHealth.test.tsx`.
+
+### Meeting recaps
+
+Page `/meeting-recaps` (builder and employee), staff function `meeting-recaps` and migration `20261110000002_meeting_recaps.sql`. Port of the Goodo OS meeting recaps (US-086: `src/pages/staff/MeetingRecaps.tsx`, `backend/services/meetingRecaps.ts`, `backend/agents/meetingRecaps.ts`, migration `053_meeting_recaps.sql`).
+
+A staff member picks a client and pastes a Fireflies transcript id. The function reads the transcript with the Fireflies connector (PR 145), sends only clean excerpts to the model (personnel, legal and financial excerpts are withheld), and keeps a candidate only when every citation is an exact quote of a supplied excerpt and every number in its summary appears in the quote. Dates count as stated only when an ISO date is in the quote. The outcome goes into `meeting_recaps` with its items in `meeting_recap_items` through `record_meeting_recap` (service role only). Outcomes without content are recorded too: unavailable (not found, no access, still processing), quarantined (every excerpt withheld) and failed (model refused or returned bad output).
+
+A person confirms or rejects each decision and action with a note. The page writes `meeting_recap_reviews` directly: row rules allow builder and employee, and a trigger sets the reviewer to the caller, refuses a question and refuses a review whose item hash differs from the stored one. One review per item; all three tables are append-only.
+
+The model is `claude-sonnet-5-5`, the Goodo OS default, with structured output and the server-side fallback; `ANTHROPIC_RECAP_MODEL` overrides it. Without `FIREFLIES_API_KEY` or `ANTHROPIC_API_KEY` the function answers 503 before any request or database read. Staging has neither.
+
+Not ported: transcript authorization records (choosing the transcript and client on the page is the request), the AI evaluation gate, the durable agent job (the call runs inside the request) and the ClickUp sync of a confirmed action. A confirmed action keeps its proposed action (internal note or due date) as a record only, because Verdanote has no ClickUp task-action path and staging sends nothing outward. Rules in `_shared/meeting-recaps.ts`; tests in `supabase/functions/meeting-recaps/index.test.ts`, `supabase/tests/meeting_recaps_test.sql` and `src/test/meetingRecaps.test.tsx`.
+
+### Knowledge pages
+
+Page `/knowledge` (builder and employee) and migration `20261110000003_knowledge_pages.sql`, no edge function. Port of the Goodo OS knowledge correction and publication pages (`knowledge_sources`, `knowledge_source_versions`, `knowledge_corrections`, `knowledge_correction_reviews`).
+
+Editing (migration `20261207080001_os_edit_knowledge_documents.sql`): staff edit a Knowledge source or a Brain page directly in a markdown document editor. The change-request flow, the version list and rollback are no longer shown; the correction tables and functions are kept with their rows but unused. `edit_knowledge_source` adds the next version (kind `edit`) and the page shows the newest one. `edit_brain_page` writes `brain_pages.body_md` and sets `edited_in_app`. Publishing rule: `scripts/publish-brain.mjs` never updates or removes a page with `edited_in_app = true` (app edits win) and lists the pages it kept; `--overwrite-edited` lets HQ replace them and clears the marker. Deploy the migration before running the new publish script.
+
+A source has a title, a topic, a scope (all clients or one client) and numbered versions; each version keeps its full text and a sha256 fingerprint. Staff read every table through row rules (`has_role` builder or employee); clients read nothing, including sources scoped to their own client. Signed-in users hold no write grants. Every change goes through a checked function that tests the role in its body and is on the `staff_area` allow-list:
+
+- `create_knowledge_source`: builder only.
+- `submit_knowledge_correction`: builder or employee, against the current version only (40001 when stale, 22023 when the text is the same).
+- `review_knowledge_correction`: builder or employee, never the author. Procedure and permission corrections need a builder. Accepting needs the correction to match the current version; one review per correction.
+- `publish_knowledge_correction`: builder only, content and factual corrections only, accepted and still current. It adds a version.
+- `rollback_knowledge_source`: builder only, with the version on screen (40001 when stale). It adds a version with the old text; history is never changed.
+
+Not ported: the Goodo OS source provider and its sync (never wired in production), so sources are added on the page and no Goodo OS data is copied. Client-classified sources stay staff-only until the client portal phase. Tests in `supabase/tests/knowledge_pages_test.sql` and `src/test/knowledgePage.test.tsx`.
+
+## Wave B pages (step 4b)
+
+### Engagements
+
+Page `/engagements` (builder and employee) and migration `20261110120001_engagement_setup.sql`, no edge function. Port of the Goodo OS engagement setup and closeout pages (`EngagementSetup.tsx`, `CloseoutReview`; migrations `002_engagements.sql`, `023_engagement_template_versions.sql`, `032_engagement_closeout.sql`), built on the `engagements` table from step 3 rather than a second engagement table.
+
+| Table | Purpose |
+|---|---|
+| `engagement_templates` | a named template: type, milestones (each with its required evidence and whether the client sees it) and agreed deliverables, for all clients or one client. Every save is a new version row; rows never change |
+| `engagement_terms` | the template snapshot an engagement was created from, and when its kickoff was recorded. Kept off `engagements` because clients of the same client read `engagements`, and agreed deliverables are commercial terms |
+| `engagement_milestones` | the milestones of one engagement, copied from the template at creation. Immutable |
+| `engagement_closeouts` | closeout readouts (testing window, evidence limit, delivered assets, supported conclusions, outstanding actions), versioned and append-only |
+
+Staff read all four through row rules; clients read none of them, including their own engagement's terms. The client read rule on `engagements` is unchanged, so a client still sees its own cycle dates. Signed-in users hold no write grants on the new tables. Checked functions, each testing the role in its body and on the `staff_area` allow-list:
+
+- `save_engagement_template`: builder only. A new name starts at version 1; a later save names the version on screen (40001 when stale) and keeps the type. Milestones are checked by `normalize_engagement_milestone_template`, a port of Goodo OS `parseMilestoneTemplate`: a bare key needs a source handoff, `delivery` keeps its three release gates (strategist congruency, QA release, delivery receipt), keys and evidence are distinct lower-case words.
+- `create_engagement_from_template`: builder or employee. The client must be active and the template must be for all clients or this client. The engagement is the next `cycle_number`, planned, with no dates; the template's milestones and agreed deliverables are copied and never follow later versions. A purchase reference goes to `engagement_notes`.
+- `record_engagement_kickoff`: builder or employee, once, on a planned engagement. Sets the start date (day 30 and day 45 follow for a standard sprint) and makes it active; the one-active-sprint index refuses a second active sprint (23505). After that a trigger refuses any change to the start date, type or client of the engagement, including a direct table write by staff.
+- `save_engagement_closeout`: builder or employee, naming the version on screen. Earlier versions stay.
+
+Closing or cancelling an engagement is a direct status update under the existing staff rule on `engagements`.
+
+Not ported: the command receipt and idempotency tables (each function checks the version on screen instead), the job enqueued on creation, closeout publication to the client and the client-facing engagement timeline (client views are phase 2), and the per-engagement capability grants (any builder or employee may act; see "Needs the owner" in the plan). The old dashboard Client Detail page (step 5a) shows the same clients and its monthly `deliverables` checklist; the two pages should be merged when 5a lands. Tests in `supabase/tests/engagement_setup_test.sql` and `src/test/engagementsPage.test.tsx`.
+
+### Deliverables and approvals
+
+Page `/deliverables` (builder and employee) and migration `20261110120002_deliverables_approvals.sql`, no edge function. Port of the Goodo OS deliverables review (`DeliverablesReview.tsx`, migration `021_deliverables.sql`) and the exact-version approvals of ideas and shot lists (migration `008_approvals.sql`). Named `engagement_deliverables` because the old dashboard's monthly checklist already uses `deliverables` (step 5a).
+
+| Table | Purpose |
+|---|---|
+| `engagement_deliverables` | one deliverable of an engagement: title, kind, the agreed deliverable it counts against, current revision, stage (`not_started`, `client_review`, `changes_requested`, `client_approved`, `internal_qa`, `final_ready`, `withdrawn`) |
+| `engagement_deliverable_revisions` | every revision: the Air review link and an optional Air revision id. Immutable |
+| `engagement_deliverable_decisions` | the client's decision on one exact revision (approved or changes requested, with the round number), the channel it came through (call, Slack, email) and a note. One per revision. Immutable |
+| `engagement_deliverable_round_exceptions` | a client round beyond the included rounds; a builder approves or denies it once |
+| `approval_subjects`, `approval_subject_versions`, `approval_subject_decisions` | ideas and shot lists with numbered versions (draft, published, superseded; the text never changes) and the client's decision on the published version |
+
+Staff read all seven; clients read none. The Goodo OS client portal is dropped, so a client decision is recorded by staff from the call, Slack thread or email it arrived in. Checked functions (`staff_area` allow-list, role tested in the body): `add_engagement_deliverable` (not on a closed or cancelled engagement), `add_deliverable_revision` (names the revision on screen; the deliverable goes to client review), `record_deliverable_client_decision` (current revision only, while in client review), `decide_deliverable_round_exception` (builder only), `withdraw_engagement_deliverable`, `create_approval_subject`, `save_approval_draft`, `publish_approval_version` (latest draft only; the earlier published version is superseded) and `record_approval_decision` (published version only, once).
+
+Client rounds: `deliverable_client_round_limit` reads the `clientRevisionRounds` of the matching agreed deliverable in `engagement_terms`; without one it is 2, or 0 for a custom engagement (Goodo OS defaults). A changes request beyond the included rounds plus approved exceptions opens a pending exception and records nothing (the function answers `exception_pending`); after a builder approves it, the round can be recorded.
+
+Not ported: the Air connector (staff paste the review link and nothing is fetched), Air health observations, command receipts, approval sync events and the client portal screens. Tests in `supabase/tests/deliverables_approvals_test.sql` and `src/test/deliverablesPage.test.tsx`.
+
+### QA gates
+
+Page `/qa-gates` (builder and employee) and migration `20261110120003_qa_gates.sql`, no edge function. Port of the Goodo OS QA inbox and version-bound release gate (`QaInbox.tsx`, `QaGateReview.tsx`, `backend/services/qaGate.ts`, migrations `022_qa_release_gate.sql` and `025_deliverable_release_signoffs.sql`, plus the team confirmations of `021_deliverables.sql`).
+
+| Table | Purpose |
+|---|---|
+| `engagement_deliverable_confirmations` | the team's confirmation of one exact revision. One per revision. Immutable |
+| `engagement_deliverable_qa_returns` | a revision returned to the strategist with feedback; open until resolved once with a note |
+| `engagement_deliverable_signoffs` | strategist congruency and QA release signoffs on one exact revision. Append-only |
+
+The release rule is `deliverable_release_blockers` (service role only; the checked functions call it as owner). For the current revision it lists what is missing: `client_not_approved`, `team_not_confirmed`, `qa_return_open`, `strategist_signoff_missing`, `qa_signoff_missing`, `same_person_signed_both`; an empty list means ready to send. Signoffs count only when recorded after the last resolved QA return on that revision. Two deliberate differences from Goodo OS: client approval of the exact revision is required (Goodo OS left it to the client portal, which is dropped), and the strategist and QA signoffs must come from two different staff members, because Verdanote has no bound strategist per engagement and no QA capability grant (see "Needs the owner" in the plan).
+
+Checked functions (`staff_area` allow-list, role tested in the body): `deliverable_release_status` (the gate for the page), `confirm_deliverable_revision`, `return_deliverable_to_strategist` (the deliverable goes to internal QA), `resolve_deliverable_qa_return` (back to where the client left it once no return is open), `record_deliverable_signoff` (not while a return is open, not both kinds by one person) and `mark_deliverable_final_ready` (every check passed and a https download link). Each acts on the current revision only.
+
+Not ported: ClickUp release contradictions and their resolutions, Air health observation generations, the QA inbox's editor binding and handoff queue (they write to ClickUp and Slack), command receipts. Tests in `supabase/tests/qa_gates_test.sql` and `src/test/qaGatesPage.test.tsx`.
+
+### Handoffs
+
+Page `/handoffs` (builder and employee) and migration `20261110120004_handoffs.sql`, no edge function. Port of the Goodo OS handoff packets (`HandoffPacket.tsx`, `backend/services/handoffs.ts`, migration `037_handoffs.sql`).
+
+| Table | Purpose |
+|---|---|
+| `handoff_packets` | one handoff: engagement, receiving role (strategist, editor, QA reviewer, delivery owner), receiver, accountable owner, due date, status (ready, acknowledged, returned) and current revision |
+| `handoff_packet_versions` | every revision: brief, angle, goal, required inputs, a snapshot of the engagement's deliverables (title, revision, stage, review and final links) and a sha256 fingerprint. Immutable |
+| `handoff_acknowledgements` | the receiver acknowledging or returning (with a reason) one exact revision. Immutable |
+
+Staff read all three; clients read none. Checked functions (`staff_area` allow-list, role tested in the body): `handoff_staff_options` (the builder and employee logins for the pickers), `create_handoff_packet`, `acknowledge_handoff` (only the receiver, on the revision on screen, while it waits; a return needs a reason), `reassign_handoff` (the accountable owner, the creator or a builder; a new revision with the same brief and a fresh deliverable snapshot, waiting for the new receiver) and `handoff_source_status` (`current` when the snapshot still matches the engagement, `stale` when a deliverable moved on, `blocked` when the deliverables no longer fit the role). Source rules from Goodo OS: a QA reviewer packet needs every deliverable in internal QA and a delivery owner packet needs every deliverable final. The receiver and owner must be builder or employee logins. Acknowledging does not complete a ClickUp task.
+
+Differences from Goodo OS: the brief, angle, goal and required inputs are typed by the strategist; since step 4c the form starts from the published strategy proposal when there is one (see Strategy proposals below). Per-role capability grants are replaced by "any builder or employee". A strategist or editor packet may be written before any deliverable has a revision (Goodo OS refused a packet with no deliverables).
+
+Not ported: the bounded handoff automation (`038_bounded_handoffs.sql`: rules that queue a ClickUp task action and a Slack reminder when a handoff completes; both send outward), command receipts. Tests in `supabase/tests/handoffs_test.sql` and `src/test/handoffsPage.test.tsx`.
+
+## Wave C pages (step 4c)
+
+### Strategy proposals
+
+Page `/strategy` (builder and employee) and migration `20261110200001_strategy_proposals.sql`, no edge function. Port of the Goodo OS strategy proposals (`StrategyProposals.tsx`, `backend/services/strategyProposals.ts`, migrations `029_strategy_proposals.sql` and `030_strategy_proposal_publications.sql`), on the idea and shot list approvals of step 4b.
+
+| Table | Purpose |
+|---|---|
+| `strategy_proposals` | one proposal per engagement strategy with its current version |
+| `strategy_proposal_versions` | every version: the exact published idea or shot list version it is based on, title, summary, brief, angle, goal and required inputs. Immutable |
+| `strategy_proposal_reviews` | a review of one exact version (reviewed or changes requested) with a note. Immutable |
+| `strategy_proposal_acceptances` | acceptance of one exact reviewed version. Immutable |
+| `strategy_proposal_publications` | the accepted version published as the engagement strategy. Internal only. Immutable |
+
+Staff read all five; clients read none. Checked functions (`staff_area` allow-list, role tested in the body): `create_strategy_proposal`, `revise_strategy_proposal` (names the version on screen; an accepted version is not revised), `review_strategy_proposal`, `accept_strategy_proposal` (the latest review of that version must be "reviewed"), `publish_strategy_proposal` (accepted first) and `published_strategy_for_engagement` (the latest publication, for handoffs). Every review, acceptance and publication re-checks that the idea or shot list version is still the published one (40001 when it moved on), as Goodo OS did.
+
+Differences from Goodo OS: agents wrote proposals and the engagement's bound strategist reviewed and accepted them. Here any builder or employee writes one, and the reviewer and the person accepting must not be the author of that version. Goodo OS published to the client portal; here publication is internal and feeds handoff briefs.
+
+Handoffs: when the engagement has a published strategy, the create form on `/handoffs` starts with its brief, angle, goal and required inputs and says so; staff edit anything or start blank. `create_handoff_packet` takes two optional arguments, the proposal and version, and checks the version is published for the same engagement. The packet version keeps that reference (`handoff_packet_versions.strategy_proposal_id`, `strategy_proposal_version`), and a reassignment carries it to the next revision. The packet stores what staff saved, which may differ from the proposal.
+
+Not ported: command receipts, the client idea selection state (US-021, client portal), the client publication and client strategy page (phase 2). Tests in `supabase/tests/strategy_proposals_test.sql`, `src/test/strategyPage.test.tsx` and `src/test/handoffsPage.test.tsx`.
+
+### Recommendations
+
+Page `/recommendations` (builder and employee) and migration `20261110200003_recommendations.sql`, no edge function. Port of the Goodo OS recommendations from decision to measured outcome (US-085: `RecommendationOutcomes.tsx`, `backend/services/recommendations.ts`, migration `051_recommendation_outcomes.sql`).
+
+| Table | Purpose |
+|---|---|
+| `recommendations` | a creative or service recommendation for one engagement. The title and proposal never change (trigger); state and version move forward one step at a time |
+| `recommendation_decisions` | accepted (with hypothesis and final action), rejected or deferred, with the reason and cited evidence. Immutable |
+| `recommendation_execution_links` | the client's ads that execute an accepted recommendation, an optional Content Pipeline task, the accountable owner (staff) and the review window. A later link supersedes an earlier one. Immutable |
+| `recommendation_outcomes` | an evaluation the database computes: not executed, insufficient, inconclusive or measured, with the reason and a sha256 fingerprint. Never a win. Immutable |
+| `recommendation_outcome_evidence` | per linked ad, the impressions, spend, clicks, purchases and purchase value it had in the review window, how many days reported, and when its account last synced. Immutable |
+| `recommendation_learnings` | the conclusion (supported, not supported, inconclusive) and learning a person writes after a measured outcome. Immutable |
+
+Staff read all six; clients read none. Checked functions (`staff_area` allow-list, role tested in the body): `propose_recommendation`, `decide_recommendation`, `link_recommendation_execution`, `record_recommendation_outcome`, `review_recommendation_learning` and `recommendation_ad_options` (the client's ads for the pickers). Each write names the version on screen (40001 when stale). Cited evidence is `{"kind":"ad"}` for an ad in the client's ad accounts or `{"kind":"meeting_recap_item"}` for a meeting recap item of the client that a person confirmed; anything else is refused.
+
+The evaluation (`recommendation_evaluation`, service role only) reads `creative_daily_metrics` for the linked ads: not executed when the recommendation is not accepted, deferred or has no link; insufficient while the window is open, when no linked ad ever reported metrics, or when a linked ad had no impressions in the window; inconclusive when an ad account last synced before the window closed; otherwise measured. "Measured" only means the evidence is complete enough for a person to review. A learning needs the latest outcome to be measured and a fresh evaluation to give the same fingerprint, so new metrics after the outcome mean evaluating again. The page shows only the stored numbers and their sums.
+
+Differences from Goodo OS: Goodo OS read asset-to-ad mappings and performance evidence records; Verdanote holds the ad metrics, so a link names ad ids directly. The ClickUp task on a link is optional (Goodo OS required one) because the ClickUp sync does not run in staging. Any builder or employee stands in for the recommendation capabilities. Not ported: service improvement suggestions as a source, deliverable asset identities, command receipts. The page loads with explicit relationship names (`table!constraint(...)`), because the history tables point at the recommendation and at each other. Tests in `supabase/tests/recommendations_test.sql` and `src/test/recommendationsPage.test.tsx`.
+
+### Scope changes
+
+Page `/scope-changes` (builder and employee) and migration `20261110200002_scope_changes.sql`, no edge function. Port of the Goodo OS scope lock and scope change requests (`backend/services/scopeLock.ts`, migrations `013_scope_lock.sql` and `013a_scope_lock_delivery.sql`), on the shot list approvals of step 4b.
+
+| Table | Purpose |
+|---|---|
+| `scope_locks` | the client's approval of one exact published shot list version, which locks the scope at that version. Written by the trigger `lock_scope_on_shot_list_approval` on `approval_subject_decisions`; shot lists approved before the migration are locked by a backfill. Immutable |
+| `scope_change_requests` | a client request to change a locked shot list, recorded by staff against the locked version with the channel (call, Slack, email) and a source note. Immutable |
+| `scope_change_evaluations` | needs review, accepted or declined, with a rationale. Accepted and declined are final (one per request). Immutable |
+
+Staff read all three; clients read none. Checked functions (`staff_area` allow-list, role tested in the body): `request_scope_change` (the shot list must be locked and the base version must be the locked version now, 40001 otherwise) and `evaluate_scope_change` (any builder or employee marks needs review; only a builder accepts or declines; once decided, never again). An accepted change does not edit the shot list: staff publish a new version on `/deliverables`, and the client's approval of it moves the lock.
+
+Differences from Goodo OS: the client portal is dropped, so staff record the request. Only a builder accepts or declines, because it changes the agreed scope of a paid cycle (Goodo OS used the approval publish capability). The lock is written when the decision is recorded, as Goodo OS locked on the client approval itself.
+
+Not ported: the ClickUp scope lock effects and their delivery records, the ClickUp task links of an approval version (outward writes), approval sync events, command receipts. Tests in `supabase/tests/scope_changes_test.sql` and `src/test/scopeChangesPage.test.tsx`.
+
+### Learning and self-service
+
+Page `/learning` (builder and employee) with two tabs, and migration `20261110200005_learning.sql`, no edge function. Port of the Goodo OS staff learning pages (`LearningEditor`, `LearningReview`, `LearningWithdraw`, `LearningSelfService`; `backend/services/learningModules.ts` and `learningReview.ts`; migrations `007_learning.sql`, `007a_learning_integrity.sql`, `054_learning_self_service.sql`).
+
+| Table | Purpose |
+|---|---|
+| `learning_modules` | one lesson per client: key, title, current draft version, published version, active |
+| `learning_module_versions` | every draft: summary, steps, checklist, source links, applicability (standard, custom), source clearance, client use rights, blocking gaps, assigned reviewer. Immutable |
+| `learning_reviews` | the assigned reviewer accepts a version for review, then approves or rejects it once. Immutable |
+| `learning_history` | publications and withdrawals (a withdrawal has a reason). Immutable |
+| `learning_support_weeks` | staff weekly tally (Mondays) of recurring how-to questions that reached people, per engagement, observed, missing or unknown, real or made up. One row per week. Immutable |
+| `learning_self_service_snapshots` | a baseline window against a pilot window computed from the weekly tallies: questions, observed and missing weeks, questions per observed week, better, same, worse or missing. Immutable |
+
+Staff read all six; clients read none. Checked functions (`staff_area` allow-list, role tested in the body): `create_learning_module`, `save_learning_draft` (version on screen; the reviewer must be another builder or employee), `review_learning_version` (assigned reviewer only, accepted first, one final decision), `publish_learning_version` (builder only; approved by the assigned reviewer, sources cleared, client approved rights, no blocking gaps, at least one step, checklist item, applicability and https source link), `withdraw_learning_module` (builder only, with a reason), `record_learning_support_week` and `snapshot_learning_self_service`. A missing week never enters a rate; lesson usage is reported as not measured, not zero.
+
+Differences from Goodo OS: per-client learning capability grants are replaced by "another staff member reviews, a builder publishes and withdraws". The client learning library, grounded how-to answers, helpfulness responses and usage clicks are client-facing (phase 2), so publishing records the decision and no client reads anything. Template attachments and the Goodo OS lesson content are not copied in. Tests in `supabase/tests/learning_test.sql` and `src/test/learningPage.test.tsx`.
+
+### AI agents and evaluations
+
+Page `/agent-evaluations` (builder and employee), edge function `agent-evaluations` and migration `20261110200006_agent_evaluations.sql`. Port of the Goodo OS evaluation runner and gate (US-058: `backend/agents/evaluation.ts`, `backend/services/evaluationGate.ts`; migrations `034_agent_evaluation.sql` and `048_agent_evaluation_quality.sql`).
+
+| Table | Purpose |
+|---|---|
+| `agent_evaluation_samples` | staff-written test requests per agent (today `meeting-recaps`): dimension (grounding, escalation, prompt injection, permission isolation, action postconditions), made up or real with permission, the request, the expected decision (allow, escalate, deny) and where it came from. Immutable |
+| `agent_evaluation_runs` | one run against a model and prompt version (a fingerprint of the agent's instructions): passed, blocked or failed, counts, dimensions covered, failures, limitation. Immutable |
+| `agent_evaluation_results` | per sample: the observed decision and the quote from the request given as the reason. Immutable |
+| `agent_evaluation_outcomes` | a person's record of human approval counts and the business outcome of a run, once. Immutable |
+| `agent_config_approvals` | a builder approves an agent's model and prompt version from a passed run; the latest approval is the one in force. Immutable |
+
+The function sends each sample to the model (`ANTHROPIC_EVAL_MODEL`, default `claude-sonnet-5-5`, the Goodo OS model) with the agent's own instructions and asks for a decision and the exact words of the request that decide it. `record_agent_evaluation_run` (service role only) decides grounding: a decision is kept only when its quote is an exact part of the sample, otherwise the result is stored with no decision and no quote and the sample fails. The run passes only when every sample of the agent ran, every result passed and all five dimensions are covered. A provider failure part way records a failed run with no results. Without `ANTHROPIC_API_KEY` the function answers 503 before any read or request (staging has no key). Checked functions: `add_agent_evaluation_sample`, `record_agent_evaluation_outcome` (builder or employee) and `approve_agent_config` (builder only; passed run with five dimensions).
+
+Differences from Goodo OS: samples belong to an agent instead of a client engagement, and the `agent.tool.review` capability becomes "any builder or employee writes samples and outcomes, a builder approves". The approval is recorded and shown; it does not yet stop `meeting-recaps` from running. Agent runs, tool proposals and their human evaluations (031) and durable agent jobs (035) are not ported: no Verdanote agent proposes tool actions. Tests in `supabase/tests/agent_evaluations_test.sql`, `supabase/functions/agent-evaluations/index.test.ts` and `src/test/agentEvaluationsPage.test.tsx`.
+
+### Operations (job queue)
+
+Page `/operations` (builder and employee) and migration `20261111000001_operations.sql`, no edge function and no new table. Port of the Goodo OS operator recovery page (`src/pages/staff/Operations.tsx`, `backend/services/operatorRecovery.ts`, `backend/routes/operations.ts`).
+
+The page lists `durable_jobs` with their `job_audit` history (staff-only row rules from step 3), newest first, filtered by state (needs recovery, queued, running, finished, all) and client. It selects job columns only, never the payload, and shows only short scalar receipt fields. Each job shows its next step. Commands, each a checked function with the role tested in its body: `replay_job` and `resolve_job_manually` (step 3) for a job in recovery, and the new `cancel_queued_job` for a queued job that was never claimed, with a reason of 10 to 500 characters. A job that was ever claimed, retried, replayed or had a send started is refused (55000), so a cancellation never hides an outside effect that may have happened. The cancel is audited as `manual_cancel` with the staff member and the reason; a linked reminder follows the job to canceled.
+
+Merged with integration health: the Integration health page keeps the queue summary and links here. Not ported: the Goodo OS client release outbox and effect controls on this page (client releases are phase 2), per-engagement capability grants (any builder or employee acts). Tests in `supabase/tests/operations_test.sql` and `src/test/operationsPage.test.tsx`.
+
+### Alerts
+
+Migration `20261111000002_alert_exceptions.sql` and changes to the `integration-health` function and page; no new page. Port of the alert parts of Goodo OS migration `006_operations.sql` and `backend/monitoring/alerts.ts` (expected exceptions, false-positive acknowledgements, owner alert jobs).
+
+`alert_exceptions` records that one integration health problem (connector and problem code) is expected or a false positive, for 1 to 24 hours: kind (idle testing or paused engagement for a stale connector, reconnect warm-up for a connector that never synced, false positive for any problem), reason and expiry. Immutable; it expires. Staff read; clients read none. Written only by `record_alert_exception` (`staff_area` allow-list, role tested in the body).
+
+The `integration-health` function reads active exceptions and moves covered problems from `patterns` to `suppressed`, so they do not count against a connector's state. `POST {"action":"evaluate"}` is builder only: it lists the owner alerts the open problems call for, keyed one per problem per UTC day, and in the production project only queues each through `enqueue_owner_alert` (which queues only for a builder-confirmed owner alert channel; `run-slack-jobs` sends only with `slack_sends` on). Anywhere else nothing is queued and each alert comes back with the reason `not_production`. The Integration health page shows suppressed problems and active exceptions, lets staff record an exception for an open problem, and gives a builder "Check and alert now". Owner alert jobs show on the Integration health and Operations pages.
+
+Not ported: the stored evaluations, incidents and incident scopes (Verdanote evaluates on read), command receipts, per-engagement source scopes and capability grants. Nothing schedules the evaluate action; it runs when a builder presses the button. Tests in `supabase/tests/alert_exceptions_test.sql`, `supabase/functions/integration-health/index.test.ts` and `src/test/integrationHealth.test.tsx`.
+
+### Operating costs
+
+Page `/operating-costs` (builder only) and migration `20261111000003_operating_costs.sql`, no edge function. Port of the Goodo OS owner page (`src/pages/staff/OperatingCosts.tsx`, `backend/services/operatingCosts.ts`, migration `058_operating_costs.sql`).
+
+| Table | Purpose |
+|---|---|
+| `operating_cost_entries` | fixed monthly costs: key, label, category, monthly USD, basis (proposed, quoted, invoiced), source of the figure, counted or not, version |
+| `operating_budgets` | the monthly budget (`total`): limit and a warning amount below it, version |
+| `operating_cost_events` | every recorded entry, budget and budget check. Immutable |
+| `operating_budget_alerts` | one row per threshold crossing (budget, month, level, budget version) with the owner alert job it queued. Immutable |
+
+Builders read all four; employees and clients read none. Checked functions (builder tested in the body): `record_operating_cost_entry` and `record_operating_budget` (both against the version on screen, 40001 when stale) and `evaluate_operating_budgets` (current UTC month; records each new crossing once and queues an owner alert through `enqueue_owner_alert`, which queues only for a builder-confirmed owner alert channel; `run-slack-jobs` sends only from production with `slack_sends` on).
+
+Differences from Goodo OS: Verdanote's meeting recaps and agent evaluations do not record token usage, so model spend is not measured and the one budget covers the active fixed entries; the forecast level (a month-end projection of variable spend) is therefore not ported. The separate Goodo OS alert outbox is replaced by the shared job queue. Budget checks run when a builder presses "Check budgets now"; nothing is scheduled. Tests in `supabase/tests/operating_costs_test.sql` and `src/test/operatingCostsPage.test.tsx`.
+
+### Support inbox
+
+Page `/support` (builder and employee) and migration `20261111000004_support_inbox.sql`, no edge function. Port of the Goodo OS staff support inbox (`src/pages/staff/SupportInbox.tsx`, `backend/services/support.ts`, migrations `017_support.sql` and `018_support_fallback.sql`).
+
+| Table | Purpose |
+|---|---|
+| `support_requests` | one client question: client, optional engagement, subject, question, channel it came in on (call, Slack, email, meeting, other), open or resolved, next update owed by, accountable owner, optional backup, revision |
+| `support_history` | the question and every staff update, resolution and reopen, with the status and revision after it. Immutable |
+| `support_assignment_history` | every owner and backup assignment. Immutable |
+
+Staff read all three; clients read none, including questions about their own client. Checked functions (`staff_area` allow-list, role tested in the body): `create_support_request` (the same subject and question for the same client returns the existing request; the owner defaults to the recorder and must be a builder or employee; the engagement must be the client's), `record_support_event` (staff update, resolution of an open request or reopen of a resolved one, against the revision on screen, optionally moving the next update date) and `assign_support_request` (owner or backup, staff only).
+
+Differences from Goodo OS: the client portal is dropped, so staff record the question with its channel and clients neither ask nor read here. Nothing is sent to the client: a staff update records what was said through the usual channel. The engagement strategist binding, the configured fallback owner and per-engagement capability grants are replaced by "the recorder names the owner, any builder or employee acts". Tests in `supabase/tests/support_inbox_test.sql` and `src/test/supportInboxPage.test.tsx`.
+
+### Client BIDs (step 6)
+
+Page `/bids` (builder and employee) and migration `20261111020001_client_bids.sql`, no edge function. The read-only BID viewer from the plan ("BID Builder: read-only BID viewer in Verdanote"). The BID Builder worker (`repos/private/bid-builder`) keeps writing each client's 17-section Brand Intelligence Document as markdown outside Verdanote.
+
+`client_bids` holds one finished BID version per row: client, version, title, the markdown body with its sha256 fingerprint, source (`bid-builder` or `staging-seed`), source reference, data origin (made up or real), generated and imported times. Immutable; a new BID is a new version. Staff read; clients read nothing, including their own client's BID (a client view is phase 2). Nobody signed in can write. BIDs arrive only through `import_client_bid`, callable by the service role only, which computes the fingerprint, returns the existing version for a body it already holds and otherwise writes the next version, so an import can be re-run. A staging seed BID must be marked made up. There is no edit function and no editing UI.
+
+The page lists clients that have a BID, opens the latest version, shows a section list built from the `## ` headings and renders the markdown with `react-markdown` (no raw HTML; tables show as text because GitHub-style tables are not enabled). Older versions can be picked.
+
+Staging data: `scripts/seed-staging-bids.mjs` imports one made-up BID for `demo-glowdrip` (17 headings in the BID Builder's order, every line labelled made up), refuses any project but verdanote-staging and is idempotent. No real BID is loaded; that waits on decision 10. Tests in `supabase/tests/client_bids_test.sql`, `src/test/bidViewerPage.test.tsx` and `scripts/seed-staging-bids.test.mjs`.
+
+## Alternatives rejected
+
+**A new `os_clients` table with a uuid id, and the dashboard `clients` folded into it.** Gives a cleaner id, but the eight dashboard tables and the dashboard staff functions (`create_client`, `set_client_*`, `create_shoot` and others) already key on `clients.slug`, so it means either two client ids side by side or rewriting all of them. Not the smallest change.
+
+**Use `ad_accounts` as the client list, and create placeholder ad accounts for clients without one.** Keeps every rule on `get_user_account_ids` unchanged, but puts fake rows into the table that every ad sync, report and the agency dashboard reads, and still leaves the dashboard `clients` list as a second list.
+
+**Store client slugs in `user_accounts.account_id`.** The column has no foreign key, so it would work for `get_user_account_ids` without a new table, but one column would then hold two kinds of id, and every existing client rule compares it with ad account ids. A mistake there leaks across clients.
+
+**Port Goodo OS's identity model as is** (`companies`, `workspace_users`, `client_memberships`, `staff_capability_grants`, `runtime_identities`, command receipts). Built for a separate multi-company server with its own login pool. Verdanote already has one company, one login pool and roles in `user_roles`; carrying the second model would mean two permission systems on the same rows.
+
+**Only derive client access from ad accounts** (no `client_members`). Smallest, but a client with no ad account could never see anything, which is the gap this step is meant to close.

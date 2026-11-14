@@ -125,6 +125,8 @@ vi.mock("@/components/ClientPreviewBanner", () => ({ ClientPreviewBanner: () => 
 // Only the redirect target (index → OverviewPage) is stubbed to a marker; every
 // other route stays lazy and never mounts. MatrixBoardPage stays REAL.
 vi.mock("@/pages/OverviewPage", () => ({ default: () => <div data-testid="page-overview">overview</div> }));
+// Staff land on Home, not the Overview, when sent to the index.
+vi.mock("@/pages/HomePage", () => ({ default: () => <div data-testid="page-staff-home">home</div> }));
 
 import MatrixBoardPage from "@/features/matrix/board/MatrixBoardPage";
 import { RoleGuardedRoutes } from "@/App";
@@ -265,10 +267,10 @@ describe("US-007: /matrix is builder-only — non-builders are denied (e2e 2)", 
     expect(screen.queryByTestId("page-overview")).toBeNull();
   });
 
-  it("redirects an employee away from /employee/matrix (to the index)", async () => {
+  it("redirects an employee away from /employee/matrix (to the staff Home)", async () => {
     setRole("employee");
     renderGuardedAt("/employee/matrix");
-    expect(await screen.findByTestId("page-overview")).toBeInTheDocument();
+    expect(await screen.findByTestId("page-staff-home")).toBeInTheDocument();
     expect(screen.queryByText("Creative Matrix")).toBeNull();
   });
 

@@ -1,0 +1,56 @@
+name: OS-007 nightly ClickUp check (staging)
+
+on:
+  schedule:
+    - cron: "30 10 * * *" # 10:30 UTC = 02:30 Pacific (standard time)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: os007-nightly-check
+  cancel-in-progress: false
+
+jobs:
+  nightly-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: staging
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run nightly comparison against staging
+        id: check
+        env:
+          STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/os007"
+          node scripts/os007-nightly-check.mjs | tee "$RUNNER_TEMP/os007/result.json"
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "### OS-007 nightly check (staging)"
+            echo '```json'
+            cat "$RUNNER_TEMP/os007/result.json" 2>/dev/null || echo '{"error":"no result produced"}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: os007-nightly-result
+          path: ${{ runner.temp }}/os007/result.json
+          if-no-files-found: warn
+          retention-days: 30

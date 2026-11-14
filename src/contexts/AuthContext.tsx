@@ -49,6 +49,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data, error } = await supabase.rpc("get_user_role", { _user_id: userId });
       if (error) throw error;
       setRole((data as AppRole) || null);
+      // OS-021: a client's first sign-in marks their sent invite accepted. Best effort: a failure
+      // here only leaves the staff status as "not yet accepted".
+      if (data === "client") {
+        void (supabase as unknown as { rpc(name: string): PromiseLike<unknown> }).rpc("os_client_invite_mark_accepted")
+          .then(undefined, () => undefined);
+      }
     } catch (err) {
       console.error("Failed to resolve user role:", err);
       setRole(null);

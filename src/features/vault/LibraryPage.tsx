@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Star, Trash2, Vault, Search, X } from "lucide-react";
 import { toast } from "sonner";
-import { PageHeader } from "@/components/PageHeader";
+import { EmptyState, LoadingState, PageHeader, PageShell } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -430,10 +430,10 @@ export default function LibraryPage() {
 
   return (
     <>
-      <div className="p-6 max-w-7xl mx-auto">
+      <PageShell wide>
         <PageHeader
           title="Library"
-          description="Your saved ads, videos, and inspiration — automatically transcribed and analyzed."
+          description="Your saved ads, videos, and inspiration, automatically transcribed and analyzed."
           actions={
             <Button onClick={() => setModalOpen(true)} size="sm">
               <Plus className="w-4 h-4 mr-1" />
@@ -464,7 +464,7 @@ export default function LibraryPage() {
             <div className="flex items-center gap-1.5">
               <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
               <h2 className="text-sm font-semibold">Featured</h2>
-              <span className="text-xs text-muted-foreground">— formats to work from this week</span>
+              <span className="text-xs text-muted-foreground">Formats to work from this week</span>
             </div>
             <div
               className="flex gap-3 overflow-x-auto pb-2"
@@ -481,36 +481,21 @@ export default function LibraryPage() {
 
         <div className="mt-6">
           {displayLoading ? (
-            <div className="text-center py-20 text-muted-foreground">
-              <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
-              {isSemanticMode ? "Searching…" : "Loading…"}
-            </div>
+            <LoadingState label={isSemanticMode ? "Searching the library" : "Loading the library"} variant="cards" count={4} />
           ) : displayItems.length === 0 ? (
-            <div className="text-center py-20 space-y-3">
-              {isSemanticMode ? (
-                <>
-                  <Search className="w-12 h-12 text-muted-foreground mx-auto" />
-                  <p className="text-muted-foreground">No results for "{searchQuery}".</p>
-                  <button
-                    onClick={clearSearch}
-                    className="text-primary text-sm font-medium hover:underline"
-                  >
-                    Clear search
-                  </button>
-                </>
-              ) : (
-                <>
-                  <Vault className="w-12 h-12 text-muted-foreground mx-auto" />
-                  <p className="text-muted-foreground">No inspiration saved yet.</p>
-                  <button
-                    onClick={() => setModalOpen(true)}
-                    className="text-primary text-sm font-medium hover:underline"
-                  >
-                    Add your first item
-                  </button>
-                </>
-              )}
-            </div>
+            isSemanticMode ? (
+            <EmptyState
+              icon={<Search className="w-10 h-10" />}
+              title={`No results for "${searchQuery}".`}
+              action={<Button type="button" variant="link" size="sm" onClick={clearSearch}>Clear search</Button>}
+            />
+          ) : (
+            <EmptyState
+              icon={<Vault className="w-10 h-10" />}
+              title="No inspiration saved yet."
+              action={<Button type="button" variant="link" size="sm" onClick={() => setModalOpen(true)}>Add your first item</Button>}
+            />
+          )
           ) : (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -536,7 +521,7 @@ export default function LibraryPage() {
             </>
           )}
         </div>
-      </div>
+      </PageShell>
 
       {pollingIds.map((id) => (
         <ActiveItemPoller key={id} itemId={id} onDone={handlePollingDone} />
@@ -556,20 +541,20 @@ export default function LibraryPage() {
                 Delete {selectedIds.size} item{selectedIds.size !== 1 ? "s" : ""} permanently?
               </span>
               <div className="w-px h-4 bg-border" />
-              <button
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                className="rounded-full"
                 onClick={() => bulkDelete([...selectedIds])}
                 disabled={isDeleting}
-                className="flex items-center gap-1.5 bg-destructive text-destructive-foreground rounded-full px-4 py-1.5 text-sm font-medium hover:bg-destructive/90 transition-colors disabled:opacity-50"
               >
                 {isDeleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 Yes, delete
-              </button>
-              <button
-                onClick={() => setConfirmDelete(false)}
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
+              </Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>
                 Cancel
-              </button>
+              </Button>
             </>
           ) : (
             <>
@@ -577,21 +562,19 @@ export default function LibraryPage() {
                 {selectedIds.size} selected
               </span>
               <div className="w-px h-4 bg-border" />
-              <button
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-full border-destructive/50 text-destructive"
                 onClick={() => setConfirmDelete(true)}
-                className="flex items-center gap-1.5 border border-destructive/50 text-destructive rounded-full px-4 py-1.5 text-sm font-medium hover:bg-destructive/10 transition-colors"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 Delete
-              </button>
-              <button
-                onClick={clearSelection}
-                className="p-1 rounded-full text-muted-foreground hover:text-foreground transition-colors"
-                title="Deselect all"
-                aria-label="Deselect all"
-              >
+              </Button>
+              <Button type="button" variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={clearSelection} title="Deselect all" aria-label="Deselect all">
                 <X className="w-4 h-4" />
-              </button>
+              </Button>
             </>
           )}
         </div>

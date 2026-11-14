@@ -32,6 +32,8 @@ FUNCTIONS=(
   cleanup-stuck-media
   cleanup-stuck-syncs
   clear-media-cache
+  client-decision
+  client-invite
   client-insights
   cluster-creatives
   creative-embed
@@ -41,11 +43,14 @@ FUNCTIONS=(
   entity-report
   creatives
   enrich-thumbnails
+  ingest-client-progress
   ingest-reviews
   landing-pages
   leaderboard
   matrix
   portfolio
+  public-link
+  public-apply
   quick-save
   refresh-thumbnails
   reports
@@ -58,6 +63,19 @@ FUNCTIONS=(
   settings
   spend-diagnostic
   sync
+  sync-clickup-tasks
+  clickup-os-sync
+  clickup-webhook
+  clickup-writeback
+  run-slack-jobs
+  fireflies-transcript
+  push-brief-to-clickup
+  clickup-folders
+  invite-user
+  meeting-recaps
+  brain-ask
+  agent-evaluations
+  integration-health
   system-health-check
   transcribe-ad
   user-management

@@ -8,25 +8,24 @@
  * task IDs or strategist-only fields leak (AC3) and that missing data — empty
  * or errored — degrades to a calm onboarding state (AC4/AC5).
  *
- * Columns mirror the live Coda workflow (set with the operator 2026-06-02):
+ * Columns are the five client-facing stages (set with the operator 2026-06-02):
  * Preparing Content / Production / Editing / Client Review / Ready to Launch.
- * The display stage on each task is computed upstream by sync-coda-tasks'
+ * The display stage on each task is computed upstream by sync-clickup-tasks'
  * STAGE_MAP; this view just buckets by the already-mapped value.
  */
-import { render, screen } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { ContentPipelineView } from "@/components/client/ContentPipeline";
-import type { CodaTask } from "@/hooks/useCodaTasks";
+import { dueDateLabel, lastSyncedAt } from "@/lib/pipelineBoard";
+import type { PipelineTask } from "@/hooks/usePipelineTasks";
 
-const mockTasks: CodaTask[] = [
+const mockTasks: PipelineTask[] = [
   {
     id: "task-internal-id-001",
     task_name: "Spring hero video",
     stage: "Production",
     due_date: "2026-06-15",
     content_type: "Video",
-    coda_url: "https://coda.io/d/internal-secret-doc",
-    brief: "Spring hero brief",
     updated_at: "2026-05-20",
   },
   {
@@ -35,8 +34,6 @@ const mockTasks: CodaTask[] = [
     stage: "Preparing Content",
     due_date: "2026-07-01",
     content_type: "Static",
-    coda_url: "https://coda.io/d/another-internal-doc",
-    brief: null,
     updated_at: "2026-05-22",
   },
 ];
@@ -63,8 +60,9 @@ describe("ContentPipeline (US-007)", () => {
     expect(container.querySelector("input")).toBeNull();
     expect(container.querySelector("textarea")).toBeNull();
     expect(container.querySelector("form")).toBeNull();
-    // No element advertises itself as clickable.
-    expect(container.querySelector(".cursor-pointer")).toBeNull();
+    // No element advertises itself as clickable, except the cycle header that opens and closes
+    // a cycle (a native <summary>, not a button or a link).
+    expect(container.querySelector(".cursor-pointer:not(summary)")).toBeNull();
 
     // No approve / comment / request-changes / upload labels.
     const text = container.textContent ?? "";
@@ -75,7 +73,7 @@ describe("ContentPipeline (US-007)", () => {
     expect(text).not.toMatch(/reply/i);
   });
 
-  it("never leaks internal task IDs or the internal Coda URL (AC3)", () => {
+  it("never leaks internal task IDs or a link to the task system (AC3)", () => {
     const { container } = render(
       <ContentPipelineView tasks={mockTasks} isLoading={false} isError={false} />,
     );
@@ -84,6 +82,7 @@ describe("ContentPipeline (US-007)", () => {
     expect(html).not.toContain("task-internal-id-001");
     expect(html).not.toContain("task-internal-id-002");
     expect(html).not.toContain("coda.io");
+    expect(html).not.toContain("clickup.com");
   });
 
   it("lays out the five workflow stages as kanban columns", () => {
@@ -102,7 +101,7 @@ describe("ContentPipeline (US-007)", () => {
   });
 
   it("shows recently-launched work in the Ready to Launch column", () => {
-    const tasks: CodaTask[] = [
+    const tasks: PipelineTask[] = [
       { ...mockTasks[0], id: "launch-1", task_name: "Shipped winter promo", stage: "Ready to Launch" },
     ];
     render(<ContentPipelineView tasks={tasks} isLoading={false} isError={false} />);
@@ -113,7 +112,7 @@ describe("ContentPipeline (US-007)", () => {
   });
 
   it("drops unmapped / drifted-stage tasks from the board", () => {
-    const tasks: CodaTask[] = [
+    const tasks: PipelineTask[] = [
       { ...mockTasks[0], id: "drift-1", task_name: "Stale Complete bucket", stage: "Complete" },
       { ...mockTasks[1], id: "drift-2", task_name: "Some future stage", stage: "Brand New Stage" },
       { ...mockTasks[0], id: "active-1", task_name: "Active spring video", stage: "Production" },
@@ -129,7 +128,7 @@ describe("ContentPipeline (US-007)", () => {
   });
 
   it("degrades to onboarding when only unmapped work remains (AC4)", () => {
-    const tasks: CodaTask[] = [
+    const tasks: PipelineTask[] = [
       { ...mockTasks[0], id: "unmapped-only", stage: "Complete" },
     ];
     render(<ContentPipelineView tasks={tasks} isLoading={false} isError={false} />);
@@ -141,10 +140,86 @@ describe("ContentPipeline (US-007)", () => {
     expect(screen.getByText(/Nothing in production right now/i)).toBeInTheDocument();
   });
 
-  it("degrades to the same onboarding state on fetch error rather than erroring (AC5)", () => {
+  it("shows a distinct error state with Try again on a failed load, not the empty state", () => {
+    const onRetry = vi.fn();
     render(
-      <ContentPipelineView tasks={undefined} isLoading={false} isError={true} />,
+      <ContentPipelineView tasks={undefined} isLoading={false} isError={true} onRetry={onRetry} />,
     );
-    expect(screen.getByText(/Nothing in production right now/i)).toBeInTheDocument();
+    expect(screen.getByTestId("pipeline-error")).toBeInTheDocument();
+    expect(screen.queryByTestId("pipeline-empty")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Nothing in production right now/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/couldn't load your pipeline/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("the empty state is not the error state", () => {
+    render(<ContentPipelineView tasks={[]} isLoading={false} isError={false} />);
+    expect(screen.getByTestId("pipeline-empty")).toBeInTheDocument();
+    expect(screen.queryByTestId("pipeline-error")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+  });
+});
+
+describe("Content pipeline last updated", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("shows the most recent sync time across the rows in plain words", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-10T12:00:00Z"));
+    const tasks: PipelineTask[] = [
+      { ...mockTasks[0], updated_at: "2026-11-10T07:00:00Z" },
+      { ...mockTasks[1], updated_at: "2026-11-10T10:00:00Z" },
+    ];
+    render(<ContentPipelineView tasks={tasks} isLoading={false} isError={false} />);
+    expect(screen.getByTestId("pipeline-last-updated")).toHaveTextContent("Updated 2 hours ago");
+  });
+
+  it("omits the line when there are no rows", () => {
+    render(<ContentPipelineView tasks={[]} isLoading={false} isError={false} />);
+    expect(screen.queryByTestId("pipeline-last-updated")).not.toBeInTheDocument();
+  });
+
+  it("lastSyncedAt picks the latest timestamp and ignores missing ones", () => {
+    expect(lastSyncedAt([])).toBeNull();
+    expect(
+      lastSyncedAt([
+        { ...mockTasks[0], updated_at: null },
+        { ...mockTasks[1], updated_at: "2026-11-09T01:00:00Z" },
+        { ...mockTasks[0], updated_at: "2026-11-01T01:00:00Z" },
+      ]),
+    ).toBe("2026-11-09T01:00:00Z");
+  });
+});
+
+describe("Content pipeline overdue rule", () => {
+  const now = new Date(2026, 10, 10, 9, 0, 0);
+
+  it("never shows an overdue warning on columns Goodo owns, but keeps the date", () => {
+    for (const stage of ["Preparing Content", "Production", "Editing"]) {
+      const label = dueDateLabel("2026-11-03", stage, now);
+      expect(label).toEqual({ text: "Due Nov 3", urgent: false });
+    }
+  });
+
+  it("shows a gentle late note only in Client Review", () => {
+    const label = dueDateLabel("2026-11-03", "Client Review", now);
+    expect(label?.urgent).toBe(true);
+    expect(label?.text).toBe("Was due Nov 3. Take a look when you can.");
+    expect(label?.text).not.toMatch(/overdue/i);
+  });
+
+  it("renders no 'Overdue' text on a late Production card", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const tasks: PipelineTask[] = [
+      { ...mockTasks[0], id: "late-prod", stage: "Production", due_date: "2026-11-01" },
+      { ...mockTasks[0], id: "late-review", task_name: "Review cut", stage: "Client Review", due_date: "2026-11-01" },
+    ];
+    render(<ContentPipelineView tasks={tasks} isLoading={false} isError={false} />);
+    expect(screen.queryByText(/Overdue/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Due Nov 1")).toBeInTheDocument();
+    expect(screen.getByText("Was due Nov 1. Take a look when you can.")).toBeInTheDocument();
+    vi.useRealTimers();
   });
 });

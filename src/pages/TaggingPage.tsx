@@ -23,7 +23,7 @@ import { toast } from "sonner";
 import {
   Search, ChevronLeft, ChevronRight, Filter, Upload, LayoutGrid, Loader2, Save, X, Plus, Wand2, Zap, FileCheck,
 } from "lucide-react";
-import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
+import { EmptyState, KIT_HEAD_CELL, KIT_ROW_LINES, KIT_STICKY_HEADER, LoadingState, PageHeader, PageShell } from "@/components/page-kit";
 import { NamingCheckTab } from "@/components/tagging/NamingCheckTab";
 import { cn } from "@/lib/utils";
 
@@ -237,24 +237,22 @@ const TaggingPage = () => {
   }
 
   return (
-    <>
-      {/* Page header */}
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <h1 className="font-heading text-[32px] text-foreground">Tagging</h1>
-          <p className="font-body text-[13px] text-muted-foreground font-light mt-1">
-            Label your ads manually or upload a CSV of name mappings.
-          </p>
-        </div>
-        <Button
-          onClick={() => setQuickTagMode(true)}
-          className="gap-2 font-body text-[13px] font-semibold"
-          disabled={untaggedCreatives.length === 0}
-        >
-          <Zap className="h-4 w-4" />
-          Quick Tag ({untaggedCreatives.length})
-        </Button>
-      </div>
+    <PageShell wide>
+      <PageHeader
+        title="Tagging"
+        description="Label your ads manually or upload a CSV of name mappings."
+        className="mb-0"
+        actions={
+          <Button
+            onClick={() => setQuickTagMode(true)}
+            className="gap-2 font-body text-[13px] font-semibold"
+            disabled={untaggedCreatives.length === 0}
+          >
+            <Zap className="h-4 w-4" />
+            Quick Tag ({untaggedCreatives.length})
+          </Button>
+        }
+      />
 
       {/* Progress bar */}
       <TaggingProgressBar
@@ -364,19 +362,33 @@ const TaggingPage = () => {
 
           {/* Table */}
           {isLoading ? (
-            <TableSkeleton rows={8} cols={8} />
+            <LoadingState label="Loading creatives" variant="rows" count={8} />
+          ) : creatives.length === 0 ? (
+            <EmptyState
+              title="No creatives found"
+              description={search || tagFilter !== "all" ? "Nothing matches this search or tag filter." : "Sync this account's ads, or upload a CSV of name mappings."}
+              action={
+                search || tagFilter !== "all" ? (
+                  <Button size="sm" variant="outline" onClick={() => { setSearch(""); setTagFilter("all"); setPage(0); }}>Clear filters</Button>
+                ) : (
+                  <Button size="sm" variant="outline" onClick={() => setActiveTab("csv")}>Upload a CSV</Button>
+                )
+              }
+            />
           ) : (
-          <div className="border border-border rounded-lg overflow-x-auto">
-            <Table>
-              <TableHeader>
+          // The table's own wrapper scrolls, so the header row sticks to its top.
+          <div data-testid="tagging-table" className="[&>div]:max-h-[70vh]">
+            <Table className={KIT_ROW_LINES}>
+              <TableHeader className={KIT_STICKY_HEADER}>
                 <TableRow>
-                  <TableHead className="font-label text-[11px] uppercase tracking-wide text-muted-foreground w-[250px]">Creative</TableHead>
-                  <TableHead className="font-label text-[11px] uppercase tracking-wide text-muted-foreground w-[80px]">Status</TableHead>
+                  <TableHead className={cn(KIT_HEAD_CELL, "w-[250px]")}>Creative</TableHead>
+                  <TableHead className={cn(KIT_HEAD_CELL, "w-[80px]")}>Status</TableHead>
                   {TAG_FIELDS.map((f) => (
                     <TableHead
                       key={f}
                       className={cn(
-                        "font-label text-[11px] uppercase tracking-wide min-w-[120px] cursor-pointer select-none transition-colors",
+                        KIT_HEAD_CELL,
+                        "min-w-[120px] cursor-pointer select-none transition-colors",
                         columnEditField === f
                           ? "text-primary bg-primary/5 border-b-2 border-primary"
                           : "text-muted-foreground hover:text-foreground"
@@ -390,17 +402,10 @@ const TaggingPage = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {creatives.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="h-32 text-center font-body text-[13px] text-muted-foreground">
-                      No creatives found
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  creatives.map((c: any) => (
+                {creatives.map((c: any) => (
                     <TableRow
                       key={c.ad_id}
-                      className={localEdits[c.ad_id] ? "bg-primary/5" : "even:bg-muted/30"}
+                      className={localEdits[c.ad_id] ? "bg-primary/5" : undefined}
                     >
                       <TableCell>
                         <div className="flex items-center gap-2 max-w-[250px]">
@@ -432,8 +437,7 @@ const TaggingPage = () => {
                         </TableCell>
                       ))}
                     </TableRow>
-                  ))
-                )}
+                  ))}
               </TableBody>
             </Table>
           </div>
@@ -570,7 +574,7 @@ const TaggingPage = () => {
         onConfirm={handleConfirmCsvUpload}
         isPending={uploadMappings.isPending}
       />
-    </>
+    </PageShell>
   );
 };
 

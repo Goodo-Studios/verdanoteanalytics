@@ -3,12 +3,17 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 
 
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
-const ANTHROPIC_MODEL = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-haiku-4-5-20251001";
 
-serve(async (req) => {
+export interface Deps {
+  createClient?: typeof createClient;
+}
+
+export async function handler(req: Request, deps: Deps = {}): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  // Read at request time so a key set after a cold start is picked up, and so tests can set it.
+  const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+  const ANTHROPIC_MODEL = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-haiku-4-5-20251001";
 
   try {
     const authHeader = req.headers.get("Authorization");
@@ -18,7 +23,7 @@ serve(async (req) => {
       });
     }
 
-    const supabase = createClient(
+    const supabase = (deps.createClient ?? createClient)(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
       { global: { headers: { Authorization: authHeader } } }
@@ -98,10 +103,20 @@ Examples of tone:
 
 Return ONLY a JSON array of 3 strings, no other text. Example: ["insight 1", "insight 2", "insight 3"]`;
 
+    // No key: say so in the answer and the log instead of sending an unauthenticated request that
+    // Anthropic refuses. The status stays 200 with no insights so the page shows nothing, as before;
+    // the `reason` field tells a caller the difference between "nothing to say" and "not set up".
+    if (!ANTHROPIC_API_KEY) {
+      console.error("client-insights: ANTHROPIC_API_KEY is not set, no insights generated");
+      return new Response(JSON.stringify({ insights: [], reason: "ai_key_missing" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const aiResponse = await fetch(ANTHROPIC_URL, {
       method: "POST",
       headers: {
-        "x-api-key": ANTHROPIC_API_KEY!,
+        "x-api-key": ANTHROPIC_API_KEY,
         "Content-Type": "application/json",
         "anthropic-version": "2023-06-01",
       },
@@ -152,4 +167,9 @@ Return ONLY a JSON array of 3 strings, no other text. Example: ["insight 1", "in
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-});
+}
+
+// Tests import the handler with CLIENT_INSIGHTS_NO_SERVE set.
+if (!Deno.env.get("CLIENT_INSIGHTS_NO_SERVE")) {
+  serve((req) => handler(req));
+}

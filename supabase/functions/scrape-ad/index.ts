@@ -3,6 +3,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { isAllowedFacebookUrl } from "../_shared/ssrf.ts";
 import { isMediaContentType } from "../_shared/vault-save-logic.ts";
 import { ACTOR_CONFIGS } from "../_shared/actor-configs.ts";
+import { requireStaffOrServiceRole } from "../_shared/internal-auth.ts";
 
 const APIFY_BASE = "https://api.apify.com/v2";
 
@@ -190,6 +191,15 @@ function json(body: unknown, status = 200) {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // Staff-only: this function reads or writes staff data, or spends the org's
+  // third-party budget. Client accounts are refused here, not only in the menu.
+  // Service-role callers (cron, other functions) still pass.
+  const staffGate = await requireStaffOrServiceRole(
+    req,
+    createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!),
+  );
+  if (staffGate) return staffGate;
 
   try {
     const authHeader = req.headers.get("Authorization");

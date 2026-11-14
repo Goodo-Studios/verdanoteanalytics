@@ -33,7 +33,7 @@
 //
 // Stored tag columns hold DISPLAY names, so the parser's canonical vocab is
 // mapped through the shared parsedDisplayTags (_shared/ad-name-display.ts) before it enters the resolver (same contract as
-// creatives/index.ts, sync/index.ts, sync-coda-names/index.ts).
+// creatives/index.ts, sync/index.ts).
 //
 // ─── US-005: Creative-Matrix dimension backfill (second pass) ────────────────
 // After the six-dimension re-tag above, a SECOND per-account pass populates the

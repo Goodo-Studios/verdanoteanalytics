@@ -60,12 +60,52 @@ describe("CI deployment safety", () => {
     expect(e2e).toContain("github.base_ref != 'staging'");
   });
 
+  it("runs browser tests on the deployed staging site after the staging deploy, with staging secrets only", () => {
+    const e2e = job("e2e-staging");
+    expect(e2e).toContain("needs: [deploy-staging]");
+    expect(e2e).toContain("github.ref == 'refs/heads/staging'");
+    expect(e2e).not.toContain("refs/heads/main");
+    const secretNames = [...e2e.matchAll(/secrets\.([A-Z0-9_]+)/g)].map((m) => m[1]);
+    expect(secretNames.length).toBeGreaterThan(0);
+    for (const n of secretNames) expect(n).toMatch(/^STAGING_/);
+    expect(e2e).toContain("npm run test:e2e:staging");
+    expect(packageJson.scripts["test:e2e:staging"]).toContain("playwright.staging.config.ts");
+  });
+
+  it("skips the staging browser tests with a message naming the missing secret, not silently", () => {
+    const e2e = job("e2e-staging");
+    expect(e2e).toContain("::warning title=Staging browser tests skipped::");
+    expect(e2e).toContain("STAGING_TEST_PASSWORD");
+    expect(e2e).toContain("STAGING_GATE_PASSWORD");
+    // Every step after the check only runs when the secrets are present.
+    const steps = e2e.split(/\n {6}- /);
+    for (const marker of ["setup-node@v4", "npm ci", "playwright install", "npm run test:e2e:staging"]) {
+      const step = steps.find((s) => s.includes(marker));
+      expect(step, marker).toBeDefined();
+      expect(step, marker).toContain("if: steps.cfg.outputs.configured == 'true'");
+    }
+  });
+
+  it("keeps the staging browser tests out of the production E2E run and away from production", () => {
+    // playwright.config.ts (production job) only collects ./e2e; the staging specs live in ./e2e-staging.
+    const config = readFileSync(`${process.cwd()}/playwright.config.ts`, "utf8");
+    expect(config).toContain('testDir: "./e2e"');
+    const staging = readFileSync(`${process.cwd()}/playwright.staging.config.ts`, "utf8");
+    expect(staging).toContain('testDir: "./e2e-staging"');
+    expect(staging).toContain("points at production");
+  });
+
   it("gates the edge-function deploy on the database replay", () => {
     expect(workflow).toContain("needs: [check, deno-test, database-test]");
   });
 
   it("fails CI before E2E when authenticated-test secrets are missing", () => {
     expect(workflow).toContain("run: npm run check:e2e-env");
+  });
+
+  it("runs the node script tests (scripts/*.test.mjs) in the check job", () => {
+    expect(workflow).toContain("run: npm run test:scripts");
+    expect(job("check")).toContain("run: npm run test:scripts");
   });
 
   it("uses the non-increasing lint warning budget", () => {
@@ -81,8 +121,8 @@ describe("CI deployment safety", () => {
 
   it("pins every Supabase CLI install to one explicit version", () => {
     // "latest" pulled in new major CLI versions that broke the staging deploy
-    // twice on 2026-11-09 and the production deploy on 2026-11-11. Every
-    // setup-cli step must name the same exact version.
+    // twice on 2026-11-09 (db push defaulting to local, remote SQL asking for
+    // confirmation). Every setup-cli step must name the same exact version.
     const steps = [
       ...workflow.matchAll(/uses: supabase\/setup-cli@\S+\n((?: {8,}.*\n)*)/g),
     ];
@@ -100,21 +140,10 @@ describe("CI deployment safety", () => {
     expect(workflow).not.toMatch(/version: *latest/);
   });
 
-  it("passes --yes to every supabase functions deploy so the CLI never waits for a prompt", () => {
-    // The current CLI refuses to deploy without --yes ("Nothing was changed"),
-    // which deployed 0 of 73 functions on the production run of 2026-11-11.
-    const script = readFileSync(`${process.cwd()}/scripts/deploy-functions.sh`, "utf8");
-    const deployCalls = script
-      .split("\n")
-      .filter((line) => /supabase functions deploy\b/.test(line) && !line.trim().startsWith("#"));
-    expect(deployCalls.length).toBeGreaterThanOrEqual(1);
-    for (const line of deployCalls) expect(line).toMatch(/ --yes\b/);
-    // No other call site in the workflow bypasses the script without --yes.
-    for (const line of workflow.split("\n")) {
-      if (/supabase functions deploy\b/.test(line) && !line.trim().startsWith("#")) {
-        expect(line).toMatch(/ --yes\b/);
-      }
-    }
+  it("keeps the staging deploy commands explicit about the remote project", () => {
+    const staging = job("deploy-staging");
+    expect(staging).toContain("supabase db push --linked --include-all --yes");
+    expect(staging).toContain("supabase db query --linked --yes");
   });
 
   it("enforces bundle budgets and smoke-tests deployed functions", () => {

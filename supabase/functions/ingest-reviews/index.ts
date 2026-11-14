@@ -30,7 +30,7 @@
 // Both the insert and the delete sweep use these same markers, so the table
 // reaches an identical state on every re-POST of a given batch.
 //
-// Mirrors the backfill-retag / sync-coda-names service-role registration pattern
+// Mirrors the backfill-retag service-role registration pattern
 // (registered in scripts/deploy-functions.sh + supabase/config.toml, verify_jwt
 // = false). Exposes a testable handler(req, supabaseOverride); Deno.serve is
 // guarded by INGEST_NO_SERVE so the test can import the module without binding.

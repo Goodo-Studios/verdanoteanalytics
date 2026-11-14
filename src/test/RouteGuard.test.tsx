@@ -44,6 +44,7 @@ vi.mock("@/pages/SettingsPage", () => pageMock("settings"));
 vi.mock("@/pages/BriefsPage", () => pageMock("briefs"));
 vi.mock("@/pages/AgencyDashboardPage", () => pageMock("agency"));
 vi.mock("@/pages/ContentPipelinePage", () => pageMock("pipeline"));
+vi.mock("@/pages/HomePage", () => pageMock("staff-home"));
 vi.mock("@/features/vault/LibraryPage", () => pageMock("ad-library"));
 vi.mock("@/features/vault/ItemDetailPage", () => pageMock("vault-item"));
 vi.mock("@/features/vault/BoardsPage", () => pageMock("boards"));
@@ -88,7 +89,8 @@ vi.mock("@/hooks/useClientPreviewMode", () => ({
 }));
 
 import { RoleGuardedRoutes } from "@/App";
-import { clientNavItems, builderSections } from "@/components/AppSidebar";
+import { clientNavItems, staffNavItems } from "@/components/AppSidebar";
+import { SECTIONS } from "@/lib/sections";
 
 function setRole(
   role: AuthShape["role"],
@@ -153,36 +155,36 @@ describe("nav model — clientNavItems (AC1)", () => {
     for (const url of excludedUrls) {
       expect(urls).not.toContain(url);
     }
-    const excludedTitles = ["Tagging", "Briefs", "Library", "Boards", "Hooks"];
+    const excludedTitles = ["Tagging", "Library", "Boards", "Hooks"];
     for (const title of excludedTitles) {
       expect(titles).not.toContain(title);
     }
+    // OS-019: the client "Briefs" item is the client page, never the strategist Briefs page.
+    expect(clientNavItems.find((i) => i.title === "Briefs")?.url).toBe("/brief-review");
   });
 
-  it("is the 5 client surfaces — Overview, Creatives, Analytics, Pipeline, Reports", () => {
-    expect(clientNavItems).toHaveLength(5);
+  it("is the 8 client surfaces: Overview, Briefs, Review, Assets, Creatives, Analytics, Pipeline, Reports", () => {
+    expect(clientNavItems).toHaveLength(8);
+    expect(urls).toEqual(["/", "/brief-review", "/review", "/assets", "/creatives", "/analytics", "/pipeline", "/reports"]);
   });
 });
 
-describe("nav model — builderSections retain the full internal surface (AC3)", () => {
-  const builderUrls = builderSections.flatMap((s) => s.items.map((i) => i.url));
+describe("nav model: the staff menu and its tabs retain the full internal surface (AC3)", () => {
+  // Every internal page is still reachable: its old address redirects to a tab of a section.
+  const oldUrls = SECTIONS.flatMap((section) => section.tabs.flatMap((tab) => tab.legacy));
+  const tabSlugs = SECTIONS.flatMap((section) => section.tabs.map((tab) => `${section.id}/${tab.slug}`));
 
-  it("INCLUDES every internal surface", () => {
-    for (const url of [
-      "/creatives",
-      "/analytics",
-      "/tagging",
-      "/briefs",
-      "/ad-library",
-      "/ad-library/boards",
-      "/ad-library/hooks",
-    ]) {
-      expect(builderUrls).toContain(url);
+  it("keeps a tab for every internal surface", () => {
+    for (const url of ["/creatives", "/analytics", "/tagging", "/briefs", "/ad-library", "/ad-library/boards", "/ad-library/hooks"]) {
+      expect(oldUrls).toContain(url);
     }
+    expect(tabSlugs).toEqual(expect.arrayContaining(["creative/creatives", "vault/library", "vault/boards", "vault/hooks"]));
   });
 
-  it("also keeps the shared surfaces (Overview, Pipeline, Reports)", () => {
-    expect(builderUrls).toEqual(expect.arrayContaining(["/", "/pipeline", "/reports"]));
+  it("also keeps the shared surfaces (Overview, Reports) and a Home item", () => {
+    expect(oldUrls).toContain("/reports");
+    expect(tabSlugs).toContain("creative/overview");
+    expect(staffNavItems.map((i) => i.url)).toContain("/");
   });
 });
 
@@ -279,7 +281,7 @@ describe("route guard — employees reach the full internal surface (AC3, no reg
   }
 });
 
-describe("index route resolution (AC4) — Overview for every role", () => {
+describe("index route resolution (AC4): Overview for clients, Home for staff", () => {
   it("resolves to OverviewPage for a client", async () => {
     setRole("client");
     renderAt("/client/");
@@ -292,16 +294,18 @@ describe("index route resolution (AC4) — Overview for every role", () => {
     expect(await screen.findByTestId("page-overview")).toBeInTheDocument();
   });
 
-  it("resolves to OverviewPage for a builder", async () => {
+  it("resolves to the staff Home for a builder", async () => {
     setRole("builder");
     renderAt("/builder/");
-    expect(await screen.findByTestId("page-overview")).toBeInTheDocument();
+    expect(await screen.findByTestId("page-staff-home")).toBeInTheDocument();
+    expect(screen.queryByTestId("page-overview")).toBeNull();
   });
 
-  it("resolves to OverviewPage for an employee", async () => {
+  it("resolves to the staff Home for an employee", async () => {
     setRole("employee");
     renderAt("/employee/");
-    expect(await screen.findByTestId("page-overview")).toBeInTheDocument();
+    expect(await screen.findByTestId("page-staff-home")).toBeInTheDocument();
+    expect(screen.queryByTestId("page-overview")).toBeNull();
   });
 });
 

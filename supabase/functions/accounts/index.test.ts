@@ -219,3 +219,14 @@ Deno.test("a client is refused every write", async () => {
     assertEquals(res.status, 403, `${method} ${path}`);
   }
 });
+
+Deno.test("the staging wall check keeps the same field lists as the function", async () => {
+  const src = await Deno.readTextFile(new URL("../../../scripts/staging-client-wall-functions.mjs", import.meta.url));
+  const list = (name: string) => {
+    const m = src.match(new RegExp(`const ${name} = \\[([^\\]]*)\\]`));
+    assert(m, `${name} not found in staging-client-wall-functions.mjs`);
+    return [...m[1].matchAll(/"([a-z_]+)"/g)].map((x) => x[1]).sort();
+  };
+  assertEquals(list("CLIENT_ACCOUNT_FIELDS"), [...CLIENT_ACCOUNT_FIELDS].sort());
+  assertEquals(list("STAFF_ONLY_ACCOUNT_FIELDS"), [...STAFF_ONLY_ACCOUNT_FIELDS].sort());
+});

@@ -1,12 +1,33 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { type DashboardRoleMapping, mapDashboardRoleWith, type RoleMappingRow } from "../_shared/dashboard-role-map.ts";
+
+// A dashboard role is turned into a Verdanote role by the mapping in public.staff_role_mappings
+// (step 5d, shown on the Team page): admin to builder, viewer to client, any other staff role to
+// employee (owner decision 2026-11-11).
+interface MappingReader {
+  from(table: string): {
+    select(columns: string): PromiseLike<{ data: RoleMappingRow[] | null; error: unknown }>;
+  };
+}
+async function resolveDashboardRole(supabase: MappingReader, dashboardRole: unknown): Promise<DashboardRoleMapping> {
+  const { data, error } = await supabase
+    .from("staff_role_mappings")
+    .select("dashboard_role, verdanote_role");
+  if (error) return { ok: false, error: "The role mapping could not be read." };
+  return mapDashboardRoleWith(data, dashboardRole);
+}
 
 
-serve(async (req) => {
+export interface Deps {
+  createClient?: typeof createClient;
+}
+
+export async function handler(req: Request, deps: Deps = {}): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  const supabase = createClient(
+  const supabase = (deps.createClient ?? createClient)(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
@@ -65,7 +86,20 @@ serve(async (req) => {
 
     // POST /user-management — create user
     if (req.method === "POST" && !path) {
-      const { email, password, role, display_name, account_ids } = await req.json();
+      const { email, password, role: requestedRole, dashboard_role, display_name, account_ids } = await req.json();
+
+      // A staff member coming from the old dashboard can be created by their
+      // dashboard role, through the mapping in staff_role_mappings (step 5d).
+      let role = requestedRole;
+      if (!role && dashboard_role) {
+        const mapped = await resolveDashboardRole(supabase, dashboard_role);
+        if (!mapped.ok) {
+          return new Response(JSON.stringify({ error: mapped.error }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        role = mapped.role;
+      }
 
       if (!email || !password || !role) {
         return new Response(JSON.stringify({ error: "email, password, and role are required" }), {
@@ -105,7 +139,18 @@ serve(async (req) => {
     // PUT /user-management/:userId — update user role/accounts
     if (req.method === "PUT" && path) {
       const userId = path;
-      const { role, account_ids, display_name } = await req.json();
+      const { role: requestedRole, dashboard_role, account_ids, display_name } = await req.json();
+
+      let role = requestedRole;
+      if (!role && dashboard_role) {
+        const mapped = await resolveDashboardRole(supabase, dashboard_role);
+        if (!mapped.ok) {
+          return new Response(JSON.stringify({ error: mapped.error }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        role = mapped.role;
+      }
 
       if (display_name !== undefined) {
         await supabase.from("profiles").update({ display_name }).eq("user_id", userId);
@@ -147,4 +192,9 @@ serve(async (req) => {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-});
+}
+
+// Tests import the handler with USER_MANAGEMENT_NO_SERVE set.
+if (!Deno.env.get("USER_MANAGEMENT_NO_SERVE")) {
+  serve((req) => handler(req));
+}

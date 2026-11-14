@@ -1,6 +1,5 @@
-
-import { ReactNode, useEffect, useMemo, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useMemo } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { NavLink } from "@/components/NavLink";
 import {
   Settings,
@@ -9,20 +8,24 @@ import {
   FileText,
   Zap,
   LogOut,
-  Tags,
   Eye,
   ListChecks,
-  Library,
-  ChevronRight,
-  Vault,
-  ClipboardList,
-  RefreshCw,
-  Layers,
-  Film,
-  Globe,
-  Grid3x3,
+  House,
+  Building2,
+  Clapperboard,
+  Contact,
+  Palette,
+  BookOpen,
+  ShieldCheck,
+  Wrench,
+  FolderOpen,
+  TrendingUp,
+  Clock,
+  CheckCircle2,
+  Download,
 } from "lucide-react";
-import verdanoteLogo from "@/assets/verdanote_logo.png";
+import { STAFF_NAV, type StaffNavId } from "@/lib/sections";
+import { GoodoOsMark } from "@/components/GoodoOsMark";
 import {
   Select,
   SelectContent,
@@ -41,230 +44,75 @@ export type NavItem = {
   title: string;
   url: string;
   icon: typeof LayoutGrid;
-  /** Builder-only nav item — hidden from employees and role-preview sessions
-   *  (matches its route guard). Used by the US-007 Creative Matrix. */
-  builderOnly?: boolean;
 };
 
-export type NavSection = {
-  id: string;
-  label: string;
-  items: NavItem[];
+const STAFF_ICONS: Record<StaffNavId, typeof LayoutGrid> = {
+  home: House,
+  clients: Building2,
+  production: Clapperboard,
+  talent: Contact,
+  creative: Palette,
+  vault: FolderOpen,
+  knowledge: BookOpen,
+  growth: TrendingUp,
+  tools: Wrench,
+  time: Clock,
+  admin: ShieldCheck,
 };
 
-// Builder sections — Creative Analytics + Creative Vault
-export const builderSections: NavSection[] = [
-  {
-    id: "creative-analytics",
-    label: "Creative Analytics",
-    items: [
-      { title: "Overview", url: "/", icon: LayoutGrid },
-      { title: "Creatives", url: "/creatives", icon: Zap },
-      { title: "Creative Library", url: "/creative-library", icon: Film },
-      { title: "Analytics", url: "/analytics", icon: BarChart3 },
-      { title: "Matrix", url: "/matrix", icon: Grid3x3, builderOnly: true },
-      { title: "Tagging", url: "/tagging", icon: Tags },
-      { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
-      { title: "Briefs", url: "/briefs", icon: ClipboardList },
-      { title: "Reports", url: "/reports", icon: FileText },
-      { title: "Landing Pages", url: "/landing-pages", icon: Globe },
-      { title: "Creative Rotation", url: "/creative-rotation", icon: RefreshCw },
-      { title: "Creative Diversity", url: "/entities", icon: Layers },
-    ],
-  },
-  {
-    id: "creative-vault",
-    label: "Creative Vault",
-    items: [
-      { title: "Library", url: "/ad-library", icon: Library },
-      { title: "Boards", url: "/ad-library/boards", icon: Vault },
-      { title: "Hooks", url: "/ad-library/hooks", icon: Zap },
-    ],
-  },
-];
+/**
+ * Staff menu: eleven items. Everything except Home and Clients is a page with tabs (see
+ * src/lib/sections.ts). Admin shows for builders and employees; the tabs inside it that are
+ * builder only stay hidden from employees. Growth Dashboard is a builder only item.
+ */
+export const staffNavItems: NavItem[] = STAFF_NAV.map((entry) => ({
+  title: entry.label,
+  url: entry.url,
+  icon: STAFF_ICONS[entry.id],
+}));
+
+/** Menu items only a real builder sees (the section's tabs are all builder only). */
+const BUILDER_ONLY_URLS = new Set(STAFF_NAV.filter((e) => e.id === "growth").map((e) => e.url));
 
 // Client surface: clients get the core analytics tabs — Overview, Creatives,
 // Analytics — alongside their Content Pipeline + Reports. Overview routes to the
 // same OverviewPage builders see (the purpose-built ClientHomePage is retired).
 // Deeper strategist surfaces (Tagging, Briefs, Vault) stay
 // client-gated — see route guards in App.tsx.
+//
+// OS-019: Overview is the client home (it leads with the one item that needs the client). Briefs,
+// Review and Assets replace the three ClickUp client views. "Briefs" here is the client page at
+// /brief-review; the strategist Briefs page at /briefs stays staff only.
 export const clientNavItems: NavItem[] = [
   { title: "Overview", url: "/", icon: LayoutGrid },
+  { title: "Briefs", url: "/brief-review", icon: BookOpen },
+  { title: "Review", url: "/review", icon: CheckCircle2 },
+  { title: "Assets", url: "/assets", icon: Download },
   { title: "Creatives", url: "/creatives", icon: Zap },
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Content Pipeline", url: "/pipeline", icon: ListChecks },
   { title: "Reports", url: "/reports", icon: FileText },
 ];
 
-const agencyNavItems: NavItem[] = [
-  { title: "Overview", url: "/agency", icon: LayoutGrid },
-];
-
-const STORAGE_KEY = "verdanote.sidebar.sectionsCollapsed";
-
-function readCollapsedFromStorage(): Record<string, boolean> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return typeof parsed === "object" && parsed !== null ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeCollapsedToStorage(state: Record<string, boolean>) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    /* ignore quota / privacy-mode errors */
-  }
-}
-
-/** Returns true if the current route path matches any item in the section. */
-function sectionContainsActiveRoute(
-  section: NavSection,
-  prefix: string,
-  pathname: string,
-): boolean {
-  return section.items.some((item) => {
-    const fullPath = `${prefix}${item.url}`;
-    if (item.url === "/") {
-      return pathname === fullPath || pathname === `${prefix}`;
-    }
-    return pathname === fullPath || pathname.startsWith(`${fullPath}/`);
-  });
-}
-
-interface SectionGroupProps {
-  section: NavSection;
-  prefix: string;
-  collapsed: boolean;
-  onToggle: () => void;
-  onNavigate?: () => void;
-  /** When false, builder-only items (item.builderOnly) are hidden. */
-  showBuilderOnly: boolean;
-  /** Optional content rendered between the section header and the nav items. */
-  children?: ReactNode;
-}
-
-function SectionGroup({
-  section,
-  prefix,
-  collapsed,
-  onToggle,
-  onNavigate,
-  showBuilderOnly,
-  children,
-}: SectionGroupProps) {
-  const items = showBuilderOnly
-    ? section.items
-    : section.items.filter((item) => !item.builderOnly);
-  return (
-    <div className="space-y-1">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={!collapsed}
-        aria-controls={`sidebar-section-${section.id}`}
-        className="flex items-center w-full px-2 py-1 font-label text-[9px] uppercase tracking-[0.1em] text-sage hover:text-forest transition-colors"
-      >
-        <ChevronRight
-          className={`h-3 w-3 mr-1.5 transition-transform duration-150 ${
-            collapsed ? "" : "rotate-90"
-          }`}
-        />
-        <span className="flex-1 text-left">{section.label}</span>
-      </button>
-      {!collapsed && (
-        <div id={`sidebar-section-${section.id}`} className="space-y-1">
-          {children}
-          {items.map((item) => (
-            <NavLink
-              key={item.url}
-              to={`${prefix}${item.url}`}
-              end={item.url === "/"}
-              className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent"
-              activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
-              onClick={onNavigate}
-              onMouseEnter={() => prefetchRoute(item.url)}
-              onFocus={() => prefetchRoute(item.url)}
-            >
-              <item.icon className="h-4 w-4 flex-shrink-0" />
-              {item.title}
-            </NavLink>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+const ITEM_CLASS =
+  "flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent";
+const ACTIVE_CLASS = "!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant";
+const SELECT_ITEM_CLASS =
+  "font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant";
 
 export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
-  const { accounts, selectedAccountId, setSelectedAccountId, isLoading } = useAccountContext();
-  const { role, isClient, isBuilder, isEmployee, user, signOut } = useAuth();
+  const { accounts, selectedAccountId, setSelectedAccountId } = useAccountContext();
+  const { role, isClient, isBuilder, signOut } = useAuth();
   const { isClientPreview, isEmployeePreview, previewRole, setPreviewRole } = useClientPreview();
   const navigate = useNavigate();
-  const location = useLocation();
   const prefix = useRolePrefix();
 
-  const isAgencyView = selectedAccountId === "all";
   const effectiveClient = isClient || isClientPreview;
   const effectiveEmployee = isEmployeePreview;
-  // Builder-only nav items (US-007 Matrix) show only for a real builder not
-  // previewing another role — mirrors the /matrix route guard in App.tsx.
-  const effectiveBuilder = isBuilder && !isClientPreview && !isEmployeePreview;
 
-  const showSwitcher = !effectiveClient || accounts.length > 1;
-
-  // Collapse state for sections — persisted to localStorage
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() =>
-    readCollapsedFromStorage(),
-  );
-
-  // Auto-expand a section if it contains the active route
-  useEffect(() => {
-    if (effectiveClient || isAgencyView) return;
-    const updates: Record<string, boolean> = {};
-    let changed = false;
-    for (const section of builderSections) {
-      if (
-        collapsed[section.id] &&
-        sectionContainsActiveRoute(section, prefix, location.pathname)
-      ) {
-        updates[section.id] = false;
-        changed = true;
-      }
-    }
-    if (changed) {
-      setCollapsed((prev) => {
-        const next = { ...prev, ...updates };
-        writeCollapsedToStorage(next);
-        return next;
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname, prefix, effectiveClient, isAgencyView]);
-
-  const toggleSection = (id: string) => {
-    setCollapsed((prev) => {
-      const next = { ...prev, [id]: !prev[id] };
-      writeCollapsedToStorage(next);
-      return next;
-    });
-  };
-
-
-  const handleAccountChange = (value: string) => {
-    setSelectedAccountId(value);
-    if (value === "all") {
-      navigate(`${prefix}/agency`);
-    } else if (location.pathname.includes("/agency")) {
-      navigate(`${prefix}/`);
-    }
-  };
+  // Client view only: a client with several accounts picks one here. Staff pick a client in
+  // the switcher at the top of the app instead.
+  const showAccountSelect = effectiveClient && accounts.length > 1;
 
   const effectiveRole = effectiveClient ? "client" : effectiveEmployee ? "employee" : role;
 
@@ -285,18 +133,19 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
     navigate(`${newPrefix}/`);
   };
 
-  // Flat nav (client + agency views) — no section grouping
-  const flatNavItems = useMemo<NavItem[] | null>(() => {
-    if (isAgencyView) return agencyNavItems;
-    if (effectiveClient) return clientNavItems;
-    return null;
-  }, [isAgencyView, effectiveClient]);
+  // Work is a tab under Home, so Home stays lit on it.
+  const onWork = /^\/(builder|employee)\/work\/?$/.test(useLocation().pathname);
+  const effectiveBuilder = isBuilder && !isClientPreview && !isEmployeePreview;
+  const navItems = useMemo<NavItem[]>(
+    () => (effectiveClient ? clientNavItems : staffNavItems.filter((item) => effectiveBuilder || !BUILDER_ONLY_URLS.has(item.url))),
+    [effectiveClient, effectiveBuilder],
+  );
 
   return (
-    <aside className="flex h-screen w-56 flex-col bg-background border-r border-input">
-      {/* Logo */}
-      <div className="flex items-center px-5 py-5 border-b border-input">
-        <img src={verdanoteLogo} alt="Verdanote" className="h-7" />
+    <aside className="flex h-screen w-56 flex-col bg-sidebar border-r border-border">
+      {/* Name mark */}
+      <div className="flex items-center px-5 py-5 border-b border-border">
+        <GoodoOsMark />
       </div>
 
       {/* Role indicator - only builders can see/switch roles */}
@@ -310,7 +159,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
                 className={`flex-1 text-center py-1.5 rounded-[5px] font-label text-[9px] uppercase tracking-[0.1em] font-semibold transition-colors ${
                   effectiveRole === r
                     ? "bg-background text-forest shadow-sm"
-                    : "text-sage/50 hover:text-sage cursor-pointer"
+                    : "text-muted-foreground hover:text-foreground cursor-pointer"
                 }`}
               >
                 {r}
@@ -321,85 +170,45 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
       )}
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-3">
-        {flatNavItems ? (
-          <>
-            {/* Account switcher above flat nav (client / agency views) */}
-            <div className="space-y-1.5 pb-1">
-              {showSwitcher && accounts.length > 0 && (
-                <Select value={selectedAccountId || ""} onValueChange={handleAccountChange}>
-                  <SelectTrigger className="w-full h-9 font-body text-[13px] font-medium text-charcoal border border-input bg-background rounded-md [&>svg]:text-sage">
-                    <SelectValue placeholder="Select account" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white border border-border-light rounded-[8px] shadow-modal">
-                    {(isBuilder || isEmployee) && !effectiveClient && <SelectItem value="all" className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">Agency View</SelectItem>}
-                    {[...accounts].sort((a, b) => a.name.localeCompare(b.name)).map((acc) => (
-                      <SelectItem key={acc.id} value={acc.id} className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">
-                        {acc.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              {effectiveClient && accounts.length === 1 && (
-                <p className="font-body text-[13px] font-medium text-charcoal px-2 truncate">{accounts[0].name}</p>
-              )}
-            </div>
-            <div className="space-y-1">
-              {flatNavItems.map((item) => (
-                <NavLink
-                  key={item.url}
-                  to={`${prefix}${item.url}`}
-                  end={item.url === "/"}
-                  className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent"
-                  activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
-                  onClick={onNavigate}
-                  onMouseEnter={() => prefetchRoute(item.url)}
-                  onFocus={() => prefetchRoute(item.url)}
-                >
-                  <item.icon className="h-4 w-4 flex-shrink-0" />
-                  {item.title}
-                </NavLink>
-              ))}
-            </div>
-          </>
-        ) : (
-          builderSections.map((section) => (
-            <SectionGroup
-              key={section.id}
-              section={section}
-              prefix={prefix}
-              collapsed={!!collapsed[section.id]}
-              onToggle={() => toggleSection(section.id)}
-              onNavigate={onNavigate}
-              showBuilderOnly={effectiveBuilder}
-            >
-              {/* Account switcher lives inside the Creative Analytics fold */}
-              {section.id === "creative-analytics" && (
-                <div className="px-1 pb-2 pt-0.5">
-                  {showSwitcher && accounts.length > 0 && (
-                    <Select value={selectedAccountId || ""} onValueChange={handleAccountChange}>
-                      <SelectTrigger className="w-full h-9 font-body text-[13px] font-medium text-charcoal border border-input bg-background rounded-md [&>svg]:text-sage">
-                        <SelectValue placeholder="Select account" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-white border border-border-light rounded-[8px] shadow-modal">
-                        {(isBuilder || isEmployee) && !effectiveClient && <SelectItem value="all" className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">Agency View</SelectItem>}
-                        {[...accounts].sort((a, b) => a.name.localeCompare(b.name)).map((acc) => (
-                          <SelectItem key={acc.id} value={acc.id} className="font-body text-[13px] font-normal text-charcoal py-2 px-4 focus:bg-cream-dark data-[state=checked]:bg-sage-light data-[state=checked]:text-forest data-[state=checked]:font-medium [&>span:first-child]:text-verdant">
-                            {acc.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  {effectiveClient && accounts.length === 1 && (
-                    <p className="font-body text-[13px] font-medium text-charcoal px-2 truncate">{accounts[0].name}</p>
-                  )}
-                </div>
-              )}
-            </SectionGroup>
-          ))
+      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-3" aria-label="Main">
+        {effectiveClient && (
+          <div className="space-y-1.5 pb-1">
+            {showAccountSelect && (
+              <Select value={selectedAccountId || ""} onValueChange={(v) => setSelectedAccountId(v)}>
+                <SelectTrigger className="w-full h-9 font-body text-[13px] font-medium text-charcoal border border-input bg-background rounded-md [&>svg]:text-sage">
+                  <SelectValue placeholder="Select account" />
+                </SelectTrigger>
+                <SelectContent className="bg-white border border-border-light rounded-[8px] shadow-modal">
+                  {[...accounts].sort((a, b) => a.name.localeCompare(b.name)).map((acc) => (
+                    <SelectItem key={acc.id} value={acc.id} className={SELECT_ITEM_CLASS}>
+                      {acc.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {accounts.length === 1 && (
+              <p className="font-body text-[13px] font-medium text-charcoal px-2 truncate">{accounts[0].name}</p>
+            )}
+          </div>
         )}
+        <div className="space-y-1">
+          {navItems.map((item) => (
+            <NavLink
+              key={item.url}
+              to={`${prefix}${item.url}`}
+              end={item.url === "/"}
+              className={item.url === "/" && !effectiveClient && onWork ? `${ITEM_CLASS} ${ACTIVE_CLASS}` : ITEM_CLASS}
+              activeClassName={ACTIVE_CLASS}
+              onClick={onNavigate}
+              onMouseEnter={() => prefetchRoute(item.url)}
+              onFocus={() => prefetchRoute(item.url)}
+            >
+              <item.icon className="h-4 w-4 flex-shrink-0" />
+              {item.title}
+            </NavLink>
+          ))}
+        </div>
       </nav>
 
       <div className="mx-3 border-t border-input" />
@@ -415,13 +224,13 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
           </button>
         </div>
       )}
-      {/* Settings + logout */}
+      {/* Settings and sign out */}
       <div className="px-3 pb-4 pt-1">
         <div className="flex items-center justify-between">
           <NavLink
             to={`${prefix}/settings`}
-            className="flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-[14px] font-medium text-slate transition-[background-color,color,border-color] duration-150 ease hover:text-forest hover:bg-accent flex-1"
-            activeClassName="!font-semibold !text-forest bg-sage-light border-l-[3px] border-verdant"
+            className={`${ITEM_CLASS} flex-1`}
+            activeClassName={ACTIVE_CLASS}
             onClick={onNavigate}
             onMouseEnter={() => prefetchRoute("/settings")}
             onFocus={() => prefetchRoute("/settings")}
@@ -435,6 +244,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
             className="h-7 w-7 p-0 rounded-md text-muted-foreground hover:text-foreground flex-shrink-0"
             onClick={signOut}
             title="Sign out"
+            aria-label="Sign out"
           >
             <LogOut className="h-3.5 w-3.5" />
           </Button>

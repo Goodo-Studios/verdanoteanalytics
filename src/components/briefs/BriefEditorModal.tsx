@@ -8,12 +8,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useUpdateBrief, type Brief } from "@/hooks/useBriefsApi";
-import { useAccounts } from "@/hooks/useAccountsApi";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
+import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { Copy, Save, Send, Plus, X } from "lucide-react";
-import { toast } from "sonner";
 import { CreativePickerModal, type VisualItem } from "./CreativePickerModal";
+import { PushToClickUpDialog } from "@/components/clickup/PushToClickUpDialog";
 
 const SECTION_DEFS = [
   { key: "angle_goal", label: "Angle / Goal", type: "textarea", placeholder: "The strategic angle and what this ad needs to achieve…" },
@@ -25,18 +24,22 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onCopyShareLink: (token: string) => void;
+  /** A brief that was just created: focus and select the name so typing replaces it. */
+  isNew?: boolean;
 }
 
-export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Props) {
+export function BriefEditorModal({ brief, open, onClose, onCopyShareLink, isNew = false }: Props) {
   const updateBrief = useUpdateBrief();
-  const { user } = useAuth();
-  const { data: accounts = [] } = useAccounts();
   const [name, setName] = useState("");
   const [content, setContent] = useState<Record<string, any>>({});
   const [refItems, setRefItems] = useState<VisualItem[]>([]);
   const [dirty, setDirty] = useState(false);
-  const [pushing, setPushing] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [clickUpOpen, setClickUpOpen] = useState(false);
+  const { isBuilder, isEmployee } = useAuth();
+  const { isClientPreview } = useClientPreview();
+  // Staff only, and hidden while a builder previews the client view.
+  const canPushToClickUp = (isBuilder || isEmployee) && !isClientPreview;
 
   useEffect(() => {
     if (brief) {
@@ -97,47 +100,19 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
     setDirty(false);
   };
 
+  // The brief as plain markdown for the ClickUp task description.
   const buildBriefMarkdown = () => {
-    const lines: string[] = [`# ${name || "Brief"}`, ""];
+    const lines: string[] = [];
     for (const section of SECTION_DEFS) {
       const value = (content[section.key] || "").toString().trim();
-      if (value) {
-        lines.push(`## ${section.label}`);
-        lines.push(value);
-        lines.push("");
-      }
+      if (value) lines.push(`## ${section.label}`, value, "");
     }
     if (refItems.length > 0) {
       lines.push("## Visual Inspiration");
-      for (const c of refItems) {
-        lines.push(`- ${c.unique_code || c.ad_name || c.ad_id}`);
-      }
+      for (const c of refItems) lines.push(`- ${c.unique_code || c.ad_name || c.ad_id}`);
       lines.push("");
     }
-    return lines.join("\n");
-  };
-
-  const pushToCoda = async () => {
-    if (dirty) await save();
-    const account = accounts.find((a: any) => a.id === brief.account_id);
-    setPushing(true);
-    try {
-      const { error } = await supabase.functions.invoke("create-coda-brief", {
-        body: {
-          account_id: brief.account_id,
-          account_name: account?.name || brief.account_id,
-          task_name: name,
-          brief_note: buildBriefMarkdown(),
-          user_id: user?.id,
-        },
-      });
-      if (error) throw error;
-      toast.success("Pushed to Coda");
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to push to Coda");
-    } finally {
-      setPushing(false);
-    }
+    return lines.join("\n").trim();
   };
 
   return (
@@ -153,6 +128,9 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
               onChange={(e) => { setName(e.target.value); setDirty(true); }}
               className="font-heading text-[18px] text-forest border-0 p-0 h-auto shadow-none focus-visible:ring-0"
               placeholder="Brief name…"
+              aria-label="Brief name"
+              autoFocus={isNew}
+              onFocus={isNew ? (e) => e.currentTarget.select() : undefined}
             />
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -162,9 +140,11 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
             <Button size="sm" variant="outline" className="gap-1 font-body text-[11px]" onClick={save} disabled={!dirty || updateBrief.isPending}>
               <Save className="h-3 w-3" /> Save
             </Button>
-            <Button size="sm" className="gap-1 bg-verdant hover:bg-verdant/90 text-white font-body text-[11px]" onClick={pushToCoda} disabled={pushing}>
-              <Send className="h-3 w-3" /> {pushing ? "Pushing…" : "Push to Coda"}
-            </Button>
+            {canPushToClickUp && (
+              <Button size="sm" className="gap-1 bg-verdant hover:bg-verdant/90 text-white font-body text-[11px]" onClick={() => setClickUpOpen(true)}>
+                <Send className="h-3 w-3" /> Push to ClickUp
+              </Button>
+            )}
           </div>
         </div>
 
@@ -229,6 +209,18 @@ export function BriefEditorModal({ brief, open, onClose, onCopyShareLink }: Prop
         selectedIds={new Set(refItems.map((i) => i.ad_id))}
         onToggle={toggleItem}
       />
+
+      {canPushToClickUp && (
+        <PushToClickUpDialog
+          open={clickUpOpen}
+          onOpenChange={setClickUpOpen}
+          heading="Push to ClickUp"
+          accountId={brief.account_id}
+          initialTitle={name}
+          initialBody={buildBriefMarkdown()}
+          beforePush={dirty ? save : undefined}
+        />
+      )}
     </Dialog>
   );
 }

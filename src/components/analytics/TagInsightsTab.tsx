@@ -312,11 +312,9 @@ export function TagInsightsTab({
                     )}>
                       {row.winRate.toFixed(1)}%
                     </TableCell>
-                    <TableCell className={cn(
-                      "font-data text-[17px] font-medium tabular-nums text-right",
-                      row.vsAvg > 0 ? "text-verdant" : row.vsAvg < 0 ? "text-red-700" : "text-charcoal"
-                    )}>
-                      {row.vsAvg > 0 ? "+" : ""}{row.vsAvg.toFixed(0)}%
+                    <TableCell data-testid="vs-avg" className="font-data text-[17px] font-medium tabular-nums text-right text-charcoal">
+                      {/* Change vs the average is neutral; the arrow carries the direction. */}
+                      {row.vsAvg > 0 ? "↑ " : row.vsAvg < 0 ? "↓ " : ""}{Math.abs(row.vsAvg).toFixed(0)}%
                     </TableCell>
                   </TableRow>
                 );

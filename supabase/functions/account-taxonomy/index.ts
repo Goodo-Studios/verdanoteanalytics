@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { isStaffUser } from "../_shared/account-access.ts";
 import {
   parseTaxonomyRequest,
   selectSeedFromRows,
@@ -64,6 +65,10 @@ serve(async (req) => {
   const token = authHeader.replace("Bearer ", "");
   const { data: { user }, error: authError } = await supabase.auth.getUser(token);
   if (authError || !user) return jsonResponse({ error: "Unauthorized", detail: authError?.message }, 401);
+
+  // Taxonomy config is a staff surface. A client linked to the account could
+  // otherwise create, rename or archive Themes/Personas through the service role.
+  if (!(await isStaffUser(supabase, user.id))) return jsonResponse({ error: "Forbidden" }, 403);
 
   let body: unknown;
   try {

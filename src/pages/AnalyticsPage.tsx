@@ -1,8 +1,6 @@
-import { PageHeader } from "@/components/PageHeader";
+import { EmptyState, LoadingState, PageHeader, PageShell } from "@/components/page-kit";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2 } from "lucide-react";
-import { MetricCardSkeletonRow } from "@/components/skeletons/MetricCardSkeleton";
-import { ChartSkeleton } from "@/components/skeletons/ChartSkeleton";
 
 import { CreativeDetailModal } from "@/components/CreativeDetailModal";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
@@ -30,27 +28,35 @@ const AnalyticsPage = () => {
     roasThreshold, spendThreshold, killScaleConfig,
   } = useAnalyticsPageState();
 
+  const header = (
+    <PageHeader
+      title="Analytics"
+      description="Win rate analysis, scale & kill recommendations, and iteration priorities."
+      className="mb-0"
+      actions={<DateRangeFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDateRange} />}
+    />
+  );
+
   if (isLoading) {
     return (
-      <>
-        <div className="space-y-6">
-          <div className="h-8 w-48 rounded-md bg-muted relative overflow-hidden"><div className="absolute inset-0 shimmer-slide" /></div>
-          <MetricCardSkeletonRow />
-          <ChartSkeleton />
-        </div>
-      </>
+      <PageShell wide>
+        {header}
+        <LoadingState label="Loading analytics" variant="rows" count={8} />
+      </PageShell>
     );
   }
 
   return (
-    <>
-      <PageHeader
-        title="Analytics"
-        description="Win rate analysis, scale & kill recommendations, and iteration priorities."
-        actions={
-          <DateRangeFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDateRange} />
-        }
-      />
+    <PageShell wide>
+      {header}
+      {creatives.length === 0 ? (
+        // The leaderboard reads its own data, so the tabs stay below this note.
+        <EmptyState
+          title="No creatives in this date range"
+          description="Most tabs need synced creatives with spend. Try a wider date range."
+          action={<Button size="sm" variant="outline" onClick={() => setDateRange(undefined, undefined)}>Show all time</Button>}
+        />
+      ) : null}
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="bg-transparent border-b border-border-light rounded-none p-0 h-auto gap-0 flex-wrap">
@@ -101,7 +107,7 @@ const AnalyticsPage = () => {
       </Tabs>
 
       <CreativeDetailModal creative={selectedCreative} open={!!selectedCreative} onClose={() => setSelectedCreative(null)} />
-    </>
+    </PageShell>
   );
 };
 

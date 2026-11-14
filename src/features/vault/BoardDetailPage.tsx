@@ -8,9 +8,9 @@ import {
   Loader2,
   AlertCircle,
 } from "lucide-react";
-import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import { toast } from "sonner";
-import { PageHeader } from "@/components/PageHeader";
+import { ConfirmTrigger, EmptyState, LoadingState, PageHeader, PageShell } from "@/components/page-kit";
+import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
@@ -133,9 +133,9 @@ export default function BoardDetailPage() {
   if (boardLoading || itemsLoading) {
     return (
       <>
-        <div className="min-h-[60vh] flex items-center justify-center">
-          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-        </div>
+        <PageShell wide>
+          <LoadingState label="Loading board" variant="cards" count={4} />
+        </PageShell>
       </>
     );
   }
@@ -143,23 +143,24 @@ export default function BoardDetailPage() {
   if (!board) {
     return (
       <>
-        <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3">
-          <AlertCircle className="w-8 h-8 text-destructive" />
-          <p className="text-muted-foreground">Board not found</p>
-          <Link
-            to={`${prefix}/ad-library/boards`}
-            className="text-primary text-sm hover:underline"
-          >
-            Back to boards
-          </Link>
-        </div>
+        <PageShell wide>
+          <EmptyState
+            icon={<AlertCircle className="w-8 h-8 text-destructive" />}
+            title="Board not found"
+            action={
+              <Link to={`${prefix}/ad-library/boards`} className="text-primary text-sm hover:underline">
+                Back to boards
+              </Link>
+            }
+          />
+        </PageShell>
       </>
     );
   }
 
   return (
     <>
-      <div className="p-6 max-w-7xl mx-auto">
+      <PageShell wide>
         <div className="mb-2">
           <Link
             to={`${prefix}/ad-library/boards`}
@@ -174,65 +175,29 @@ export default function BoardDetailPage() {
           title={board.name}
           description={board.description ?? undefined}
           actions={
-            <AlertDialog.Root>
-              <AlertDialog.Trigger asChild>
-                <button
-                  className="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-muted transition-colors"
-                  title="Delete board"
-                  aria-label="Delete board"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </AlertDialog.Trigger>
-              <AlertDialog.Portal>
-                <AlertDialog.Overlay className="fixed inset-0 bg-black/50 z-50 animate-in fade-in" />
-                <AlertDialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-sm bg-background rounded-xl shadow-2xl p-6 animate-in zoom-in-95 space-y-4">
-                  <AlertDialog.Title className="text-base font-semibold">
-                    Delete &ldquo;{board.name}&rdquo;?
-                  </AlertDialog.Title>
-                  <AlertDialog.Description className="text-sm text-muted-foreground">
-                    This removes the board and all its item links. The
-                    inspiration items themselves are not deleted.
-                  </AlertDialog.Description>
-                  <div className="flex justify-end gap-2">
-                    <AlertDialog.Cancel asChild>
-                      <button className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors">
-                        Cancel
-                      </button>
-                    </AlertDialog.Cancel>
-                    <AlertDialog.Action asChild>
-                      <button
-                        onClick={() => {
-                          setDeleting(true);
-                          deleteBoard.mutate();
-                        }}
-                        disabled={deleting}
-                        className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50 transition-colors"
-                      >
-                        {deleting && (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        )}
-                        Delete
-                      </button>
-                    </AlertDialog.Action>
-                  </div>
-                </AlertDialog.Content>
-              </AlertDialog.Portal>
-            </AlertDialog.Root>
+            <ConfirmTrigger
+              title={`Delete “${board.name}”?`}
+              description="This removes the board and all its item links. The inspiration items themselves are not deleted."
+              actionLabel="Delete"
+              onConfirm={() => {
+                setDeleting(true);
+                deleteBoard.mutate();
+              }}
+            >
+              <Button type="button" variant="ghost" size="icon" disabled={deleting} title="Delete board" aria-label="Delete board">
+                {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              </Button>
+            </ConfirmTrigger>
           }
         />
 
         {boardItems.length === 0 ? (
-          <div className="text-center py-20 space-y-3">
-            <LayoutGrid className="w-12 h-12 text-muted-foreground mx-auto" />
-            <p className="text-muted-foreground">No items in this board yet.</p>
-            <Link
+          <EmptyState icon={<LayoutGrid className="w-10 h-10" />} title="No items in this board yet." action={<Link
               to={`${prefix}/ad-library`}
               className="text-primary text-sm font-medium hover:underline"
             >
               Browse library to add items
-            </Link>
-          </div>
+            </Link>} />
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {boardItems.filter(bi => bi.inspiration_items != null).map((bi) => {
@@ -265,7 +230,7 @@ export default function BoardDetailPage() {
             })}
           </div>
         )}
-      </div>
+      </PageShell>
     </>
   );
 }

@@ -1,0 +1,313 @@
+#!/usr/bin/env node
+// Anonymous-access wall check for public links, against STAGING only.
+//
+//   hq secrets exec --company goodo-studios \
+//     --only STAGING_SUPABASE_URL,STAGING_SUPABASE_ANON_KEY,STAGING_SUPABASE_SERVICE_ROLE_KEY,STAGING_TEST_PASSWORD \
+//     -- node scripts/staging-public-link-wall-check.mjs
+//
+// Makes throwaway rows of its own (two made-up clients, a creator and an actor on each, links of
+// every state), then calls the public-link function and the tables the way a stranger would:
+//   - no token, a malformed token, an unknown token: 404 and nothing in the body;
+//   - a token of one link used for another link's person: refused, no vote written;
+//   - a creators token on the casting side and the reverse: 404;
+//   - revoked and expired: 410 and no board data;
+//   - a live token: only the allowed keys (no email, phone, address, storage path, token);
+//   - anonymous and a client login read no link, vote or registry table directly and cannot call
+//     the database functions;
+//   - a client login holding no token gets the same 404 as anyone else.
+// Every throwaway row is deleted at the end, also when a check fails. Nothing real is read.
+// Exit code 1 if anything fails. Refuses to run against production.
+import { createClient } from "@supabase/supabase-js";
+import { createHash, randomBytes } from "node:crypto";
+
+const PROD_REF = "gwyxaqoaldnaavkjqquv";
+const url = process.env.STAGING_SUPABASE_URL;
+const anon = process.env.STAGING_SUPABASE_ANON_KEY;
+const service = process.env.STAGING_SUPABASE_SERVICE_ROLE_KEY;
+const password = process.env.STAGING_TEST_PASSWORD;
+if (!url || !anon || !service || !password) {
+  console.error("Set STAGING_SUPABASE_URL, STAGING_SUPABASE_ANON_KEY, STAGING_SUPABASE_SERVICE_ROLE_KEY and STAGING_TEST_PASSWORD.");
+  process.exit(1);
+}
+if (url.includes(PROD_REF)) {
+  console.error("Refusing to run: that URL is the production project.");
+  process.exit(1);
+}
+
+let failed = 0;
+const check = (name, ok, detail = "") => {
+  console.log(`${ok ? "pass" : "FAIL"}  ${name}${detail ? "  " + detail : ""}`);
+  if (!ok) failed++;
+};
+
+const admin = createClient(url, service, { auth: { persistSession: false } });
+const anonClient = createClient(url, anon, { auth: { persistSession: false } });
+const token = () => randomBytes(36).toString("base64url");
+const uuid = () => crypto.randomUUID();
+
+const PREFIX = "wall-pl";
+const slugA = `${PREFIX}-a-${Date.now()}`;
+const slugB = `${PREFIX}-b-${Date.now()}`;
+const ids = { creators: [uuid(), uuid()], actors: [uuid(), uuid()], ca: [uuid(), uuid()], aa: [uuid(), uuid()] };
+const boards = {
+  creatorsA: { id: uuid(), token: token() },
+  creatorsB: { id: uuid(), token: token() },
+  actorsA: { id: uuid(), token: token() },
+  revoked: { id: uuid(), token: token() },
+  expired: { id: uuid(), token: token() },
+};
+const part2 = {
+  location: uuid(), locBoardLive: { id: uuid(), token: token() }, locBoardRevoked: { id: uuid(), token: token() },
+  shoot: uuid(), shootRevoked: uuid(), sheetLive: { id: uuid(), token: token() }, sheetRevoked: { id: uuid(), token: token() }, sheetOld: { id: uuid(), token: token() }, shootOld: uuid(),
+  crew: uuid(),
+};
+const future = new Date(Date.now() + 86400000).toISOString();
+const past = new Date(Date.now() - 86400000).toISOString();
+
+async function call(body, headers = {}) {
+  const res = await fetch(`${url}/functions/v1/public-link`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: anon, ...headers },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  return { status: res.status, text };
+}
+
+const applyDraftIds = [];
+const applyEmail = `wall-pl-apply-${Date.now()}@example.test`;
+async function applyCall(body) {
+  const res = await fetch(`${url}/functions/v1/public-apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: anon },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+  return { status: res.status, text: await res.text() };
+}
+
+async function cleanup() {
+  for (const id of applyDraftIds) {
+    await admin.from("application_videos").delete().eq("application_id", id);
+    await admin.from("creator_applications").delete().eq("id", id);
+    await admin.from("public_application_drafts").delete().eq("id", id);
+    for (const [bucket, kind] of [["creator-application-videos", "video"], ["creator-application-headshots", "headshot"]]) {
+      const list = await admin.storage.from(bucket).list(`applications/${id}/${kind}`);
+      const names = (list.data ?? []).map((o) => `applications/${id}/${kind}/${o.name}`);
+      if (names.length) await admin.storage.from(bucket).remove(names);
+    }
+  }
+  await admin.from("creator_applications").delete().eq("email", applyEmail);
+  const p2 = [part2.locBoardLive.id, part2.locBoardRevoked.id];
+  await admin.from("location_board_items").delete().in("board_id", p2);
+  await admin.from("location_boards").delete().in("id", p2);
+  await admin.from("call_sheet_crew").delete().in("call_sheet_id", [part2.sheetLive.id, part2.sheetRevoked.id, part2.sheetOld.id]);
+  await admin.from("call_sheets").delete().in("id", [part2.sheetLive.id, part2.sheetRevoked.id, part2.sheetOld.id]);
+  await admin.from("shoots").delete().in("id", [part2.shoot, part2.shootOld, part2.shootRevoked]);
+  await admin.from("crew_members").delete().eq("id", part2.crew);
+  await admin.from("locations").delete().eq("id", part2.location);
+  await admin.from("approval_votes").delete().in("board_id", Object.values(boards).map((b) => b.id));
+  await admin.from("actor_approval_votes").delete().in("board_id", Object.values(boards).map((b) => b.id));
+  await admin.from("approval_boards").delete().in("id", Object.values(boards).map((b) => b.id));
+  await admin.from("creator_assignments").delete().in("id", ids.ca);
+  await admin.from("actor_assignments").delete().in("id", ids.aa);
+  await admin.from("dashboard_creators").delete().in("id", ids.creators);
+  await admin.from("actors").delete().in("id", ids.actors);
+  await admin.from("clients").delete().in("slug", [slugA, slugB]);
+}
+
+try {
+  const must = async (label, p) => {
+    const r = await p;
+    if (r.error) throw new Error(`seed failed (${label}): ${r.error.message}`);
+  };
+  await must("clients", admin.from("clients").insert([
+    { slug: slugA, name: "Wall Test A", status: "active", origin: "manual" },
+    { slug: slugB, name: "Wall Test B", status: "active", origin: "manual" },
+  ]));
+  await must("creators", admin.from("dashboard_creators").insert([
+    { id: ids.creators[0], name: "Wall Creator A", email: "wall-a@example.test" },
+    { id: ids.creators[1], name: "Wall Creator B", email: "wall-b@example.test" },
+  ]));
+  await must("creator assignments", admin.from("creator_assignments").insert([
+    { id: ids.ca[0], creator_id: ids.creators[0], client_slug: slugA, stage: "shortlisted" },
+    { id: ids.ca[1], creator_id: ids.creators[1], client_slug: slugB, stage: "shortlisted" },
+  ]));
+  await must("actors", admin.from("actors").insert([
+    { id: ids.actors[0], name: "Wall Actor A", email: "wall-actor@example.test", phone: "555-0100" },
+    { id: ids.actors[1], name: "Wall Actor B", email: "wall-actor-b@example.test", phone: "555-0101" },
+  ]));
+  await must("actor assignments", admin.from("actor_assignments").insert([
+    { id: ids.aa[0], actor_id: ids.actors[0], client_slug: slugA, stage: "shortlisted" },
+    { id: ids.aa[1], actor_id: ids.actors[1], client_slug: slugB, stage: "shortlisted" },
+  ]));
+  await must("boards", admin.from("approval_boards").insert([
+    { id: boards.creatorsA.id, client_slug: slugA, board_type: "creators", token: boards.creatorsA.token, expires_at: future, revoked: false },
+    { id: boards.creatorsB.id, client_slug: slugB, board_type: "creators", token: boards.creatorsB.token, expires_at: future, revoked: false },
+    { id: boards.actorsA.id, client_slug: slugA, board_type: "actors", token: boards.actorsA.token, expires_at: future, revoked: false },
+    { id: boards.revoked.id, client_slug: slugA, board_type: "creators", token: boards.revoked.token, expires_at: future, revoked: true },
+    { id: boards.expired.id, client_slug: slugA, board_type: "creators", token: boards.expired.token, expires_at: past, revoked: false },
+  ]));
+
+  // Registry rows came from the trigger.
+  const reg = await admin.from("public_link_registry").select("link_id").in("link_id", Object.values(boards).map((b) => b.id));
+  check("every throwaway link has a registry row", (reg.data ?? []).length === 5, `rows=${reg.data?.length ?? "error"}`);
+
+  // No token, bad token, unknown token.
+  const none = await call({ type: "approval", action: "get" });
+  check("no token is 404 with no data", none.status === 404 && !none.text.includes("people"), `status=${none.status}`);
+  const bad = await call({ type: "approval", action: "get", token: "short" });
+  check("a malformed token is 404", bad.status === 404, `status=${bad.status}`);
+  const unknown = await call({ type: "casting", action: "get", token: token() });
+  check("an unknown token is 404 with no data", unknown.status === 404 && !unknown.text.includes("people"), `status=${unknown.status}`);
+
+  // A live token: allowed keys only.
+  const live = await call({ type: "approval", action: "get", token: boards.creatorsA.token });
+  check("a live creators token opens its board", live.status === 200 && live.text.includes("Wall Creator A"), `status=${live.status}`);
+  check("the board holds nobody from the other client", !live.text.includes("Wall Creator B"));
+  const leaks = ["email", "phone", "address", "storage_path", "video_path", "thumbnail_path", "headshot_path", "token", "wall-a@example.test"].filter((k) => live.text.includes(k));
+  check("the board carries no email, phone, address, storage path or token", leaks.length === 0, leaks.join(","));
+  const cast = await call({ type: "casting", action: "get", token: boards.actorsA.token });
+  const castLeaks = ["email", "phone", "555-0100", "wall-actor@example.test", "storage_path", "token"].filter((k) => cast.text.includes(k));
+  check("a live casting token opens its board with no contact details", cast.status === 200 && cast.text.includes("Wall Actor A") && castLeaks.length === 0, `status=${cast.status} leaks=${castLeaks.join(",")}`);
+
+  // Wrong link type.
+  check("a creators token on the casting side is 404", (await call({ type: "casting", action: "get", token: boards.creatorsA.token })).status === 404);
+  check("a casting token on the approval side is 404", (await call({ type: "approval", action: "get", token: boards.actorsA.token })).status === 404);
+
+  // Revoked and expired.
+  const rev = await call({ type: "approval", action: "get", token: boards.revoked.token });
+  check("a revoked link is 410 with no data", rev.status === 410 && !rev.text.includes("people"), `status=${rev.status}`);
+  const exp = await call({ type: "approval", action: "get", token: boards.expired.token });
+  check("an expired link is 410 with no data", exp.status === 410 && !exp.text.includes("people"), `status=${exp.status}`);
+  check("a revoked link takes no vote", (await call({ type: "approval", action: "vote", token: boards.revoked.token, assignment_id: ids.ca[0], vote: "up" })).status === 410);
+
+  // Votes: own person works, the other link's person does not.
+  const own = await call({ type: "approval", action: "vote", token: boards.creatorsA.token, assignment_id: ids.ca[0], vote: "up", voted_by: "Wall" });
+  check("a vote on the link's own creator is saved", own.status === 200, `status=${own.status}`);
+  const cross = await call({ type: "approval", action: "vote", token: boards.creatorsA.token, assignment_id: ids.ca[1], vote: "up" });
+  check("a vote on another link's creator is refused", cross.status === 400, `status=${cross.status}`);
+  const crossCast = await call({ type: "casting", action: "vote", token: boards.actorsA.token, assignment_id: ids.aa[1], vote: "up" });
+  check("a casting vote on another link's actor is refused", crossCast.status === 400, `status=${crossCast.status}`);
+  const written = await admin.from("approval_votes").select("assignment_id").in("board_id", Object.values(boards).map((b) => b.id));
+  check("exactly one vote exists and it is the own creator", (written.data ?? []).length === 1 && written.data[0].assignment_id === ids.ca[0], `rows=${written.data?.length ?? "error"}`);
+  const castWritten = await admin.from("actor_approval_votes").select("id").in("board_id", Object.values(boards).map((b) => b.id));
+  check("no casting vote was written", (castWritten.data ?? []).length === 0);
+
+
+  // Part 2: location boards and call sheets.
+  await must("location", admin.from("locations").insert({ id: part2.location, name: "Wall Loft", neighborhood: "Wall Hood", cost: 777, contact_email: "wall-host@example.test", notes: "wall internal note", rooms: [], attributes: [] }));
+  await must("location boards", admin.from("location_boards").insert([
+    { id: part2.locBoardLive.id, client_slug: slugA, label: "Wall board", token: part2.locBoardLive.token, revoked: false },
+    { id: part2.locBoardRevoked.id, client_slug: slugA, label: "Wall board revoked", token: part2.locBoardRevoked.token, revoked: true },
+  ]));
+  await must("location items", admin.from("location_board_items").insert({ board_id: part2.locBoardLive.id, location_id: part2.location }));
+  await must("shoots", admin.from("shoots").insert([
+    { id: part2.shoot, client_slug: slugA, shoot_date: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10), location: "Wall place" },
+    { id: part2.shootRevoked, client_slug: slugA, shoot_date: new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10), location: "Revoked place" },
+    { id: part2.shootOld, client_slug: slugA, shoot_date: new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10), location: "Old place" },
+  ]));
+  await must("crew", admin.from("crew_members").insert({ id: part2.crew, name: "Wall Crew", role: "DP", phone: "555-0199", email: "wall-crew@example.test", rate_notes: "wall secret rate" }));
+  await must("call sheets", admin.from("call_sheets").insert([
+    { id: part2.sheetLive.id, shoot_id: part2.shoot, token: part2.sheetLive.token, revoked: false },
+    { id: part2.sheetRevoked.id, shoot_id: part2.shootRevoked, token: part2.sheetRevoked.token, revoked: true },
+    { id: part2.sheetOld.id, shoot_id: part2.shootOld, token: part2.sheetOld.token, revoked: false },
+  ]));
+  await must("call sheet crew", admin.from("call_sheet_crew").insert({ call_sheet_id: part2.sheetLive.id, crew_member_id: part2.crew }));
+
+  const lb = await call({ type: "location", action: "get", token: part2.locBoardLive.token });
+  check("a live location token opens its board", lb.status === 200 && lb.text.includes("Wall Loft"), `status=${lb.status}`);
+  const lbLeaks = ["777", "wall-host@example.test", "wall internal note", "cost", "notes", "storage_path"].filter((k) => lb.text.includes(k));
+  check("the location board carries no cost, host contact or notes", lbLeaks.length === 0, lbLeaks.join(","));
+  check("a revoked location link is 410", (await call({ type: "location", action: "get", token: part2.locBoardRevoked.token })).status === 410);
+  check("an approval token on the location side is 404", (await call({ type: "location", action: "get", token: boards.creatorsA.token })).status === 404);
+  check("a location token on the approval side is 404", (await call({ type: "approval", action: "get", token: part2.locBoardLive.token })).status === 404);
+  check("a location token on the call sheet side is 404", (await call({ type: "call-sheet", action: "get", token: part2.locBoardLive.token })).status === 404);
+  const cs = await call({ type: "call-sheet", action: "get", token: part2.sheetLive.token });
+  check("a live call sheet token opens it with the crew", cs.status === 200 && cs.text.includes("Wall Crew"), `status=${cs.status}`);
+  check("the call sheet carries no crew rate notes", !cs.text.includes("wall secret rate") && !cs.text.includes("rate_notes"));
+  check("a revoked call sheet is 410", (await call({ type: "call-sheet", action: "get", token: part2.sheetRevoked.token })).status === 410);
+  check("a call sheet 45 days after its shoot is 410", (await call({ type: "call-sheet", action: "get", token: part2.sheetOld.token })).status === 410);
+  check("location and call sheet take no votes", (await call({ type: "call-sheet", action: "vote", token: part2.sheetLive.token, assignment_id: ids.ca[0], vote: "up" })).status === 400);
+  check("an unknown token on the call sheet side is 404", (await call({ type: "call-sheet", action: "get", token: token() })).status === 404);
+
+
+  // Part 3: application forms.
+  check("upload_url with no draft is 404", (await applyCall({ kind: "creator", action: "upload_url", draft_id: uuid(), file_kind: "video", size: 10, mime: "video/mp4" })).status === 404);
+  check("submit with a draft that was never started is 404", (await applyCall({ kind: "creator", action: "submit", draft_id: uuid(), payload: { name: "x", email: applyEmail, videos: [] } })).status === 404);
+  check("an unknown form kind is 400", (await applyCall({ kind: "nope", action: "begin" })).status === 400);
+  check("an oversized form body is 413", (await applyCall({ kind: "creator", action: "begin", pad: "x".repeat(40000) })).status === 413);
+  const began = await applyCall({ kind: "creator", action: "begin" });
+  const draftId = JSON.parse(began.text).draft_id;
+  if (draftId) applyDraftIds.push(draftId);
+  check("begin returns a draft id", began.status === 200 && /^[0-9a-f-]{36}$/.test(draftId ?? ""), `status=${began.status}`);
+  check("a pdf is refused as a video", (await applyCall({ kind: "creator", action: "upload_url", draft_id: draftId, file_kind: "video", size: 10, mime: "application/pdf" })).status === 400);
+  check("a 300 MB video is refused", (await applyCall({ kind: "creator", action: "upload_url", draft_id: draftId, file_kind: "video", size: 300 * 1024 * 1024, mime: "video/mp4" })).status === 413);
+  check("a creator draft cannot be used on the actor form", (await applyCall({ kind: "actor", action: "upload_url", draft_id: draftId, file_kind: "video", size: 10, mime: "video/mp4" })).status === 404);
+  const bait = await applyCall({ kind: "creator", action: "submit", draft_id: draftId, company_website: "http://spam.example", payload: { name: "Wall Bot", email: applyEmail, videos: [] } });
+  check("a filled hidden field gets a thank you and writes nothing", bait.status === 200 && ((await admin.from("creator_applications").select("id").eq("email", applyEmail)).data ?? []).length === 0);
+  const stray = await applyCall({ kind: "creator", action: "submit", draft_id: draftId, payload: { name: "Wall", email: applyEmail, headshot_path: `applications/${uuid()}/headshot/a.jpg`, videos: [] } });
+  check("a file path in another application's folder is refused", stray.status === 400, `status=${stray.status}`);
+
+  // The real path: three tiny videos on signed addresses, then the submit, once.
+  const paths = [];
+  for (let i = 0; i < 3; i++) {
+    const t = await applyCall({ kind: "creator", action: "upload_url", draft_id: draftId, file_kind: "video", size: 8, mime: "video/mp4" });
+    const j = JSON.parse(t.text);
+    check(`upload address ${i + 1} is inside this application's folder`, t.status === 200 && j.path?.startsWith(`applications/${draftId}/video/`), `status=${t.status}`);
+    const up = await anonClient.storage.from(j.bucket).uploadToSignedUrl(j.path, j.token, new Blob([Buffer.from("00000000")], { type: "video/mp4" }), { contentType: "video/mp4" });
+    check(`video ${i + 1} uploads to its signed address`, !up.error, up.error?.message ?? "");
+    paths.push(j.path);
+  }
+  const outside = await anonClient.storage.from("creator-application-videos").upload(`applications/${draftId}/video/direct.mp4`, new Blob(["00000000"], { type: "video/mp4" }), { contentType: "video/mp4" });
+  check("anonymous cannot upload straight into the bucket without an address", !!outside.error, outside.error?.message ?? "accepted");
+  await new Promise((r) => setTimeout(r, 3500));
+  const good = await applyCall({ kind: "creator", action: "submit", draft_id: draftId, payload: { name: "Wall Applicant", email: applyEmail, videos: paths.map((storage_path) => ({ storage_path })) } });
+  check("a good application is accepted", good.status === 200, `status=${good.status} ${good.text.slice(0, 80)}`);
+  const row = await admin.from("creator_applications").select("status, name").eq("id", draftId);
+  check("it is stored as pending", row.data?.[0]?.status === "pending", `rows=${row.data?.length ?? "error"}`);
+  const vids = await admin.from("application_videos").select("id").eq("application_id", draftId);
+  check("its three videos are stored", (vids.data ?? []).length === 3);
+  check("the same draft cannot submit twice", (await applyCall({ kind: "creator", action: "submit", draft_id: draftId, payload: { name: "Wall Applicant", email: applyEmail, videos: paths.map((storage_path) => ({ storage_path })) } })).status === 410);
+
+  // Too big.
+  const big = await call({ type: "approval", action: "vote", token: boards.creatorsA.token, assignment_id: ids.ca[0], vote: "up", voted_by: "x".repeat(20000) });
+  check("an oversized body is 413", big.status === 413, `status=${big.status}`);
+
+  // Direct table and function access by anon and by a client login.
+  const clientSession = await anonClient.auth.signInWithPassword({ email: "client-a@staging.verdanote.test", password });
+  if (clientSession.error) throw new Error(`client sign-in failed: ${clientSession.error.message}`);
+  const clientHeaders = { Authorization: `Bearer ${clientSession.data.session.access_token}` };
+  const asClient = await call({ type: "approval", action: "get" }, clientHeaders);
+  check("a client login with no token gets the same 404", asClient.status === 404, `status=${asClient.status}`);
+  const asClientWrong = await call({ type: "approval", action: "get", token: token() }, clientHeaders);
+  check("a client login with a wrong token gets nothing", asClientWrong.status === 404 && !asClientWrong.text.includes("people"));
+
+  const clientDb = createClient(url, anon, { auth: { persistSession: false }, global: { headers: clientHeaders } });
+  for (const [label, c] of [["anonymous", anonClient], ["a client login", clientDb]]) {
+    for (const table of ["approval_boards", "approval_votes", "actor_approval_votes", "creator_assignments", "actor_assignments", "public_link_registry", "public_link_rate_limits", "location_boards", "location_board_items", "call_sheets", "call_sheet_crew", "public_application_drafts", "creator_applications", "actor_applications", "application_videos", "actor_application_videos"]) {
+      const all = await c.from(table).select("*").limit(5);
+      check(`${label} reads no ${table} rows`, !!all.error || (all.data ?? []).length === 0, `rows=${all.data?.length ?? "error"}`);
+    }
+    const ins = await c.from("approval_votes").insert({ board_id: boards.creatorsA.id, assignment_id: ids.ca[1], vote: "up" });
+    check(`${label} cannot write a vote straight into the table`, !!ins.error, `error=${ins.error?.message ?? "none (accepted)"}`);
+    const h = createHash("sha256").update(boards.creatorsA.token).digest("hex");
+    const fn = await c.rpc("public_board_get", { p_token_hash: h, p_board_type: "creators", p_count_open: false });
+    check(`${label} cannot call public_board_get, even with the right hash`, fn.error?.code === "42501", `code=${fn.error?.code ?? "none"}`);
+    const fa = await c.rpc("public_application_begin", { p_kind: "creator", p_ip_hash: "wall" });
+    check(`${label} cannot start an application draft through the database`, fa.error?.code === "42501", `code=${fa.error?.code ?? "none"}`);
+    const fv = await c.rpc("public_board_vote", { p_token_hash: h, p_board_type: "creators", p_assignment_id: ids.ca[0], p_vote: "down", p_voted_by: null });
+    check(`${label} cannot call public_board_vote`, fv.error?.code === "42501", `code=${fv.error?.code ?? "none"}`);
+  }
+  const still = await admin.from("approval_votes").select("vote").eq("assignment_id", ids.ca[0]);
+  check("the own creator's vote is untouched by those attempts", still.data?.[0]?.vote === "up");
+} catch (e) {
+  console.error(`FAIL  run aborted: ${e.message}`);
+  failed++;
+} finally {
+  await cleanup();
+  const left = await admin.from("clients").select("slug").in("slug", [slugA, slugB]);
+  check("throwaway rows are deleted", (left.data ?? []).length === 0);
+}
+
+console.log(failed ? `\n${failed} check(s) failed` : "\nAll public link wall checks passed");
+process.exit(failed ? 1 : 0);

@@ -221,6 +221,7 @@ Deno.test("mint reuses an existing token (idempotent, no update)", async () => {
   const { client, captured } = makeClient({
     user: { id: "u1" },
     item: { share_token: "existing12345", saved_by: "u1" },
+    role: "employee",
   });
   const res = await mod.handler(post({ action: "mint", item_id: "it1" }, AUTH), client);
   assertEquals(res.status, 200);
@@ -232,6 +233,7 @@ Deno.test("mint generates + persists a new token when none exists", async () => 
   const { client, captured } = makeClient({
     user: { id: "u1" },
     item: { share_token: null, saved_by: "u1" },
+    role: "employee",
   });
   const res = await mod.handler(post({ action: "mint", item_id: "it1" }, AUTH), client);
   assertEquals(res.status, 200);
@@ -244,7 +246,7 @@ Deno.test("mint generates + persists a new token when none exists", async () => 
 });
 
 Deno.test("mint 404s a missing item", async () => {
-  const { client } = makeClient({ user: { id: "u1" }, item: null });
+  const { client } = makeClient({ user: { id: "u1" }, item: null, role: "employee" });
   const res = await mod.handler(post({ action: "mint", item_id: "gone" }, AUTH), client);
   assertEquals(res.status, 404);
 });
@@ -279,7 +281,7 @@ Deno.test("revoke 401s without a user", async () => {
 });
 
 Deno.test("revoke nulls share_token + shared_at when the owner is authed", async () => {
-  const { client, captured } = makeClient({ user: { id: "u1" }, item: { saved_by: "u1" } });
+  const { client, captured } = makeClient({ user: { id: "u1" }, item: { saved_by: "u1" }, role: "employee" });
   const res = await mod.handler(post({ action: "revoke", item_id: "it1" }, AUTH), client);
   assertEquals(res.status, 200);
   assertEquals((await res.json()).ok, true);
@@ -292,6 +294,30 @@ Deno.test("revoke 403s when the caller does not own the item (non-staff)", async
   const { client, captured } = makeClient({
     user: { id: "u1" },
     item: { saved_by: "someone-else" },
+    role: "client",
+  });
+  const res = await mod.handler(post({ action: "revoke", item_id: "it1" }, AUTH), client);
+  assertEquals(res.status, 403);
+  assertEquals(captured.updates.length, 0);
+});
+
+// ---- clients never mint or revoke -----------------------------------------
+
+Deno.test("mint 403s a client even when they saved the item", async () => {
+  const { client, captured } = makeClient({
+    user: { id: "u1" },
+    item: { share_token: null, saved_by: "u1" },
+    role: "client",
+  });
+  const res = await mod.handler(post({ action: "mint", item_id: "it1" }, AUTH), client);
+  assertEquals(res.status, 403);
+  assertEquals(captured.updates.length, 0);
+});
+
+Deno.test("revoke 403s a client even when they saved the item", async () => {
+  const { client, captured } = makeClient({
+    user: { id: "u1" },
+    item: { saved_by: "u1" },
     role: "client",
   });
   const res = await mod.handler(post({ action: "revoke", item_id: "it1" }, AUTH), client);

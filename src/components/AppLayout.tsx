@@ -1,9 +1,17 @@
 import { ReactNode, useState } from "react";
+import { useLocation } from "react-router-dom";
+import { showsClientPicker } from "@/lib/sections";
 import { AppSidebar } from "@/components/AppSidebar";
 import { PresenceAvatars } from "@/components/PresenceAvatars";
+import { ClientSwitcher } from "@/components/ClientSwitcher";
+import { CommandPaletteHost } from "@/components/CommandPaletteHost";
+import { ClientSelectionProvider } from "@/contexts/ClientSelectionProvider";
+import { useAuth } from "@/contexts/AuthContext";
+import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
-import verdanoteLogo from "@/assets/verdanote_logo.png";
+import { GoodoOsMark } from "@/components/GoodoOsMark";
+import { TimerPill } from "@/components/TimerPill";
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -11,9 +19,16 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { isClient } = useAuth();
+  const { isClientPreview } = useClientPreview();
+  const { pathname } = useLocation();
+  // Staff pick a client in one switcher at the top, only on pages that filter by client
+  // (OS-004: client pages, Creative, and tabs marked usesClient). A client login has none.
+  const showSwitcher = !isClient && !isClientPreview && showsClientPicker(pathname);
 
   return (
-    <div className="flex min-h-screen w-full bg-background">
+    <ClientSelectionProvider>
+    <div className="flex min-h-screen w-full">{/* transparent so the page grid shows (OS-005) */}
       {/* Mobile overlay */}
       {mobileOpen && (
         <div
@@ -35,28 +50,37 @@ export function AppLayout({ children }: AppLayoutProps) {
       {/* Main content */}
       <main id="app-scroll-container" className="flex-1 overflow-auto min-w-0 md:ml-56">
         {/* Header bar */}
-        <div className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 border-b border-border/60 bg-background">
+        <div className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 border-b border-border bg-sidebar">
           <div className="flex items-center gap-3 md:hidden">
             <Button
               variant="ghost"
               size="sm"
               className="h-8 w-8 p-0"
               onClick={() => setMobileOpen(true)}
+              aria-label="Open menu"
+              aria-expanded={mobileOpen}
             >
-              <Menu className="h-5 w-5" />
+              <Menu className="h-5 w-5" aria-hidden="true" />
             </Button>
-            <img src={verdanoteLogo} alt="Verdanote" className="h-5" />
+            <GoodoOsMark size="sm" />
           </div>
-          {/* Spacer for desktop */}
-          <div className="hidden md:block" />
-          <div className="flex items-center gap-2">
+          {/* Client switcher (staff) */}
+          <div className="min-w-0 flex-1 px-2">{showSwitcher ? <ClientSwitcher /> : null}</div>
+          <div className="flex min-w-0 items-center gap-2">
+            {/* OS-012: the running timer, staff only (the pill checks the role itself). */}
+            <TimerPill />
+            <CommandPaletteHost />
             <PresenceAvatars />
           </div>
         </div>
-        <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
-          {children}
+        <div className="p-3 md:p-5 max-w-[1400px] mx-auto">
+          {/* Readability pass: every page sits on one solid sheet; the grid shows only around it. */}
+          <div data-testid="app-sheet" className="min-h-[calc(100vh-6rem)] rounded-panel border border-border bg-card p-4 shadow-card md:p-8">
+            {children}
+          </div>
         </div>
       </main>
     </div>
+    </ClientSelectionProvider>
   );
 }

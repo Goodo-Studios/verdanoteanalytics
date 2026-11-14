@@ -34,6 +34,11 @@ jobs:
       - name: Test
         run: npm run test
 
+      # scripts/*.test.mjs (seed data, staging checks, copy scripts) are plain node:test files that
+      # vitest does not collect. They ran only on a developer's machine until this step existed.
+      - name: Script tests
+        run: npm run test:scripts
+
   # The supabase/functions/**/*.test.ts suites are Deno, and vitest only collects
   # src/** (see vitest.config.ts `include`) — so until this job existed, 37 test
   # files never ran anywhere, including the edge-function auth/tenant regression
@@ -50,8 +55,15 @@ jobs:
         with:
           deno-version: v2.x
 
+      # --vendor reads esm.sh and deno.land modules from the checked-in vendor/
+      # directory. esm.sh served two different builds of the same exact-version
+      # URL from different CDN edges (tslib@2.8.1, 2026-11-10), which failed the
+      # lock check at random. src/test/denoVendor.test.ts checks every vendored
+      # file against deno.lock. --frozen fails the run if the lock would change.
+      # To add or upgrade a remote import, run the same command locally without
+      # --frozen and commit deno.lock and vendor/ together.
       - name: Test edge functions
-        run: deno test --allow-all --no-check supabase/functions/
+        run: deno test --vendor --frozen --allow-all --no-check supabase/functions/
 
   database-test:
     name: Database migrations & pgTAP
@@ -61,9 +73,8 @@ jobs:
       - uses: actions/checkout@v4
 
       # Pinned: "latest" pulled in new major CLI versions that broke the staging
-      # deploy twice on 2026-11-09 and the production deploy on 2026-11-11.
-      # Keep every job on the same version and bump it on purpose
-      # (src/test/ciWorkflow.test.ts enforces this).
+      # deploy twice on 2026-11-09. Keep every job on the same version and bump
+      # it on purpose (src/test/ciWorkflow.test.ts enforces this).
       - uses: supabase/setup-cli@v1
         with:
           version: 3.1.0
@@ -211,9 +222,8 @@ jobs:
           exit 0
 
       # Pinned: "latest" pulled in new major CLI versions that broke the staging
-      # deploy twice on 2026-11-09 and the production deploy on 2026-11-11.
-      # Keep every job on the same version and bump it on purpose
-      # (src/test/ciWorkflow.test.ts enforces this).
+      # deploy twice on 2026-11-09. Keep every job on the same version and bump
+      # it on purpose (src/test/ciWorkflow.test.ts enforces this).
       - uses: supabase/setup-cli@v1
         with:
           version: 3.1.0
@@ -249,9 +259,8 @@ jobs:
       - uses: actions/checkout@v4
 
       # Pinned: "latest" pulled in new major CLI versions that broke the staging
-      # deploy twice on 2026-11-09 and the production deploy on 2026-11-11.
-      # Keep every job on the same version and bump it on purpose
-      # (src/test/ciWorkflow.test.ts enforces this).
+      # deploy twice on 2026-11-09. Keep every job on the same version and bump
+      # it on purpose (src/test/ciWorkflow.test.ts enforces this).
       - uses: supabase/setup-cli@v1
         with:
           version: 3.1.0
@@ -276,7 +285,7 @@ jobs:
         run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
 
       - name: Apply database migrations
-        run: supabase db push --include-all --yes
+        run: supabase db push --linked --include-all --yes
 
       # Migrations schedule cron jobs and hard-code the production function URL.
       # This step removes every cron job and rewrites production URLs to the
@@ -284,10 +293,78 @@ jobs:
       - name: Lock down staging (cron off, no production URLs)
         run: |
           sed "s/__STAGING_REF__/$SUPABASE_PROJECT_ID/g" scripts/staging-lockdown.sql > /tmp/staging-lockdown.sql
-          supabase db query --linked -f /tmp/staging-lockdown.sql
+          supabase db query --linked --yes -f /tmp/staging-lockdown.sql
 
       - name: Deploy all edge functions
         run: bash scripts/deploy-functions.sh
 
       - name: Smoke test deployed edge functions
         run: bash scripts/smoke-test.sh
+
+  # Browser tests against the DEPLOYED staging site, after the staging deploy (policy: E2E after
+  # deploy, not before). The production E2E job above never runs for staging because its secrets
+  # point at production; this job reads STAGING_* secrets only. It signs in to staging.verdanote.com
+  # as the seeded builder, employee and client test logins (docs/staging.md).
+  #
+  # The staging PAGES are shipped by hand (`vercel deploy --prod` from a staging checkout), not by
+  # this workflow, so these tests exercise whatever pages are live when the job runs. When the
+  # pages are older than the branch, ship them and re-run the job.
+  #
+  # Needs two repository secrets that someone with access to the repository settings must add:
+  # STAGING_TEST_PASSWORD (vault: STAGING_TEST_PASSWORD) and STAGING_GATE_PASSWORD (vault:
+  # STAGING_GATE_PASSWORD). Without either, the job passes with a warning that names what is
+  # missing and runs nothing.
+  e2e-staging:
+    name: E2E tests on STAGING (Playwright)
+    runs-on: ubuntu-24.04
+    needs: [deploy-staging]
+    if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
+
+    env:
+      STAGING_TEST_PASSWORD: ${{ secrets.STAGING_TEST_PASSWORD }}
+      STAGING_GATE_PASSWORD: ${{ secrets.STAGING_GATE_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check staging E2E configuration
+        id: cfg
+        run: |
+          missing=""
+          [ -z "$STAGING_TEST_PASSWORD" ] && missing="$missing STAGING_TEST_PASSWORD"
+          [ -z "$STAGING_GATE_PASSWORD" ] && missing="$missing STAGING_GATE_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Staging browser tests skipped::Add the repository secret(s)$missing to run the staging browser tests (see docs/staging.md, Browser tests on staging)."
+            echo "Staging browser tests skipped. Missing repository secret(s):$missing"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.cfg.outputs.configured == 'true'
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.cfg.outputs.configured == 'true'
+        run: npm ci
+
+      - name: Install Playwright browsers
+        if: steps.cfg.outputs.configured == 'true'
+        run: npx playwright install chromium --with-deps
+
+      - name: Run staging browser tests
+        if: steps.cfg.outputs.configured == 'true'
+        run: npm run test:e2e:staging
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-staging-artifacts
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

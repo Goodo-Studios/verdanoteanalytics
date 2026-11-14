@@ -36,6 +36,11 @@ const STAFF_EMAIL = process.env.PLAYWRIGHT_TEST_EMAIL || "";
 const STAFF_PASSWORD = process.env.PLAYWRIGHT_TEST_PASSWORD || "";
 const hasStaffCreds = !!STAFF_EMAIL && !!STAFF_PASSWORD;
 
+export const EMPLOYEE_STORAGE = "e2e/.auth/employee.json";
+const EMPLOYEE_EMAIL = process.env.PLAYWRIGHT_EMPLOYEE_EMAIL || "";
+const EMPLOYEE_PASSWORD = process.env.PLAYWRIGHT_EMPLOYEE_PASSWORD || "";
+const hasEmployeeCreds = !!EMPLOYEE_EMAIL && !!EMPLOYEE_PASSWORD;
+
 /**
  * Sign in via the /login form and wait for the post-login role redirect.
  * Internal 2-attempt retry with a generous 30s wait absorbs the one-time
@@ -66,6 +71,13 @@ setup("authenticate client", async ({ page }) => {
   fs.mkdirSync(AUTH_DIR, { recursive: true });
   await signIn(page, CLIENT_EMAIL, CLIENT_PASSWORD);
   await page.context().storageState({ path: CLIENT_STORAGE });
+});
+
+setup("authenticate employee", async ({ page }) => {
+  setup.skip(!hasEmployeeCreds, "Set PLAYWRIGHT_EMPLOYEE_EMAIL and PLAYWRIGHT_EMPLOYEE_PASSWORD to run");
+  fs.mkdirSync(AUTH_DIR, { recursive: true });
+  await signIn(page, EMPLOYEE_EMAIL, EMPLOYEE_PASSWORD);
+  await page.context().storageState({ path: EMPLOYEE_STORAGE });
 });
 
 setup("authenticate staff", async ({ page }) => {

@@ -103,13 +103,22 @@ verify_jwt = false
 [functions.scheduled-sync]
 verify_jwt = false
 
-[functions.create-coda-brief]
+# ClickUp -> pipeline_tasks. Service-role only; gated inside the function.
+[functions.sync-clickup-tasks]
 verify_jwt = false
 
-[functions.sync-coda-tasks]
+# OS-007: ClickUp -> os_tasks, full or nightly walk. Service-role only; gated inside the function.
+[functions.clickup-os-sync]
 verify_jwt = false
 
-[functions.sync-coda-names]
+# OS-007: ClickUp posts task events here with no JWT. The function checks the
+# X-Signature HMAC against CLICKUP_WEBHOOK_SECRET and answers 401 otherwise.
+[functions.clickup-webhook]
+verify_jwt = false
+
+# OS-017: app -> ClickUp write-back worker, every minute from pg_cron. Service-role only; gated
+# inside the function. Inert unless CLICKUP_WRITEBACK_ENABLED and CLICKUP_WRITEBACK_LIST_IDS are set.
+[functions.clickup-writeback]
 verify_jwt = false
 
 # US-005: one-time backfill re-tag of historical creatives. Invoked manually
@@ -133,6 +142,11 @@ verify_jwt = false
 # the HQ review-mining flow with the service-role bearer (+ INGEST_SECRET) —
 # no end-user JWT, and a shared-secret guard on top of the gateway bearer.
 [functions.ingest-reviews]
+verify_jwt = false
+
+# P9: client progress feed from the HQ processes. Bearer ingest token (hashed in ingest_tokens),
+# no end-user JWT.
+[functions.ingest-client-progress]
 verify_jwt = false
 
 # Phase C US-005: service-role persister that writes an HQ-synthesized brief
@@ -315,6 +329,14 @@ verify_jwt = true
 [functions.client-insights]
 verify_jwt = true
 
+# OS-026: ask the Brain. Staff only; validates the user JWT and roles internally via resolveCaller.
+[functions.brain-ask]
+verify_jwt = true
+
+# Phase 5b: a client approves a card or asks for changes. Validates the user JWT internally via auth.getUser().
+[functions.client-decision]
+verify_jwt = true
+
 # US-010: queue-backed, self-chaining video download worker. Poked by pg_cron and
 # by its own self-chain via the service-role key (no user JWT), so JWT verification
 # is off — mirrors backfill-daily-history / cleanup-stuck-media. It only drains
@@ -374,4 +396,35 @@ verify_jwt = true
 # JWT, so platform verification would reject legitimate callers (same as
 # [functions.api]).
 [functions.webhooks-dispatch]
+verify_jwt = false
+
+# Fireflies transcript reader for staff (Goodo OS connector). Read-only; gated inside the function.
+[functions.fireflies-transcript]
+verify_jwt = false
+
+# Slack reminders and owner alerts (Goodo OS connector). Service-role only; gated inside the function.
+[functions.run-slack-jobs]
+verify_jwt = false
+
+# ClickUp folder picker for the client Setup tab. Builder only; gated inside the function.
+[functions.clickup-folders]
+verify_jwt = false
+
+# Invite by email (builder only; gated inside the function). Uses Supabase Auth's own invite.
+[functions.invite-user]
+verify_jwt = false
+
+[functions.client-invite]
+verify_jwt = false
+
+# Public links (approval boards, casting; location boards, call sheets and application forms
+# follow). Serves people with no login by design: the secret token in the link is the only
+# credential, it is hashed and looked up in public_link_registry, and every call is rate limited.
+[functions.public-link]
+verify_jwt = false
+
+# Public application forms (creator and actor). Open to anyone by design: a draft id, limits per
+# address, a hidden field and signed upload addresses inside one application's folder stand in for
+# a token. Writes only the application tables, through service-only database functions.
+[functions.public-apply]
 verify_jwt = false

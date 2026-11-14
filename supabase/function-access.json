@@ -1,0 +1,385 @@
+{
+  "_comment": "Access class of every edge function in supabase/functions. A new function must be added here; src/test/functionAccessManifest.test.ts and scripts/staging-client-wall-functions.mjs both read this file. staff = refuses client accounts (JWT plus staff role). service = only the service-role key. secret = shared secret, signature or API key. account-scoped = clients may call it, limited to accounts linked to them. public = no login by design.",
+  "functions": {
+    "account-taxonomy": {
+      "class": "staff"
+    },
+    "accounts": {
+      "class": "account-scoped",
+      "note": "Clients get only the client-safe columns in _shared/client-account-fields.ts; staff get full rows."
+    },
+    "ad-preview": {
+      "class": "account-scoped"
+    },
+    "ai-chat": {
+      "class": "account-scoped",
+      "rls": true,
+      "note": "Reads through the caller's own session, so row rules limit it to the client's accounts."
+    },
+    "analyze-creative": {
+      "class": "service"
+    },
+    "api": {
+      "class": "secret"
+    },
+    "apify-debug": {
+      "class": "staff",
+      "minRole": "builder"
+    },
+    "backfill-ai-tags": {
+      "class": "service"
+    },
+    "backfill-daily-history": {
+      "class": "service"
+    },
+    "backfill-destination-key": {
+      "class": "service"
+    },
+    "backfill-launch-dates": {
+      "class": "service"
+    },
+    "backfill-play-curves": {
+      "class": "service"
+    },
+    "backfill-post-urls": {
+      "class": "service"
+    },
+    "backfill-retag": {
+      "class": "service"
+    },
+    "backfill-thumbnail-storage-path": {
+      "class": "service"
+    },
+    "cache-creative-image": {
+      "class": "account-scoped"
+    },
+    "cleanup-stuck-media": {
+      "class": "service"
+    },
+    "cleanup-stuck-syncs": {
+      "class": "service"
+    },
+    "clear-media-cache": {
+      "class": "staff",
+      "minRole": "builder"
+    },
+    "clickup-os-sync": {
+      "class": "service",
+      "note": "OS-007: ClickUp -> os_tasks full or nightly walk. GET only against ClickUp."
+    },
+    "clickup-writeback": {
+      "class": "service",
+      "note": "OS-017: writes queued app changes to ClickUp. Off unless CLICKUP_WRITEBACK_ENABLED=true and the task's list is in CLICKUP_WRITEBACK_LIST_IDS; otherwise rows are held and ClickUp is not called."
+    },
+    "clickup-webhook": {
+      "class": "secret",
+      "note": "OS-007: ClickUp task events, no JWT. HMAC X-Signature checked against CLICKUP_WEBHOOK_SECRET; 401 otherwise. GET only against ClickUp."
+    },
+    "clickup-folders": {
+      "class": "staff",
+      "minRole": "builder",
+      "note": "Client Setup tab folder picker. Builder only, read-only: one GET for the client space, ids and names back. Answers 503 with no request when CLICKUP_API_TOKEN is not set (staging has none).",
+      "probe": {
+        "method": "GET"
+      }
+    },
+    "client-insights": {
+      "class": "account-scoped",
+      "rls": true,
+      "note": "Reads through the caller's own session, so row rules limit it to the client's accounts."
+    },
+    "client-decision": {
+      "class": "account-scoped",
+      "note": "A client approves a card or asks for changes. Client logins only (staff get 403). Reads the caller's own clients with the caller's token, then records through record_client_decision (service role), which accepts only a card of those clients.",
+      "probe": {
+        "body": {
+          "taskId": "wall-probe",
+          "decision": "approved"
+        }
+      }
+    },
+    "client-invite": {
+      "class": "staff",
+      "minRole": "builder",
+      "note": "Client invites (OS-021). Builder only. Sends an approved batch of client invites (Supabase Auth invite or magic link). Refuses an unapproved email text or batch and any excluded or ending client. Dry run unless CLIENT_INVITES_SEND_ENABLED=true; CLIENT_INVITES_ALLOWED_DOMAINS limits who is sent. Never touches ClickUp."
+    },
+    "cluster-creatives": {
+      "class": "service"
+    },
+    "competitor-ads": {
+      "class": "staff"
+    },
+    "creative-embed": {
+      "class": "service"
+    },
+    "creative-library": {
+      "class": "staff"
+    },
+    "creative-media-archive": {
+      "class": "staff"
+    },
+    "creative-rotation": {
+      "class": "account-scoped",
+      "crossAccountProbe": {
+        "method": "GET",
+        "query": "account_id=act_demo_glowdrip"
+      }
+    },
+    "creatives": {
+      "class": "account-scoped"
+    },
+    "drain-media-queue": {
+      "class": "service"
+    },
+    "enrich-thumbnails": {
+      "class": "service"
+    },
+    "entity-report": {
+      "class": "account-scoped",
+      "crossAccountProbe": {
+        "method": "GET",
+        "query": "account_id=act_demo_glowdrip"
+      }
+    },
+    "fireflies-transcript": {
+      "class": "staff",
+      "note": "Goodo OS Fireflies connector. Read-only, one transcript per call. Answers 503 with no request when FIREFLIES_API_KEY is not set (staging has none).",
+      "probe": {
+        "body": {
+          "transcript_id": "wall_probe"
+        }
+      }
+    },
+    "ingest-client-progress": {
+      "class": "secret",
+      "note": "P9 client progress feed from the HQ processes. Bearer ingest token (sha256 hash in ingest_tokens, constant-time compare, per-token rate limit); a client or staff login JWT is not an ingest token and gets 401. Writes through apply_client_progress, which refuses unknown and hand-made clients per entry and audits every authenticated call.",
+      "probe": {
+        "body": {
+          "source": "wall-probe",
+          "clients": [
+            {
+              "slug": "wall-probe",
+              "pct_complete": 1
+            }
+          ]
+        }
+      }
+    },
+    "ingest-reviews": {
+      "class": "secret"
+    },
+    "integration-health": {
+      "class": "staff",
+      "note": "Goodo OS Integration health page. Status of the ClickUp, Fireflies, Slack and Verdanote data connectors, the job queue and owner alert jobs, with problems covered by an alert exception marked suppressed. Reports whether each secret is set, never its value; calls no outside service. POST {action: evaluate} is builder only and queues owner alerts through enqueue_owner_alert in production only. The service role (the 30-minute pg_cron job) may call evaluate and nothing else; every evaluate is recorded in check_runs.",
+      "probe": {
+        "method": "GET"
+      }
+    },
+    "landing-pages": {
+      "class": "account-scoped",
+      "crossAccountProbe": {
+        "method": "GET",
+        "query": "account_id=act_demo_glowdrip"
+      }
+    },
+    "invite-user": {
+      "class": "staff",
+      "minRole": "builder",
+      "note": "Invite by email (phase 4). Builder only. Creates a login with Supabase Auth's own invite (no typed password, standard invite email), gives it its role and client, and logs who invited whom in user_invites. Also resends and revokes. The create-with-password path stays in user-management.",
+      "probe": {
+        "body": {
+          "action": "invite"
+        }
+      }
+    },
+    "leaderboard": {
+      "class": "account-scoped",
+      "crossAccountProbe": {
+        "method": "GET",
+        "query": "account_id=act_demo_glowdrip"
+      }
+    },
+    "matrix": {
+      "class": "account-scoped",
+      "crossAccountProbe": {
+        "method": "GET",
+        "query": "account_id=act_demo_glowdrip"
+      }
+    },
+    "brain-ask": {
+      "class": "staff",
+      "note": "OS-026 ask the Brain. Builder or employee login only. Reads matching Brain paragraphs through brain_answer_passages (service role only) and answers only from them, citing the pages. With no ANTHROPIC_API_KEY (staging) it returns the matching paragraphs as the answer. Writes nothing.",
+      "probe": {
+        "body": {
+          "question": "wall probe question"
+        }
+      }
+    },
+    "meeting-recaps": {
+      "class": "staff",
+      "note": "Goodo OS meeting recaps. Builder or employee login only. Reads one named Fireflies transcript, sends only clean excerpts to the model and records the grounded items in meeting_recaps. Answers 503 with no request when FIREFLIES_API_KEY or ANTHROPIC_API_KEY is not set (staging has neither).",
+      "probe": {
+        "body": {
+          "client_slug": "wall_probe",
+          "transcript_id": "wall_probe"
+        }
+      }
+    },
+    "agent-evaluations": {
+      "class": "staff",
+      "note": "Goodo OS agent evaluations. Builder or employee login only. Runs an agent's staff-written samples against the model with the agent's own instructions and records the run through record_agent_evaluation_run, which keeps a decision only when its quote is an exact part of the sample. Answers 503 with no request when ANTHROPIC_API_KEY is not set (staging has none).",
+      "probe": {
+        "body": {
+          "agent_key": "meeting-recaps"
+        }
+      }
+    },
+    "public-link": {
+      "class": "public",
+      "gate": "token",
+      "note": "Public approval boards and casting links (parts 2 and 3 add location boards, call sheets and application forms). No login. The secret token is hashed and looked up in public_link_registry; unknown, malformed and wrong-type tokens all answer 404; revoked or expired answers 410 to a real token only. Per-address and per-token rate limits, 8 KB body cap, service-only database functions, writes only to the vote table for that link type."
+    },
+    "public-apply": {
+      "class": "public",
+      "gate": "form",
+      "note": "Public creator and actor application forms. No login and no token: a draft id (two hours, used once) is needed for uploads and the submit. Per-address limits on drafts, uploads and submissions, 32 KB body cap, a hidden field and a minimum fill time, signed upload addresses made server-side inside one application's folder with size and type checked first, writes only the application and application video tables through service-only functions. A repeat of a pending email is dropped silently. Nothing is emailed."
+    },
+    "portfolio": {
+      "class": "public",
+      "note": "Public portfolio page looked up by slug; returns only aggregate numbers for accounts that switched portfolio_enabled on."
+    },
+    "preview-capture": {
+      "class": "service"
+    },
+    "preview-capture-drain": {
+      "class": "service"
+    },
+    "push-brief-to-clickup": {
+      "class": "staff",
+      "note": "Push to ClickUp (replaces the Coda brief buttons). Builder or employee login only; writes a brief into an empty asset task or a new one. Answers 503 with no request when CLICKUP_API_TOKEN is not set (staging has none).",
+      "probe": {
+        "body": {
+          "action": "list",
+          "client_slug": "wall_probe"
+        }
+      }
+    },
+    "quick-save": {
+      "class": "staff"
+    },
+    "refresh-media-queue": {
+      "class": "service"
+    },
+    "refresh-thumbnails": {
+      "class": "staff"
+    },
+    "reports": {
+      "class": "staff"
+    },
+    "resolve-destinations": {
+      "class": "service"
+    },
+    "run-slack-jobs": {
+      "class": "service",
+      "note": "Goodo OS Slack connector. Sends queued reminders and owner alerts only in the production project, only with the slack_sends switch on (off by default) and SLACK_BOT_TOKEN set."
+    },
+    "sadie-read": {
+      "class": "secret"
+    },
+    "scheduled-reports": {
+      "class": "service"
+    },
+    "scheduled-sync": {
+      "class": "service"
+    },
+    "scrape-ad": {
+      "class": "staff"
+    },
+    "send-digest": {
+      "class": "account-scoped",
+      "note": "Digest accounts are filtered to the caller's linked accounts for non-staff."
+    },
+    "settings": {
+      "class": "staff",
+      "minRole": "builder"
+    },
+    "spend-diagnostic": {
+      "class": "staff"
+    },
+    "sync": {
+      "class": "staff"
+    },
+    "sync-clickup-tasks": {
+      "class": "service"
+    },
+    "system-health-check": {
+      "class": "service"
+    },
+    "transcribe-ad": {
+      "class": "staff"
+    },
+    "user-management": {
+      "class": "staff",
+      "minRole": "builder"
+    },
+    "vault-ads": {
+      "class": "staff"
+    },
+    "vault-analyze": {
+      "class": "service"
+    },
+    "vault-embed": {
+      "class": "service"
+    },
+    "vault-extract": {
+      "class": "service"
+    },
+    "vault-extract-webhook": {
+      "class": "secret"
+    },
+    "vault-frame-analyze": {
+      "class": "staff"
+    },
+    "vault-save": {
+      "class": "staff"
+    },
+    "vault-save-creative": {
+      "class": "staff"
+    },
+    "vault-search": {
+      "class": "staff"
+    },
+    "vault-share-item": {
+      "class": "staff",
+      "note": "mint and revoke are staff only; resolve is public by share token (shared vault links).",
+      "probe": {
+        "method": "POST",
+        "body": {
+          "action": "mint",
+          "item_id": "00000000-0000-0000-0000-000000000000"
+        }
+      }
+    },
+    "vault-slack-connect": {
+      "class": "staff"
+    },
+    "vault-slack-events": {
+      "class": "secret"
+    },
+    "vault-slack-import": {
+      "class": "staff"
+    },
+    "vault-status": {
+      "class": "staff"
+    },
+    "vault-transcribe": {
+      "class": "service"
+    },
+    "webhooks-dispatch": {
+      "class": "secret"
+    },
+    "write-brief": {
+      "class": "secret"
+    }
+  }
+}

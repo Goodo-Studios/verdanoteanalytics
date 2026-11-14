@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { zip } from "https://esm.sh/fflate@0.8.2";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { isStaffUser } from "../_shared/account-access.ts";
 import { buildExportManifest, safeZipEntryName } from "../_shared/media-archive-export.ts";
 
 // F3 — one-click BULK ZIP export of selected creatives' durably-archived media.
@@ -53,6 +54,9 @@ async function authedContext(req: Request): Promise<{ supabase: any; userId: str
   const token = authHeader.replace("Bearer ", "");
   const { data: { user }, error } = await supabase.auth.getUser(token);
   if (error || !user) return json({ error: "Unauthorized", detail: error?.message }, 401);
+  // Creative Library is a staff surface; its archive and export paths write with the
+  // service role, so a client linked to the account must not reach them.
+  if (!(await isStaffUser(supabase, user.id))) return json({ error: "Forbidden" }, 403);
   return { supabase, userId: user.id };
 }
 

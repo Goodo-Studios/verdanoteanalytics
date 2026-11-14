@@ -15,6 +15,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { cn } from "@/lib/utils";
+import { EmptyState, LoadingState, PageShell } from "@/components/page-kit";
+import { Button } from "@/components/ui/button";
 import {
   PLATFORM_COLORS,
   PLATFORM_LABELS,
@@ -181,7 +183,7 @@ export default function ItemDetailPage() {
         .select("id");
       if (statusErr) throw statusErr;
       if (!statusData?.length) {
-        throw new Error("Re-analyze failed — could not update item status");
+        throw new Error("Re-analyze failed: could not update item status");
       }
       queryClient.invalidateQueries({ queryKey: ["vault-item", id] });
 
@@ -327,9 +329,9 @@ export default function ItemDetailPage() {
   if (isLoading) {
     return (
       <>
-        <div className="min-h-[60vh] flex items-center justify-center">
-          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-        </div>
+        <PageShell>
+          <LoadingState label="Loading item" />
+        </PageShell>
       </>
     );
   }
@@ -337,16 +339,14 @@ export default function ItemDetailPage() {
   if (error || !data) {
     return (
       <>
-        <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3">
-          <AlertCircle className="w-8 h-8 text-destructive" />
-          <p className="text-muted-foreground">Item not found</p>
-          <Link
+        <PageShell>
+          <EmptyState icon={<AlertCircle className="w-8 h-8 text-destructive" />} title="Item not found" action={<Link
             to={`${prefix}/ad-library`}
             className="text-primary text-sm hover:underline"
           >
             Back to library
-          </Link>
-        </div>
+          </Link>} />
+        </PageShell>
       </>
     );
   }
@@ -377,16 +377,12 @@ export default function ItemDetailPage() {
 
   return (
     <>
-      <div className="max-w-6xl mx-auto px-4 py-6">
+      <PageShell>
         {/* Header bar */}
         <header className="flex items-center gap-3 mb-6">
-          <button
-            onClick={handleBack}
-            className="p-1.5 rounded hover:bg-muted transition-colors"
-            aria-label="Back to library"
-          >
+          <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={handleBack} aria-label="Back to library">
             <ArrowLeft className="w-4 h-4" />
-          </button>
+          </Button>
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <span
               className={cn(
@@ -412,6 +408,7 @@ export default function ItemDetailPage() {
                   rel="noopener noreferrer"
                   className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground"
                   title="Open original"
+                  aria-label="Open original"
                 >
                   <ExternalLink className="w-4 h-4" />
                 </a>
@@ -515,16 +512,13 @@ export default function ItemDetailPage() {
             {/* Re-analyze action — disabled while pipeline is in flight or no
                 framework can be regenerated yet. */}
             <div className="mb-6 flex items-center gap-3">
-              <button
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
                 onClick={() => reanalyze.mutate()}
                 disabled={reanalyzeDisabled}
                 aria-label="Re-analyze item"
-                className={cn(
-                  "flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium transition-colors",
-                  reanalyzeDisabled
-                    ? "opacity-50 cursor-not-allowed"
-                    : "hover:bg-muted",
-                )}
               >
                 <RefreshCw
                   className={cn(
@@ -537,19 +531,15 @@ export default function ItemDetailPage() {
                   : frameworkRow
                     ? "Re-analyze"
                     : "Run analysis"}
-              </button>
-              <button
-                onClick={() => setAddToBoardOpen(true)}
-                aria-label="Add to board"
-                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted"
-              >
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setAddToBoardOpen(true)} aria-label="Add to board">
                 <LayoutGrid className="w-3.5 h-3.5" />
                 Add to board
-              </button>
+              </Button>
               <VaultShareControl itemId={data.id} shareToken={data.share_token} />
               {!frameworkRow && !isProcessing && (
                 <span className="text-xs text-muted-foreground">
-                  No framework yet — click to run vault-analyze.
+                  No framework yet. Click to run vault-analyze.
                 </span>
               )}
             </div>
@@ -710,7 +700,7 @@ export default function ItemDetailPage() {
             </Tabs.Root>
           </div>
         </div>
-      </div>
+      </PageShell>
 
       <AddToBoardModal
         itemId={data.id}
