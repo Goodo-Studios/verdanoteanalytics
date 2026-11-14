@@ -4,10 +4,11 @@
 // does for os_tasks).
 //
 // Who sees what is enforced by row rules, not here: a builder reads everyone's entries, an employee
-// only their own, a client none.
+// only their own, a client none. The client hub's month total is the exception: it comes from a
+// staff-only function that returns just the total over everyone's time.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { entrySeconds, inRange, type ReportEntry } from "@/lib/timeReports";
+import type { ReportEntry } from "@/lib/timeReports";
 
 type Result = PromiseLike<{ data: unknown; error: { message: string } | null }>;
 interface Query extends Result {
@@ -68,27 +69,26 @@ export interface ClientMonth {
 }
 
 /**
- * A client's completed hours in [fromIso, toIso) and its monthly scope hours, in one query: the
- * clients row with its time entries embedded. Counts entries tagged with this client (client_slug).
+ * A client's completed hours in [fromIso, toIso) and its monthly scope hours. The hours come from
+ * time_client_month_seconds, a staff-only database function that totals every person's entries
+ * for the client: an employee can read only their own time_entries rows, so embedding the entries
+ * under row rules undercounted for employees. Counts entries tagged with this client (client_slug).
  */
 export function useClientMonthHours(slug: string | undefined, fromIso: string, toIso: string, enabled = true) {
   return useQuery<ClientMonth>({
     queryKey: [CLIENT_MONTH_KEY, slug, fromIso, toIso],
     enabled: enabled && !!slug,
     queryFn: async () => {
-      const { data, error } = await db()
-        .from("clients")
-        .select("monthly_scope_hours, time_entries(start_at, end_at)")
-        .eq("slug", slug!)
-        .gte("time_entries.start_at", fromIso)
-        .lt("time_entries.start_at", toIso)
-        .maybeSingle();
-      if (error) throw new Error(error.message);
-      const row = data as { monthly_scope_hours: number | string | null; time_entries: Array<{ start_at: string; end_at: string | null }> | null } | null;
-      const entries = inRange(row?.time_entries ?? [], fromIso, toIso);
-      const scope = row?.monthly_scope_hours;
+      const [scopeRes, secondsRes] = await Promise.all([
+        db().from("clients").select("monthly_scope_hours").eq("slug", slug!).maybeSingle(),
+        db().rpc("time_client_month_seconds", { p_client_slug: slug!, p_from: fromIso, p_to: toIso }),
+      ]);
+      if (scopeRes.error) throw new Error(scopeRes.error.message);
+      if (secondsRes.error) throw new Error(secondsRes.error.message);
+      const scope = (scopeRes.data as { monthly_scope_hours: number | string | null } | null)?.monthly_scope_hours;
       return {
-        seconds: entries.reduce((n, e) => n + entrySeconds(e), 0),
+        // A bigint comes back as a number (or a string for very large values).
+        seconds: Math.max(0, Number(secondsRes.data ?? 0)),
         scopeHours: scope == null ? null : Number(scope),
       };
     },

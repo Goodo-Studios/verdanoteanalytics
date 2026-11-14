@@ -25,6 +25,7 @@ const h = vi.hoisted(() => ({
   writeError: null as null | { message: string },
   role: "builder" as "builder" | "employee" | "client",
   preview: false,
+  serverNow: null as string | null,
 }));
 
 vi.mock("@/integrations/supabase/client", () => {
@@ -63,6 +64,7 @@ vi.mock("@/integrations/supabase/client", () => {
       rpc: (fn: string, args: unknown) => {
         h.rpcs.push({ fn, args });
         if (fn === "time_my_person") return Promise.resolve({ data: "person-1", error: null });
+        if (fn === "time_server_now") return Promise.resolve({ data: h.serverNow, error: null });
         return Promise.resolve({ data: null, error: null });
       },
     },
@@ -113,6 +115,7 @@ beforeEach(() => {
   h.writeError = null;
   h.role = "builder";
   h.preview = false;
+  h.serverNow = null;
 });
 
 describe("timer pill", () => {
@@ -149,6 +152,17 @@ describe("timer pill", () => {
     renderWith(<TimerPill />);
     expect((await screen.findByTestId("timer-pill-label")).textContent).toBe("Cut v1");
     expect(screen.getByTestId("timer-pill-elapsed").textContent).toMatch(/^1:02:\d\d$/);
+  });
+
+  it("measures elapsed time on the database clock when the browser clock is wrong", async () => {
+    // The browser clock is 10 minutes behind the database: the entry started 5 minutes ago by the
+    // database's clock, which is 5 minutes in the browser's future.
+    h.serverNow = new Date(Date.now() + 600_000).toISOString();
+    h.running = { id: "e3", task_id: "t1", start_at: new Date(Date.now() + 300_000).toISOString(), end_at: null, task: { title: "Cut v1" } };
+    renderWith(<TimerPill />);
+    await screen.findByTestId("timer-pill-label");
+    await waitFor(() => expect(screen.getByTestId("timer-pill-elapsed").textContent).toMatch(/^0:05:0\d$/));
+    expect(h.rpcs.map((r) => r.fn)).toContain("time_server_now");
   });
 
   it("labels time with no task by client or Internal and category", async () => {

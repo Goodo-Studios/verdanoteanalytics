@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   addDays,
+  clockOffsetMs,
   dayLabel,
   durationSeconds,
   entryLabel,
@@ -216,5 +217,34 @@ describe("one rule for days and weeks: the studio zone, whatever the browser's z
     for (const iso of ["2026-11-16T04:30:00.000Z", "2026-03-08T06:59:00.000Z", "2026-03-08T07:00:00.000Z", "2026-11-01T05:30:00.000Z"]) {
       expect(studioDate(iso)).toBe(zonedDate(iso));
     }
+  });
+});
+
+describe("clockOffsetMs", () => {
+  it("is the server time minus the browser clock at the middle of the round trip", () => {
+    // The browser sent at :00 and heard back at :02, so it read :01 when the server said :11.
+    const t0 = Date.UTC(2026, 10, 9, 12, 0, 0);
+    expect(clockOffsetMs("2026-11-09T12:00:11.000Z", t0, t0 + 2000)).toBe(10_000);
+  });
+
+  it("is negative when the browser clock runs ahead", () => {
+    const t0 = Date.UTC(2026, 10, 9, 12, 5, 0);
+    expect(clockOffsetMs("2026-11-09T12:00:00.000Z", t0, t0)).toBe(-300_000);
+  });
+
+  it("falls back to 0 for a missing or unreadable server time", () => {
+    expect(clockOffsetMs(null, 1000, 2000)).toBe(0);
+    expect(clockOffsetMs(undefined, 1000, 2000)).toBe(0);
+    expect(clockOffsetMs("not a date", 1000, 2000)).toBe(0);
+  });
+
+  it("makes a running entry's elapsed time follow the server clock", () => {
+    // Started 90 s ago by the server's clock; the browser clock is 5 minutes slow.
+    const serverNow = Date.UTC(2026, 10, 9, 12, 0, 0);
+    const browserNow = serverNow - 300_000;
+    const offset = clockOffsetMs(new Date(serverNow).toISOString(), browserNow, browserNow);
+    const start = new Date(serverNow - 90_000).toISOString();
+    expect(durationSeconds(start, null, browserNow)).toBe(0); // the old way: clamped, shows 0
+    expect(durationSeconds(start, null, browserNow + offset)).toBe(90);
   });
 });

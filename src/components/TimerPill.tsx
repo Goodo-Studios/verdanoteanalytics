@@ -11,7 +11,7 @@ import { INTERNAL, TimePurposeFields } from "@/components/TimePurposeFields";
 import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { useMyTasks } from "@/hooks/useMyWork";
-import { useRunningTimer, useStartTimer, useStopTimer } from "@/hooks/useTimer";
+import { useRunningTimer, useServerClockOffset, useStartTimer, useStopTimer } from "@/hooks/useTimer";
 import { MOTION } from "@/lib/motion";
 import { durationSeconds, entryLabel, formatElapsed } from "@/lib/timeLog";
 
@@ -94,7 +94,8 @@ function SwitchPicker({ userId, runningTaskId, onDone }: { userId: string; runni
 function RunningPill({ userId }: { userId: string }) {
   const running = useRunningTimer(userId);
   const stop = useStopTimer();
-  const now = useNow();
+  const offset = useServerClockOffset();
+  const now = useNow() + (offset.data ?? 0);
   const [open, setOpen] = useState(false);
   const entry = running.data;
   if (!entry) return null;
