@@ -452,6 +452,8 @@ Rollback: `select cron.unschedule('<jobname>');`.
 
 ### Step 14. Delete the Coda functions and the Coda secret
 
+Read only check on production, 2026-11-14 (after the release): the three Coda functions `create-coda-brief`, `sync-coda-names` and `sync-coda-tasks` are still deployed; `coda_tasks` is gone; no cron job has coda in its name; `CODA_API_KEY` is not set on production, so there is no Coda secret left to unset. The script also lists two secrets no function code mentions, `LINKEDIN_JSESSIONID` and `LINKEDIN_LI_AT`. They are not Coda; find out what uses them before anyone unsets them.
+
 Verdanote has no Coda code any more (Coda was retired on 2026-10-09). The plan's last record says `sync-coda-tasks`, `sync-coda-names` and `create-coda-brief` are still deployed in production, that CI does not delete functions, that migration `20261110000001` removes `coda_tasks` and unschedules `sync-coda-names-daily` when applied, and that removing `CODA_API_KEY` is Matthew's call. Do not write to Coda for any reason.
 
 ```bash
