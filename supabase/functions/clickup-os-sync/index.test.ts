@@ -52,7 +52,7 @@ function seed() {
     ad_accounts: [],
     source_mappings: [],
     os_task_statuses: KNOWN_STATUSES,
-    os_sync_runs: [{ id: "run-prev", kind: "nightly", ok: true, started_at: "2026-11-11T08:00:00.000Z" }],
+    os_sync_runs: [{ id: "run-prev", kind: "nightly", ok: true, started_at: "2026-11-11T08:00:00.000Z", finished_at: "2026-11-11T08:05:00.000Z" }],
     os_tasks: [
       { id: "app-t2", clickup_task_id: "t2", title: "November Asset 2", status: "internal review", client_slug: "bearaby", clickup_list_id: "l-bpv", last_synced_at: OLD, read_only: false },
       { id: "app-t1", clickup_task_id: "t1", title: "November Asset 1", status: "complete", client_slug: "bearaby", clickup_list_id: "l-bpv", last_synced_at: OLD, read_only: false, raw_status: "editing" },
@@ -427,4 +427,168 @@ Deno.test("a caller without the service-role key is refused", async () => {
   } finally {
     globalThis.fetch = original;
   }
+});
+
+// ------------------------------------------------------------------ resilience (data audit)
+
+type Fetch = ReturnType<typeof fakeClickUp>["fetch"];
+
+/** A run against a shared db, with its own time stamp, clock and budget. */
+async function runOn(
+  db: ReturnType<typeof fakeDb>,
+  cu: ReturnType<typeof fakeClickUp>,
+  o: { mode?: "full" | "nightly"; nowMs?: number; clock?: () => number; budgetMs?: number; fetch?: Fetch; body?: Record<string, unknown> } = {},
+) {
+  const res = await mod.handler(
+    new Request("https://fn.local/clickup-os-sync", { method: "POST", body: JSON.stringify({ mode: o.mode ?? "full", ...o.body }) }),
+    { supabase: db.supabase, fetch: o.fetch ?? cu.fetch, now: () => o.nowMs ?? NOW, clock: o.clock, budgetMs: o.budgetMs },
+  );
+  return { res, body: await res.json(), tasks: new Map(db.table("os_tasks").map((r) => [String(r.clickup_task_id), r])) };
+}
+
+/** A fetch that answers 429 `times` times for each path that matches, then answers normally. */
+function limitedFetch(cu: ReturnType<typeof fakeClickUp>, match: (url: string) => boolean, times: number): Fetch {
+  const seen = new Map<string, number>();
+  return (url, init) => {
+    if (match(url)) {
+      const n = (seen.get(url) ?? 0) + 1;
+      seen.set(url, n);
+      if (n <= times) {
+        cu.calls.push({ method: init?.method ?? "GET", url });
+        return Promise.resolve(new Response("rate limited", { status: 429 }));
+      }
+    }
+    return cu.fetch(url, init);
+  };
+}
+
+Deno.test("a 429 on a list's tasks is retried, so the list is read and the run is clean", async () => {
+  mod.rateLimitWait.ms = 1;
+  const db = fakeDb({ tables: seed(), users: { "sam@goodo.test": "u-sam" } });
+  const cu = fakeClickUp(routes());
+  const { body, tasks } = await runOn(db, cu, { fetch: limitedFetch(cu, (u) => u.includes("/list/l-bcalls/task"), 2) });
+  assertEquals(body.failedLists, []);
+  assertEquals(body.success, true);
+  assert(tasks.has("t4"), "the rate-limited list's task was written");
+  assertEquals(cu.calls.filter((c) => c.url.includes("/list/l-bcalls/task")).length, 3, "two 429s, then the read");
+});
+
+Deno.test("a 429 on a comment read is retried", async () => {
+  mod.rateLimitWait.ms = 1;
+  const db = fakeDb({ tables: seed(), users: { "sam@goodo.test": "u-sam" } });
+  const cu = fakeClickUp(routes());
+  const { body } = await runOn(db, cu, { fetch: limitedFetch(cu, (u) => u.endsWith("/task/t1/comment"), 1) });
+  assertEquals(body.commentReadFailures, 0);
+  assertEquals(db.table("os_task_comments").some((c) => c.clickup_comment_id === "cm1"), true);
+});
+
+Deno.test("a list that stays rate limited fails the run and blocks the delete", async () => {
+  mod.rateLimitWait.ms = 1;
+  const db = fakeDb({ tables: seed(), users: { "sam@goodo.test": "u-sam" } });
+  const cu = fakeClickUp(routes());
+  const { body, tasks } = await runOn(db, cu, { fetch: limitedFetch(cu, (u) => u.includes("/list/l-bcalls/task"), 99) });
+  assertEquals(body.failedLists, ["Meeting Calls"]);
+  assertEquals(body.success, false);
+  assertEquals(body.deleteSkipped, true);
+  assertEquals(tasks.has("gone-1"), true, "nothing is deleted after a failed list");
+});
+
+Deno.test("time budget: the walk stops, is recorded as partial, deletes nothing, and the next run resumes", async () => {
+  mod.rateLimitWait.ms = 1;
+  const db = fakeDb({ tables: seed(), users: { "sam@goodo.test": "u-sam" } });
+  const cu = fakeClickUp(routes());
+  // Every ClickUp call costs 300 ms on the budget clock; the budget is 1000 ms (the walk gets 600).
+  let t = 0;
+  const slow: Fetch = (url, init) => {
+    t += 300;
+    return cu.fetch(url, init);
+  };
+  const first = await runOn(db, cu, { fetch: slow, clock: () => t, budgetMs: 1000 });
+  assertEquals(first.body.success, false);
+  assertEquals(first.body.partial, true);
+  assertEquals(first.body.partialReason, "time budget");
+  assertEquals(first.body.nextListId, "l-bpv", "the first list was read; the walk stopped before the second");
+  assert(first.tasks.has("t1") && first.tasks.has("t3"), "the rows already read are written");
+  assertEquals(first.tasks.has("t4"), false, "the list after the stop was not read");
+  assertEquals(first.tasks.has("gone-1"), true, "nothing is deleted after a partial run");
+  assertEquals(first.body.deleteSkipped, true);
+  const row = db.table("os_sync_runs").find((r) => r.id === first.body.runId)!;
+  assert(row.finished_at, "the run row is finished");
+  assertEquals(row.ok, false);
+  assertEquals((row.counts as Record<string, unknown>).partial, true);
+
+  // The next run (no body cursor) resumes after l-bpv on its own and finishes the walk.
+  const second = await runOn(db, cu, { nowMs: NOW + 3_600_000 });
+  assertEquals(second.body.resumedAfterListId, "l-bpv");
+  assert(second.tasks.has("t4"), "the list the first run did not reach is read");
+  assertEquals(second.body.partial, false);
+  assertEquals(second.body.success, true);
+  assertEquals(second.body.deleted, 0, "a resumed run did not see every list, so it deletes nothing");
+  assertEquals(second.tasks.has("gone-1"), true);
+
+  // The run after that starts from the beginning and, being complete, may delete.
+  const third = await runOn(db, cu, { nowMs: NOW + 7_200_000 });
+  assertEquals(third.body.resumedAfterListId, null);
+  assertEquals(third.body.deleted, 1);
+  assertEquals(third.tasks.has("gone-1"), false);
+});
+
+Deno.test("time budget: a resume point named in the body is used, and one that no longer exists restarts the walk", async () => {
+  const db = fakeDb({ tables: seed(), users: { "sam@goodo.test": "u-sam" } });
+  const cu = fakeClickUp(routes());
+  const named = await runOn(db, cu, { body: { startAfterListId: "l-bcalls" } });
+  assertEquals(named.body.resumedAfterListId, "l-bcalls");
+  assertEquals(named.tasks.has("t3"), false, "lists up to and including the named one are skipped (t3 is in the first list)");
+  assertEquals(named.tasks.has("t5"), true);
+  assertEquals(named.body.deleteSkipped, true);
+
+  const db2 = fakeDb({ tables: seed(), users: { "sam@goodo.test": "u-sam" } });
+  const lost = await runOn(db2, fakeClickUp(routes()), { body: { startAfterListId: "no-such-list" } });
+  assertEquals(lost.body.partial, true);
+  assertEquals(lost.body.resumeLost, true);
+  assertEquals(lost.body.nextListId, null, "the next run starts from the beginning");
+  assertEquals(lost.body.deleteSkipped, true);
+});
+
+Deno.test("time budget: comments stop at the budget, are recorded as deferred, and nothing is deleted", async () => {
+  const db = fakeDb({ tables: seed(), users: { "sam@goodo.test": "u-sam" } });
+  const cu = fakeClickUp(routes());
+  let t = 0;
+  const slowComments: Fetch = (url, init) => {
+    if (url.includes("/comment")) t += 10_000;
+    return cu.fetch(url, init);
+  };
+  const { body, tasks } = await runOn(db, cu, { fetch: slowComments, clock: () => t, budgetMs: 5000 });
+  assertEquals(cu.calls.filter((c) => c.url.includes("/comment")).length, 1, "one comment read, then the budget was over");
+  assertEquals(body.commentsDeferred, 3);
+  assertEquals(body.partial, true);
+  assertEquals(body.success, false);
+  assertEquals(body.deleteSkipped, true);
+  assertEquals(tasks.has("gone-1"), true);
+});
+
+Deno.test("a run that throws still gets an ending in os_sync_runs", async () => {
+  const db = fakeDb({ tables: seed(), users: { "sam@goodo.test": "u-sam" }, fail: ["os_clickup_outbox:select"] });
+  const { res, body } = await runOn(db, fakeClickUp(routes()));
+  assertEquals(res.status, 500);
+  const row = db.table("os_sync_runs").find((r) => r.id === body.runId)!;
+  assert(row.finished_at, "finished");
+  assertEquals(row.ok, false);
+  assert(String(row.error).includes("os_clickup_outbox"));
+});
+
+Deno.test("a run the runtime stopped before it could write an ending is closed by the next run", async () => {
+  const tables = seed();
+  tables.os_sync_runs.push(
+    { id: "run-killed", kind: "nightly", ok: null, started_at: "2026-11-12T06:00:00.000Z", finished_at: null },
+    { id: "run-live", kind: "nightly", ok: null, started_at: "2026-11-12T07:50:00.000Z", finished_at: null },
+  );
+  const db = fakeDb({ tables, users: { "sam@goodo.test": "u-sam" } });
+  const { body } = await runOn(db, fakeClickUp(routes()));
+  const killed = db.table("os_sync_runs").find((r) => r.id === "run-killed")!;
+  assertEquals(killed.ok, false);
+  assert(killed.finished_at, "closed");
+  assert(String(killed.error).includes("never recorded a result"));
+  assertEquals(db.table("os_sync_runs").find((r) => r.id === "run-live")!.finished_at ?? null, null, "a recent run is left alone");
+  assertEquals(body.closedStaleRuns, 1);
 });

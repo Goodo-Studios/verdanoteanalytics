@@ -26,6 +26,7 @@ export interface DbResult {
 export interface DbQuery extends PromiseLike<DbResult> {
   select(columns: string): DbQuery;
   eq(column: string, value: unknown): DbQuery;
+  is(column: string, value: null): DbQuery;
   in(column: string, values: unknown[]): DbQuery;
   not(column: string, operator: string, value: unknown): DbQuery;
   lt(column: string, value: string): DbQuery;
@@ -418,4 +419,29 @@ export async function finishRun(
     })
     .eq("id", runId);
   if (error) console.error(`os_sync_runs update failed: ${error.message}`);
+}
+
+/**
+ * Marks runs of the full and nightly walks that never recorded a result as failed. A run that the
+ * edge runtime stopped at its time limit cannot write its own ending, so its row would stay open
+ * for ever. Only runs started before `olderThanIso` are touched, so a walk in progress is left
+ * alone. Returns how many rows were closed.
+ */
+export async function closeStaleRuns(db: SupabaseLike, olderThanIso: string, nowIso: string): Promise<number> {
+  const { data, error } = await db
+    .from("os_sync_runs")
+    .update({
+      finished_at: nowIso,
+      ok: false,
+      error: "The run never recorded a result (the function was stopped before it could). Closed by the next run.",
+    })
+    .in("kind", ["full", "nightly"])
+    .is("finished_at", null)
+    .lt("started_at", olderThanIso)
+    .select("id");
+  if (error) {
+    console.error(`os_sync_runs stale close failed: ${error.message}`);
+    return 0;
+  }
+  return data?.length ?? 0;
 }

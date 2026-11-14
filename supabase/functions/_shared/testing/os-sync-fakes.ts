@@ -47,6 +47,11 @@ export function fakeDb(opts: FakeDbOptions = {}) {
         preds.push((r) => r[c] === v);
         return q;
       },
+      is(c, v) {
+        filters.push(`is ${c} ${v}`);
+        preds.push((r) => r[c] === null || r[c] === undefined);
+        return q;
+      },
       in(c, vs) {
         filters.push(`in ${c}`);
         preds.push((r) => vs.includes(r[c]));
