@@ -11,7 +11,7 @@ import { MemoryRouter } from "react-router-dom";
 
 const USER = "11111111-1111-4111-8111-111111111111";
 
-type Call = { table: string; columns: string; filters: string[] };
+type Call = { table: string; columns: string; filters: string[]; range?: [number, number] };
 const h = vi.hoisted(() => ({
   tasks: [] as unknown[],
   tasksError: null as null | { message: string },
@@ -28,9 +28,10 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("@/integrations/supabase/client", () => {
-  const result = (table: string, single: boolean) => {
+  const result = (table: string, single: boolean, range?: [number, number]) => {
     if (table === "os_tasks" && single) return { data: h.detail, error: null };
-    if (table === "os_tasks") return { data: h.tasks, error: h.tasksError };
+    // The list is read in pages (.range), like PostgREST: answer with the slice asked for.
+    if (table === "os_tasks") return { data: range ? h.tasks.slice(range[0], range[1] + 1) : h.tasks, error: h.tasksError };
     if (table === "os_task_status_history") return { data: h.history, error: null };
     // OS-020: the cuts of the task.
     if (table === "os_task_versions") return { data: h.versions, error: null };
@@ -46,8 +47,9 @@ vi.mock("@/integrations/supabase/client", () => {
       is: (c: string, v: unknown) => (call.filters.push(`is:${c}:${String(v)}`), b),
       limit: () => b,
       order: () => b,
+      range: (from: number, to: number) => ((call.range = [from, to]), b),
       maybeSingle: () => builder(call, true),
-      then: (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => Promise.resolve(result(call.table, single)).then(res, rej),
+      then: (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => Promise.resolve(result(call.table, single, call.range)).then(res, rej),
     };
     return b;
   };

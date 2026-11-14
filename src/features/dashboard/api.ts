@@ -4,6 +4,7 @@
 // functions decide what happens. The dashboard tables are not in the
 // generated types, hence the small untyped wrapper.
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllPages } from "@/lib/pagedSelect";
 import {
   ALL_BRANDS,
   FOLLOW_UP_TERMINAL_STAGES,
@@ -84,7 +85,7 @@ export interface OverviewData {
 export async function loadOverview(): Promise<OverviewData> {
   const [clients, cards, engagements] = await Promise.all([
     unwrap(db.from("clients").select<DashboardClient[]>(CLIENT_COLUMNS).order("name")),
-    unwrap(db.from("pipeline_tasks").select<BoardCard[]>("client_slug, stage, due_date")),
+    fetchAllPages<BoardCard>((from, to) => unwrap(db.from("pipeline_tasks").select<BoardCard[]>("client_slug, stage, due_date").order("id").range(from, to))),
     unwrap(db.from("engagements").select<ActiveEngagement[]>("client_slug, cycle_number, start_date, day30_date, day45_date").eq("status", "active")),
   ]);
   return { clients, cards, engagements };
@@ -198,8 +199,11 @@ export async function loadBrandsAndTeam(): Promise<{ brands: BrandOption[]; user
 
 /** One brand's assignments, or every brand's with ALL_BRANDS. */
 export function loadAssignments(brand: string): Promise<Assignment[]> {
-  const q = db.from("creator_assignments").select<Assignment[]>(ASSIGNMENT_COLUMNS);
-  return unwrap(brand === ALL_BRANDS ? q : q.eq("client_slug", brand));
+  // Every brand's rows can pass the 1000-row response cap, so read in pages with a stable order.
+  return fetchAllPages<Assignment>((from, to) => {
+    const q = db.from("creator_assignments").select<Assignment[]>(ASSIGNMENT_COLUMNS);
+    return unwrap((brand === ALL_BRANDS ? q : q.eq("client_slug", brand)).order("id").range(from, to));
+  });
 }
 
 export function loadCreatorOptions(): Promise<CreatorOption[]> {
@@ -237,11 +241,15 @@ export async function removeAssignment(id: string): Promise<void> {
 
 /** Every assignment with a follow-up date in a stage that still needs chasing. */
 export function loadFollowUps(): Promise<Assignment[]> {
-  return unwrap(
-    db.from("creator_assignments").select<Assignment[]>(ASSIGNMENT_COLUMNS)
-      .not("next_follow_up_at", "is", null)
-      .not("stage", "in", `(${FOLLOW_UP_TERMINAL_STAGES.join(",")})`)
-      .order("next_follow_up_at"),
+  return fetchAllPages<Assignment>((from, to) =>
+    unwrap(
+      db.from("creator_assignments").select<Assignment[]>(ASSIGNMENT_COLUMNS)
+        .not("next_follow_up_at", "is", null)
+        .not("stage", "in", `(${FOLLOW_UP_TERMINAL_STAGES.join(",")})`)
+        .order("next_follow_up_at")
+        .order("id")
+        .range(from, to),
+    ),
   );
 }
 

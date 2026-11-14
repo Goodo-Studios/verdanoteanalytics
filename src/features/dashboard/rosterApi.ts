@@ -4,6 +4,7 @@
 // buckets (migration 20261101000004) decide what comes back. Media is shown
 // through signed links that expire after an hour.
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllPages, PAGE_SIZE } from "@/lib/pagedSelect";
 import { DashboardError, db, unwrap, unwrapOne } from "./api";
 import {
   ACTOR_RECORD_COLUMNS,
@@ -18,17 +19,11 @@ import {
   type RosterCreator,
 } from "./rosterModel";
 
-const PAGE = 1000;
 const SIGNED_SECONDS = 3600;
 
 /** PostgREST caps a response at 1000 rows; the roster is bigger, so read it in pages. */
 export async function loadAll<T>(table: string, columns: string, orderBy: string): Promise<T[]> {
-  const out: T[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const page = await unwrap(db.from(table).select<T[]>(columns).order(orderBy).order("id").range(from, from + PAGE - 1));
-    out.push(...page);
-    if (page.length < PAGE) return out;
-  }
+  return fetchAllPages<T>((from, to) => unwrap(db.from(table).select<T[]>(columns).order(orderBy).order("id").range(from, to)), PAGE_SIZE);
 }
 
 /** path -> signed link for the objects that exist and the caller may read. */

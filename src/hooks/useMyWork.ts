@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { DONE_STATUS, MY_TASK_COLUMNS, type MyTaskRow } from "@/lib/myWork";
+import { fetchAllPages } from "@/lib/pagedSelect";
 
 // os_tasks and its RPCs are not in the generated types yet, so the calls go through a small
 // untyped shape (as useClientWork does for pipeline_tasks).
@@ -11,6 +12,7 @@ interface Query extends Result {
   or(filter: string): Query;
   eq(column: string, value: string | boolean): Query;
   order(column: string, opts?: { ascending?: boolean }): Query;
+  range(from: number, to: number): Query;
   maybeSingle(): Result;
 }
 type Untyped = {
@@ -44,16 +46,17 @@ export function useMyTasks(userId: string | undefined, everyone = false) {
     queryKey: ["my-tasks", everyone ? "everyone" : userId],
     enabled: everyone || !!userId,
     queryFn: async () => {
-      let q = db().from("os_tasks").select(MY_TASK_COLUMNS).neq("status", DONE_STATUS)
-        // Ended clients' tasks are read-only history, not work to do.
-        .eq("read_only", false);
-      if (!everyone) {
-        if (!userId || !UUID.test(userId)) return [];
-        q = q.or(`strategist_id.eq.${userId},producer_id.eq.${userId},editor_id.eq.${userId}`);
-      }
-      const { data, error } = await q;
-      if (error) throw new Error(error.message);
-      return (data ?? []) as MyTaskRow[];
+      if (!everyone && (!userId || !UUID.test(userId))) return [];
+      // The everyone view passes the 1000-row response cap, so read it in pages with a stable order.
+      return fetchAllPages<MyTaskRow>(async (from, to) => {
+        let q = db().from("os_tasks").select(MY_TASK_COLUMNS).neq("status", DONE_STATUS)
+          // Ended clients' tasks are read-only history, not work to do.
+          .eq("read_only", false);
+        if (!everyone) q = q.or(`strategist_id.eq.${userId},producer_id.eq.${userId},editor_id.eq.${userId}`);
+        const { data, error } = await q.order("id").range(from, to);
+        if (error) throw new Error(error.message);
+        return (data ?? []) as MyTaskRow[];
+      });
     },
   });
 }
