@@ -293,7 +293,7 @@ Deno.test("a failed send is released so it can be retried", async () => {
 
 Deno.test("a batch bigger than the cap sends the cap and defers the rest", async () => {
   const invites = Array.from({ length: 60 }, (_, i) => ({
-    id: `i${i}`, client_slug: "alpha", email: `c${i}@staging.verdanote.test`, display_name: `C${i}`, status: "approved",
+    id: `i${i}`, client_slug: "alpha", email: `c${i}@staging.verdanote.test`, display_name: `C${i}`, status: "approved" as const,
   }));
   const t = setup(world({ invites }), ON);
   const r = await t.call();

@@ -459,7 +459,7 @@ serve(async (req) => {
       let aiInsights: string[] = [];
       if (ANTHROPIC_API_KEY && allCreatives.length > 0) {
         try {
-          const accountSummaries = Object.entries(accountData).map(([id, d]: [string, any]) =>
+          const accountSummaries = Object.entries(accountData).map(([_id, d]: [string, any]) =>
             `${d.name}: $${d.spend.toFixed(0)} spend, ${d.roas == null ? "n/a" : d.roas.toFixed(2)}x ROAS, ${d.win_rate.toFixed(0)}% win rate, ${d.creative_count} creatives`
           ).join("\n");
 

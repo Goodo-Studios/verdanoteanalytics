@@ -34,7 +34,11 @@ type SlackMessage = {
   files?: SlackFile[];
 };
 
-type Db = ReturnType<typeof createClient>;
+// Supabase edge runtime global (not in the Deno typings).
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
+
+// No generated database types in this repo, so rows are untyped (`any`).
+type Db = ReturnType<typeof createClient<any>>;
 
 async function fetchChannelHistory(
   botToken: string,

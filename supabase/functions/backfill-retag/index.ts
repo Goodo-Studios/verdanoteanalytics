@@ -146,6 +146,7 @@ interface BackfillBody {
  * whenever `drained === false` (see the self-chaining policy note in the header) —
  * the caller adds no narrower gate.
  */
+// deno-lint-ignore require-await -- fire-and-forget by design: the request is sent, the response is never awaited.
 async function selfContinue(body: BackfillBody): Promise<void> {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -237,7 +238,6 @@ Deno.serve(async (req) => {
       // deno-lint-ignore no-explicit-any
       const updates: { ad_id: string; update: Record<string, any> }[] = [];
 
-      // deno-lint-ignore no-constant-condition
       while (true) {
         if (timedOut()) { drained = false; accountDrained = false; break; }
 
@@ -351,7 +351,6 @@ Deno.serve(async (req) => {
       // deno-lint-ignore no-explicit-any
       const matrixUpdates: { ad_id: string; update: Record<string, any> }[] = [];
 
-      // deno-lint-ignore no-constant-condition
       while (true) {
         if (timedOut()) { drained = false; accountDrained = false; break; }
 

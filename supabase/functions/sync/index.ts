@@ -692,6 +692,7 @@ const HEARTBEAT_INTERVAL_MS = 20 * 1000;
 // HTTP POST to /sync/continue so the next phase starts immediately instead of
 // waiting for the cron tick (~1 min). This eliminates the race condition where
 // cleanup-stuck-syncs marks a sync as "stuck" before the cron re-invokes it.
+// deno-lint-ignore require-await -- fire-and-forget by design: the request is sent, the response is never awaited.
 async function selfContinue(claimId: string | null): Promise<void> {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -1461,9 +1462,6 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     //   Upserts incrementally per page instead of accumulating in memory
     // ═══════════════════════════════════════════════════════════════════
     if (phase === 4) {
-      const { count: existingCount } = await supabase.from("creatives")
-        .select("*", { count: "exact", head: true }).eq("account_id", accountId);
-      const hasExistingAds = (existingCount || 0) > 0;
 
       // ── Phase 4: Rolling recent window (US-002) ───────────────────────
       // Daily metrics are keyed by (ad_id, date) — upserts are idempotent, so a
@@ -1539,7 +1537,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         // depend on undocumented behavior.
         const insightsFields = "ad_id,date_start,spend,purchase_roas,cost_per_action_type,ctr,clicks,impressions,cpm,cpc,frequency,actions,action_values,video_avg_time_watched_actions,video_thruplay_watched_actions,video_play_curve_actions";
 
-        let nextUrl = paginationCursor || (
+        let nextUrl: string | null = paginationCursor || (
           `https://graph.facebook.com/${META_API_VERSION}/${accountId}/insights?` +
           `time_range=${encodeURIComponent(chunkRange)}&time_increment=1&level=ad` +
           `&fields=${insightsFields}` +
@@ -1641,7 +1639,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
                 // jsonb column `video_play_curve_actions`.
                 // Still stripped (not columns on creative_daily_metrics):
                 // - result_count / cost_per_result: only on the creatives table.
-                const { play_curve, result_count, cost_per_result, ...daily } =
+                const { play_curve, result_count: _resultCount, cost_per_result: _costPerResult, ...daily } =
                   parseInsightsRow(row, account?.optimization_goal);
                 return {
                   ad_id: row.ad_id,

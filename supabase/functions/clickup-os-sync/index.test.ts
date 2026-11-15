@@ -52,7 +52,13 @@ function seed() {
     ad_accounts: [],
     source_mappings: [],
     os_task_statuses: KNOWN_STATUSES,
-    os_sync_runs: [{ id: "run-prev", kind: "nightly", ok: true, started_at: "2026-11-11T08:00:00.000Z", finished_at: "2026-11-11T08:05:00.000Z" }],
+    os_sync_runs: [{ id: "run-prev", kind: "nightly", ok: true, started_at: "2026-11-11T08:00:00.000Z", finished_at: "2026-11-11T08:05:00.000Z" }] as {
+      id: string;
+      kind: string;
+      ok: boolean | null;
+      started_at: string;
+      finished_at: string | null;
+    }[],
     os_tasks: [
       { id: "app-t2", clickup_task_id: "t2", title: "November Asset 2", status: "internal review", client_slug: "bearaby", clickup_list_id: "l-bpv", last_synced_at: OLD, read_only: false },
       { id: "app-t1", clickup_task_id: "t1", title: "November Asset 1", status: "complete", client_slug: "bearaby", clickup_list_id: "l-bpv", last_synced_at: OLD, read_only: false, raw_status: "editing" },

@@ -196,7 +196,6 @@ Deno.serve(async (req) => {
       // deno-lint-ignore no-explicit-any
       const updates: { ad_id: string; update: Record<string, any> }[] = [];
 
-      // deno-lint-ignore no-constant-condition
       while (true) {
         if (timedOut()) { drained = false; accountDrained = false; break; }
 

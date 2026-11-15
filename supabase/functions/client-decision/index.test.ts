@@ -59,7 +59,8 @@ function setup(w: World) {
       },
     };
   };
-  return { make, calls };
+  // The stand-ins implement only the calls the function makes, not the whole Supabase client.
+  return { make: make as unknown as NonNullable<NonNullable<Parameters<typeof handler>[1]>["createClient"]>, calls };
 }
 
 const post = (body: unknown, auth: string | null = "Bearer t") =>
