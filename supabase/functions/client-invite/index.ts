@@ -138,6 +138,7 @@ interface Query extends PromiseLike<QueryResult> {
   select(columns?: string): Query;
   eq(column: string, value: unknown): Query;
   in(column: string, values: unknown[]): Query;
+  or(filters: string): Query;
   maybeSingle(): PromiseLike<QueryResult>;
 }
 interface Table {
