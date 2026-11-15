@@ -18,6 +18,8 @@
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { fakeCreateClient, fakeSupabase, type FakeConfig, withEnv, withFetch } from "../_shared/fake-supabase.ts";
 
+import { TtlCache } from "../_shared/creatives-page-cache.ts";
+
 Deno.env.set("CLIENT_INSIGHTS_NO_SERVE", "1");
 const { handler } = await import("./index.ts");
 
@@ -44,6 +46,7 @@ async function call(
     cfg?: FakeConfig;
     key?: string;
     reply?: Response;
+    cache?: TtlCache<string[]>;
   } = {},
 ) {
   const db = fakeSupabase(opts.cfg ?? { user: { id: "u1" }, tables: { creatives: CREATIVES } });
@@ -61,7 +64,7 @@ async function call(
     withFetch(
       () => opts.reply ?? anthropic('["one","two","three"]'),
       async (calls) => {
-        res = await handler(req, { createClient });
+        res = await handler(req, { createClient, cache: opts.cache ?? new TtlCache<string[]>({ ttlMs: 60_000, maxEntries: 10 }) });
         fetchCalls = calls;
       },
     ));
@@ -192,4 +195,34 @@ Deno.test("a crash while reading is a 500 with a fixed message", async () => {
   });
   assertEquals(res.status, 500);
   assertEquals(await res.json(), { error: "Failed to generate insights" });
+});
+
+Deno.test("a second call for the same account within the hour is answered from the cache with no model call", async () => {
+  const cache = new TtlCache<string[]>({ ttlMs: 60_000, maxEntries: 10 });
+  const first = await call({ cache });
+  assertEquals(first.fetchCalls.length, 1);
+  const second = await call({ cache });
+  assertEquals(second.fetchCalls.length, 0);
+  assertEquals(await second.res.json(), { insights: ["one", "two", "three"], cached: true });
+});
+
+Deno.test("the cache is per account", async () => {
+  const cache = new TtlCache<string[]>({ ttlMs: 60_000, maxEntries: 10 });
+  await call({ cache, body: { accountId: "act_1" } });
+  const other = await call({ cache, body: { accountId: "act_2" } });
+  assertEquals(other.fetchCalls.length, 1);
+});
+
+Deno.test("an account the caller cannot see (no creatives) never gets a cached answer", async () => {
+  const cache = new TtlCache<string[]>({ ttlMs: 60_000, maxEntries: 10 });
+  await call({ cache });
+  const blocked = await call({ cache, cfg: { user: { id: "u2" }, tables: { creatives: [] } } });
+  assertEquals(await blocked.res.json(), { insights: [] });
+});
+
+Deno.test("a failed or empty answer is not cached", async () => {
+  const cache = new TtlCache<string[]>({ ttlMs: 60_000, maxEntries: 10 });
+  await call({ cache, reply: anthropic("not json") });
+  const again = await call({ cache });
+  assertEquals(again.fetchCalls.length, 1);
 });

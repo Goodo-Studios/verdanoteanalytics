@@ -1,12 +1,24 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { fetchWithTimeout } from "../_shared/fetch-with-timeout.ts";
+import { TtlCache } from "../_shared/creatives-page-cache.ts";
 
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
+type InsightsCache = TtlCache<string[]>;
+
+/** Insights per account stay valid for an hour: the same page load should not pay for the model each time. */
+export const INSIGHTS_TTL_MS = 60 * 60 * 1000;
+// Per warm instance. There is no insights table, so this reuses the in-memory TtlCache already
+// used for the creatives list; a cold start simply recomputes.
+const insightsCache: InsightsCache = new TtlCache<string[]>({ ttlMs: INSIGHTS_TTL_MS, maxEntries: 500 });
+
 export interface Deps {
   createClient?: typeof createClient;
+  /** Tests pass a fresh cache so calls do not leak into each other. */
+  cache?: InsightsCache;
 }
 
 export async function handler(req: Request, deps: Deps = {}): Promise<Response> {
@@ -15,6 +27,7 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
   const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
   const ANTHROPIC_MODEL = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-haiku-4-5-20251001";
 
+  const cache = deps.cache ?? insightsCache;
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
@@ -53,6 +66,15 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
 
     if (!creatives || creatives.length === 0) {
       return new Response(JSON.stringify({ insights: [] }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // The creatives read above ran as the caller (row level security), so reaching this point proves
+    // the caller can see this account; only then is the cached answer for it handed back.
+    const cached = cache.get(String(accountId));
+    if (cached) {
+      return new Response(JSON.stringify({ insights: cached, cached: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -113,7 +135,7 @@ Return ONLY a JSON array of 3 strings, no other text. Example: ["insight 1", "in
       });
     }
 
-    const aiResponse = await fetch(ANTHROPIC_URL, {
+    const aiResponse = await fetchWithTimeout(ANTHROPIC_URL, {
       method: "POST",
       headers: {
         "x-api-key": ANTHROPIC_API_KEY,
@@ -128,7 +150,7 @@ Return ONLY a JSON array of 3 strings, no other text. Example: ["insight 1", "in
           { role: "user", content: prompt },
         ],
       }),
-    });
+    }, { timeoutMs: 45_000, retries: 1 });
 
     if (!aiResponse.ok) {
       const status = aiResponse.status;
@@ -158,7 +180,11 @@ Return ONLY a JSON array of 3 strings, no other text. Example: ["insight 1", "in
       insights = [];
     }
 
-    return new Response(JSON.stringify({ insights: insights.slice(0, 3) }), {
+    insights = insights.slice(0, 3).filter((i) => typeof i === "string");
+    // Only a real answer is cached; an empty or failed one is retried on the next load.
+    if (insights.length > 0) cache.set(String(accountId), insights);
+
+    return new Response(JSON.stringify({ insights }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {

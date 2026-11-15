@@ -523,3 +523,31 @@ Deno.test("a caller without the service-role key is refused", async () => {
     restore();
   }
 });
+
+Deno.test("a list that hits the page cap counts as a failed folder and skips the delete", async () => {
+  const original = globalThis.fetch;
+  let osmoPages = 0;
+  globalThis.fetch = ((input: string | URL | Request) => {
+    const url = String(input);
+    const json = (body: unknown) =>
+      Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } }));
+    if (url.includes("/space/")) return json(FOLDERS);
+    const listId = url.match(/\/list\/([^/]+)\/task/)?.[1] ?? "";
+    if (listId === "l-osmo") {
+      osmoPages++;
+      // Never says last_page and never runs dry: the cap is what stops the read.
+      return json({ tasks: [{ id: `t-${osmoPages}`, name: "November Asset 5", status: { status: "client review" }, date_updated: String(NOW) }], last_page: false });
+    }
+    return json({ tasks: TASKS[listId] ?? [], last_page: true });
+  }) as typeof fetch;
+  try {
+    const { supabase, calls } = makeRecorder();
+    const json = await (await mod.handler(makeReq(), supabase)).json();
+    assertEquals(json.failedFolders, ["Osmo"]);
+    assertEquals(json.deleteSkipped, true);
+    assertEquals(osmoPages, 50, "the read stops at the page cap");
+    assert(!calls.some((c) => c.method === "delete"), "a truncated list must never drive a delete");
+  } finally {
+    globalThis.fetch = original;
+  }
+});

@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { type Caller, resolveCaller } from "../_shared/internal-auth.ts";
 import { ANTHROPIC_URL, type FetchLike, stripJsonFence } from "../_shared/meeting-recaps.ts";
+import { fetchWithTimeout } from "../_shared/fetch-with-timeout.ts";
 
 // Ask the Brain (Goodo OS story OS-026).
 //
@@ -122,7 +123,7 @@ class ModelError extends Error {}
 async function askModel(
   opts: { apiKey: string; model: string; question: string; passages: readonly Passage[]; fetch?: FetchLike },
 ): Promise<{ answer: string; used: number[] } | null> {
-  const fetcher: FetchLike = opts.fetch ?? ((input, init) => fetch(input, init));
+  const fetcher: FetchLike = opts.fetch ?? ((input, init) => fetchWithTimeout(input as string, init, { timeoutMs: 45_000, retries: 1 }));
   const numbered = opts.passages.map((p, i) => ({ n: i + 1, page: p.title, text: p.passage }));
   const res = await fetcher(ANTHROPIC_URL, {
     method: "POST",
