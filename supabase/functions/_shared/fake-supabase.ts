@@ -34,6 +34,8 @@ export interface FakeConfig {
   deleteUserError?: { message: string };
   /** Errors for writes, keyed "verb:table" (for example "insert:user_roles"). */
   writeErrors?: Record<string, { message: string; code?: string }>;
+  /** Rows returned by a write that asks for them (".select()" after update), keyed "verb:table". A function sees the op. */
+  writeData?: Record<string, unknown[] | ((op: Op) => unknown[])>;
 }
 
 export function fakeSupabase(cfg: FakeConfig = {}) {
@@ -42,7 +44,12 @@ export function fakeSupabase(cfg: FakeConfig = {}) {
   const admin = { created: [] as unknown[], deleted: [] as string[] };
 
   const answerFor = (op: Op, single: boolean): Result => {
-    if (op.verb !== "select") return { data: null, error: cfg.writeErrors?.[`${op.verb}:${op.table}`] ?? null };
+    if (op.verb !== "select") {
+      const key = `${op.verb}:${op.table}`;
+      const wd = cfg.writeData?.[key];
+      const data = typeof wd === "function" ? wd(op) : (wd ?? null);
+      return { data, error: cfg.writeErrors?.[key] ?? null };
+    }
     let t = cfg.tables?.[op.table];
     if (typeof t === "function") t = t(op);
     if (t && !Array.isArray(t) && typeof t === "object" && "data" in t) return t as Result;

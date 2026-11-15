@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
-import { isStaffUser } from "../_shared/account-access.ts";
+import { hasAccountAccess as verifyAccountOwnership, isStaffUser } from "../_shared/account-access.ts";
 import {
   parseTaxonomyRequest,
   selectSeedFromRows,
@@ -24,14 +24,6 @@ import {
 // unaffected — a taxonomy edit can never demote an existing creative tag.
 
 // Builders and employees have global access; clients must have a user_accounts row.
-// deno-lint-ignore no-explicit-any
-async function verifyAccountOwnership(supabase: any, userId: string, accountId: string): Promise<boolean> {
-  const { data: role } = await supabase.rpc("get_user_role", { _user_id: userId });
-  if (role === "builder" || role === "employee") return true;
-  const { data, error } = await supabase
-    .from("user_accounts").select("1").eq("user_id", userId).eq("account_id", accountId).maybeSingle();
-  return !error && data !== null;
-}
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {

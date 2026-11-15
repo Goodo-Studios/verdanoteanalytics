@@ -169,20 +169,37 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
 
     // DELETE /accounts/:id — delete account
     if (req.method === "DELETE" && path) {
-      // Delete related data first to avoid foreign key violations
-      await supabase.from("creative_daily_metrics").delete().eq("account_id", path);
-      await supabase.from("creatives").delete().eq("account_id", path);
-      await supabase.from("name_mappings").delete().eq("account_id", path);
-      await supabase.from("sync_logs").delete().eq("account_id", path);
-      await supabase.from("reports").delete().eq("account_id", path);
-      await supabase.from("ai_insights").delete().eq("account_id", path);
-      await supabase.from("user_accounts").delete().eq("account_id", path);
-
-      const { error } = await supabase
-        .from("ad_accounts")
-        .delete()
-        .eq("id", path);
-      if (error) throw error;
+      // Builder only: this hard-deletes the account and everything under it.
+      if (!roles.includes("builder")) {
+        return new Response(JSON.stringify({ error: "Forbidden: builder only" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      // Delete related data first to avoid foreign key violations. Stop on the first error so
+      // a failure never leaves the account half-deleted with later steps silently skipped.
+      const steps: Array<[string, string]> = [
+        ["creative_daily_metrics", "account_id"],
+        ["creatives", "account_id"],
+        ["name_mappings", "account_id"],
+        ["sync_logs", "account_id"],
+        ["reports", "account_id"],
+        ["ai_insights", "account_id"],
+        ["user_accounts", "account_id"],
+        ["ad_accounts", "id"],
+      ];
+      const done: string[] = [];
+      for (const [table, col] of steps) {
+        const { error } = await supabase.from(table).delete().eq(col, path);
+        if (error) {
+          console.error(`Account delete failed at ${table}:`, error.message);
+          return new Response(JSON.stringify({
+            error: `Account delete stopped at ${table}. Earlier steps were already applied.`,
+            failed_at: table,
+            completed: done,
+          }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        done.push(table);
+      }
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -201,42 +218,83 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
         });
       }
 
-      let upserted = 0;
+      // Bulk upsert in chunks (one request per chunk, not per row). A row with no code cannot
+      // be keyed, and a repeated code inside one statement makes Postgres reject the chunk,
+      // so the last row for a code wins.
+      const byCode = new Map<string, Record<string, unknown>>();
       for (const m of mappings) {
+        const code = m.unique_code || m.UniqueCode;
+        if (!code) continue;
+        byCode.set(String(code), {
+          account_id: accountId,
+          unique_code: String(code),
+          ad_type: m.ad_type || m.Type,
+          person: m.person || m.Person,
+          style: m.style || m.Style,
+          product: m.product || m.Product,
+          hook: m.hook || m.Hook,
+          theme: m.theme || m.Theme,
+        });
+      }
+      const rowsToUpsert = [...byCode.values()];
+      let upserted = 0;
+      for (let i = 0; i < rowsToUpsert.length; i += 500) {
+        const chunk = rowsToUpsert.slice(i, i + 500);
         const { error } = await supabase
           .from("name_mappings")
-          .upsert({
-            account_id: accountId,
-            unique_code: m.unique_code || m.UniqueCode,
-            ad_type: m.ad_type || m.Type,
-            person: m.person || m.Person,
-            style: m.style || m.Style,
-            product: m.product || m.Product,
-            hook: m.hook || m.Hook,
-            theme: m.theme || m.Theme,
-          }, { onConflict: "account_id,unique_code" });
-        if (!error) upserted++;
+          .upsert(chunk, { onConflict: "account_id,unique_code" });
+        if (error) throw error;
+        upserted += chunk.length;
       }
 
-      // Re-match untagged creatives
-      const { data: untagged } = await supabase
-        .from("creatives")
-        .select("ad_id, unique_code")
-        .eq("account_id", accountId)
-        .eq("tag_source", "untagged");
+      // Re-match untagged creatives. Read every untagged creative (paged past the 1000-row cap)
+      // and every mapping for the account once, then update once per code.
+      const untagged: Array<{ ad_id: string; unique_code: string | null }> = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase
+          .from("creatives")
+          .select("ad_id, unique_code")
+          .eq("account_id", accountId)
+          .eq("tag_source", "untagged")
+          .order("ad_id")
+          .range(from, from + 999);
+        if (error) throw error;
+        untagged.push(...(data || []));
+        if (!data || data.length < 1000) break;
+      }
 
-      let matched = 0;
-      for (const creative of untagged || []) {
-        if (!creative.unique_code) continue;
-        const { data: mapping } = await supabase
+      const mappingByCode = new Map<string, Record<string, unknown>>();
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase
           .from("name_mappings")
           .select("*")
           .eq("account_id", accountId)
-          .eq("unique_code", creative.unique_code)
-          .single();
+          .order("unique_code")
+          .range(from, from + 999);
+        if (error) throw error;
+        for (const row of data || []) mappingByCode.set(row.unique_code, row);
+        if (!data || data.length < 1000) break;
+      }
 
-        if (mapping) {
-          await supabase
+      const adIdsByCode = new Map<string, string[]>();
+      const unmatched = new Set<string>();
+      for (const creative of untagged) {
+        if (!creative.unique_code) continue;
+        if (mappingByCode.has(creative.unique_code)) {
+          const list = adIdsByCode.get(creative.unique_code) ?? [];
+          list.push(creative.ad_id);
+          adIdsByCode.set(creative.unique_code, list);
+        } else {
+          unmatched.add(creative.unique_code);
+        }
+      }
+
+      let matched = 0;
+      for (const [code, adIds] of adIdsByCode) {
+        const mapping = mappingByCode.get(code)!;
+        for (let i = 0; i < adIds.length; i += 100) {
+          const ids = adIds.slice(i, i + 100);
+          const { error } = await supabase
             .from("creatives")
             .update({
               ad_type: mapping.ad_type,
@@ -247,8 +305,10 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
               theme: mapping.theme,
               tag_source: "csv_match",
             })
-            .eq("ad_id", creative.ad_id);
-          matched++;
+            .in("ad_id", ids)
+            .eq("tag_source", "untagged");
+          if (error) throw error;
+          matched += ids.length;
         }
       }
 
@@ -264,15 +324,17 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
         .eq("account_id", accountId)
         .eq("tag_source", "untagged");
 
-      await supabase
+      const { error: countsError } = await supabase
         .from("ad_accounts")
         .update({ creative_count: totalCount || 0, untagged_count: untaggedCount || 0 })
         .eq("id", accountId);
+      if (countsError) throw countsError;
 
       return new Response(JSON.stringify({
         upserted,
         matched,
-        unmatchedCodes: upserted - matched,
+        // Distinct codes on still-untagged creatives that have no mapping.
+        unmatchedCodes: unmatched.size,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

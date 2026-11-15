@@ -1,3 +1,4 @@
+import { hasAccountAccess as verifyAccountOwnership } from "../_shared/account-access.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
@@ -11,14 +12,6 @@ import { corsHeaders } from "../_shared/cors.ts";
 // then invoke the RPC with the service-role client. Aggregation stays in SQL.
 
 // Builders and employees have global access; clients must have a user_accounts row.
-// deno-lint-ignore no-explicit-any
-async function verifyAccountOwnership(supabase: any, userId: string, accountId: string): Promise<boolean> {
-  const { data: role } = await supabase.rpc("get_user_role", { _user_id: userId });
-  if (role === "builder" || role === "employee") return true;
-  const { data, error } = await supabase
-    .from("user_accounts").select("1").eq("user_id", userId).eq("account_id", accountId).maybeSingle();
-  return !error && data !== null;
-}
 
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
