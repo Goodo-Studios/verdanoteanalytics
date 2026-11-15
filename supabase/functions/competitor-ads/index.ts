@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { logSafeError } from "../_shared/safe-error.ts";
 
 
 const json = (data: any, status = 200) =>
@@ -222,7 +223,7 @@ serve(async (req) => {
 
     return json({ error: "Not found" }, 404);
   } catch (err) {
-    console.error("competitor-ads error:", err);
-    return json({ error: (err as Error).message || "Internal error" }, 500);
+    logSafeError("competitor-ads error", err);
+    return json({ error: "Internal error" }, 500);
   }
 });

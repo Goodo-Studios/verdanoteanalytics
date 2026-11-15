@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
+import { safeErrorResponse } from "../_shared/safe-error.ts";
 
 
 serve(async (req) => {
@@ -199,11 +200,7 @@ serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {
-    console.error("scheduled-sync error:", e);
-    return new Response(JSON.stringify({ error: String(e) }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return safeErrorResponse(e, corsHeaders, { context: "scheduled-sync error" });
   }
 });
 
