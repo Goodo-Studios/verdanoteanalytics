@@ -147,7 +147,8 @@ Deno.test("input checks", async () => {
 
 Deno.test("fails closed without either key: 503, no request, no read", async () => {
   for (const env of [{ ANTHROPIC_API_KEY: "x" }, { FIREFLIES_API_KEY: "x" }, { FIREFLIES_API_KEY: "  ", ANTHROPIC_API_KEY: "x" }]) {
-    const r = await run(GOOD, { env });
+    // A key that is not in this env object reads as undefined, which is the "not set" case.
+    const r = await run(GOOD, { env: env as Record<string, string> });
     assertEquals(r.res.status, 503);
     assertStringIncludes(r.json.error, "is not set");
     assertEquals(r.seen.length, 0);
@@ -251,7 +252,7 @@ Deno.test("a rejected model key or Fireflies key is a 503 and nothing is recorde
 // ── rules ──────────────────────────────────────────────────────────────────────
 
 const EX: RecapExcerpt[] = [{ excerptId: "e1", speaker: "Pat", startedAt: "2026-11-02T15:00:00Z", text: "We will ship 3 ads next week. Budget stays." }];
-const cite = (quote: string) => [{ excerptId: "e1", ...citationSpan(EX, "e1", quote) }];
+const cite = (quote: string) => [citationSpan(EX, "e1", quote)];
 
 Deno.test("validateRecapCandidates: numbers must be in the quote, actions only on actions, vague dates uncertain", () => {
   const { accepted, rejected } = validateRecapCandidates([

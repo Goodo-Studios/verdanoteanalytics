@@ -680,7 +680,7 @@ Deno.test(
 
 Deno.test(
   "US-007: overlapping incremental windows across successive syncs never drop or double-count a day",
-  async () => {
+  () => {
     // Model three daily syncs whose ~28d windows overlap heavily. Every day in the
     // union must end up stored exactly once, with the newest value — i.e. no gap
     // between windows and no double-count from the overlap.

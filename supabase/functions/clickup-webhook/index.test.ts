@@ -37,7 +37,7 @@ function seed() {
     os_tasks: [
       { id: "app-t2", clickup_task_id: "t2", title: "November Asset 2", status: "internal review", client_slug: "bearaby", read_only: false, last_synced_at: OLD },
       { id: "app-r1", clickup_task_id: "r1", title: "September Asset 1", status: "editing", client_slug: "royo", read_only: true, last_synced_at: OLD },
-    ],
+    ] as Record<string, unknown>[],
   };
 }
 

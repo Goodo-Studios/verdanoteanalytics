@@ -97,7 +97,7 @@ Deno.serve(
       // Builders/employees may dispatch for any account; clients must have a
       // user_accounts row linking them to the account.
       if (account_id) {
-        const { data: link, error: linkError } = await supabase
+        const { data: link } = await supabase
           .from("user_accounts")
           .select("account_id")
           .eq("user_id", userId)

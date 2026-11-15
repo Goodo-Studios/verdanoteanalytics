@@ -1,0 +1,34 @@
+version: 2
+
+# Weekly update PRs, one grouped PR per ecosystem, at most two open at a time. Pull requests target
+# staging, so nothing reaches main without the normal staging promotion. Dependabot reads this file
+# from the default branch, so it starts working once this change is promoted to main.
+updates:
+  - package-ecosystem: npm
+    directory: /
+    target-branch: staging
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 2
+    groups:
+      npm-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: staging
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 2
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(ci)"

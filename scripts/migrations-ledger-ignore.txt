@@ -1,0 +1,4 @@
+# Migration versions the migrations-pending job should not report.
+# One version (the digits before the first underscore in the file name) per line.
+# Add a line only for a file that production is known to have received under a different version
+# or that must never be applied there, and say why in a comment on the line above it.
