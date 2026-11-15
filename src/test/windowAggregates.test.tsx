@@ -19,7 +19,13 @@ import type { ReactNode } from "react";
 
 const rpc = vi.fn();
 vi.mock("@/integrations/supabase/client", () => ({
-  supabase: { rpc: (...args: unknown[]) => rpc(...args) },
+  supabase: {
+    rpc: (...args: unknown[]) => rpc(...args),
+    // Ad-name lookup against creatives: no names in these fixtures.
+    from: () => ({
+      select: () => ({ eq: () => ({ in: () => Promise.resolve({ data: [], error: null }) }) }),
+    }),
+  },
 }));
 
 import {
@@ -50,10 +56,10 @@ afterEach(() => {
 });
 
 describe("resolveWindowRange", () => {
-  it("produces an inclusive window: a 30d request spans 29 prior days + today", () => {
+  it("produces an inclusive window ending yesterday: a 30d request spans 29 prior days + yesterday", () => {
     const now = new Date("2026-07-14T12:00:00Z");
     const { from, to } = resolveWindowRange(30, now);
-    expect(to).toBe("2026-07-14");
+    expect(to).toBe("2026-07-13");
     expect(dayDiff(from, to)).toBe(29); // inclusive endpoints
   });
 

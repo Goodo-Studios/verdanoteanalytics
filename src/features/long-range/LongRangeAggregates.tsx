@@ -27,7 +27,10 @@ function fmtInt(n: number): string {
   return new Intl.NumberFormat("en-US").format(Math.round(n));
 }
 
-function fmtMoney(n: number): string {
+const DASH = "–";
+
+function fmtMoney(n: number | null): string {
+  if (n == null) return DASH;
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -35,8 +38,8 @@ function fmtMoney(n: number): string {
   }).format(n);
 }
 
-function fmtRatio(n: number, digits = 2): string {
-  return n.toFixed(digits);
+function fmtRatio(n: number | null, digits = 2): string {
+  return n == null ? DASH : n.toFixed(digits);
 }
 
 export function LongRangeAggregates({ accountId }: LongRangeAggregatesProps) {
@@ -46,12 +49,21 @@ export function LongRangeAggregates({ accountId }: LongRangeAggregatesProps) {
   const rows = data ?? [];
 
   const columns: DataColumn<(typeof rows)[number]>[] = [
-    { key: "ad", header: "Ad", cell: (r) => <span className="font-mono text-xs text-muted-foreground">{r.ad_id}</span> },
+    {
+      key: "ad",
+      header: "Ad",
+      cell: (r) =>
+        r.ad_name ? (
+          <span className="text-sm" title={r.ad_id}>{r.ad_name}</span>
+        ) : (
+          <span className="font-mono text-xs text-muted-foreground">{r.ad_id}</span>
+        ),
+    },
     { key: "spend", header: "Spend", align: "right", cell: (r) => fmtMoney(r.spend) },
     { key: "impr", header: "Impr.", align: "right", cell: (r) => fmtInt(r.impressions) },
     { key: "purch", header: "Purch.", align: "right", cell: (r) => fmtInt(r.purchases) },
     { key: "roas", header: "ROAS", align: "right", cell: (r) => fmtRatio(r.roas) },
-    { key: "cpa", header: "CPA", align: "right", cell: (r) => fmtMoney(r.cpa) },
+    { key: "cpa", header: "CPA", align: "right", cell: (r) => (r.purchases > 0 ? fmtMoney(r.cpa) : DASH) },
   ];
 
   return (
@@ -87,11 +99,13 @@ export function LongRangeAggregates({ accountId }: LongRangeAggregatesProps) {
         />
       )}
 
-      {isLoading && <LoadingState label="Loading window aggregates" />}
+      {accountId && isLoading && <LoadingState label="Loading window aggregates" />}
 
-      {!isLoading && !isError && rows.length === 0 && <EmptyState title={`No data for the last ${WINDOW_LABELS[days]}.`} />}
+      {!accountId && <EmptyState title="Select an account to see long-range aggregates." />}
 
-      {!isLoading && !isError && rows.length > 0 && (
+      {accountId && !isLoading && !isError && rows.length === 0 && <EmptyState title={`No data for the last ${WINDOW_LABELS[days]}.`} />}
+
+      {accountId && !isLoading && !isError && rows.length > 0 && (
         <DataTable label="Ads in this window" columns={columns} rows={rows} rowKey={(r) => r.ad_id} />
       )}
     </div>
