@@ -282,7 +282,7 @@ Deno.test("errorMessage surfaces plain-object Supabase errors (not 'Unknown erro
   assertEquals(mod.errorMessage(undefined), "Unknown error");
 });
 
-Deno.test("handler returns the real DB error message on a failed upsert (no opaque 500)", async () => {
+Deno.test("handler returns a generic 500 on a failed upsert and does not leak DB error text", async () => {
   // Mock client whose .single() rejects the way supabase-js does: a plain object.
   const failing = {
     from: () => failing,
@@ -304,9 +304,10 @@ Deno.test("handler returns the real DB error message on a failed upsert (no opaq
   assertEquals(res.status, 500);
   const json = await res.json();
   assertEquals(json.success, false);
-  assertStringIncludes(json.error, "ON CONFLICT specification");
-  assertStringIncludes(json.error, "42P10");
-  assert(json.error !== "Unknown error");
+  // Raw error text is logged server-side only; callers get a fixed message.
+  assertEquals(json.error, "Internal server error");
+  assert(!JSON.stringify(json).includes("ON CONFLICT"));
+  assert(!JSON.stringify(json).includes("42P10"));
 });
 
 Deno.test("briefs idempotency index is NON-partial (regression: 42P10 ON CONFLICT inference)", async () => {

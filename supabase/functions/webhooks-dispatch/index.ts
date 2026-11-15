@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { withApiAuth, corsHeaders } from "../_shared/api-auth.ts";
+import { safeErrorResponse } from "../_shared/safe-error.ts";
 
 async function hmacSign(secret: string, payload: string): Promise<string> {
   const enc = new TextEncoder();
@@ -234,11 +235,7 @@ Deno.serve(
         }
       );
     } catch (e: any) {
-      console.error("webhooks-dispatch error:", e);
-      return new Response(JSON.stringify({ error: e.message }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return safeErrorResponse(e, corsHeaders, { context: "webhooks-dispatch error" });
     }
   })
 );

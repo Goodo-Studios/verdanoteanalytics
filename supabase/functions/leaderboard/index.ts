@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { safeErrorResponse } from "../_shared/safe-error.ts";
 
 // Session-authed sibling of the external `api` /library route.
 //
@@ -60,9 +61,7 @@ serve(async (req) => {
   const token = authHeader.replace("Bearer ", "");
   const { data: { user }, error: authError } = await supabase.auth.getUser(token);
   if (authError || !user) {
-    return new Response(JSON.stringify({ error: "Unauthorized", detail: authError?.message }), {
-      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return safeErrorResponse(authError, corsHeaders, { status: 401, context: "leaderboard auth" });
   }
 
   const url = new URL(req.url);
@@ -126,9 +125,6 @@ serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
-    return new Response(
-      JSON.stringify({ error: err instanceof Error ? err.message : "Internal error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return safeErrorResponse(err, corsHeaders, { message: "Internal error", context: "leaderboard error" });
   }
 });

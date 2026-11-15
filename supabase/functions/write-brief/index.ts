@@ -38,6 +38,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { logSafeError } from "../_shared/safe-error.ts";
 
 // ---- Constants -------------------------------------------------------------
 
@@ -244,8 +245,9 @@ export async function handler(req: Request, supabaseOverride?: unknown): Promise
     console.log("write-brief:", JSON.stringify(summary));
     return json(summary, 200);
   } catch (err: unknown) {
-    console.error("write-brief error:", err);
-    return json({ success: false, error: errorMessage(err) }, 500);
+    // Log redacted detail server-side; never return raw error text to the caller.
+    logSafeError("write-brief error", errorMessage(err));
+    return json({ success: false, error: "Internal server error" }, 500);
   }
 }
 
