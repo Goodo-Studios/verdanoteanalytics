@@ -8,7 +8,7 @@
 -- that the two new tables are closed to browser roles. All rows are made up, dates in 2020.
 
 BEGIN;
-SELECT plan(17);
+SELECT plan(20);
 
 INSERT INTO public.ad_accounts (id, name, last_synced_at) VALUES
   ('act_rl_a', 'RL A', now()), ('act_rl_b', 'RL B', now());
@@ -105,6 +105,52 @@ SELECT is(
    ) x),
   0,
   'every raw account-day has a matching rollup row after inserts, upserts, updates, a move and a delete'
+);
+
+-- Ordered upserts (migration 20261215140001): the trigger functions sort the aggregate before the
+-- INSERT ... ON CONFLICT so concurrent batches lock rollup rows in one fixed order (no 40P01).
+SELECT ok(
+  pg_get_functiondef('public.creative_daily_metrics_rollup_insert()'::regprocedure) LIKE '%ORDER BY g.account_id, g.date%'
+  AND pg_get_functiondef('public.creative_daily_metrics_rollup_update()'::regprocedure) LIKE '%ORDER BY g.account_id, g.date%'
+  AND pg_get_functiondef('public.creative_daily_metrics_rollup_delete()'::regprocedure) LIKE '%FOR UPDATE OF r%'
+  AND pg_get_functiondef('public.widen_creative_ad_spend_span(text[], text[], date[])'::regprocedure) LIKE '%ORDER BY g.ad_id%',
+  'rollup and span trigger functions sort their aggregates before upserting'
+);
+
+-- A multi-account, multi-day batch given in reverse key order still lands exactly (sums and spans).
+-- Uses its own accounts and ads in April so the period checks below are unaffected.
+INSERT INTO public.ad_accounts (id, name, last_synced_at) VALUES
+  ('act_rl_c', 'RL C', now()), ('act_rl_d', 'RL D', now());
+INSERT INTO public.creatives (ad_id, account_id, ad_name, ad_type, hook, spend, purchases, purchase_value) VALUES
+  ('rl_c1', 'act_rl_c', 'RLC1', 'Image', 'H1', 0, 0, 0),
+  ('rl_c2', 'act_rl_c', 'RLC2', 'Image', 'H2', 0, 0, 0),
+  ('rl_d1', 'act_rl_d', 'RLD1', 'Image', 'H1', 0, 0, 0);
+INSERT INTO public.creative_daily_metrics
+  (ad_id, account_id, date, impressions, spend, clicks, purchases, purchase_value, adds_to_cart, video_views, frequency)
+VALUES
+  ('rl_d1', 'act_rl_d', '2020-04-02', 10, 4, 1, 1, 8, 0, 0, 1),
+  ('rl_c1', 'act_rl_c', '2020-04-02', 20, 6, 2, 0, 0, 0, 0, 1),
+  ('rl_c2', 'act_rl_c', '2020-04-01', 30, 7, 3, 1, 9, 0, 0, 1),
+  ('rl_c1', 'act_rl_c', '2020-04-01', 40, 8, 4, 1, 11, 0, 0, 1);
+UPDATE public.creative_daily_metrics SET spend = spend + 1, impressions = impressions + 1
+ WHERE account_id IN ('act_rl_c', 'act_rl_d');
+DELETE FROM public.creative_daily_metrics WHERE ad_id = 'rl_c2' AND date = '2020-04-01';
+
+SELECT results_eq(
+  $$SELECT account_id, date, spend, impressions, purchases FROM public.creative_daily_rollup
+     WHERE account_id IN ('act_rl_c', 'act_rl_d') ORDER BY account_id, date$$,
+  $$VALUES ('act_rl_c'::text, '2020-04-01'::date, 9::numeric, 41::bigint, 1::bigint),
+           ('act_rl_c', '2020-04-02', 7, 21, 0),
+           ('act_rl_d', '2020-04-02', 5, 11, 1)$$,
+  'a reverse-ordered batch insert, update and delete leave exact day totals'
+);
+SELECT results_eq(
+  $$SELECT ad_id, first_date, last_date FROM public.creative_ad_spend_span
+     WHERE ad_id IN ('rl_c1', 'rl_c2', 'rl_d1') ORDER BY ad_id$$,
+  $$VALUES ('rl_c1'::text, '2020-04-01'::date, '2020-04-02'::date),
+           ('rl_c2', '2020-04-01', '2020-04-01'),
+           ('rl_d1', '2020-04-02', '2020-04-02')$$,
+  'spans come out right through the ordered span upsert'
 );
 
 SET LOCAL ROLE service_role;

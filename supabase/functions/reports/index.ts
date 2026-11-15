@@ -5,6 +5,8 @@ import { corsHeaders } from "../_shared/cors.ts";
 // classifier. This used to be an ad-hoc `roas > 1` filter here, which agreed
 // with neither the Library nor the Overview.
 import { selectWinnersBySpend } from "../_shared/creative-classification.ts";
+import { computeBlendedMetrics, roundOrNull } from "../_shared/metric-math.ts";
+import { validateAccountIds, validateDateRange } from "../_shared/report-input.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
@@ -87,6 +89,10 @@ function computeDiagnostics(creatives: any[]) {
   return { counts, suggestions };
 }
 
+function jsonError(message: string, status: number): Response {
+  return new Response(JSON.stringify({ error: message }), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+}
+
 function cleanAdName(name: string): string {
   if (!name) return "Unknown";
   const m = name.match(/(?:^|>)iName:([^>]+)/i);
@@ -161,7 +167,10 @@ async function aggregateDailyMetrics(supabase: any, accountId: string | null, da
     .from("creative_daily_metrics")
     .select("*")
     .gte("date", dateStart)
-    .lte("date", dateEnd);
+    .lte("date", dateEnd)
+    // Offset paging needs a total order or pages can skip/duplicate rows; (ad_id, date) is the primary key.
+    .order("ad_id", { ascending: true })
+    .order("date", { ascending: true });
   if (accountId) dmQuery = dmQuery.eq("account_id", accountId);
 
   // Paginate to handle >1000 rows
@@ -293,18 +302,23 @@ serve(async (req) => {
       const body = await req.json();
       const { report_name, account_id, date_start, date_end } = body;
 
-      const dateStart = date_start || new Date(Date.now() - 7 * 86400000).toISOString().split("T")[0];
-      const dateEnd = date_end || new Date().toISOString().split("T")[0];
-      const days = Math.ceil((new Date(dateEnd).getTime() - new Date(dateStart).getTime()) / 86400000) + 1;
+      const range = validateDateRange(date_start, date_end, {
+        start: new Date(Date.now() - 7 * 86400000).toISOString().split("T")[0],
+        end: new Date().toISOString().split("T")[0],
+      });
+      if (!range.ok) return jsonError(range.error, 400);
+      const { dateStart, dateEnd, days } = range;
+      if (account_id != null && account_id !== "") {
+        const one = validateAccountIds([account_id]);
+        if (!one.ok) return jsonError("account_id must be a valid account id string", 400);
+      }
 
       // Aggregate from daily metrics
       const list = await aggregateDailyMetrics(supabase, account_id || null, dateStart, dateEnd);
 
-      const totalSpend = list.reduce((s: number, c: any) => s + Number(c.spend || 0), 0);
-      const avgField = (field: string) => {
-        if (list.length === 0) return 0;
-        return list.reduce((s: number, c: any) => s + Number(c[field] || 0), 0) / list.length;
-      };
+      // Blended ratios come from summed totals (null when the denominator is 0), not a mean of per-creative ratios.
+      const blended = computeBlendedMetrics(list);
+      const totalSpend = blended.spend;
 
       const winners = selectWinnersBySpend(list as { spend?: number | null }[]);
       const winRate = list.length > 0 ? (winners.length / list.length) * 100 : 0;
@@ -331,9 +345,9 @@ serve(async (req) => {
         account_id: account_id || null,
         creative_count: list.length,
         total_spend: Math.round(totalSpend * 100) / 100,
-        blended_roas: Math.round(avgField("roas") * 100) / 100,
-        average_cpa: Math.round(avgField("cpa") * 100) / 100,
-        average_ctr: Math.round(avgField("ctr") * 100) / 100,
+        blended_roas: roundOrNull(blended.roas, 2),
+        average_cpa: roundOrNull(blended.cpa, 2),
+        average_ctr: roundOrNull(blended.ctr, 2),
         win_rate: Math.round(winRate * 100) / 100,
         tags_parsed_count: tagCounts.parsed,
         tags_csv_count: tagCounts.csv_match,
@@ -360,10 +374,15 @@ serve(async (req) => {
       }
 
       const body = await req.json();
-      const { account_ids, date_start, date_end, report_name } = body;
-      const dateStart = date_start;
-      const dateEnd = date_end;
-      const days = Math.ceil((new Date(dateEnd).getTime() - new Date(dateStart).getTime()) / 86400000) + 1;
+      const { date_start, date_end, report_name } = body;
+      const range = validateDateRange(date_start, date_end);
+      if (!range.ok) return jsonError(range.error, 400);
+      const { dateStart, dateEnd, days } = range;
+      const ids = validateAccountIds(body.account_ids, { min: 1 });
+      if (!ids.ok) return jsonError(ids.error, 400);
+      const account_ids = ids.accountIds;
+      // Portfolio reports are private unless the caller asks for a public one explicitly.
+      const isPublic = body.is_public === true;
 
       // Get account details
       const { data: accts } = await supabase.from("ad_accounts").select("id, name, target_roas, target_cpa").in("id", account_ids);
@@ -376,14 +395,13 @@ serve(async (req) => {
 
       for (const accountId of account_ids) {
         const list = await aggregateDailyMetrics(supabase, accountId, dateStart, dateEnd);
-        const totalSpend = list.reduce((s: number, c: any) => s + Number(c.spend || 0), 0);
-        const totalPurchases = list.reduce((s: number, c: any) => s + Number(c.purchases || 0), 0);
-        const totalPurchaseValue = list.reduce((s: number, c: any) => s + Number(c.purchase_value || 0), 0);
-        const avgField = (field: string) => list.length === 0 ? 0 : list.reduce((s: number, c: any) => s + Number(c[field] || 0), 0) / list.length;
+        const acct = computeBlendedMetrics(list);
+        const totalSpend = acct.spend;
+        const totalPurchases = acct.purchases;
         const winners = selectWinnersBySpend(list as { spend?: number | null }[]);
         const winRate = list.length > 0 ? (winners.length / list.length) * 100 : 0;
-        const blendedRoas = totalSpend > 0 ? totalPurchaseValue / totalSpend : 0;
-        const avgCpa = totalPurchases > 0 ? totalSpend / totalPurchases : 0;
+        const blendedRoas = acct.roas;
+        const avgCpa = acct.cpa;
 
         // Get top creative for this account
         const sorted = [...list].sort((a: any, b: any) => Number(b.roas || 0) - Number(a.roas || 0));
@@ -394,6 +412,9 @@ serve(async (req) => {
           spend: totalSpend,
           roas: blendedRoas,
           cpa: avgCpa,
+          impressions: acct.impressions,
+          clicks: acct.clicks,
+          purchase_value: acct.purchase_value,
           purchases: totalPurchases,
           win_rate: winRate,
           creative_count: list.length,
@@ -413,11 +434,11 @@ serve(async (req) => {
       }
 
       // Portfolio totals
-      const portfolioSpend = Object.values(accountData).reduce((s: number, a: any) => s + a.spend, 0);
-      const portfolioPurchaseValue = allCreatives.reduce((s: number, c: any) => s + Number(c.purchase_value || 0), 0);
-      const portfolioRoas = portfolioSpend > 0 ? portfolioPurchaseValue / portfolioSpend : 0;
-      const portfolioPurchases = Object.values(accountData).reduce((s: number, a: any) => s + a.purchases, 0);
-      const portfolioCpa = portfolioPurchases > 0 ? portfolioSpend / portfolioPurchases : 0;
+      const portfolio = computeBlendedMetrics(allCreatives);
+      const portfolioSpend = portfolio.spend;
+      const portfolioRoas = portfolio.roas;
+      const portfolioCpa = portfolio.cpa;
+      const portfolioCtr = portfolio.ctr;
       const portfolioCreativeCount = allCreatives.length;
 
       // Top 3 winners across all accounts (minimum $100 spend)
@@ -439,7 +460,7 @@ serve(async (req) => {
       if (ANTHROPIC_API_KEY && allCreatives.length > 0) {
         try {
           const accountSummaries = Object.entries(accountData).map(([id, d]: [string, any]) =>
-            `${d.name}: $${d.spend.toFixed(0)} spend, ${d.roas.toFixed(2)}x ROAS, ${d.win_rate.toFixed(0)}% win rate, ${d.creative_count} creatives`
+            `${d.name}: $${d.spend.toFixed(0)} spend, ${d.roas == null ? "n/a" : d.roas.toFixed(2)}x ROAS, ${d.win_rate.toFixed(0)}% win rate, ${d.creative_count} creatives`
           ).join("\n");
 
           const aiResp = await fetch(ANTHROPIC_URL, {
@@ -454,7 +475,7 @@ serve(async (req) => {
               max_tokens: 1024,
               system: "You are a creative performance analyst reviewing a multi-account portfolio. Return exactly 3-5 bullet points. Each bullet is a plain-English cross-account insight or recommendation. Focus on patterns across accounts, format comparisons, and strategic recommendations. No markdown.",
               messages: [
-                { role: "user", content: `Portfolio: ${account_ids.length} accounts. Period: ${dateStart} to ${dateEnd}. Total spend: $${portfolioSpend.toFixed(0)}. Blended ROAS: ${portfolioRoas.toFixed(2)}x. Total creatives: ${portfolioCreativeCount}.\n\nAccount breakdown:\n${accountSummaries}\n\nTop winners: ${JSON.stringify(portfolioWinners)}` },
+                { role: "user", content: `Portfolio: ${account_ids.length} accounts. Period: ${dateStart} to ${dateEnd}. Total spend: $${portfolioSpend.toFixed(0)}. Blended ROAS: ${portfolioRoas == null ? "n/a" : portfolioRoas.toFixed(2)}x. Total creatives: ${portfolioCreativeCount}.\n\nAccount breakdown:\n${accountSummaries}\n\nTop winners: ${JSON.stringify(portfolioWinners)}` },
               ],
               tools: [{
                 name: "return_insights",
@@ -495,14 +516,14 @@ serve(async (req) => {
       const report = {
         report_name: finalName,
         account_id: account_ids[0], // primary account for RLS
-        is_public: true,
+        is_public: isPublic,
         report_type: "portfolio",
         portfolio_account_ids: account_ids,
         creative_count: portfolioCreativeCount,
         total_spend: Math.round(portfolioSpend * 100) / 100,
-        blended_roas: Math.round(portfolioRoas * 100) / 100,
-        average_cpa: Math.round(portfolioCpa * 100) / 100,
-        average_ctr: 0,
+        blended_roas: roundOrNull(portfolioRoas, 2),
+        average_cpa: roundOrNull(portfolioCpa, 2),
+        average_ctr: roundOrNull(portfolioCtr, 2),
         win_rate: 0,
         top_performers: JSON.stringify(portfolioWinners),
         date_range_start: dateStart,
@@ -525,11 +546,14 @@ serve(async (req) => {
       }
 
       const body = await req.json();
-      const { account_ids, date_start, date_end, auto_share } = body;
+      const { date_start, date_end, auto_share } = body;
 
-      const dateStart = date_start;
-      const dateEnd = date_end;
-      const days = Math.ceil((new Date(dateEnd).getTime() - new Date(dateStart).getTime()) / 86400000) + 1;
+      const range = validateDateRange(date_start, date_end);
+      if (!range.ok) return jsonError(range.error, 400);
+      const { dateStart, dateEnd, days } = range;
+      const ids = validateAccountIds(body.account_ids, { min: 1 });
+      if (!ids.ok) return jsonError(ids.error, 400);
+      const account_ids = ids.accountIds;
 
       // Get month name for report naming
       const monthDate = new Date(dateStart);
@@ -548,11 +572,8 @@ serve(async (req) => {
         try {
           const list = await aggregateDailyMetrics(supabase, accountId, dateStart, dateEnd);
 
-          const totalSpend = list.reduce((s: number, c: any) => s + Number(c.spend || 0), 0);
-          const avgField = (field: string) => {
-            if (list.length === 0) return 0;
-            return list.reduce((s: number, c: any) => s + Number(c[field] || 0), 0) / list.length;
-          };
+          const blended = computeBlendedMetrics(list);
+          const totalSpend = blended.spend;
           const winners = selectWinnersBySpend(list as { spend?: number | null }[]);
           const winRate = list.length > 0 ? (winners.length / list.length) * 100 : 0;
 
@@ -593,7 +614,7 @@ serve(async (req) => {
                   max_tokens: 1024,
                   system: "You are a creative performance analyst. Return exactly 3-5 bullet points. Each bullet is a plain-English performance highlight. No markdown.",
                   messages: [
-                    { role: "user", content: `Account: ${accountName}. Period: ${monthName} ${year}. Total spend: $${totalSpend.toFixed(0)}. Blended ROAS: ${avgField("roas").toFixed(2)}x. Win rate: ${winRate.toFixed(0)}%. Creatives: ${list.length}. Top performers: ${JSON.stringify(top10)}` },
+                    { role: "user", content: `Account: ${accountName}. Period: ${monthName} ${year}. Total spend: $${totalSpend.toFixed(0)}. Blended ROAS: ${blended.roas == null ? "n/a" : blended.roas.toFixed(2)}x. Win rate: ${winRate.toFixed(0)}%. Creatives: ${list.length}. Top performers: ${JSON.stringify(top10)}` },
                   ],
                   tools: [{
                     name: "return_highlights",
@@ -635,9 +656,9 @@ serve(async (req) => {
             is_public: !!auto_share,
             creative_count: list.length,
             total_spend: Math.round(totalSpend * 100) / 100,
-            blended_roas: Math.round(avgField("roas") * 100) / 100,
-            average_cpa: Math.round(avgField("cpa") * 100) / 100,
-            average_ctr: Math.round(avgField("ctr") * 100) / 100,
+            blended_roas: roundOrNull(blended.roas, 2),
+            average_cpa: roundOrNull(blended.cpa, 2),
+            average_ctr: roundOrNull(blended.ctr, 2),
             win_rate: Math.round(winRate * 100) / 100,
             tags_parsed_count: tagCounts.parsed,
             tags_csv_count: tagCounts.csv_match,
@@ -652,8 +673,31 @@ serve(async (req) => {
             ...diagCounts,
           };
 
-          const { data: savedReport, error: insertErr } = await supabase.from("reports").insert(report).select().single();
-          if (insertErr) throw insertErr;
+          // Idempotency (no unique constraint exists, so this is a lookup, not a lock): a retry of the same
+          // rollup for the same account and period reuses the report it already created.
+          const { data: existingReports, error: existingErr } = await supabase
+            .from("reports")
+            .select("*")
+            .eq("account_id", accountId)
+            .eq("report_name", reportName)
+            .eq("date_range_start", dateStart)
+            .eq("date_range_end", dateEnd)
+            .eq("report_type", "standard")
+            .order("created_at", { ascending: true })
+            .order("id", { ascending: true })
+            .limit(1);
+          if (existingErr) throw existingErr;
+
+          let savedReport: any = existingReports?.[0] ?? null;
+          const reusedReport = !!savedReport;
+          if (!savedReport) {
+            const { data: inserted, error: insertErr } = await supabase.from("reports").insert(report).select().single();
+            if (insertErr) throw insertErr;
+            savedReport = inserted;
+          } else if (auto_share && !savedReport.is_public) {
+            const { error: shareErr } = await supabase.from("reports").update({ is_public: true }).eq("id", savedReport.id);
+            if (shareErr) throw shareErr;
+          }
 
           let sharedCount = 0;
           // Auto-share: create notifications for client users linked to this account
@@ -674,20 +718,33 @@ serve(async (req) => {
               const clientUserIds = (clientRoles || []).map((r: any) => r.user_id);
 
               if (clientUserIds.length > 0) {
-                const notifications = clientUserIds.map((uid: string) => ({
-                  user_id: uid,
-                  account_id: accountId,
-                  title: `New Report: ${reportName}`,
-                  body: `Your ${monthName} ${year} performance report is ready. View it in Reports.`,
-                  type: "report",
-                }));
-                await supabase.from("notifications").insert(notifications);
-                sharedCount = clientUserIds.length;
+                const title = `New Report: ${reportName}`;
+                // Skip clients who already got this exact notification (a retry must not notify twice).
+                const { data: alreadyNotified } = await supabase
+                  .from("notifications")
+                  .select("user_id")
+                  .eq("type", "report")
+                  .eq("account_id", accountId)
+                  .eq("title", title)
+                  .in("user_id", clientUserIds);
+                const notifiedIds = new Set((alreadyNotified || []).map((n: any) => n.user_id));
+                const pendingIds = clientUserIds.filter((uid: string) => !notifiedIds.has(uid));
+                if (pendingIds.length > 0) {
+                  const notifications = pendingIds.map((uid: string) => ({
+                    user_id: uid,
+                    account_id: accountId,
+                    title,
+                    body: `Your ${monthName} ${year} performance report is ready. View it in Reports.`,
+                    type: "report",
+                  }));
+                  await supabase.from("notifications").insert(notifications);
+                }
+                sharedCount = pendingIds.length;
               }
             }
           }
 
-          results.push({ account_id: accountId, account_name: accountName, report_id: savedReport.id, shared_count: sharedCount, success: true });
+          results.push({ account_id: accountId, account_name: accountName, report_id: savedReport.id, shared_count: sharedCount, reused: reusedReport, success: true });
         } catch (err) {
           console.error(`Rollup error for ${accountId}:`, err);
           results.push({ account_id: accountId, account_name: accountName, success: false, error: String(err) });

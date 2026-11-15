@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { ratioOrNull } from "../_shared/metric-math.ts";
 
 
 const META_API_VERSION = "v22.0";
@@ -155,6 +156,8 @@ serve(async (req) => {
         .from("creatives")
         .select("spend, impressions, purchases, purchase_value")
         .eq("account_id", account_id)
+        // Stable total order for offset paging (creatives.ad_id is unique).
+        .order("ad_id", { ascending: true })
         .range(snapshotOffset, snapshotOffset + PAGE_SIZE - 1);
 
       if (crErr) {
@@ -191,6 +194,9 @@ serve(async (req) => {
         .eq("account_id", account_id)
         .gte("date", since)
         .lte("date", until)
+        // Stable total order for offset paging: (ad_id, date) is the primary key.
+        .order("ad_id", { ascending: true })
+        .order("date", { ascending: true })
         .range(dailyOffset, dailyOffset + PAGE_SIZE - 1);
 
       if (dailyErr) {
@@ -254,7 +260,7 @@ serve(async (req) => {
         impressions: metaImpressions,
         purchases: metaPurchases,
         purchase_value: Math.round(metaPurchaseValue * 100) / 100,
-        roas: metaSpend > 0 ? Math.round((metaPurchaseValue / metaSpend) * 100) / 100 : 0,
+        roas: Math.round((ratioOrNull(metaPurchaseValue, metaSpend) ?? 0) * 100) / 100,
         ad_count: metaAdCount,
       },
       verdanote_snapshot: {
@@ -262,7 +268,7 @@ serve(async (req) => {
         impressions: vnImpressions,
         purchases: vnPurchases,
         purchase_value: Math.round(vnPurchaseValue * 100) / 100,
-        roas: vnSpend > 0 ? Math.round((vnPurchaseValue / vnSpend) * 100) / 100 : 0,
+        roas: Math.round((ratioOrNull(vnPurchaseValue, vnSpend) ?? 0) * 100) / 100,
         creative_count: creativeCount,
       },
       verdanote_daily: {
@@ -270,7 +276,7 @@ serve(async (req) => {
         impressions: dailyImpressions,
         purchases: dailyPurchases,
         purchase_value: Math.round(dailyPurchaseValue * 100) / 100,
-        roas: dailySpend > 0 ? Math.round((dailyPurchaseValue / dailySpend) * 100) / 100 : 0,
+        roas: Math.round((ratioOrNull(dailyPurchaseValue, dailySpend) ?? 0) * 100) / 100,
         ad_count: dailyAdIds.size,
       },
       delta_snapshot: {

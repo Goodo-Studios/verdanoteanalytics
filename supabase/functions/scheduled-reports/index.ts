@@ -6,6 +6,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 // with neither the Library nor the Overview.
 import { selectWinnersBySpend } from "../_shared/creative-classification.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
+import { computeBlendedMetrics, roundOrNull } from "../_shared/metric-math.ts";
 
 
 function spendWeightedPercentile(items: { value: number; spend: number }[], pct: number): number {
@@ -192,6 +193,9 @@ async function scanDailyMetricsSplit(
       .eq("account_id", accountId)
       .gte("date", dateStart)
       .lte("date", dateEnd)
+      // Stable total order for offset paging: (ad_id, date) is the primary key.
+      .order("ad_id", { ascending: true })
+      .order("date", { ascending: true })
       .range(offset, offset + batchSize - 1);
     if (error) throw error;
     if (!data || data.length === 0) break;
@@ -339,11 +343,9 @@ serve(async (req) => {
       );
       const list = finalizeDailyList(currByAd, metaCache);
 
-      const totalSpend = list.reduce((s: number, c: any) => s + Number(c.spend || 0), 0);
-      const avgField = (field: string) => {
-        if (list.length === 0) return 0;
-        return list.reduce((s: number, c: any) => s + Number(c[field] || 0), 0) / list.length;
-      };
+      // Blended ratios from summed totals (null when the denominator is 0).
+      const blended = computeBlendedMetrics(list);
+      const totalSpend = blended.spend;
 
       const winners = selectWinnersBySpend(list as { spend?: number | null }[]);
       const winRate = list.length > 0 ? (winners.length / list.length) * 100 : 0;
@@ -354,19 +356,17 @@ serve(async (req) => {
         if (src in tagCounts) tagCounts[src as keyof typeof tagCounts]++;
       });
 
-      // Overall CPA + CPM (actual totals, not averages of per-creative values)
-      const totalImpressions = list.reduce((s: number, c: any) => s + Number(c.impressions || 0), 0);
-      const totalPurchases = list.reduce((s: number, c: any) => s + Number(c.purchases || 0), 0);
-      const overallCpa = totalPurchases > 0 ? totalSpend / totalPurchases : 0;
-      const overallCpm = totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0;
+      // Overall CPA + CPM (actual totals, not averages of per-creative values). The Slack card
+      // shows 0 for "no data", so null ratios are coerced there only.
+      const overallCpa = blended.cpa ?? 0;
+      const overallCpm = blended.cpm ?? 0;
 
       // Prior-period totals from the same scan (split in-memory above)
       const priorList = finalizeDailyList(priorByAd, metaCache);
-      const priorSpend = priorList.reduce((s: number, c: any) => s + Number(c.spend || 0), 0);
-      const priorImpressions = priorList.reduce((s: number, c: any) => s + Number(c.impressions || 0), 0);
-      const priorPurchases = priorList.reduce((s: number, c: any) => s + Number(c.purchases || 0), 0);
-      const priorCpa = priorPurchases > 0 ? priorSpend / priorPurchases : 0;
-      const priorCpm = priorImpressions > 0 ? (priorSpend / priorImpressions) * 1000 : 0;
+      const prior = computeBlendedMetrics(priorList);
+      const priorSpend = prior.spend;
+      const priorCpa = prior.cpa ?? 0;
+      const priorCpm = prior.cpm ?? 0;
 
       const sorted = [...list].sort((a: any, b: any) => Number(b.spend || 0) - Number(a.spend || 0));
       const mapPerformer = (c: any) => ({
@@ -388,9 +388,9 @@ serve(async (req) => {
         account_id: account.id,
         creative_count: list.length,
         total_spend: Math.round(totalSpend * 100) / 100,
-        blended_roas: Math.round(avgField("roas") * 100) / 100,
-        average_cpa: Math.round(overallCpa * 100) / 100,
-        average_ctr: Math.round(avgField("ctr") * 100) / 100,
+        blended_roas: roundOrNull(blended.roas, 2),
+        average_cpa: roundOrNull(blended.cpa, 2),
+        average_ctr: roundOrNull(blended.ctr, 2),
         win_rate: Math.round(winRate * 100) / 100,
         tags_parsed_count: tagCounts.parsed,
         tags_csv_count: tagCounts.csv_match,
