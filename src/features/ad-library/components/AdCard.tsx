@@ -259,7 +259,17 @@ export function AdCard({
     } else {
       onViewDetails?.(ad);
     }
-  }, [selectable, ad]);
+  }, [selectable, ad, onToggleSelect, onViewDetails]);
+
+  // Keyboard activation for the clickable regions. Only fires for the region itself:
+  // keys pressed on a nested button (menu, checkbox, tag chips) must keep their own behavior.
+  const handleRegionKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      handleCardBodyClick();
+    }
+  }, [handleCardBodyClick]);
 
   // playableVideoUrl is computed above with storedVideoUrl
 
@@ -280,6 +290,10 @@ export function AdCard({
             missingCreative && "border-b-2 border-dashed border-destructive/30"
           )}
           onClick={handleMediaClick}
+          role="button"
+          tabIndex={0}
+          aria-label={`${selectable ? "Select" : "View details for"} ${ad.headline || ad.advertiser_name || "ad"}`}
+          onKeyDown={handleRegionKeyDown}
         >
           {/* Selection checkbox */}
           {(selectable || selected) && (
@@ -531,7 +545,14 @@ export function AdCard({
         </div>
 
         {/* ── Info Section ── */}
-        <div className="flex flex-col gap-2 p-3 cursor-pointer" onClick={handleCardBodyClick}>
+        <div
+          className="flex flex-col gap-2 p-3 cursor-pointer"
+          onClick={handleCardBodyClick}
+          role="button"
+          tabIndex={0}
+          aria-label={`${selectable ? "Select" : "View details for"} ${ad.advertiser_name || ad.headline || "ad"}`}
+          onKeyDown={handleRegionKeyDown}
+        >
           {/* Row 1: Avatar + Advertiser name */}
           <div className="flex items-center gap-2">
             <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">

@@ -262,7 +262,7 @@ export default function LibraryPage() {
         fetchRange: async (from, to) => {
           const { data, error } = await selectItems(activeTag).range(from, to);
           if (error) throw error;
-          return (data ?? []) as LibraryItem[];
+          return (data ?? []) as unknown as LibraryItem[];
         },
       });
     },
@@ -289,7 +289,7 @@ export default function LibraryPage() {
     queryFn: async () => {
       const { data, error } = await selectItems(activeTag).eq("is_featured", true);
       if (error) throw error;
-      return (data ?? []) as LibraryItem[];
+      return (data ?? []) as unknown as LibraryItem[];
     },
   });
 
