@@ -107,7 +107,7 @@ SELECT is(
   'every raw account-day has a matching rollup row after inserts, upserts, updates, a move and a delete'
 );
 
--- Ordered upserts (migration 20261215140001): the trigger functions sort the aggregate before the
+-- Ordered upserts (migration 20261215150001): the trigger functions sort the aggregate before the
 -- INSERT ... ON CONFLICT so concurrent batches lock rollup rows in one fixed order (no 40P01).
 SELECT ok(
   pg_get_functiondef('public.creative_daily_metrics_rollup_insert()'::regprocedure) LIKE '%ORDER BY g.account_id, g.date%'
