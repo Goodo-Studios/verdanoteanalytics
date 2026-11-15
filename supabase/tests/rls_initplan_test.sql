@@ -9,7 +9,8 @@
 --      probe table, so the guard cannot quietly go blind.
 --   2. Access is unchanged: on creatives, creative_daily_metrics and sync_logs,
 --      staff (builder and employee) read every account, a client reads only its own
---      linked account and cannot write, and anon reads nothing.
+--      linked account and cannot write, and anon reads nothing. Exception: since
+--      20261216120001 a client reads no sync_logs at all.
 -- All rows are made up and rolled back.
 
 BEGIN;
@@ -110,8 +111,10 @@ SELECT is((SELECT count(*)::int FROM public.creative_daily_metrics WHERE ad_id =
   'client reads daily metrics of its linked account');
 SELECT is((SELECT count(*)::int FROM public.creative_daily_metrics WHERE ad_id = 'rit_ad_b'), 0,
   'client does not read daily metrics of another account');
-SELECT is((SELECT count(*)::int FROM public.sync_logs WHERE account_id = 'act_rit_a'), 1,
-  'client reads sync logs of its linked account');
+-- Clients lost sync_logs access in 20261216120001 (audit plan 0.1): the only reader is the
+-- builder-only Data Health section, and api_errors could carry a Meta token.
+SELECT is((SELECT count(*)::int FROM public.sync_logs WHERE account_id = 'act_rit_a'), 0,
+  'client does not read sync logs, not even of its linked account');
 SELECT is((SELECT count(*)::int FROM public.sync_logs WHERE account_id = 'act_rit_b'), 0,
   'client does not read sync logs of another account');
 SELECT throws_ok(
