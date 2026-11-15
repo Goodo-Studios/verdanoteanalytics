@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { type Caller, resolveCaller } from "../_shared/internal-auth.ts";
 import { CLICKUP_CLIENT_SPACE_ID } from "../_shared/clickup-pipeline.ts";
+import { fetchWithTimeout } from "../_shared/fetch-with-timeout.ts";
 
 // ClickUp folder lookup for the client Setup tab (phase 4). A builder picks a client's
 // ClickUp folder from this list instead of pasting an id.
@@ -83,7 +84,7 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
   }
 
   try {
-    const res = await (deps.fetch ?? ((url, init) => fetch(url, init)))(
+    const res = await (deps.fetch ?? ((url, init) => fetchWithTimeout(url as string, init, { timeoutMs: 15_000, retries: 1 })))(
       `${CLICKUP_API}/space/${CLICKUP_CLIENT_SPACE_ID}/folder?archived=false`,
       { method: "GET", headers: { Authorization: token, "Content-Type": "application/json" } },
     );

@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { fetchWithTimeout } from "../_shared/fetch-with-timeout.ts";
 import {
   CREATIVE_TABLE_COLUMNS,
   formatCreativeTable,
@@ -9,11 +10,23 @@ import {
 
 const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const OPENROUTER_MODEL = Deno.env.get("OPENROUTER_MODEL") ?? "anthropic/claude-3.5-sonnet";
+const OPENROUTER_MODEL = Deno.env.get("OPENROUTER_MODEL") ?? "anthropic/claude-sonnet-4-6";
+
+/** One user message may be at most this long; a longer one is a 400, not a huge paid prompt. */
+const MAX_MESSAGE_CHARS = 8000;
+/** Only the most recent turns of a stored conversation go back to the model. */
+const MAX_HISTORY_MESSAGES = 20;
+const MAX_HISTORY_MESSAGE_CHARS = 12000;
 
 type AnalysisMode = "free_chat" | "weekly_brief" | "competitive_debrief" | "concept_planner";
 
-serve(async (req) => {
+export { MAX_MESSAGE_CHARS, MAX_HISTORY_MESSAGES };
+
+export interface Deps {
+  createClient?: typeof createClient;
+}
+
+export async function handler(req: Request, deps: Deps = {}): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
@@ -25,7 +38,7 @@ serve(async (req) => {
       });
     }
 
-    const supabase = createClient(
+    const supabase = (deps.createClient ?? createClient)(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
       { global: { headers: { Authorization: authHeader } } }
@@ -40,8 +53,14 @@ serve(async (req) => {
     }
 
     const { message, conversationId, accountId, mode = "free_chat", modeInputs } = await req.json();
-    if (!message?.trim()) {
+    if (typeof message !== "string" || !message.trim()) {
       return new Response(JSON.stringify({ error: "Message required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (message.length > MAX_MESSAGE_CHARS) {
+      return new Response(JSON.stringify({ error: `Message is too long (limit ${MAX_MESSAGE_CHARS} characters)` }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -77,14 +96,19 @@ serve(async (req) => {
 
     const systemPrompt = buildSystemPrompt(contextData, mode as AnalysisMode, accountSettings, modeInputs);
 
+    // Only the recent turns go to the model (the full history is still stored).
+    const modelHistory = existingMessages
+      .slice(-MAX_HISTORY_MESSAGES)
+      .map((m) => ({ role: m.role, content: String(m.content ?? "").slice(0, MAX_HISTORY_MESSAGE_CHARS) }));
+
     // Build messages array for AI — system prompt is the first message in OpenAI-compatible format
     const aiMessages = [
       { role: "system", content: systemPrompt },
-      ...existingMessages,
+      ...modelHistory,
       { role: "user", content: message },
     ];
 
-    const aiResponse = await fetch(OPENROUTER_URL, {
+    const aiResponse = await fetchWithTimeout(OPENROUTER_URL, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
@@ -97,7 +121,7 @@ serve(async (req) => {
         max_tokens: 4096,
         messages: aiMessages,
       }),
-    });
+    }, { timeoutMs: 90_000, retries: 1 });
 
     if (!aiResponse.ok) {
       if (aiResponse.status === 429) {
@@ -136,7 +160,7 @@ serve(async (req) => {
         .eq("user_id", user.id);
       if (convErr) console.error("ai-chat conversation update failed:", convErr.message);
     } else {
-      const { data: newConv } = await supabase
+      const { data: newConv, error: insertErr } = await supabase
         .from("ai_conversations")
         .insert({
           user_id: user.id,
@@ -146,10 +170,13 @@ serve(async (req) => {
         })
         .select("id")
         .single();
-      convId = newConv?.id;
+      // The answer is still returned, but the client is told it was not saved so it does not
+      // present a conversation id that does not exist.
+      if (insertErr) console.error("ai-chat conversation insert failed:", insertErr.message);
+      convId = newConv?.id ?? null;
     }
 
-    return new Response(JSON.stringify({ answer, conversationId: convId }), {
+    return new Response(JSON.stringify({ answer, conversationId: convId, saved: convId !== null }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
@@ -159,7 +186,12 @@ serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-});
+}
+
+// Tests import the handler with AI_CHAT_NO_SERVE set.
+if (!Deno.env.get("AI_CHAT_NO_SERVE")) {
+  serve((req) => handler(req));
+}
 
 async function fetchCreativeContext(supabase: any, accountId: string | null) {
   let creativesQuery = supabase

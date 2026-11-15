@@ -588,3 +588,35 @@ Deno.test("production is unchanged: writes go through with no guard settings", a
   assertEquals(r.res.status, 200);
   assertEquals(writes(r.seen).length, 1);
 });
+
+Deno.test("the task is read again right before the PUT, and a description added in between stops the write", async () => {
+  const empty = task("86bc00t09", "November Asset 9");
+  const filled = task("86bc00t09", "November Asset 9", { description: "Added a moment ago", text_content: "Added a moment ago" });
+  let reads = 0;
+  const r = await run({ ...PUSH, target: "86bc00t09" }, {
+    routes: baseRoutes({
+      "GET /task/86bc00t09": () => new Response(JSON.stringify(++reads === 1 ? empty : filled), { status: 200 }),
+      "PUT /task/86bc00t09": ok(empty),
+    }),
+  });
+  assertEquals(r.res.status, 409);
+  assertStringIncludes(r.json.error, "already has a description");
+  assertEquals(reads, 2);
+  assertEquals(writes(r.seen).length, 0);
+});
+
+Deno.test("a client list longer than the page cap fails loudly and writes nothing", async () => {
+  let pages = 0;
+  const r = await run({ ...PUSH, target: "new" }, {
+    routes: baseRoutes({
+      [`GET /list/${LIST}/task`]: () => {
+        pages++;
+        return new Response(JSON.stringify({ tasks: [task(`p${pages}`, `November Asset ${pages}`)], last_page: false }), { status: 200 });
+      },
+    }),
+  });
+  assertEquals(r.res.status, 502);
+  assertStringIncludes(r.json.error, "cannot be read in full");
+  assertEquals(pages, 20);
+  assertEquals(writes(r.seen).length, 0);
+});

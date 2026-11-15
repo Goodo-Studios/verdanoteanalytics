@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
+import { fetchWithTimeout } from "../_shared/fetch-with-timeout.ts";
 import {
   CLICKUP_CLIENT_SPACE_ID,
   type ClickUpTask,
@@ -75,9 +76,9 @@ interface SupabaseLike {
 }
 
 async function clickupGet(path: string, token: string): Promise<Record<string, unknown>> {
-  const res = await fetch(`${CLICKUP_API}${path}`, {
+  const res = await fetchWithTimeout(`${CLICKUP_API}${path}`, {
     headers: { Authorization: token, "Content-Type": "application/json" },
-  });
+  }, { timeoutMs: 20_000, retries: 2, maxBytes: 20_000_000 });
   if (!res.ok) {
     // The body can echo request details; keep only the status in the message.
     await res.body?.cancel();
@@ -88,6 +89,7 @@ async function clickupGet(path: string, token: string): Promise<Record<string, u
 
 async function fetchListTasks(listId: string, token: string): Promise<ClickUpTask[]> {
   const tasks: ClickUpTask[] = [];
+  let complete = false;
   for (let page = 0; page < MAX_PAGES_PER_LIST; page++) {
     const data = await clickupGet(
       `/list/${listId}/task?page=${page}&include_closed=true&subtasks=false&archived=false`,
@@ -95,8 +97,15 @@ async function fetchListTasks(listId: string, token: string): Promise<ClickUpTas
     );
     const batch = (data.tasks as ClickUpTask[] | undefined) ?? [];
     tasks.push(...batch);
-    if (data.last_page === true || batch.length === 0) break;
+    if (data.last_page === true || batch.length === 0) {
+      complete = true;
+      break;
+    }
   }
+  // Hitting the page cap means the list was cut short. Returning the partial list would make every
+  // task past the cap look deleted, so the folder is reported as failed (the caller skips the
+  // authoritative delete for the whole run).
+  if (!complete) throw new Error(`List ${listId} has more than ${MAX_PAGES_PER_LIST} pages; read incomplete`);
   return tasks;
 }
 
