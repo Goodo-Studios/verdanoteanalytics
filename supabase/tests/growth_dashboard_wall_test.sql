@@ -43,9 +43,9 @@ SELECT is(
 SELECT is(
   (SELECT count(*)::int FROM pg_policies
     WHERE schemaname = 'public' AND tablename = 'growth_dashboard_data'
-      AND coalesce(qual, with_check) NOT LIKE '%has_role(auth.uid(), ''builder''::%'),
+      AND coalesce(qual, with_check) !~* 'has_role\(\(\s*select auth\.uid\(\) as uid\), ''builder''::'),
   0,
-  'every policy checks has_role(auth.uid(), builder)');
+  'every policy checks has_role(auth.uid(), builder), with auth.uid() wrapped in a select');
 
 SELECT is(
   (SELECT count(*)::int FROM pg_policies
