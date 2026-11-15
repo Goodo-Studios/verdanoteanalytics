@@ -80,6 +80,8 @@ INSERT INTO allow
     'edit_knowledge_source', 'edit_brain_page',
     'save_engagement_template', 'create_engagement_from_template', 'record_engagement_kickoff',
     'save_engagement_closeout',
+    -- Close or cancel an engagement (20261216110001). Refuses anyone who is not builder or employee.
+    'set_engagement_status',
     'add_engagement_deliverable', 'add_deliverable_revision', 'record_deliverable_client_decision',
     'decide_deliverable_round_exception', 'withdraw_engagement_deliverable', 'create_approval_subject',
     'save_approval_draft', 'publish_approval_version', 'record_approval_decision',
