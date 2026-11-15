@@ -196,6 +196,9 @@ Deno.test("resolve returns item + transcript + framework + signed URL for a priv
   assertEquals(body.framework.copywriting_framework, "PAS");
   assertEquals(body.signed_url, "https://signed.example/x.png?token=sig");
   assertEquals(captured.signedPaths, ["uploads/u/x.png"]);
+  // The stored path (it contains the saver's user id) is not sent; the page gets the media kind.
+  assertEquals(body.item.file_path, undefined);
+  assertEquals(body.item.media_kind, "image");
 });
 
 Deno.test("resolve does NOT sign when a public video_url is present", async () => {

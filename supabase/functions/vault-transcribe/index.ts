@@ -1,3 +1,4 @@
+
 // vault-transcribe — port from Creative Vault (US-003).
 // Differences from source:
 //   • No workspace_id references — items are scoped by user_id directly.
@@ -17,6 +18,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { isImageOnlyItem } from "../_shared/vault-save-logic.ts";
+import { isSignableVaultPath } from "../_shared/vault-paths.ts";
 import {
   classifyGroqFailure,
   extractDeepgramTranscript,
@@ -96,6 +98,8 @@ Deno.serve(async (req) => {
     let mediaUrl: string;
     let ext = "mp4";
     if (item.file_path) {
+      // Sign only a well-formed Vault path (audit 2.2).
+      if (!isSignableVaultPath(item.file_path)) throw new Error("Stored file path is not a valid Vault path");
       const { data: signedData } = await db.storage
         .from("inspiration-media")
         .createSignedUrl(item.file_path, 600);
