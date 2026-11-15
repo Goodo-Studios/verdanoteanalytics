@@ -140,10 +140,12 @@ function PageView({ section, slug, onOpen, onDirtyChange }: { section: BrainSect
 
   // Links between Brain pages stay in the app; web links open in a new tab. react-markdown
   // renders no raw HTML and drops unsafe link targets.
+  const bodyMd = page?.body_md;
   const components = useMemo<Components>(() => {
     // Two headings with the same text must not share an id (the second would never be reachable by
     // its link). The first keeps the plain anchor; later ones get -2, -3 and so on. The id is fixed
     // by the heading's place in the source, so a re-render of one heading keeps its id.
+    void bodyMd; // a new page text starts the numbering again
     const used = new Map<string, number>();
     const byPlace = new Map<string, string>();
     const idFor = (place: string, text: string): string | undefined => {
@@ -181,7 +183,7 @@ function PageView({ section, slug, onOpen, onDirtyChange }: { section: BrainSect
       return <a href={href} className="underline" target="_blank" rel="noopener noreferrer">{children}</a>;
     },
     };
-  }, [onOpen, page?.body_md]);
+  }, [onOpen, bodyMd]);
 
   if (error) return <ErrorState message="This page could not load." />;
   if (page === undefined) return <LoadingState label="Loading page" />;

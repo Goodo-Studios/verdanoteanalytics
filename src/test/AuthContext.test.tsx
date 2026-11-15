@@ -14,7 +14,8 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 import { supabase } from "@/integrations/supabase/client";
-import { AuthProvider, useAuth, parseAppRole } from "@/contexts/AuthContext";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { parseAppRole } from "@/lib/parseAppRole";
 import { ROLE_RETRY_DELAYS_MS } from "@/lib/roleRetry";
 
 const mockUnsub = { unsubscribe: vi.fn() };
@@ -503,8 +504,8 @@ describe("AuthContext", () => {
     vi.mocked(supabase.auth.getSession).mockResolvedValue({
       data: { session: { user: fakeUser } },
       error: null,
-    } as any);
-    vi.mocked(supabase.rpc).mockResolvedValue({ data: "superadmin", error: null } as any);
+    } as never);
+    vi.mocked(supabase.rpc).mockResolvedValue({ data: "superadmin", error: null } as never);
 
     render(
       <AuthProvider>
