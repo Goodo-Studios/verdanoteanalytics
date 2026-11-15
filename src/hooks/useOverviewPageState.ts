@@ -3,7 +3,8 @@ import { useAccountContext } from "@/contexts/AccountContext";
 import { useDateRangeContext } from "@/contexts/DateRangeContext";
 import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { usePeriodMetrics } from "@/hooks/usePeriodMetrics";
-import { useKillScaleLogic, KillScaleConfig } from "@/lib/killScaleLogic";
+import { useKillScaleLogic, defaultKillScaleThresholds, KillScaleConfig } from "@/lib/killScaleLogic";
+import { priorPeriodRange } from "@/lib/dateRange";
 import { calculateBenchmarks, diagnoseCreatives } from "@/lib/iterationDiagnostics";
 import { selectWinners, type WinnerThresholdConfig } from "@/lib/winnerSelection";
 import { formatDistanceToNow } from "date-fns";
@@ -22,17 +23,7 @@ export function useOverviewPageState() {
   // Previous period date range for delta comparison
   const prevPeriodDates = useMemo(() => {
     if (!dateFrom || !dateTo) return null;
-    const from = new Date(dateFrom);
-    const to = new Date(dateTo);
-    const days = Math.round((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-    const prevTo = new Date(from);
-    prevTo.setDate(prevTo.getDate() - 1);
-    const prevFrom = new Date(prevTo);
-    prevFrom.setDate(prevFrom.getDate() - days + 1);
-    return {
-      dateFrom: prevFrom.toISOString().split("T")[0],
-      dateTo: prevTo.toISOString().split("T")[0],
-    };
+    return priorPeriodRange(dateFrom, dateTo);
   }, [dateFrom, dateTo]);
 
   const { data: creatives = [], isLoading } = useAllCreatives(dateFilters);
@@ -63,13 +54,17 @@ export function useOverviewPageState() {
   const roasThreshold = selectedAccount?.winner_roas_threshold || 2.0;
   const spendThreshold = selectedAccount?.iteration_spend_threshold || 50;
 
-  const killScaleConfig: KillScaleConfig = useMemo(() => ({
-    winnerKpi: (selectedAccount as any)?.kill_scale_kpi || selectedAccount?.winner_kpi || "roas",
-    winnerKpiDirection: (selectedAccount as any)?.kill_scale_kpi_direction || selectedAccount?.winner_kpi_direction || "gte",
-    scaleAt: selectedAccount?.scale_threshold || roasThreshold,
-    killAt: selectedAccount?.kill_threshold || roasThreshold * 0.5,
-    spendThreshold,
-  }), [selectedAccount, roasThreshold, spendThreshold]);
+  const killScaleConfig: KillScaleConfig = useMemo(() => {
+    const winnerKpi = (selectedAccount as any)?.kill_scale_kpi || selectedAccount?.winner_kpi || "roas";
+    const defaults = defaultKillScaleThresholds(winnerKpi, roasThreshold);
+    return {
+      winnerKpi,
+      winnerKpiDirection: (selectedAccount as any)?.kill_scale_kpi_direction || selectedAccount?.winner_kpi_direction || "gte",
+      scaleAt: selectedAccount?.scale_threshold || defaults.scaleAt,
+      killAt: selectedAccount?.kill_threshold || defaults.killAt,
+      spendThreshold,
+    };
+  }, [selectedAccount, roasThreshold, spendThreshold]);
 
   // Kill/Scale/Watch counts (still uses creatives table for per-ad classification)
   const { scale, watch, kill } = useKillScaleLogic(creatives, killScaleConfig);

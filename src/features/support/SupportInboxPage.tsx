@@ -8,6 +8,8 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useBusy } from "@/hooks/useBusy";
+import { useLatestRequest } from "@/hooks/useLatestRequest";
 import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField, StatusBadge, TextField, TextareaField } from "@/components/page-kit";
 import { fmtDate } from "@/lib/formatters";
@@ -167,13 +169,21 @@ function NewRequest({ clients, defaultClientSlug, staff, me, onCreated }: { clie
   const [form, setForm] = useState<NewRequestForm>(empty);
   const [engagements, setEngagements] = useState<EngagementOption[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const latestEngagements = useLatestRequest();
+  const { busy, run } = useBusy();
   useEffect(() => {
-    if (!form.clientSlug) return setEngagements([]);
+    setEngagements([]);
+    if (!form.clientSlug) return latestEngagements.invalidate();
+    const isCurrent = latestEngagements.begin();
     void db.from("engagements").select("id, cycle_number, status").eq("client_slug", form.clientSlug).order("cycle_number")
-      .then(({ data }) => setEngagements(((data ?? []) as EngagementOption[]).slice().reverse()));
-  }, [form.clientSlug]);
+      .then(({ data, error: e }) => {
+        if (!isCurrent()) return;
+        if (e) return setError("Engagements could not load, so the engagement list is empty.");
+        setEngagements(((data ?? []) as EngagementOption[]).slice().reverse());
+      });
+  }, [form.clientSlug, latestEngagements]);
   const problem = newRequestProblem(form);
-  const save = async () => {
+  const save = () => run(async () => {
     setError(null);
     const { error: e } = await db.rpc("create_support_request", {
       p_client_slug: form.clientSlug,
@@ -187,7 +197,7 @@ function NewRequest({ clients, defaultClientSlug, staff, me, onCreated }: { clie
     if (e) return setError(errorText(e.code, "The request could not be recorded."));
     setForm(empty);
     onCreated();
-  };
+  });
   return (
     <div role="group" aria-label="New support request" className="space-y-2">
       <div className="grid gap-2 sm:grid-cols-2">
@@ -202,7 +212,7 @@ function NewRequest({ clients, defaultClientSlug, staff, me, onCreated }: { clie
         <SelectField label="Accountable owner" value={form.accountableUserId} onChange={(e) => setForm({ ...form, accountableUserId: e.target.value })} options={staff.map((s) => ({ value: s.user_id, label: s.user_id === me ? `${s.label} (me)` : s.label }))} />
       </div>
       {problem && (form.subject || form.question) ? <p className="text-[12px] text-muted-foreground">{problem}</p> : null}
-      <Button size="sm" disabled={!!problem} onClick={() => void save()}>Record question</Button>
+      <Button size="sm" disabled={busy || !!problem} onClick={() => void save()}>Record question</Button>
       {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
     </div>
   );
@@ -225,11 +235,14 @@ export default function SupportInboxPage() {
     );
   }, []);
 
+  const latestLoad = useLatestRequest();
   const load = useCallback(async () => {
+    const isCurrent = latestLoad.begin();
     let q = db.from("support_requests").select(REQUEST_SELECT);
     if (status !== "all") q = q.eq("status", status);
     if (clientSlug) q = q.eq("client_slug", clientSlug);
     const { data, error: e } = await q.order("updated_at", { ascending: false }).limit(200);
+    if (!isCurrent()) return;
     if (e) {
       setError("The support inbox could not load.");
       setRequests([]);
@@ -237,8 +250,13 @@ export default function SupportInboxPage() {
     }
     setError(null);
     setRequests(sortRequests(((data ?? []) as RequestRow[]).map(toRequest)));
-  }, [status, clientSlug]);
-  useEffect(() => void load(), [load]);
+  }, [status, clientSlug, latestLoad]);
+  useEffect(() => {
+    // A different client or status: drop the previous list and error before loading.
+    setRequests(null);
+    setError(null);
+    void load();
+  }, [load]);
 
   const names = Object.fromEntries(staff.map((s) => [s.user_id, s.label]));
   const shown = (requests ?? []).filter((r) => !mine || r.accountable_user_id === me || r.backup_user_id === me);

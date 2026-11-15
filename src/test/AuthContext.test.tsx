@@ -15,6 +15,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 
 import { supabase } from "@/integrations/supabase/client";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { parseAppRole } from "@/lib/parseAppRole";
 import { ROLE_RETRY_DELAYS_MS } from "@/lib/roleRetry";
 
 const mockUnsub = { unsubscribe: vi.fn() };
@@ -496,5 +497,33 @@ describe("AuthContext", () => {
       fireEvent.click(screen.getByText("retry"));
       await waitFor(() => expect(screen.getByTestId("role").textContent).toBe("client"));
     });
+  });
+
+  it("treats an unknown role string as no role instead of accepting it", async () => {
+    const fakeUser = { id: "u9", email: "odd@test.com" };
+    vi.mocked(supabase.auth.getSession).mockResolvedValue({
+      data: { session: { user: fakeUser } },
+      error: null,
+    } as never);
+    vi.mocked(supabase.rpc).mockResolvedValue({ data: "superadmin", error: null } as never);
+
+    render(
+      <AuthProvider>
+        <TestConsumer />
+      </AuthProvider>
+    );
+
+    await waitFor(() => expect(screen.queryByText("loading")).not.toBeInTheDocument());
+    expect(screen.getByTestId("role").textContent).toBe("none");
+    expect(screen.getByTestId("isBuilder").textContent).toBe("false");
+    expect(screen.getByTestId("isEmployee").textContent).toBe("false");
+    expect(screen.getByTestId("isClient").textContent).toBe("false");
+  });
+
+  it("parseAppRole allow-lists builder, employee and client only", () => {
+    expect(parseAppRole("builder")).toBe("builder");
+    expect(parseAppRole("employee")).toBe("employee");
+    expect(parseAppRole("client")).toBe("client");
+    for (const bad of ["admin", "", "Builder", null, undefined, 3, {}]) expect(parseAppRole(bad)).toBeNull();
   });
 });

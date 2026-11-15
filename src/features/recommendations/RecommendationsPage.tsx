@@ -10,7 +10,9 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { PickClientPrompt } from "@/components/PickClientPrompt";
-import { EmptyState, ErrorState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
+import { useBusy } from "@/hooks/useBusy";
+import { useLatestRequest } from "@/hooks/useLatestRequest";
+import { EmptyState, ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
 import { fmtDate } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -90,12 +92,13 @@ function RecommendationCard({ rec, ads, staff, tasks, onChanged }: { rec: Recomm
   const [error, setError] = useState<string | null>(null);
   const adName = (id: string) => ads.find((a) => a.ad_id === id)?.ad_name ?? id;
 
-  const call = async (name: string, args: Record<string, unknown>, fallback: string) => {
+  const { busy, run } = useBusy();
+  const call = (name: string, args: Record<string, unknown>, fallback: string) => run(async () => {
     setError(null);
     const { error: e } = await db.rpc(name, args);
     if (e) return setError(errorText(e.code, fallback));
     onChanged();
-  };
+  });
   const decide = () => {
     if (!d.reason.trim()) return setError("Write the reason first.");
     if (d.decision === "accepted" && (!d.hypothesis.trim() || !d.finalAction.trim())) return setError("Accepting needs a hypothesis and a final action.");
@@ -149,7 +152,7 @@ function RecommendationCard({ rec, ads, staff, tasks, onChanged }: { rec: Recomm
             <TextField label="Hypothesis" hideLabel placeholder="Hypothesis (needed to accept)" value={d.hypothesis} onChange={(e) => setD({ ...d, hypothesis: e.target.value })} />
             <TextField label="Final action" hideLabel placeholder="Final action (needed to accept)" value={d.finalAction} onChange={(e) => setD({ ...d, finalAction: e.target.value })} />
             <AdPicker label="Cited ads" ads={ads} value={d.cited} onChange={(cited) => setD({ ...d, cited })} />
-            <Button size="sm" onClick={decide}>Save decision</Button>
+            <Button size="sm" disabled={busy} onClick={decide}>Save decision</Button>
           </div>
         </details>
       ) : null}
@@ -164,7 +167,7 @@ function RecommendationCard({ rec, ads, staff, tasks, onChanged }: { rec: Recomm
               <TextField label="Window start" hideLabel type="date" value={l.start} onChange={(e) => setL({ ...l, start: e.target.value })} />
               <TextField label="Window end" hideLabel type="date" value={l.end} onChange={(e) => setL({ ...l, end: e.target.value })} />
             </div>
-            <Button size="sm" disabled={!l.ads.length || !l.owner || !l.start || !l.end} onClick={() => void call("link_recommendation_execution", {
+            <Button size="sm" disabled={busy || !l.ads.length || !l.owner || !l.start || !l.end} onClick={() => void call("link_recommendation_execution", {
               p_recommendation_id: rec.id, p_expected_version: rec.version, p_ad_ids: l.ads, p_pipeline_task_id: l.task || null,
               p_accountable_owner_id: l.owner, p_review_window_start: l.start, p_review_window_end: l.end,
             }, "The ads could not be linked.")}>Save link</Button>
@@ -172,7 +175,7 @@ function RecommendationCard({ rec, ads, staff, tasks, onChanged }: { rec: Recomm
         </details>
       ) : null}
       {rec.state !== "proposed" ? (
-        <Button size="sm" variant="outline" onClick={() => void call("record_recommendation_outcome", { p_recommendation_id: rec.id, p_expected_version: rec.version }, "The outcome could not be recorded.")}>
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => void call("record_recommendation_outcome", { p_recommendation_id: rec.id, p_expected_version: rec.version }, "The outcome could not be recorded.")}>
           Evaluate from ad data
         </Button>
       ) : null}
@@ -181,7 +184,7 @@ function RecommendationCard({ rec, ads, staff, tasks, onChanged }: { rec: Recomm
           <p className="font-medium">Review the measured outcome</p>
           <SelectField label="Conclusion" hideLabel value={lr.conclusion} onChange={(e) => setLr({ ...lr, conclusion: e.target.value })} options={[{ value: "supported", label: "Supported" }, { value: "not_supported", label: "Not supported" }, { value: "inconclusive", label: "Inconclusive" }]} />
           <TextareaField label="Learning" hideLabel placeholder="What we learned, in your words" value={lr.learning} onChange={(e) => setLr({ ...lr, learning: e.target.value })} />
-          <Button size="sm" disabled={!lr.learning.trim()} onClick={() => void call("review_recommendation_learning", {
+          <Button size="sm" disabled={busy || !lr.learning.trim()} onClick={() => void call("review_recommendation_learning", {
             p_recommendation_id: rec.id, p_expected_version: rec.version, p_outcome_id: outcome.id, p_conclusion: lr.conclusion, p_learning: lr.learning.trim(),
           }, "The learning could not be saved.")}>Save learning</Button>
         </div>
@@ -194,13 +197,14 @@ function RecommendationCard({ rec, ads, staff, tasks, onChanged }: { rec: Recomm
 function ProposeForm({ engagementId, onCreated }: { engagementId: string; onCreated: () => void }) {
   const [f, setF] = useState({ category: "creative", title: "", proposal: "" });
   const [error, setError] = useState<string | null>(null);
-  const propose = async () => {
+  const { busy, run } = useBusy();
+  const propose = () => run(async () => {
     setError(null);
     const { error: e } = await db.rpc("propose_recommendation", { p_engagement_id: engagementId, p_category: f.category, p_title: f.title.trim(), p_proposal: f.proposal.trim() });
     if (e) return setError(errorText(e.code, "The recommendation could not be saved."));
     setF({ category: "creative", title: "", proposal: "" });
     onCreated();
-  };
+  });
   return (
     <details className="rounded-lg border border-input bg-background p-4 text-sm">
       <summary className="cursor-pointer font-medium">Propose a recommendation</summary>
@@ -208,7 +212,7 @@ function ProposeForm({ engagementId, onCreated }: { engagementId: string; onCrea
         <SelectField label="Category" hideLabel value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} options={[{ value: "creative", label: "Creative" }, { value: "service", label: "Service" }]} />
         <TextField label="Title" hideLabel placeholder="Title" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} />
         <TextareaField label="Proposal" hideLabel placeholder="The recommendation" value={f.proposal} onChange={(e) => setF({ ...f, proposal: e.target.value })} />
-        <Button size="sm" disabled={!f.title.trim() || !f.proposal.trim()} onClick={() => void propose()}>Propose</Button>
+        <Button size="sm" disabled={busy || !f.title.trim() || !f.proposal.trim()} onClick={() => void propose()}>Propose</Button>
         {error ? <p role="alert" className="text-destructive">{error}</p> : null}
       </div>
     </details>
@@ -229,23 +233,47 @@ export default function RecommendationsPage() {
   useEffect(() => {
     void db.rpc("handoff_staff_options", {}).then(({ data }) => setStaff((data ?? []) as StaffOption[]));
   }, []);
+  const latestOptions = useLatestRequest();
+  const latestLoad = useLatestRequest();
+  const [optionsError, setOptionsError] = useState<string | null>(null);
   useEffect(() => {
     setEngagementId("");
-    if (!clientSlug) {
-      setAds([]);
-      setTasks([]);
-      return setEngagements([]);
-    }
+    setEngagements([]);
+    setAds([]);
+    setTasks([]);
+    setOptionsError(null);
+    if (!clientSlug) return latestOptions.invalidate();
+    const isCurrent = latestOptions.begin();
+    const failed = () => {
+      if (isCurrent()) setOptionsError("Some options for this client could not load.");
+    };
     void db.from("engagements").select("id, cycle_number, status").eq("client_slug", clientSlug).order("cycle_number")
-      .then(({ data }) => setEngagements(((data ?? []) as EngagementOption[]).slice().reverse()));
-    void db.rpc("recommendation_ad_options", { p_client_slug: clientSlug }).then(({ data }) => setAds((data ?? []) as AdOption[]));
+      .then(({ data, error: e }) => {
+        if (!isCurrent()) return;
+        if (e) return failed();
+        setEngagements(((data ?? []) as EngagementOption[]).slice().reverse());
+      });
+    void db.rpc("recommendation_ad_options", { p_client_slug: clientSlug }).then(({ data, error: e }) => {
+      if (!isCurrent()) return;
+      if (e) return failed();
+      setAds((data ?? []) as AdOption[]);
+    });
     void db.from("pipeline_tasks").select("id, task_name, stage").eq("client_slug", clientSlug).order("task_name")
-      .then(({ data }) => setTasks((data ?? []) as TaskOption[]));
-  }, [clientSlug]);
+      .then(({ data, error: e }) => {
+        if (!isCurrent()) return;
+        if (e) return failed();
+        setTasks((data ?? []) as TaskOption[]);
+      });
+  }, [clientSlug, latestOptions]);
 
   const load = useCallback(async () => {
-    if (!engagementId) return setRecs(null);
+    if (!engagementId) {
+      latestLoad.invalidate();
+      return setRecs(null);
+    }
+    const isCurrent = latestLoad.begin();
     const { data, error: e } = await db.from("recommendations").select(SELECT).eq("engagement_id", engagementId).order("created_at");
+    if (!isCurrent()) return;
     if (e) {
       setError("Recommendations could not load.");
       setRecs([]);
@@ -253,8 +281,13 @@ export default function RecommendationsPage() {
     }
     setError(null);
     setRecs(toRecommendations(data));
-  }, [engagementId]);
-  useEffect(() => void load(), [load]);
+  }, [engagementId, latestLoad]);
+  useEffect(() => {
+    // A different engagement: never show the previous one's recommendations while loading.
+    setRecs(null);
+    setError(null);
+    void load();
+  }, [load]);
 
   return (
     <PageShell data-testid="recommendations">
@@ -263,8 +296,10 @@ export default function RecommendationsPage() {
         {!clientSlug ? <div className="sm:col-span-2"><PickClientPrompt what="its recommendations" /></div> : null}
         <SelectField label="Engagement" hideLabel value={engagementId} onChange={(e) => setEngagementId(e.target.value)} disabled={!clientSlug} placeholder="Select an engagement" options={engagements.map((e) => ({ value: e.id, label: `Cycle ${e.cycle_number} (${e.status})` }))} />
       </div>
-      {engagementId ? <ProposeForm engagementId={engagementId} onCreated={() => void load()} /> : null}
+      {optionsError ? <ErrorState message={optionsError} /> : null}
+      {engagementId ? <ProposeForm key={engagementId} engagementId={engagementId} onCreated={() => void load()} /> : null}
       {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      {engagementId && recs === null && !error ? <LoadingState label="Loading recommendations" /> : null}
       {recs && !error && recs.length === 0 ? <EmptyState title="No recommendations for this engagement yet." /> : null}
       {(recs ?? []).map((r) => <RecommendationCard key={`${r.id}:${r.version}`} rec={r} ads={ads} staff={staff} tasks={tasks} onChanged={() => void load()} />)}
     </PageShell>

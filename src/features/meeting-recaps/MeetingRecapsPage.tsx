@@ -4,13 +4,14 @@
 // excerpts only. Each decision and action is confirmed or rejected by a person
 // against the exact item shown; questions stay open. Nothing is sent to ClickUp,
 // Slack or the client.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { PickClientPrompt } from "@/components/PickClientPrompt";
-import { EmptyState, ErrorState, PageHeader, PageShell, TextField } from "@/components/page-kit";
+import { EmptyState, ErrorState, LoadingState, PageHeader, PageShell, TextField } from "@/components/page-kit";
 import { fmtDate } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
+import { useLatestRequest } from "@/hooks/useLatestRequest";
 import { edgeFunctionError } from "@/lib/edgeFunctionError";
 import {
   ACTION_LABEL,
@@ -94,25 +95,36 @@ export default function MeetingRecapsPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const slugRef = useRef(clientSlug);
+  slugRef.current = clientSlug;
 
+  const latest = useLatestRequest();
   const loadRecaps = useCallback(async (slug: string) => {
     if (!slug) {
+      latest.invalidate();
       setRecaps(null);
       return;
     }
+    const isCurrent = latest.begin();
     const { data, error: e } = await supabase
       .from("meeting_recaps")
       .select(SELECT)
       .eq("client_slug", slug)
       .order("created_at", { ascending: false })
       .limit(20);
+    if (!isCurrent()) return;
     if (e) {
       setError("Recaps could not load.");
-      setRecaps([]);
+      setRecaps(null);
     } else setRecaps(toRecaps(data));
-  }, []);
+  }, [latest]);
 
   useEffect(() => {
+    // A different client: drop the previous client's recaps, notices and typed transcript id.
+    setRecaps(null);
+    setError(null);
+    setMessage(null);
+    setTranscriptId("");
     void loadRecaps(clientSlug);
   }, [clientSlug, loadRecaps]);
 
@@ -120,8 +132,11 @@ export default function MeetingRecapsPage() {
     setBusy(true);
     setError(null);
     setMessage(null);
+    const slugAtStart = clientSlug;
     const { data, error: invokeError } = await supabase.functions.invoke(FN, { body: { client_slug: clientSlug, transcript_id: transcriptId.trim() } });
     setBusy(false);
+    // The client changed while the recap was being prepared: its result belongs to the previous client.
+    if (slugAtStart !== slugRef.current) return;
     if (invokeError) {
       setError(await edgeFunctionError(invokeError, "The recap could not be prepared."));
       return;
@@ -142,9 +157,9 @@ export default function MeetingRecapsPage() {
           {busy ? "Preparing..." : "Prepare recap"}
         </Button>
         {message ? <p role="status" className="text-sm">{message}</p> : null}
-        {error ? <ErrorState message={error} onRetry={recaps === null ? undefined : () => { setError(null); void loadRecaps(clientSlug); }} /> : null}
+        {error ? <ErrorState message={error} onRetry={() => { setError(null); void loadRecaps(clientSlug); }} /> : null}
       </section>
-      {recaps === null ? null : recaps.length === 0 ? (
+      {recaps === null ? (clientSlug && !error ? <LoadingState label="Loading recaps" /> : null) : recaps.length === 0 ? (
         <EmptyState title="No recaps for this client yet." />
       ) : (
         <ul className="space-y-4">

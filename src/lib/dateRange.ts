@@ -1,4 +1,4 @@
-import { parseISO, format, subDays, subMonths, startOfMonth, startOfWeek } from "date-fns";
+import { parseISO, format, subDays, subMonths, startOfMonth, startOfWeek, differenceInCalendarDays, isAfter } from "date-fns";
 
 /**
  * Parse a "yyyy-MM-dd" picker string as a LOCAL calendar date (local midnight),
@@ -37,6 +37,28 @@ export interface RollingPreset {
   to: (today: Date) => Date;
 }
 
+/**
+ * Clamp a preset's end so it never falls before its start. On the first day of a period
+ * ("This Week" on a Monday, "This Month" on the 1st) the natural end is yesterday, which is
+ * before the period start; fall back to a single day (the start itself).
+ */
+function clampEnd(from: Date, to: Date): Date {
+  return isAfter(from, to) ? from : to;
+}
+
+/**
+ * The window immediately before [dateFrom, dateTo] with the same number of calendar days,
+ * as local yyyy-MM-dd strings. Pure local-date math, so it does not shift in UTC+ zones.
+ */
+export function priorPeriodRange(dateFrom: string, dateTo: string): { dateFrom: string; dateTo: string } {
+  const from = parsePickerDate(dateFrom);
+  const to = parsePickerDate(dateTo);
+  const days = Math.max(1, differenceInCalendarDays(to, from) + 1);
+  const prevTo = subDays(from, 1);
+  const prevFrom = subDays(prevTo, days - 1);
+  return { dateFrom: format(prevFrom, "yyyy-MM-dd"), dateTo: format(prevTo, "yyyy-MM-dd") };
+}
+
 /** Presets that move with the calendar. The id is what gets saved, not the dates. */
 export const ROLLING_PRESETS: RollingPreset[] = [
   { id: "today", label: "Today", from: (t) => t, to: (t) => t },
@@ -44,8 +66,8 @@ export const ROLLING_PRESETS: RollingPreset[] = [
   { id: "last7", label: "Last 7 days", from: (t) => subDays(t, 7), to: (t) => subDays(t, 1) },
   { id: "last14", label: "Last 14 days", from: (t) => subDays(t, 14), to: (t) => subDays(t, 1) },
   { id: "last30", label: "Last 30 days", from: (t) => subDays(t, 30), to: (t) => subDays(t, 1) },
-  { id: "thisWeek", label: "This Week", from: (t) => startOfWeek(t, { weekStartsOn: 1 }), to: (t) => subDays(t, 1) },
-  { id: "thisMonth", label: "This Month", from: (t) => startOfMonth(t), to: (t) => subDays(t, 1) },
+  { id: "thisWeek", label: "This Week", from: (t) => startOfWeek(t, { weekStartsOn: 1 }), to: (t) => clampEnd(startOfWeek(t, { weekStartsOn: 1 }), subDays(t, 1)) },
+  { id: "thisMonth", label: "This Month", from: (t) => startOfMonth(t), to: (t) => clampEnd(startOfMonth(t), subDays(t, 1)) },
   { id: "lastMonth", label: "Last Month", from: (t) => startOfMonth(subMonths(t, 1)), to: (t) => subDays(startOfMonth(t), 1) },
 ];
 

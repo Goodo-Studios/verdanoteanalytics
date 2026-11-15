@@ -9,6 +9,7 @@ import { buildNameSyncChange, nameSyncUpdate, validateSyncFromNameBody, type Nam
 import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
 import { sanitizeSearchTerm } from "../_shared/postgrest-search.ts";
 import { errorMessage } from "../_shared/error-message.ts";
+import { safeErrorResponse } from "../_shared/safe-error.ts";
 import { aggregateDailyByAd, computeWeightedAggregates } from "../_shared/creatives-aggregate.ts";
 import { TtlCache, makeCreativesCacheKey } from "../_shared/creatives-page-cache.ts";
 
@@ -86,9 +87,7 @@ serve(async (req) => {
   const { data: { user }, error: authError } = await supabase.auth.getUser(token);
   console.log("Auth result - authenticated:", !!user, "error:", authError?.message);
   if (authError || !user) {
-    return new Response(JSON.stringify({ error: "Unauthorized", detail: authError?.message }), {
-      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return safeErrorResponse(authError, corsHeaders, { status: 401, context: "creatives auth" });
   }
   // Resolve roles tolerantly: a user may hold MULTIPLE user_roles rows
   // (UNIQUE(user_id, role) — e.g. a builder can also be a client). `.single()`

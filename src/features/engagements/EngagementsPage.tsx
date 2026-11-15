@@ -13,7 +13,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { useAuth } from "@/contexts/AuthContext";
-import { ErrorState, LoadingState, PageHeader, PageShell, EmptyState, SelectField, TextField, TextareaField } from "@/components/page-kit";
+import { useBusy } from "@/hooks/useBusy";
+import { useLatestRequest } from "@/hooks/useLatestRequest";
+import { ErrorState, LoadingState, PageHeader, PageShell, EmptyState, SelectField, useConfirm, TextField, TextareaField } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
 import { fmtDate } from "@/lib/formatters";
 import {
@@ -130,7 +132,8 @@ function CloseoutForm({ engagement, onSaved }: { engagement: Engagement; onSaved
   });
   const [error, setError] = useState<string | null>(null);
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
-  const save = async () => {
+  const { busy, run } = useBusy();
+  const save = () => run(async () => {
     setError(null);
     const { error: e } = await db.rpc("save_engagement_closeout", {
       p_engagement_id: engagement.id, p_expected_version: latest?.version ?? 0, p_evidence_limit: form.limit.trim(),
@@ -139,7 +142,7 @@ function CloseoutForm({ engagement, onSaved }: { engagement: Engagement; onSaved
     });
     if (e) return setError(errorText(e.code, "The closeout could not be saved."));
     onSaved();
-  };
+  });
   return (
     <div className="space-y-2">
       <h4 className="text-sm font-semibold">Closeout readout{latest ? ` (version ${latest.version})` : ""}</h4>
@@ -151,7 +154,7 @@ function CloseoutForm({ engagement, onSaved }: { engagement: Engagement; onSaved
       <TextareaField label="Delivered assets" hideLabel placeholder="Delivered assets, one per line" value={form.assets} onChange={set("assets")} />
       <TextareaField label="Supported conclusions" hideLabel placeholder="Supported conclusions, one per line" value={form.conclusions} onChange={set("conclusions")} />
       <TextareaField label="Outstanding actions" hideLabel placeholder="Outstanding actions, one per line" value={form.actions} onChange={set("actions")} />
-      <Button size="sm" disabled={!form.limit.trim()} onClick={() => void save()}>Save closeout version {(latest?.version ?? 0) + 1}</Button>
+      <Button size="sm" disabled={busy || !form.limit.trim()} onClick={() => void save()}>Save closeout version {(latest?.version ?? 0) + 1}</Button>
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </div>
   );
@@ -160,18 +163,32 @@ function CloseoutForm({ engagement, onSaved }: { engagement: Engagement; onSaved
 function EngagementCard({ engagement, onChanged }: { engagement: Engagement; onChanged: () => void }) {
   const [start, setStart] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const kickoff = async () => {
+  const { confirm, dialog } = useConfirm();
+  const { busy, run } = useBusy();
+  const kickoff = () => run(async () => {
     setError(null);
     const { error: e } = await db.rpc("record_engagement_kickoff", { p_engagement_id: engagement.id, p_start_date: start });
     if (e) return setError(errorText(e.code, "The kickoff could not be recorded."));
     onChanged();
-  };
-  const setStatus = async (status: "closed" | "cancelled") => {
+  });
+  // Closing or cancelling is a one-way status change, so it asks first. There is no checked database
+  // function for it yet (only kickoff has one), so it stays a direct update guarded by the table policy.
+  const setStatus = (status: "closed" | "cancelled") => run(async () => {
+    const cancelling = status === "cancelled";
+    const ok = await confirm({
+      title: cancelling ? `Cancel cycle ${engagement.cycle_number}?` : `Mark cycle ${engagement.cycle_number} closed?`,
+      description: cancelling
+        ? "The engagement is cancelled and no kickoff can be recorded for it."
+        : "The engagement is marked closed. Write the closeout readout first if it is not saved yet.",
+      actionLabel: cancelling ? "Cancel engagement" : "Mark closed",
+      tone: cancelling ? "danger" : "default",
+    });
+    if (!ok) return;
     setError(null);
     const { error: e } = await db.from("engagements").update({ status }).eq("id", engagement.id);
     if (e) return setError(errorText(e.code, "The status could not be changed."));
     onChanged();
-  };
+  });
   const e = engagement;
   return (
     <section aria-label={`Cycle ${e.cycle_number}`} className="space-y-3 rounded-lg border border-input bg-background p-4">
@@ -187,11 +204,11 @@ function EngagementCard({ engagement, onChanged }: { engagement: Engagement; onC
       {canKickoff(e) ? (
         <div className="flex flex-wrap items-end gap-2">
           <TextField label="Kickoff date" type="date" value={start} onChange={(ev) => setStart(ev.target.value)} />
-          <Button size="sm" disabled={!start} onClick={() => void kickoff()}>Record kickoff</Button>
-          <Button size="sm" variant="outline" onClick={() => void setStatus("cancelled")}>Cancel engagement</Button>
+          <Button size="sm" disabled={busy || !start} onClick={() => void kickoff()}>Record kickoff</Button>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => void setStatus("cancelled")}>Cancel engagement</Button>
         </div>
       ) : null}
-      {e.status === "active" ? <Button size="sm" variant="outline" onClick={() => void setStatus("closed")}>Mark closed</Button> : null}
+      {e.status === "active" ? <Button size="sm" variant="outline" disabled={busy} onClick={() => void setStatus("closed")}>Mark closed</Button> : null}
       {e.milestones.length ? (
         <div>
           <h4 className="text-sm font-semibold">Milestones</h4>
@@ -204,6 +221,7 @@ function EngagementCard({ engagement, onChanged }: { engagement: Engagement; onC
       ) : null}
       {e.status !== "planned" && e.status !== "cancelled" ? <CloseoutForm key={latestCloseout(e)?.id ?? "new"} engagement={e} onSaved={onChanged} /> : null}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+      {dialog}
     </section>
   );
 }
@@ -218,6 +236,9 @@ export default function EngagementsPage() {
   const [purchase, setPurchase] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  const latestEngagements = useLatestRequest();
+  const { busy: creating, run: runCreate } = useBusy();
+
   const loadTemplates = useCallback(async () => {
     const { data } = await db.from("engagement_templates").select("*").order("template_key");
     setTemplates((data ?? []) as EngagementTemplate[]);
@@ -225,25 +246,40 @@ export default function EngagementsPage() {
   useEffect(() => void loadTemplates(), [loadTemplates]);
 
   const load = useCallback(async () => {
-    if (!clientSlug) return setEngagements(null);
+    if (!clientSlug) {
+      latestEngagements.invalidate();
+      return setEngagements(null);
+    }
+    const isCurrent = latestEngagements.begin();
     const { data, error: e } = await db.from("engagements").select(SELECT).eq("client_slug", clientSlug).order("cycle_number");
+    if (!isCurrent()) return;
     if (e) {
       setError("Engagements could not load.");
       setEngagements([]);
-    } else setEngagements(toEngagements(data));
-  }, [clientSlug]);
-  useEffect(() => void load(), [load]);
+    } else {
+      setError(null);
+      setEngagements(toEngagements(data));
+    }
+  }, [clientSlug, latestEngagements]);
+  useEffect(() => {
+    // A different client: drop the previous client's cycles, template pick, purchase reference and error.
+    setEngagements(null);
+    setTemplateId("");
+    setPurchase("");
+    setError(null);
+    void load();
+  }, [load]);
 
   const available = useMemo(() => latestTemplates(templates, clientSlug || null), [templates, clientSlug]);
   const client = clients.find((c) => c.slug === clientSlug);
 
-  const create = async () => {
+  const create = () => runCreate(async () => {
     setError(null);
     const { error: e } = await db.rpc("create_engagement_from_template", { p_client_slug: clientSlug, p_template_id: templateId, p_purchase_reference: purchase.trim() || null });
     if (e) return setError(errorText(e.code, "The engagement could not be created."));
     setPurchase("");
     void load();
-  };
+  });
 
   return (
     <PageShell data-testid="engagements">
@@ -268,7 +304,7 @@ export default function EngagementsPage() {
               <TextField label="Purchase reference" hideLabel placeholder="Purchase reference" value={purchase} onChange={(e) => setPurchase(e.target.value)} />
             </div>
           ) : <EmptyState title="No template yet" description="A builder saves one above." />}
-          <Button size="sm" disabled={!templateId} onClick={() => void create()}>Create next cycle</Button>
+          <Button size="sm" disabled={creating || !templateId} onClick={() => void create()}>Create next cycle</Button>
         </div>
       ) : null}
       {clientSlug && engagements === null ? <LoadingState label="Loading engagements" /> : null}

@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { resolveCaller } from "../_shared/internal-auth.ts";
+import { logSafeError } from "../_shared/safe-error.ts";
 
 // Returns a Meta ad-preview iframe URL for embedding in-app.
 //
@@ -81,6 +82,8 @@ serve(async (req) => {
     }
     return json({ error: "no_preview" }, 404);
   } catch (e) {
-    return json({ error: (e as Error).message || "preview_error" }, 500);
+    // Deno fetch errors can embed the request URL (with access_token). Log redacted, return fixed text.
+    logSafeError("ad-preview error", e);
+    return json({ error: "preview_error" }, 500);
   }
 });
