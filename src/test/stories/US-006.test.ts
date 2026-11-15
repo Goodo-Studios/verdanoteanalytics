@@ -346,8 +346,17 @@ describe("US-006: Creative Type x Theme cross-tab RPC + read path (effective mig
     expect(matrixSrc).toContain("verifyAccountOwnership");
     expect(matrixSrc).toMatch(/403/);
     // Builders/employees get global access; clients need a user_accounts row.
-    expect(matrixSrc).toContain("user_accounts");
-    expect(matrixSrc).toMatch(/get_user_role/);
+    // The check lives in the shared helper (the old local copy used select("1"), which PostgREST
+    // rejects, so clients were always denied). The function must use the helper, and the helper
+    // must carry the role check and the user_accounts link check.
+    expect(matrixSrc).toMatch(/from "\.\.\/_shared\/account-access\.ts"/);
+    const accessSrc = readFileSync(
+      path.join(path.dirname(MATRIX_FN_PATH), "..", "_shared", "account-access.ts"),
+      "utf8",
+    );
+    expect(accessSrc).toContain("user_accounts");
+    expect(accessSrc).toMatch(/get_user_role/);
+    expect(accessSrc).not.toContain('select("1")');
     // Read-only surface: GET only (405 for other verbs).
     expect(matrixSrc).toMatch(/req\.method !== ["']GET["']/);
     expect(matrixSrc).toMatch(/405/);
