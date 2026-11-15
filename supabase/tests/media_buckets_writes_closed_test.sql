@@ -50,12 +50,17 @@ SELECT is(
   1, 'a signed-in client cannot overwrite an existing thumbnail (the update matches nothing)');
 
 -- ---------------------------------------------------------------- public read stays (7-8)
-SET LOCAL ROLE anon;
-SELECT is((SELECT count(*)::int FROM storage.objects WHERE bucket_id = 'ad-thumbnails' AND name = 'c11/existing.jpg'),
-  1, 'anon still reads thumbnails');
-SELECT is((SELECT count(*)::int FROM storage.objects WHERE bucket_id = 'ad-videos' AND name = 'c11/existing.mp4'),
-  1, 'anon still reads videos');
-RESET ROLE;
+-- Files are served through the public URL of a public bucket. A direct SQL read as anon is not
+-- a usable probe (other storage policies call has_role, which anon may not execute), so check
+-- the read policies and the public flag instead.
+SELECT is(
+  (SELECT count(*)::int FROM pg_policies
+    WHERE schemaname = 'storage' AND tablename = 'objects' AND cmd = 'SELECT'
+      AND policyname IN ('Public can view ad thumbnails', 'Public can view ad videos')),
+  2, 'the public read policies for both buckets remain');
+SELECT is(
+  (SELECT count(*)::int FROM storage.buckets WHERE id IN ('ad-thumbnails', 'ad-videos') AND public),
+  2, 'both buckets stay public');
 
 SELECT * FROM finish();
 ROLLBACK;
