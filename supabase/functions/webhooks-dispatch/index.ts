@@ -2,51 +2,16 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { withApiAuth, corsHeaders } from "../_shared/api-auth.ts";
 import { matchWebhooks } from "../_shared/webhook-match.ts";
 import { safeErrorResponse } from "../_shared/safe-error.ts";
-
-async function hmacSign(secret: string, payload: string): Promise<string> {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(payload));
-  return Array.from(new Uint8Array(sig))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
+import { isStaffUser } from "../_shared/account-access.ts";
+import { dispatchScopeError, postWebhook } from "../_shared/webhook-dispatch.ts";
 
 async function sendWebhook(
   webhook: { id: string; url: string; secret: string | null },
   payload: Record<string, unknown>,
   supabase: any
 ) {
-  const body = JSON.stringify(payload);
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "User-Agent": "Verdanote-Webhooks/1.0",
-  };
-
-  if (webhook.secret) {
-    headers["X-Verdanote-Signature"] = await hmacSign(webhook.secret, body);
-  }
-
-  let statusCode = 0;
-  try {
-    const res = await fetch(webhook.url, {
-      method: "POST",
-      headers,
-      body,
-      signal: AbortSignal.timeout(10000),
-    });
-    statusCode = res.status;
-    await res.text(); // consume body
-  } catch (e) {
-    statusCode = 0; // network error
-    console.error(`Webhook ${webhook.id} failed:`, e);
-  }
+  // Public destinations only, no redirects (audit 2.1); 0 means refused or a network error.
+  const statusCode = await postWebhook(webhook, JSON.stringify(payload));
 
   // Update last triggered info
   await supabase
@@ -59,7 +24,7 @@ async function sendWebhook(
 }
 
 Deno.serve(
-  withApiAuth(async (req, { userId }) => {
+  withApiAuth(async (req, { userId, permissions }) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
@@ -71,16 +36,20 @@ Deno.serve(
     let staffCached = false;
     const callerIsStaff = async (): Promise<boolean> => {
       if (staffChecked) return staffCached;
-      const { data: roleRow } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", userId)
-        .in("role", ["builder", "employee"])
-        .maybeSingle();
-      staffCached = !!roleRow;
+      // isStaffUser reads one role through get_user_role; the old .maybeSingle() errored for a
+      // user who is both builder and employee and treated them as non-staff.
+      staffCached = await isStaffUser(supabase, userId);
       staffChecked = true;
       return staffCached;
     };
+
+    const scopeError = dispatchScopeError(permissions);
+    if (scopeError) {
+      return new Response(JSON.stringify({ error: scopeError }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     try {
       const { event, account_id, account_name, data, test_webhook_id } =
@@ -107,14 +76,7 @@ Deno.serve(
         // Also allow builders/employees who have no user_accounts rows but have
         // elevated role — check user_roles as fallback.
         if (!link) {
-          const { data: roleRow } = await supabase
-            .from("user_roles")
-            .select("role")
-            .eq("user_id", userId)
-            .in("role", ["builder", "employee"])
-            .maybeSingle();
-
-          if (!roleRow) {
+          if (!(await callerIsStaff())) {
             return new Response(
               JSON.stringify({
                 error: "Forbidden: you do not have access to this account",
@@ -168,14 +130,7 @@ Deno.serve(
 
           if (!hasAccountAccess) {
             // Fall back to role check
-            const { data: roleRow } = await supabase
-              .from("user_roles")
-              .select("role")
-              .eq("user_id", userId)
-              .in("role", ["builder", "employee"])
-              .maybeSingle();
-
-            if (!roleRow) {
+            if (!(await callerIsStaff())) {
               return new Response(
                 JSON.stringify({
                   error: "Forbidden: you do not have access to this webhook",
