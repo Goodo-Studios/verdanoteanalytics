@@ -68,10 +68,25 @@ export async function hashToken(token: unknown): Promise<string | null> {
   return await sha256Hex(token);
 }
 
-/** The caller's address from the proxy header, hashed so the rate limit table holds no address. */
+/**
+ * The caller's address. cf-connecting-ip is set by the edge proxy and cannot be forged by the
+ * client. Failing that, x-forwarded-for is a list the client can prepend to, so the FIRST entry is
+ * attacker-controlled; take the entry added by the trusted proxy instead, `hops` entries from the
+ * right (default 1: the address the nearest proxy saw connecting).
+ */
+export function clientIp(headers: Headers, hops = 1): string {
+  const cf = headers.get("cf-connecting-ip")?.trim();
+  if (cf) return cf.slice(0, 64);
+  const parts = (headers.get("x-forwarded-for") ?? "").split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return "unknown";
+  const n = Number.isInteger(hops) && hops > 0 ? hops : 1;
+  return parts[Math.max(0, parts.length - n)].slice(0, 64) || "unknown";
+}
+
+/** The caller's address, hashed so the rate limit table holds no address. */
 export async function clientKey(req: Request): Promise<string> {
-  const fwd = req.headers.get("cf-connecting-ip") ?? req.headers.get("x-forwarded-for") ?? "";
-  const ip = fwd.split(",")[0].trim().slice(0, 64) || "unknown";
+  const hops = Number(Deno.env.get("TRUSTED_PROXY_HOPS") ?? "1");
+  const ip = clientIp(req.headers, hops);
   return (await sha256Hex(`public-link:${ip}`)).slice(0, 32);
 }
 

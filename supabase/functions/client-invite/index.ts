@@ -56,6 +56,14 @@ export interface Store {
   blockedReason(slug: string): Promise<string | null>;
   loginState(email: string): Promise<LoginState | null>;
   setUpClientLogin(userId: string, clientSlug: string, name: string): Promise<void>;
+  /**
+   * Atomically claims approved invites for this run and returns the ids actually claimed. A row is
+   * claimed by stamping sent_at on a row that is still approved and has no live claim (no sent_at, or
+   * one older than staleBefore, left by a run that died). Two concurrent sends cannot claim the same row.
+   */
+  claim(inviteIds: string[], now: Date, staleBefore: Date): Promise<string[]>;
+  /** Gives a claimed invite back (it stays approved) when its send failed. */
+  release(inviteId: string): Promise<void>;
   markSent(inviteId: string, userId: string | null, now: Date): Promise<void>;
   markBatchSent(batchId: string, now: Date): Promise<void>;
 }
@@ -86,6 +94,10 @@ export interface Deps {
 }
 
 const UUID = /^[0-9a-f-]{36}$/i;
+/** At most this many contacts are emailed per call; the rest stay approved for the next call. */
+export const MAX_SEND_PER_CALL = 50;
+/** A claim older than this is treated as left behind by a run that died. */
+export const CLAIM_TTL_MS = 10 * 60 * 1000;
 const ORIGIN = /^https?:\/\/[^/\s?#]+$/;
 
 const json = (body: unknown, status = 200) =>
@@ -126,6 +138,7 @@ interface Query extends PromiseLike<QueryResult> {
   select(columns?: string): Query;
   eq(column: string, value: unknown): Query;
   in(column: string, values: unknown[]): Query;
+  or(filters: string): Query;
   maybeSingle(): PromiseLike<QueryResult>;
 }
 interface Table {
@@ -176,6 +189,21 @@ export function supabaseStore(db: SupabaseLike): Store {
       const member = await db.from("client_members").insert({ user_id: userId, client_slug: clientSlug });
       if (member.error && member.error.code !== "23505") throw new Error(`client_members: ${member.error.message}`);
       check("profiles", await db.from("profiles").update({ display_name: name }).eq("user_id", userId));
+    },
+    async claim(inviteIds, now, staleBefore) {
+      if (!inviteIds.length) return [];
+      const r = check("invite claim", await db.from("os_client_invites")
+        .update({ sent_at: now.toISOString() })
+        .in("id", inviteIds)
+        .eq("status", "approved")
+        .or(`sent_at.is.null,sent_at.lt.${staleBefore.toISOString()}`)
+        .select("id"));
+      return ((r.data as { id: string }[] | null) ?? []).map((row) => row.id);
+    },
+    async release(inviteId) {
+      check("invite release", await db.from("os_client_invites")
+        .update({ sent_at: null })
+        .eq("id", inviteId).eq("status", "approved"));
     },
     async markSent(inviteId, userId, now) {
       check("invite sent", await db.from("os_client_invites")
@@ -281,11 +309,22 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
       return json({ dry_run: true, batch_id: batchId, would_send: plan, skipped, allowed_domains: domains });
     }
 
+    // Claim before sending. Without this, two overlapping calls both read the same approved rows
+    // and email every contact twice. The batch is capped so one call stays inside the time limit.
+    const claimed = new Set(
+      await store.claim(plan.slice(0, MAX_SEND_PER_CALL).map((p) => p.invite_id), now, new Date(now.getTime() - CLAIM_TTL_MS)),
+    );
+    const toSend = plan.filter((p) => claimed.has(p.invite_id));
+    const deferred = plan.length - Math.min(plan.length, MAX_SEND_PER_CALL);
+    if (!toSend.length) {
+      return refuse(409, "already_sending", "Another send is already handling these contacts. Nothing was sent.");
+    }
+
     const mailer = deps.mailer ? deps.mailer() : supabaseMailer(client!);
     const redirectTo = origin ? `${origin}/` : undefined;
     const sent: Planned[] = [];
     const failed: (Planned & { reason: string })[] = [];
-    for (const p of plan) {
+    for (const p of toSend) {
       // One contact failing never fails the batch: it is recorded in `failed` and the loop goes on.
       let createdUserId: string | null = null;
       try {
@@ -332,10 +371,18 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
         failed.push({ ...p, reason: "setup_failed" });
       }
     }
+    // A contact whose send failed goes back to approved so a later call can retry it.
+    for (const f of failed) {
+      try {
+        await store.release(f.invite_id);
+      } catch (error) {
+        console.error("client-invite could not release a claim:", error instanceof Error ? error.message : error);
+      }
+    }
     // The first send starts the two-week guest access clock; a later run for contacts that were
     // skipped or failed does not move it.
     if (sent.length && !batch.sent_at) await store.markBatchSent(batchId, now);
-    return json({ dry_run: false, batch_id: batchId, sent, skipped, failed });
+    return json({ dry_run: false, batch_id: batchId, sent, skipped, failed, deferred });
   } catch (error) {
     console.error("client-invite error:", error instanceof Error ? error.message : error);
     return json({ error: "The batch could not be processed. Try again." }, 500);

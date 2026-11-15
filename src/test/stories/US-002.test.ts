@@ -203,8 +203,17 @@ describe("US-002: Per-account taxonomy config API (account_taxonomy_read_rpc mig
     expect(edgeSrc).toContain("verifyAccountOwnership");
     expect(edgeSrc).toMatch(/403/);
     // Builders/employees get global access; clients need a user_accounts row.
-    expect(edgeSrc).toContain("user_accounts");
-    expect(edgeSrc).toMatch(/get_user_role/);
+    // The check lives in the shared helper (the old local copy used select("1"), which PostgREST
+    // rejects, so clients were always denied). The function must use the helper, and the helper
+    // must carry the role check and the user_accounts link check.
+    expect(edgeSrc).toMatch(/from "\.\.\/_shared\/account-access\.ts"/);
+    const accessSrc = readFileSync(
+      path.join(path.dirname(EDGE_FN_PATH), "..", "_shared", "account-access.ts"),
+      "utf8",
+    );
+    expect(accessSrc).toContain("user_accounts");
+    expect(accessSrc).toMatch(/get_user_role/);
+    expect(accessSrc).not.toContain('select("1")');
   });
 
   it("account-taxonomy edge fn exposes the full CRUD + set_creative_type + seed action set", () => {

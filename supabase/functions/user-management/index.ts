@@ -31,6 +31,27 @@ const LAST_BUILDER_ERROR = "This is the last builder. Make another login a build
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
+const ROLES = ["builder", "employee", "client"] as const;
+export const MIN_PASSWORD_LENGTH = 8;
+const MAX_ACCOUNT_LINKS = 500;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Returns an error message when the role or account_ids are not usable, else null. */
+export function validateRoleAndAccounts(role: unknown, accountIds: unknown): string | null {
+  if (role !== undefined && role !== null && !(ROLES as readonly string[]).includes(role as string)) {
+    return `role must be one of ${ROLES.join(", ")}`;
+  }
+  if (accountIds !== undefined) {
+    if (!Array.isArray(accountIds) || accountIds.length > MAX_ACCOUNT_LINKS) {
+      return "account_ids must be an array of account ids";
+    }
+    if (accountIds.some((a) => typeof a !== "string" || a.trim() === "")) {
+      return "account_ids must be an array of non-empty strings";
+    }
+  }
+  return null;
+}
+
 /** Throws when a database call came back with an error, so the catch below answers 500. */
 function must(label: string, result: { error?: { message?: string } | null }): void {
   if (result.error) throw new Error(`${label}: ${result.error.message ?? "failed"}`);
@@ -135,6 +156,12 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+      if (typeof email !== "string" || !EMAIL.test(email)) return json({ error: "email is not valid" }, 400);
+      if (typeof password !== "string" || password.length < MIN_PASSWORD_LENGTH) {
+        return json({ error: `password must be at least ${MIN_PASSWORD_LENGTH} characters` }, 400);
+      }
+      const invalid = validateRoleAndAccounts(role, account_ids);
+      if (invalid) return json({ error: invalid }, 400);
 
       // Create auth user
       const { data: newUser, error: createError } = await supabase.auth.admin.createUser({
@@ -146,18 +173,29 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
       if (createError) throw createError;
       const userId = newUser.user.id;
 
-      // Update display name if provided
-      if (display_name) {
-        await supabase.from("profiles").update({ display_name }).eq("user_id", userId);
-      }
+      // Everything below is checked. If any step fails the login just created is removed again,
+      // so a failed create never leaves a login with no role or the wrong accounts.
+      try {
+        // Update display name if provided
+        if (display_name) {
+          must("profiles", await supabase.from("profiles").update({ display_name }).eq("user_id", userId));
+        }
 
-      // Set role
-      await supabase.from("user_roles").insert({ user_id: userId, role });
+        // Set role
+        must("user_roles insert", await supabase.from("user_roles").insert({ user_id: userId, role }));
 
-      // Link accounts (for clients)
-      if (account_ids && account_ids.length > 0) {
-        const links = account_ids.map((account_id: string) => ({ user_id: userId, account_id }));
-        await supabase.from("user_accounts").insert(links);
+        // Link accounts (for clients)
+        if (account_ids && account_ids.length > 0) {
+          const links = account_ids.map((account_id: string) => ({ user_id: userId, account_id }));
+          must("user_accounts insert", await supabase.from("user_accounts").insert(links));
+        }
+      } catch (setupError) {
+        try {
+          await supabase.auth.admin.deleteUser(userId);
+        } catch (cleanup) {
+          console.error("User management could not remove the half-made login:", cleanup);
+        }
+        throw setupError;
       }
 
       return new Response(JSON.stringify({ success: true, user_id: userId }), {
@@ -181,6 +219,9 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
         role = mapped.role;
       }
 
+      const invalidPut = validateRoleAndAccounts(role, account_ids);
+      if (invalidPut) return json({ error: invalidPut }, 400);
+
       // The last builder cannot be demoted: nobody would be left to manage logins.
       if (role && role !== "builder" && await isLastBuilder(supabase, userId)) {
         return json({ error: LAST_BUILDER_ERROR }, 409);
@@ -199,10 +240,23 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
       }
 
       if (account_ids !== undefined) {
-        must("user_accounts delete", await supabase.from("user_accounts").delete().eq("user_id", userId));
-        if (account_ids.length > 0) {
-          const links = account_ids.map((account_id: string) => ({ user_id: userId, account_id }));
-          must("user_accounts insert", await supabase.from("user_accounts").insert(links));
+        // Add the missing links first, then remove the ones no longer wanted. A failure part way
+        // leaves a superset of the wanted links, never an empty set (the old delete-all then
+        // insert-all left the login with no accounts if the insert failed).
+        const wanted = [...new Set<string>(account_ids)];
+        const existing = await supabase.from("user_accounts").select("account_id").eq("user_id", userId);
+        must("user_accounts read", existing);
+        const have = new Set(((existing.data ?? []) as { account_id: string }[]).map((r) => r.account_id));
+        const toAdd = wanted.filter((a) => !have.has(a));
+        const toRemove = [...have].filter((a) => !wanted.includes(a));
+        if (toAdd.length > 0) {
+          must(
+            "user_accounts insert",
+            await supabase.from("user_accounts").insert(toAdd.map((account_id) => ({ user_id: userId, account_id }))),
+          );
+        }
+        if (toRemove.length > 0) {
+          must("user_accounts delete", await supabase.from("user_accounts").delete().eq("user_id", userId).in("account_id", toRemove));
         }
       }
 

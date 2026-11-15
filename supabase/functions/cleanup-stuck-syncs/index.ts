@@ -2,7 +2,11 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 
-serve(async (req) => {
+export interface Deps {
+  createClient?: typeof createClient;
+}
+
+export async function handler(req: Request, deps: Deps = {}): Promise<Response> {
   // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint
   // (the previous comment here claimed it did), so this check is the only gate.
   // The pg_cron job forwards the real service-role key. Without it, anyone could
@@ -10,7 +14,7 @@ serve(async (req) => {
   const authFailure = await requireServiceRole(req);
   if (authFailure) return authFailure;
 
-  const supabase = createClient(
+  const supabase = (deps.createClient ?? createClient)(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
@@ -110,12 +114,19 @@ serve(async (req) => {
     }
   }
 
+  let requeuedCount = 0;
+  let failedCount = 0;
+  let raced = 0;
+  let errors = 0;
+
   // Re-queue retryable syncs — preserve existing sync_state cursor and append to api_errors
   for (const s of retryable) {
     const existingErrors = parseErrors(s.api_errors);
     const retryCount = (s.sync_state?.retry_count ?? 0) + 1;
 
-    await supabase
+    // Status guard: only touch the row if it is still running. A sync that completed
+    // between the candidate read and this write must not be overwritten.
+    const requeued = await supabase
       .from("sync_logs")
       .update({
         status: "queued",
@@ -130,7 +141,21 @@ serve(async (req) => {
           },
         ]),
       })
-      .eq("id", s.id);
+      .eq("id", s.id)
+      .eq("status", "running")
+      .select("id");
+
+    if (requeued.error) {
+      console.error(`Failed to requeue sync ${s.id}:`, requeued.error.message);
+      errors++;
+      continue;
+    }
+    if (!requeued.data?.length) {
+      console.log(`Sync ${s.id} is no longer running; left untouched`);
+      raced++;
+      continue;
+    }
+    requeuedCount++;
 
     console.log(
       `Auto-requeued sync ${s.id} at phase ${s.current_phase} (retry ${retryCount}/${MAX_RETRIES})`
@@ -141,7 +166,7 @@ serve(async (req) => {
   for (const s of terminal) {
     const existingErrors = parseErrors(s.api_errors);
 
-    await supabase
+    const failed = await supabase
       .from("sync_logs")
       .update({
         status: "failed",
@@ -151,7 +176,21 @@ serve(async (req) => {
         ]),
         completed_at: now,
       })
-      .eq("id", s.id);
+      .eq("id", s.id)
+      .eq("status", "running")
+      .select("id");
+
+    if (failed.error) {
+      console.error(`Failed to mark sync ${s.id} failed:`, failed.error.message);
+      errors++;
+      continue;
+    }
+    if (!failed.data?.length) {
+      console.log(`Sync ${s.id} is no longer running; left untouched`);
+      raced++;
+      continue;
+    }
+    failedCount++;
   }
 
   // Promote the next queued sync after cleanup.
@@ -166,29 +205,43 @@ serve(async (req) => {
 
   if (nextQueued?.length) {
     const existingState = nextQueued[0].sync_state ?? {};
-    await supabase
+    const promoted = await supabase
       .from("sync_logs")
       .update({
         status: "running",
         sync_state: { ...existingState, last_activity: now },
       })
-      .eq("id", nextQueued[0].id);
-    console.log(`Promoted queued sync ${nextQueued[0].id} after cleanup`);
+      .eq("id", nextQueued[0].id)
+      .eq("status", "queued")
+      .select("id");
+    if (promoted.error) {
+      console.error(`Failed to promote sync ${nextQueued[0].id}:`, promoted.error.message);
+      errors++;
+    } else if (promoted.data?.length) {
+      console.log(`Promoted queued sync ${nextQueued[0].id} after cleanup`);
+    }
   }
 
   console.log(
-    `Cleanup: ${retryable.length} requeued, ${terminal.length} failed, ${candidates.length - trulyStuck.length} skipped`
+    `Cleanup: ${requeuedCount} requeued, ${failedCount} failed, ${raced} raced, ${errors} errors, ${candidates.length - trulyStuck.length} skipped`
   );
 
   return new Response(
     JSON.stringify({
-      requeued: retryable.length,
-      failed: terminal.length,
+      requeued: requeuedCount,
+      failed: failedCount,
       skipped: candidates.length - trulyStuck.length,
+      raced,
+      errors,
     }),
-    { headers: { "Content-Type": "application/json" } }
+    { status: errors > 0 ? 500 : 200, headers: { "Content-Type": "application/json" } }
   );
-});
+}
+
+// Tests import the handler with CLEANUP_STUCK_SYNCS_NO_SERVE set.
+if (!Deno.env.get("CLEANUP_STUCK_SYNCS_NO_SERVE")) {
+  serve((req) => handler(req));
+}
 
 function parseErrors(raw: unknown): Array<{ timestamp: string; message: string }> {
   if (!raw) return [];
