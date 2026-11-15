@@ -10,6 +10,7 @@ import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
 import { sanitizeSearchTerm } from "../_shared/postgrest-search.ts";
 import { errorMessage } from "../_shared/error-message.ts";
 import { aggregateDailyByAd, computeWeightedAggregates } from "../_shared/creatives-aggregate.ts";
+import { chunk, fetchAllRows, validateTagUpdate } from "../_shared/creative-tag-ops.ts";
 import { TtlCache, makeCreativesCacheKey } from "../_shared/creatives-page-cache.ts";
 
 // Caches the full computed (pre-pagination) result of the date-filtered
@@ -386,7 +387,8 @@ serve(async (req) => {
             if (tagSource) cQuery = cQuery.eq("tag_source", tagSource);
             if (adStatus) cQuery = cQuery.eq("ad_status", adStatus);
             if (search) cQuery = cQuery.or(`ad_name.ilike.%${search}%,unique_code.ilike.%${search}%,campaign_name.ilike.%${search}%`);
-            const { data: cData } = await cQuery;
+            const { data: cData, error: cErr } = await cQuery;
+            if (cErr) throw cErr;
             if (cData) allCreatives.push(...cData);
           }
 
@@ -478,17 +480,14 @@ serve(async (req) => {
     // PUT /creatives/:id — update tags
     if (req.method === "PUT" && path) {
       const body = await req.json();
-      const { ad_type, person, style, product, hook, theme, tag_source, notes, scheduled_launch_date } = body;
+      const { tag_source } = body;
 
-      const update: Record<string, any> = {};
-      if (ad_type !== undefined) update.ad_type = ad_type;
-      if (person !== undefined) update.person = person;
-      if (style !== undefined) update.style = style;
-      if (product !== undefined) update.product = product;
-      if (hook !== undefined) update.hook = hook;
-      if (theme !== undefined) update.theme = theme;
-      if (notes !== undefined) update.notes = notes;
-      if (scheduled_launch_date !== undefined) update.scheduled_launch_date = scheduled_launch_date;
+      // Validate tag values, notes and the launch date before anything is written.
+      const validated = validateTagUpdate(body);
+      if (!validated.ok) {
+        return new Response(JSON.stringify({ error: validated.error }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const update: Record<string, any> = { ...validated.update };
 
       if (tag_source === "untagged") {
         // Reset to auto — re-resolve via the canonical parser + name_mappings,
@@ -547,20 +546,35 @@ serve(async (req) => {
     // POST /creatives/bulk-untag — mark selected as untagged
     if (req.method === "POST" && path === "bulk-untag") {
       const { ad_ids } = await req.json();
-      if (!Array.isArray(ad_ids)) {
-        return new Response(JSON.stringify({ error: "ad_ids array required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (!Array.isArray(ad_ids) || ad_ids.some((id: unknown) => typeof id !== "string")) {
+        return new Response(JSON.stringify({ error: "ad_ids array of strings required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       // parsed_ad_name := null so the next sync re-parses these from their names
       // (the behaviour untagged rows had before rename tracking existed).
-      const { error } = await supabase.from("creatives").update({
-        tag_source: "untagged", ad_type: null, person: null, style: null, product: null, hook: null, theme: null,
-        parsed_ad_name: null,
-      }).in("ad_id", ad_ids);
-
-      if (error) throw error;
+      // Chunked by 100 so a large selection cannot exceed the request URL limit; every chunk's
+      // result is checked and the real number of rows changed is reported.
+      let count = 0;
+      const accountIds = new Set<string>();
+      for (const ids of chunk(ad_ids as string[], 100)) {
+        const { data: upData, error } = await supabase.from("creatives").update({
+          tag_source: "untagged", ad_type: null, person: null, style: null, product: null, hook: null, theme: null,
+          parsed_ad_name: null,
+        }).in("ad_id", ids).select("ad_id, account_id");
+        if (error) throw error;
+        count += upData?.length ?? 0;
+        for (const r of upData ?? []) if (r.account_id) accountIds.add(r.account_id);
+      }
       creativesPageCache.clear();
-      return new Response(JSON.stringify({ success: true, count: ad_ids.length }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+      // Keep ad_accounts.untagged_count in step for every account touched.
+      for (const accId of accountIds) {
+        const { count: untaggedCount, error: cErr } = await supabase.from("creatives").select("*", { count: "exact", head: true }).eq("account_id", accId).eq("tag_source", "untagged");
+        if (cErr) throw cErr;
+        const { error: aErr } = await supabase.from("ad_accounts").update({ untagged_count: untaggedCount || 0 }).eq("id", accId);
+        if (aErr) throw aErr;
+      }
+      return new Response(JSON.stringify({ success: true, count }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // POST /creatives/auto-tag — infer tags from ad names for untagged creatives
@@ -571,24 +585,32 @@ serve(async (req) => {
       }
 
       // Fetch untagged creatives (tag_source = 'untagged')
-      const { data: untagged, error: fetchErr } = await supabase
-        .from("creatives")
-        .select("ad_id, ad_name")
-        .eq("account_id", account_id)
-        .eq("tag_source", "untagged");
-      if (fetchErr) throw fetchErr;
+      // Paged: a plain select stops at the 1000-row cap and would silently skip the rest.
+      const untagged = await fetchAllRows<{ ad_id: string; ad_name: string }>((from, to) =>
+        supabase
+          .from("creatives")
+          .select("ad_id, ad_name")
+          .eq("account_id", account_id)
+          .eq("tag_source", "untagged")
+          .order("ad_id")
+          .range(from, to)
+      );
 
       // US-003: tagging now flows through the single canonical parser + resolver.
       // Resolve the account's naming convention once, preload its name_mappings into
       // a Map keyed by unique_code, then per creative apply the locked precedence
       // (no manual layer here, so: name_mappings > parser > untagged).
       const convention = await resolveConvention(supabase, account_id);
-      const { data: mappings } = await supabase
-        .from("name_mappings")
-        .select("*")
-        .eq("account_id", account_id);
+      const mappings = await fetchAllRows<Record<string, any>>((from, to) =>
+        supabase
+          .from("name_mappings")
+          .select("*")
+          .eq("account_id", account_id)
+          .order("unique_code")
+          .range(from, to)
+      );
       const mappingByCode = new Map<string, Record<string, unknown>>();
-      for (const m of (mappings || [])) {
+      for (const m of mappings) {
         if (m.unique_code) mappingByCode.set(m.unique_code, m);
       }
 
@@ -634,21 +656,33 @@ serve(async (req) => {
         }
         signatureMap.get(sig)!.ad_ids.push(item.ad_id);
       }
+      let failedChunks = 0;
       for (const { update, ad_ids } of signatureMap.values()) {
-        const { error: upErr, data: upData } = await supabase
-          .from("creatives")
-          .update(update)
-          .in("ad_id", ad_ids)
-          .select("ad_id");
-        if (!upErr) applied += (upData?.length ?? ad_ids.length);
+        for (const ids of chunk(ad_ids, 100)) {
+          const { error: upErr, data: upData } = await supabase
+            .from("creatives")
+            .update(update)
+            .in("ad_id", ids)
+            .eq("tag_source", "untagged") // do not overwrite a tag set since the read
+            .select("ad_id");
+          if (upErr) {
+            console.error("auto-tag chunk failed:", upErr.message);
+            failedChunks++;
+            continue;
+          }
+          applied += upData?.length ?? 0;
+        }
       }
       if (applied > 0) creativesPageCache.clear();
 
       // Update untagged count
-      const { count } = await supabase.from("creatives").select("*", { count: "exact", head: true }).eq("account_id", account_id).eq("tag_source", "untagged");
-      await supabase.from("ad_accounts").update({ untagged_count: count || 0 }).eq("id", account_id);
+      const { count, error: countErr } = await supabase.from("creatives").select("*", { count: "exact", head: true }).eq("account_id", account_id).eq("tag_source", "untagged");
+      if (countErr) throw countErr;
+      const { error: acctErr } = await supabase.from("ad_accounts").update({ untagged_count: count || 0 }).eq("id", account_id);
+      if (acctErr) throw acctErr;
 
-      return new Response(JSON.stringify({ success: true, applied, total_untagged: (untagged || []).length }), {
+      return new Response(JSON.stringify({ success: failedChunks === 0, applied, failed_chunks: failedChunks, total_untagged: (untagged || []).length }), {
+        status: failedChunks > 0 ? 500 : 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
