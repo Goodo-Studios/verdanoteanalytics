@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Image as ImageIcon, ExternalLink, FileEdit, Loader2, BookmarkPlus, Bookmark, FileText, Layers, Sparkles } from "lucide-react";
 import { useState, forwardRef, useEffect, useCallback } from "react";
 import { useCachedMedia } from "@/hooks/useCachedMedia";
+import { safeExternalHref } from "@/lib/safe-url";
 
 import { CreativeMetrics } from "@/components/creative-detail/CreativeMetrics";
 import { RetentionCurveChart } from "@/components/creative-detail/RetentionCurveChart";
@@ -106,7 +107,11 @@ export function MediaPreview({ creative, caching = false }: { creative: Creative
   const [videoError, setVideoError] = useState(false);
   const [videoLoading, setVideoLoading] = useState(true);
 
-  const adPreviewUrl = creative.ad_post_url || `https://www.facebook.com/ads/library/?id=${creative.ad_id}`;
+  // ad_post_url is stored data; only http(s) is allowed (a javascript: URL would run on click).
+  // An unsafe or missing value falls back to the Facebook Ad Library link.
+  const adPreviewUrl =
+    safeExternalHref(creative.ad_post_url) ||
+    `https://www.facebook.com/ads/library/?id=${encodeURIComponent(creative.ad_id)}`;
 
   // Filter out sentinel strings before passing to useCachedMedia — "no-thumbnail" is truthy
   // and would be passed as a URL to fetch, causing a load error even when thumbnail_url is valid.
@@ -267,7 +272,7 @@ export function MediaPreview({ creative, caching = false }: { creative: Creative
       {/* View on Facebook — always shown as a secondary link */}
       {adPreviewUrl && (
         <a
-          href={adPreviewUrl}
+          href={safeExternalHref(adPreviewUrl)}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground text-[12px] font-semibold rounded-md px-3 py-1.5 shadow-sm transition-colors cursor-pointer"

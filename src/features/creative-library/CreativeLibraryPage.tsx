@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Loader2, Search, Download, Archive, Vault as VaultIcon, X, LayoutGrid } from "lucide-react";
 import { toast } from "sonner";
@@ -15,6 +15,16 @@ import {
 import { useAccountContext } from "@/contexts/AccountContext";
 import { CreativeDetailModal } from "@/components/CreativeDetailModal";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { saveCreativeToVault } from "@/lib/vaultSave";
 import { useCreativeLibrary, type CreativeClass } from "./hooks/useCreativeLibrary";
 import { archiveCreatives, exportCreativesZip, type LibraryCreative } from "./api";
@@ -68,6 +78,7 @@ export default function CreativeLibraryPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<LibraryCreative | null>(null);
   const [tagging, setTagging] = useState<LibraryCreative | null>(null);
+  const [confirmArchiveAll, setConfirmArchiveAll] = useState(false);
 
   const from = useMemo(() => isoDaysAgo(windowDays), [windowDays]);
   const to = useMemo(() => today(), []);
@@ -90,6 +101,12 @@ export default function CreativeLibraryPage() {
       return next;
     });
   const clearSelection = () => setSelected(new Set());
+
+  // Selection belongs to one account and one view. Drop it whenever either changes so a bulk
+  // action can never send ids from another account or from ads that are now hidden.
+  useEffect(() => {
+    setSelected(new Set());
+  }, [selectedAccountId, windowDays, filter, search]);
 
   // ── Filter + search + sort (client-side, over the fetched rows) ────────────
   const visible = useMemo(() => {
@@ -164,10 +181,14 @@ export default function CreativeLibraryPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Save to Vault failed"),
   });
 
+  // The single definition of "selected": ids that are both ticked and currently visible.
+  // The count, Archive, Save to Vault and Download ZIP all use this, never the raw set.
   const selectedRows = useMemo(
     () => visible.filter((r) => selected.has(r.ad_id)),
     [visible, selected],
   );
+  const selectedIds = useMemo(() => selectedRows.map((r) => r.ad_id), [selectedRows]);
+  const liveCount = data?.rows.length ?? 0;
 
   // ── Gate / empty states ─────────────────────────────────────────────────────
   if (gated) {
@@ -189,8 +210,8 @@ export default function CreativeLibraryPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => doArchive(undefined)}
-              disabled={archiving || !selectedAccountId}
+              onClick={() => setConfirmArchiveAll(true)}
+              disabled={archiving || !selectedAccountId || liveCount === 0}
             >
               {archiving ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Archive className="w-4 h-4 mr-1" />}
               Archive all live
@@ -278,11 +299,11 @@ export default function CreativeLibraryPage() {
       </PageShell>
 
       {/* Bulk action bar */}
-      {selected.size > 0 && (
+      {selectedIds.length > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 bg-background border border-border rounded-full shadow-xl px-5 py-3 animate-in slide-in-from-bottom-4">
-          <span className="text-sm font-medium text-foreground">{selected.size} selected</span>
+          <span className="text-sm font-medium text-foreground">{selectedIds.length} selected</span>
           <div className="w-px h-4 bg-border" />
-          <Button size="sm" variant="outline" onClick={() => doArchive([...selected])} disabled={archiving}>
+          <Button size="sm" variant="outline" onClick={() => doArchive(selectedIds)} disabled={archiving}>
             {archiving ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Archive className="w-3.5 h-3.5 mr-1" />}
             Archive
           </Button>
@@ -290,7 +311,7 @@ export default function CreativeLibraryPage() {
             {savingVault ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <VaultIcon className="w-3.5 h-3.5 mr-1" />}
             Save to Vault
           </Button>
-          <Button size="sm" onClick={() => doExport([...selected])} disabled={exporting}>
+          <Button size="sm" onClick={() => doExport(selectedIds)} disabled={exporting}>
             {exporting ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Download className="w-3.5 h-3.5 mr-1" />}
             Download ZIP
           </Button>
@@ -303,6 +324,26 @@ export default function CreativeLibraryPage() {
           </button>
         </div>
       )}
+
+      <AlertDialog open={confirmArchiveAll} onOpenChange={setConfirmArchiveAll}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Archive all {liveCount} live creative{liveCount === 1 ? "" : "s"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This archives every live creative for this account ({liveCount} in the current window),
+              not just the ones matching your filters or selection.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => doArchive(undefined)}>
+              Archive {liveCount}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Drill-in detail (reuses the existing modal — includes Save-to-Vault). */}
       {detail && (

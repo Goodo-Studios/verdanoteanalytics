@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
+import { format, startOfMonth } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
+import { priorPeriodRange } from "@/lib/dateRange";
 
 type AccountLike = { id: string };
 
@@ -14,6 +16,27 @@ type CreativeRow = {
   frequency?: number | null;
 };
 
+/**
+ * Current and prior ranges for the agency summary RPC. All dates are local calendar dates
+ * formatted with date-fns (toISOString on local midnight shifts a day in UTC+ zones). The
+ * prior range is derived from the selected range (same length, immediately before it); with
+ * no selection it is the current month to date versus the previous full month.
+ */
+export function resolveAgencyRanges(
+  dateFrom?: string,
+  dateTo?: string,
+  now: Date = new Date(),
+): { pFrom: string; pTo: string; priorFrom: string; priorTo: string } {
+  if (dateFrom && dateTo) {
+    const prior = priorPeriodRange(dateFrom, dateTo);
+    return { pFrom: dateFrom, pTo: dateTo, priorFrom: prior.dateFrom, priorTo: prior.dateTo };
+  }
+  const pFrom = dateFrom ?? format(startOfMonth(now), "yyyy-MM-dd");
+  const pTo = dateTo ?? format(now, "yyyy-MM-dd");
+  const prior = priorPeriodRange(pFrom, pTo);
+  return { pFrom, pTo, priorFrom: prior.dateFrom, priorTo: prior.dateTo };
+}
+
 export function useAgencyDashboardData(accounts: AccountLike[], dateFrom?: string, dateTo?: string) {
   const accountIds = accounts.map((account) => account.id).sort();
 
@@ -24,15 +47,7 @@ export function useAgencyDashboardData(accounts: AccountLike[], dateFrom?: strin
     refetchOnWindowFocus: false,
     // Intentionally no keepPreviousData — on account switch, stale cross-account data must not render.
     queryFn: async () => {
-      const now = new Date();
-      const pFrom = dateFrom ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-      const pTo   = dateTo   ?? now.toISOString().slice(0, 10);
-
-      // Prior month date range for MoM spend comparison
-      const priorMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const priorEnd   = new Date(now.getFullYear(), now.getMonth(), 0);
-      const priorFrom  = priorMonth.toISOString().slice(0, 10);
-      const priorTo    = priorEnd.toISOString().slice(0, 10);
+      const { pFrom, pTo, priorFrom, priorTo } = resolveAgencyRanges(dateFrom, dateTo);
 
       const { data, error } = await supabase.rpc("get_agency_dashboard_summary", {
         p_from:       pFrom,
