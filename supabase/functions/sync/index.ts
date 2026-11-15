@@ -32,6 +32,8 @@ import {
   urlTargetsAccount,
 } from "../_shared/meta-errors.ts";
 import { resumeCursor, sanitizeSyncState } from "../_shared/meta-cursor.ts";
+import { networkErrorMessage, serializeApiErrors } from "../_shared/sync-errors.ts";
+import { redact } from "../_shared/safe-error.ts";
 import { cooldownRemainingMs, cooldownWaitMs } from "../_shared/sync-handoff.ts";
 
 // US-002: Rolling-window incremental daily sync.
@@ -498,7 +500,7 @@ export async function metaFetch(
       return { data: json.data || [], next: json.paging?.next || null, error: false, rateLimited: false, retriableUrl: null };
     } catch (fetchErr) {
       console.error("Fetch error:", fetchErr);
-      ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Network error: ${String(fetchErr)}` });
+      ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: networkErrorMessage(fetchErr) });
       return { data: null, next: null, error: true, rateLimited: false, retriableUrl: null };
     }
   }
@@ -787,11 +789,13 @@ async function promoteNextQueued(supabase: any): Promise<PromoteResult> {
 //   5 = Finalize
 
 // Legacy rows may still hold token-bearing cursor URLs; scrub on the way out.
-function withSafeSyncState<T extends { sync_state?: unknown } | null>(row: T): T {
-  const s = row?.sync_state;
-  return row && s && typeof s === "object"
-    ? { ...row, sync_state: sanitizeSyncState(s as Record<string, unknown>) }
-    : row;
+function withSafeSyncState<T extends { sync_state?: unknown; api_errors?: unknown } | null>(row: T): T {
+  if (!row) return row;
+  const s = row.sync_state;
+  const out: Record<string, unknown> = { ...row };
+  if (s && typeof s === "object") out.sync_state = sanitizeSyncState(s as Record<string, unknown>);
+  if (typeof row.api_errors === "string") out.api_errors = redact(row.api_errors);
+  return out as T;
 }
 
 async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
@@ -902,7 +906,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         tags_manual_preserved: merged.tags_manual_preserved ?? syncLog.tags_manual_preserved ?? 0,
         tags_untagged: merged.tags_untagged ?? syncLog.tags_untagged ?? 0,
         meta_api_calls: (syncLog.meta_api_calls || 0) + ctx.metaApiCalls,
-        api_errors: JSON.stringify([...JSON.parse(syncLog.api_errors || "[]"), ...ctx.apiErrors]),
+        api_errors: serializeApiErrors(syncLog.api_errors, ctx.apiErrors),
         duration_ms: (syncLog.duration_ms || 0) + (Date.now() - startMs),
         ...(status !== "running" ? { completed_at: new Date().toISOString() } : {}),
       }).eq("id", syncLog.id);
@@ -910,7 +914,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       console.error("saveState failed:", saveErr);
       try {
         await supabase.from("sync_logs").update({
-          sync_state: { ...state, last_activity: new Date().toISOString(), save_error: String(saveErr) },
+          sync_state: { ...state, last_activity: new Date().toISOString(), save_error: redact(saveErr) },
         }).eq("id", syncLog.id);
       } catch (_) { /* truly lost */ }
     }
@@ -1719,7 +1723,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         }
       } catch (rollupCatch) {
         console.error("Local rollup error (non-fatal):", rollupCatch);
-        ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Local snapshot rollup threw: ${String(rollupCatch)}` });
+        ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Local snapshot rollup threw: ${redact(rollupCatch)}` });
       }
 
       // ── Winner/concern Slack alert — runs AFTER the local rollup so it reads
@@ -2211,7 +2215,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     try {
       await supabase.from("sync_logs").update({
         status: "failed",
-        api_errors: JSON.stringify([...JSON.parse(syncLog.api_errors || "[]"), ...ctx.apiErrors]),
+        api_errors: serializeApiErrors(syncLog.api_errors, ctx.apiErrors),
         completed_at: new Date().toISOString(),
         duration_ms: (syncLog.duration_ms || 0) + (Date.now() - startMs),
       }).eq("id", syncLog.id);
