@@ -148,7 +148,7 @@ Deno.test("handler resolves cluster review_index tokens to inserted review UUIDs
   let insertedClusterRows: Array<{ supporting_review_ids?: unknown }> = [];
   let currentTable = "";
   const builder: Record<string, unknown> = {};
-  for (const m of ["eq", "delete", "in", "is", "neq"]) {
+  for (const m of ["eq", "delete", "in", "is", "neq", "order", "range"]) {
     builder[m] = () => builder;
   }
   builder.insert = (rows: Array<Record<string, unknown>>) => {
@@ -158,6 +158,8 @@ Deno.test("handler resolves cluster review_index tokens to inserted review UUIDs
     return builder;
   };
   builder.select = (cols: string) => {
+    // The read of existing ids (select "id") is chained with filters; it resolves to none stored.
+    if (cols === "id") return builder;
     if (currentTable === "customer_reviews" && typeof cols === "string" && cols.includes("raw")) {
       return Promise.resolve({
         data: [
@@ -234,7 +236,7 @@ function makeRecorder() {
   const calls: Call[] = [];
   let currentTable = "";
   const builder: Record<string, unknown> = {};
-  const chainMethods = ["select", "eq", "delete", "insert", "in", "is", "neq"];
+  const chainMethods = ["select", "eq", "delete", "insert", "in", "is", "neq", "order", "range"];
   for (const m of chainMethods) {
     builder[m] = (...args: unknown[]) => {
       calls.push({ method: m, args: [currentTable, ...args] });
@@ -244,11 +246,13 @@ function makeRecorder() {
   // select resolves to one row so insert-count uses data.length.
   builder.select = (...args: unknown[]) => {
     calls.push({ method: "select", args: [currentTable, ...args] });
-    return Promise.resolve({ data: [{ id: "row-1" }], error: null });
+    return builder;
   };
-  // Awaiting a delete()/builder with no terminal select yields empty.
-  builder.then = (resolve: (v: unknown) => void) =>
-    resolve({ data: [], error: null });
+  // Awaiting the builder yields one row, except after a delete(), which yields none.
+  builder.then = (resolve: (v: unknown) => void) => {
+    const deleted = calls.some((c) => c.method === "delete");
+    return resolve({ data: deleted ? [] : [{ id: "row-1" }], error: null });
+  };
 
   const supabase = {
     from: (table: string, ...rest: unknown[]) => {
@@ -360,4 +364,40 @@ Deno.test("handler skips a table's insert when that array is empty", async () =>
   assert(callsForTable(calls, "customer_reviews").some((c) => c.method === "insert"));
   assert(callsForTable(calls, "angle_clusters").some((c) => c.method === "delete"));
   assert(!callsForTable(calls, "angle_clusters").some((c) => c.method === "insert"));
+});
+
+Deno.test("a failed review insert leaves the previous batch in place (no delete ran)", async () => {
+  const calls: string[] = [];
+  let table = "";
+  const builder: Record<string, unknown> = {};
+  for (const m of ["eq", "in", "is", "neq", "order", "range"]) builder[m] = () => builder;
+  builder.delete = () => {
+    calls.push(`delete:${table}`);
+    return builder;
+  };
+  builder.insert = () => {
+    calls.push(`insert:${table}`);
+    return builder;
+  };
+  builder.select = (cols: string) => {
+    if (cols === "id") return builder;
+    return Promise.resolve({ data: null, error: { message: "insert failed" } });
+  };
+  // Old rows exist for the batch.
+  builder.then = (resolve: (v: unknown) => void) => resolve({ data: [{ id: "old-1" }], error: null });
+  const supabase = { from: (t: string) => ((table = t), builder) };
+  const res = await mod.handler(
+    makePost({ account_id: "act_1", batch_key: "b1", reviews: [{ review_text: "a" }] }),
+    supabase,
+  );
+  assertEquals(res.status, 500);
+  // Nothing from the previous batch was deleted; only a best-effort cleanup of new rows (none inserted).
+  assertEquals(calls.filter((c) => c.startsWith("delete:")), []);
+});
+
+Deno.test("validatePayload caps the batch size", () => {
+  const many = Array.from({ length: mod.MAX_REVIEWS + 1 }, () => ({ review_text: "x" }));
+  assertEquals(mod.validatePayload({ account_id: "a", batch_key: "b", reviews: many }).ok, false);
+  const clusters = Array.from({ length: mod.MAX_CLUSTERS + 1 }, () => ({ label: "x" }));
+  assertEquals(mod.validatePayload({ account_id: "a", batch_key: "b", angle_clusters: clusters }).ok, false);
 });

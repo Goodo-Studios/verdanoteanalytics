@@ -37,6 +37,13 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { safeEqual } from "../_shared/internal-auth.ts";
+
+/** Upper bounds per request; larger batches must be split by the caller. */
+export const MAX_REVIEWS = 5000;
+export const MAX_CLUSTERS = 500;
+const INSERT_CHUNK = 500;
+const ID_CHUNK = 100;
 
 // ---- Payload types ---------------------------------------------------------
 
@@ -166,6 +173,12 @@ export function validatePayload(body: IngestPayload | null | undefined): Validat
   if (body.angle_clusters !== undefined && !Array.isArray(body.angle_clusters)) {
     return { ok: false, error: "angle_clusters must be an array" };
   }
+  if (Array.isArray(body.reviews) && body.reviews.length > MAX_REVIEWS) {
+    return { ok: false, error: `reviews is limited to ${MAX_REVIEWS} per request` };
+  }
+  if (Array.isArray(body.angle_clusters) && body.angle_clusters.length > MAX_CLUSTERS) {
+    return { ok: false, error: `angle_clusters is limited to ${MAX_CLUSTERS} per request` };
+  }
   const reviews = Array.isArray(body.reviews) ? (body.reviews as ReviewInput[]) : [];
   const angle_clusters = Array.isArray(body.angle_clusters)
     ? (body.angle_clusters as AngleClusterInput[])
@@ -258,13 +271,57 @@ export function toClusterRow(
 export function isAuthorized(req: Request, secret: string | undefined): boolean {
   if (!secret) return false; // no secret configured -> reject (fail closed)
   const headerSecret = req.headers.get("x-ingest-secret");
-  if (headerSecret && headerSecret === secret) return true;
+  // Constant-time compares: a plain === leaks the secret through response timing.
+  if (headerSecret && safeEqual(headerSecret, secret)) return true;
   const auth = req.headers.get("Authorization") || "";
-  if (auth.startsWith("Bearer ") && auth.slice(7) === secret) return true;
+  if (auth.startsWith("Bearer ") && safeEqual(auth.slice(7), secret)) return true;
   return false;
 }
 
 // ---- Handler (testable) ----------------------------------------------------
+
+/** Ids of the rows already stored for this account + batch marker, read page by page. */
+async function readIds(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  table: string,
+  account_id: string,
+  // deno-lint-ignore no-explicit-any
+  scope: (q: any) => any,
+): Promise<string[]> {
+  const ids: string[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await scope(supabase.from(table).select("id").eq("account_id", account_id))
+      .order("id")
+      .range(from, from + 999);
+    if (error) throw error;
+    const rows = (data ?? []) as Array<{ id: string }>;
+    ids.push(...rows.map((r) => r.id));
+    if (rows.length < 1000) return ids;
+  }
+}
+
+/** Deletes rows by id in chunks, scoped to the account. `strict` throws on error; otherwise it only logs. */
+async function removeIds(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  table: string,
+  account_id: string,
+  ids: string[],
+  strict = false,
+): Promise<void> {
+  for (let i = 0; i < ids.length; i += ID_CHUNK) {
+    const { error } = await supabase
+      .from(table)
+      .delete()
+      .eq("account_id", account_id)
+      .in("id", ids.slice(i, i + ID_CHUNK));
+    if (error) {
+      if (strict) throw error;
+      console.error(`ingest-reviews cleanup of ${table} failed:`, error.message ?? error);
+    }
+  }
+}
 
 // deno-lint-ignore no-explicit-any
 type SupabaseLike = any;
@@ -310,30 +367,14 @@ export async function handler(req: Request, supabaseOverride?: unknown): Promise
       );
 
   try {
-    // IDEMPOTENCY SWEEP: remove any prior rows for this (account_id, batch_key)
-    // so a re-POST of the same batch replaces rather than duplicates. Each table
-    // carries the batch marker per the IDEMPOTENCY note at the top of this file:
-    // customer_reviews via raw->>batch_key, angle_clusters via source=csv:<key>.
-
-    // Sweep reviews for this batch.
-    {
-      const { error } = await supabase
-        .from("customer_reviews")
-        .delete()
-        .eq("account_id", account_id)
-        .eq("raw->>batch_key", batch_key);
-      if (error) throw error;
-    }
-
-    // Sweep clusters for this batch (source = csv:<batch_key>, set in toClusterRow).
-    {
-      const { error } = await supabase
-        .from("angle_clusters")
-        .delete()
-        .eq("account_id", account_id)
-        .eq("source", batchSource(batch_key));
-      if (error) throw error;
-    }
+    // IDEMPOTENT REPLACE, insert first: a re-POST of the same (account_id, batch_key) replaces the
+    // previous batch, but the old rows are only removed after the new ones are safely in. A failed
+    // insert therefore never loses the previous batch. Old rows are found by id BEFORE inserting
+    // (customer_reviews via raw->>batch_key, angle_clusters via source=csv:<key>), so the later
+    // delete cannot touch the rows this run just wrote.
+    const oldReviewIds = await readIds(supabase, "customer_reviews", account_id, (q) => q.eq("raw->>batch_key", batch_key));
+    const oldClusterIds = await readIds(supabase, "angle_clusters", account_id, (q) => q.eq("source", batchSource(batch_key)));
+    const newReviewIds: string[] = [];
 
     // Insert reviews, stamping each row's array index into raw.review_index so
     // we can map cluster `review_index:<n>` tokens to the DB-assigned UUIDs.
@@ -341,19 +382,26 @@ export async function handler(req: Request, supabaseOverride?: unknown): Promise
     const indexToId = new Map<number, string>();
     if (reviews.length > 0) {
       const rows = reviews.map((r, i) => toReviewRow(account_id, batch_key, r, i));
-      const { data, error } = await supabase
-        .from("customer_reviews")
-        .insert(rows)
-        .select("id, raw");
-      if (error) throw error;
-      reviews_inserted = (data?.length ?? rows.length);
-      // Build index->UUID map from the returned rows (order-independent: we read
-      // raw.review_index rather than relying on RETURNING order).
-      for (const row of (data ?? []) as Array<{ id?: unknown; raw?: unknown }>) {
-        const raw = (row?.raw && typeof row.raw === "object") ? row.raw as Record<string, unknown> : {};
-        const idx = raw.review_index;
-        if (typeof idx === "number" && typeof row.id === "string") {
-          indexToId.set(idx, row.id);
+      for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
+        const slice = rows.slice(i, i + INSERT_CHUNK);
+        const { data, error } = await supabase
+          .from("customer_reviews")
+          .insert(slice)
+          .select("id, raw");
+        if (error) {
+          await removeIds(supabase, "customer_reviews", account_id, newReviewIds);
+          throw error;
+        }
+        reviews_inserted += (data?.length ?? slice.length);
+        // Build index->UUID map from the returned rows (order-independent: we read
+        // raw.review_index rather than relying on RETURNING order).
+        for (const row of (data ?? []) as Array<{ id?: unknown; raw?: unknown }>) {
+          const raw = (row?.raw && typeof row.raw === "object") ? row.raw as Record<string, unknown> : {};
+          const idx = raw.review_index;
+          if (typeof row.id === "string") newReviewIds.push(row.id);
+          if (typeof idx === "number" && typeof row.id === "string") {
+            indexToId.set(idx, row.id);
+          }
         }
       }
     }
@@ -368,9 +416,18 @@ export async function handler(req: Request, supabaseOverride?: unknown): Promise
         .from("angle_clusters")
         .insert(rows)
         .select("id");
-      if (error) throw error;
+      if (error) {
+        // Roll the new reviews back; the previous batch is still untouched.
+        await removeIds(supabase, "customer_reviews", account_id, newReviewIds);
+        throw error;
+      }
       clusters_inserted = (data?.length ?? rows.length);
     }
+
+    // Everything new is in: now drop the previous batch. If this fails the caller gets a 500 and
+    // re-POSTs; the next run reads both generations as "old" and removes them.
+    await removeIds(supabase, "customer_reviews", account_id, oldReviewIds, true);
+    await removeIds(supabase, "angle_clusters", account_id, oldClusterIds, true);
 
     const summary = {
       success: true,
