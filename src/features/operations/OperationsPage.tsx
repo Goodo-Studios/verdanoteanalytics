@@ -11,7 +11,9 @@ import { RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
-import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField, StatusBadge, TextField, TextareaField } from "@/components/page-kit";
+import { useBusy } from "@/hooks/useBusy";
+import { useLatestRequest } from "@/hooks/useLatestRequest";
+import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField, StatusBadge, TextField, TextareaField, useConfirm } from "@/components/page-kit";
 import { fmtWhen } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 import {
@@ -69,22 +71,34 @@ function JobActions({ job, onChanged }: { job: Job; onChanged: () => void }) {
   const [outcome, setOutcome] = useState("");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { busy, run: guarded } = useBusy();
+  const { confirm, dialog } = useConfirm();
 
-  const run = async (name: string, args: Record<string, unknown>, fallback: string) => {
-    setBusy(true);
+  const run = (name: string, args: Record<string, unknown>, fallback: string) => guarded(async () => {
     setError(null);
     const { error: e } = await db.rpc(name, args);
-    setBusy(false);
     if (e) return setError(errorText(e.code, fallback));
     onChanged();
-  };
+  });
+  // Replay sends the job to the outside service again, so it asks first.
+  const replay = () => guarded(async () => {
+    const ok = await confirm({
+      title: "Replay this job?",
+      description: "The job is sent again the next time jobs run. Check the outside service for the earlier attempt first, or it may be done twice.",
+      actionLabel: "Replay",
+    });
+    if (!ok) return;
+    setError(null);
+    const { error: e } = await db.rpc("replay_job", { p_job_id: job.id });
+    if (e) return setError(errorText(e.code, "The job could not be replayed."));
+    onChanged();
+  });
 
   if (job.nextStep === "replay") {
     const resolveProblem = outcome ? noteError(note) : "Choose what happened.";
     return (
       <div className="space-y-2 rounded border border-warning/40 bg-warning/10 p-3">
-        <Button size="sm" disabled={busy} onClick={() => void run("replay_job", { p_job_id: job.id }, "The job could not be replayed.")}>
+        <Button size="sm" disabled={busy} onClick={() => void replay()}>
           Replay
         </Button>
         {job.canResolve ? (
@@ -107,6 +121,7 @@ function JobActions({ job, onChanged }: { job: Job; onChanged: () => void }) {
           </details>
         ) : null}
         {error ? <p role="alert" className="text-destructive">{error}</p> : null}
+        {dialog}
       </div>
     );
   }
@@ -193,13 +208,16 @@ export default function OperationsPage() {
     });
   }, []);
 
+  const latest = useLatestRequest();
   const load = useCallback(async () => {
+    const isCurrent = latest.begin();
     setLoading(true);
     const states = STATE_FILTERS.find((f) => f.value === filter)?.states ?? null;
     let q = db.from("durable_jobs").select(JOB_SELECT);
     if (states) q = q.in("state", states);
     if (clientSlug) q = q.eq("client_slug", clientSlug);
     const { data, error: e } = await q.order("updated_at", { ascending: false }).limit(JOB_LIMIT);
+    if (!isCurrent()) return;
     setLoading(false);
     if (e) {
       setError("The job queue could not load.");
@@ -208,8 +226,13 @@ export default function OperationsPage() {
     }
     setError(null);
     setJobs(((data ?? []) as JobRow[]).map(toJob));
-  }, [filter, clientSlug]);
-  useEffect(() => void load(), [load]);
+  }, [filter, clientSlug, latest]);
+  useEffect(() => {
+    // A different filter or client: drop the previous list and error before loading.
+    setJobs(null);
+    setError(null);
+    void load();
+  }, [load]);
 
   const clientName = (slug: string | null) => (slug ? clients.find((c) => c.slug === slug)?.name ?? slug : null);
 

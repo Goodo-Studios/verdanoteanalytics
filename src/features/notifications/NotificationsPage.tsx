@@ -4,6 +4,7 @@
 // (slack_destinations, outbound_switches, reminders, all under their existing row rules); it never
 // posts to Slack. run-slack-jobs does that, from production only, with the switch on and the key set.
 import { useCallback, useEffect, useState } from "react";
+import { useBusy } from "@/hooks/useBusy";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
@@ -147,7 +148,8 @@ function DestinationsSection({ data, builder, onChanged }: { data: Loaded; build
   const [form, setForm] = useState<DestinationForm>(EMPTY_DESTINATION);
   const [error, setError] = useState<string | null>(null);
   const problem = destinationProblem(form, data.destinations);
-  const add = async () => {
+  const { busy, run } = useBusy();
+  const add = () => run(async () => {
     setError(null);
     const { error: e } = await db.from("slack_destinations").insert({
       label: form.label.trim(), channel_id: normalizeChannelId(form.channelId), purpose: form.purpose,
@@ -156,7 +158,7 @@ function DestinationsSection({ data, builder, onChanged }: { data: Loaded; build
     if (e) return setError(errorText(e));
     setForm(EMPTY_DESTINATION);
     onChanged();
-  };
+  });
   const clientName = (slug: string | null) => (slug ? data.clients.find((c) => c.slug === slug)?.name ?? slug : null);
   return (
     <section aria-label="Slack destinations" className={CARD}>
@@ -177,7 +179,7 @@ function DestinationsSection({ data, builder, onChanged }: { data: Loaded; build
               placeholder="Choose a client" options={data.clients.map((c) => ({ value: c.slug, label: c.name }))} />
           ) : <div />}
           {problem && (form.label || form.channelId) ? <p className="text-xs text-muted-foreground sm:col-span-2">{problem}</p> : <p className="text-xs text-muted-foreground sm:col-span-2">{CHANNEL_ID_HELP}</p>}
-          <div className="sm:col-span-2"><Button size="sm" disabled={!!problem} onClick={() => void add()}>Add channel</Button></div>
+          <div className="sm:col-span-2"><Button size="sm" disabled={busy || !!problem} onClick={() => void add()}>Add channel</Button></div>
           {error ? <p role="alert" className="text-sm text-destructive sm:col-span-2">{error}</p> : null}
         </div>
       ) : (
@@ -198,7 +200,8 @@ function RemindersSection({ data, selfMember, selfName, onChanged }: { data: Loa
   const memberName = (id: string | null) => (id ? data.members.find((m) => m.id === id)?.name ?? null : null);
   const destLabel = (id: string) => data.destinations.find((d) => d.id === id)?.label ?? "a removed channel";
 
-  const create = async () => {
+  const { busy, run } = useBusy();
+  const create = () => run(async () => {
     setError(null);
     setNotice(null);
     const member = form.who === "self" ? selfMember : data.members.find((m) => m.id === form.who) ?? null;
@@ -210,14 +213,14 @@ function RemindersSection({ data, selfMember, selfName, onChanged }: { data: Loa
     setForm({ what: "", when: "", who: "self", destinationId: "" });
     setNotice("Reminder saved. It goes out at that time only if Slack sending is on and the channel is confirmed.");
     onChanged();
-  };
+  });
   const { confirm, dialog } = useConfirm();
-  const cancel = async (r: Reminder) => {
+  const cancel = (r: Reminder) => run(async () => {
     if (!(await confirm({ title: "Cancel this reminder?", description: "It will not be sent.", actionLabel: "Cancel the reminder" }))) return;
     const { error: e } = await db.from("reminders").update({ state: "canceled", cancel_reason: "Canceled on the Notifications page" }).eq("id", r.id);
     if (e) return setError(errorText(e));
     onChanged();
-  };
+  });
 
   return (
     <section aria-label="Reminders" className={CARD}>
@@ -235,7 +238,7 @@ function RemindersSection({ data, selfMember, selfName, onChanged }: { data: Loa
           <SelectField label="Where" hideLabel value={destinationId} onChange={(e) => setForm({ ...form, destinationId: e.target.value })}
             placeholder="Choose a channel" options={usable.map((d) => ({ value: d.id, label: d.label }))} />
           <div className="flex items-center gap-2">
-            <Button size="sm" disabled={!!problem} onClick={() => void create()}>Save reminder</Button>
+            <Button size="sm" disabled={busy || !!problem} onClick={() => void create()}>Save reminder</Button>
           </div>
           {problem && (form.what || form.when) ? <p className="text-xs text-muted-foreground sm:col-span-2">{problem}</p> : null}
         </div>
@@ -252,7 +255,7 @@ function RemindersSection({ data, selfMember, selfName, onChanged }: { data: Loa
             </div>
             <p className="whitespace-pre-wrap">{r.body}</p>
             <p className="text-[12px] text-muted-foreground">Due {when(r.due_at)} · {destLabel(r.destination_id)}</p>
-            {r.state === "scheduled" ? <Button size="sm" variant="outline" className="mt-2" aria-label={`Cancel the reminder due ${when(r.due_at)}`} onClick={() => void cancel(r)}>Cancel</Button> : null}
+            {r.state === "scheduled" ? <Button size="sm" variant="outline" className="mt-2" disabled={busy} aria-label={`Cancel the reminder due ${when(r.due_at)}`} onClick={() => void cancel(r)}>Cancel</Button> : null}
           </li>
         ))}
       </ul>

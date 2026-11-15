@@ -22,6 +22,7 @@ const h = vi.hoisted(() => ({
   auth: { isBuilder: true, role: "builder" } as Record<string, unknown>,
   preview: { isClientPreview: false, isEmployeePreview: false },
   failTeam: false,
+  failTable: "" as string,
 }));
 const rpc = vi.fn();
 const data: Record<string, unknown[]> = {};
@@ -33,7 +34,7 @@ function chain(table: string) {
     limit: () => q,
     // The client invites section (OS-021) reads its one email-text row with maybeSingle.
     maybeSingle: () => Promise.resolve({ data: (data[table] ?? [])[0] ?? null, error: null }),
-    then: (resolve: (v: unknown) => unknown) => Promise.resolve(h.failTeam && table === "app_users" ? { data: null, error: { message: "down" } } : { data: data[table] ?? [], error: null }).then(resolve),
+    then: (resolve: (v: unknown) => unknown) => Promise.resolve((h.failTeam && table === "app_users") || h.failTable === table ? { data: null, error: { message: "down" } } : { data: data[table] ?? [], error: null }).then(resolve),
   };
   return q;
 }
@@ -82,6 +83,7 @@ beforeEach(() => {
   h.auth = { isBuilder: true, role: "builder" };
   h.preview = { isClientPreview: false, isEmployeePreview: false };
   h.failTeam = false;
+  h.failTable = "";
   // The client invites section (OS-021) needs its email-text row to render without an error.
   data.os_client_invite_template = [{ subject: "Hello", body: "Sign in", approved_at: null }];
   rpc.mockReset();
@@ -114,6 +116,22 @@ describe("TeamPage", () => {
     fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
     expect((await screen.findAllByTestId("team-member")).length).toBe(3);
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows an error, not an empty summary, when the staff list check fails", async () => {
+    rpc.mockImplementation((name: string) =>
+      Promise.resolve(name === "staff_reconciliation" ? { data: null, error: { code: "XX000", message: "boom" } } : { data: null, error: null }));
+    render(<MemoryRouter><TeamPage /></MemoryRouter>);
+    expect(await screen.findByText(/The staff list check could not load/)).toBeInTheDocument();
+    expect(screen.queryByTestId("recon-summary")).toBeNull();
+    expect(screen.queryByText(/0 people, 0 lined up/)).toBeNull();
+  });
+
+  it("shows a loading state for the client invites and an error when the clients query fails", async () => {
+    h.failTable = "clients";
+    render(<MemoryRouter><TeamPage /></MemoryRouter>);
+    expect(await screen.findByText("The client invites could not load.")).toBeInTheDocument();
+    expect(screen.queryByText("Email text")).toBeNull();
   });
 
   it("shows an employee the team list and the mapping only, and never asks for the reconciliation", async () => {

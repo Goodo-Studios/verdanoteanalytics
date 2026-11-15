@@ -14,7 +14,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { useAuth } from "@/contexts/AuthContext";
-import { EmptyState, ErrorState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
+import { useBusy } from "@/hooks/useBusy";
+import { useLatestRequest } from "@/hooks/useLatestRequest";
+import { EmptyState, ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
 import { fmtDate } from "@/lib/formatters";
 import {
@@ -84,16 +86,26 @@ function PacketCard({ packet, staff, onChanged }: { packet: Packet; staff: Staff
   const [move, setMove] = useState({ receiver: "", role: packet.receiving_role as string, due: packet.due_date, reason: "" });
   const [error, setError] = useState<string | null>(null);
 
+  const { busy, run } = useBusy();
+
   useEffect(() => {
-    void db.rpc("handoff_source_status", { p_packet_id: packet.id }).then(({ data }) => setSource((data as SourceStatus) ?? null));
+    let live = true;
+    void db.rpc("handoff_source_status", { p_packet_id: packet.id }).then(({ data }) => {
+      if (live) setSource((data as SourceStatus) ?? null);
+    });
+    return () => {
+      live = false;
+    };
   }, [packet]);
 
-  const call = async (name: string, args: Record<string, unknown>, fallback: string) => {
-    setError(null);
-    const { error: e } = await db.rpc(name, args);
-    if (e) return setError(errorText(e.code, fallback));
-    onChanged();
-  };
+  // One write at a time per card: a second click while the first is pending is ignored.
+  const call = (name: string, args: Record<string, unknown>, fallback: string) =>
+    run(async () => {
+      setError(null);
+      const { error: e } = await db.rpc(name, args);
+      if (e) return setError(errorText(e.code, fallback));
+      onChanged();
+    });
   const answer = (action: "acknowledged" | "returned") => {
     if (action === "returned" && !reason.trim()) return setError("Say what is missing before returning the packet.");
     void call("acknowledge_handoff", { p_packet_id: packet.id, p_expected_revision: packet.current_revision, p_action: action, p_reason: reason.trim() || null }, "The answer could not be saved.");
@@ -135,8 +147,8 @@ function PacketCard({ packet, staff, onChanged }: { packet: Packet; staff: Staff
         <div className="space-y-2">
           <TextField label="Return reason" hideLabel placeholder="What is missing (needed to return)" value={reason} onChange={(e) => setReason(e.target.value)} />
           <div className="flex gap-2">
-            <Button size="sm" onClick={() => answer("acknowledged")}>Acknowledge</Button>
-            <Button size="sm" variant="outline" onClick={() => answer("returned")}>Return with reason</Button>
+            <Button size="sm" disabled={busy} onClick={() => answer("acknowledged")}>Acknowledge</Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => answer("returned")}>Return with reason</Button>
           </div>
         </div>
       ) : null}
@@ -154,7 +166,7 @@ function PacketCard({ packet, staff, onChanged }: { packet: Packet; staff: Staff
             />
             <TextField label="New due date" hideLabel type="date" value={move.due} onChange={(e) => setMove({ ...move, due: e.target.value })} />
             <TextField label="Reassign reason" hideLabel className="sm:col-span-2" placeholder="Why" value={move.reason} onChange={(e) => setMove({ ...move, reason: e.target.value })} />
-            <Button size="sm" disabled={!move.receiver || !move.due || !move.reason.trim()} onClick={() => void call("reassign_handoff", {
+            <Button size="sm" disabled={busy || !move.receiver || !move.due || !move.reason.trim()} onClick={() => void call("reassign_handoff", {
               p_packet_id: packet.id, p_expected_revision: packet.current_revision, p_receiver_id: move.receiver, p_receiving_role: move.role, p_due_date: move.due, p_reason: move.reason.trim(),
             }, "The handoff could not be reassigned.")}>Reassign as revision {packet.current_revision + 1}</Button>
           </div>
@@ -170,6 +182,7 @@ function CreateForm({ engagementId, staff, onCreated }: { engagementId: string; 
   const [form, setForm] = useState({ role: "editor", receiver: "", owner: user?.id ?? "", due: "", brief: "", angle: "", goal: "", inputs: "" });
   const [strategy, setStrategy] = useState<PublishedStrategy | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { busy, run } = useBusy();
   useEffect(() => {
     let live = true;
     setStrategy(null);
@@ -190,7 +203,7 @@ function CreateForm({ engagementId, staff, onCreated }: { engagementId: string; 
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
   const inputs = parseInputs(form.inputs);
   const ready = form.receiver && form.owner && form.due && form.brief.trim() && form.angle.trim() && form.goal.trim() && inputs.length;
-  const create = async () => {
+  const create = () => run(async () => {
     setError(null);
     const { error: e } = await db.rpc("create_handoff_packet", {
       p_engagement_id: engagementId, p_receiving_role: form.role, p_receiver_id: form.receiver, p_accountable_owner_id: form.owner,
@@ -201,7 +214,7 @@ function CreateForm({ engagementId, staff, onCreated }: { engagementId: string; 
     setForm({ ...form, brief: "", angle: "", goal: "", inputs: "" });
     setStrategy(null);
     onCreated();
-  };
+  });
   return (
     <details className="rounded-lg border border-input bg-background p-4 text-sm">
       <summary className="cursor-pointer font-medium">Create a handoff packet</summary>
@@ -228,7 +241,7 @@ function CreateForm({ engagementId, staff, onCreated }: { engagementId: string; 
         <TextField label="Angle" hideLabel placeholder="Angle" value={form.angle} onChange={set("angle")} />
         <TextareaField label="Brief" hideLabel inputClassName="min-h-[100px]" placeholder="Brief for the receiving role" value={form.brief} onChange={set("brief")} />
         <TextareaField label="Required inputs" hideLabel placeholder="Required inputs, one per line" value={form.inputs} onChange={set("inputs")} />
-        <Button size="sm" disabled={!ready} onClick={() => void create()}>Create handoff</Button>
+        <Button size="sm" disabled={busy || !ready} onClick={() => void create()}>Create handoff</Button>
         {error ? <p role="alert" className="text-destructive">{error}</p> : null}
       </div>
     </details>
@@ -249,23 +262,50 @@ export default function HandoffsPage() {
   useEffect(() => {
     void db.rpc("handoff_staff_options", {}).then(({ data }) => setStaff((data ?? []) as StaffOption[]));
   }, []);
+  const latestEngagements = useLatestRequest();
+  const latestLoad = useLatestRequest();
+  const [engagementsError, setEngagementsError] = useState<string | null>(null);
   useEffect(() => {
     setEngagementId("");
-    if (!clientSlug) return setEngagements([]);
+    setEngagementsError(null);
+    if (!clientSlug) {
+      latestEngagements.invalidate();
+      return setEngagements([]);
+    }
+    setEngagements([]);
+    const isCurrent = latestEngagements.begin();
     void db.from("engagements").select("id, cycle_number, status").eq("client_slug", clientSlug).order("cycle_number")
-      .then(({ data }) => setEngagements(((data ?? []) as EngagementOption[]).slice().reverse()));
-  }, [clientSlug]);
+      .then(({ data, error: e }) => {
+        if (!isCurrent()) return;
+        if (e) return setEngagementsError("Engagements could not load.");
+        setEngagements(((data ?? []) as EngagementOption[]).slice().reverse());
+      });
+  }, [clientSlug, latestEngagements]);
 
   const load = useCallback(async () => {
-    if (!mine && !engagementId) return setPackets(null);
+    if (!mine && !engagementId) {
+      latestLoad.invalidate();
+      setError(null);
+      return setPackets(null);
+    }
+    const isCurrent = latestLoad.begin();
     const query = mine && user ? db.from("handoff_packets").select(SELECT).eq("receiver_id", user.id).eq("status", "ready") : db.from("handoff_packets").select(SELECT).eq("engagement_id", engagementId);
     const { data, error: e } = await query.order("due_date");
+    if (!isCurrent()) return;
     if (e) {
       setError("Handoffs could not load.");
       setPackets([]);
-    } else setPackets(toPackets(data));
-  }, [mine, engagementId, user]);
-  useEffect(() => void load(), [load]);
+    } else {
+      setError(null);
+      setPackets(toPackets(data));
+    }
+  }, [mine, engagementId, user, latestLoad]);
+  useEffect(() => {
+    // A different engagement or tab: clear the previous list and error before loading.
+    setPackets(null);
+    setError(null);
+    void load();
+  }, [load]);
 
   return (
     <PageShell data-testid="handoffs">
@@ -288,8 +328,10 @@ export default function HandoffsPage() {
           />
         </div>
       ) : null}
-      {!mine && engagementId ? <CreateForm engagementId={engagementId} staff={staff} onCreated={() => void load()} /> : null}
+      {engagementsError ? <ErrorState message={engagementsError} /> : null}
+      {!mine && engagementId ? <CreateForm key={engagementId} engagementId={engagementId} staff={staff} onCreated={() => void load()} /> : null}
       {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      {packets === null && !error && (mine || engagementId) ? <LoadingState label="Loading handoffs" /> : null}
       {packets && packets.length === 0 && !error ? <EmptyState title={mine ? "Nothing is waiting for you." : "No handoffs for this engagement yet."} /> : null}
       {(packets ?? []).map((p) => <PacketCard key={`${p.id}:${p.current_revision}:${p.status}`} packet={p} staff={staff} onChanged={() => void load()} />)}
     </PageShell>

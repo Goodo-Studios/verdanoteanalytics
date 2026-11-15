@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useBusy } from "@/hooks/useBusy";
 import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField, TextField, TextareaField, useConfirm } from "@/components/page-kit";
 import { DocumentEditor } from "./DocumentEditor";
 import { Button } from "@/components/ui/button";
@@ -39,7 +40,8 @@ function AddSource({ clients, onAdded }: { clients: ClientOption[]; onAdded: () 
   const [form, setForm] = useState({ title: "", body: "", classification: "staff", scope: "global", client: "", namespace: "general", url: "" });
   const [error, setError] = useState<string | null>(null);
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
-  const add = async () => {
+  const { busy, run } = useBusy();
+  const add = () => run(async () => {
     setError(null);
     const { error: e } = await db.rpc("create_knowledge_source", {
       p_title: form.title, p_body: form.body, p_classification: form.classification, p_release_scope: form.scope,
@@ -48,7 +50,7 @@ function AddSource({ clients, onAdded }: { clients: ClientOption[]; onAdded: () 
     if (e) return setError(errorText(e.code, "The source could not be added."));
     setForm({ ...form, title: "", body: "", url: "" });
     onAdded();
-  };
+  });
   return (
     <details className="rounded-lg border border-input bg-background p-4">
       <summary className="cursor-pointer text-sm font-medium">Add knowledge (builder)</summary>
@@ -63,7 +65,7 @@ function AddSource({ clients, onAdded }: { clients: ClientOption[]; onAdded: () 
           ) : <TextField label="Topic" hideLabel placeholder="Topic (for example process)" value={form.namespace} onChange={set("namespace")} />}
         </div>
         <TextField label="Source link" hideLabel placeholder="Source link (https://...)" value={form.url} onChange={set("url")} />
-        <Button size="sm" disabled={!form.title.trim() || !form.body.trim()} onClick={() => void add()}>Add</Button>
+        <Button size="sm" disabled={busy || !form.title.trim() || !form.body.trim()} onClick={() => void add()}>Add</Button>
         {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       </div>
     </details>

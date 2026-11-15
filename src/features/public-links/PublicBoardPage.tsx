@@ -1,10 +1,11 @@
 // The page a client or talent reviewer opens from an approval or casting link. No login, no
 // staff menu, nothing that links into the app. It reads and writes only through the public-link
 // function with the secret in the address. Phone first: one card per person, large buttons.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { ThumbsDown, ThumbsUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useLatestRequest } from "@/hooks/useLatestRequest";
 import { FAILURE_COPY, callPublicLink, safeHref, type LinkFailure, type LinkType } from "./publicLinkApi";
 import { PublicShell } from "./PublicShell";
 
@@ -124,13 +125,25 @@ export default function PublicBoardPage({ type }: { type: LinkType }) {
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState(readName);
 
+  const latest = useLatestRequest();
+  const busyRef = useRef(false);
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
+
   const load = useCallback(async () => {
+    const isCurrent = latest.begin();
     setFailure(null);
     const r = await callPublicLink<Board>({ type, action: "get", token });
+    if (!isCurrent()) return;
     if (r.ok) setBoard(r.data);
     else setFailure(r.reason);
-  }, [type, token]);
+  }, [type, token, latest]);
   useEffect(() => {
+    // A different link: drop the previous board and its notices before loading.
+    setBoard(null);
+    setFailure(null);
+    setVoteFailure(null);
+    setSaved(false);
     void load();
   }, [load]);
 
@@ -145,11 +158,17 @@ export default function PublicBoardPage({ type }: { type: LinkType }) {
   }, []);
 
   const vote = async (p: Person, v: "up" | "down") => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const linkToken = token;
     setBusy(true);
     setVoteFailure(null);
     setSaved(false);
     const r = await callPublicLink<{ ok: true }>({ type, action: "vote", token, assignment_id: p.assignment_id, vote: v, voted_by: name.trim() || null });
+    busyRef.current = false;
     setBusy(false);
+    // The address changed while the vote was in flight: it belongs to the previous link.
+    if (linkToken !== tokenRef.current) return;
     if (!r.ok) {
       if (r.reason === "revoked" || r.reason === "expired" || r.reason === "not_found") setFailure(r.reason);
       else setVoteFailure(r.reason);

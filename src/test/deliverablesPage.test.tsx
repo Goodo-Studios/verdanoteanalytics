@@ -16,6 +16,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WithClient } from "./clientSelection";
+import { acceptConfirm, confirmDialogText, declineConfirm } from "./adminConfirm";
 
 const rpc = vi.fn();
 const data: Record<string, unknown[]> = {};
@@ -98,6 +99,7 @@ describe("DeliverablesPage", () => {
     fireEvent.change(within(group).getByLabelText("Where the decision came from"), { target: { value: "email" } });
     fireEvent.change(within(group).getByLabelText("Decision note"), { target: { value: "Looks great" } });
     fireEvent.click(within(group).getByRole("button", { name: "Client approved" }));
+    await acceptConfirm();
     await waitFor(() => expect(rpc).toHaveBeenCalledWith("record_deliverable_client_decision", {
       p_deliverable_id: "d1", p_revision: 2, p_decision: "approved", p_channel: "email", p_source_note: "Looks great",
     }));
@@ -108,7 +110,18 @@ describe("DeliverablesPage", () => {
     const card = await open();
     fireEvent.change(within(card).getByLabelText("Decision note"), { target: { value: "More changes" } });
     fireEvent.click(within(card).getByRole("button", { name: "Client asked for changes" }));
+    await acceptConfirm();
     expect(await within(card).findByRole("status")).toHaveTextContent("beyond the included client rounds");
+  });
+
+  it("asks before recording a client decision, and Cancel sends nothing", async () => {
+    rpc.mockResolvedValue({ data: "recorded", error: null });
+    const card = await open();
+    fireEvent.change(within(card).getByLabelText("Decision note"), { target: { value: "Looks great" } });
+    fireEvent.click(within(card).getByRole("button", { name: "Client approved" }));
+    expect(await confirmDialogText()).toContain("Record that the client approved?");
+    await declineConfirm();
+    expect(rpc).not.toHaveBeenCalledWith("record_deliverable_client_decision", expect.anything());
   });
 
   it("adds the next revision with the revision on screen", async () => {
@@ -148,6 +161,7 @@ describe("DeliverablesPage", () => {
     const group = within(idea).getByRole("group", { name: "Client decision on version 1" });
     fireEvent.change(within(group).getByLabelText("Decision note"), { target: { value: "Yes on the call" } });
     fireEvent.click(within(group).getByRole("button", { name: "Client approved" }));
+    await acceptConfirm();
     await waitFor(() => expect(rpc).toHaveBeenCalledWith("record_approval_decision", { p_subject_id: "s1", p_version: 1, p_decision: "approved", p_channel: "call", p_source_note: "Yes on the call" }));
   });
 

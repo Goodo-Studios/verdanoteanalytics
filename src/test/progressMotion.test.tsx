@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { acceptConfirm } from "./adminConfirm";
 import { ProgressBar } from "@/components/ProgressBar";
 import { Button } from "@/components/ui/button";
 import { ClientMonthDeliveryBar } from "@/features/clients/ClientMonthDelivery";
@@ -146,6 +147,7 @@ describe("client approval", () => {
     const { ReviewCard } = await import("@/features/client-pages/ClientReviewPage");
     const { rerender } = render(<ReviewCard card={card} today="2026-11-13" />);
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await acceptConfirm();
     expect(mutate).toHaveBeenCalledWith({ taskId: "t1", decision: "approved", note: undefined });
     expect(screen.queryByTestId("client-approved-check")).toBeNull();
 

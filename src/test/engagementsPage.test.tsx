@@ -16,6 +16,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WithClient } from "./clientSelection";
+import { acceptConfirm, confirmDialogText, declineConfirm } from "./adminConfirm";
 
 const rpc = vi.fn();
 const update = vi.fn();
@@ -159,7 +160,17 @@ describe("EngagementsPage", () => {
       p_testing_ended_at: null, p_delivered_assets: ["12 videos", "4 statics"],
     })));
     fireEvent.click(within(active).getByRole("button", { name: "Mark closed" }));
+    await acceptConfirm();
     await waitFor(() => expect(update).toHaveBeenCalledWith("engagements", { status: "closed" }, "id", "e1"));
+  });
+
+  it("asks before closing a cycle, and Cancel changes nothing", async () => {
+    await pick();
+    const active = await screen.findByRole("region", { name: "Cycle 1" });
+    fireEvent.click(within(active).getByRole("button", { name: "Mark closed" }));
+    expect(await confirmDialogText()).toContain("Mark cycle 1 closed?");
+    await declineConfirm();
+    expect(update).not.toHaveBeenCalled();
   });
 
   it("a builder saves a template version with the version on screen", async () => {

@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
 import { ROLE_RETRY_DELAYS_MS } from "@/lib/roleRetry";
 
-type AppRole = "builder" | "employee" | "client";
+import { parseAppRole, type AppRole } from "@/lib/parseAppRole";
 
 interface AuthContextType {
   user: User | null;
@@ -69,7 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { data, error } = await supabase.rpc("get_user_role", { _user_id: userId });
         if (error) throw error;
         if (!isCurrent(userId)) return;
-        setRoleState({ role: (data as AppRole) || null, resolved: true });
+        setRoleState({ role: parseAppRole(data), resolved: true });
         // OS-021: a client's first sign-in marks their sent invite accepted. Best effort: a failure
         // here only leaves the staff status as "not yet accepted".
         if (data === "client") {

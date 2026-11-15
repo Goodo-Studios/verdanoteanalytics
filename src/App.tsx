@@ -15,7 +15,6 @@ import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppLayout } from "@/components/AppLayout";
-import { RequireOneAccount } from "@/components/RequireOneAccount";
 import { PageSkeleton } from "@/components/skeletons/PageSkeleton";
 import { routeImports } from "@/lib/routePrefetch";
 import { SectionPage } from "@/components/sections/SectionPage";
@@ -148,7 +147,7 @@ export function RoleGuardedRoutes() {
   const prefix = useRolePrefix();
   const location = useLocation();
   const { user, role, isLoading, isClient, isBuilder, isEmployee, retryRole, signOut } = useAuth();
-  const { isClientPreview, isEmployeePreview } = useClientPreview();
+  const { isClientPreview } = useClientPreview();
   const effectiveClient = isClient || isClientPreview;
   // Employee feature parity (owner decision 2026-07-21): employees get every
   // PRODUCT surface builders have. Admin (user mgmt, Meta/settings, API keys,

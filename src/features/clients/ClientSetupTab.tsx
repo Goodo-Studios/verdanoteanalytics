@@ -10,7 +10,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useRealBuilder } from "@/hooks/useRealBuilder";
+import { useLatestRequest } from "@/hooks/useLatestRequest";
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField, EmptyState, useConfirm } from "@/components/page-kit";
@@ -373,25 +374,32 @@ function Logins({ slug, data, clientName, onChanged }: { slug: string; data: Loa
 }
 
 export default function ClientSetupTab() {
-  const { isBuilder } = useAuth();
+  const isBuilder = useRealBuilder();
   const { selectedSlug, selectedClient, clients } = useClientSelection();
   const slug = selectedSlug;
   const [data, setData] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
   const now = useMemo(() => new Date(), []);
+  const latest = useLatestRequest();
 
   const load = useCallback(async () => {
     if (!slug) return;
+    const isCurrent = latest.begin();
     setError(null);
     try {
-      setData(await loadAll(slug));
+      const next = await loadAll(slug);
+      if (isCurrent()) setData(next);
     } catch {
-      setError("The setup details could not load, so this is not the same as nothing being set up.");
+      if (isCurrent()) setError("The setup details could not load, so this is not the same as nothing being set up.");
     }
-  }, [slug]);
+  }, [slug, latest]);
   useEffect(() => {
+    // A different client: drop the previous client's logins, accounts and error before loading.
+    setData(null);
+    setError(null);
     if (isBuilder) void load();
-  }, [isBuilder, load]);
+    else latest.invalidate();
+  }, [isBuilder, load, latest]);
 
   if (!slug) return null;
   const clientName = selectedClient?.name ?? slug;
@@ -419,10 +427,10 @@ export default function ClientSetupTab() {
         <>
           <Checklist status={data.status} now={now} />
           <div className="grid gap-4 lg:grid-cols-2">
-            <AdAccounts slug={slug} data={data} clientName={clientName} nameOf={nameOf} onChanged={() => void load()} />
-            <ClickUpLink slug={slug} data={data} clientName={clientName} nameOf={nameOf} onChanged={() => void load()} />
+            <AdAccounts key={`ad-${slug}`} slug={slug} data={data} clientName={clientName} nameOf={nameOf} onChanged={() => void load()} />
+            <ClickUpLink key={`cu-${slug}`} slug={slug} data={data} clientName={clientName} nameOf={nameOf} onChanged={() => void load()} />
           </div>
-          <Logins slug={slug} data={data} clientName={clientName} onChanged={() => void load()} />
+          <Logins key={`lg-${slug}`} slug={slug} data={data} clientName={clientName} onChanged={() => void load()} />
         </>
       )}
     </PageShell>
