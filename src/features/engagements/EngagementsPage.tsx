@@ -2,9 +2,9 @@
 // EngagementSetup.tsx and CloseoutReview). Staff pick a client, see its 45-day
 // cycles, create the next one from a template, record its kickoff once (the start
 // date is then frozen), and write versioned closeout readouts. A builder saves
-// template versions. Every write except closing or cancelling goes through a
-// checked database function (migration 20261110120001); clients see none of the
-// terms, milestones, templates or closeouts.
+// template versions. Every write goes through a checked database function
+// (migrations 20261110120001 and 20261216110001, which owns closing and cancelling);
+// clients see none of the terms, milestones, templates or closeouts.
 //
 // Overlap: the old dashboard Client Detail page (step 5a) shows the same clients;
 // it is not built here.
@@ -48,7 +48,7 @@ interface Query extends PromiseLike<DbResult> {
   order(column: string): Query;
 }
 interface Untyped {
-  from(table: string): { select(columns: string): Query; update(values: Record<string, unknown>): Query };
+  from(table: string): { select(columns: string): Query };
   rpc(name: string, args: Record<string, unknown>): PromiseLike<DbResult>;
 }
 const db = supabase as unknown as Untyped;
@@ -171,8 +171,8 @@ function EngagementCard({ engagement, onChanged }: { engagement: Engagement; onC
     if (e) return setError(errorText(e.code, "The kickoff could not be recorded."));
     onChanged();
   });
-  // Closing or cancelling is a one-way status change, so it asks first. There is no checked database
-  // function for it yet (only kickoff has one), so it stays a direct update guarded by the table policy.
+  // Closing or cancelling is a one-way status change, so it asks first, then goes through
+  // set_engagement_status (staff only; planned -> cancelled and active -> closed are the legal moves).
   const setStatus = (status: "closed" | "cancelled") => run(async () => {
     const cancelling = status === "cancelled";
     const ok = await confirm({
@@ -185,8 +185,14 @@ function EngagementCard({ engagement, onChanged }: { engagement: Engagement; onC
     });
     if (!ok) return;
     setError(null);
-    const { error: e } = await db.from("engagements").update({ status }).eq("id", engagement.id);
-    if (e) return setError(errorText(e.code, "The status could not be changed."));
+    const { error: e } = await db.rpc("set_engagement_status", { p_engagement_id: engagement.id, p_status: status });
+    if (e) {
+      // 22023 (move no longer legal) and P0002 (gone) mean what is on screen is stale: say so and reload.
+      const stale = e.code === "22023" || e.code === "P0002";
+      setError(stale ? "This cycle's status has already changed or cannot change that way. The page was refreshed." : errorText(e.code, "The status could not be changed."));
+      if (stale) onChanged();
+      return;
+    }
     onChanged();
   });
   const e = engagement;
