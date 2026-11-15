@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Star, Trash2, Vault, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { EmptyState, LoadingState, PageHeader, PageShell } from "@/components/page-kit";
@@ -210,19 +210,23 @@ export default function LibraryPage() {
 
   // One shared row-fetcher for both the paged grid and the featured rail.
   const selectItems = useCallback(
-    (tagItemIds: string[] | null) => {
+    (tag: string | null) => {
       // Explicit column list, not `*`. inspiration_items carries the two AI
       // analysis blobs (script_analysis, visual_analysis) plus ad_body_text,
       // and none of them are rendered on a card — `*` was pulling all of it for
       // every item in the library on each load. The detail page still selects
       // `*` for the single item it shows.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // Tag filtering is an embedded inner join on inspiration_tags (FK item_id -> id),
+      // evaluated server-side. The old approach fetched every matching item id first and
+      // sent them all in an `in (...)` URL, which hit the 1000-row cap and URL length limits.
+      const tagEmbed = tag ? ",\n           inspiration_tags!inner(tag)" : "";
       let q = supabase
         .from("inspiration_items")
         .select(
           `${VAULT_CARD_COLUMNS},
            inspiration_transcripts(cleaned_script),
-           inspiration_frameworks(hook_verbal, hook_text, copywriting_framework)`,
+           inspiration_frameworks(hook_verbal, hook_text, copywriting_framework)${tagEmbed}`,
         )
         .eq("user_id", user!.id)
         .order("created_at", { ascending: sort === "oldest" });
@@ -230,24 +234,11 @@ export default function LibraryPage() {
       if (status === "pending") q = q.in("status", ["pending", "extracting", "transcribing", "analyzing"]);
       else if (status === "ready") q = q.eq("status", "ready");
       else if (status === "error") q = q.eq("status", "error");
-      if (tagItemIds) q = q.in("id", tagItemIds);
+      if (tag) q = q.eq("inspiration_tags.tag", tag);
       return q;
     },
     [user, sort, status],
   );
-
-  // Resolves the active tag chip to the item ids it covers. `null` means "no
-  // tag filter"; an empty array means "this tag matches nothing".
-  const resolveTagItemIds = useCallback(async (): Promise<string[] | null> => {
-    if (!activeTag) return null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: tagRows, error: tagErr } = await supabase
-      .from("inspiration_tags")
-      .select("item_id")
-      .eq("tag", activeTag);
-    if (tagErr) throw tagErr;
-    return (tagRows ?? []).map((r: { item_id: string }) => r.item_id);
-  }, [activeTag]);
 
   // Paged, not "every row the user has ever saved". A large library used to
   // fetch and mount its entire contents on load; the grid now pulls
@@ -264,16 +255,12 @@ export default function LibraryPage() {
     initialPageParam: 0,
     getNextPageParam: (last: VaultPage<LibraryItem>) => last.nextOffset ?? undefined,
     queryFn: async ({ pageParam }) => {
-      const tagItemIds = await resolveTagItemIds();
-      if (tagItemIds?.length === 0) {
-        return { items: [], nextOffset: null } as VaultPage<LibraryItem>;
-      }
       return fillVaultPage<LibraryItem>({
         startOffset: pageParam as number,
         pageSize: VAULT_PAGE_SIZE,
         matches: matchesMediaType,
         fetchRange: async (from, to) => {
-          const { data, error } = await selectItems(tagItemIds).range(from, to);
+          const { data, error } = await selectItems(activeTag).range(from, to);
           if (error) throw error;
           return (data ?? []) as LibraryItem[];
         },
@@ -300,9 +287,7 @@ export default function LibraryPage() {
     queryKey: ["vault-featured", user?.id, status, sort, activeTag],
     enabled: !!user,
     queryFn: async () => {
-      const tagItemIds = await resolveTagItemIds();
-      if (tagItemIds?.length === 0) return [];
-      const { data, error } = await selectItems(tagItemIds).eq("is_featured", true);
+      const { data, error } = await selectItems(activeTag).eq("is_featured", true);
       if (error) throw error;
       return (data ?? []) as LibraryItem[];
     },
@@ -328,9 +313,17 @@ export default function LibraryPage() {
     () => collectVaultStoragePaths([...featuredAll, ...items]),
     [featuredAll, items],
   );
-  const { data: signedUrlMap, status: signedUrlsStatus } = useQuery({
+  const {
+    data: signedUrlMap,
+    status: signedUrlsStatus,
+    isPlaceholderData: signedUrlsArePlaceholder,
+  } = useQuery({
     queryKey: ["vault-signed-urls", storagePaths],
     enabled: storagePaths.length > 0,
+    // The key changes every time infinite scroll appends a page. Without this the map goes
+    // undefined while the new batch signs, and every already-loaded thumbnail flickers.
+    // Keep the previous map on screen; the fresh one replaces it when it lands.
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const { data, error } = await supabase.storage
         .from("inspiration-media")
@@ -341,7 +334,9 @@ export default function LibraryPage() {
     staleTime: 55 * 60 * 1000,
     retry: false,
   });
-  const signedUrlsSettled = signedUrlsStatus !== "pending";
+  // While the previous map is only a placeholder, cards missing from it must wait for the
+  // real batch rather than self-signing one by one.
+  const signedUrlsSettled = signedUrlsStatus !== "pending" && !signedUrlsArePlaceholder;
 
   // Semantic search results from vault-search edge function.
   const { data: searchResults, isFetching: isSearching } = useQuery<LibraryItem[]>({
@@ -422,8 +417,16 @@ export default function LibraryPage() {
         onToggleFeatured={(id, val) => toggleFeatured({ id, featured: val })}
         onDelete={(id) => deleteOne(id)}
         useProvidedSignedUrls
-        signedThumbnailUrl={resolveProvidedSignedUrl(item.thumbnail_path, signedUrlMap, signedUrlsSettled)}
-        signedFileUrl={resolveProvidedSignedUrl(item.file_path, signedUrlMap, signedUrlsSettled)}
+        // A path already in the (possibly placeholder) map keeps its URL even while the next
+        // batch is signing; only paths with no URL yet wait or fall back.
+        signedThumbnailUrl={
+          (item.thumbnail_path && signedUrlMap?.[item.thumbnail_path]) ||
+          resolveProvidedSignedUrl(item.thumbnail_path, signedUrlMap, signedUrlsSettled)
+        }
+        signedFileUrl={
+          (item.file_path && signedUrlMap?.[item.file_path]) ||
+          resolveProvidedSignedUrl(item.file_path, signedUrlMap, signedUrlsSettled)
+        }
       />
     );
   };
