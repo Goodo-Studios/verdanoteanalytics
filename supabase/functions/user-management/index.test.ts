@@ -68,7 +68,7 @@ Deno.test("a token that does not resolve to a user is 401 and the role table is 
 for (const [label, roles] of [["client", ["client"]], ["employee", ["employee"]], ["login with no role", []]] as const) {
   for (const [method, path, body] of [
     ["GET", "", undefined],
-    ["POST", "", { email: "a@b.test", password: "pw", role: "builder" }],
+    ["POST", "", { email: "a@b.test", password: "test-pass-1234", role: "builder" }],
     ["PUT", "/victim", { role: "builder" }],
     ["DELETE", "/victim", undefined],
   ] as const) {
@@ -122,7 +122,7 @@ Deno.test("POST without email, password and role is 400 and creates nothing", as
 
 Deno.test("POST creates the login, sets its role and links its accounts", async () => {
   const { res, db } = await call("POST", "", {
-    body: { email: "a@b.test", password: "pw", role: "client", display_name: "A", account_ids: ["act_1"] },
+    body: { email: "a@b.test", password: "test-pass-1234", role: "client", display_name: "A", account_ids: ["act_1"] },
     cfg: { tables: { user_roles: rolesFor(["builder"]) } },
   });
   assertEquals(res.status, 200);
@@ -135,7 +135,7 @@ Deno.test("POST creates the login, sets its role and links its accounts", async 
 
 Deno.test("POST with a dashboard role uses the mapping table", async () => {
   const { res, db } = await call("POST", "", {
-    body: { email: "p@b.test", password: "pw", dashboard_role: "producer" },
+    body: { email: "p@b.test", password: "test-pass-1234", dashboard_role: "producer" },
     cfg: {
       tables: {
         user_roles: rolesFor(["builder"]),
@@ -150,7 +150,7 @@ Deno.test("POST with a dashboard role uses the mapping table", async () => {
 
 Deno.test("POST with the dashboard role viewer creates a client login", async () => {
   const { res, db } = await call("POST", "", {
-    body: { email: "v@b.test", password: "[REDACTED]", dashboard_role: "viewer", account_ids: ["act_1"] },
+    body: { email: "v@b.test", password: "test-pass-1234", dashboard_role: "viewer", account_ids: ["act_1"] },
     cfg: {
       tables: {
         user_roles: rolesFor(["builder"]),
@@ -165,7 +165,7 @@ Deno.test("POST with the dashboard role viewer creates a client login", async ()
 
 Deno.test("POST with another staff role such as editor creates an employee", async () => {
   const { res, db } = await call("POST", "", {
-    body: { email: "e@b.test", password: "[REDACTED]", dashboard_role: "editor" },
+    body: { email: "e@b.test", password: "test-pass-1234", dashboard_role: "editor" },
     cfg: {
       tables: {
         user_roles: rolesFor(["builder"]),
@@ -182,7 +182,7 @@ Deno.test("POST with another staff role such as editor creates an employee", asy
 
 Deno.test("POST with an unreadable mapping table fails closed", async () => {
   const { res, db } = await call("POST", "", {
-    body: { email: "p@b.test", password: "pw", dashboard_role: "producer" },
+    body: { email: "p@b.test", password: "test-pass-1234", dashboard_role: "producer" },
     cfg: {
       tables: {
         user_roles: rolesFor(["builder"]),
@@ -197,7 +197,7 @@ Deno.test("POST with an unreadable mapping table fails closed", async () => {
 
 Deno.test("an auth error while creating the login is a 500 and no role is written", async () => {
   const { res, db } = await call("POST", "", {
-    body: { email: "a@b.test", password: "pw", role: "employee" },
+    body: { email: "a@b.test", password: "test-pass-1234", role: "employee" },
     cfg: { tables: { user_roles: rolesFor(["builder"]) }, createUserError: { message: "already registered" } },
   });
   assertEquals(res.status, 500);
@@ -215,7 +215,6 @@ Deno.test("PUT replaces the role and the account links", async () => {
     "update:profiles",
     "insert:user_roles",
     "delete:user_roles",
-    "delete:user_accounts",
     "insert:user_accounts",
   ]);
   const del = db.writes()[2];
@@ -301,7 +300,7 @@ Deno.test("DELETE: a failed removal is a 500, not a success", async () => {
 
 Deno.test("a 500 never returns the raw error text", async () => {
   const { res } = await call("POST", "", {
-    body: { email: "a@b.test", password: "pw-for-test", role: "employee" },
+    body: { email: "a@b.test", password: "test-pass-1234", role: "employee" },
     cfg: { tables: { user_roles: rolesFor(["builder"]) }, createUserError: { message: "duplicate key value violates constraint users_email_key" } },
   });
   assertEquals(res.status, 500);
@@ -317,4 +316,70 @@ Deno.test("DELETE removes the login for a builder", async () => {
 Deno.test("an unknown route is 404", async () => {
   const { res } = await call("PATCH", "", { cfg: { tables: { user_roles: rolesFor(["builder"]) } } });
   assertEquals(res.status, 404);
+});
+
+Deno.test("POST refuses a short password, a bad role and bad account_ids, and creates nothing", async () => {
+  for (const body of [
+    { email: "a@b.test", password: "short", role: "employee" },
+    { email: "a@b.test", password: "test-pass-1234", role: "superuser" },
+    { email: "a@b.test", password: "test-pass-1234", role: "client", account_ids: "act_1" },
+    { email: "a@b.test", password: "test-pass-1234", role: "client", account_ids: [5] },
+    { email: "not-an-email", password: "test-pass-1234", role: "employee" },
+  ]) {
+    const { res, db } = await call("POST", "", { body, cfg: { tables: { user_roles: rolesFor(["builder"]) } } });
+    assertEquals(res.status, 400, JSON.stringify(body));
+    assertEquals(db.untouched(), true);
+  }
+});
+
+Deno.test("POST: a failed role insert removes the login that was just created", async () => {
+  const { res, db } = await call("POST", "", {
+    body: { email: "a@b.test", password: "test-pass-1234", role: "employee" },
+    cfg: { tables: { user_roles: rolesFor(["builder"]) }, writeErrors: { "insert:user_roles": { message: "db down" } } },
+  });
+  assertEquals(res.status, 500);
+  assertEquals(db.admin.deleted, ["new-user-id"]);
+});
+
+Deno.test("POST: a failed account link insert removes the login", async () => {
+  const { res, db } = await call("POST", "", {
+    body: { email: "a@b.test", password: "test-pass-1234", role: "client", account_ids: ["act_1"] },
+    cfg: { tables: { user_roles: rolesFor(["builder"]) }, writeErrors: { "insert:user_accounts": { message: "fk" } } },
+  });
+  assertEquals(res.status, 500);
+  assertEquals(db.admin.deleted, ["new-user-id"]);
+});
+
+Deno.test("PUT: a failed profile update is a 500 and nothing else is written", async () => {
+  const { res, db } = await call("PUT", "/victim", {
+    body: { role: "employee", display_name: "X" },
+    cfg: { tables: { user_roles: rolesFor(["builder"]) }, writeErrors: { "update:profiles": { message: "boom" } } },
+  });
+  assertEquals(res.status, 500);
+  assertEquals(db.writes().map((w) => `${w.verb}:${w.table}`), ["update:profiles"]);
+});
+
+Deno.test("PUT: account links are added before the unwanted ones are removed, never delete-all first", async () => {
+  const { res, db } = await call("PUT", "/victim", {
+    body: { account_ids: ["act_keep", "act_new"] },
+    cfg: {
+      tables: {
+        user_roles: rolesFor(["builder"]),
+        user_accounts: [{ account_id: "act_keep" }, { account_id: "act_old" }],
+      },
+    },
+  });
+  assertEquals(res.status, 200);
+  assertEquals(db.writes().map((w) => `${w.verb}:${w.table}`), ["insert:user_accounts", "delete:user_accounts"]);
+  assertEquals(db.writes()[0].payload, [{ user_id: "victim", account_id: "act_new" }]);
+  assert(db.writes()[1].filters.some(([m, c, v]) => m === "in" && c === "account_id" && JSON.stringify(v) === '["act_old"]'));
+});
+
+Deno.test("PUT: an invalid role is a 400 and nothing is written", async () => {
+  const { res, db } = await call("PUT", "/victim", {
+    body: { role: "root" },
+    cfg: { tables: { user_roles: rolesFor(["builder"]) } },
+  });
+  assertEquals(res.status, 400);
+  assertEquals(db.untouched(), true);
 });
