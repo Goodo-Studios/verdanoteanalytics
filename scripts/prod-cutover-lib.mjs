@@ -1,5 +1,5 @@
 // Shared pieces of the production cutover scripts (docs/staging.md, "Releasing
-// staging to production"): prod-secrets-status, ad-code-counter, coda-cleanup and
+// staging to production"): prod-secrets-status, ad-code-counter and
 // the storage copy. Pure functions plus one small Supabase Management API client,
 // so the safety rules can be tested without a network.
 //
@@ -195,16 +195,6 @@ export function namesMentionedInCode(functionsDir) {
   }
   return names;
 }
-
-// Deployed function slugs that no longer have a folder in the repo.
-export const orphanFunctions = (deployed, local) => {
-  const have = new Set(local);
-  return deployed.map((f) => f.slug).filter((s) => !have.has(s)).sort();
-};
-
-// Deployed secret names that no function code mentions and that are not platform secrets.
-export const unreadSecrets = (deployedNames, mentioned) =>
-  deployedNames.filter((n) => !PLATFORM_SECRETS.has(n) && !mentioned.has(n)).sort();
 
 export const projectTarget = (name) => {
   if (name === undefined || name === 'production') return { name: 'production', ref: PRODUCTION_REF, tokenEnv: 'SUPABASE_ACCESS_TOKEN' };

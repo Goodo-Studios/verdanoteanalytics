@@ -54,7 +54,7 @@ function uniqueCodeOf(adName: string): string {
 }
 
 
-/** A name_mappings row -> PartialTags for the resolver's Coda (csv_match) layer. */
+/** A name_mappings row -> PartialTags for the resolver's name_mappings (csv_match) layer. */
 function mappingTags(m: Record<string, unknown> | null): PartialTags | null {
   if (!m) return null;
   return {
@@ -493,7 +493,7 @@ serve(async (req) => {
       if (tag_source === "untagged") {
         // Reset to auto — re-resolve via the canonical parser + name_mappings,
         // applying the locked precedence (manual is absent on a reset, so:
-        // Coda(name_mappings) > parser > untagged). resolveTags sets tag_source.
+        // name_mappings > parser > untagged). resolveTags sets tag_source.
         update.tag_source = "untagged";
         update.ad_type = null;
         update.person = null;
@@ -581,7 +581,7 @@ serve(async (req) => {
       // US-003: tagging now flows through the single canonical parser + resolver.
       // Resolve the account's naming convention once, preload its name_mappings into
       // a Map keyed by unique_code, then per creative apply the locked precedence
-      // (no manual layer here, so: Coda(name_mappings) > parser > untagged).
+      // (no manual layer here, so: name_mappings > parser > untagged).
       const convention = await resolveConvention(supabase, account_id);
       const { data: mappings } = await supabase
         .from("name_mappings")

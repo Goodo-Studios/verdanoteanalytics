@@ -405,7 +405,7 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
   // ─── Slack alert on status TRANSITION (watchdog) ───────────────────────────
   // This function detects stale accounts + broken sync, but historically nothing
   // ran it and nothing was alerted — so the 2026-06 and 2026-07 sync outages went
-  // unseen behind the (still-running) Coda crons. Now that it is cron-scheduled,
+  // unseen behind other still-running crons. Now that it is cron-scheduled,
   // page Slack when overall status CHANGES (fail on entry, recovery on exit) so a
   // persistent issue doesn't spam every 30-min run. Best-effort; never fails the
   // check. Reads the prior status BEFORE the new row is inserted below.

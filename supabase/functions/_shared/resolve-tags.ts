@@ -4,7 +4,7 @@
 // divergent across four taggers (creatives PUT-reset, creatives auto-tag POST,
 // sync Phase 5 regex, src/lib/autoTagger.ts) into ONE deterministic resolver.
 //
-// PRECEDENCE (LOCKED by Matthew):  manual > Coda(name_mappings) > parser > ai > untagged
+// PRECEDENCE (LOCKED by Matthew):  manual > name_mappings > parser > ai > untagged
 //
 //   - manual      : the human-curated override layer. In the current schema this
 //                   is row-level — a creatives row whose tag_source = 'manual'
@@ -13,7 +13,7 @@
 //                   when the row is not manually tagged). The resolver also
 //                   supports a per-dimension manual shape forward-compatibly: a
 //                   dimension is "manual" iff manual[dim] is a non-null value.
-//   - csv_match   : the Coda-curated name_mappings row for (account_id,
+//   - csv_match   : the curated name_mappings row for (account_id,
 //                   unique_code) — the trusted override layer below manual.
 //   - parsed      : the canonical parseAdName() output (ParsedAdName.tags).
 //   - ai          : US-009. The deterministic AI-derived layer (see
@@ -21,7 +21,7 @@
 //                   from the analyze-creative framework fields + media kind. It
 //                   sits BELOW parsed (as the module header always intended), so
 //                   AI only fills dimensions no manual/csv/parser value supplied.
-//                   NEVER overwrites a human/Coda/ad-name tag.
+//                   NEVER overwrites a human/name_mappings/ad-name tag.
 //   - untagged    : nothing contributed any tag.
 //
 // Resolution is PER DIMENSION: each of the six dimensions independently takes the

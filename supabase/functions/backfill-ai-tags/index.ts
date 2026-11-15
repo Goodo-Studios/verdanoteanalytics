@@ -14,7 +14,7 @@
 // hook (run the same derivation inside analyze-creative after each analysis) is a
 // small follow-up once that file is free — see the note at the bottom.
 //
-// SAFETY / PRECEDENCE (never clobber a human/Coda/ad-name tag):
+// SAFETY / PRECEDENCE (never clobber a human/name_mappings/ad-name tag):
 //   - The query gate selects tag_source IN ('untagged','parsed','csv_match','csv',
 //     'inferred') — i.e. everything EXCEPT 'manual'. Manual rows are never fetched,
 //     so a human override can never be overwritten. AI values below-parser only
@@ -63,7 +63,7 @@ function uniqueCodeOf(adName: string): string {
 }
 
 
-/** A name_mappings row -> PartialTags for the resolver's Coda (csv_match) layer. */
+/** A name_mappings row -> PartialTags for the resolver's name_mappings (csv_match) layer. */
 function mappingTags(m: Record<string, unknown> | null): PartialTags | null {
   if (!m) return null;
   return {

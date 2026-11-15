@@ -42,8 +42,8 @@ export interface ActiveEngagement {
 
 // --------------------------------------------------------------- client origin
 //
-// clients.origin is 'manual' (added by hand) or 'coda'. 'coda' is a legacy name
-// from before ClickUp replaced Coda: it marks a client whose details the HQ
+// clients.origin is 'manual' (added by hand) or 'coda'. The stored value 'coda'
+// is an old name kept for existing rows: it marks a client whose details the HQ
 // sync keeps in step with its knowledge file. Anything that is not 'manual'
 // counts as synced, so an unknown value errs towards a warning, not silence.
 

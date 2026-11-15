@@ -39,7 +39,7 @@ export interface AutoParseRow {
  * Should the sync run this creative through the parser now?
  *   - only tag_source 'parsed' | 'untagged'
  *   - only when the name changed since the last parse (or it was never parsed)
- *   - exception: an 'untagged' row whose unique_code has a Coda name_mappings
+ *   - exception: an 'untagged' row whose unique_code has a name_mappings
  *     row is always retried (hasNameMapping), so a mapping that arrives after
  *     the ad was first seen still applies on the next sync, as it did before
  *     rename tracking existed.

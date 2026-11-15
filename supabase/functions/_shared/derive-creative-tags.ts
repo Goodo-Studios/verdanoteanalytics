@@ -8,7 +8,7 @@
 // It is the missing "'ai' sits below parsed (US-009)" layer the resolve-tags
 // header always referenced but never implemented. Precedence is enforced by
 // resolve-tags.ts (manual > csv_match > parsed > ai > untagged), so anything a
-// human, Coda mapping, or the ad-name parser already supplied always wins — the
+// human, name_mappings mapping, or the ad-name parser already supplied always wins, so the
 // 'ai' layer only FILLS dimensions no higher source resolved.
 //
 // WHY A TRANSLATION LAYER (not a passthrough of creatives.tag_suggestions):
@@ -509,7 +509,7 @@ export interface MatrixWriteDecision {
  *   • A currently-null column is FILLED with the deterministic value (an upgrade).
  *   • A currently-NON-null column is NEVER overwritten and NEVER cleared — the
  *     stored value wins. So a manual or csv-sourced lane/type can never be demoted
- *     to untagged, and the deterministic layer never fights a human/Coda tag.
+ *     to untagged, and the deterministic layer never fights a human/name_mappings tag.
  *
  * The deterministic layer thus runs FIRST (it is the primary source for empty
  * columns) yet can only ever ADD coverage. `changed` is true only when a null
