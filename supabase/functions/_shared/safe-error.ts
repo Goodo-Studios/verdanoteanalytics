@@ -3,7 +3,7 @@
 // Never return those to callers; log a redacted version server-side only.
 
 const SECRET_PARAM = /([?&](?:access_token|token|key|apikey|api_key|client_secret|fb_exchange_token)=)[^&#\s"']*/gi;
-const BEARER = /(Bearer\s+)[A-Za-z0-9._~+\/=-]+/gi;
+const BEARER = /(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi;
 const META_TOKEN = /\bEAA[A-Za-z0-9]{20,}/g;
 
 function toText(input: unknown): string {
