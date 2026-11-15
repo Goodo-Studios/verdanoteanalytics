@@ -786,9 +786,10 @@ async function promoteNextQueued(supabase: any): Promise<PromoteResult> {
 //   5 = Finalize
 
 // Legacy rows may still hold token-bearing cursor URLs; scrub on the way out.
-function withSafeSyncState(row: any) {
-  return row && row.sync_state && typeof row.sync_state === "object"
-    ? { ...row, sync_state: sanitizeSyncState(row.sync_state) }
+function withSafeSyncState<T extends { sync_state?: unknown } | null>(row: T): T {
+  const s = row?.sync_state;
+  return row && s && typeof s === "object"
+    ? { ...row, sync_state: sanitizeSyncState(s as Record<string, unknown>) }
     : row;
 }
 
