@@ -18,8 +18,8 @@ import {
 //
 // READS go through ONE SECURITY DEFINER RPC (rpc_account_taxonomy) so React, this
 // function, the `api` function, and verdanote-read-mcp all read identical values.
-// WRITES go only to Postgres (angle_clusters + account_creative_types); Coda stays
-// read-only upstream. Writes here never touch creatives tag columns / tag_source,
+// WRITES go only to Postgres (angle_clusters + account_creative_types); nothing
+// is written upstream. Writes here never touch creatives tag columns / tag_source,
 // so the locked tag precedence (manual > csv_match > parsed > ai > untagged) is
 // unaffected — a taxonomy edit can never demote an existing creative tag.
 

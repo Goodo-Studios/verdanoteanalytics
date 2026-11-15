@@ -1,8 +1,7 @@
 // Pure logic for the ClickUp -> pipeline_tasks sync (sync-clickup-tasks).
 //
-// ClickUp replaced Coda as the task system on 2026-10-09. The client-facing
-// Content Pipeline board (/pipeline) keeps the same five columns it had under
-// Coda; this module decides which ClickUp tasks reach the board and which
+// ClickUp is the task system. The client-facing
+// Content Pipeline board (/pipeline) has five columns; this module decides which ClickUp tasks reach the board and which
 // column each one lands in. Nothing here talks to the network or the database,
 // so it is covered by plain Deno unit tests.
 //
@@ -31,7 +30,7 @@ export const CLICKUP_CLIENT_SPACE_ID = "90146671303";
 // every client list (Barriere, Pretty Tasty Tea and Unbound Snacks carry their
 // own copy of the list with identical names, so mapping by name covers them).
 //
-// Grouping follows the 2026-06-02 operator decisions made for the Coda board:
+// Grouping follows the 2026-06-02 operator decisions made for the board:
 //   - "Preparing Content"  <- not started, brief authoring, client brief review.
 //   - "Production"         <- shoot and creator stages up to the edit handoff.
 //   - "Editing"            <- post-production, internal review, QA, exports and
@@ -198,7 +197,7 @@ export function dropdownValue(
 
 /**
  * True when the "Clear Task" dropdown is set to "true". Staff use it to pull a
- * finished task off the board regardless of its status (same rule as under Coda).
+ * finished task off the board regardless of its status.
  */
 export function isClearedTask(fields: ClickUpCustomField[] | null | undefined): boolean {
   return (dropdownValue(fields, "Clear Task") ?? "").trim().toLowerCase() === "true";

@@ -79,7 +79,7 @@ function uniqueCodeOf(adName: string): string {
 }
 
 
-/** A name_mappings row -> PartialTags for the resolver's Coda (csv_match) layer. */
+/** A name_mappings row -> PartialTags for the resolver's name_mappings (csv_match) layer. */
 function mappingTags(m: Record<string, unknown> | null): PartialTags | null {
   if (!m) return null;
   return {

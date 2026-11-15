@@ -1,5 +1,5 @@
 /**
- * Push to ClickUp (replaces the removed Coda buttons).
+ * Push to ClickUp.
  *
  * - "Push to ClickUp" in the brief editor and "Create brief in ClickUp" in the
  *   creative detail modal are shown to builders and employees only. A client

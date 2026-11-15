@@ -5,7 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ExternalLink, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
-// Push a brief to ClickUp (replaces the removed Coda buttons). Staff only: the
+// Push a brief to ClickUp. Staff only: the
 // callers render the button for builders and employees, and the server function
 // refuses everyone else. The picker offers the client's empty asset tasks
 // ("assigned" or "brief creation") or a new asset task.

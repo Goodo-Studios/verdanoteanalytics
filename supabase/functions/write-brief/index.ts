@@ -5,13 +5,10 @@
 // angle clusters, ad transcript, Goodo brand context, and the LLM authoring
 // itself) happens in HQ (US-006). This function does payload validation + a
 // scoped, IDEMPOTENT upsert into public.briefs. NO model calls, NO business
-// logic, and — by hard CLAUDE.md rule — NO Coda calls of any kind.
+// logic.
 //
-// CODA SAFETY (hard constraint): this module constructs NO Coda client, imports
-// nothing Coda-related, and fetches no Coda URL. The Coda canvas is API-read-only;
-// briefs are written ONLY to the Postgres briefs table. The accompanying Deno
-// test asserts this (no Coda client constructed, no Coda URL fetched). The OLD
-// create-coda-brief edge function path is intentionally NOT imported here.
+// Briefs are written ONLY to the Postgres briefs table; this module calls no
+// outside service.
 //
 // DATA FLOW: HQ brief-synthesis loop (US-006) -> human review gate -> POST here
 //   { account_id, name, template_id?, content (jsonb), reference_ad_ids?,
