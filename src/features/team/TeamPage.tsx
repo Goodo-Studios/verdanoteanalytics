@@ -316,6 +316,7 @@ export default function TeamPage() {
   const [members, setMembers] = useState<TeamMember[] | null>(null);
   const [mappings, setMappings] = useState<RoleMapping[]>([]);
   const [recon, setRecon] = useState<ReconRow[] | null>(null);
+  const [reconError, setReconError] = useState<string | null>(null);
   const [invites, setInvites] = useState<StaffInvite[]>([]);
   const [events, setEvents] = useState<StaffEvent[]>([]);
   const [prefill, setPrefill] = useState<InvitePrefill | null>(null);
@@ -343,8 +344,14 @@ export default function TeamPage() {
       db.from("staff_invites").select(INVITE_SELECT).order("prepared_at", { ascending: false }).limit(200),
       db.from("staff_admin_events").select(EVENT_SELECT).order("created_at", { ascending: false }).limit(20),
     ]);
-    if (r.error) setError(`The staff list check could not load: ${errorText(r.error)}`);
-    setRecon(((r.data ?? []) as ReconRow[]).map((row) => ({ ...row, issues: row.issues ?? [], staff_roles: row.staff_roles ?? [] })));
+    if (r.error) {
+      // A failed check is not "no mismatches": show the error and do not render an empty summary.
+      setReconError(`The staff list check could not load: ${errorText(r.error)}`);
+      setRecon(null);
+    } else {
+      setReconError(null);
+      setRecon(((r.data ?? []) as ReconRow[]).map((row) => ({ ...row, issues: row.issues ?? [], staff_roles: row.staff_roles ?? [] })));
+    }
     setInvites((inv.data ?? []) as StaffInvite[]);
     setEvents((ev.data ?? []) as StaffEvent[]);
   }, [builder]);
@@ -371,7 +378,8 @@ export default function TeamPage() {
           Builders change the team list, the role mapping and staff roles here. You can see the team list and the mapping.
         </p>
       )}
-      {builder && recon ? <Reconciliation rows={recon} onChanged={reload} /> : null}
+      {builder && reconError ? <ErrorState message={reconError} onRetry={reload} /> : null}
+      {builder && recon && !reconError ? <Reconciliation rows={recon} onChanged={reload} /> : null}
       {members ? <TeamList members={members} builder={builder} onChanged={reload} /> : null}
       <Mappings mappings={mappings} builder={builder} onChanged={reload} />
       <ClientsSettings builder={builder} />

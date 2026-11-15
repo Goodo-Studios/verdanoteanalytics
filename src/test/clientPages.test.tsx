@@ -39,6 +39,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ user: { id: "u-client" }, isClient: true }) }));
 vi.mock("@/hooks/useRolePath", () => ({ useRolePrefix: () => "/client" }));
 
+import { acceptConfirm, confirmDialogText, declineConfirm } from "./adminConfirm";
 import ClientReviewPage from "@/features/client-pages/ClientReviewPage";
 import ClientAssetsPage from "@/features/client-pages/ClientAssetsPage";
 import ClientBriefsPage from "@/features/client-pages/ClientBriefsPage";
@@ -155,11 +156,27 @@ describe("Review: approve and request changes", () => {
     ];
   });
 
-  it("approves with one click", async () => {
+  it("approves after one confirmation", async () => {
     renderPage(<ClientReviewPage />);
     fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    await acceptConfirm();
     await screen.findByTestId("client-decision-sent");
     expect(h.rpcs.find((r) => r.fn === "os_client_decide")?.args).toEqual({ p_task_id: "t1", p_decision: "approved", p_note: null });
+  });
+
+  it("does not approve when the client cancels the confirmation", async () => {
+    renderPage(<ClientReviewPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    expect(await confirmDialogText()).toContain("Approve this work?");
+    await declineConfirm();
+    expect(h.rpcs.some((r) => r.fn === "os_client_decide")).toBe(false);
+  });
+
+  it("gives the review buttons a 44px touch target", async () => {
+    renderPage(<ClientReviewPage />);
+    for (const name of ["Approve", "Request changes"]) {
+      expect((await screen.findByRole("button", { name })).className).toContain("min-h-[44px]");
+    }
   });
 
   it("asks for a note before sending a change request", async () => {
@@ -178,6 +195,7 @@ describe("Review: approve and request changes", () => {
     h.decideError = { message: "x", code: "P0409" };
     renderPage(<ClientReviewPage />);
     fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    await acceptConfirm();
     expect(await screen.findByRole("alert")).toHaveTextContent("This is no longer waiting for your review.");
   });
 

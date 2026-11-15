@@ -5,6 +5,13 @@ import { ROLE_RETRY_DELAYS_MS } from "@/lib/roleRetry";
 
 type AppRole = "builder" | "employee" | "client";
 
+const KNOWN_ROLES: readonly AppRole[] = ["builder", "employee", "client"];
+
+/** Accepts only a role the app knows. Anything else (unknown string, null, a number) becomes null, which lands on NoAccess. */
+export function parseAppRole(value: unknown): AppRole | null {
+  return typeof value === "string" && (KNOWN_ROLES as readonly string[]).includes(value) ? (value as AppRole) : null;
+}
+
 interface AuthContextType {
   user: User | null;
   session: Session | null;
@@ -69,7 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { data, error } = await supabase.rpc("get_user_role", { _user_id: userId });
         if (error) throw error;
         if (!isCurrent(userId)) return;
-        setRoleState({ role: (data as AppRole) || null, resolved: true });
+        setRoleState({ role: parseAppRole(data), resolved: true });
         // OS-021: a client's first sign-in marks their sent invite accepted. Best effort: a failure
         // here only leaves the staff status as "not yet accepted".
         if (data === "client") {

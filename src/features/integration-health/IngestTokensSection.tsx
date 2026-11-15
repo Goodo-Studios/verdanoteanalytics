@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { ConfirmDialog, EmptyState, StatusBadge, TextField } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
+import { useBusy } from "@/hooks/useBusy";
 import { fmtWhen } from "@/lib/formatters";
 import { auditOutcomeLabel, secretNameFor, type IngestAuditRow, type IngestToken, tokenState } from "./ingestModel";
 
@@ -25,6 +26,7 @@ export function IngestTokensSection({ isBuilder, environment }: Props) {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<IngestToken | null>(null);
+  const { busy, run } = useBusy();
 
   const load = useCallback(async () => {
     const [t, a] = await Promise.all([db.rpc("list_ingest_tokens"), db.rpc("list_ingest_audit", { p_limit: 10 })]);
@@ -42,7 +44,10 @@ export function IngestTokensSection({ isBuilder, environment }: Props) {
   if (!isBuilder) return null;
   const secretName = secretNameFor(environment);
 
-  const create = async () => {
+  // One create at a time, and none while a new token is still on screen: a second token would replace
+  // the first raw token, which is shown only once and cannot be read again.
+  const create = () => run(async () => {
+    if (fresh) return;
     setError(null);
     const { data, error: e } = await db.rpc("create_ingest_token", { p_name: name.trim(), p_scope: "client_progress" });
     if (e) {
@@ -54,7 +59,7 @@ export function IngestTokensSection({ isBuilder, environment }: Props) {
     setCopied(false);
     setName("");
     void load();
-  };
+  });
 
   const copy = async () => {
     if (!fresh) return;
@@ -66,12 +71,12 @@ export function IngestTokensSection({ isBuilder, environment }: Props) {
     }
   };
 
-  const revoke = async (t: IngestToken) => {
+  const revoke = (t: IngestToken) => run(async () => {
     setRevoking(null);
     const { error: e } = await db.rpc("revoke_ingest_token", { p_id: t.id });
     if (e && e.code !== "P0002") return setError("The token could not be revoked.");
     void load();
-  };
+  });
 
   return (
     <section aria-labelledby="ih-progress-feed" className="space-y-3" data-testid="ingest-tokens-section">
@@ -98,7 +103,7 @@ export function IngestTokensSection({ isBuilder, environment }: Props) {
         <div className="w-64">
           <TextField label="Token name" hideLabel placeholder="Token name, for example hq-processes" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
         </div>
-        <Button size="sm" disabled={name.trim().length === 0} onClick={() => void create()}>Create token</Button>
+        <Button size="sm" disabled={busy || !!fresh || name.trim().length === 0} onClick={() => void create()}>Create token</Button>
       </div>
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
 
@@ -114,7 +119,7 @@ export function IngestTokensSection({ isBuilder, environment }: Props) {
               </div>
               <div className="flex items-center gap-2">
                 <StatusBadge status={tokenState(t) === "active" ? "done" : "draft"} label={tokenState(t) === "active" ? "Active" : "Revoked"} />
-                {tokenState(t) === "active" ? <Button size="sm" variant="outline" onClick={() => setRevoking(t)}>Revoke</Button> : null}
+                {tokenState(t) === "active" ? <Button size="sm" variant="outline" disabled={busy} onClick={() => setRevoking(t)}>Revoke</Button> : null}
               </div>
             </li>
           ))}

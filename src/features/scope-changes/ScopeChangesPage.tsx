@@ -12,7 +12,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { useAuth } from "@/contexts/AuthContext";
-import { EmptyState, ErrorState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
+import { useBusy } from "@/hooks/useBusy";
+import { useLatestRequest } from "@/hooks/useLatestRequest";
+import { EmptyState, ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
 import {
   type ChangeRequest,
@@ -57,13 +59,14 @@ function RequestRow({ request, onChanged }: { request: ChangeRequest; onChanged:
   const [rationale, setRationale] = useState("");
   const [error, setError] = useState<string | null>(null);
   const status = requestStatus(request);
-  const evaluate = async (s: EvaluationStatus) => {
+  const { busy, run } = useBusy();
+  const evaluate = (s: EvaluationStatus) => run(async () => {
     if (!rationale.trim()) return setError("Write a rationale first.");
     setError(null);
     const { error: e } = await db.rpc("evaluate_scope_change", { p_request_id: request.id, p_status: s, p_rationale: rationale.trim() });
     if (e) return setError(errorText(e.code, "The evaluation could not be saved."));
     onChanged();
-  };
+  });
   return (
     <li aria-label={`Scope change ${request.requested_change}`} className="space-y-1 rounded border border-input p-3">
       <p className="font-medium">{request.requested_change}</p>
@@ -77,9 +80,9 @@ function RequestRow({ request, onChanged }: { request: ChangeRequest; onChanged:
         <div className="space-y-2">
           <TextField label="Rationale" hideLabel placeholder="Rationale" value={rationale} onChange={(e) => setRationale(e.target.value)} />
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" onClick={() => void evaluate("needs_review")}>Needs review</Button>
-            {isBuilder ? <Button size="sm" onClick={() => void evaluate("accepted")}>Accept</Button> : null}
-            {isBuilder ? <Button size="sm" variant="outline" onClick={() => void evaluate("declined")}>Decline</Button> : null}
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => void evaluate("needs_review")}>Needs review</Button>
+            {isBuilder ? <Button size="sm" disabled={busy} onClick={() => void evaluate("accepted")}>Accept</Button> : null}
+            {isBuilder ? <Button size="sm" variant="outline" disabled={busy} onClick={() => void evaluate("declined")}>Decline</Button> : null}
           </div>
         </div>
       ) : null}
@@ -93,7 +96,8 @@ function ShotListCard({ shotList, requests, onChanged }: { shotList: ShotList; r
   const status = lockStatus(shotList);
   const [form, setForm] = useState({ change: "", channel: "call", note: "" });
   const [error, setError] = useState<string | null>(null);
-  const record = async () => {
+  const { busy, run } = useBusy();
+  const record = () => run(async () => {
     setError(null);
     const { error: e } = await db.rpc("request_scope_change", {
       p_subject_id: shotList.id, p_base_version: locked, p_requested_change: form.change.trim(), p_channel: form.channel, p_source_note: form.note.trim(),
@@ -101,7 +105,7 @@ function ShotListCard({ shotList, requests, onChanged }: { shotList: ShotList; r
     if (e) return setError(errorText(e.code, "The request could not be recorded."));
     setForm({ change: "", channel: "call", note: "" });
     onChanged();
-  };
+  });
   return (
     <section aria-label={`Shot list ${shotList.title}`} className="space-y-2 rounded-lg border border-input bg-background p-4 text-sm">
       <h3 className="text-base font-semibold">{shotList.title}</h3>
@@ -124,7 +128,7 @@ function ShotListCard({ shotList, requests, onChanged }: { shotList: ShotList; r
               />
               <TextField label="Source note" hideLabel className="sm:col-span-2" placeholder="Where it came from (call, thread, email)" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
             </div>
-            <Button size="sm" disabled={!form.change.trim() || !form.note.trim()} onClick={() => void record()}>Record against version {locked}</Button>
+            <Button size="sm" disabled={busy || !form.change.trim() || !form.note.trim()} onClick={() => void record()}>Record against version {locked}</Button>
           </div>
         </details>
       ) : null}
@@ -142,29 +146,51 @@ export default function ScopeChangesPage() {
   const [requests, setRequests] = useState<ChangeRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  const latestEngagements = useLatestRequest();
+  const latestLoad = useLatestRequest();
+  const [engagementsError, setEngagementsError] = useState<string | null>(null);
   useEffect(() => {
     setEngagementId("");
-    if (!clientSlug) return setEngagements([]);
+    setEngagements([]);
+    setEngagementsError(null);
+    if (!clientSlug) return latestEngagements.invalidate();
+    const isCurrent = latestEngagements.begin();
     void db.from("engagements").select("id, cycle_number, status").eq("client_slug", clientSlug).order("cycle_number")
-      .then(({ data }) => setEngagements(((data ?? []) as EngagementOption[]).slice().reverse()));
-  }, [clientSlug]);
+      .then(({ data, error: e }) => {
+        if (!isCurrent()) return;
+        if (e) return setEngagementsError("Engagements could not load.");
+        setEngagements(((data ?? []) as EngagementOption[]).slice().reverse());
+      });
+  }, [clientSlug, latestEngagements]);
 
   const load = useCallback(async () => {
-    if (!engagementId) return setShotLists(null);
+    if (!engagementId) {
+      latestLoad.invalidate();
+      return setShotLists(null);
+    }
+    const isCurrent = latestLoad.begin();
     const [s, r] = await Promise.all([
       db.from("approval_subjects").select("id, title, published_version, scope_locks(version, locked_at)").eq("engagement_id", engagementId).eq("subject_kind", "shot_list").order("created_at"),
       db.from("scope_change_requests").select("*, scope_change_evaluations(*)").eq("engagement_id", engagementId).order("created_at"),
     ]);
+    if (!isCurrent()) return;
     if (s.error || r.error) {
       setError("Scope changes could not load.");
       setShotLists([]);
+      setRequests([]);
       return;
     }
     setError(null);
     setShotLists(((s.data ?? []) as ShotList[]).map((x) => ({ ...x, scope_locks: x.scope_locks ?? [] })));
     setRequests(((r.data ?? []) as ChangeRequest[]).map((x) => ({ ...x, scope_change_evaluations: x.scope_change_evaluations ?? [] })));
-  }, [engagementId]);
-  useEffect(() => void load(), [load]);
+  }, [engagementId, latestLoad]);
+  useEffect(() => {
+    // A different engagement: never show the previous one's shot lists and requests while loading.
+    setShotLists(null);
+    setRequests([]);
+    setError(null);
+    void load();
+  }, [load]);
 
   return (
     <PageShell data-testid="scope-changes">
@@ -181,7 +207,9 @@ export default function ScopeChangesPage() {
           options={engagements.map((e) => ({ value: e.id, label: `Cycle ${e.cycle_number} (${e.status})` }))}
         />
       </div>
+      {engagementsError ? <ErrorState message={engagementsError} /> : null}
       {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      {engagementId && shotLists === null && !error ? <LoadingState label="Loading scope changes" /> : null}
       {shotLists && shotLists.length === 0 && !error ? <EmptyState title="No shot lists for this engagement yet" description="Add one on the Deliverables page." /> : null}
       {(shotLists ?? []).map((s) => (
         <ShotListCard key={s.id} shotList={s} requests={requests.filter((r) => r.subject_id === s.id)} onChanged={() => void load()} />

@@ -11,6 +11,7 @@ import { LastRunLine } from "@/components/LastRunLine";
 import { EmptyState, ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField } from "@/components/page-kit";
 import { fmtDateTime } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
+import { useBusy } from "@/hooks/useBusy";
 import {
   ALERT_SELECT,
   alertDelivery,
@@ -61,7 +62,8 @@ function EntryEditor({ entry, onSaved }: { entry: CostEntry | null; onSaved: () 
   );
   const [error, setError] = useState<string | null>(null);
   const problem = entryProblem(form);
-  const save = async () => {
+  const { busy, run } = useBusy();
+  const save = () => run(async () => {
     setError(null);
     const { error: e } = await db.rpc("record_operating_cost_entry", {
       p_entry_key: form.entryKey,
@@ -76,7 +78,7 @@ function EntryEditor({ entry, onSaved }: { entry: CostEntry | null; onSaved: () 
     if (e) return setError(errorText(e.code, "The cost could not be saved."));
     if (!entry) setForm(EMPTY);
     onSaved();
-  };
+  });
   const name = entry ? `Edit ${entry.label}` : "New cost";
   return (
     <div role="group" aria-label={name} className="space-y-2">
@@ -97,7 +99,7 @@ function EntryEditor({ entry, onSaved }: { entry: CostEntry | null; onSaved: () 
         <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} /> Counted this month
       </label>
       {problem && (form.entryKey || form.label || form.monthlyUsd) ? <p className="text-[12px] text-muted-foreground">{problem}</p> : null}
-      <Button size="sm" disabled={!!problem} onClick={() => void save()}>{entry ? `Save version ${entry.version + 1}` : "Add cost"}</Button>
+      <Button size="sm" disabled={busy || !!problem} onClick={() => void save()}>{entry ? `Save version ${entry.version + 1}` : "Add cost"}</Button>
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </div>
   );
@@ -108,7 +110,8 @@ function BudgetEditor({ budget, onSaved }: { budget: Budget | null; onSaved: () 
   const [warning, setWarning] = useState(budget ? amount(budget.warning_usd).toFixed(2) : "");
   const [error, setError] = useState<string | null>(null);
   const problem = budgetProblem(limit, warning);
-  const save = async () => {
+  const { busy, run } = useBusy();
+  const save = () => run(async () => {
     setError(null);
     const { error: e } = await db.rpc("record_operating_budget", {
       p_budget_key: "total",
@@ -118,7 +121,7 @@ function BudgetEditor({ budget, onSaved }: { budget: Budget | null; onSaved: () 
     });
     if (e) return setError(errorText(e.code, "The budget could not be saved."));
     onSaved();
-  };
+  });
   return (
     <div role="group" aria-label="Budget" className="space-y-2">
       <div className="grid gap-2 sm:grid-cols-2">
@@ -126,7 +129,7 @@ function BudgetEditor({ budget, onSaved }: { budget: Budget | null; onSaved: () 
         <TextField label="Warning amount (USD)" hideLabel inputMode="decimal" placeholder="Warning amount, below the limit" value={warning} onChange={(e) => setWarning(e.target.value)} />
       </div>
       {problem && (limit || warning) ? <p className="text-[12px] text-muted-foreground">{problem}</p> : null}
-      <Button size="sm" disabled={!!problem} onClick={() => void save()}>{budget ? `Save budget version ${budget.version + 1}` : "Set budget"}</Button>
+      <Button size="sm" disabled={busy || !!problem} onClick={() => void save()}>{budget ? `Save budget version ${budget.version + 1}` : "Set budget"}</Button>
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </div>
   );

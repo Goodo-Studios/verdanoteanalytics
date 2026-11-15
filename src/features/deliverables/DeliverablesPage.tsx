@@ -12,7 +12,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { useAuth } from "@/contexts/AuthContext";
-import { ConfirmDialog, EmptyState, ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
+import { useBusy } from "@/hooks/useBusy";
+import { useLatestRequest } from "@/hooks/useLatestRequest";
+import { ConfirmDialog, EmptyState, useConfirm, ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
 import { STATUS_LABEL, type EngagementStatus } from "@/features/engagements/model";
 import {
@@ -80,9 +82,22 @@ function useCall(onDone: () => void) {
   return { error, setError, call };
 }
 
-function DecisionForm({ label, onSubmit }: { label: string; onSubmit: (decision: Decision, channel: Channel, note: string) => void }) {
+function DecisionForm({ label, onSubmit }: { label: string; onSubmit: (decision: Decision, channel: Channel, note: string) => void | Promise<unknown> }) {
   const [channel, setChannel] = useState<Channel>("call");
   const [note, setNote] = useState("");
+  const { confirm, dialog } = useConfirm();
+  const { busy, run } = useBusy();
+  // A client decision is recorded against the exact revision and cannot be taken back here, so ask first.
+  const submit = (decision: Decision) =>
+    void run(async () => {
+      const verdict = decision === "approved" ? "approved" : "asked for changes";
+      const ok = await confirm({
+        title: `Record that the client ${verdict}?`,
+        description: `${label}: the client ${verdict} (${CHANNEL_LABEL[channel].toLowerCase()}). This is recorded against the current version and cannot be undone here.`,
+        actionLabel: decision === "approved" ? "Record approval" : "Record changes request",
+      });
+      if (ok) await onSubmit(decision, channel, note.trim());
+    });
   return (
     <div className="space-y-2" aria-label={label} role="group">
       <div className="grid gap-2 sm:grid-cols-3">
@@ -96,9 +111,10 @@ function DecisionForm({ label, onSubmit }: { label: string; onSubmit: (decision:
         <TextField label="Decision note" hideLabel className="sm:col-span-2" placeholder="What the client said, or a link to it" value={note} onChange={(e) => setNote(e.target.value)} />
       </div>
       <div className="flex gap-2">
-        <Button size="sm" disabled={!note.trim()} onClick={() => onSubmit("approved", channel, note.trim())}>Client approved</Button>
-        <Button size="sm" variant="outline" disabled={!note.trim()} onClick={() => onSubmit("changes_requested", channel, note.trim())}>Client asked for changes</Button>
+        <Button size="sm" disabled={busy || !note.trim()} onClick={() => submit("approved")}>Client approved</Button>
+        <Button size="sm" variant="outline" disabled={busy || !note.trim()} onClick={() => submit("changes_requested")}>Client asked for changes</Button>
       </div>
+      {dialog}
     </div>
   );
 }
@@ -140,7 +156,7 @@ function DeliverableCard({ d, onChanged }: { d: Deliverable; onChanged: () => vo
           ))}
         </ul>
       ) : null}
-      {canRecordDecision(d) && !exception ? <DecisionForm label={`Client decision on revision ${d.current_revision}`} onSubmit={(a, b, c) => void decide(a, b, c)} /> : null}
+      {canRecordDecision(d) && !exception ? <DecisionForm label={`Client decision on revision ${d.current_revision}`} onSubmit={decide} /> : null}
       {exception ? (
         <div className="space-y-2 rounded border border-amber-300 p-2">
           <p>Extra client round requested on revision {exception.revision}: {exception.reason}</p>
@@ -192,7 +208,7 @@ function SubjectCard({ s, onChanged }: { s: ApprovalSubject; onChanged: () => vo
       {published ? <p className="whitespace-pre-wrap rounded bg-muted/40 p-2">{published.body}</p> : null}
       {s.decisions.map((x) => <p key={x.version}>Version {x.version}: {x.decision === "approved" ? "approved" : "changes requested"} by {CHANNEL_LABEL[x.channel].toLowerCase()}: {x.source_note}</p>)}
       {canDecideApproval(s) && published ? (
-        <DecisionForm label={`Client decision on version ${published.version}`} onSubmit={(decision, channel, note) => void call("record_approval_decision", { p_subject_id: s.id, p_version: published.version, p_decision: decision, p_channel: channel, p_source_note: note }, "The decision could not be recorded.")} />
+        <DecisionForm label={`Client decision on version ${published.version}`} onSubmit={(decision, channel, note) => call("record_approval_decision", { p_subject_id: s.id, p_version: published.version, p_decision: decision, p_channel: channel, p_source_note: note }, "The decision could not be recorded.")} />
       ) : null}
       <TextareaField label="Draft text" hideLabel inputClassName="min-h-[80px]" value={draft} onChange={(e) => setDraft(e.target.value)} />
       <div className="flex gap-2">
@@ -217,24 +233,62 @@ export default function DeliverablesPage() {
   const [newSubject, setNewSubject] = useState({ title: "", kind: "idea" });
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  const latestEngagements = useLatestRequest();
+  const latestLoad = useLatestRequest();
+  const [engagementsError, setEngagementsError] = useState<string | null>(null);
+
   useEffect(() => {
     setEngagementId("");
-    if (!clientSlug) return setEngagements([]);
+    setEngagementsError(null);
+    if (!clientSlug) {
+      latestEngagements.invalidate();
+      return setEngagements([]);
+    }
+    setEngagements([]);
+    const isCurrent = latestEngagements.begin();
     void db.from("engagements").select("id, cycle_number, status").eq("client_slug", clientSlug).order("cycle_number")
-      .then(({ data }) => setEngagements(((data ?? []) as EngagementOption[]).slice().reverse()));
-  }, [clientSlug]);
+      .then(({ data, error: e }) => {
+        if (!isCurrent()) return;
+        if (e) {
+          setEngagements([]);
+          setEngagementsError("Engagements could not load.");
+          return;
+        }
+        setEngagements(((data ?? []) as EngagementOption[]).slice().reverse());
+      });
+  }, [clientSlug, latestEngagements]);
 
   const load = useCallback(async () => {
-    if (!engagementId) return setDeliverables(null);
+    if (!engagementId) {
+      latestLoad.invalidate();
+      setLoadError(null);
+      setSubjects([]);
+      return setDeliverables(null);
+    }
+    const isCurrent = latestLoad.begin();
     const [d, s] = await Promise.all([
       db.from("engagement_deliverables").select(DELIVERABLES).eq("engagement_id", engagementId).order("created_at"),
       db.from("approval_subjects").select(SUBJECTS).eq("engagement_id", engagementId).order("created_at"),
     ]);
-    setLoadError(d.error || s.error ? "Deliverables could not load." : null);
+    if (!isCurrent()) return;
+    if (d.error || s.error) {
+      // A failed load is not "no deliverables": keep the data empty and show the error instead.
+      setLoadError("Deliverables could not load.");
+      setDeliverables(null);
+      setSubjects([]);
+      return;
+    }
+    setLoadError(null);
     setDeliverables(toDeliverables(d.data));
     setSubjects(toSubjects(s.data));
-  }, [engagementId]);
-  useEffect(() => void load(), [load]);
+  }, [engagementId, latestLoad]);
+  useEffect(() => {
+    // A different engagement: never show the previous one's rows while the new ones load.
+    setDeliverables(null);
+    setSubjects([]);
+    setLoadError(null);
+    void load();
+  }, [load]);
 
   const { error, call } = useCall(() => void load());
 
@@ -253,6 +307,7 @@ export default function DeliverablesPage() {
           options={engagements.map((e) => ({ value: e.id, label: `Cycle ${e.cycle_number} (${STATUS_LABEL[e.status] ?? e.status})` }))}
         />
       </div>
+      {engagementsError ? <ErrorState message={engagementsError} /> : null}
       {loadError ? <ErrorState message={loadError} onRetry={() => void load()} /> : null}
       {engagementId ? (
         <>
@@ -268,7 +323,7 @@ export default function DeliverablesPage() {
             <TextField label="Agreed deliverable" hideLabel placeholder="Agreed deliverable (optional)" value={newDeliverable.agreed} onChange={(e) => setNewDeliverable({ ...newDeliverable, agreed: e.target.value })} />
             <Button size="sm" disabled={!newDeliverable.title.trim()} onClick={() => void call("add_engagement_deliverable", { p_engagement_id: engagementId, p_title: newDeliverable.title.trim(), p_asset_kind: newDeliverable.kind, p_agreed_item: newDeliverable.agreed.trim() || null }, "The deliverable could not be added.").then((ok) => ok && setNewDeliverable({ title: "", kind: "video", agreed: "" }))}>Add deliverable</Button>
           </div>
-          {deliverables === null ? <LoadingState label="Loading deliverables" /> : null}
+          {deliverables === null && !loadError ? <LoadingState label="Loading deliverables" /> : null}
           {deliverables && deliverables.length === 0 ? <EmptyState title="No deliverables for this engagement yet" /> : null}
           {(deliverables ?? []).map((d) => <DeliverableCard key={`${d.id}:${d.current_revision}:${d.stage}`} d={d} onChanged={() => void load()} />)}
           <h2 className="pt-2 text-base font-semibold">Ideas and shot lists</h2>

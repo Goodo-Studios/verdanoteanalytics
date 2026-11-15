@@ -10,7 +10,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { useAuth } from "@/contexts/AuthContext";
-import { EmptyState, ErrorState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
+import { useBusy } from "@/hooks/useBusy";
+import { useLatestRequest } from "@/hooks/useLatestRequest";
+import { EmptyState, ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
 import { fmtDate } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 import {
@@ -99,12 +101,13 @@ function ProposalCard({ proposal, subjects, onChanged }: { proposal: Proposal; s
   const [revision, setRevision] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const call = async (name: string, args: Record<string, unknown>, fallback: string) => {
+  const { busy, run } = useBusy();
+  const call = (name: string, args: Record<string, unknown>, fallback: string) => run(async () => {
     setError(null);
     const { error: e } = await db.rpc(name, args);
     if (e) return setError(errorText(e.code, fallback));
     onChanged();
-  };
+  });
   const review = (decision: "reviewed" | "changes_requested") => {
     if (!note.trim()) return setError("Write a review note first.");
     void call("review_strategy_proposal", { p_proposal_id: proposal.id, p_version: proposal.current_version, p_decision: decision, p_note: note.trim() }, "The review could not be saved.");
@@ -122,25 +125,25 @@ function ProposalCard({ proposal, subjects, onChanged }: { proposal: Proposal; s
       <p><span className="font-medium">Angle:</span> {v.angle}</p>
       <p className="whitespace-pre-wrap rounded bg-muted/40 p-2">{v.brief}</p>
       <p className="font-medium">Required inputs</p>
-      <ul className="list-disc pl-5">{v.required_inputs.map((i) => <li key={i}>{i}</li>)}</ul>
+      <ul className="list-disc pl-5">{v.required_inputs.map((i, n) => <li key={n}>{i}</li>)}</ul>
       {proposal.reviews.filter((r) => r.version === proposal.current_version).map((r) => (
         <p key={r.id} className="text-muted-foreground">Review: {r.decision === "reviewed" ? "reviewed" : "changes requested"}, {r.note}</p>
       ))}
-      {canReview(proposal, user?.id) ? (
+      {current && canReview(proposal, user?.id) ? (
         <div className="space-y-2">
           <TextField label="Review note" hideLabel placeholder="Review note" value={note} onChange={(e) => setNote(e.target.value)} />
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" onClick={() => review("reviewed")}>Mark reviewed</Button>
-            <Button size="sm" variant="outline" onClick={() => review("changes_requested")}>Request changes</Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => review("reviewed")}>Mark reviewed</Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => review("changes_requested")}>Request changes</Button>
           </div>
         </div>
       ) : null}
       <div className="flex flex-wrap gap-2">
-        {canAccept(proposal, user?.id) ? (
-          <Button size="sm" onClick={() => void call("accept_strategy_proposal", { p_proposal_id: proposal.id, p_version: proposal.current_version }, "It could not be accepted.")}>Accept version {proposal.current_version}</Button>
+        {current && canAccept(proposal, user?.id) ? (
+          <Button size="sm" disabled={busy} onClick={() => void call("accept_strategy_proposal", { p_proposal_id: proposal.id, p_version: proposal.current_version }, "It could not be accepted.")}>Accept version {proposal.current_version}</Button>
         ) : null}
-        {canPublish(proposal) ? (
-          <Button size="sm" onClick={() => void call("publish_strategy_proposal", { p_proposal_id: proposal.id, p_version: proposal.current_version }, "It could not be published.")}>Publish as the engagement strategy</Button>
+        {current && canPublish(proposal) ? (
+          <Button size="sm" disabled={busy} onClick={() => void call("publish_strategy_proposal", { p_proposal_id: proposal.id, p_version: proposal.current_version }, "It could not be published.")}>Publish as the engagement strategy</Button>
         ) : null}
         {canRevise(proposal) && !revision ? <Button size="sm" variant="outline" onClick={() => setRevision(fromVersion(v))}>Write version {proposal.current_version + 1}</Button> : null}
       </div>
@@ -148,7 +151,7 @@ function ProposalCard({ proposal, subjects, onChanged }: { proposal: Proposal; s
         <div className="space-y-2 rounded border border-input p-3">
           <DraftFields draft={revision} setDraft={setRevision} subjects={subjects} />
           <div className="flex gap-2">
-            <Button size="sm" disabled={!ready(revision)} onClick={() => void call("revise_strategy_proposal", { p_proposal_id: proposal.id, p_expected_version: proposal.current_version, ...draftArgs(revision) }, "The new version could not be saved.")}>Save version {proposal.current_version + 1}</Button>
+            <Button size="sm" disabled={busy || !ready(revision)} onClick={() => void call("revise_strategy_proposal", { p_proposal_id: proposal.id, p_expected_version: proposal.current_version, ...draftArgs(revision) }, "The new version could not be saved.")}>Save version {proposal.current_version + 1}</Button>
             <Button size="sm" variant="outline" onClick={() => setRevision(null)}>Cancel</Button>
           </div>
         </div>
@@ -161,19 +164,20 @@ function ProposalCard({ proposal, subjects, onChanged }: { proposal: Proposal; s
 function CreateForm({ engagementId, subjects, onCreated }: { engagementId: string; subjects: SourceSubject[]; onCreated: () => void }) {
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [error, setError] = useState<string | null>(null);
-  const create = async () => {
+  const { busy, run } = useBusy();
+  const create = () => run(async () => {
     setError(null);
     const { error: e } = await db.rpc("create_strategy_proposal", { p_engagement_id: engagementId, ...draftArgs(draft) });
     if (e) return setError(errorText(e.code, "The proposal could not be created."));
     setDraft(EMPTY);
     onCreated();
-  };
+  });
   return (
     <details className="rounded-lg border border-input bg-background p-4 text-sm">
       <summary className="cursor-pointer font-medium">Write a strategy proposal</summary>
       <div className="mt-3 space-y-2">
         <DraftFields draft={draft} setDraft={setDraft} subjects={subjects} />
-        <Button size="sm" disabled={!ready(draft)} onClick={() => void create()}>Create proposal</Button>
+        <Button size="sm" disabled={busy || !ready(draft)} onClick={() => void create()}>Create proposal</Button>
         {error ? <p role="alert" className="text-destructive">{error}</p> : null}
       </div>
     </details>
@@ -189,32 +193,52 @@ export default function StrategyPage() {
   const [proposals, setProposals] = useState<Proposal[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const latestEngagements = useLatestRequest();
+  const latestLoad = useLatestRequest();
+  const [engagementsError, setEngagementsError] = useState<string | null>(null);
   useEffect(() => {
     setEngagementId("");
-    if (!clientSlug) return setEngagements([]);
+    setEngagements([]);
+    setEngagementsError(null);
+    if (!clientSlug) return latestEngagements.invalidate();
+    const isCurrent = latestEngagements.begin();
     void db.from("engagements").select("id, cycle_number, status").eq("client_slug", clientSlug).order("cycle_number")
-      .then(({ data }) => setEngagements(((data ?? []) as EngagementOption[]).slice().reverse()));
-  }, [clientSlug]);
+      .then(({ data, error: e }) => {
+        if (!isCurrent()) return;
+        if (e) return setEngagementsError("Engagements could not load.");
+        setEngagements(((data ?? []) as EngagementOption[]).slice().reverse());
+      });
+  }, [clientSlug, latestEngagements]);
 
   const load = useCallback(async () => {
     if (!engagementId) {
+      latestLoad.invalidate();
       setSubjects([]);
       return setProposals(null);
     }
+    const isCurrent = latestLoad.begin();
     const [s, p] = await Promise.all([
       db.from("approval_subjects").select("id, subject_kind, title, published_version").eq("engagement_id", engagementId).order("created_at"),
       db.from("strategy_proposals").select(SELECT).eq("engagement_id", engagementId).order("created_at"),
     ]);
+    if (!isCurrent()) return;
     if (s.error || p.error) {
       setError("Strategy proposals could not load.");
       setProposals([]);
+      setSubjects([]);
       return;
     }
     setError(null);
     setSubjects((s.data ?? []) as SourceSubject[]);
     setProposals(toProposals(p.data));
-  }, [engagementId]);
-  useEffect(() => void load(), [load]);
+  }, [engagementId, latestLoad]);
+  useEffect(() => {
+    // A different engagement: never show the previous one's proposals or sources while loading.
+    setProposals(null);
+    setSubjects([]);
+    setError(null);
+    void load();
+  }, [load]);
 
   return (
     <PageShell data-testid="strategy">
@@ -223,8 +247,10 @@ export default function StrategyPage() {
         {!clientSlug ? <div className="sm:col-span-2"><PickClientPrompt what="its strategy proposals" /></div> : null}
         <SelectField label="Engagement" hideLabel value={engagementId} onChange={(e) => setEngagementId(e.target.value)} disabled={!clientSlug} placeholder="Select an engagement" options={engagements.map((e) => ({ value: e.id, label: `Cycle ${e.cycle_number} (${e.status})` }))} />
       </div>
-      {engagementId ? <CreateForm engagementId={engagementId} subjects={subjects} onCreated={() => void load()} /> : null}
+      {engagementsError ? <ErrorState message={engagementsError} /> : null}
+      {engagementId ? <CreateForm key={engagementId} engagementId={engagementId} subjects={subjects} onCreated={() => void load()} /> : null}
       {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      {engagementId && proposals === null && !error ? <LoadingState label="Loading strategy proposals" /> : null}
       {proposals && !error && proposals.length === 0 ? <EmptyState title="No strategy proposals for this engagement yet." /> : null}
       {(proposals ?? []).map((p) => <ProposalCard key={`${p.id}:${p.current_version}`} proposal={p} subjects={subjects} onChanged={() => void load()} />)}
     </PageShell>

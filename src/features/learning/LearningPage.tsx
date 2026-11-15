@@ -11,7 +11,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSelectedClientSlug } from "@/contexts/ClientSelectionContext";
 import { PickClientPrompt } from "@/components/PickClientPrompt";
 import { useAuth } from "@/contexts/AuthContext";
-import { EmptyState, ErrorState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
+import { useBusy } from "@/hooks/useBusy";
+import { useLatestRequest } from "@/hooks/useLatestRequest";
+import { EmptyState, ErrorState, LoadingState, PageHeader, PageShell, SelectField, TextField, TextareaField } from "@/components/page-kit";
 import { fmtDate } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 import {
@@ -117,12 +119,13 @@ function LessonCard({ lesson, staff, onChanged }: { lesson: Lesson; staff: Staff
   const [note, setNote] = useState("");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const call = async (name: string, args: Record<string, unknown>, fallback: string) => {
+  const { busy, run } = useBusy();
+  const call = (name: string, args: Record<string, unknown>, fallback: string) => run(async () => {
     setError(null);
     const { error: e } = await db.rpc(name, args);
     if (e) return setError(errorText(e.code, fallback));
     onChanged();
-  };
+  });
   const review = (action: string) => void call("review_learning_version", { p_module_id: lesson.id, p_version: lesson.current_version, p_action: action, p_note: note.trim() || null }, "The review could not be saved.");
   return (
     <section aria-label={`Lesson ${lesson.title}`} className="space-y-2 rounded-lg border border-input bg-background p-4 text-sm">
@@ -134,30 +137,30 @@ function LessonCard({ lesson, staff, onChanged }: { lesson: Lesson; staff: Staff
       {v ? (
         <div className="space-y-1">
           <p>{v.summary}</p>
-          {v.steps.length ? <ol className="list-decimal pl-5">{v.steps.map((s) => <li key={s}>{s}</li>)}</ol> : null}
-          {v.checklist.length ? <ul className="list-disc pl-5">{v.checklist.map((s) => <li key={s}>{s}</li>)}</ul> : null}
-          {v.source_refs.map((r) => <p key={r} className="text-[12px]">Source: {r}</p>)}
+          {v.steps.length ? <ol className="list-decimal pl-5">{v.steps.map((s, i) => <li key={i}>{s}</li>)}</ol> : null}
+          {v.checklist.length ? <ul className="list-disc pl-5">{v.checklist.map((s, i) => <li key={i}>{s}</li>)}</ul> : null}
+          {v.source_refs.map((r, i) => <p key={i} className="text-[12px]">Source: {r}</p>)}
         </div>
       ) : null}
       {lesson.history.map((h) => <p key={h.id} className="text-muted-foreground">Version {h.version} {h.action}{h.reason ? `: ${h.reason}` : ""}</p>)}
-      {canAccept(lesson, user?.id) ? <Button size="sm" variant="outline" onClick={() => review("accepted")}>Accept for review</Button> : null}
+      {canAccept(lesson, user?.id) ? <Button size="sm" variant="outline" disabled={busy} onClick={() => review("accepted")}>Accept for review</Button> : null}
       {canDecide(lesson, user?.id) ? (
         <div className="space-y-2">
           <TextField label="Review note" hideLabel placeholder="Review note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
           <div className="flex gap-2">
-            <Button size="sm" onClick={() => review("approved")}>Approve</Button>
-            <Button size="sm" variant="outline" onClick={() => review("rejected")}>Reject</Button>
+            <Button size="sm" disabled={busy} onClick={() => review("approved")}>Approve</Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => review("rejected")}>Reject</Button>
           </div>
         </div>
       ) : null}
       {isBuilder && v ? (
         blockers.length ? <p className="text-[12px] text-muted-foreground" data-testid={`blockers-${lesson.id}`}>Cannot publish yet: {blockers.join(", ")}.</p>
-          : <Button size="sm" onClick={() => void call("publish_learning_version", { p_module_id: lesson.id, p_version: lesson.current_version }, "It could not be published.")}>Publish version {lesson.current_version}</Button>
+          : <Button size="sm" disabled={busy} onClick={() => void call("publish_learning_version", { p_module_id: lesson.id, p_version: lesson.current_version }, "It could not be published.")}>Publish version {lesson.current_version}</Button>
       ) : null}
       {isBuilder && lesson.active ? (
         <div className="flex gap-2">
           <TextField label="Withdrawal reason" hideLabel placeholder="Why it is withdrawn" value={reason} onChange={(e) => setReason(e.target.value)} />
-          <Button size="sm" variant="outline" disabled={!reason.trim()} onClick={() => void call("withdraw_learning_module", { p_module_id: lesson.id, p_reason: reason.trim() }, "It could not be withdrawn.")}>Withdraw</Button>
+          <Button size="sm" variant="outline" disabled={busy || !reason.trim()} onClick={() => void call("withdraw_learning_module", { p_module_id: lesson.id, p_reason: reason.trim() }, "It could not be withdrawn.")}>Withdraw</Button>
         </div>
       ) : null}
       <DraftEditor key={lesson.current_version} lesson={lesson} staff={staff} onSaved={onChanged} />
@@ -171,17 +174,29 @@ function LessonsTab({ staff }: { staff: StaffOption[] }) {
   const [lessons, setLessons] = useState<Lesson[] | null>(null);
   const [form, setForm] = useState({ key: "", title: "" });
   const [error, setError] = useState<string | null>(null);
+  const latest = useLatestRequest();
   const load = useCallback(async () => {
-    if (!clientSlug) return setLessons(null);
+    if (!clientSlug) {
+      latest.invalidate();
+      return setLessons(null);
+    }
+    const isCurrent = latest.begin();
     const { data, error: e } = await db.from("learning_modules").select(MODULE_SELECT).eq("client_slug", clientSlug).order("title");
+    if (!isCurrent()) return;
     if (e) {
       setError("Lessons could not load.");
       return setLessons([]);
     }
     setError(null);
     setLessons(toLessons(data));
-  }, [clientSlug]);
-  useEffect(() => void load(), [load]);
+  }, [clientSlug, latest]);
+  useEffect(() => {
+    // A different client: drop the previous client's lessons, form and error before loading.
+    setLessons(null);
+    setError(null);
+    setForm({ key: "", title: "" });
+    void load();
+  }, [load]);
   const create = async () => {
     setError(null);
     const { error: e } = await db.rpc("create_learning_module", { p_client_slug: clientSlug, p_module_key: form.key.trim(), p_title: form.title.trim() });
@@ -200,6 +215,7 @@ function LessonsTab({ staff }: { staff: StaffOption[] }) {
         </div>
       ) : null}
       {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      {clientSlug && lessons === null && !error ? <LoadingState label="Loading lessons" /> : null}
       {lessons && !error && lessons.length === 0 ? <EmptyState title="No lessons for this client yet." /> : null}
       {(lessons ?? []).map((l) => <LessonCard key={`${l.id}:${l.current_version}:${l.reviews.length}:${l.history.length}`} lesson={l} staff={staff} onChanged={() => void load()} />)}
     </div>
@@ -212,31 +228,66 @@ function SelfServiceTab() {
   const [engagementId, setEngagementId] = useState("");
   const [weeks, setWeeks] = useState<SupportWeek[]>([]);
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
-  const [week, setWeek] = useState({ date: "", status: "observed", count: "0", origin: "pilot_observation" });
+  // The count starts empty: an observed week needs a number someone typed, never a default zero.
+  const [week, setWeek] = useState({ date: "", status: "observed", count: "", origin: "pilot_observation" });
   const [win, setWin] = useState({ bs: "", be: "", ps: "", pe: "" });
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const latestEngagements = useLatestRequest();
+  const latestLoad = useLatestRequest();
   useEffect(() => {
     setEngagementId("");
-    if (!clientSlug) return setEngagements([]);
+    setEngagements([]);
+    setError(null);
+    if (!clientSlug) return latestEngagements.invalidate();
+    const isCurrent = latestEngagements.begin();
     void db.from("engagements").select("id, cycle_number, status").eq("client_slug", clientSlug).order("cycle_number")
-      .then(({ data }) => setEngagements(((data ?? []) as EngagementOption[]).slice().reverse()));
-  }, [clientSlug]);
+      .then(({ data, error: e }) => {
+        if (!isCurrent()) return;
+        if (e) return setError("Engagements could not load.");
+        setEngagements(((data ?? []) as EngagementOption[]).slice().reverse());
+      });
+  }, [clientSlug, latestEngagements]);
   const load = useCallback(async () => {
-    if (!engagementId) return;
+    if (!engagementId) {
+      latestLoad.invalidate();
+      setLoading(false);
+      return;
+    }
+    const isCurrent = latestLoad.begin();
+    setLoading(true);
     const [w, s] = await Promise.all([
       db.from("learning_support_weeks").select("*").eq("engagement_id", engagementId).order("week_start"),
       db.from("learning_self_service_snapshots").select("*").eq("engagement_id", engagementId).order("created_at"),
     ]);
+    if (!isCurrent()) return;
+    setLoading(false);
+    if (w.error || s.error) {
+      // A failed load is not an empty tally: show the error and keep the lists empty.
+      setError("The self-service tally could not load.");
+      setWeeks([]);
+      setSnapshots([]);
+      return;
+    }
+    setError(null);
     setWeeks((w.data ?? []) as SupportWeek[]);
     setSnapshots(((s.data ?? []) as Snapshot[]).slice().reverse());
-  }, [engagementId]);
-  useEffect(() => void load(), [load]);
-  const call = async (name: string, args: Record<string, unknown>, fallback: string) => {
+  }, [engagementId, latestLoad]);
+  useEffect(() => {
+    // A different engagement: never show the previous one's weeks or snapshots while loading.
+    setWeeks([]);
+    setSnapshots([]);
+    setError(null);
+    void load();
+  }, [load]);
+  const { busy, run } = useBusy();
+  const countOk = week.status !== "observed" || (week.count.trim() !== "" && Number.isInteger(Number(week.count)) && Number(week.count) >= 0);
+  const call = (name: string, args: Record<string, unknown>, fallback: string) => run(async () => {
     setError(null);
     const { error: e } = await db.rpc(name, args);
     if (e) return setError(errorText(e.code, fallback));
     void load();
-  };
+  });
   return (
     <div className="space-y-3">
       <div className="grid gap-2 sm:grid-cols-2">
@@ -245,15 +296,16 @@ function SelfServiceTab() {
       </div>
       {engagementId ? (
         <>
+          {loading ? <LoadingState label="Loading the tally" /> : null}
           <div className="space-y-2 rounded-lg border border-input p-4 text-sm">
             <p className="font-medium">Weekly tally of recurring how-to questions that reached people</p>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
               <TextField label="Week" hideLabel type="date" value={week.date} onChange={(e) => setWeek({ ...week, date: e.target.value })} />
               <SelectField label="Observation" hideLabel value={week.status} onChange={(e) => setWeek({ ...week, status: e.target.value })} options={[{ value: "observed", label: "Observed" }, { value: "missing", label: "Missing" }, { value: "unknown", label: "Unknown" }]} />
-              <TextField label="Questions" hideLabel type="number" min={0} value={week.count} disabled={week.status !== "observed"} onChange={(e) => setWeek({ ...week, count: e.target.value })} />
+              <TextField label="Questions" hideLabel type="number" min={0} placeholder="Number seen" value={week.count} disabled={week.status !== "observed"} onChange={(e) => setWeek({ ...week, count: e.target.value })} />
               <SelectField label="Data origin" hideLabel value={week.origin} onChange={(e) => setWeek({ ...week, origin: e.target.value })} options={[{ value: "pilot_observation", label: "Pilot observation" }, { value: "synthetic_fixture", label: "Made-up test data" }]} />
             </div>
-            <Button size="sm" disabled={!week.date} onClick={() => void call("record_learning_support_week", {
+            <Button size="sm" disabled={busy || !week.date || !countOk} onClick={() => void call("record_learning_support_week", {
               p_engagement_id: engagementId, p_week_start: mondayOf(week.date), p_observation_status: week.status,
               p_recurring_how_to_questions: week.status === "observed" ? Number(week.count) : 0, p_data_origin: week.origin,
             }, "The week could not be recorded.")}>Record week of {week.date ? mondayOf(week.date) : "..."}</Button>
@@ -267,7 +319,7 @@ function SelfServiceTab() {
               <TextField label="Pilot start" hideLabel type="date" value={win.ps} onChange={(e) => setWin({ ...win, ps: e.target.value })} />
               <TextField label="Pilot end" hideLabel type="date" value={win.pe} onChange={(e) => setWin({ ...win, pe: e.target.value })} />
             </div>
-            <Button size="sm" disabled={!win.bs || !win.be || !win.ps || !win.pe} onClick={() => void call("snapshot_learning_self_service", {
+            <Button size="sm" disabled={busy || !win.bs || !win.be || !win.ps || !win.pe} onClick={() => void call("snapshot_learning_self_service", {
               p_engagement_id: engagementId, p_baseline_start: win.bs, p_baseline_end: win.be, p_pilot_start: win.ps, p_pilot_end: win.pe,
             }, "The snapshot could not be taken.")}>Take snapshot</Button>
             {snapshots.map((s) => (
