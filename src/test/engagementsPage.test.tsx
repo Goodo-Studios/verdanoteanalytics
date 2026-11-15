@@ -19,7 +19,6 @@ import { WithClient } from "./clientSelection";
 import { acceptConfirm, confirmDialogText, declineConfirm } from "./adminConfirm";
 
 const rpc = vi.fn();
-const update = vi.fn();
 const data: Record<string, unknown[]> = {};
 let auth = { user: { id: "emp-1" }, isBuilder: false };
 
@@ -37,8 +36,9 @@ vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     rpc: (...args: unknown[]) => rpc(...args),
     from: (table: string) => ({
+      // No update on purpose: closing or cancelling must go through the set_engagement_status rpc,
+      // so a regression to a direct table write throws here instead of passing quietly.
       select: () => chain(() => data[table] ?? []),
-      update: (values: unknown) => ({ eq: (col: string, val: unknown) => Promise.resolve(update(table, values, col, val) ?? { data: null, error: null }) }),
     }),
   },
 }));
@@ -74,7 +74,6 @@ const PLANNED = { ...ACTIVE, id: "e2", cycle_number: 2, status: "planned", start
 
 beforeEach(() => {
   rpc.mockReset();
-  update.mockReset();
   data.engagements = [ACTIVE, PLANNED];
   data.engagement_templates = TEMPLATES;
   auth = { user: { id: "emp-1" }, isBuilder: false };
@@ -161,7 +160,7 @@ describe("EngagementsPage", () => {
     })));
     fireEvent.click(within(active).getByRole("button", { name: "Mark closed" }));
     await acceptConfirm();
-    await waitFor(() => expect(update).toHaveBeenCalledWith("engagements", { status: "closed" }, "id", "e1"));
+    await waitFor(() => expect(rpc).toHaveBeenCalledWith("set_engagement_status", { p_engagement_id: "e1", p_status: "closed" }));
   });
 
   it("asks before closing a cycle, and Cancel changes nothing", async () => {
@@ -170,7 +169,62 @@ describe("EngagementsPage", () => {
     fireEvent.click(within(active).getByRole("button", { name: "Mark closed" }));
     expect(await confirmDialogText()).toContain("Mark cycle 1 closed?");
     await declineConfirm();
-    expect(update).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("cancels a planned cycle through the rpc after confirming", async () => {
+    rpc.mockResolvedValue({ data: { id: "e2", status: "cancelled" }, error: null });
+    await pick();
+    const planned = await screen.findByRole("region", { name: "Cycle 2" });
+    fireEvent.click(within(planned).getByRole("button", { name: "Cancel engagement" }));
+    expect(await confirmDialogText()).toContain("Cancel cycle 2?");
+    await acceptConfirm();
+    await waitFor(() => expect(rpc).toHaveBeenCalledWith("set_engagement_status", { p_engagement_id: "e2", p_status: "cancelled" }));
+  });
+
+  it("reloads the cycles after a status change", async () => {
+    rpc.mockResolvedValue({ data: { id: "e1", status: "closed" }, error: null });
+    await pick();
+    const active = await screen.findByRole("region", { name: "Cycle 1" });
+    data.engagements = [{ ...ACTIVE, status: "closed" }, PLANNED];
+    fireEvent.click(within(active).getByRole("button", { name: "Mark closed" }));
+    await acceptConfirm();
+    expect(await screen.findByRole("heading", { name: /Cycle 1 · 45-day sprint · Closed/ })).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Cycle 1" })).queryByRole("button", { name: "Mark closed" })).toBeNull();
+  });
+
+  it("shows a not-allowed message when the database refuses the change", async () => {
+    rpc.mockResolvedValue({ data: null, error: { code: "42501", message: "only staff can change an engagement status" } });
+    await pick();
+    const active = await screen.findByRole("region", { name: "Cycle 1" });
+    fireEvent.click(within(active).getByRole("button", { name: "Mark closed" }));
+    await acceptConfirm();
+    expect(await within(active).findByRole("alert")).toHaveTextContent("You are not allowed to do that here.");
+    expect(within(active).getByRole("button", { name: "Mark closed" })).not.toBeDisabled();
+  });
+
+  it("explains a refused move and refreshes when the status already changed", async () => {
+    rpc.mockResolvedValue({ data: null, error: { code: "22023", message: "an engagement cannot move from closed to closed" } });
+    await pick();
+    const active = await screen.findByRole("region", { name: "Cycle 1" });
+    fireEvent.click(within(active).getByRole("button", { name: "Mark closed" }));
+    await acceptConfirm();
+    expect(await within(active).findByRole("alert")).toHaveTextContent("already changed or cannot change that way");
+  });
+
+  it("sends one request when the confirmed action is clicked twice", async () => {
+    let finish: (v: unknown) => void = () => {};
+    rpc.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    await pick();
+    const active = await screen.findByRole("region", { name: "Cycle 1" });
+    fireEvent.click(within(active).getByRole("button", { name: "Mark closed" }));
+    await acceptConfirm();
+    await waitFor(() => expect(rpc).toHaveBeenCalledTimes(1));
+    expect(within(active).getByRole("button", { name: "Mark closed" })).toBeDisabled();
+    fireEvent.click(within(active).getByRole("button", { name: "Mark closed" }));
+    expect(rpc).toHaveBeenCalledTimes(1);
+    finish({ data: { id: "e1", status: "closed" }, error: null });
+    await waitFor(() => expect(within(active).getByRole("button", { name: "Mark closed" })).not.toBeDisabled());
   });
 
   it("a builder saves a template version with the version on screen", async () => {
