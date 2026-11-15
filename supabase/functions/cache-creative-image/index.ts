@@ -50,7 +50,7 @@ interface CachedAsset {
  * cross-account sharing.
  */
 async function downloadAndCache(
-  supabase: ReturnType<typeof createClient>,
+  supabase: ReturnType<typeof createClient<any>>,
   bucket: string,
   accountId: string,
   adId: string,

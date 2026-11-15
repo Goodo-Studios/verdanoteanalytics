@@ -96,7 +96,7 @@ export function fakeDb(opts: FakeDbOptions = {}) {
       },
       insert(rows) {
         op = "insert";
-        payload = (Array.isArray(rows) ? rows : [rows]).map((r) => ({ ...r }));
+        payload = ((Array.isArray(rows) ? rows : [rows]) as Row[]).map((r) => ({ ...r }));
         return q;
       },
       update(v) {

@@ -1,0 +1,22 @@
+{
+  // This file only configures `deno lint`. `deno check` and `deno test` read no setting from it,
+  // and it adds no imports. Edge functions are linted and checked in CI (the "Edge functions:
+  // check and lint (Deno)" job in .github/workflows/ci.yml).
+  "lint": {
+    "include": ["supabase/functions/"],
+    "rules": {
+      "exclude": [
+        // Edge functions import remote modules with inline https:// URLs on purpose. deno.lock
+        // pins them and the checked-in vendor/ directory serves them (see the deno-test job).
+        // This rule asks for an import map instead; moving 200+ imports to one is a separate,
+        // risky change to every deployed function.
+        "no-import-prefix",
+        // The repo has no generated database types, so supabase-js rows are untyped and every
+        // query result is `any`. 251 uses at the time of writing. Typing them needs generated
+        // types first. deno lint has no per-folder rule override, so the rule is off here
+        // rather than hidden behind per-file ignore comments.
+        "no-explicit-any"
+      ]
+    }
+  }
+}

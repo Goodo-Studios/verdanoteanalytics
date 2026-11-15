@@ -312,6 +312,7 @@ const defaultMetaFetch: MetaFetcher = async (url: string) => {
  * idempotent, and the pg_cron drain remains the backstop if a chain link drops.
  * Fire-and-forget (mirrors sync's selfContinue); never throws into the caller.
  */
+// deno-lint-ignore require-await -- fire-and-forget by design: the request is sent, the response is never awaited.
 async function selfContinue(accountId?: string): Promise<void> {
   try {
     // No-serve (test) mode: never fire a real network invocation.

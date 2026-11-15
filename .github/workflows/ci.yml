@@ -11,6 +11,13 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels that pull request's older run. Pushes to main and staging
+# each get their own group (the run id), so a release run is never cancelled or queued behind
+# another. The production deploy serialises itself with its own group on deploy-functions.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}', github.event.pull_request.number) || format('ci-run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
     name: Lint, typecheck & test
@@ -44,6 +51,12 @@ jobs:
       - name: Script tests
         run: npm run test:scripts
 
+      # The production build plus the bundle budgets (scripts/check-bundle-budget.mjs). This runs for
+      # every pull request and every push, including staging; it used to run only in the E2E job,
+      # which is skipped for staging. It needs no secrets.
+      - name: Build and check bundle budgets
+        run: npm run build:check
+
   # The supabase/functions/**/*.test.ts suites are Deno, and vitest only collects
   # src/** (see vitest.config.ts `include`) — so until this job existed, 37 test
   # files never ran anywhere, including the edge-function auth/tenant regression
@@ -69,6 +82,29 @@ jobs:
       # --frozen and commit deno.lock and vendor/ together.
       - name: Test edge functions
         run: deno test --vendor --frozen --allow-all --no-check supabase/functions/
+
+  # Type-checks and lints every edge function and its tests. `deno test --no-check` above skips
+  # type checking, and tsc cannot resolve the Deno URL imports, so before this job a type error in
+  # supabase/functions reached production unseen. Lint rules are configured in deno.json (the two
+  # disabled rules are explained there). Same --vendor --frozen flags as the test job: if this job
+  # reports the lockfile is out of date, run `deno check --vendor --frozen=false` locally and commit
+  # deno.lock and vendor/ together.
+  deno-check:
+    name: Edge functions - check and lint (Deno)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v1
+        with:
+          deno-version: v2.x
+
+      - name: Lint edge functions
+        run: deno lint
+
+      - name: Type-check edge functions
+        run: deno check --vendor --frozen supabase/functions
 
   database-test:
     name: Database migrations & pgTAP
@@ -119,6 +155,10 @@ jobs:
       PLAYWRIGHT_TEST_PASSWORD: ${{ secrets.PLAYWRIGHT_TEST_PASSWORD }}
       PLAYWRIGHT_CLIENT_EMAIL: ${{ secrets.PLAYWRIGHT_CLIENT_EMAIL }}
       PLAYWRIGHT_CLIENT_PASSWORD: ${{ secrets.PLAYWRIGHT_CLIENT_PASSWORD }}
+      # KNOWN GAP, kept on purpose: the tests run against the live production site with production
+      # secrets and the production test logins, on pull requests as well as on main. A pull request
+      # run therefore does not exercise the pull request's code. Pointing this at a preview or
+      # staging deployment is a separate decision; the staging job below covers the staging site.
       # The tests run against the live production site, not a local preview server.
       # Production's edge functions only allow the SITE_URL origin (CORS), so a
       # localhost origin gets an empty account list and Settings tests fail. This
@@ -142,10 +182,6 @@ jobs:
 
       - name: Install Playwright browsers
         run: npx playwright install chromium --with-deps
-
-      # Enforces the bundle budgets. The tests below do not use this build.
-      - name: Build app
-        run: npm run build:check
 
       - name: Wait for the live site
         run: |
@@ -191,8 +227,13 @@ jobs:
   deploy-functions:
     name: Deploy Supabase edge functions
     runs-on: ubuntu-latest
-    needs: [check, deno-test, database-test]
+    needs: [check, deno-test, deno-check, database-test]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # One production deploy at a time. A second push to main waits for the running deploy to finish
+    # instead of cancelling it half way through the function list.
+    concurrency:
+      group: prod-deploy
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v4
@@ -246,6 +287,32 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
 
+  # Production migrations and the frontend are deployed by hand, so a merge to main can leave
+  # migration files that production never received. This job compares supabase/migrations with the
+  # production supabase_migrations.schema_migrations ledger (one read-only SELECT through the
+  # Supabase Management API) and fails, with an error annotation and a job summary, while any file
+  # is unapplied. It never writes to the database and nothing waits on it, so it cannot block or
+  # trigger a deploy. It uses the SUPABASE_ACCESS_TOKEN and SUPABASE_PROJECT_ID secrets that
+  # deploy-functions already uses; if the token cannot read the database it fails rather than passes.
+  # Versions that are intentionally absent from production go in scripts/migrations-ledger-ignore.txt.
+  migrations-pending:
+    name: Production migrations applied?
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Compare migration files with the production ledger
+        run: node scripts/check-migrations-applied.mjs
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+
   # Staging release job. Mirrors deploy-functions but targets the staging
   # Supabase project only. It reads STAGING_* secrets exclusively and never
   # references a production secret, and it refuses to run if the staging project
@@ -253,7 +320,7 @@ jobs:
   deploy-staging:
     name: Deploy database & edge functions to STAGING
     runs-on: ubuntu-latest
-    needs: [check, deno-test, database-test]
+    needs: [check, deno-test, deno-check, database-test]
     if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
 
     env:

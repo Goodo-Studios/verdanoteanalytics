@@ -43,3 +43,8 @@ e2e-staging/.auth/
 
 # Local agent worktrees (never commit)
 .claude/worktrees/
+
+# deno check downloads these type-only declaration files into vendor/ at run time. deno.lock does not
+# pin them, so committing them fails src/test/denoVendor.test.ts. Leave them untracked.
+/vendor/**/*.d.ts
+/vendor/**/*.d.mts

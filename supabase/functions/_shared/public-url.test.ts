@@ -58,8 +58,8 @@ Deno.test("isPublicIpAddress rejects special-use addresses returned by DNS", () 
 
 Deno.test("assertPublicNetworkTarget rejects DNS names resolving to private IPs", async () => {
   await assertRejects(
-    () => assertPublicNetworkTarget("https://metadata.example/", async (_host, type) =>
-      type === "A" ? ["169.254.169.254"] : []),
+    () => assertPublicNetworkTarget("https://metadata.example/", (_host, type) =>
+      Promise.resolve(type === "A" ? ["169.254.169.254"] : [])),
     Error,
     "exclusively to public IPs",
   );
@@ -67,11 +67,11 @@ Deno.test("assertPublicNetworkTarget rejects DNS names resolving to private IPs"
 
 Deno.test("assertPublicNetworkTarget fails closed on empty DNS and accepts public answers", async () => {
   await assertRejects(
-    () => assertPublicNetworkTarget("https://missing.example/", async () => []),
+    () => assertPublicNetworkTarget("https://missing.example/", () => Promise.resolve([])),
     Error,
     "exclusively to public IPs",
   );
-  const url = await assertPublicNetworkTarget("https://public.example/path", async (_host, type) =>
-    type === "A" ? ["8.8.4.4"] : []);
+  const url = await assertPublicNetworkTarget("https://public.example/path", (_host, type) =>
+    Promise.resolve(type === "A" ? ["8.8.4.4"] : []));
   assertEquals(url.href, "https://public.example/path");
 });

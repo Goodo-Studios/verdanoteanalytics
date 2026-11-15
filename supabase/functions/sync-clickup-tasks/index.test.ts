@@ -102,7 +102,7 @@ function makeRecorder({ upsertError = false, upsertErrorTable = "", mappings = [
       calls.push({ method: "from", table, args: [] });
       return makeBuilder(table);
     },
-  };
+  } as unknown as Parameters<typeof mod.handler>[1];
   return { supabase, calls };
 }
 

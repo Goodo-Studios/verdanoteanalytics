@@ -67,48 +67,6 @@ export function nextRetryAfter(retryCount: number): string {
 }
 
 /**
- * Read a Response body into memory but ABORT as soon as it exceeds `maxBytes`.
- * Returns the bytes, or null if the file is over the cap.
- */
-async function readBodyCapped(resp: Response, maxBytes: number): Promise<Uint8Array | null> {
-  const lenHeader = resp.headers.get("content-length");
-  if (lenHeader && Number(lenHeader) > maxBytes) {
-    await resp.body?.cancel().catch(() => {});
-    return null;
-  }
-  // When the length is known and within cap, a SINGLE arrayBuffer() read avoids the
-  // chunk-accumulate + concat double-buffer below (≈2× memory) that OOMs the worker.
-  // Most CDN responses carry content-length, so this is the common, memory-safe path.
-  if (lenHeader) {
-    const buf = new Uint8Array(await resp.arrayBuffer());
-    return buf.byteLength > maxBytes ? null : buf;
-  }
-  const reader = resp.body?.getReader();
-  if (!reader) {
-    const buf = new Uint8Array(await resp.arrayBuffer());
-    return buf.byteLength > maxBytes ? null : buf;
-  }
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) {
-      total += value.byteLength;
-      if (total > maxBytes) {
-        await reader.cancel().catch(() => {});
-        return null;
-      }
-      chunks.push(value);
-    }
-  }
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const c of chunks) { out.set(c, offset); offset += c.byteLength; }
-  return out;
-}
-
-/**
  * Download an image and upload it to Supabase Storage (ad-thumbnails bucket).
  * Returns the permanent public URL (not just the storage path).
  */

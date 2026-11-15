@@ -269,7 +269,6 @@ export async function handler(
       const gateIds = new Set<string>();
       let offset = 0;
       let gateDrained = true;
-      // deno-lint-ignore no-constant-condition
       while (true) {
         if (timedOut()) { drained = false; gateDrained = false; break; }
         const { data: rows, error: gateErr } = await supabase

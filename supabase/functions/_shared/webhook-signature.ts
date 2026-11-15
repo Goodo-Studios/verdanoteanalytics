@@ -42,7 +42,7 @@ export async function signWebhookItem(itemId: string): Promise<string> {
   if (!secret) {
     throw new Error("VAULT_WEBHOOK_SECRET is not set — cannot sign webhook callback URL");
   }
-  return hmacHex(secret, itemId);
+  return await hmacHex(secret, itemId);
 }
 
 // Verify a callback signature. Fails CLOSED: if the secret is unset or the

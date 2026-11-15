@@ -124,8 +124,51 @@ describe("CI deployment safety", () => {
     expect(source).not.toContain("DEPLOY_ARGS");
   });
 
-  it("gates the edge-function deploy on the database replay", () => {
-    expect(workflow).toContain("needs: [check, deno-test, database-test]");
+  it("gates the edge-function deploys on the database replay and the Deno check and lint", () => {
+    expect(job("deploy-functions")).toContain("needs: [check, deno-test, deno-check, database-test]");
+    expect(job("deploy-staging")).toContain("needs: [check, deno-test, deno-check, database-test]");
+  });
+
+  it("type-checks and lints every edge function (no --no-check, no skipped files)", () => {
+    const deno = job("deno-check");
+    expect(deno).toContain("run: deno lint");
+    expect(deno).toContain("run: deno check --vendor --frozen supabase/functions");
+    expect(deno).not.toContain("--no-check");
+    const config = readFileSync(`${process.cwd()}/deno.json`, "utf8");
+    // Lint covers the whole functions folder, and only these two rules are switched off (each has a reason).
+    expect(config).toContain('"include": ["supabase/functions/"]');
+    expect(config).not.toMatch(/"exclude":\s*\[[^\]]*supabase\/functions/);
+    const disabled = [...config.matchAll(/^\s*"([a-z-]+)"\s*,?\s*$/gm)].map((m) => m[1]);
+    expect(disabled.sort()).toEqual(["no-explicit-any", "no-import-prefix"]);
+  });
+
+  it("builds the app and checks the bundle budgets on every run, not only in the E2E job", () => {
+    expect(job("check")).toContain("run: npm run build:check");
+    expect(job("e2e")).not.toContain("build:check");
+  });
+
+  it("cancels superseded pull request runs but never a push run, and serialises the production deploy", () => {
+    const head = workflow.slice(0, workflow.search(/^jobs:\s*$/m));
+    expect(head).toMatch(/^concurrency:\s*$/m);
+    expect(head).toContain("format('ci-pr-{0}', github.event.pull_request.number)");
+    expect(head).toContain("format('ci-run-{0}', github.run_id)");
+    expect(head).toContain("cancel-in-progress: ${{ github.event_name == 'pull_request' }}");
+    const prod = job("deploy-functions");
+    expect(prod).toMatch(/concurrency:\s*\n\s+group: prod-deploy\s*\n\s+cancel-in-progress: false/);
+  });
+
+  it("checks the production migration ledger on main, read-only, with no new secret", () => {
+    const gate = job("migrations-pending");
+    expect(gate).toContain("github.ref == 'refs/heads/main'");
+    expect(gate).toContain("github.event_name == 'push'");
+    expect(gate).toContain("node scripts/check-migrations-applied.mjs");
+    const secretNames = [...gate.matchAll(/secrets\.([A-Z0-9_]+)/g)].map((m) => m[1]).sort();
+    expect(secretNames).toEqual(["SUPABASE_ACCESS_TOKEN", "SUPABASE_PROJECT_ID"]);
+    expect(gate).not.toMatch(/db push|supabase link/);
+    // Nothing may wait on the gate, so it can never block or trigger a deploy.
+    for (const other of ["check", "deno-test", "deno-check", "database-test", "e2e", "deploy-functions", "deploy-staging"]) {
+      expect(job(other)).not.toContain("migrations-pending");
+    }
   });
 
   it("fails CI before E2E when authenticated-test secrets are missing", () => {

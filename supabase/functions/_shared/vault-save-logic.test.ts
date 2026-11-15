@@ -1,7 +1,7 @@
 // deno test supabase/functions/_shared/vault-save-logic.test.ts
 
 import { assert, assertEquals, assertFalse } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { selectMediaSources, needsMediaRecovery, cleanUrl, isDurableStorageUrl, isImageOnlyItem, MediaSourceError, safeHost } from "./vault-save-logic.ts";
+import { selectMediaSources, needsMediaRecovery, isImageOnlyItem, MediaSourceError, safeHost } from "./vault-save-logic.ts";
 
 const STORAGE = "https://gwyxaqoaldnaavkjqquv.supabase.co/storage/v1/object/public/ad-thumbnails/abc/123.jpg";
 const CDN = "https://video.xx.fbcdn.net/v/signed-token/abc.jpg";

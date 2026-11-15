@@ -78,6 +78,9 @@ async function importSlackFile(
   return storagePath;
 }
 
+// Supabase edge runtime global (not in the Deno typings).
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
+
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") {
     return new Response("Method Not Allowed", { status: 405 });

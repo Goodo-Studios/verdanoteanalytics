@@ -7,6 +7,9 @@ import { verifyWebhookItem } from "../_shared/webhook-signature.ts";
 
 const APIFY_BASE = "https://api.apify.com/v2";
 
+// Supabase edge runtime global (not in the Deno typings).
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 

@@ -35,8 +35,12 @@ CREATE FUNCTION pg_temp.open_policies(p_allow text[]) RETURNS text AS $$
       OR w IN ('true', '(true)')
       OR q LIKE '%auth.uid()isnotnull%'
       OR w LIKE '%auth.uid()isnotnull%'
+      OR q LIKE '%(selectauth.uid()asuid)isnotnull%'
+      OR w LIKE '%(selectauth.uid()asuid)isnotnull%'
       OR q LIKE '%auth.role()=''authenticated''%'
       OR w LIKE '%auth.role()=''authenticated''%'
+      OR q LIKE '%(selectauth.role()asrole)=''authenticated''%'
+      OR w LIKE '%(selectauth.role()asrole)=''authenticated''%'
 $$ LANGUAGE sql;
 
 SELECT cmp_ok(
@@ -59,11 +63,13 @@ ALTER TABLE public.__wall_probe_open ENABLE ROW LEVEL SECURITY;
 CREATE POLICY probe_true ON public.__wall_probe_open FOR SELECT TO authenticated USING (true);
 CREATE POLICY probe_uid  ON public.__wall_probe_open FOR SELECT TO authenticated USING (auth.uid() IS NOT NULL);
 CREATE POLICY probe_role ON public.__wall_probe_open FOR SELECT TO authenticated USING (auth.role() = 'authenticated');
+CREATE POLICY probe_uid_w  ON public.__wall_probe_open FOR SELECT TO authenticated USING ((select auth.uid()) IS NOT NULL);
+CREATE POLICY probe_role_w ON public.__wall_probe_open FOR SELECT TO authenticated USING ((select auth.role()) = 'authenticated');
 CREATE POLICY probe_chk  ON public.__wall_probe_open FOR INSERT TO authenticated WITH CHECK (true);
 SELECT is(
   pg_temp.open_policies(ARRAY['creative_type_menu']),
-  '__wall_probe_open.probe_chk, __wall_probe_open.probe_role, __wall_probe_open.probe_true, __wall_probe_open.probe_uid',
-  'self-test: all four open-policy shapes are detected'
+  '__wall_probe_open.probe_chk, __wall_probe_open.probe_role, __wall_probe_open.probe_role_w, __wall_probe_open.probe_true, __wall_probe_open.probe_uid, __wall_probe_open.probe_uid_w',
+  'self-test: all six open-policy shapes are detected, bare and wrapped'
 );
 
 SELECT * FROM finish();
