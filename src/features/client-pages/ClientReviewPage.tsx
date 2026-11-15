@@ -6,7 +6,7 @@ import { memo, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { EmptyState, ErrorState, LoadingState } from "@/components/page-kit";
+import { EmptyState, ErrorState, LoadingState, useConfirm } from "@/components/page-kit";
 import { useAuth } from "@/contexts/AuthContext";
 import { useClientCards, useClientComments, useClientDecide, usePostClientComment } from "@/hooks/useClientCards";
 import { MAX_NOTE, noteProblem, reviewCards, type ClientCard } from "@/lib/clientPages";
@@ -69,10 +69,23 @@ export const ReviewCard = memo(function ReviewCard({ card, today }: { card: Clie
   const [note, setNote] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
 
-  const send = (decision: "approved" | "changes_requested") => {
+  const { confirm, dialog } = useConfirm();
+
+  const send = async (decision: "approved" | "changes_requested") => {
+    if (decide.isPending) return;
     const p = noteProblem(decision, note);
     setProblem(p);
     if (p) return;
+    // An approval is final for the client, so it asks first (a request for changes already has a note step).
+    if (decision === "approved") {
+      const ok = await confirm({
+        title: "Approve this work?",
+        description: `"${card.title}" is marked approved. If you want something changed instead, go back and choose Request changes.`,
+        actionLabel: "Approve",
+        tone: "default",
+      });
+      if (!ok) return;
+    }
     decide.mutate({ taskId: card.id, decision, note: decision === "approved" ? undefined : note.trim() });
   };
 
@@ -111,20 +124,20 @@ export const ReviewCard = memo(function ReviewCard({ card, today }: { card: Clie
                 rows={3}
               />
               <div className="flex gap-2">
-                <Button size="sm" onClick={() => send("changes_requested")} disabled={decide.isPending}>
+                <Button size="sm" className="min-h-[44px] min-w-[44px]" onClick={() => void send("changes_requested")} disabled={decide.isPending}>
                   Send change request
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => { setAsking(false); setProblem(null); }}>
+                <Button size="sm" variant="ghost" className="min-h-[44px] min-w-[44px]" onClick={() => { setAsking(false); setProblem(null); }}>
                   Cancel
                 </Button>
               </div>
             </>
           ) : (
             <div className="flex gap-2">
-              <Button size="sm" className="bg-verdant text-white hover:bg-verdant/90" onClick={() => send("approved")} disabled={decide.isPending}>
+              <Button size="sm" className="min-h-[44px] min-w-[44px] bg-verdant text-white hover:bg-verdant/90" onClick={() => void send("approved")} disabled={decide.isPending}>
                 Approve
               </Button>
-              <Button size="sm" variant="outline" onClick={() => setAsking(true)} disabled={decide.isPending}>
+              <Button size="sm" variant="outline" className="min-h-[44px] min-w-[44px]" onClick={() => setAsking(true)} disabled={decide.isPending}>
                 Request changes
               </Button>
             </div>
@@ -135,6 +148,7 @@ export const ReviewCard = memo(function ReviewCard({ card, today }: { card: Clie
         </div>
       )}
       <Comments taskId={card.id} />
+      {dialog}
     </ClientCardShell>
   );
 });

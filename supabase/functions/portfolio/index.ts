@@ -1,6 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import {
+  fetchAllRows,
+  PORTFOLIO_MIN_TOP_SPEND,
+  PORTFOLIO_TOP_COUNT,
+  summarizePortfolio,
+} from "../_shared/portfolio-logic.ts";
 
 
 serve(async (req) => {
@@ -37,30 +43,40 @@ serve(async (req) => {
       });
     }
 
-    // Fetch aggregate metrics
-    const { data: creatives } = await supabase
+    // Totals over ALL of the account's creatives. Offset paging needs a unique order, so order by
+    // ad_id (creatives.ad_id is unique); the old single query was capped at 1000 rows ordered by ROAS,
+    // which understated spend and purchases for large accounts.
+    const rows = await fetchAllRows<{ spend: number | null; purchases: number | null; purchase_value: number | null }>(
+      (from, to) =>
+        supabase
+          .from("creatives")
+          .select("spend, purchases, purchase_value")
+          .eq("account_id", account.id)
+          .order("ad_id", { ascending: true })
+          .range(from, to),
+    );
+    const { totalSpend, totalPurchases, blendedRoas } = summarizePortfolio(rows);
+
+    // Top creatives by ROAS (with thumbnail). A minimum spend keeps a $3 ad with one lucky purchase
+    // from headlining the public page.
+    const { data: top, error: topErr } = await supabase
       .from("creatives")
-      .select("spend, roas, purchases, thumbnail_url, ad_id")
+      .select("thumbnail_url, roas, spend, ad_id")
       .eq("account_id", account.id)
-      .order("roas", { ascending: false });
+      .gte("spend", PORTFOLIO_MIN_TOP_SPEND)
+      .gt("roas", 0)
+      .not("thumbnail_url", "is", null)
+      .neq("thumbnail_url", "")
+      .order("roas", { ascending: false })
+      .order("ad_id", { ascending: true })
+      .limit(PORTFOLIO_TOP_COUNT);
+    if (topErr) throw new Error(topErr.message);
 
-    const all = creatives || [];
-    const totalSpend = all.reduce((s, c) => s + (Number(c.spend) || 0), 0);
-    const totalPurchases = all.reduce((s, c) => s + (Number(c.purchases) || 0), 0);
-    const withSpend = all.filter(c => (Number(c.spend) || 0) > 0);
-    const blendedRoas = withSpend.length > 0
-      ? withSpend.reduce((s, c) => s + (Number(c.roas) || 0) * (Number(c.spend) || 0), 0) / totalSpend
-      : 0;
-
-    // Top 6 creatives by ROAS (with thumbnail)
-    const topCreatives = all
-      .filter(c => c.thumbnail_url && (Number(c.roas) || 0) > 0)
-      .slice(0, 6)
-      .map(c => ({
-        thumbnail_url: c.thumbnail_url,
-        roas: Number(c.roas) || 0,
-        spend: Number(c.spend) || 0,
-      }));
+    const topCreatives = (top || []).map((c: any) => ({
+      thumbnail_url: c.thumbnail_url,
+      roas: Number(c.roas) || 0,
+      spend: Number(c.spend) || 0,
+    }));
 
     return new Response(JSON.stringify({
       name: account.name,

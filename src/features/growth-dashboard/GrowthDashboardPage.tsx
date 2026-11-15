@@ -700,7 +700,7 @@ function OutputsTab({
               <tr>
                 <td className={KK6}>Output</td>
                 {months.map((mi) => (
-                  <td key={mi} className="px-3 py-1.5 tabular-nums">{monthOut(state, mi)}</td>
+                  <td key={mi} className="px-3 py-1.5 tabular-nums">{monthOut(state, mi, year)}</td>
                 ))}
                 <td className="bg-muted/40 px-3 py-1.5 font-semibold tabular-nums">{allTimeTotal(state).toLocaleString()}</td>
               </tr>
@@ -714,7 +714,7 @@ function OutputsTab({
               <tr className={KK7}>
                 <td className="px-3 py-1.5 text-left">% to goal</td>
                 {months.map((mi, i) => {
-                  const o = monthOut(state, mi);
+                  const o = monthOut(state, mi, year);
                   const p = goals[i] ? Math.round((o / goals[i]) * 100) : 0;
                   const st: Status | null = o <= 0 ? null : p >= 100 ? "good" : p >= 60 ? "warn" : "crit";
                   return (

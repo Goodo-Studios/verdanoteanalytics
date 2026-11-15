@@ -126,17 +126,48 @@ function PageView({ section, slug, onOpen, onDirtyChange }: { section: BrainSect
   // A link to a section of the page (#anchor) scrolls to that heading once the page is in.
   useEffect(() => {
     if (!page || !hash) return;
-    const el = document.getElementById(decodeURIComponent(hash.slice(1)));
+    // A hand-edited or truncated address can hold a malformed escape (for example "%E0%A4%A"),
+    // and decodeURIComponent throws on it. Fall back to the raw text instead of crashing the page.
+    let id = hash.slice(1);
+    try {
+      id = decodeURIComponent(id);
+    } catch {
+      // keep the raw id
+    }
+    const el = id ? document.getElementById(id) : null;
     el?.scrollIntoView?.({ block: "start" });
   }, [page, hash]);
 
   // Links between Brain pages stay in the app; web links open in a new tab. react-markdown
   // renders no raw HTML and drops unsafe link targets.
+  const bodyMd = page?.body_md;
   const components = useMemo<Components>(() => {
+    // Two headings with the same text must not share an id (the second would never be reachable by
+    // its link). The first keeps the plain anchor; later ones get -2, -3 and so on. The id is fixed
+    // by the heading's place in the source, so a re-render of one heading keeps its id.
+    void bodyMd; // a new page text starts the numbering again
+    const used = new Map<string, number>();
+    const byPlace = new Map<string, string>();
+    const idFor = (place: string, text: string): string | undefined => {
+      const known = byPlace.get(place);
+      if (known !== undefined) return known || undefined;
+      const base = brainAnchor(text);
+      if (!base) {
+        byPlace.set(place, "");
+        return undefined;
+      }
+      const count = (used.get(base) ?? 0) + 1;
+      used.set(base, count);
+      const id = count === 1 ? base : `${base}-${count}`;
+      byPlace.set(place, id);
+      return id;
+    };
     const heading = (Tag: "h1" | "h2" | "h3" | "h4" | "h5" | "h6") =>
-      function Heading({ children }: { children?: React.ReactNode }) {
+      function Heading({ children, node }: { children?: React.ReactNode; node?: { position?: { start?: { offset?: number; line?: number; column?: number } } } }) {
         const text = textOf(children);
-        return <Tag id={brainAnchor(text) || undefined}>{children}</Tag>;
+        const start = node?.position?.start;
+        const place = start ? `${start.offset ?? `${start.line}:${start.column}`}` : `text:${text}`;
+        return <Tag id={idFor(place, text)}>{children}</Tag>;
       };
     return {
     h1: heading("h1"), h2: heading("h2"), h3: heading("h3"), h4: heading("h4"), h5: heading("h5"), h6: heading("h6"),
@@ -152,7 +183,7 @@ function PageView({ section, slug, onOpen, onDirtyChange }: { section: BrainSect
       return <a href={href} className="underline" target="_blank" rel="noopener noreferrer">{children}</a>;
     },
     };
-  }, [onOpen]);
+  }, [onOpen, bodyMd]);
 
   if (error) return <ErrorState message="This page could not load." />;
   if (page === undefined) return <LoadingState label="Loading page" />;

@@ -172,6 +172,22 @@ describe("BrainPage", () => {
     expect(within(screen.getByTestId("brain-page-meta")).getByTestId("brain-needs-review")).toBeTruthy();
   });
 
+  it("does not crash on a malformed hash in the address", async () => {
+    renderAt("?section=playbooks&page=editor-workflow#%E0%A4%A");
+    expect(await screen.findByText("Step one.")).toBeTruthy();
+  });
+
+  it("gives headings with the same text different ids", async () => {
+    PAGES["Playbooks/editor-workflow"].body_md = "## Steps\n\nOne.\n\n## Steps\n\nTwo.\n\n## Steps\n\nThree.";
+    renderAt("?section=playbooks&page=editor-workflow");
+    const body = await screen.findByTestId("brain-page-body");
+    const ids = Array.from(body.querySelectorAll("h2")).map((el) => el.id);
+    expect(ids).toHaveLength(3);
+    expect(ids.every(Boolean)).toBe(true);
+    expect(new Set(ids).size).toBe(3);
+    expect(ids[0]).toBe(brainAnchor("Steps"));
+  });
+
   it("says when a page is no longer published", async () => {
     renderAt("?section=handbook&page=removed");
     expect(await screen.findByText(/not in the Brain/)).toBeTruthy();

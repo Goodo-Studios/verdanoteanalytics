@@ -1,3 +1,4 @@
+import { hasAccountAccess as verifyAccountOwnership } from "../_shared/account-access.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { withApiAuth, corsHeaders } from "../_shared/api-auth.ts";
@@ -26,25 +27,6 @@ import {
 // elsewhere, producing a spurious SupabaseClient<...,never,never> identity skew on the
 // .rpc/.from calls below. Loosening this one param keeps the function checking cleanly
 // without pinning a version that would diverge from the rest of the codebase.
-async function verifyAccountOwnership(
-  supabase: any,
-  userId: string,
-  accountId: string
-): Promise<boolean> {
-  // Check user role — builders and employees can access any account
-  const { data: role } = await supabase.rpc("get_user_role", { _user_id: userId });
-  if (role === "builder" || role === "employee") return true;
-
-  // For clients (and any unrecognised role), verify the user_accounts link
-  const { data, error } = await supabase
-    .from("user_accounts")
-    .select("1")
-    .eq("user_id", userId)
-    .eq("account_id", accountId)
-    .maybeSingle();
-
-  return !error && data !== null;
-}
 
 // Core router, extracted so it can be exercised by deno test against a mock
 // Supabase client (US-004) without binding the network listener. withApiAuth

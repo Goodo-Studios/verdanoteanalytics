@@ -2,9 +2,23 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
+import { safeErrorResponse } from "../_shared/safe-error.ts";
 
 
-serve(async (req) => {
+export interface Deps {
+  createClient?: typeof createClient;
+  fetch?: typeof fetch;
+}
+
+/** Total time the trigger loop may run before it stops and releases the accounts it did not reach. */
+const LOOP_BUDGET_MS = 100_000;
+/** Per-account /sync call limit, so one slow account cannot stall the rest. */
+const SYNC_CALL_TIMEOUT_MS = 45_000;
+/** How soon an account whose trigger failed is retried. */
+const RETRY_DELAY_MS = 10 * 60 * 1000;
+
+export async function handler(req: Request, deps: Deps = {}): Promise<Response> {
+  const doFetch = deps.fetch ?? fetch;
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -18,7 +32,7 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, serviceKey);
+    const supabase = (deps.createClient ?? createClient)(supabaseUrl, serviceKey);
 
     // Atomically claim accounts due for sync by advancing next_sync_at before processing.
     // Using UPDATE...RETURNING ensures only one concurrent invocation claims each account,
@@ -82,10 +96,11 @@ serve(async (req) => {
       if (queuedSyncs?.length) {
         console.log("No accounts due — advancing stalled sync queue via /continue");
         try {
-          await fetch(`${supabaseUrl}/functions/v1/sync/continue`, {
+          await doFetch(`${supabaseUrl}/functions/v1/sync/continue`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
             body: JSON.stringify({ source: "scheduled-sync-heartbeat" }),
+            signal: AbortSignal.timeout(SYNC_CALL_TIMEOUT_MS),
           });
         } catch (e) {
           console.warn("Queue heartbeat continue failed (non-fatal):", e);
@@ -124,11 +139,30 @@ serve(async (req) => {
       scopeById.set(r.id, (!backfilled || fullAgeHours > FULL_REFRESH_HOURS) ? "full" : "daily");
     }
 
+    // The claim above pushed every due account's next_sync_at out. If a trigger fails, or the loop
+    // runs out of time, that placeholder would strand the account until it expires, so every
+    // failure path gives the account back to the cron (due again after a short delay).
+    const releaseClaim = async (accountId: string, delayMs: number) => {
+      const { error } = await supabase
+        .from("ad_accounts")
+        .update({ next_sync_at: new Date(Date.now() + delayMs).toISOString() })
+        .eq("id", accountId);
+      if (error) console.error(`Could not release claim for account_id=${accountId}:`, error.message);
+    };
+    const loopStart = Date.now();
+    const released: string[] = [];
+
     for (const account of claimedAccounts) {
+      if (Date.now() - loopStart > LOOP_BUDGET_MS) {
+        // Out of time: hand the untouched accounts back for the next cycle (due now).
+        await releaseClaim(account.id, 0);
+        released.push(account.id);
+        continue;
+      }
       try {
         // Trigger sync via the existing sync edge function using the service role key
         // so the child invocation has the correct privilege level.
-        const syncResp = await fetch(`${supabaseUrl}/functions/v1/sync`, {
+        const syncResp = await doFetch(`${supabaseUrl}/functions/v1/sync`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -139,11 +173,14 @@ serve(async (req) => {
             sync_type: "scheduled",
             sync_scope: scopeById.get(account.id) || "full",
           }),
+          signal: AbortSignal.timeout(SYNC_CALL_TIMEOUT_MS),
         });
 
         if (!syncResp.ok) {
           const errText = await syncResp.text();
           console.error(`Failed to trigger sync for account_id=${account.id} name=${account.name}: ${errText}`);
+          await releaseClaim(account.id, RETRY_DELAY_MS);
+          released.push(account.id);
           continue;
         }
 
@@ -162,10 +199,8 @@ serve(async (req) => {
           );
           // Park next_sync_at a few minutes out (not a full cadence) so the cron
           // retries promptly instead of waiting the whole sync_frequency window.
-          await supabase
-            .from("ad_accounts")
-            .update({ next_sync_at: new Date(Date.now() + 10 * 60 * 1000).toISOString() })
-            .eq("id", account.id);
+          await releaseClaim(account.id, RETRY_DELAY_MS);
+          released.push(account.id);
           continue;
         }
 
@@ -173,39 +208,44 @@ serve(async (req) => {
         const nextSync = calculateNextSync(account.sync_frequency, account.sync_hour, account.sync_timezone);
 
         // Update next_sync_at
-        await supabase
+        const { error: nextErr } = await supabase
           .from("ad_accounts")
           .update({ next_sync_at: nextSync.toISOString() })
           .eq("id", account.id);
+        if (nextErr) console.error(`Could not write next_sync_at for account_id=${account.id}:`, nextErr.message);
 
         triggered.push(account.id);
         console.log(`Triggered sync for ${account.name}, next at ${nextSync.toISOString()}`);
       } catch (e) {
         console.error(`Error processing account_id=${account.id} name=${account.name}:`, e);
+        await releaseClaim(account.id, RETRY_DELAY_MS);
+        released.push(account.id);
       }
     }
 
     // After triggering scheduled accounts, also fire /continue to advance any queued jobs.
     try {
-      await fetch(`${supabaseUrl}/functions/v1/sync/continue`, {
+      await doFetch(`${supabaseUrl}/functions/v1/sync/continue`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
         body: JSON.stringify({ source: "scheduled-sync-post-trigger" }),
+        signal: AbortSignal.timeout(SYNC_CALL_TIMEOUT_MS),
       });
     } catch (_) { /* non-fatal */ }
 
     return new Response(
-      JSON.stringify({ triggered: triggered.length, accounts: triggered }),
+      JSON.stringify({ triggered: triggered.length, accounts: triggered, released }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {
-    console.error("scheduled-sync error:", e);
-    return new Response(JSON.stringify({ error: String(e) }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return safeErrorResponse(e, corsHeaders, { context: "scheduled-sync error" });
   }
-});
+}
+
+// Tests import the handler with SCHEDULED_SYNC_NO_SERVE set.
+if (!Deno.env.get("SCHEDULED_SYNC_NO_SERVE")) {
+  serve((req) => handler(req));
+}
 
 /**
  * DST-aware next sync calculation using Intl.DateTimeFormat

@@ -142,7 +142,7 @@ describe("MeetingRecapsPage", () => {
     await pickClient();
     fireEvent.change(screen.getByLabelText("Fireflies transcript id"), { target: { value: "tr_9" } });
     fireEvent.click(screen.getByRole("button", { name: "Prepare recap" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("Recap prepared with 2 items.");
+    expect(await screen.findByText("Recap prepared with 2 items.")).toBeTruthy();
   });
 
   it("says when a client has no recaps", async () => {

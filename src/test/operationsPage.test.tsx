@@ -46,6 +46,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 
 import OperationsPage from "@/features/operations/OperationsPage";
 import { WithClient } from "./clientSelection";
+import { acceptConfirm, confirmDialogText, declineConfirm } from "./adminConfirm";
 import { boundedCause, boundedReceipt, nextStepOf, toJob, wasAttempted, type JobRow } from "@/features/operations/model";
 
 const base = {
@@ -100,8 +101,18 @@ describe("OperationsPage", () => {
     renderPage();
     const card = await jobRegion(/Job Slack reminder aaaaaaaa/);
     fireEvent.click(within(card).getByRole("button", { name: "Replay" }));
+    await acceptConfirm();
     await waitFor(() => expect(rpc).toHaveBeenCalledWith("replay_job", { p_job_id: RECOVERY.id }));
     await waitFor(() => expect(calls.filter((c) => c.table === "durable_jobs").length).toBe(2));
+  });
+
+  it("asks before replaying, and Cancel sends nothing", async () => {
+    renderPage();
+    const card = await jobRegion(/Job Slack reminder aaaaaaaa/);
+    fireEvent.click(within(card).getByRole("button", { name: "Replay" }));
+    expect(await confirmDialogText()).toContain("Replay this job?");
+    await declineConfirm();
+    expect(rpc).not.toHaveBeenCalledWith("replay_job", expect.anything());
   });
 
   it("resolves by hand only with an outcome and a 10 character note", async () => {

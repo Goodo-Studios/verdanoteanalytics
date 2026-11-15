@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { fetchWithTimeout } from "../_shared/fetch-with-timeout.ts";
+import { logSafeError } from "../_shared/safe-error.ts";
 
 
 const json = (data: any, status = 200) =>
@@ -129,7 +131,7 @@ serve(async (req) => {
       const apiUrl = `https://graph.facebook.com/v22.0/ads_archive?${params.toString()}`;
       console.log("Fetching Ad Library:", apiUrl.replace(META_TOKEN, "***"));
 
-      const resp = await fetch(apiUrl);
+      const resp = await fetchWithTimeout(apiUrl, {}, { timeoutMs: 20_000, retries: 1, maxBytes: 5_000_000 });
       const data = await resp.json();
 
       if (!resp.ok) {
@@ -208,7 +210,7 @@ serve(async (req) => {
       if (!q) return json({ error: "q parameter required" }, 400);
 
       const apiUrl = `https://graph.facebook.com/v22.0/ads_archive?access_token=${META_TOKEN}&ad_type=ALL&ad_reached_countries=["US"]&search_terms=${encodeURIComponent(q)}&fields=page_id,page_name&limit=10`;
-      const resp = await fetch(apiUrl);
+      const resp = await fetchWithTimeout(apiUrl, {}, { timeoutMs: 20_000, retries: 1, maxBytes: 5_000_000 });
       const data = await resp.json();
 
       if (!resp.ok) return json({ error: data.error?.message || "Page search failed" }, resp.status);
@@ -222,7 +224,7 @@ serve(async (req) => {
 
     return json({ error: "Not found" }, 404);
   } catch (err) {
-    console.error("competitor-ads error:", err);
-    return json({ error: (err as Error).message || "Internal error" }, 500);
+    logSafeError("competitor-ads error", err);
+    return json({ error: "Internal error" }, 500);
   }
 });

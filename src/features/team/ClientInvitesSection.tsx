@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { ErrorState, TextareaField, TextField, useConfirm } from "@/components/page-kit";
+import { ErrorState, LoadingState, TextareaField, TextField, useConfirm } from "@/components/page-kit";
 import { fmtDate } from "@/lib/formatters";
 import { inviteErrorText } from "./inviteModel";
 import {
@@ -350,7 +350,9 @@ export function ClientInvitesSection({ now = () => new Date() }: { now?: () => D
       return;
     }
     const [t, c, x, b, i, s] = results;
-    if (!t || t.error || !t.data) {
+    // The client list and the never-invite list decide who a batch may include, so a failure in
+    // either is a load failure, not an empty list.
+    if (!t || t.error || !t.data || !c || c.error || !x || x.error) {
       setLoadError("The client invites could not load.");
       return;
     }
@@ -374,6 +376,7 @@ export function ClientInvitesSection({ now = () => new Date() }: { now?: () => D
         Cattasaurus, Marek, Miracle, Royo and other ending clients are never invited. Nothing here changes ClickUp.
       </p>
       {loadError ? <ErrorState message={loadError} onRetry={() => void load()} /> : null}
+      {!template && !loadError ? <LoadingState label="Loading client invites" /> : null}
       {template ? (
         <>
           <h3 className="text-sm font-semibold">Email text</h3>

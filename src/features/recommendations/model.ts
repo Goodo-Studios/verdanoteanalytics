@@ -36,6 +36,7 @@ export interface ExecutionLink {
   accountable_owner_id: string;
   review_window_start: string;
   review_window_end: string;
+  created_at?: string;
 }
 
 export interface OutcomeEvidence {
@@ -65,6 +66,7 @@ export interface Learning {
   outcome_id: string;
   conclusion: "supported" | "not_supported" | "inconclusive";
   learning: string;
+  created_at?: string;
 }
 
 export interface Recommendation {
@@ -107,8 +109,14 @@ export const REASON_LABEL: Record<string, string> = {
   evidence_complete: "every linked ad ran in the window and the accounts synced since",
 };
 
-const newest = <T extends { recommendation_version: number }>(rows: T[]) =>
-  rows.slice().sort((a, b) => b.recommendation_version - a.recommendation_version)[0];
+type Dated = { recommendation_version: number; evaluated_at?: string; created_at?: string };
+const stamp = (r: Dated): number => {
+  const t = Date.parse(r.evaluated_at ?? r.created_at ?? "");
+  return Number.isNaN(t) ? 0 : t;
+};
+/** The newest row: highest recommendation version, and within one version the latest timestamp (evaluated_at, else created_at). */
+export const newest = <T extends Dated>(rows: T[]): T | undefined =>
+  rows.slice().sort((a, b) => b.recommendation_version - a.recommendation_version || stamp(b) - stamp(a))[0];
 
 export const latestDecision = (r: Recommendation) => newest(r.decisions);
 export const latestLink = (r: Recommendation) => newest(r.links);

@@ -31,6 +31,7 @@ import {
   shouldRetryCampaignList,
   urlTargetsAccount,
 } from "../_shared/meta-errors.ts";
+import { resumeCursor, sanitizeSyncState } from "../_shared/meta-cursor.ts";
 import { cooldownRemainingMs, cooldownWaitMs } from "../_shared/sync-handoff.ts";
 
 // US-002: Rolling-window incremental daily sync.
@@ -784,6 +785,14 @@ async function promoteNextQueued(supabase: any): Promise<PromoteResult> {
 //   4 = Daily metric breakdowns (batch upsert, chunked)
 //   5 = Finalize
 
+// Legacy rows may still hold token-bearing cursor URLs; scrub on the way out.
+function withSafeSyncState<T extends { sync_state?: unknown } | null>(row: T): T {
+  const s = row?.sync_state;
+  return row && s && typeof s === "object"
+    ? { ...row, sync_state: sanitizeSyncState(s as Record<string, unknown>) }
+    : row;
+}
+
 async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
   const startMs = Date.now();
   const phase = syncLog.current_phase || 1;
@@ -878,7 +887,8 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
   const saveState = async (nextPhase: number, newState: any, status = "running") => {
     // Exclude non-serializable fields (Set objects) from persisted state
     const { _validAdCache, ...serializableState } = state;
-    const merged = { ...serializableState, ...newState, last_activity: new Date().toISOString() };
+    // Never persist the Meta access_token embedded in pagination URLs (sync_logs is client-readable).
+    const merged = sanitizeSyncState({ ...serializableState, ...newState, last_activity: new Date().toISOString() });
     try {
       await supabase.from("sync_logs").update({
         current_phase: nextPhase,
@@ -1290,7 +1300,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
 
       // Step 2: iterate campaigns, resuming from saved index
       let campIdx = state.campaign_index || 0;
-      let campCursor: string | null = state.campaign_cursor || null;
+      let campCursor: string | null = resumeCursor(state.campaign_cursor, metaToken);
 
       while (campIdx < campaigns.length && !isTimedOut()) {
         await heartbeat();
@@ -1500,7 +1510,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       const fullStartDate = new Date(dailySinceDate + "T00:00:00Z");
 
       const chunkOffset = state.daily_chunk_offset || 0;
-      const dailyCursor = state.daily_cursor || null;
+      const dailyCursor = resumeCursor(state.daily_cursor, metaToken);
       const totalChunks = Math.ceil(dailyDays / CHUNK_DAYS);
 
       console.log(`Phase 4: Daily breakdowns (${dailyDays} days, chunk ${chunkOffset + 1}/${totalChunks})...`);
@@ -2260,7 +2270,7 @@ const handler = async (req: Request) => {
       if (historyId && historyId !== "") {
         const { data, error } = await supabase.from("sync_logs").select("*").eq("id", historyId).single();
         if (error) throw error;
-        return new Response(JSON.stringify(data), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(withSafeSyncState(data)), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
       const accountId = url.searchParams.get("account_id");
       const limit = parseInt(url.searchParams.get("limit") || "20");
@@ -2268,7 +2278,7 @@ const handler = async (req: Request) => {
       if (accountId) query = query.eq("account_id", accountId);
       const { data, error } = await query;
       if (error) throw error;
-      return new Response(JSON.stringify(data), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify((data || []).map(withSafeSyncState)), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ─── POST /sync/cancel ─────────────────────────────────────────────

@@ -1,5 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { withApiAuth, corsHeaders } from "../_shared/api-auth.ts";
+import { matchWebhooks } from "../_shared/webhook-match.ts";
+import { safeErrorResponse } from "../_shared/safe-error.ts";
 
 async function hmacSign(secret: string, payload: string): Promise<string> {
   const enc = new TextEncoder();
@@ -210,11 +212,11 @@ Deno.serve(
         );
       }
 
-      const matching = (webhooks || []).filter((wh: any) => {
-        if (test_webhook_id) return true; // bypass filters for test
-        // If account_ids is empty, match all accounts
-        if (!wh.account_ids || wh.account_ids.length === 0) return true;
-        return account_id && wh.account_ids.includes(account_id);
+      // Non-staff callers only reach webhooks that list their account; global webhooks are staff only.
+      const matching = matchWebhooks(webhooks || [], {
+        accountId: account_id,
+        testWebhookId: test_webhook_id,
+        isStaff: await callerIsStaff(),
       });
 
       const results = await Promise.allSettled(
@@ -234,11 +236,7 @@ Deno.serve(
         }
       );
     } catch (e: any) {
-      console.error("webhooks-dispatch error:", e);
-      return new Response(JSON.stringify({ error: e.message }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return safeErrorResponse(e, corsHeaders, { context: "webhooks-dispatch error" });
     }
   })
 );

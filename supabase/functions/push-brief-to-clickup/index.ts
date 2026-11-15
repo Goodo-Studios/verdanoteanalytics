@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { fetchWithTimeout } from "../_shared/fetch-with-timeout.ts";
 import { clickUpWritePolicy, mayWriteToList, READ_ONLY_MESSAGE } from "../_shared/clickup-write-guard.ts";
 import { type Caller, resolveCaller } from "../_shared/internal-auth.ts";
 import {
@@ -267,13 +268,25 @@ async function resolveProjectList(clickup: ClickUp, slug: string, clients: Clien
 
 async function listTasks(clickup: ClickUp, listId: string): Promise<ClickUpBriefTask[]> {
   const tasks: ClickUpBriefTask[] = [];
+  let complete = false;
   for (let page = 0; page < MAX_PAGES_PER_LIST; page++) {
     const data = await clickup(
       `/list/${listId}/task?page=${page}&include_closed=true&subtasks=false&archived=false&include_markdown_description=true`,
     );
     const batch = (data.tasks as ClickUpBriefTask[] | undefined) ?? [];
     tasks.push(...batch);
-    if (data.last_page === true || batch.length === 0) break;
+    if (data.last_page === true || batch.length === 0) {
+      complete = true;
+      break;
+    }
+  }
+  // A cut-short list would hide tasks: the next asset number could repeat one that exists and the
+  // picker would miss tasks. Fail loudly instead of working from a partial list.
+  if (!complete) {
+    throw new Refusal(
+      502,
+      `This client's ClickUp list has more than ${MAX_PAGES_PER_LIST * 100} tasks, so it cannot be read in full. Nothing was changed.`,
+    );
   }
   return tasks;
 }
@@ -333,7 +346,10 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
   const writePolicy = clickUpWritePolicy(env);
   const clickup = makeClickUp(
     token,
-    deps.fetch ?? ((url, init) => fetch(url, init)),
+    // A POST creates a task, so it is never retried (a retry after a lost response would make a
+    // duplicate); reads and the idempotent PUT get the retry for 429 and 5xx.
+    deps.fetch ?? ((url, init) =>
+      fetchWithTimeout(url, init, { timeoutMs: 20_000, retries: init.method === "POST" ? 0 : 2, maxBytes: 10_000_000 })),
     writePolicy.blocked && writePolicy.allowedListIds.size === 0,
   );
   try {
@@ -393,6 +409,18 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
     }
     if (!isAssetTask(task.name)) throw new Refusal(409, "That task is not an asset task.");
     if (!isDescriptionEmpty(task)) {
+      throw new Refusal(409, "That task already has a description. Nothing was changed; pick an empty task or a new one.");
+    }
+    // Read the task again immediately before writing: someone may have added a description in the
+    // time since the first read, and the PUT would replace it.
+    let fresh: ClickUpBriefTask;
+    try {
+      fresh = (await clickup(`/task/${taskId}?include_markdown_description=true`)) as unknown as ClickUpBriefTask;
+    } catch (error) {
+      if (error instanceof ClickUpError && error.status === 404) throw new Refusal(404, "ClickUp task not found.");
+      throw error;
+    }
+    if (!isDescriptionEmpty(fresh)) {
       throw new Refusal(409, "That task already has a description. Nothing was changed; pick an empty task or a new one.");
     }
     const updated = (await clickup(`/task/${taskId}`, {

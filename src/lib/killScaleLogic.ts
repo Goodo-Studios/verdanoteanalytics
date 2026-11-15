@@ -15,6 +15,28 @@ export interface KillScaleConfig {
   spendThreshold: number;
 }
 
+/**
+ * Per-KPI default scale/kill thresholds, used when the account has not set its own.
+ * ROAS scales with the account's ROAS threshold; the others are absolute defaults in the
+ * units the creatives table stores (CPA in dollars, CTR and hook rate as true percentages).
+ */
+export function defaultKillScaleThresholds(
+  kpi: string,
+  roasThreshold: number,
+): { scaleAt: number; killAt: number } {
+  switch (kpi) {
+    case "cpa":
+      return { scaleAt: 30, killAt: 60 };
+    case "ctr":
+      return { scaleAt: 1.5, killAt: 0.8 };
+    case "thumb_stop_rate":
+      return { scaleAt: 30, killAt: 20 };
+    case "roas":
+    default:
+      return { scaleAt: roasThreshold, killAt: roasThreshold * 0.5 };
+  }
+}
+
 export interface CategorizedCreative extends Record<string, any> {
   reason: string;
 }
@@ -61,7 +83,11 @@ export function useKillScaleLogic(
           watch.push({ ...c, reason: `${kpiLabel} ${kpiValue.toFixed(2)} — between kill and scale zones` });
         }
       } else {
-        if (kpiValue > 0 && kpiValue <= scaleAt) {
+        if (kpiValue === 0) {
+          // CPA is stored as 0 when there are no purchases. With real spend at or above
+          // the threshold that is the worst outcome, not a missing value.
+          kill.push({ ...c, reason: `${kpiLabel} n/a (no conversions) with $${spend.toFixed(0)} spent` });
+        } else if (kpiValue > 0 && kpiValue <= scaleAt) {
           scale.push({ ...c, reason: `${kpiLabel} $${kpiValue.toFixed(2)} ≤ $${scaleAt} scale threshold` });
         } else if (kpiValue > killAt) {
           kill.push({ ...c, reason: `${kpiLabel} $${kpiValue.toFixed(2)} > $${killAt} kill threshold with $${spend.toFixed(0)} spent` });

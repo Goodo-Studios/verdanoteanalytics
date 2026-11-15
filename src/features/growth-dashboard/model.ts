@@ -299,13 +299,16 @@ export function computeKpis(state: GrowthState, plan: GrowthPlan | null, now: Da
   const yearProj = h1End(plan) + h2;
 
   const mNow = clampH2(now.getMonth());
+  // Only count entries in the plan year; a bare getMonth() match would also count the same
+  // month of other years.
+  const planYear = plan?.year ?? now.getFullYear();
   let mCalls = 0;
   let wkCalls = 0;
   const wkAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
   for (const dk of Object.keys(state.calls)) {
     const d = parseISO(dk);
     const v = +state.calls[dk] || 0;
-    if (d.getMonth() === mNow) mCalls += v;
+    if (d.getFullYear() === planYear && d.getMonth() === mNow) mCalls += v;
     if (d >= wkAgo && d <= now) wkCalls += v;
   }
   const pm = planMonth(plan, mNow);
@@ -313,7 +316,8 @@ export function computeKpis(state: GrowthState, plan: GrowthPlan | null, now: Da
   let dealsMo = 0;
   let mrrMo = 0;
   for (const d of state.deals) {
-    if (parseISO(d.date).getMonth() === mNow) {
+    const dd = parseISO(d.date);
+    if (dd.getFullYear() === planYear && dd.getMonth() === mNow) {
       dealsMo++;
       mrrMo += +d.price || 0;
     }
@@ -431,19 +435,24 @@ export function calendarCells(y: number, m: number): CalendarCell[] {
 export type DealTally = { month: string; count: number; target: number | null; value: number; allValue: number; pill: Pill };
 
 export function dealTally(state: GrowthState, plan: GrowthPlan | null, now: Date): DealTally {
-  const y = now.getFullYear();
+  const y = plan?.year ?? now.getFullYear();
   const m = now.getMonth();
   const mm = clampH2(m);
-  const md = state.deals.filter((d) => parseISO(d.date).getMonth() === mm);
+  const md = state.deals.filter((d) => {
+    const dd = parseISO(d.date);
+    return dd.getFullYear() === y && dd.getMonth() === mm;
+  });
   const count = md.length;
   const value = md.reduce((a, d) => a + (+d.price || 0), 0);
   const allValue = state.deals.reduce((a, d) => a + (+d.price || 0), 0);
   const target = planMonth(plan, mm)?.signings ?? null;
   const dim = new Date(y, mm + 1, 0).getDate();
+  const started = now >= new Date(y, mm, 1);
   const elapsed = m === mm ? now.getDate() : dim;
   let pill: Pill = null;
   if (target) {
     if (count >= target) pill = { cls: "good", text: "target hit" };
+    else if (!started) pill = { cls: "na", text: "upcoming" };
     else {
       const exp = (target * elapsed) / dim;
       pill = count >= exp ? { cls: "good", text: "on track" } : { cls: count >= 0.6 * exp ? "warn" : "crit", text: "behind" };
@@ -500,8 +509,13 @@ export function weeksInMonth(m: number, year: number): number {
   }
   return c;
 }
-export function monthOut(state: GrowthState, m: number): number {
-  return Object.keys(state.weeks).reduce((a, k) => (parseISO(k).getMonth() === m ? a + weekActs(state, k) : a), 0);
+export function monthOut(state: GrowthState, m: number, year?: number): number {
+  return Object.keys(state.weeks).reduce((a, k) => {
+    const d = parseISO(k);
+    if (d.getMonth() !== m) return a;
+    if (year != null && d.getFullYear() !== year) return a;
+    return a + weekActs(state, k);
+  }, 0);
 }
 /** Week columns of the spreadsheet: every Friday from the first week of July to this week or the last logged week. */
 export function sheetWeeks(state: GrowthState, now: Date, year: number): string[] {

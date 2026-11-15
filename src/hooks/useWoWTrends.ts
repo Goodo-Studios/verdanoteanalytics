@@ -34,7 +34,10 @@ export function useWoWTrends(accountId?: string) {
         .from("creative_daily_metrics")
         .select("ad_id, date, spend, purchase_value")
         .gte("date", dateFrom)
-        .order("date", { ascending: true });
+        .order("date", { ascending: true })
+        // Tiebreaker: many rows share a date, so paging by date alone can skip or repeat rows
+        // across pages. (date, ad_id) is unique per account because (ad_id, date) is the primary key.
+        .order("ad_id", { ascending: true });
 
       if (accountId && accountId !== "all") {
         query = query.eq("account_id", accountId);

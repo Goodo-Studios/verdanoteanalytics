@@ -71,14 +71,29 @@ export function useDistinctHooks(accountId?: string | null) {
   return useQuery<string[]>({
     queryKey: ["creative-distinct-hooks", scoped ?? "all"],
     queryFn: async () => {
-      let q = supabase.from("creatives").select("hook").not("hook", "is", null).limit(5000);
-      if (scoped) q = q.eq("account_id", scoped);
-      const { data, error } = await q;
-      if (error) throw new Error(error.message || "Failed to load hooks");
+      // PostgREST has no SELECT DISTINCT, and a single capped read of non-distinct rows can
+      // fill up with repeats of a few hooks and silently drop the rest. Page through every row
+      // (stable order) and de-duplicate client-side. HOOK_PAGE matches the server's row cap.
+      const HOOK_PAGE = 1000;
+      const MAX_PAGES = 100;
       const seen = new Set<string>();
-      for (const r of data ?? []) {
-        const h = ((r as { hook: string | null }).hook ?? "").trim();
-        if (h) seen.add(h);
+      for (let page = 0; page < MAX_PAGES; page++) {
+        let q = supabase
+          .from("creatives")
+          .select("hook")
+          .not("hook", "is", null)
+          .order("hook", { ascending: true })
+          .order("ad_id", { ascending: true })
+          .range(page * HOOK_PAGE, page * HOOK_PAGE + HOOK_PAGE - 1);
+        if (scoped) q = q.eq("account_id", scoped);
+        const { data, error } = await q;
+        if (error) throw new Error(error.message || "Failed to load hooks");
+        const rows = data ?? [];
+        for (const r of rows) {
+          const h = ((r as { hook: string | null }).hook ?? "").trim();
+          if (h) seen.add(h);
+        }
+        if (rows.length < HOOK_PAGE) break;
       }
       return [...seen].sort((a, b) => a.localeCompare(b));
     },

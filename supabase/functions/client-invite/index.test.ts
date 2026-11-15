@@ -11,6 +11,7 @@ Deno.env.set("CLIENT_INVITE_NO_SERVE", "1");
 
 import type { Caller } from "../_shared/internal-auth.ts";
 import type { Batch, Invite, Mailer, Store, Template } from "./index.ts";
+import { MAX_SEND_PER_CALL } from "./index.ts";
 
 // Imported after the env is set, so the module does not start a server.
 const { allowedDomains, domainAllowed, handler } = await import("./index.ts");
@@ -49,9 +50,10 @@ interface Faults {
   markSentFails?: boolean;
 }
 
-function setup(w: World, env: Record<string, string> = {}, caller: Caller = builder, faults: Faults = {}) {
+function setup(w: World, env: Record<string, string> = {}, caller: Caller = builder, faults: Faults = {}, shared?: Set<string>) {
   const writes: string[] = [];
   const mails: string[] = [];
+  const claimedIds = shared ?? new Set<string>();
   const store: Store = {
     template: () => Promise.resolve(w.template),
     batch: () => Promise.resolve(w.batch),
@@ -61,6 +63,17 @@ function setup(w: World, env: Record<string, string> = {}, caller: Caller = buil
     setUpClientLogin: (userId, slug) => {
       if (faults.setUpFails) return Promise.reject(new Error("user_roles: boom"));
       writes.push(`login:${userId}:${slug}`);
+      return Promise.resolve();
+    },
+    claim: (ids) => {
+      const got = ids.filter((id) => !claimedIds.has(id));
+      got.forEach((id) => claimedIds.add(id));
+      writes.push(`claim:${got.join(",")}`);
+      return Promise.resolve(got);
+    },
+    release: (id) => {
+      claimedIds.delete(id);
+      writes.push(`release:${id}`);
       return Promise.resolve();
     },
     markSent: (id) => {
@@ -176,7 +189,7 @@ Deno.test("the domain allow-list sends only matching addresses and lists the res
   assertEquals(r.status, 200);
   assertEquals(t.mails, ["invite:ann@staging.verdanote.test"]);
   assertEquals(r.body.skipped.map((s: { email: string; reason: string }) => [s.email, s.reason]), [["bob@beta.example", "domain_not_allowed"]]);
-  assertEquals(t.writes, ["login:new-ann@staging.verdanote.test:alpha", "sent:i1", `batch:${BATCH}`]);
+  assertEquals(t.writes, ["claim:i1", "login:new-ann@staging.verdanote.test:alpha", "sent:i1", `batch:${BATCH}`]);
 });
 
 Deno.test("the dry run applies the allow-list too", async () => {
@@ -256,4 +269,34 @@ Deno.test("allowedDomains and domainAllowed", () => {
   assert(!domainAllowed("a@evil-staging.verdanote.test.com", ["staging.verdanote.test"]));
   assert(!domainAllowed("a@sub.staging.verdanote.test", ["staging.verdanote.test"]));
   assert(domainAllowed("a@anything.example", null));
+});
+
+Deno.test("two overlapping sends email each contact once", async () => {
+  const claimed = new Set<string>();
+  const a = setup(world(), ON, builder, {}, claimed);
+  const b = setup(world(), ON, builder, {}, claimed);
+  const [ra, rb] = await Promise.all([a.call(), b.call()]);
+  const emails = [...a.mails, ...b.mails];
+  assertEquals(emails.length, 2);
+  assertEquals(new Set(emails).size, 2);
+  // The loser claimed nothing and says so.
+  assertEquals([ra.status, rb.status].sort(), [200, 409]);
+});
+
+Deno.test("a failed send is released so it can be retried", async () => {
+  const t = setup(world(), ON, builder, { setUpFails: true });
+  const r = await t.call();
+  assertEquals(r.status, 200);
+  assertEquals(r.body.failed.length, 2);
+  assertEquals(t.writes.filter((x) => x.startsWith("release:")).sort(), ["release:i1", "release:i2"]);
+});
+
+Deno.test("a batch bigger than the cap sends the cap and defers the rest", async () => {
+  const invites = Array.from({ length: 60 }, (_, i) => ({
+    id: `i${i}`, client_slug: "alpha", email: `c${i}@staging.verdanote.test`, display_name: `C${i}`, status: "approved",
+  }));
+  const t = setup(world({ invites }), ON);
+  const r = await t.call();
+  assertEquals(r.body.sent.length, MAX_SEND_PER_CALL);
+  assertEquals(r.body.deferred, 10);
 });

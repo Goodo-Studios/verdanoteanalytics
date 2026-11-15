@@ -10,13 +10,12 @@ import { Link, Navigate, useParams } from "react-router-dom";
 import { EmptyState, PageShell } from "@/components/page-kit";
 import { PageSkeleton } from "@/components/skeletons/PageSkeleton";
 import { pageFor, prefetchPage } from "@/components/sections/lazyPages";
-import { useAuth } from "@/contexts/AuthContext";
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useAccountReady } from "@/hooks/useAccountReady";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { HUB_TABS, SCOPE_SUBTABS, hubPath } from "@/lib/clientHub";
 import { isHiddenPage } from "@/lib/hiddenPages";
-import { useClientPreview } from "@/hooks/useClientPreviewMode";
+import { useRealBuilder } from "@/hooks/useRealBuilder";
 import { ClientMonthDelivery } from "./ClientMonthDelivery";
 
 const TAB_LINK = "whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors";
@@ -28,9 +27,7 @@ export default function ClientHubPage() {
   const prefix = useRolePrefix();
   const { clients, isLoading, selectedClient, noAccount } = useClientSelection();
   const accountReady = useAccountReady();
-  const { isBuilder } = useAuth();
-  const { isClientPreview, isEmployeePreview } = useClientPreview();
-  const realBuilder = isBuilder && !isClientPreview && !isEmployeePreview;
+  const realBuilder = useRealBuilder();
 
   const known = clients.length === 0 || clients.some((c) => c.slug === slug);
   if (!isLoading && !known) {
@@ -65,7 +62,7 @@ export default function ClientHubPage() {
         </p>
         <ClientMonthDelivery slug={slug} />
         <nav aria-label="Client tabs" className="-mb-px mt-1 flex gap-1 overflow-x-auto">
-          {HUB_TABS.filter((t) => !t.builderOnly || isBuilder).map((t) => (
+          {HUB_TABS.filter((t) => !t.builderOnly || realBuilder).map((t) => (
             <Link
               key={t.slug}
               to={`${prefix}${hubPath(slug, t.slug)}`}

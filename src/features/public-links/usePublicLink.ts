@@ -1,17 +1,25 @@
 // Loads one read-only public link (location board, call sheet) and keeps the plain failure reason.
+// A response for an earlier link (the address changed while it was loading) is ignored, and the
+// previous link's data and failure are cleared when the link changes.
 import { useCallback, useEffect, useState } from "react";
+import { useLatestRequest } from "@/hooks/useLatestRequest";
 import { callPublicLink, type LinkFailure, type LinkType } from "./publicLinkApi";
 
 export function usePublicLink<T>(type: LinkType, token: string) {
   const [data, setData] = useState<T | null>(null);
   const [failure, setFailure] = useState<LinkFailure | null>(null);
+  const latest = useLatestRequest();
   const load = useCallback(async () => {
+    const isCurrent = latest.begin();
     setFailure(null);
     const r = await callPublicLink<T>({ type, action: "get", token });
+    if (!isCurrent()) return;
     if (r.ok) setData(r.data);
     else setFailure(r.reason);
-  }, [type, token]);
+  }, [type, token, latest]);
   useEffect(() => {
+    setData(null);
+    setFailure(null);
     void load();
     const meta = document.createElement("meta");
     meta.name = "robots";
