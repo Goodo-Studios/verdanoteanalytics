@@ -152,11 +152,15 @@ test.describe("employee reaches staff pages", () => {
   for (const path of STAFF_PATHS.filter((p) => !BUILDER_ONLY_PATHS.includes(p) && !p.includes("/build"))) {
     test(`/employee${path} loads a staff page`, async ({ page }) => {
       await page.goto(`/employee${path}`);
-      await page.waitForLoadState("networkidle");
+      // Wait for the staff layout, not "networkidle": pages that poll (Tagging, Creative Performance)
+      // never go idle, and the first production run with the employee login timed out on them while
+      // the page itself had loaded (run 43916670844).
+      await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByRole("main")).toBeVisible({ timeout: 30_000 });
       // Old addresses redirect to a section tab, so the address may differ; it is never the index or a 404.
-      const now = new URL(page.url()).pathname.replace(/\/$/, "");
-      if (path !== "/staff") expect(now).not.toBe("/employee");
-      expect(now.startsWith("/employee")).toBe(true);
+      const pathname = () => new URL(page.url()).pathname.replace(/\/$/, "");
+      if (path !== "/staff") await expect.poll(pathname, { timeout: 15_000 }).not.toBe("/employee");
+      expect(pathname().startsWith("/employee")).toBe(true);
       await expect(page.getByText(/page not found/i)).toHaveCount(0);
     });
   }
