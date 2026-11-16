@@ -29,6 +29,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { json } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
+import { loadGroupingInputs } from "../_shared/grouping-inputs.ts";
 import {
   blendedTier,
   type CandidateGroup,
@@ -111,19 +112,23 @@ Deno.serve(async (req) => {
   if (!accountId) return json({ error: "account_id required" }, 400);
   const threshold: number = Number.isFinite(body.threshold) ? Number(body.threshold) : 0.7;
 
-  // 1. Embeddings for the account — note (v1), plus the multi-modal visual + script
-  //    vectors (US-003) that US-006 blends.
-  const { data: embRows, error: embErr } = await db
-    .from("creative_embeddings")
-    .select("ad_id, embedding, visual_embedding, script_embedding")
-    .eq("account_id", accountId);
-  if (embErr) return json({ error: embErr.message }, 500);
+  // 1-2. The account's newest running ads (at most GROUPING_CAP) and their embeddings: note
+  //      (v1) plus the multi-modal visual + script vectors (US-003) that US-006 blends.
+  //      Read for exactly these ads (audit 7.3); see _shared/grouping-inputs.ts.
+  let inputs;
+  try {
+    inputs = await loadGroupingInputs(
+      db,
+      accountId,
+      "ad_id, ad_name, spend, roas, ctr, cpa, tag_source, ad_type, person, style, product, hook, theme, meta_video_ids, meta_image_hashes, thumb_asset_id, video_asset_id, destination_key",
+    );
+  } catch (e) {
+    return json({ error: (e as Error).message }, 500);
+  }
   const embById = new Map<string, number[]>();
   const visualById = new Map<string, number[]>();
   const scriptById = new Map<string, number[]>();
-  for (const r of embRows ?? []) {
-    const row = r as Record<string, unknown>;
-    const adId = row.ad_id as string;
+  for (const [adId, row] of inputs.embeddings) {
     const e = parseEmbedding(row.embedding);
     if (e) embById.set(adId, e);
     const ve = parseEmbedding(row.visual_embedding);
@@ -132,25 +137,11 @@ Deno.serve(async (req) => {
     if (se) scriptById.set(adId, se);
   }
 
-  // 2. Creatives (metrics + anchors) for the whole account, chunked.
   const participants: Participant[] = [];
   const assetIdSet = new Set<string>();
   const rawByAd = new Map<string, { thumb_asset_id?: string | null; video_asset_id?: string | null }>();
   {
-    let from = 0;
-    const PAGE = 1000;
-    for (;;) {
-      const { data: rows, error } = await db
-        .from("creatives")
-        .select("ad_id, ad_name, spend, roas, ctr, cpa, tag_source, ad_type, person, style, product, hook, theme, meta_video_ids, meta_image_hashes, thumb_asset_id, video_asset_id, destination_key")
-        .eq("account_id", accountId)
-        // LIVE diversity signal: cluster only currently-active creative. Paused/old
-        // ads are reset to cluster_id = null (below) and stay out of the entity model.
-        .eq("ad_status", "ACTIVE")
-        .range(from, from + PAGE - 1);
-      if (error) return json({ error: error.message }, 500);
-      const batch = rows ?? [];
-      for (const c of batch) {
+      for (const c of inputs.creatives) {
         const row = c as Record<string, unknown>;
         const adId = row.ad_id as string;
         if (row.thumb_asset_id) assetIdSet.add(row.thumb_asset_id as string);
@@ -184,9 +175,6 @@ Deno.serve(async (req) => {
           },
         });
       }
-      if (batch.length < PAGE) break;
-      from += PAGE;
-    }
   }
 
   // 2b. Resolve asset ids -> asset_key (the primary exact anchor).
