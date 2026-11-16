@@ -7,6 +7,7 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 import { detectPlatform } from "../_shared/platform.ts";
 import { errorMessage } from "../_shared/error-message.ts";
 import { requireStaffOrServiceRole } from "../_shared/internal-auth.ts";
+import { isOwnUploadPath } from "../_shared/vault-paths.ts";
 
 // Supabase Edge Runtime global (not in Deno's lib types).
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
@@ -49,6 +50,11 @@ Deno.serve(async (req) => {
     const { url, file_path, platform: explicitPlatform, mime_type, brand_name, thumbnail_url } = body;
 
     if (!url && !file_path) return json({ error: "url or file_path is required" }, 400);
+    // A caller-supplied path must be the caller's own upload (audit 2.2); other functions sign
+    // whatever path an item stores.
+    if (file_path != null && !isOwnUploadPath(file_path, user.id)) {
+      return json({ error: "file_path must be one of your own uploads" }, 400);
+    }
 
     const platform = explicitPlatform ?? (url ? detectPlatform(url) : "upload");
     const isVideo = !mime_type || mime_type.startsWith("video/");

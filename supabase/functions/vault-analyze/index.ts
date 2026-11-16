@@ -13,6 +13,7 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { isImageOnlyAnalysis, parseLooseJson } from "../_shared/vault-analyze-logic.ts";
 import { resolveImageMediaType, sniffImageMediaType } from "../_shared/image-media-type.ts";
+import { isSignableVaultPath } from "../_shared/vault-paths.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
@@ -241,7 +242,8 @@ async function analyzeStaticImage(opts: {
   if (item?.thumbnail_url) {
     imageDataUrl = await fetchImageAsDataUrl(item.thumbnail_url);
   }
-  if (!imageDataUrl && item?.file_path) {
+  // Sign only a well-formed Vault path (audit 2.2).
+  if (!imageDataUrl && item?.file_path && isSignableVaultPath(item.file_path)) {
     const { data: signed } = await db.storage
       .from("inspiration-media")
       .createSignedUrl(item.file_path, 600);
