@@ -4,6 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { ACTOR_CONFIGS } from "../_shared/actor-configs.ts";
 import { verifyWebhookItem } from "../_shared/webhook-signature.ts";
+import { kickOffVaultStep } from "../_shared/vault-kickoff.ts";
 
 const APIFY_BASE = "https://api.apify.com/v2";
 
@@ -402,17 +403,15 @@ Deno.serve(async (req) => {
       })
       .eq("id", itemId);
 
-    // Kick off transcription asynchronously — don't block the webhook response.
-    EdgeRuntime.waitUntil(
-      fetch(`${supabaseUrl}/functions/v1/vault-transcribe`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${serviceRoleKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ item_id: itemId }),
-      }).catch(console.error)
-    );
+    // Hand off to transcription without fire-and-forget (audit 4.4): a refused or failed call
+    // marks the item as an error instead of leaving it at "transcribing" forever.
+    await kickOffVaultStep(db, {
+      supabaseUrl,
+      serviceRoleKey,
+      itemId,
+      step: "vault-transcribe",
+      keepAlive: (p) => EdgeRuntime.waitUntil(p),
+    });
 
     return json({ ok: true, item_id: itemId });
   } catch (err) {

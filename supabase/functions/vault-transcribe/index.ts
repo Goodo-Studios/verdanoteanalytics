@@ -17,6 +17,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { isImageOnlyItem } from "../_shared/vault-save-logic.ts";
+import { kickOffVaultStep } from "../_shared/vault-kickoff.ts";
 import {
   classifyGroqFailure,
   extractDeepgramTranscript,
@@ -133,47 +134,15 @@ Deno.serve(async (req) => {
       // stuck at status='analyzing' forever. Bounded ack: await the dispatch for a
       // short window (immediate failures mark the item errored so useItemStatus
       // surfaces them), then let the in-flight call ride on waitUntil — at that
-      // point vault-analyze owns item status.
-      const markKickoffFailed = async (reason: string) => {
-        console.error(`vault-transcribe: vault-analyze kick-off failed for item ${itemId}:`, reason);
-        const { error: markError } = await db
-          .from("inspiration_items")
-          .update({ status: "error", error_message: `Analyze kick-off failed: ${reason}` })
-          .eq("id", itemId);
-        if (markError) console.error("vault-transcribe: failed to mark item errored:", markError);
-      };
-
-      const kickoff = (async () => {
-        try {
-          const res = await fetch(`${supabaseUrl}/functions/v1/vault-analyze`, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${serviceRoleKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ item_id: itemId }),
-          });
-          if (!res.ok) {
-            const text = await res.text().catch(() => "");
-            await markKickoffFailed(`vault-analyze responded ${res.status}${text ? `: ${text.slice(0, 300)}` : ""}`);
-          }
-        } catch (e) {
-          await markKickoffFailed(e instanceof Error ? e.message : String(e));
-        }
-      })();
-
-      const TIMED_OUT = Symbol("kickoff-ack-timeout");
-      let ackTimer: ReturnType<typeof setTimeout> | undefined;
-      const settled = await Promise.race([
-        kickoff,
-        new Promise((resolve) => {
-          ackTimer = setTimeout(() => resolve(TIMED_OUT), KICKOFF_ACK_TIMEOUT_MS);
-        }),
-      ]);
-      if (ackTimer !== undefined) clearTimeout(ackTimer);
-      if (settled === TIMED_OUT) {
-        EdgeRuntime.waitUntil(kickoff);
-      }
+      // point vault-analyze owns item status. Shared with vault-extract-webhook (audit 4.4).
+      await kickOffVaultStep(db, {
+        supabaseUrl,
+        serviceRoleKey,
+        itemId,
+        step: "vault-analyze",
+        ackTimeoutMs: KICKOFF_ACK_TIMEOUT_MS,
+        keepAlive: (p) => EdgeRuntime.waitUntil(p),
+      });
 
       return json({ ok: true, item_id: itemId, provider });
     };
