@@ -364,15 +364,6 @@
         }
       }
     },
-    "vault-slack-connect": {
-      "class": "staff"
-    },
-    "vault-slack-events": {
-      "class": "secret"
-    },
-    "vault-slack-import": {
-      "class": "staff"
-    },
     "vault-status": {
       "class": "staff"
     },

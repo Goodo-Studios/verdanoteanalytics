@@ -10,7 +10,7 @@ Every function is classified in `supabase/function-access.json`. This note recor
 |---|---|---|
 | staff | 25 | Refuses client accounts. Needs a staff role (builder or employee), or builder only for `apify-debug`, `clear-media-cache`, `settings`, `user-management`. |
 | service | 28 | Only the service-role key gets in (cron jobs, backfills, other functions). |
-| secret | 7 | Shared secret, signature or API key (`api`, `webhooks-dispatch`, `ingest-reviews`, `sadie-read`, `vault-extract-webhook`, `vault-slack-events`, `write-brief`). |
+| secret | 6 | Shared secret, signature or API key (`api`, `webhooks-dispatch`, `ingest-reviews`, `sadie-read`, `vault-extract-webhook`, `write-brief`). The Slack import functions were removed on 2026-11-15. |
 | account-scoped | 12 | A client may call it for accounts linked to them. |
 | public | 1 | `portfolio`, a public page by slug, limited to accounts that switched it on. |
 
@@ -23,7 +23,6 @@ Before this change a client token (a signed-in client account) was accepted by t
 | `vault-save`, `vault-save-creative`, `quick-save` | Write into the vault (service-role insert) | Staff gate |
 | `vault-ads` | Search the Meta ad library with the org token | Staff gate |
 | `vault-search`, `vault-status`, `vault-frame-analyze` | Spend embedding and vision budget, read vault status | Staff gate |
-| `vault-slack-connect`, `vault-slack-import` | Store Slack credentials and import channels with the service role | Staff gate |
 | `vault-share-item` | Mint or revoke public share links (owner check only) | Mint and revoke need staff. `resolve` stays public by share token |
 | `scrape-ad`, `transcribe-ad` | Spend Apify and Deepgram budget | Staff gate |
 | `account-taxonomy` | Create, rename and archive Themes and Personas for a linked account (service-role write) | Staff gate for the whole function |
