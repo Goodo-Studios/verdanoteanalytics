@@ -20,6 +20,9 @@ vi.mock("@/integrations/supabase/client", () => {
   chain.then = (resolve: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve);
   return { supabase: { from: () => chain, rpc: () => Promise.resolve({ data: [], error: null }) } };
 });
+const downloadCSV = vi.fn();
+vi.mock("@/lib/csv", () => ({ downloadCSV: (...args: unknown[]) => downloadCSV(...args) }));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import { CreativePickerModal } from "@/components/briefs/CreativePickerModal";
 import { DataExportSection } from "@/components/settings/DataExportSection";
@@ -39,11 +42,11 @@ describe("all-creatives loads on demand", () => {
 
   it("the creative picker loads nothing while closed or on the Vault tab", async () => {
     const { rerender } = wrap(
-      <CreativePickerModal open={false} onClose={() => {}} briefAccountId="act_a" selectedIds={[]} onToggle={() => {}} />,
+      <CreativePickerModal open={false} onClose={() => {}} briefAccountId="act_a" selectedIds={new Set<string>()} onToggle={() => {}} />,
     );
     rerender(
       <QueryClientProvider client={new QueryClient()}>
-        <CreativePickerModal open onClose={() => {}} briefAccountId="act_a" selectedIds={[]} onToggle={() => {}} />
+        <CreativePickerModal open onClose={() => {}} briefAccountId="act_a" selectedIds={new Set<string>()} onToggle={() => {}} />
       </QueryClientProvider>,
     );
     await new Promise((r) => setTimeout(r, 50));
@@ -51,7 +54,7 @@ describe("all-creatives loads on demand", () => {
   });
 
   it("the creative picker loads only the brief's account when its creatives tab opens", async () => {
-    wrap(<CreativePickerModal open onClose={() => {}} briefAccountId="act_a" selectedIds={[]} onToggle={() => {}} />);
+    wrap(<CreativePickerModal open onClose={() => {}} briefAccountId="act_a" selectedIds={new Set<string>()} onToggle={() => {}} />);
     const tab = await screen.findByRole("tab", { name: /All Creatives/i });
     fireEvent.mouseDown(tab);
     fireEvent.click(tab);
@@ -64,5 +67,17 @@ describe("all-creatives loads on demand", () => {
     wrap(<DataExportSection />);
     await new Promise((r) => setTimeout(r, 50));
     expect(creativesCalls()).toEqual([]);
+  });
+
+  it("clicking an export loads that account's creatives once and downloads the file", async () => {
+    apiFetch.mockResolvedValue([{ ad_id: "a1", account_id: "act_a", ad_name: "Ad", hook: "H", spend: 10, roas: 2 }]);
+    wrap(<DataExportSection />);
+    const buttons = await screen.findAllByRole("button", { name: /Download CSV/i });
+    expect(buttons[0]).not.toBeDisabled();
+    fireEvent.click(buttons[0]); // Tag Performance
+    await waitFor(() => expect(downloadCSV).toHaveBeenCalled());
+    expect(creativesCalls().length).toBe(1);
+    const qs = new URLSearchParams(String(creativesCalls()[0][1]).replace(/^\?/, ""));
+    expect(qs.get("account_id")).toBe("act_a");
   });
 });

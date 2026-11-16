@@ -40,11 +40,17 @@ export function CreativePickerModal({ open, onClose, briefAccountId, selectedIds
   const { data: accounts = [] } = useAccounts();
   const [tab, setTab] = useState<"vault" | "boards" | "creatives">("vault");
   const [search, setSearch] = useState("");
-  const [accountFilter, setAccountFilter] = useState<string>("all");
+  // Default to the brief's own account so opening the tab loads one account, not all of them.
+  const [accountFilter, setAccountFilter] = useState<string>(briefAccountId || "all");
   const [openBoardId, setOpenBoardId] = useState<string | null>(null);
 
   // --- Creatives (synced ad-account creatives) ---
-  const { data: allCreatives = [], isLoading: creativesLoading } = useAllCreatives({});
+  // Audit 7.5: load only when the creatives tab is open, and only the chosen account
+  // (all accounts only when the user picks "All accounts").
+  const { data: allCreatives = [], isLoading: creativesLoading } = useAllCreatives(
+    accountFilter !== "all" ? { account_id: accountFilter } : {},
+    { enabled: open && tab === "creatives" },
+  );
 
   const creativeResults = useMemo(() => {
     const q = search.trim().toLowerCase();

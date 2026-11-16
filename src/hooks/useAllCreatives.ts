@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { withDisplayTagsAll } from "@/lib/tagDisplay";
 
@@ -17,17 +18,16 @@ import { withDisplayTagsAll } from "@/lib/tagDisplay";
  *    aggregation and just returned a different slice — O(pages) duplicated work
  *    per account switch. One request = one aggregation.
  */
-export function useAllCreatives(filters: Record<string, string> = {}) {
+/** The query behind useAllCreatives, shared with useLoadAllCreatives so both use one cache entry. */
+export function allCreativesQuery(filters: Record<string, string> = {}) {
   const qs = new URLSearchParams();
   Object.entries(filters).forEach(([k, v]) => { if (v) qs.set(k, v); });
   qs.set("all", "1");
-
   const filterKey = qs.toString();
-
-  return useQuery<any[]>({
+  return {
     queryKey: ["all-creatives", filterKey],
-    queryFn: async () => {
-      const result = await apiFetch("creatives", `?${qs.toString()}`);
+    queryFn: async (): Promise<any[]> => {
+      const result = await apiFetch("creatives", `?${filterKey}`);
       // Legacy ad_type "Image"/"Photo" display as "Static" (read-side only).
       return withDisplayTagsAll(Array.isArray(result) ? result : (result?.data ?? []));
     },
@@ -35,7 +35,27 @@ export function useAllCreatives(filters: Record<string, string> = {}) {
     // cadence), so refetching more often than the sync interval just re-runs
     // the expensive full-set aggregation for identical data.
     staleTime: 2 * 60 * 60 * 1000,
+  };
+}
+
+/**
+ * `enabled: false` defers the request (audit 7.5): screens that need the full set only after a
+ * user action (a tab, an export button) must not run the slow ?all=1 path on render.
+ */
+export function useAllCreatives(filters: Record<string, string> = {}, opts: { enabled?: boolean } = {}) {
+  return useQuery<any[]>({
+    ...allCreativesQuery(filters),
+    enabled: opts.enabled ?? true,
     refetchOnWindowFocus: false,
     // Intentionally no keepPreviousData — on account switch, stale cross-account data must not render.
   });
+}
+
+/**
+ * Load the full set on demand, for example when an export button is clicked (audit 7.5). Uses
+ * the same cache entry as useAllCreatives, so a recent load is reused.
+ */
+export function useLoadAllCreatives() {
+  const qc = useQueryClient();
+  return useCallback((filters: Record<string, string> = {}) => qc.fetchQuery(allCreativesQuery(filters)), [qc]);
 }

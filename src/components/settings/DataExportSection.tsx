@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccounts } from "@/hooks/useAccountsApi";
-import { useAllCreatives } from "@/hooks/useAllCreatives";
+import { useLoadAllCreatives } from "@/hooks/useAllCreatives";
 
 import { useAccountContext } from "@/contexts/AccountContext";
 import { downloadCSV } from "@/lib/csv";
@@ -148,13 +148,15 @@ function CreativePerformanceExport({ accounts, selectedAccountId }: { accounts: 
     ...(dateTo ? { date_to: dateTo } : {}),
   }), [accountFilter, dateFrom, dateTo]);
 
-  const { data: creatives = [] } = useAllCreatives(filters);
+  const loadAllCreatives = useLoadAllCreatives();
 
   const handleExport = useCallback(async () => {
     setLoading(true);
     try {
       await new Promise((r) => setTimeout(r, 50)); // yield to show spinner
 
+      // Loaded on click, not on render (audit 7.5).
+      const creatives = await loadAllCreatives(filters);
       let filtered = creatives;
       const minS = parseFloat(minSpend);
       if (minS > 0) filtered = filtered.filter((c: any) => (Number(c.spend) || 0) >= minS);
@@ -221,7 +223,7 @@ function CreativePerformanceExport({ accounts, selectedAccountId }: { accounts: 
     } finally {
       setLoading(false);
     }
-  }, [creatives, accounts, minSpend, format]);
+  }, [loadAllCreatives, filters, accounts, minSpend, format]);
 
   return (
     <ExportCard
@@ -256,10 +258,10 @@ function CreativePerformanceExport({ accounts, selectedAccountId }: { accounts: 
           size="sm"
           className="bg-verdant hover:bg-verdant/90 text-white font-body text-[12px] gap-1.5"
           onClick={handleExport}
-          disabled={loading || creatives.length === 0}
+          disabled={loading}
         >
           {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-          Download ({creatives.length})
+          Download
         </Button>
       </div>
     </ExportCard>
@@ -273,12 +275,13 @@ function TagPerformanceExport({ accounts, selectedAccountId }: { accounts: any[]
   const [loading, setLoading] = useState(false);
 
   const filters = useMemo<Record<string, string>>(() => ((accountFilter !== "all" ? { account_id: accountFilter } : {}) as Record<string, string>), [accountFilter]);
-  const { data: creatives = [] } = useAllCreatives(filters);
+  const loadAllCreatives = useLoadAllCreatives();
 
   const handleExport = useCallback(() => {
     setLoading(true);
-    setTimeout(() => {
+    setTimeout(async () => {
       try {
+        const creatives = await loadAllCreatives(filters);
         const tagCategories = ["ad_type", "hook", "style", "person", "product", "theme"] as const;
         const rows: string[][] = [];
         const account = accounts.find((a: any) => a.id === accountFilter);
@@ -321,7 +324,7 @@ function TagPerformanceExport({ accounts, selectedAccountId }: { accounts: any[]
         setLoading(false);
       }
     }, 50);
-  }, [creatives, accounts, accountFilter]);
+  }, [loadAllCreatives, filters, accounts, accountFilter]);
 
   return (
     <ExportCard
@@ -334,7 +337,7 @@ function TagPerformanceExport({ accounts, selectedAccountId }: { accounts: any[]
           <label className="font-label text-[10px] uppercase tracking-wider text-muted-foreground">Account</label>
           <AccountFilter accounts={accounts} value={accountFilter} onChange={setAccountFilter} />
         </div>
-        <Button size="sm" className="bg-verdant hover:bg-verdant/90 text-white font-body text-[12px] gap-1.5" onClick={handleExport} disabled={loading || creatives.length === 0}>
+        <Button size="sm" className="bg-verdant hover:bg-verdant/90 text-white font-body text-[12px] gap-1.5" onClick={handleExport} disabled={loading}>
           {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
           Download CSV
         </Button>
@@ -350,12 +353,13 @@ function ConceptPerformanceExport({ accounts, selectedAccountId }: { accounts: a
   const [loading, setLoading] = useState(false);
 
   const filters = useMemo<Record<string, string>>(() => ((accountFilter !== "all" ? { account_id: accountFilter } : {}) as Record<string, string>), [accountFilter]);
-  const { data: creatives = [] } = useAllCreatives(filters);
+  const loadAllCreatives = useLoadAllCreatives();
 
   const handleExport = useCallback(() => {
     setLoading(true);
-    setTimeout(() => {
+    setTimeout(async () => {
       try {
+        const creatives = await loadAllCreatives(filters);
         const concepts = groupByConcept(creatives);
         const rows = concepts.map((c) => [
           c.name,
@@ -379,7 +383,7 @@ function ConceptPerformanceExport({ accounts, selectedAccountId }: { accounts: a
         setLoading(false);
       }
     }, 50);
-  }, [creatives]);
+  }, [loadAllCreatives, filters]);
 
   return (
     <ExportCard
@@ -392,7 +396,7 @@ function ConceptPerformanceExport({ accounts, selectedAccountId }: { accounts: a
           <label className="font-label text-[10px] uppercase tracking-wider text-muted-foreground">Account</label>
           <AccountFilter accounts={accounts} value={accountFilter} onChange={setAccountFilter} />
         </div>
-        <Button size="sm" className="bg-verdant hover:bg-verdant/90 text-white font-body text-[12px] gap-1.5" onClick={handleExport} disabled={loading || creatives.length === 0}>
+        <Button size="sm" className="bg-verdant hover:bg-verdant/90 text-white font-body text-[12px] gap-1.5" onClick={handleExport} disabled={loading}>
           {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
           Download CSV
         </Button>
@@ -408,12 +412,13 @@ function ConceptPerformanceExport({ accounts, selectedAccountId }: { accounts: a
 
 function AccountSummaryExport({ accounts }: { accounts: any[] }) {
   const [loading, setLoading] = useState(false);
-  const { data: allCreatives = [] } = useAllCreatives({});
+  const loadAllCreatives = useLoadAllCreatives();
 
   const handleExport = useCallback(() => {
     setLoading(true);
-    setTimeout(() => {
+    setTimeout(async () => {
       try {
+        const allCreatives = await loadAllCreatives({});
         const rows = accounts.map((a: any) => {
           const acctCreatives = allCreatives.filter((c: any) => c.account_id === a.id);
           const active = acctCreatives.filter((c: any) => (Number(c.spend) || 0) > 0);
@@ -442,7 +447,7 @@ function AccountSummaryExport({ accounts }: { accounts: any[] }) {
         setLoading(false);
       }
     }, 50);
-  }, [accounts, allCreatives]);
+  }, [accounts, loadAllCreatives]);
 
   return (
     <ExportCard
