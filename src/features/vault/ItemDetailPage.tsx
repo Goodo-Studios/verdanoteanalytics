@@ -31,6 +31,7 @@ import { AddToBoardModal } from "./components/AddToBoardModal";
 import { CopyButton } from "./components/CopyButton";
 import { VaultShareControl } from "./components/VaultShareControl";
 import { safeExternalHref } from "@/lib/safe-url";
+import { newestFirst } from "./newestFirst";
 
 interface TranscriptRow {
   id: string;
@@ -91,6 +92,12 @@ export default function ItemDetailPage() {
         .eq("id", id!)
         .single();
       if (error) throw error;
+      // One row per item is enforced in the database; newest first is the fallback (audit 4.3).
+      if (data) {
+        const row = data as { inspiration_transcripts?: { created_at?: string }[]; inspiration_frameworks?: { created_at?: string }[] };
+        row.inspiration_transcripts = newestFirst(row.inspiration_transcripts);
+        row.inspiration_frameworks = newestFirst(row.inspiration_frameworks);
+      }
       // share_token / shared_at / saved_by live on inspiration_items but aren't
       // in the generated types.ts (vault tables are hand-typed in types/vault.ts),
       // so the row type doesn't overlap ItemDetail — cast through unknown.
