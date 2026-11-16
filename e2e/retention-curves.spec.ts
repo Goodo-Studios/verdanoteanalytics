@@ -17,6 +17,7 @@
  *   PLAYWRIGHT_TEST_PASSWORD=your-test-password
  */
 import { test, expect } from "@playwright/test";
+import { creativeRows, waitForCreativesList } from "./support/wait-for-list";
 
 const TEST_EMAIL = process.env.PLAYWRIGHT_TEST_EMAIL || "";
 const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_PASSWORD || "";
@@ -45,7 +46,7 @@ test.describe("Frame-retention curves", () => {
     await goToCreatives(page);
 
     // Default-visible retention threshold column (retention_p50 → "Ret @50%").
-    await page.waitForTimeout(3_000); // allow data fetch + table mount
+    await waitForCreativesList(page);
 
     const tableCount = await page.locator("table").count();
     if (tableCount === 0) {
@@ -67,9 +68,9 @@ test.describe("Frame-retention curves", () => {
     await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
     await goToCreatives(page);
 
-    await page.waitForTimeout(3_000); // allow data fetch
+    await waitForCreativesList(page);
 
-    const firstRow = page.locator("tbody tr, [class*='card'][class*='creative']").first();
+    const firstRow = creativeRows(page).first();
     if ((await firstRow.count()) === 0) {
       test.info().annotations.push({ type: "skip-reason", description: "No creatives in account" });
       return;
