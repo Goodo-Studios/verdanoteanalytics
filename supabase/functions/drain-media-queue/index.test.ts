@@ -33,6 +33,7 @@ interface QueueRow {
   enqueued_at: string;
   updated_at: string;
   last_error: string | null;
+  next_attempt_at?: string | null;
 }
 
 interface Creative {
@@ -106,7 +107,15 @@ function makeDb(opts: { queue: QueueRow[]; creatives: Creative[]; frames?: Frame
     // deno-lint-ignore no-explicit-any
     let updatePayload: any = null;
     let headCount = false;
+    // Audit 8.3: the pending count only counts rows that are due
+    // (.or("next_attempt_at.is.null,next_attempt_at.lte.<iso>")).
+    let dueBefore: string | null = null;
     const b: Record<string, unknown> = {};
+    b.or = (expr: string) => {
+      const m = /next_attempt_at\.lte\.([^,)]+)/.exec(expr);
+      if (m) dueBefore = m[1];
+      return b;
+    };
     // deno-lint-ignore no-explicit-any
     b.select = (_c?: string, o?: any) => {
       if (o?.head) headCount = true;
@@ -128,7 +137,8 @@ function makeDb(opts: { queue: QueueRow[]; creatives: Creative[]; frames?: Frame
     const apply = (resolve: (v: any) => void) => {
       if (headCount) {
         const count = queue.filter((q) =>
-          Object.entries(filters).every(([k, v]) => (q as unknown as Record<string, string>)[k] === v)
+          Object.entries(filters).every(([k, v]) => (q as unknown as Record<string, string>)[k] === v) &&
+          (dueBefore === null || !q.next_attempt_at || q.next_attempt_at <= dueBefore)
         ).length;
         resolve({ data: null, error: null, count });
         return;
@@ -240,8 +250,11 @@ function makeDb(opts: { queue: QueueRow[]; creatives: Creative[]; frames?: Frame
     rpc: (name: string, args: any) => {
       if (name !== "claim_media_cache_queue") throw new Error(`unexpected rpc ${name}`);
       const limit = args.p_limit as number;
+      // Mirrors claim_media_cache_queue: a pending row deferred to a future
+      // next_attempt_at is not claimable yet (audit 8.3).
+      const nowIso = new Date().toISOString();
       const claimable = queue
-        .filter((q) => q.status === "pending")
+        .filter((q) => q.status === "pending" && (!q.next_attempt_at || q.next_attempt_at <= nowIso))
         .sort((a, b) => a.enqueued_at.localeCompare(b.enqueued_at))
         .slice(0, limit);
       for (const q of claimable) {
@@ -1349,3 +1362,134 @@ Deno.test("processQueuedAd: heals a carousel's pending frame images (video+image
   });
   assert(fr[0].asset_id && fr[1].asset_id, "both pending frames are now linked");
 })
+
+// ── Audit 8.3: the drain does not retry failures instantly ────────────────────
+// claim_media_cache_queue takes pending rows oldest-first, so a failed row was reclaimed
+// by the very next chain link, and a throttled row (attempt refunded) could retry forever.
+
+const MIN = 60 * 1000;
+const minutesFromNow = (iso: string | null | undefined) => (Date.parse(String(iso)) - Date.now()) / MIN;
+
+function queueRow(adId: string, extra: Partial<QueueRow> = {}): QueueRow {
+  const now = new Date().toISOString();
+  return {
+    ad_id: adId, account_id: "act_1", status: "pending", attempts: 0,
+    enqueued_at: now, updated_at: now, last_error: null, next_attempt_at: null, ...extra,
+  };
+}
+
+function throttledVideoCreative(adId: string): Creative {
+  return {
+    ad_id: adId, account_id: "act_1", thumbnail_url: "no-thumbnail", full_res_url: null,
+    video_url: "no-video", thumb_asset_id: null, video_asset_id: null, image_quality: "full_res",
+  };
+}
+
+const throttleResponse = () =>
+  new Response(
+    JSON.stringify({ error: { code: 4, message: "(#4) Application request limit reached" } }),
+    { status: 400, headers: { "content-type": "application/json" } },
+  );
+
+Deno.test("8.3: a failed ad is not retried straight away", async () => {
+  const queue = [queueRow("ad_fail8")];
+  const creatives: Creative[] = [{
+    ad_id: "ad_fail8", account_id: "act_1", thumbnail_url: "no-thumbnail", full_res_url: null,
+    video_url: "https://cdn/broken.mp4", thumb_asset_id: null, video_asset_id: null,
+  }];
+  const { supabase } = makeDb({ queue, creatives });
+  await withFetch(() => new Response("nope", { status: 500, headers: { "content-type": "video/mp4" } }), async () => {
+    const summary = await mod.drainOnce(supabase, "fake-token", 5, 120_000);
+    assertEquals(summary.failed, 1);
+  });
+  assertEquals(queue[0].status, "pending");
+  assert(minutesFromNow(queue[0].next_attempt_at) >= 4, `first failure waits minutes: ${queue[0].next_attempt_at}`);
+});
+
+Deno.test("8.3: later failures wait longer", async () => {
+  const queue = [queueRow("ad_fail9", { attempts: 2 })];
+  const creatives: Creative[] = [{
+    ad_id: "ad_fail9", account_id: "act_1", thumbnail_url: "no-thumbnail", full_res_url: null,
+    video_url: "https://cdn/broken.mp4", thumb_asset_id: null, video_asset_id: null,
+  }];
+  const { supabase } = makeDb({ queue, creatives });
+  await withFetch(() => new Response("nope", { status: 500, headers: { "content-type": "video/mp4" } }), async () => {
+    await mod.drainOnce(supabase, "fake-token", 5, 120_000);
+  });
+  assert(minutesFromNow(queue[0].next_attempt_at) >= 55, `third failure waits about an hour: ${queue[0].next_attempt_at}`);
+});
+
+Deno.test("8.3: a throttled ad waits before it is claimed again", async () => {
+  const queue = [queueRow("ad_thr8")];
+  const { supabase } = makeDb({ queue, creatives: [throttledVideoCreative("ad_thr8")] });
+  await withFetch((url) => {
+    if (url.includes("graph.facebook.com")) return throttleResponse();
+    throw new Error(`unexpected fetch: ${url}`);
+  }, async () => {
+    const summary = await mod.drainOnce(supabase, "fake-token", 5, 120_000);
+    assertEquals(summary.throttled, 1);
+  });
+  assertEquals(queue[0].attempts, 0, "a throttle still does not burn an attempt");
+  assert(minutesFromNow(queue[0].next_attempt_at) >= 5, `throttle defers the row: ${queue[0].next_attempt_at}`);
+});
+
+Deno.test("8.3: the handler does not chain when only deferred rows remain", async () => {
+  const later = new Date(Date.now() + 30 * MIN).toISOString();
+  const queue = [queueRow("ad_due"), queueRow("ad_later", { next_attempt_at: later })];
+  const creatives: Creative[] = ["ad_due", "ad_later"].map((ad_id) => ({
+    ad_id, account_id: "act_1", thumbnail_url: "no-thumbnail", full_res_url: null,
+    video_url: "https://cdn/v.mp4", thumb_asset_id: null, video_asset_id: null,
+  }));
+  const { supabase } = makeDb({ queue, creatives });
+  Deno.env.delete("DRAIN_NO_CHAIN");
+  let chainFired = false;
+  try {
+    await withFetch((url) => {
+      if (url.includes("/functions/v1/drain-media-queue")) {
+        chainFired = true;
+        return new Response("{}", { status: 200 });
+      }
+      if (url.includes("/storage/v1/object/")) return new Response("{}", { status: 200 });
+      return videoResponse(1024 * 1024);
+    }, async () => {
+      const req = new Request("https://example.supabase.co/functions/v1/drain-media-queue?chain=0", { method: "POST", body: "{}" });
+      const json = await (await mod.handler(req, supabase)).json();
+      assertEquals(json.pending, 0, "a deferred row is not counted as pending work");
+      assertEquals(json.chained, false);
+    });
+  } finally {
+    Deno.env.set("DRAIN_NO_CHAIN", "1");
+  }
+  assertEquals(queue[1].status, "pending", "the deferred row was not claimed");
+  assertEquals(queue[1].attempts, 0);
+  assert(!chainFired, "no self-chain for rows that are not due");
+});
+
+Deno.test("8.3: a rate limit stops the chain", async () => {
+  // 6 rows: 5 are claimed and throttled, 1 is still due. Without the stop the handler
+  // would chain straight back into the rate limit.
+  const queue = Array.from({ length: 6 }, (_v, i) =>
+    queueRow(`ad_rl${i}`, { enqueued_at: new Date(Date.now() + i).toISOString() })
+  );
+  const { supabase } = makeDb({ queue, creatives: queue.map((q) => throttledVideoCreative(q.ad_id)) });
+  Deno.env.delete("DRAIN_NO_CHAIN");
+  let chainFired = false;
+  try {
+    await withFetch((url) => {
+      if (url.includes("/functions/v1/drain-media-queue")) {
+        chainFired = true;
+        return new Response("{}", { status: 200 });
+      }
+      if (url.includes("graph.facebook.com")) return throttleResponse();
+      throw new Error(`unexpected fetch: ${url}`);
+    }, async () => {
+      const req = new Request("https://example.supabase.co/functions/v1/drain-media-queue?chain=0", { method: "POST", body: "{}" });
+      const json = await (await mod.handler(req, supabase)).json();
+      assertEquals(json.throttled, 5);
+      assertEquals(json.chained, false);
+    });
+  } finally {
+    Deno.env.set("DRAIN_NO_CHAIN", "1");
+  }
+  assert(!chainFired, "a rate-limited batch does not self-chain");
+});
