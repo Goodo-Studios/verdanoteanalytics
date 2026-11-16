@@ -243,7 +243,7 @@ async function fetchCreativeMeta(supabase: any, adIds: string[], cache: Map<stri
     const batch = missing.slice(i, i + 100);
     const { data: crs } = await supabase
       .from("creatives")
-      .select("ad_id, ad_name, unique_code, ad_type, tag_source, hook, style, thumbnail_url")
+      .select("ad_id, ad_name, unique_code, ad_type, tag_source, hook, style, person, thumbnail_url")
       .in("ad_id", batch);
     for (const c of crs || []) cache.set(c.ad_id, c);
   }
