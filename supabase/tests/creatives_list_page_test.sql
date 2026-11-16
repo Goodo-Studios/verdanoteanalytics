@@ -26,13 +26,13 @@ INSERT INTO public.creative_daily_metrics
 
 -- ---------------------------------------------------------------- grants (1-3)
 SELECT ok(has_function_privilege('service_role',
-  'public.creatives_list_page(text[], text, date, date, text[], text, text, text, text, text, text, text, text, text, integer, integer)', 'EXECUTE'),
+  'public.creatives_list_page(text[], text, date, date, text[], text, text, text, text, text, text, text, text, text, integer, integer, text, text)', 'EXECUTE'),
   'service_role can execute creatives_list_page');
 SELECT ok(NOT has_function_privilege('authenticated',
-  'public.creatives_list_page(text[], text, date, date, text[], text, text, text, text, text, text, text, text, text, integer, integer)', 'EXECUTE'),
+  'public.creatives_list_page(text[], text, date, date, text[], text, text, text, text, text, text, text, text, text, integer, integer, text, text)', 'EXECUTE'),
   'authenticated cannot execute creatives_list_page');
 SELECT ok(NOT has_function_privilege('anon',
-  'public.creatives_list_page(text[], text, date, date, text[], text, text, text, text, text, text, text, text, text, integer, integer)', 'EXECUTE'),
+  'public.creatives_list_page(text[], text, date, date, text[], text, text, text, text, text, text, text, text, text, integer, integer, text, text)', 'EXECUTE'),
   'anon cannot execute creatives_list_page');
 
 -- ---------------------------------------------------------------- date range, one account (4-8)
