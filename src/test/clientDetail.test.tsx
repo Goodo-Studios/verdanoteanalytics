@@ -28,6 +28,12 @@ vi.mock("@/hooks/useRolePath", () => ({ useRolePrefix: () => "/builder" }));
 vi.mock("@/features/clients/ClientMonthHours", () => ({
   ClientMonthHours: ({ slug }: { slug: string }) => <div data-testid="client-month-hours-stub">{slug}</div>,
 }));
+// The Strategist field is a picker fed by the team list (useStaffPeople, react-query). Here it is a fixed list.
+const staff = { people: [
+  { user_id: "u1", name: "Robin", email: "robin@example.test" },
+  { user_id: "u2", name: "Alex", email: "alex@example.test" },
+] };
+vi.mock("@/hooks/useTaskEdit", () => ({ useStaffPeople: () => ({ data: staff.people, isLoading: false }) }));
 vi.mock("@/features/dashboard/api", () => {
   class DashboardError extends Error {
     code?: string;
@@ -179,6 +185,20 @@ describe("Client page", () => {
     await waitFor(() => expect(saveClientScope).toHaveBeenCalledWith("glow", "8 videos"));
     fireEvent.click(screen.getByRole("button", { name: "Hide from client list" }));
     await waitFor(() => expect(saveClientActive).toHaveBeenCalledWith("glow", false));
+  });
+
+  it("offers the team in the Strategist picker and keeps a saved name that is not on the team", async () => {
+    auth = { isBuilder: true };
+    loadClientDetail.mockResolvedValue(data({ origin: "manual", strategist: "Sam" }));
+    saveClientDetails.mockResolvedValue({});
+    renderAt();
+    const form = await screen.findByRole("group", { name: "Edit details" });
+    const picker = within(form).getByLabelText("Strategist") as HTMLSelectElement;
+    const options = Array.from(picker.options).map((o) => o.value).filter(Boolean);
+    expect(options).toEqual(["Alex", "Robin", "Sam"]);
+    expect(picker.value).toBe("Sam");
+    fireEvent.click(within(form).getByRole("button", { name: "Save details" }));
+    await waitFor(() => expect(saveClientDetails).toHaveBeenCalledWith("glow", expect.objectContaining({ strategist: "Sam" })));
   });
 
   it("gives a builder no details form for a synced client, and shows refusals as written", async () => {

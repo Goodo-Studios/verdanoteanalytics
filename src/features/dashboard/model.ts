@@ -241,6 +241,15 @@ export const STAGES = [
 ] as const;
 
 export type Stage = (typeof STAGES)[number]["value"];
+
+/**
+ * Stages the team no longer uses (product review 2026-11-16: the pipeline runs Sourced, Shortlisted,
+ * Client Approved and on). They stay valid in the database. A creator still sitting in one shows in
+ * Sourced on the board, and the stage picker does not offer them.
+ */
+export const RETIRED_STAGES: readonly string[] = ["outreach_sent", "interested"];
+export const PIPELINE_STAGES = STAGES.filter((s) => !RETIRED_STAGES.includes(s.value));
+export const boardStage = (stage: string): string => (RETIRED_STAGES.includes(stage) ? "sourced" : stage);
 export const TERMINAL_STAGES: readonly string[] = ["declined", "passed"];
 
 export function stageLabel(stage: string): string {
@@ -352,7 +361,7 @@ export interface CreatorOption {
 }
 
 export const ALL_BRANDS = "all";
-export const ACTIVE_STAGES: readonly string[] = STAGES.map((s) => s.value as string).filter((v) => !TERMINAL_STAGES.includes(v));
+export const ACTIVE_STAGES: readonly string[] = PIPELINE_STAGES.map((s) => s.value as string).filter((v) => !TERMINAL_STAGES.includes(v));
 /** What the all-brands board opens on: the production stretch. */
 export const PRODUCTION_STAGES: readonly string[] = ["product_shipped", "brief_sent", "product_delivered", "shooting", "footage_delivered", "invoice_received"];
 /** Stages where shipping and delivery details matter. */
@@ -362,7 +371,7 @@ export type StageScope = "production" | "all";
 
 /** One brand: every stage, terminal ones last. All brands: production or all active stages. */
 export function boardColumns(brand: string, scope: StageScope): readonly string[] {
-  if (brand !== ALL_BRANDS) return STAGES.map((s) => s.value as string);
+  if (brand !== ALL_BRANDS) return PIPELINE_STAGES.map((s) => s.value as string);
   return scope === "all" ? ACTIVE_STAGES : PRODUCTION_STAGES;
 }
 
@@ -372,7 +381,7 @@ export function creatorName(a: Pick<Assignment, "dashboard_creators">): string {
 
 export function groupByStage(rows: Assignment[], columns: readonly string[]): Map<string, Assignment[]> {
   const out = new Map<string, Assignment[]>(columns.map((c) => [c, []]));
-  for (const r of rows) out.get(r.stage)?.push(r);
+  for (const r of rows) out.get(boardStage(r.stage))?.push(r);
   for (const list of out.values()) list.sort((a, b) => creatorName(a).localeCompare(creatorName(b)));
   return out;
 }

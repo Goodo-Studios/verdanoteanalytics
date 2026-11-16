@@ -27,12 +27,16 @@ export function ClientSwitcher() {
         onChange={(e) => setSelectedSlug(e.target.value)}
       >
         <option value="">{isLoading && clients.length === 0 ? "Loading clients..." : "All clients"}</option>
-        {clients.map((c) => (
-          <option key={c.slug} value={c.slug}>
-            {c.name}
-            {c.active ? "" : " (inactive)"}
-          </option>
-        ))}
+        {/* Active clients only. A client hidden from the client list stays out of the picker,
+            unless it is the one already selected (it then keeps its inactive label). */}
+        {clients
+          .filter((c) => c.active || c.slug === selectedSlug)
+          .map((c) => (
+            <option key={c.slug} value={c.slug}>
+              {c.name}
+              {c.active ? "" : " (inactive)"}
+            </option>
+          ))}
         {selectedSlug && !clients.some((c) => c.slug === selectedSlug) && clients.length > 0 ? (
           <option value={selectedSlug}>{selectedSlug}</option>
         ) : null}

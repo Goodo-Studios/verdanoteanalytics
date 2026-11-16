@@ -182,7 +182,7 @@ export function useTimeClients(enabled = true) {
     enabled,
     staleTime: 5 * 60_000,
     queryFn: async () => {
-      const { data, error } = await db().from("clients").select("slug, name").order("name", { ascending: true });
+      const { data, error } = await db().from("clients").select("slug, name").eq("active", true).order("name", { ascending: true });
       if (error) throw new Error(error.message);
       return (data ?? []) as ClientOption[];
     },

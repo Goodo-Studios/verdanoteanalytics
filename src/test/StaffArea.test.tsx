@@ -168,7 +168,7 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean; 
   { path: "/creative/vault-hooks", marker: "hooks" },
   { path: "/ad-name-generator", marker: "ad-name-generator" },
   { path: "/admin/ad-name-generator", marker: "ad-name-generator" },
-  { path: "/integration-health", marker: "integration-health" },
+  { path: "/integration-health", marker: "integration-health", builderOnly: true },
   { path: "/meeting-recaps", marker: "meeting-recaps" },
   { path: "/knowledge", marker: "knowledge" },
   { path: "/creator-pipeline", marker: "creator-pipeline" },
@@ -189,12 +189,12 @@ const STAFF_PAGES: Array<{ path: string; marker: string; builderOnly?: boolean; 
   { path: "/actors/de5a0000-0000-4000-8000-000000000500", marker: "actorDetail" },
   { path: "/creators", marker: "creators" },
   { path: "/creators/de5a0000-0000-4000-8000-000000000300", marker: "creatorDetail" },
-  { path: "/agent-evaluations", marker: "agent-evaluations", hidden: isHiddenPage("agentEvaluations") },
-  { path: "/operations", marker: "operations" },
-  { path: "/operating-costs", marker: "operating-costs", builderOnly: true },
-  { path: "/support", marker: "support" },
+  { path: "/agent-evaluations", marker: "agent-evaluations", builderOnly: true, hidden: isHiddenPage("agentEvaluations") },
+  { path: "/operations", marker: "operations", builderOnly: true, hidden: isHiddenPage("operations") },
+  { path: "/operating-costs", marker: "operating-costs", builderOnly: true, hidden: isHiddenPage("operatingCosts") },
+  { path: "/support", marker: "support", builderOnly: true, hidden: isHiddenPage("supportInbox") },
   { path: "/bids", marker: "bids" },
-  { path: "/team", marker: "team" },
+  { path: "/team", marker: "team", builderOnly: true },
   { path: "/learning", marker: "learning", hidden: isHiddenPage("learning") },
   { path: "/ad-library", marker: "ad-library" },
   { path: "/viral-feed", marker: "ad-library" },
@@ -363,8 +363,10 @@ describe("staff reach the staff pages", () => {
   });
 
   // Hidden pages (src/lib/hiddenPages.ts): an employee who opens the address is sent away. A staff
-  // page goes Home; a hidden scope page of the client hub goes to the hub's Engagements.
-  it.each(ALL.filter((p) => isHidden(p) && !p.path.includes("scope") && !/^\/(strategy|recommendations)/.test(p.path)))(
+  // page goes Home; a hidden scope page of the client hub (opened in the hub or by its old address)
+  // goes to the hub's Engagements.
+  const isHubScopePath = (path: string) => path.includes("scope") || /^\/(strategy|recommendations|deliverables|qa-gates|handoffs)/.test(path);
+  it.each(ALL.filter((p) => isHidden(p) && !isHubScopePath(p.path)))(
     "an employee is sent home from the hidden page $path",
     async ({ path, marker }) => {
       setRole("employee");
@@ -374,7 +376,7 @@ describe("staff reach the staff pages", () => {
     },
   );
 
-  it.each(ALL.filter((p) => isHidden(p) && (p.path.includes("scope") || /^\/(strategy|recommendations)/.test(p.path))))(
+  it.each(ALL.filter((p) => isHidden(p) && isHubScopePath(p.path)))(
     "an employee who opens the hidden client page $path lands on Engagements",
     async ({ path, marker }) => {
       setRole("employee");
@@ -384,14 +386,25 @@ describe("staff reach the staff pages", () => {
     },
   );
 
-  it("no page is hidden: Agent evaluations, Learning, Recommendations and Strategy are in the menu", () => {
-    expect([...HIDDEN_PAGES]).toEqual([]);
-    expect(ALL.filter(isHidden)).toEqual([]);
+  it("the hidden pages are Operations, Early pages, Operating costs, Agent evaluations, Support inbox and the Scope sub-tabs; Learning is shown", () => {
+    expect([...HIDDEN_PAGES]).toEqual([
+      "operations", "earlyPages", "operatingCosts", "agentEvaluations", "supportInbox",
+      "deliverables", "qaGates", "handoffs", "scopeChanges", "strategy", "recommendations",
+    ]);
+    const hiddenMarkers = new Set(["operations", "early-pages", "operating-costs", "agent-evaluations", "support", "deliverables", "qa-gates", "handoffs", "scope-changes", "strategy", "recommendations"]);
+    expect(ALL.filter(isHidden).every((p) => hiddenMarkers.has(p.marker))).toBe(true);
+    expect(ALL.filter((p) => !isHidden(p)).some((p) => hiddenMarkers.has(p.marker) && p.marker !== "engagements")).toBe(false);
+    expect(isHiddenPage("learning")).toBe(false);
+    expect(ALL.some((p) => p.marker === "learning" && !isHidden(p))).toBe(true);
   });
 
-  it("the builder-only list holds the Matrix, the Growth Dashboard, Operating costs and Early pages, old and new addresses", () => {
-    const paths = ALL.filter(isBuilderOnly).map((p) => p.path).sort();
-    expect(paths).toEqual(["/admin/early-pages", "/admin/growth", "/admin/operating-costs", "/creative/matrix", "/growth-dashboard", "/growth/dashboard", "/matrix", "/operating-costs"]);
+  it("the builder-only list holds the Matrix, the Growth Dashboard, Operating costs, every Admin page and Early pages, old and new addresses", () => {
+    const paths = Array.from(new Set(ALL.filter(isBuilderOnly).map((p) => p.path))).sort();
+    expect(paths).toEqual([
+      "/admin/agent-evaluations", "/admin/early-pages", "/admin/growth", "/admin/integration-health", "/admin/notifications",
+      "/admin/operating-costs", "/admin/operations", "/admin/support", "/admin/team", "/agent-evaluations", "/creative/matrix",
+      "/growth-dashboard", "/growth/dashboard", "/integration-health", "/matrix", "/operating-costs", "/operations", "/support", "/team",
+    ]);
   });
 
   it("/staff goes to Home", async () => {

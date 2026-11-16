@@ -111,17 +111,17 @@ beforeEach(() => {
 });
 
 describe("client switcher", () => {
-  it("offers All clients and every client by name, and calls the field Client", async () => {
+  it("offers All clients and every active client by name (an inactive client is left out), and calls the field Client", async () => {
     renderAt("/builder/creative/creatives");
-    await waitFor(() => expect(select().options.length).toBe(5));
-    expect(Array.from(select().options).map((o) => o.textContent)).toEqual(["All clients", "Glow Drip", "Multi Brand", "No Account Inc (inactive)", "Zeta Co"]);
+    await waitFor(() => expect(select().options.length).toBe(4));
+    expect(Array.from(select().options).map((o) => o.textContent)).toEqual(["All clients", "Glow Drip", "Multi Brand", "Zeta Co"]);
     expect(screen.queryByText(/brand/i, { selector: "label" })).toBeNull();
     expect(screen.getAllByRole("combobox", { name: "Client" })).toHaveLength(1);
   });
 
   it("picking a client remembers it and points the analytics pages at its ad account", async () => {
     renderAt("/builder/creative/creatives");
-    await waitFor(() => expect(select().options.length).toBe(5));
+    await waitFor(() => expect(select().options.length).toBe(4));
     fireEvent.change(select(), { target: { value: "glow" } });
     expect(window.localStorage.getItem("verdanote.selectedClient.u1")).toBe("glow");
     await waitFor(() => expect(h.setSelectedAccountId).toHaveBeenCalledWith("act_a"));
@@ -186,7 +186,7 @@ describe("client in the address", () => {
   it("?brand=all (the old All brands view) means All clients", async () => {
     window.localStorage.setItem("verdanote.selectedClient.u1", "glow");
     renderAt("/builder/talent/pipeline?brand=all");
-    await waitFor(() => expect(select().options.length).toBe(5));
+    await waitFor(() => expect(select().options.length).toBe(4));
     expect(select().value).toBe("");
   });
 
@@ -268,7 +268,7 @@ describe("who gets a switcher", () => {
   it("an employee gets the switcher", async () => {
     setRole("employee");
     renderAt("/employee/");
-    await waitFor(() => expect(select().options.length).toBe(5));
+    await waitFor(() => expect(select().options.length).toBe(4));
   });
 
   it("a client login runs no client queries and sees no clients", async () => {

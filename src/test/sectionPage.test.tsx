@@ -107,9 +107,14 @@ describe("section model", () => {
     expect(tools).toEqual(["Ad Name Generator"]);
   });
 
-  it("marks exactly the Matrix, Operating costs, Growth Dashboard and Early pages builder only", () => {
+  it("marks exactly the Matrix, Growth Dashboard and every Admin tab builder only", () => {
     const builderOnly = SECTIONS.flatMap((s) => s.tabs.filter((t) => t.builderOnly).map((t) => t.label));
-    expect(builderOnly.sort()).toEqual(["Early pages", "Growth Dashboard", "Matrix", "Operating costs"]);
+    expect(builderOnly.sort()).toEqual([
+      "Agent evaluations", "Early pages", "Growth Dashboard", "Integration health", "Matrix", "Notifications", "Operating costs",
+      "Operations", "Support inbox", "Team and settings",
+    ]);
+    const admin = SECTIONS.find((s) => s.id === "admin")!;
+    expect(admin.tabs.every((t) => t.builderOnly)).toBe(true);
     const creative = SECTIONS.find((s) => s.id === "creative")!;
     expect(tabsFor(creative, false).map((t) => t.label)).not.toContain("Matrix");
     expect(tabsFor(creative, true).map((t) => t.label)).toContain("Matrix");
@@ -163,29 +168,33 @@ describe("role gating", () => {
     expect(tabNames("Tagging")).toEqual(["Tagging"]);
   });
 
-  it("an employee sees Admin, without Operating costs or the Growth Dashboard", async () => {
+  it("an employee has no Admin tabs and opening /employee/admin/team lands home", async () => {
     setRole("employee");
+    expect(tabsFor(SECTIONS.find((s) => s.id === "admin")!, false)).toEqual([]);
     renderAt("/employee/admin/team");
-    expect(await screen.findByTestId("page-team")).toBeTruthy();
-    const names = tabNames("Admin");
-    expect(names).toContain("Team and settings");
-    expect(names).not.toContain("Operating costs");
-    expect(names).not.toContain("Growth Dashboard");
-    expect(names).not.toContain("Early pages");
-    expect(names).toContain("Agent evaluations");
-    expect(names).toContain("Notifications");
-    expect(names).not.toContain("Ad Name Generator");
-    expect(names).toHaveLength(6);
+    expect(await screen.findByTestId("index")).toBeTruthy();
+    expect(screen.queryByTestId("page-team")).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "Admin tabs" })).toBeNull();
   });
 
-  it("a builder sees eight Admin tabs: Early pages and Agent evaluations in, Growth Dashboard out", async () => {
+  it("an employee opening /employee/admin lands home without a redirect loop", async () => {
+    setRole("employee");
+    renderAt("/employee/admin");
+    expect(await screen.findByTestId("index")).toBeTruthy();
+    expect(screen.getAllByTestId("index")).toHaveLength(1);
+    expect(screen.queryByRole("navigation", { name: "Admin tabs" })).toBeNull();
+    expect(screen.queryByTestId("page-team")).toBeNull();
+  });
+
+  it("a builder sees three Admin tabs: Team, Integration health and Notifications; the hidden pages stay out", async () => {
     renderAt("/builder/admin/team");
     await screen.findByTestId("page-team");
     const names = tabNames("Admin");
-    expect(names).toHaveLength(8);
+    expect(names).toEqual(["Team and settings", "Integration health", "Notifications"]);
     expect(names).not.toContain("Growth Dashboard");
-    expect(names).toContain("Early pages");
-    expect(names).toContain("Agent evaluations");
+    for (const hidden of ["Operations", "Early pages", "Operating costs", "Agent evaluations", "Support inbox"]) {
+      expect(names).not.toContain(hidden);
+    }
   });
 
   it("Learning is a Knowledge tab and opens by its address", async () => {
@@ -203,13 +212,17 @@ describe("role gating", () => {
     expect(await screen.findByTestId("page-early-pages")).toBeTruthy();
   });
 
-  it.each([
-    ["/employee/knowledge/learning", "page-learning"],
-    ["/employee/admin/agent-evaluations", "page-agent-evaluations"],
-  ])("an employee typing %s opens the page", async (path, testId) => {
+  it("an employee typing /employee/knowledge/learning opens the page", async () => {
     setRole("employee");
-    renderAt(path);
-    expect(await screen.findByTestId(testId)).toBeTruthy();
+    renderAt("/employee/knowledge/learning");
+    expect(await screen.findByTestId("page-learning")).toBeTruthy();
+  });
+
+  it("an employee typing /employee/admin/agent-evaluations is sent to the index", async () => {
+    setRole("employee");
+    renderAt("/employee/admin/agent-evaluations");
+    expect(await screen.findByTestId("index")).toBeTruthy();
+    expect(screen.queryByTestId("page-agent-evaluations")).toBeNull();
   });
 
   it("an employee typing /employee/admin/early-pages is sent to the index", async () => {

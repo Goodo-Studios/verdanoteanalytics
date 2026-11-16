@@ -55,8 +55,16 @@ export function buildChecklist(status: SetupStatus | null | undefined, now: Date
     {
       key: "clickup",
       label: "ClickUp folder linked",
-      done: s.clickup_folder_count > 0,
-      detail: s.clickup_folder_count > 0 ? "Linked" : "No ClickUp folder yet",
+      // A client whose cards are syncing is linked, even when the link is a ClickUp list rather
+      // than a folder (the count above only sees folders). Saying "not linked" next to a recent
+      // sync was a contradiction.
+      done: s.clickup_folder_count > 0 || !!s.last_clickup_sync,
+      detail:
+        s.clickup_folder_count > 0
+          ? "Linked"
+          : s.last_clickup_sync
+            ? "Linked (cards are syncing)"
+            : "No ClickUp folder yet",
     },
     {
       key: "login",

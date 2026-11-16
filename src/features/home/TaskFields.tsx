@@ -35,12 +35,14 @@ interface EditorProps {
   /** No inputs: the value is shown as text. */
   readOnly: boolean;
   onSave: (value: string) => Promise<void>;
+  /** A long text, such as the brief: full width under its label, tall, and the box can be dragged taller. */
+  tall?: boolean;
 }
 
 const fieldClass = "w-full rounded-md border border-border bg-card px-2 py-1 text-sm";
 
 /** One editable value with its Save button and its own saved / error message. */
-function FieldEditor({ label, testId, value, input, options, readOnly, onSave }: EditorProps) {
+function FieldEditor({ label, testId, value, input, options, readOnly, onSave, tall }: EditorProps) {
   const [draft, setDraft] = useState(value);
   // The value last saved or loaded: the Save button shows only while the draft differs from it.
   const [base, setBase] = useState(value);
@@ -91,16 +93,16 @@ function FieldEditor({ label, testId, value, input, options, readOnly, onSave }:
   };
 
   return (
-    <div className="grid gap-1 sm:grid-cols-[10rem_1fr]" data-testid={testId}>
+    <div className={tall ? "grid gap-1" : "grid gap-1 sm:grid-cols-[10rem_1fr]"} data-testid={testId}>
       <label htmlFor={inputId} className="pt-1 text-sm text-muted-foreground">{label}</label>
       <div className="space-y-1">
         <div className="flex items-start gap-2">
           {input === "textarea" ? (
-            <textarea id={inputId} className={`${fieldClass} min-h-[7rem]`} value={draft} onChange={(e) => change(e.target.value)} disabled={busy} />
+            <textarea id={inputId} className={`${fieldClass} ${tall ? "min-h-[24rem] resize-y leading-relaxed" : "min-h-[7rem]"}`} value={draft} onChange={(e) => change(e.target.value)} disabled={busy} />
           ) : input === "select" ? (
             <select id={inputId} className={fieldClass} value={draft} onChange={(e) => change(e.target.value)} disabled={busy}>
               <option value="">None</option>
-              {draft && !options?.some((o) => o.value === draft) ? <option value={draft}>{draft}</option> : null}
+              {draft && !options?.some((o) => o.value === draft) ? <option value={draft}>{/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(draft) ? "Former team member" : draft}</option> : null}
               {(options ?? []).map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
@@ -166,7 +168,7 @@ export function BriefEditor({ taskId, detail, readOnly }: { taskId: string; deta
   const text = briefOf(detail);
   if (readOnly) {
     return text ? (
-      <p className="whitespace-pre-wrap break-words text-sm">{text}</p>
+      <p className="max-h-[32rem] overflow-y-auto whitespace-pre-wrap break-words text-sm leading-relaxed">{text}</p>
     ) : (
       <p className="text-sm text-muted-foreground">No brief yet.</p>
     );
@@ -177,6 +179,7 @@ export function BriefEditor({ taskId, detail, readOnly }: { taskId: string; deta
       testId="task-panel-brief-editor"
       value={text}
       input="textarea"
+      tall
       readOnly={false}
       onSave={(v) => update.mutateAsync({ id: taskId, values: briefUpdate(clickup, v) })}
     />
@@ -186,7 +189,8 @@ export function BriefEditor({ taskId, detail, readOnly }: { taskId: string; deta
 /** Due date, start date, priority and the three roles, then the facts only ClickUp reports. */
 export function TaskDetails({ taskId, detail, readOnly, fallbackDue }: { taskId: string; detail: TaskDetail | null; readOnly: boolean; fallbackDue: string | null }) {
   const update = useUpdateTask();
-  const staff = useStaffPeople(!readOnly);
+  // Always load the team: a read-only task still shows its strategist, producer and editor by name.
+  const staff = useStaffPeople(true);
   if (!detail) return null;
   const people = (staff.data ?? []).map((p) => ({ value: p.user_id, label: p.name }));
   const nameOf = (id: string | null | undefined) => people.find((p) => p.value === id)?.label ?? (id ? "Unknown person" : "");
