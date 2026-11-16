@@ -8,6 +8,13 @@ import { resolveConvention } from "../_shared/naming-convention.ts";
 import { parseAdName } from "../_shared/parse-ad-name.ts";
 import { parsedDisplayTags } from "../_shared/ad-name-display.ts";
 import { needsAutoParse } from "../_shared/name-sync-logic.ts";
+import {
+  loadAlertCandidates,
+  loadAutoParseCandidates,
+  loadMappingsByCode,
+  loadScoreCreatives,
+  sumLocalDailyMetrics,
+} from "./reads.ts";
 import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
 import { parsePlayCurve } from "../_shared/play-curve.ts";
 import { RECENT_WINDOW_DAYS, RETENTION_DAYS } from "../_shared/retention-config.ts";
@@ -678,11 +685,7 @@ async function runSnapshotAlerts(supabase: any, account: any, accountId: string)
     const scaleThreshold = account.scale_threshold || 2.0;
     const killThreshold = account.kill_threshold || 1.0;
 
-    const { data: candidates } = await supabase
-      .from("creatives")
-      .select("ad_id, ad_name, roas, prior_roas, spend")
-      .eq("account_id", accountId)
-      .gt("spend", spendThreshold);
+    const candidates = await loadAlertCandidates(supabase, accountId, spendThreshold);
 
     // Extract a readable display name from raw Meta ad names / naming convention strings.
     // e.g. "iAT:IMG>iName:SomeCoolAd>iSrc:Branded>..." → "SomeCoolAd"
@@ -1838,14 +1841,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         // into a Map keyed by unique_code. No manual layer in sync, so the locked
         // precedence reduces to: name_mappings > parser > untagged.
         const convention = await resolveConvention(supabase, accountId);
-        const { data: mappings } = await supabase
-          .from("name_mappings")
-          .select("*")
-          .eq("account_id", accountId);
-        const mappingByCode = new Map<string, Record<string, unknown>>();
-        for (const m of (mappings || [])) {
-          if (m.unique_code) mappingByCode.set(m.unique_code, m);
-        }
+        const mappingByCode = await loadMappingsByCode(supabase, accountId);
 
         // Candidates: tag_source 'untagged' (new ads) or 'parsed' (may have been
         // renamed). needsAutoParse keeps only rows whose ad_name differs from the
@@ -1853,19 +1849,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         // 'manual' rows are never selected, so a manual tag is never overwritten.
         // Paged: PostgREST caps a single select at 1000 rows and large accounts
         // hold far more 'parsed' creatives than that.
-        const candidates: { ad_id: string; ad_name: string; tag_source: string; parsed_ad_name: string | null }[] = [];
-        for (let from = 0; ; from += 1000) {
-          const { data: page, error: pageErr } = await supabase
-            .from("creatives")
-            .select("ad_id, ad_name, tag_source, parsed_ad_name")
-            .eq("account_id", accountId)
-            .in("tag_source", ["untagged", "parsed"])
-            .order("ad_id")
-            .range(from, from + 999);
-          if (pageErr) throw pageErr;
-          candidates.push(...(page || []));
-          if (!page || page.length < 1000) break;
-        }
+        const candidates = await loadAutoParseCandidates(supabase, accountId);
 
         // Batch: collect all updates, then update in chunks instead of one-by-one
         const tagUpdates: { ad_id: string; [k: string]: any }[] = [];
@@ -1965,12 +1949,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       // ── Record Creative Score snapshots (skip if running low on time) ──
       if (!isTimedOut()) {
         try {
-          const { data: activeCreatives } = await supabase
-            .from("creatives")
-            .select("ad_id, roas, ctr, thumb_stop_rate, cpa, spend, ad_status")
-            .eq("account_id", accountId)
-            .gt("spend", 0)
-            .gt("impressions", 0);
+          const activeCreatives = await loadScoreCreatives(supabase, accountId);
 
           if (activeCreatives && activeCreatives.length > 0) {
             const scaleThreshold = account.scale_threshold || 2.0;
@@ -2055,37 +2034,10 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
               const metaImpressions = parseInt(auditJson.data[0].impressions || "0");
 
               // Sum local daily metrics (paginated)
-              let localSpend = 0;
-              let localImpressions = 0;
-              let localAdIds = 0;
-              let offset = 0;
-              let auditComplete = true;
-              const PAGE = 1000;
-              while (true) {
-                if (isTimedOut()) {
-                  // Partial sums must not masquerade as a completed audit — they read
-                  // as massive under-reporting and would fire false drift alerts.
-                  console.warn("  Post-sync audit interrupted by budget — marking incomplete");
-                  auditComplete = false;
-                  break;
-                }
-                const { data: rows } = await supabase
-                  .from("creative_daily_metrics")
-                  .select("spend, impressions")
-                  .eq("account_id", accountId)
-                  .gte("date", auditStart)
-                  .lte("date", auditEnd)
-                  .range(offset, offset + PAGE - 1);
-                if (!rows || rows.length === 0) break;
-                for (const r of rows) {
-                  localSpend += r.spend || 0;
-                  localImpressions += r.impressions || 0;
-                  localAdIds++;
-                }
-                if (rows.length < PAGE) break;
-                offset += PAGE;
-              }
-
+              const local = await sumLocalDailyMetrics(supabase, accountId, auditStart, auditEnd, isTimedOut);
+              const localSpend = local.spend;
+              const localImpressions = local.impressions;
+              const auditComplete = local.complete;
               const spendDelta = localSpend - metaSpend;
               const spendDeltaPct = metaSpend > 0 ? (spendDelta / metaSpend) * 100 : 0;
               const driftExceeded = auditComplete && Math.abs(spendDeltaPct) >= 2;
