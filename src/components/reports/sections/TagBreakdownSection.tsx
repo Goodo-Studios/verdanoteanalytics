@@ -41,7 +41,7 @@ export function TagBreakdownSection({ config, report, isEditing, onConfigChange 
         .map(([tag, data]) => ({ tag, count: data.count, avgSpend: data.totalSpend / data.count }))
         .sort((a, b) => b.count - a.count);
     } catch { return []; }
-  }, [report, tagField]);
+  }, [report]);
 
   const maxCount = Math.max(...breakdown.map((b) => b.count), 1);
 

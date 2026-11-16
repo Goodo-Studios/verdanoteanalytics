@@ -31,9 +31,15 @@ export default function AgencyDashboardPage() {
 
   const { data: agencyData } = useAgencyDashboardData(accounts, dateFrom, dateTo);
 
-  const creativesArr = agencyData?.creatives ?? [];
-  const perAccountSpend = agencyData?.perAccountSpend ?? new Map<string, number>();
-  const perAccountRevenue = agencyData?.perAccountRevenue ?? new Map<string, number>();
+  const creativesArr = useMemo(() => agencyData?.creatives ?? [], [agencyData?.creatives]);
+  const perAccountSpend = useMemo(
+    () => agencyData?.perAccountSpend ?? new Map<string, number>(),
+    [agencyData?.perAccountSpend],
+  );
+  const perAccountRevenue = useMemo(
+    () => agencyData?.perAccountRevenue ?? new Map<string, number>(),
+    [agencyData?.perAccountRevenue],
+  );
   const priorMonthSpend = agencyData?.priorMonthSpend ?? new Map<string, number>();
   const activeByAccount = agencyData?.activeByAccount ?? new Map<string, number>();
 

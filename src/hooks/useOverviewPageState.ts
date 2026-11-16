@@ -121,7 +121,7 @@ export function useOverviewPageState() {
     const winRate = active.length > 0 ? (winners.length / active.length) * 100 : 0;
 
     return { totalSpend, activeCount: active.length, avgCpa, avgRoas, avgCtr, winRate };
-  }, [creatives, killScaleConfig, dailyMetrics, winnerConfig]);
+  }, [creatives, dailyMetrics, winnerConfig]);
 
   // Previous period metrics from daily aggregation
   const prevMetrics = useMemo(() => {
