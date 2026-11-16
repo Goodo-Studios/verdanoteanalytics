@@ -20,9 +20,10 @@ import { ColumnPicker } from "@/components/ColumnPicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RefreshCw, LayoutGrid, Download, Search, X, CalendarDays, SlidersHorizontal } from "lucide-react";
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import { useRoleNavigate } from "@/hooks/useRolePath";
 import { useCreatives, CREATIVES_PAGE_SIZE, useCreativeFilters } from "@/hooks/useCreatives";
+import { clampPage } from "@/lib/pagination";
 import { useSync } from "@/hooks/useSyncApi";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { downloadCSV, exportCreativesCSV } from "@/lib/csv";
@@ -90,6 +91,12 @@ const CreativesPage = () => {
   const noDailyData = Boolean((creativesResult as any)?.no_daily_data);
   const totalCreatives = creativesResult?.total || 0;
   const totalPages = Math.ceil(totalCreatives / CREATIVES_PAGE_SIZE);
+  // A page past the end (for example after the list shrinks) moves to the last real page.
+  useEffect(() => {
+    if (isLoading) return;
+    const target = clampPage(page, totalPages);
+    if (target !== page) setPage(target);
+  }, [isLoading, page, totalPages, setPage]);
   const { data: filterOptions } = useCreativeFilters();
   const { data: wowTrends } = useWoWTrends(selectedAccountId ?? undefined);
   const syncMut = useSync();
