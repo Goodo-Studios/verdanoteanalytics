@@ -64,20 +64,26 @@ export function useUserSettingsPageState() {
     }
   }, [settings]);
 
-  useEffect(() => {
-    if (user) {
-      setEmail(user.email || "");
-      loadProfile();
-    }
-  }, [user]);
+  // Key the profile load on the user's id, not the user object: AuthContext hands out a new
+  // object on every token refresh, which used to reload the profile and wipe unsaved edits.
+  const userId = user?.id ?? null;
+  const userEmail = user?.email ?? "";
 
   const loadProfile = useCallback(async () => {
-    if (!user) return;
+    if (!userId) return;
     setLoadingProfile(true);
-    const { data } = await supabase.from("profiles").select("display_name").eq("user_id", user.id).single();
+    const { data } = await supabase.from("profiles").select("display_name").eq("user_id", userId).single();
     if (data) setDisplayName(data.display_name || "");
     setLoadingProfile(false);
-  }, [user]);
+  }, [userId]);
+
+  useEffect(() => {
+    if (userId) loadProfile();
+  }, [userId, loadProfile]);
+
+  useEffect(() => {
+    if (userId) setEmail(userEmail);
+  }, [userId, userEmail]);
 
   const handleSaveProfile = useCallback(async () => {
     if (!user) return;
