@@ -347,7 +347,9 @@ export function rollupDailyRows(rows: DailyRollupInputRow[], optimizationGoal?: 
   let spend = 0, impressions = 0, clicks = 0, purchases = 0, purchase_value = 0, results = 0;
   let adds_to_cart = 0, video_views = 0, thruplays = 0, vaptWeighted = 0, freqWeighted = 0;
   // Retention: video-view weighted; only days with a scalar AND views contribute.
-  let p25Num = 0, p50Num = 0, p75Num = 0, p100Num = 0, retWeight = 0;
+  // Each quartile has its own weight: the views of the days that report it (audit 6.5).
+  let p25Num = 0, p50Num = 0, p75Num = 0, p100Num = 0;
+  let p25W = 0, p50W = 0, p75W = 0, p100W = 0;
 
   for (const r of rows) {
     const vv = n(r.video_views);
@@ -365,11 +367,10 @@ export function rollupDailyRows(rows: DailyRollupInputRow[], optimizationGoal?: 
     vaptWeighted += n(r.video_avg_play_time) * vv;
     freqWeighted += n(r.frequency) * n(r.impressions);
     if (vv > 0) {
-      if (r.retention_p50 != null) { retWeight += vv; }
-      if (r.retention_p25 != null) p25Num += n(r.retention_p25) * vv;
-      if (r.retention_p50 != null) p50Num += n(r.retention_p50) * vv;
-      if (r.retention_p75 != null) p75Num += n(r.retention_p75) * vv;
-      if (r.retention_p100 != null) p100Num += n(r.retention_p100) * vv;
+      if (r.retention_p25 != null) { p25Num += n(r.retention_p25) * vv; p25W += vv; }
+      if (r.retention_p50 != null) { p50Num += n(r.retention_p50) * vv; p50W += vv; }
+      if (r.retention_p75 != null) { p75Num += n(r.retention_p75) * vv; p75W += vv; }
+      if (r.retention_p100 != null) { p100Num += n(r.retention_p100) * vv; p100W += vv; }
     }
   }
 
@@ -396,10 +397,10 @@ export function rollupDailyRows(rows: DailyRollupInputRow[], optimizationGoal?: 
       ? (results > 0 ? spend / results : 0)
       : (purchases > 0 ? spend / purchases : 0),
     // Retention scalars: view-weighted, null when no weighted days.
-    retention_p25: retWeight > 0 ? p25Num / retWeight : null,
-    retention_p50: retWeight > 0 ? p50Num / retWeight : null,
-    retention_p75: retWeight > 0 ? p75Num / retWeight : null,
-    retention_p100: retWeight > 0 ? p100Num / retWeight : null,
+    retention_p25: p25W > 0 ? p25Num / p25W : null,
+    retention_p50: p50W > 0 ? p50Num / p50W : null,
+    retention_p75: p75W > 0 ? p75Num / p75W : null,
+    retention_p100: p100W > 0 ? p100Num / p100W : null,
   };
 }
 
