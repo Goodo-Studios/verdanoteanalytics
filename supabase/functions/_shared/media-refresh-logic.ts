@@ -129,3 +129,19 @@ export function buildRegressionSlackBody(reg: CoverageRegression, appUrl: string
     ],
   };
 }
+
+// Audit 8.1: backoff for a failed thumbnail / video refresh (hours): 1h -> 4h -> 12h ->
+// 1d -> 3d -> 7d cap, the same ladder as the carousel-frame backoff. The feeder skips an
+// ad whose thumb_retry_after / video_retry_after is in the future, so this is what stops
+// an ad that cannot be fixed from being fetched from Meta every 15 minutes.
+export const MEDIA_RETRY_BACKOFF_HOURS: readonly number[] = [1, 4, 12, 24, 72, 168];
+// A permission-blocked video only resolves once the owning Page is assigned to us in
+// Business Manager, which is a human step. Retry it no sooner than every 3 days.
+export const PERMISSION_MIN_BACKOFF_HOURS = 72;
+
+/** When to retry a media path after its `retryCount`-th consecutive failure. */
+export function mediaRetryAfter(retryCount: number, minHours = 0, now: number = Date.now()): string {
+  const idx = Math.min(Math.max(retryCount - 1, 0), MEDIA_RETRY_BACKOFF_HOURS.length - 1);
+  const hours = Math.max(MEDIA_RETRY_BACKOFF_HOURS[idx], minHours);
+  return new Date(now + hours * 60 * 60 * 1000).toISOString();
+}
