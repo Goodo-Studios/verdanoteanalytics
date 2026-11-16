@@ -4,7 +4,8 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { resolveConvention } from "../_shared/naming-convention.ts";
 import { parseAdName } from "../_shared/parse-ad-name.ts";
 import { parsedDisplayTags } from "../_shared/ad-name-display.ts";
-import { adTypeFilterValues, applyAdTypeFilter, distinctValues } from "../_shared/creative-filters.ts";
+import { adTypeFilterValues, applyAdTypeFilter } from "../_shared/creative-filters.ts";
+import { loadFilterValues } from "../_shared/creative-filter-values.ts";
 import { buildNameSyncChange, nameSyncUpdate, validateSyncFromNameBody, type NameSyncRow } from "../_shared/name-sync-logic.ts";
 import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
 import { sanitizeSearchTerm } from "../_shared/postgrest-search.ts";
@@ -151,44 +152,18 @@ serve(async (req) => {
       // authenticated user the id + name of EVERY account, plus the distinct product
       // and theme values across all of them — which also supplied the account ids
       // needed to read other tenants' creatives below.
-      let productsQuery = supabase.from("creatives").select("product").not("product", "is", null);
-      let themesQuery = supabase.from("creatives").select("theme").not("theme", "is", null);
       let accountsQuery = supabase.from("ad_accounts").select("id, name");
-      if (allowedIds) {
-        productsQuery = productsQuery.in("account_id", allowedIds);
-        themesQuery = themesQuery.in("account_id", allowedIds);
-        accountsQuery = accountsQuery.in("id", allowedIds);
-      }
-
-      const { data: products } = await productsQuery;
-      const { data: themes } = await themesQuery;
+      if (allowedIds) accountsQuery = accountsQuery.in("id", allowedIds);
       const { data: accounts } = await accountsQuery;
-
-      // Hooks are free text in the naming convention, so the option list is the
-      // distinct hook values actually stored for the caller's accounts (same
-      // allowedIds scope as products/themes). Paged: one PostgREST select is
-      // capped at 1000 rows; bounded at 50 pages so this stays cheap.
-      const hookValues: unknown[] = [];
-      for (let page = 0; page < 50; page++) {
-        let hooksQuery = supabase.from("creatives").select("hook").not("hook", "is", null)
-          .order("hook").range(page * 1000, page * 1000 + 999);
-        if (allowedIds) hooksQuery = hooksQuery.in("account_id", allowedIds);
-        const { data: hookRows, error: hooksErr } = await hooksQuery;
-        if (hooksErr) throw hooksErr;
-        hookValues.push(...(hookRows || []).map((r: { hook: string | null }) => r.hook));
-        if (!hookRows || hookRows.length < 1000) break;
-      }
-
-      const uniqueProducts = [...new Set((products || []).map((r: any) => r.product).filter(Boolean))];
-      const uniqueThemes = [...new Set((themes || []).map((r: any) => r.theme).filter(Boolean))];
+      const values = await loadFilterValues(supabase, allowedIds);
 
       return new Response(JSON.stringify({
         ad_type: controlledTypes,
         person: controlledPersons,
         style: controlledStyles,
-        hook: distinctValues(hookValues),
-        product: uniqueProducts,
-        theme: uniqueThemes,
+        hook: values.hook,
+        product: values.product,
+        theme: values.theme,
         accounts: accounts || [],
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
