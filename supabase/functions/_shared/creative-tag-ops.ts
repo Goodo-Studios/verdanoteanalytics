@@ -1,5 +1,5 @@
 // Pure helpers for the creatives function's tag writes: chunking, paging past the
-// PostgREST 1000-row cap, and validation of the PUT body. No database access here.
+// PostgREST 1000-row cap (shared helper in paging.ts), and validation of the PUT body.
 
 export function chunk<T>(items: readonly T[], size: number): T[][] {
   const out: T[][] = [];
@@ -7,25 +7,8 @@ export function chunk<T>(items: readonly T[], size: number): T[][] {
   return out;
 }
 
-type PageResult<T> = { data: T[] | null; error: { message?: string } | null };
-
-/**
- * Read every row of a query by paging with range(). `page(from, to)` runs the query for one
- * inclusive range. Throws on the first error so a truncated read is never mistaken for a full one.
- */
-export async function fetchAllRows<T>(
-  page: (from: number, to: number) => PromiseLike<PageResult<T>>,
-  pageSize = 1000,
-): Promise<T[]> {
-  const rows: T[] = [];
-  for (let from = 0; ; from += pageSize) {
-    const { data, error } = await page(from, from + pageSize - 1);
-    if (error) throw new Error(error.message ?? "page read failed");
-    const got = data ?? [];
-    rows.push(...got);
-    if (got.length < pageSize) return rows;
-  }
-}
+// Paging lives in one shared helper (audit 7.3); re-exported here for existing callers.
+export { fetchAllRows } from "./paging.ts";
 
 export const TAG_FIELDS = ["ad_type", "person", "style", "product", "hook", "theme"] as const;
 export const MAX_TAG_LENGTH = 200;

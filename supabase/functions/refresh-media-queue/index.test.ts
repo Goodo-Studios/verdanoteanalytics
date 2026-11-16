@@ -28,8 +28,12 @@ const mod = await import("./index.ts");
 function makeDb(opts: {
   enqueued: number;
   regression?: Record<string, unknown> | null;
+  // Shared media_meta_cache rows (audit 8.7), so consecutive chain links see each
+  // other's "already alerted" marker.
+  cache?: Map<string, { payload: unknown; expires_at: string }>;
 }) {
   const calls: Record<string, unknown[]> = {};
+  const cache = opts.cache ?? new Map<string, { payload: unknown; expires_at: string }>();
   const supabase = {
     // deno-lint-ignore no-explicit-any
     rpc: (name: string, args: any) => {
@@ -42,9 +46,26 @@ function makeDb(opts: {
       }
       throw new Error(`unexpected rpc ${name}`);
     },
-    // present so the isClient() guard accepts the override
-    from: () => {
-      throw new Error("refresh-media-queue must not touch tables directly");
+    // present so the isClient() guard accepts the override; the only table the poller
+    // may touch is media_meta_cache (the once-per-snapshot alert marker).
+    from: (table: string) => {
+      if (table !== "media_meta_cache") {
+        throw new Error("refresh-media-queue must not touch tables directly");
+      }
+      let key = "";
+      const b: Record<string, unknown> = {};
+      b.select = () => b;
+      b.eq = (_c: string, v: string) => {
+        key = v;
+        return b;
+      };
+      b.maybeSingle = () => Promise.resolve({ data: cache.get(key) ?? null, error: null });
+      // deno-lint-ignore no-explicit-any
+      b.upsert = (row: any) => {
+        cache.set(row.cache_key, { payload: row.payload, expires_at: row.expires_at });
+        return Promise.resolve({ data: null, error: null });
+      };
+      return b;
     },
   };
   return { supabase, calls };
@@ -200,4 +221,52 @@ Deno.test("handler does NOT self-chain at the tail of the backlog (partial batch
     Deno.env.set("REFRESH_NO_CHAIN", "1");
   }
   assert(!chainFired, "no self-chain once the feeder returns a partial batch");
+});
+
+// ── Audit 8.7: the coverage alert fires once per snapshot pair ────────────────
+// refreshOnce ran the regression check on every chain link (up to 51 per run), so one
+// coverage drop posted the same Slack alert dozens of times.
+
+const REGRESSION = {
+  regressed: true, prev_pct: 98.5, curr_pct: 95.0, delta_pct: -3.5,
+  prev_captured_at: "2026-11-15T00:00:00Z", curr_captured_at: "2026-11-16T00:00:00Z",
+};
+
+Deno.test("8.7: the same coverage drop is alerted once across chain links", async () => {
+  Deno.env.set("SLACK_WEBHOOK_URL", "https://hooks.slack.test/abc");
+  const cache = new Map<string, { payload: unknown; expires_at: string }>();
+  let posts = 0;
+  try {
+    await withFetch((url) => {
+      if (url.includes("hooks.slack.test")) posts++;
+      return new Response("{}", { status: 200 });
+    }, async () => {
+      for (let link = 0; link < 3; link++) {
+        const { supabase } = makeDb({ enqueued: 100, regression: REGRESSION, cache });
+        await mod.refreshOnce(supabase);
+      }
+    });
+  } finally {
+    Deno.env.delete("SLACK_WEBHOOK_URL");
+  }
+  assertEquals(posts, 1, "one Slack post for one snapshot pair");
+});
+
+Deno.test("8.7: a new snapshot pair is alerted again", async () => {
+  Deno.env.set("SLACK_WEBHOOK_URL", "https://hooks.slack.test/abc");
+  const cache = new Map<string, { payload: unknown; expires_at: string }>();
+  let posts = 0;
+  try {
+    await withFetch((url) => {
+      if (url.includes("hooks.slack.test")) posts++;
+      return new Response("{}", { status: 200 });
+    }, async () => {
+      await mod.refreshOnce(makeDb({ enqueued: 0, regression: REGRESSION, cache }).supabase);
+      const next = { ...REGRESSION, prev_captured_at: REGRESSION.curr_captured_at, curr_captured_at: "2026-11-17T00:00:00Z" };
+      await mod.refreshOnce(makeDb({ enqueued: 0, regression: next, cache }).supabase);
+    });
+  } finally {
+    Deno.env.delete("SLACK_WEBHOOK_URL");
+  }
+  assertEquals(posts, 2);
 });

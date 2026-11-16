@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireStaffOrServiceRole } from "../_shared/internal-auth.ts";
+import { redact } from "../_shared/safe-error.ts";
 import {
   discoverImageUrl,
   discoverPreviewUrl,
@@ -791,7 +792,7 @@ export async function handler(req: Request, supabaseOverride?: any): Promise<Res
         await supabase.from("media_refresh_logs").update({
           status: "failed",
           completed_at: new Date().toISOString(),
-          api_errors: JSON.stringify([String(e)]),
+          api_errors: JSON.stringify([redact(e)]),
         }).eq("id", runningLogs[0].id);
       }
     } catch { /* best effort */ }

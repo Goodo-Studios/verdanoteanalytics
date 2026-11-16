@@ -23,10 +23,12 @@ export interface DailyTrendPoint {
 
 export function useDailyTrends(
   accountId?: string,
-  dateRange?: { from: string; to: string }
+  dateRange?: { from: string; to: string },
+  options: { enabled?: boolean } = {},
 ) {
   return useQuery<DailyTrendPoint[]>({
     queryKey: ["daily-trends", accountId || "all", dateRange?.from, dateRange?.to],
+    enabled: options.enabled ?? true,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("get_daily_trends", {

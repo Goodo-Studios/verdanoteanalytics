@@ -9,6 +9,7 @@ import {
 import {
   summarizeSyncPreview, syncFromName, type SyncPreviewSummary,
 } from "@/lib/syncFromName";
+import { refreshAfterTagChange } from "@/lib/tagRefresh";
 
 interface SyncFromNameDialogProps {
   open: boolean;
@@ -22,12 +23,6 @@ interface SyncFromNameDialogProps {
 type Phase = "previewing" | "preview" | "applying" | "error";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
-
-/** Query keys that hold creative tag data and must refetch after a sync. */
-const REFRESH_KEYS = [
-  ["creatives"], ["all-creatives"], ["creative-filters"], ["creative-distinct-hooks"],
-  ["accounts"], ["creative-library"],
-];
 
 /**
  * "Sync from name": dry-run preview of what each ad's name says for the six tag
@@ -74,7 +69,7 @@ export function SyncFromNameDialog({ open, onClose, adIds, onApplied }: SyncFrom
     try {
       const resp = await syncFromName(ids, false);
       if (!resp.applied) throw new Error("The server did not confirm the sync was applied.");
-      await Promise.all(REFRESH_KEYS.map((queryKey) => queryClient.invalidateQueries({ queryKey })));
+      await refreshAfterTagChange(queryClient);
       const changedCount = summary?.changed.length ?? 0;
       toast.success(
         `Synced tags from name for ${resp.changes.length} ad${resp.changes.length === 1 ? "" : "s"}`,

@@ -69,7 +69,8 @@ Deno.test("name-mappings: one bulk upsert, one update per code, unmatchedCodes c
         name_mappings: [{ unique_code: "AAA", ad_type: "UGC" }],
       },
     },
-    { mappings: [{ unique_code: "AAA", ad_type: "UGC" }, { UniqueCode: "BBB", Type: "Static" }, { ad_type: "no code" }] },
+    // A row with no code now rejects the upload (audit 5.9); see name-mappings-validate.test.ts.
+    { mappings: [{ unique_code: "AAA", ad_type: "UGC" }, { UniqueCode: "BBB", Type: "Static" }] },
   );
   assertEquals(res.status, 200);
   const upserts = db.writes().filter((o) => o.verb === "upsert");

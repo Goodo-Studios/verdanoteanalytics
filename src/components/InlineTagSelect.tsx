@@ -7,6 +7,7 @@ import { useUpdateCreative } from "@/hooks/useCreatives";
 import { TAG_OPTIONS_MAP } from "@/lib/tagOptions";
 import { TAG_FIELD_LABELS } from "@/lib/tagDisplay";
 import { cn } from "@/lib/utils";
+import { useCanEditTags } from "@/hooks/useCanEditTags";
 
 // Radix Select forbids "" as an item value; this sentinel clears the column.
 const CLEAR = "__clear__";
@@ -22,7 +23,22 @@ interface InlineTagSelectProps {
  * Type). Always editable: a filled cell shows its value and can be changed or
  * cleared; an empty cell shows "+ tag".
  */
-export function InlineTagSelect({ adId, field, currentValue }: InlineTagSelectProps) {
+export function InlineTagSelect(props: InlineTagSelectProps) {
+  // Clients and builders in Client Preview see the value only (audit 3.3).
+  if (!useCanEditTags()) return <ReadOnlyTag value={props.currentValue} />;
+  return <EditableTagSelect {...props} />;
+}
+
+/** The tag as plain text, for people who cannot edit tags. */
+function ReadOnlyTag({ value }: { value: string | null }) {
+  return (
+    <span className="block max-w-[150px] truncate px-1.5 text-[11px] text-foreground" title={value ?? undefined}>
+      {value || <span className="text-muted-foreground">—</span>}
+    </span>
+  );
+}
+
+function EditableTagSelect({ adId, field, currentValue }: InlineTagSelectProps) {
   const updateCreative = useUpdateCreative();
   const [isOpen, setIsOpen] = useState(false);
   const options = TAG_OPTIONS_MAP[field] || [];
@@ -73,7 +89,12 @@ interface InlineTagTextProps {
  * Free-text tag cell (Product, Hook, Theme). Click to edit; Enter or blur
  * saves, Escape cancels. Saving an empty value clears the column.
  */
-export function InlineTagText({ adId, field, currentValue }: InlineTagTextProps) {
+export function InlineTagText(props: InlineTagTextProps) {
+  if (!useCanEditTags()) return <ReadOnlyTag value={props.currentValue} />;
+  return <EditableTagText {...props} />;
+}
+
+function EditableTagText({ adId, field, currentValue }: InlineTagTextProps) {
   const updateCreative = useUpdateCreative();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(currentValue ?? "");

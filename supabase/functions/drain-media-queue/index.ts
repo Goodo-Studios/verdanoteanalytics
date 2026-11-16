@@ -64,6 +64,7 @@ import {
   peekAndValidateMediaStream,
   resolveMetaToken,
   THROTTLED,
+  shouldMarkNoThumbnail,
 } from "../_shared/media-discovery.ts";
 import { isMediaContentType } from "../_shared/vault-save-logic.ts";
 import {
@@ -74,6 +75,7 @@ import {
   VIDEO_MAP_TTL_MS,
 } from "../_shared/media-map-cache.ts";
 import { rescueEnqueueDecision } from "../_shared/preview-drain-logic.ts";
+import { mediaRetryAfter, PERMISSION_MIN_BACKOFF_HOURS } from "../_shared/media-refresh-logic.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const THUMB_BUCKET = "ad-thumbnails";
@@ -113,6 +115,18 @@ export const BATCH_SIZE = 5;
 // Give up on a row after this many failed attempts so a permanently-undownloadable
 // ad (dead CDN, no media) stops re-clogging the queue. Mirrors the queue's `attempts`.
 export const MAX_ATTEMPTS = 5;
+
+// Audit 8.3: how long a queue row waits before it can be claimed again. Without this a
+// failed row was reclaimed by the very next chain link, and a throttled row (attempt
+// refunded) could retry forever. claim_media_cache_queue skips rows not yet due.
+const FAILURE_RETRY_MINUTES = [5, 15, 60, 240];
+export const THROTTLE_RETRY_MINUTES = 10;
+
+/** When a row may be claimed again after its `attempts`-th failed attempt. */
+export function failureNextAttemptAt(attempts: number, now: number = Date.now()): string {
+  const idx = Math.min(Math.max(attempts - 1, 0), FAILURE_RETRY_MINUTES.length - 1);
+  return new Date(now + FAILURE_RETRY_MINUTES[idx] * 60_000).toISOString();
+}
 
 // Safety bound on the self-chain depth. BATCH_SIZE × MAX_CHAIN ≈ hundreds of ads per
 // drain — covers the largest new-ad burst while preventing a runaway chain loop.
@@ -510,7 +524,7 @@ export async function processQueuedAd(
 ): Promise<{ outcome: "cached" | "skipped" | "failed" | "throttled"; reason?: string; rescue?: RescueContext }> {
   const { data: creative, error: fetchErr } = await supabase
     .from("creatives")
-    .select("ad_id, account_id, thumbnail_url, full_res_url, video_url, thumb_asset_id, video_asset_id, image_quality, expected_frame_count, frames_retry_count, meta_video_ids, meta_image_hashes, capture_status")
+    .select("ad_id, account_id, thumbnail_url, full_res_url, video_url, thumb_asset_id, video_asset_id, image_quality, expected_frame_count, frames_retry_count, thumb_retry_count, video_retry_count, meta_video_ids, meta_image_hashes, capture_status")
     .eq("ad_id", adId)
     .maybeSingle();
 
@@ -579,6 +593,12 @@ export async function processQueuedAd(
     creative.thumbnail_url === NO_THUMB_SENTINEL ||
     (isStorageUrl(creative.thumbnail_url) && hasRealFullRes && !isLowResPlaceholder);
 
+  // Audit 8.1: per-path outcome, so a failed path backs off and a cached one clears it.
+  let videoCached = false;
+  let videoThrottled = false;
+  let imageCached = false;
+  let imageThrottled = false;
+
   // ── Video (the heavy path) ──────────────────────────────────────────────────
   if (!skipVideo) {
     // A usable live CDN url only if the stored value is one (never the generic
@@ -613,6 +633,7 @@ export async function processQueuedAd(
           // flag the ad for a short transient retry, and record NOTHING. A throttle
           // means "we could not check", never "no video exists".
           throttled = true;
+          videoThrottled = true;
           reasons.push(THROTTLED);
         } else {
           // Genuinely could not resolve. Record the DISTINCT honest reason (AC#3):
@@ -632,6 +653,7 @@ export async function processQueuedAd(
         if (result.assetId) updates.video_asset_id = result.assetId;
         if (result.deduped) console.log(`Video dedupe hit for ${adId} (video ${resolvedVideoId}) — reused stored copy, no download`);
         didCache = true;
+        videoCached = true;
       } else if (result.reason === "too-large") {
         // US-007: exceeds the deliberate 2GB capture ceiling. Streaming keeps worker
         // memory flat, so this is a POLICY limit, not a memory failure — the video is
@@ -691,9 +713,15 @@ export async function processQueuedAd(
         // permanently mark a rate-limited ad as having no image). Leave the image
         // columns untouched and flag for a short transient retry.
         throttled = true;
+        imageThrottled = true;
         reasons.push(THROTTLED);
-      } else if (!imgUrl && !isLowResPlaceholder) {
+      } else if (!imgUrl && !isLowResPlaceholder && shouldMarkNoThumbnail(imgReason)) {
+        // Only a lookup that finished and found no image is permanent (audit 5.5).
         updates.thumbnail_url = NO_THUMB_SENTINEL;
+      } else if (!imgUrl && imgReason) {
+        // Error, timeout, expired token, Meta 5xx: inconclusive. Leave the image columns
+        // alone and fail the row so it is retried with the normal backoff.
+        reasons.push(imgReason);
       }
     }
 
@@ -708,6 +736,7 @@ export async function processQueuedAd(
         updates.image_quality = "full_res";
         if (asset.assetId) updates.thumb_asset_id = asset.assetId;
         didCache = true;
+        imageCached = true;
       } else if (!creative.thumbnail_url) {
         // Caching failed (e.g. non-image bytes) and no existing image — fall back to
         // the CDN url so the card at least renders; leave quality unresolved (NULL).
@@ -723,6 +752,31 @@ export async function processQueuedAd(
         updates.thumbnail_url = imgUrl;
       }
       if (creative.image_quality !== "low_res") updates.image_quality = "low_res";
+    }
+  }
+
+  // ── Retry backoff (audit 8.1) ───────────────────────────────────────────────
+  // A path that was attempted and neither cached nor throttled backs off exponentially;
+  // a path that cached clears its backoff. A throttle records nothing (retried soon).
+  if (!skipVideo) {
+    if (videoCached) {
+      updates.video_retry_count = 0;
+      updates.video_retry_after = null;
+    } else if (!videoThrottled) {
+      const next = (creative.video_retry_count ?? 0) + 1;
+      const minHours = updates.video_url === NO_VIDEO_PERMISSION_SENTINEL ? PERMISSION_MIN_BACKOFF_HOURS : 0;
+      updates.video_retry_count = next;
+      updates.video_retry_after = mediaRetryAfter(next, minHours);
+    }
+  }
+  if (!skipImage) {
+    if (imageCached) {
+      updates.thumb_retry_count = 0;
+      updates.thumb_retry_after = null;
+    } else if (!imageThrottled) {
+      const next = (creative.thumb_retry_count ?? 0) + 1;
+      updates.thumb_retry_count = next;
+      updates.thumb_retry_after = mediaRetryAfter(next);
     }
   }
 
@@ -949,6 +1003,7 @@ export async function drainOnce(
           status: "pending",
           attempts: Math.max(0, (row.attempts ?? 1) - 1),
           updated_at: new Date().toISOString(),
+          next_attempt_at: new Date(Date.now() + THROTTLE_RETRY_MINUTES * 60_000).toISOString(),
           last_error: reason ?? THROTTLED,
         })
         .eq("ad_id", row.ad_id);
@@ -968,6 +1023,7 @@ export async function drainOnce(
         .update({
           status: gaveUp ? "failed" : "pending",
           updated_at: new Date().toISOString(),
+          next_attempt_at: gaveUp ? null : failureNextAttemptAt(row.attempts ?? 1),
           last_error: reason ?? "unknown",
         })
         .eq("ad_id", row.ad_id);
@@ -1062,6 +1118,9 @@ export async function handler(req: Request, supabaseOverride?: unknown): Promise
 
     const summary = await drainOnce(supabase, metaToken, BATCH_SIZE, DEADLINE_MS);
 
+    // Only rows that are due count as remaining work (audit 8.3): a row deferred by a
+    // failure or rate-limit backoff waits for the 2-min cron, not a chain link.
+    const nowIso = new Date().toISOString();
     // Self-chain WHILE pending rows remain — unconditionally on remaining work, NOT
     // gated on this batch's success (a fully-failed batch still leaves pending rows
     // that the next invocation must advance). Bounded by MAX_CHAIN; disabled in
@@ -1069,9 +1128,18 @@ export async function handler(req: Request, supabaseOverride?: unknown): Promise
     const { count: pending } = await supabase
       .from("media_cache_queue")
       .select("ad_id", { count: "exact", head: true })
-      .eq("status", "pending");
+      .eq("status", "pending")
+      .or(`next_attempt_at.is.null,next_attempt_at.lte.${nowIso}`);
 
-    if ((pending ?? 0) > 0 && chainDepth < MAX_CHAIN && !Deno.env.get("DRAIN_NO_CHAIN")) {
+    // A rate limit in this batch stops the chain (audit 8.3): chaining straight back
+    // would hit the same limit. The 2-min cron resumes once the rows are due again.
+    if (summary.throttled > 0) {
+      console.log(`drain-media-queue: ${summary.throttled} throttled this batch, not chaining`);
+    }
+    if (
+      (pending ?? 0) > 0 && summary.throttled === 0 && chainDepth < MAX_CHAIN &&
+      !Deno.env.get("DRAIN_NO_CHAIN")
+    ) {
       summary.chained = true;
       const nextUrl =
         `${Deno.env.get("SUPABASE_URL")}/functions/v1/drain-media-queue?chain=${chainDepth + 1}`;

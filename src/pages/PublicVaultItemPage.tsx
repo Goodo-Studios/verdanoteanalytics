@@ -23,7 +23,8 @@ interface PublicItem {
   source_url: string | null;
   thumbnail_url: string | null;
   video_url: string | null;
-  file_path: string | null;
+  /** "image" or "video" for an uploaded file; the stored path is not sent to the public page. */
+  media_kind?: "image" | "video" | null;
   ad_body_text: string | null;
   brand_name: string | null;
   industry: string | null;
@@ -88,7 +89,7 @@ export default function PublicVaultItemPage() {
 
   const { item, transcript, framework, signed_url } = data;
   const platformKey = item.platform ?? "unknown";
-  const isImageFile = /\.(jpg|jpeg|png|gif|webp|avif)$/i.test(item.file_path ?? "");
+  const isImageFile = item.media_kind === "image";
   const imageSrc = (isImageFile ? signed_url : null) ?? item.thumbnail_url ?? null;
   const videoSrc = !isImageFile ? (item.video_url ?? signed_url ?? null) : null;
   const createdAt = new Date(item.created_at);

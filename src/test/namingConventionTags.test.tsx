@@ -10,6 +10,9 @@ const mutate = vi.fn();
 vi.mock("@/hooks/useCreatives", () => ({
   useUpdateCreative: () => ({ mutate, mutateAsync: vi.fn(), isPending: false }),
 }));
+// These tests cover the editing behaviour, which only staff get (audit 3.3; the client and
+// Client Preview cases are in staffOnlyTagControls.test.tsx). Render as staff.
+vi.mock("@/hooks/useCanEditTags", () => ({ useCanEditTags: () => true }));
 vi.mock("@/hooks/useCachedMedia", () => ({
   useCachedMedia: () => ({ url: "", isLoading: false }),
 }));

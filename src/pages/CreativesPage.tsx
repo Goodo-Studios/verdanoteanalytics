@@ -8,7 +8,7 @@ import { CreativesGroupTable } from "@/components/creatives/CreativesGroupTable"
 
 import { CreativesFilters } from "@/components/creatives/CreativesFilters";
 import { CreativesPagination } from "@/components/creatives/CreativesPagination";
-import { AdvancedFiltersPanel, applyAdvancedFilters, countActiveConditions } from "@/components/creatives/AdvancedFiltersPanel";
+import { AdvancedFiltersPanel, countActiveConditions } from "@/components/creatives/AdvancedFiltersPanel";
 
 import { BulkActionBar } from "@/components/creatives/BulkActionBar";
 import { BulkTagModal } from "@/components/creatives/BulkTagModal";
@@ -20,9 +20,11 @@ import { ColumnPicker } from "@/components/ColumnPicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RefreshCw, LayoutGrid, Download, Search, X, CalendarDays, SlidersHorizontal } from "lucide-react";
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import { useRoleNavigate } from "@/hooks/useRolePath";
 import { useCreatives, CREATIVES_PAGE_SIZE, useCreativeFilters } from "@/hooks/useCreatives";
+import { isServerSorted } from "@/lib/creativeServerSort";
+import { clampPage } from "@/lib/pagination";
 import { useSync } from "@/hooks/useSyncApi";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { downloadCSV, exportCreativesCSV } from "@/lib/csv";
@@ -30,17 +32,16 @@ import { useCreativesPageState } from "@/hooks/useCreativesPageState";
 import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { useAccountContext } from "@/contexts/AccountContext";
+import { useScopedSelection } from "@/hooks/useScopedSelection";
 import { SyncStatusBanner } from "@/components/SyncStatusBanner";
 import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
 import { useWoWTrends } from "@/hooks/useWoWTrends";
-import { gradeCreatives, gradeOrder } from "@/lib/creativeGrading";
+import { pageGrades, gradeOrder } from "@/lib/creativeGrading";
 import { computeFatigueMap } from "@/lib/fatigueScore";
-import { isForecastedToFatigue } from "@/lib/fatigueForecast";
-import { supabase } from "@/integrations/supabase/client";
-import { useQuery } from "@tanstack/react-query";
 import { useCardPresence } from "@/hooks/useCardPresence";
 import { toast } from "sonner";
 import { saveCreativesToVault, formatBulkSaveSummary } from "@/lib/vaultSave";
+import { groupMetrics } from "@/lib/groupMetrics";
 
 import type { GradeInfo } from "@/lib/creativeGrading";
 
@@ -65,17 +66,9 @@ const CreativesPage = () => {
 
   const [advFiltersOpen, setAdvFiltersOpen] = useState(false);
 
-  // Momentum filter
-  const [momentumFilter, setMomentumFilter] = useState("__all__");
-
-  // Fatigue filter
-  const [fatigueFilter, setFatigueFilter] = useState("__all__");
-
-  // Platform filter
-  const [platformFilter, setPlatformFilter] = useState("__all__");
-
   // Bulk selection
-  const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
+  // Belongs to the selected account: switching accounts empties it (audit 3.2).
+  const [bulkSelectedIds, setBulkSelectedIds] = useScopedSelection(selectedAccountId);
   const [bulkTagOpen, setBulkTagOpen] = useState(false);
   const [syncFromNameOpen, setSyncFromNameOpen] = useState(false);
   const [addToReportOpen, setAddToReportOpen] = useState(false);
@@ -83,20 +76,26 @@ const CreativesPage = () => {
   const canBulkAction = isBuilder || isEmployee;
 
   const { data: creativesResult, isLoading } = useCreatives(allFilters, page);
-  const creatives = creativesResult?.data || [];
+  const creatives = useMemo(() => creativesResult?.data || [], [creativesResult?.data]);
   // True when the picked date range has zero synced daily-metrics rows (vs. the
   // account simply having no creatives). Lets the empty state explain "no data
   // for this range" instead of the misleading "add an account" message.
   const noDailyData = Boolean((creativesResult as any)?.no_daily_data);
   const totalCreatives = creativesResult?.total || 0;
   const totalPages = Math.ceil(totalCreatives / CREATIVES_PAGE_SIZE);
+  // A page past the end (for example after the list shrinks) moves to the last real page.
+  useEffect(() => {
+    if (isLoading) return;
+    const target = clampPage(page, totalPages);
+    if (target !== page) setPage(target);
+  }, [isLoading, page, totalPages, setPage]);
   const { data: filterOptions } = useCreativeFilters();
   const { data: wowTrends } = useWoWTrends(selectedAccountId ?? undefined);
   const syncMut = useSync();
   const isSyncing = useIsSyncing();
 
   // Compute grades from current page data (pure spend percentile)
-  const gradeMap = useMemo(() => gradeCreatives(creatives), [creatives]);
+  const gradeMap = useMemo(() => pageGrades(creatives), [creatives]);
 
   // Compute fatigue scores
   const fatigueMap = useMemo(() => computeFatigueMap(creatives, wowTrends), [creatives, wowTrends]);
@@ -105,39 +104,6 @@ const CreativesPage = () => {
   // Warm the ad-preview cache on hover so the detail modal opens with its
   // player already resolved (no-op for image ads / cached videos).
   const prefetchAdPreview = useAdPreviewPrefetch();
-
-  // Fetch daily metrics for fatigue forecast filter (only when filter active)
-  const { data: dailyMetricsMap } = useQuery({
-    queryKey: ["daily-metrics-forecast", selectedAccountId, fatigueFilter],
-    queryFn: async () => {
-      const today = new Date();
-      const from = new Date(today);
-      from.setDate(from.getDate() - 14);
-      const fromStr = from.toISOString().split("T")[0];
-
-      const query = supabase
-        .from("creative_daily_metrics")
-        .select("ad_id, date, spend, frequency, ctr, roas")
-        .gte("date", fromStr);
-
-      if (selectedAccountId && selectedAccountId !== "all") {
-        query.eq("account_id", selectedAccountId);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      if (!data) return new Map<string, any[]>();
-
-      const map = new Map<string, any[]>();
-      for (const row of data) {
-        if (!map.has(row.ad_id)) map.set(row.ad_id, []);
-        map.get(row.ad_id)!.push(row);
-      }
-      return map;
-    },
-    enabled: fatigueFilter === "forecast",
-    staleTime: 5 * 60 * 1000,
-  });
 
   const avgMetrics = useMemo(() => {
     // Prefer server-side aggregates (covers ALL creatives, not just current page)
@@ -162,51 +128,14 @@ const CreativesPage = () => {
   }, [creatives, creativesResult]);
 
   const sortedCreatives = useMemo(() => {
-    let list = [...creatives].map((c: any) => ({ ...c, _cpmr: (Number(c.cpm) || 0) * (Number(c.frequency) || 0) }));
+    const list = [...creatives].map((c: any) => ({ ...c, _cpmr: (Number(c.cpm) || 0) * (Number(c.frequency) || 0) }));
 
-    // Apply platform filter
-    if (platformFilter !== "__all__") {
-      list = list.filter((c: any) => (c.platform || "meta") === platformFilter);
-    }
-
-    // Apply momentum filter
-    if (momentumFilter !== "__all__" && wowTrends) {
-      list = list.filter((c: any) => {
-        const trend = wowTrends.get(c.ad_id);
-        if (!trend || trend.direction === "insufficient") return false;
-        if (momentumFilter === "gaining") return trend.direction === "up";
-        if (momentumFilter === "steady") return trend.direction === "flat";
-        if (momentumFilter === "losing") return trend.direction === "down" && trend.pctChange >= -30;
-        if (momentumFilter === "fading") return trend.direction === "down" && trend.pctChange < -30;
-        return true;
-      });
-    }
-
-    // Apply fatigue filter
-    if (fatigueFilter !== "__all__") {
-      if (fatigueFilter === "forecast") {
-        // Show creatives forecasted to hit warning within 7 days
-        if (dailyMetricsMap) {
-          list = list.filter((c: any) => {
-            const rows = dailyMetricsMap.get(c.ad_id);
-            return rows ? isForecastedToFatigue(rows, 7) : false;
-          });
-        }
-      } else {
-        list = list.filter((c: any) => {
-          const f = fatigueMap.get(c.ad_id);
-          if (fatigueFilter === "high") return f?.level === "high";
-          if (fatigueFilter === "warning") return f?.level === "warning";
-          if (fatigueFilter === "ok") return !f || f.level === "ok";
-          return true;
-        });
-      }
-    }
-
-    // Apply advanced filters
-    list = applyAdvancedFilters(list, advancedConditions, gradeMap, fatigueMap, wowTrends);
+    // Advanced filters run on the server over the whole list (audit 7.1 part 3). The
+    // momentum, fatigue and platform dropdown filters that used to sit here had no control.
 
     if (!sort.key || !sort.direction) return list;
+    // Columns the server sorts arrive in order across every page; keep that order (audit 7.1).
+    if (isServerSorted(sort)) return list;
     const dir = sort.direction === "asc" ? 1 : -1;
 
     // Special handling for grade sort
@@ -220,7 +149,7 @@ const CreativesPage = () => {
 
     // Shared comparator (numeric/string, nulls-last) — resolves field via SORT_FIELD_MAP.
     return list.sort((a: any, b: any) => compareCreativesBy(a, b, sort.key!, sort.direction!));
-  }, [creatives, sort, momentumFilter, wowTrends, gradeMap, fatigueFilter, fatigueMap, advancedConditions, platformFilter, dailyMetricsMap]);
+  }, [creatives, sort, gradeMap]);
 
   const toggleBulkId = useCallback((adId: string) => {
     setBulkSelectedIds(prev => {
@@ -228,7 +157,7 @@ const CreativesPage = () => {
       if (next.has(adId)) next.delete(adId); else next.add(adId);
       return next;
     });
-  }, []);
+  }, [setBulkSelectedIds]);
 
   const toggleBulkAll = useCallback(() => {
     setBulkSelectedIds(prev => {
@@ -236,7 +165,7 @@ const CreativesPage = () => {
       const allSelected = allIds.every(id => prev.has(id));
       return allSelected ? new Set<string>() : new Set(allIds);
     });
-  }, [sortedCreatives]);
+  }, [sortedCreatives, setBulkSelectedIds]);
 
   const exportBulkCSV = useCallback(() => {
     const selected = sortedCreatives.filter((c: any) => bulkSelectedIds.has(c.ad_id));
@@ -278,7 +207,7 @@ const CreativesPage = () => {
     } finally {
       setBulkSavingToVault(false);
     }
-  }, [sortedCreatives, bulkSelectedIds]);
+  }, [sortedCreatives, bulkSelectedIds, setBulkSelectedIds]);
 
 
   const groupedData = useMemo(() => {
@@ -288,8 +217,9 @@ const CreativesPage = () => {
     return Object.entries(groups).map(([name, items]) => {
       const withSpend = items.filter(c => (Number(c.spend) || 0) > 0);
       const totalSpend = items.reduce((s, c) => s + (Number(c.spend) || 0), 0);
-      const avgField = (field: string) => withSpend.length > 0 ? withSpend.reduce((s, c) => s + (Number(c[field]) || 0), 0) / withSpend.length : 0;
-      return { name, count: items.length, totalSpend, avgRoas: avgField("roas"), avgCpa: avgField("cpa"), avgSpend: withSpend.length > 0 ? totalSpend / withSpend.length : 0 };
+      // Group ROAS and CPA from summed counts, not an average of each creative's ratio (audit 6.1).
+      const g = groupMetrics(items);
+      return { name, count: items.length, totalSpend, roas: g.roas, cpa: g.cpa, avgSpend: withSpend.length > 0 ? totalSpend / withSpend.length : 0 };
     }).sort((a, b) => b.totalSpend - a.totalSpend);
   }, [sortedCreatives, groupBy]);
 
@@ -423,6 +353,7 @@ const CreativesPage = () => {
             open={bulkTagOpen}
             onClose={() => { setBulkTagOpen(false); setBulkSelectedIds(new Set()); }}
             adIds={[...bulkSelectedIds]}
+            accountId={selectedAccountId}
           />
           <SyncFromNameDialog
             open={syncFromNameOpen}

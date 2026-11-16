@@ -26,7 +26,6 @@ export function CreateBoardModal({ open, onOpenChange, onCreated }: Props) {
   const create = useMutation({
     mutationFn: async () => {
       if (!user) throw new Error("Not authenticated");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await supabase
         .from("boards")
         .insert({

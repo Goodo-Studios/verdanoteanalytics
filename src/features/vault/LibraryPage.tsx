@@ -17,6 +17,17 @@ import {
   type VaultStatusFilter,
 } from "./components/FilterToolbar";
 import { useItemStatus } from "./hooks/useItemStatus";
+import { deleteVaultItems, vaultDeleteMessage, type VaultDeleteResult } from "./deleteVaultItems";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   isImageFilePath,
   vaultListPollInterval,
@@ -40,6 +51,9 @@ function ActiveItemPoller({ itemId, onDone }: { itemId: string; onDone: (id: str
   useItemStatus(itemId, onDone);
   return null;
 }
+
+/** Reuse a signed URL for 50 minutes of its 60-minute life before signing it again. */
+const SIGNED_URL_REUSE_MS = 50 * 60 * 1000;
 
 /** Core Creative Vault library page (replaces Verdanote AdLibraryPage).
  *
@@ -116,46 +130,40 @@ export default function LibraryPage() {
     setConfirmDelete(false);
   };
 
+  const afterDelete = (result: VaultDeleteResult) => {
+    queryClient.invalidateQueries({ queryKey: ["vault-items"] });
+    queryClient.invalidateQueries({ queryKey: ["vault-featured"] });
+    queryClient.invalidateQueries({ queryKey: ["vault-tags"] });
+    const message = vaultDeleteMessage(result);
+    if (message.ok) toast.success(message.text);
+    else toast.error(message.text);
+  };
+
   const { mutate: bulkDelete, isPending: isDeleting } = useMutation({
-    mutationFn: async (ids: string[]) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await supabase
-        .from("inspiration_items")
-        .delete()
-        .in("id", ids);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["vault-items"] });
-      queryClient.invalidateQueries({ queryKey: ["vault-featured"] });
-      queryClient.invalidateQueries({ queryKey: ["vault-tags"] });
+    mutationFn: (ids: string[]) => deleteVaultItems(ids),
+    onSuccess: (result) => {
       clearSelection();
-      toast.success("Deleted");
+      afterDelete(result);
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Delete failed"),
   });
 
-  const { mutate: deleteOne } = useMutation({
-    mutationFn: async (id: string) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await supabase
-        .from("inspiration_items")
-        .delete()
-        .eq("id", id);
-      if (error) throw error;
+  // Single delete from a card's menu asks first, like bulk delete (audit 4.6).
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const { mutate: deleteOne, isPending: isDeletingOne } = useMutation({
+    mutationFn: (id: string) => deleteVaultItems([id]),
+    onSuccess: (result) => {
+      setPendingDeleteId(null);
+      afterDelete(result);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["vault-items"] });
-      queryClient.invalidateQueries({ queryKey: ["vault-featured"] });
-      queryClient.invalidateQueries({ queryKey: ["vault-tags"] });
-      toast.success("Deleted");
+    onError: (err) => {
+      setPendingDeleteId(null);
+      toast.error(err instanceof Error ? err.message : "Delete failed");
     },
-    onError: (err) => toast.error(err instanceof Error ? err.message : "Delete failed"),
   });
 
   const { mutate: toggleFeatured } = useMutation({
     mutationFn: async ({ id, featured }: { id: string; featured: boolean }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error } = await supabase
         .from("inspiration_items")
         .update({ is_featured: featured })
@@ -184,7 +192,6 @@ export default function LibraryPage() {
     queryKey: ["vault-tags", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await supabase
         .from("inspiration_tags")
         .select("tag, inspiration_items!inner(user_id)")
@@ -216,7 +223,6 @@ export default function LibraryPage() {
       // and none of them are rendered on a card — `*` was pulling all of it for
       // every item in the library on each load. The detail page still selects
       // `*` for the single item it shows.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       // Tag filtering is an embedded inner join on inspiration_tags (FK item_id -> id),
       // evaluated server-side. The old approach fetched every matching item id first and
       // sent them all in an `in (...)` URL, which hit the 1000-row cap and URL length limits.
@@ -313,13 +319,24 @@ export default function LibraryPage() {
     () => collectVaultStoragePaths([...featuredAll, ...items]),
     [featuredAll, items],
   );
+  // Audit 7.5: signed URLs are cached per path for most of their 1h life, so "Load more"
+  // signs only the paths the new page adds. Keying the batch on every path on screen re-signed
+  // all of them on each page (hundreds of still-valid URLs per click).
+  const signedUrlCache = useRef(new Map<string, { url: string; signedAt: number }>());
+  const unsignedPaths = useMemo(() => {
+    const now = Date.now();
+    return storagePaths.filter((path) => {
+      const hit = signedUrlCache.current.get(path);
+      return !hit || now - hit.signedAt > SIGNED_URL_REUSE_MS;
+    });
+  }, [storagePaths]);
   const {
-    data: signedUrlMap,
+    data: freshSignedUrls,
     status: signedUrlsStatus,
     isPlaceholderData: signedUrlsArePlaceholder,
   } = useQuery({
-    queryKey: ["vault-signed-urls", storagePaths],
-    enabled: storagePaths.length > 0,
+    queryKey: ["vault-signed-urls", unsignedPaths],
+    enabled: unsignedPaths.length > 0,
     // The key changes every time infinite scroll appends a page. Without this the map goes
     // undefined while the new batch signs, and every already-loaded thumbnail flickers.
     // Keep the previous map on screen; the fresh one replaces it when it lands.
@@ -327,16 +344,28 @@ export default function LibraryPage() {
     queryFn: async () => {
       const { data, error } = await supabase.storage
         .from("inspiration-media")
-        .createSignedUrls(storagePaths, 3600);
+        .createSignedUrls(unsignedPaths, 3600);
       if (error) throw error;
-      return buildSignedUrlMap(data);
+      const map = buildSignedUrlMap(data);
+      const signedAt = Date.now();
+      for (const [path, url] of Object.entries(map)) signedUrlCache.current.set(path, { url, signedAt });
+      return map;
     },
     staleTime: 55 * 60 * 1000,
     retry: false,
   });
+  const signedUrlMap = useMemo(() => {
+    const merged: Record<string, string> = {};
+    for (const path of storagePaths) {
+      const hit = signedUrlCache.current.get(path);
+      if (hit) merged[path] = hit.url;
+    }
+    return { ...merged, ...(freshSignedUrls ?? {}) };
+  }, [storagePaths, freshSignedUrls]);
   // While the previous map is only a placeholder, cards missing from it must wait for the
-  // real batch rather than self-signing one by one.
-  const signedUrlsSettled = signedUrlsStatus !== "pending" && !signedUrlsArePlaceholder;
+  // real batch rather than self-signing one by one. Nothing to sign means every path is cached.
+  const signedUrlsSettled =
+    unsignedPaths.length === 0 || (signedUrlsStatus !== "pending" && !signedUrlsArePlaceholder);
 
   // Semantic search results from vault-search edge function.
   const { data: searchResults, isFetching: isSearching } = useQuery<LibraryItem[]>({
@@ -415,7 +444,7 @@ export default function LibraryPage() {
         selected={selectedIds.has(item.id)}
         onSelect={toggleSelect}
         onToggleFeatured={(id, val) => toggleFeatured({ id, featured: val })}
-        onDelete={(id) => deleteOne(id)}
+        onDelete={(id) => setPendingDeleteId(id)}
         useProvidedSignedUrls
         // A path already in the (possibly placeholder) map keeps its URL even while the next
         // batch is signing; only paths with no URL yet wait or fall back.
@@ -582,6 +611,36 @@ export default function LibraryPage() {
           )}
         </div>
       )}
+
+      <AlertDialog
+        open={pendingDeleteId !== null}
+        onOpenChange={(open) => {
+          if (!open && !isDeletingOne) setPendingDeleteId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this item permanently?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The saved ad, its transcript and its analysis are removed. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingOne}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isDeletingOne}
+              onClick={(e) => {
+                e.preventDefault();
+                if (pendingDeleteId) deleteOne(pendingDeleteId);
+              }}
+            >
+              {isDeletingOne && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              Yes, delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

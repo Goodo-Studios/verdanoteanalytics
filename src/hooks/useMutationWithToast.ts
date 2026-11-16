@@ -7,6 +7,8 @@ interface MutationWithToastOptions<TData, TVariables> {
   successMessage?: string | ((data: TData) => string);
   successDescription?: string | ((data: TData) => string | undefined);
   errorMessage?: string;
+  /** Skip the error toast; the caller reports failures itself (e.g. one bulk summary). */
+  silentError?: boolean;
 }
 
 export function useMutationWithToast<TData = any, TVariables = void>({
@@ -15,6 +17,7 @@ export function useMutationWithToast<TData = any, TVariables = void>({
   successMessage,
   successDescription,
   errorMessage = "Something went wrong",
+  silentError = false,
 }: MutationWithToastOptions<TData, TVariables>) {
   const qc = useQueryClient();
   return useMutation({
@@ -28,7 +31,7 @@ export function useMutationWithToast<TData = any, TVariables = void>({
       }
     },
     onError: (e: Error) => {
-      toast.error(errorMessage, { description: e.message });
+      if (!silentError) toast.error(errorMessage, { description: e.message });
     },
   });
 }

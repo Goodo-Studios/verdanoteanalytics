@@ -121,6 +121,7 @@ class UpdateQuery {
 }
 
 class FakeDb {
+  rpcCalls: string[] = [];
   constructor(public rows: Row[]) {}
   from(_t: string) {
     const rows = this.rows;
@@ -132,6 +133,7 @@ class FakeDb {
   }
   // deno-lint-ignore no-explicit-any
   rpc(name: string, _args?: any) {
+    this.rpcCalls.push(name);
     if (name === "claim_apify_drain_singleflight") return Promise.resolve({ data: true, error: null });
     return Promise.resolve({ data: null, error: null });
   }
@@ -219,4 +221,75 @@ Deno.test("drain reaches untried STATIC rows past a covered-row head (stall recu
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+// ── Audit 8.5: the single-flight lock is held for the whole chain ─────────────
+// The drain released its lock in `finally` even after firing a self-chain, so the
+// 10-minute cron saw the lock free and started a second, parallel chain.
+
+function staticRows(n: number): Row[] {
+  return Array.from({ length: n }, (_v, i) => ({
+    ad_id: `lk-${i}`, account_id: "act_1", created_time: `2026-06-0${(i % 9) + 1}T00:00:00Z`,
+    capture_status: "pending", video_url: null, full_res_url: null, capture_attempts: 0,
+    capture_last_attempt_at: null, meta_video_ids: null, meta_image_hashes: ["h"],
+  }));
+}
+
+async function runDrain(db: FakeDb, chain: number) {
+  const realFetch = globalThis.fetch;
+  let chainFired = false;
+  // deno-lint-ignore no-explicit-any
+  (globalThis as any).fetch = (url: string, init?: RequestInit) => {
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    if (String(url).includes("/preview-capture-drain")) {
+      chainFired = true;
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    }
+    const row = db.rows.find((r) => r.ad_id === body.ad_id);
+    if (row) { row.capture_status = "captured"; row.full_res_url = OWNED; }
+    return Promise.resolve(new Response(JSON.stringify({ status: "captured" }), { status: 200 }));
+  };
+  try {
+    const { handler } = await import("./index.ts");
+    const res = await handler(
+      new Request(`http://test.local/preview-capture-drain?chain=${chain}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chain }),
+      }),
+      // deno-lint-ignore no-explicit-any
+      db as any,
+    );
+    return { payload: await res.json(), chainFired };
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+Deno.test("8.5: a cron poke that starts a chain keeps the lock", async () => {
+  const db = new FakeDb(staticRows(5)); // batch of 3 leaves 2 pending -> chains
+  const { payload, chainFired } = await runDrain(db, 0);
+  assertEquals(payload.chained, true);
+  assertEquals(chainFired, true);
+  assertEquals(db.rpcCalls.includes("release_apify_drain_singleflight"), false, "lock handed to the chain");
+});
+
+Deno.test("8.5: a chain link that chains again refreshes the lock and keeps it", async () => {
+  const db = new FakeDb(staticRows(5));
+  const { payload } = await runDrain(db, 3);
+  assertEquals(payload.chained, true);
+  assertEquals(db.rpcCalls.includes("touch_apify_drain_singleflight"), true, "running_since refreshed");
+  assertEquals(db.rpcCalls.includes("release_apify_drain_singleflight"), false);
+});
+
+Deno.test("8.5: the last chain link releases the lock", async () => {
+  const db = new FakeDb(staticRows(2)); // all captured in one batch -> no chain
+  const { payload } = await runDrain(db, 4);
+  assertEquals(payload.chained, false);
+  assertEquals(db.rpcCalls.includes("release_apify_drain_singleflight"), true);
+});
+
+Deno.test("8.5: a cron poke with no work releases the lock", async () => {
+  const db = new FakeDb([]);
+  const { payload } = await runDrain(db, 0);
+  assertEquals(payload.no_work, true);
+  assertEquals(db.rpcCalls.includes("release_apify_drain_singleflight"), true);
 });

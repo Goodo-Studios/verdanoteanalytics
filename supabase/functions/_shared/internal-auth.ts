@@ -1,10 +1,11 @@
 // Authentication gate for edge functions the Supabase gateway does NOT protect.
 //
-// Every function in this project is declared `verify_jwt = false` in config.toml.
-// That means the gateway forwards the request WITHOUT validating any JWT or apikey
-// — several functions carried comments claiming the opposite ("the Supabase gateway
-// validates the JWT/apikey before reaching this function"), which was never true.
-// The handler itself is the only gate, so these helpers are it.
+// Most functions in this project are declared `verify_jwt = false` in config.toml
+// (a few staff-only ones are `verify_jwt = true`; config.toml is the source of truth
+// and every block states it explicitly). For a `verify_jwt = false` function the
+// gateway forwards the request WITHOUT validating any JWT or apikey, so the handler
+// itself is the only gate and these helpers are it. Even `verify_jwt = true` admits
+// the public anon key, so it never replaces a check in the handler.
 //
 // How legitimate automated callers authenticate: every live pg_cron job (see
 // supabase/migrations/*_cron*.sql) sends

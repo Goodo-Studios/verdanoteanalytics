@@ -334,9 +334,12 @@ Deno.serve(async (req) => {
   }));
   const matched = matchGroupsToEntities(candidates, existing, threshold);
 
-  // 6. Reset denormalized member stamps (re-applied below), then upsert entities
-  //    in place (persistent ids) and stamp members.
-  await db.from("creatives").update({ cluster_id: null, cluster_confidence: null }).eq("account_id", accountId);
+  // 6. Upsert entities in place (persistent ids), then restamp members in one call.
+  //    The clear and the re-stamp happen together in restamp_creative_clusters, so a
+  //    failure part way never leaves the account unclustered (audit 5.10). Until that
+  //    call, creatives keep their previous stamps, whose entities still exist because
+  //    stale entities are only retired in step 7.
+  const stamps: Array<{ ad_id: string; cluster_id: string; confidence: string }> = [];
 
   const assignedIds: string[] = [];
   const clusterSpends: number[] = [];
@@ -385,18 +388,18 @@ Deno.serve(async (req) => {
     }, { onConflict: "id" });
     if (upErr) return json({ error: `entity upsert: ${upErr.message}` }, 500);
 
-    const memberIds = g.members.map((p) => p.ad_id);
-    for (let i = 0; i < memberIds.length; i += 500) {
-      const chunk = memberIds.slice(i, i + 500);
-      const { error: stampErr } = await db.from("creatives")
-        .update({ cluster_id: entityId, cluster_confidence: tier }).in("ad_id", chunk);
-      if (stampErr) return json({ error: `member stamp: ${stampErr.message}` }, 500);
-    }
+    for (const p of g.members) stamps.push({ ad_id: p.ad_id, cluster_id: entityId, confidence: tier });
 
     clusterSpends.push(totalSpend);
     clusteredCount += members.length;
     tierCounts[tier] = (tierCounts[tier] ?? 0) + 1;
   }
+
+  const { error: stampErr } = await db.rpc("restamp_creative_clusters", {
+    p_account_id: accountId,
+    p_stamps: stamps,
+  });
+  if (stampErr) return json({ error: `member stamp: ${stampErr.message}` }, 500);
 
   // 7. Retire entities not seen this run (empty). Ids are UUIDs — never reused.
   let retired = 0;

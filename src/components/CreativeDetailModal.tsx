@@ -17,8 +17,7 @@ import { CreativeFrames } from "@/components/creative-detail/CreativeFrames";
 import { GradeBadge } from "@/components/creatives/GradeBadge";
 
 import type { GradeInfo } from "@/lib/creativeGrading";
-import { useAuth } from "@/contexts/AuthContext";
-import { useClientPreview } from "@/hooks/useClientPreviewMode";
+import { useCanEditTags } from "@/hooks/useCanEditTags";
 import { PushToClickUpDialog } from "@/components/clickup/PushToClickUpDialog";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
@@ -30,7 +29,7 @@ type Creative = Database["public"]["Tables"]["creatives"]["Row"] & {
 };
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { saveCreativeToVault } from "@/lib/vaultSave";
+import { useCreativeVaultState } from "@/hooks/useCreativeVaultState";
 import { useCreativeAiDetail } from "@/hooks/useCreativeAiDetail";
 import {
   CreativeAiHeader,
@@ -286,28 +285,12 @@ export function MediaPreview({ creative, caching = false }: { creative: Creative
   );
 }
 export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModalProps>(function CreativeDetailModal({ creative, open, onClose, gradeMap }, ref) {
-  const { isBuilder, isEmployee } = useAuth();
   const queryClient = useQueryClient();
-  const canEdit = isBuilder || isEmployee;
-  const { isClientPreview } = useClientPreview();
-  // "Create brief in ClickUp": staff only, hidden while a builder previews the client view.
-  const canPushToClickUp = canEdit && !isClientPreview;
+  // Staff who are not previewing the client view (audit 3.3). Gates the tag editor, Save to Vault,
+  // the ClickUp brief button and the other edit controls in this window.
+  const canEdit = useCanEditTags();
+  const canPushToClickUp = canEdit;
   const [clickUpOpen, setClickUpOpen] = useState(false);
-  const [savingToVault, setSavingToVault] = useState(false);
-  const [savedToVault, setSavedToVault] = useState(false);
-  // true when the saved state came from a dedupe hit / pre-existing vault item,
-  // so the button can read "Already in Vault" rather than "Saved".
-  const [alreadyInVault, setAlreadyInVault] = useState(false);
-  // false until the "is this creative already in the vault?" lookup resolves.
-  // Until then the Save-to-Vault affordance is disabled ("Checking…") so it can
-  // never be clicked in the window before status is known — otherwise an
-  // already-saved creative briefly renders an enabled "Save to Vault" that then
-  // flips to a disabled "Already in Vault" (a click-then-disable race).
-  const [vaultStatusChecked, setVaultStatusChecked] = useState(false);
-  // The vault item this creative maps to (via source_ad_id), captured so the
-  // AI-header's Add-to-board / Share can operate on the real inspiration_items id.
-  const [vaultItemId, setVaultItemId] = useState<string | null>(null);
-  const [vaultShareToken, setVaultShareToken] = useState<string | null>(null);
   const [cachedMedia, setCachedMedia] = useState<{
     thumbnail_url?: string | null;
     full_res_url?: string | null;
@@ -355,42 +338,10 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
       .finally(() => setCaching(false));
   }, [open, creativeAdId, creativeAccountId, creativeVideoUrl, creativeThumbnailUrl, queryClient]);
 
-  // Reflect already-in-vault state when the modal opens. The vault library is
-  // global, so an item saved by anyone (matched on source_ad_id) marks this
-  // creative as saved.
-  useEffect(() => {
-    if (!open || !creativeAdId) return;
-    let cancelled = false;
-    setSavedToVault(false);
-    setAlreadyInVault(false);
-    setVaultStatusChecked(false);
-    setVaultItemId(null);
-    setVaultShareToken(null);
-    supabase
-      .from("inspiration_items")
-      .select("id, share_token")
-      .eq("source_ad_id", creativeAdId)
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (cancelled) return;
-        if (data) {
-          setSavedToVault(true);
-          setAlreadyInVault(true);
-          // share_token isn't in the generated types (vault tables are hand-typed
-          // in types/vault.ts), so read it off the row through a cast.
-          const row = data as { id: string; share_token: string | null };
-          setVaultItemId(row.id);
-          setVaultShareToken(row.share_token ?? null);
-        }
-        // Status known either way — release the Save affordance from its
-        // disabled "Checking…" state.
-        setVaultStatusChecked(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, creativeAdId]);
+  const {
+    savingToVault, savedToVault, alreadyInVault, vaultStatusChecked,
+    vaultItemId, vaultShareToken, saveToVault,
+  } = useCreativeVaultState(open, creativeAdId);
 
   // Lazy per-creative fetch of the AI-analysis + Vault-parity columns (framework,
   // hooks, transcript, brand/industry/ad_format/target_audience). Enabled while
@@ -409,34 +360,16 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
   // so the vault gets a usable copy even when the source video was just fetched.
   // Snapshot shaping + invoke live in the shared saveCreativeToVault helper,
   // reused by the analytics-grid bulk save (US-004).
-  const handleSaveToVault = async () => {
-    setSavingToVault(true);
-    try {
-      // Build the metric snapshot from the source creative, but send the
-      // (possibly freshly cached) display media URLs so the vault gets a copy.
-      const result = await saveCreativeToVault({
-        ...creative,
-        full_res_url: displayCreative.full_res_url,
-        video_url: displayCreative.video_url,
-        thumbnail_url: displayCreative.thumbnail_url,
-      });
+  const handleSaveToVault = () =>
+    // Build the metric snapshot from the source creative, but send the
+    // (possibly freshly cached) display media URLs so the vault gets a copy.
+    saveToVault({
+      ...creative,
+      full_res_url: displayCreative.full_res_url,
+      video_url: displayCreative.video_url,
+      thumbnail_url: displayCreative.thumbnail_url,
+    });
 
-      setSavedToVault(true);
-      if (result.alreadySaved) {
-        setAlreadyInVault(true);
-        toast.success("Already in Vault");
-      } else {
-        setAlreadyInVault(false);
-        toast.success("Saved to Vault");
-      }
-    } catch (err: unknown) {
-      setSavedToVault(false);
-      setAlreadyInVault(false);
-      toast.error(err instanceof Error ? err.message : "Failed to save to Vault");
-    } finally {
-      setSavingToVault(false);
-    }
-  };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -541,7 +474,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
             </div>
 
             {/* Save to Vault */}
-            {(isBuilder || isEmployee) && (
+            {canEdit && (
               <div className="flex items-center gap-2 flex-wrap">
                 {canPushToClickUp && (
                   <Button
@@ -577,7 +510,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
               </div>
             )}
 
-            <CreativeTagEditor creative={creative} />
+            {canEdit && <CreativeTagEditor creative={creative} />}
           </TabsContent>
 
           {/* AI-analysis tabs — full parity with the Creative Vault detail view.

@@ -1,4 +1,6 @@
+import { ADD_TO_CART_ACTION_TYPES, PURCHASE_ACTION_TYPES, pickActionValue } from "../_shared/meta-actions.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { PROTECTED_TAG_SOURCES } from "../_shared/protected-tag-sources.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireStaffOrServiceRole } from "../_shared/internal-auth.ts";
@@ -6,6 +8,12 @@ import { resolveConvention } from "../_shared/naming-convention.ts";
 import { parseAdName } from "../_shared/parse-ad-name.ts";
 import { parsedDisplayTags } from "../_shared/ad-name-display.ts";
 import { needsAutoParse } from "../_shared/name-sync-logic.ts";
+import {
+  loadAlertCandidates,
+  loadAutoParseCandidates,
+  loadMappingsByCode,
+  sumLocalDailyMetrics,
+} from "./reads.ts";
 import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
 import { parsePlayCurve } from "../_shared/play-curve.ts";
 import { RECENT_WINDOW_DAYS, RETENTION_DAYS } from "../_shared/retention-config.ts";
@@ -32,6 +40,8 @@ import {
   urlTargetsAccount,
 } from "../_shared/meta-errors.ts";
 import { resumeCursor, sanitizeSyncState } from "../_shared/meta-cursor.ts";
+import { networkErrorMessage, serializeApiErrors } from "../_shared/sync-errors.ts";
+import { redact } from "../_shared/safe-error.ts";
 import { cooldownRemainingMs, cooldownWaitMs } from "../_shared/sync-handoff.ts";
 
 // US-002: Rolling-window incremental daily sync.
@@ -59,6 +69,34 @@ export const MAX_DAILY_ERROR_RETRIES = 4;
  * chunk is spent (then the caller advances past it). Pure — unit-tested. */
 export function shouldPauseForDailyRetry(priorRetries: number, cap: number): boolean {
   return priorRetries + 1 <= cap;
+}
+
+/**
+ * Phase 4 date chunks: the [since, until] ranges (inclusive "yyyy-MM-dd") the daily
+ * breakdown requests, CHUNK_DAYS at a time, with the last chunk capped at endDate.
+ */
+export function phase4Chunks(
+  dailySinceDate: string,
+  endDate: Date,
+  chunkDays = 15,
+): { since: string; until: string }[] {
+  const fullStartDate = new Date(dailySinceDate + "T00:00:00Z");
+  // The window runs from dailySinceDate through today inclusive, which is dailyDays + 1
+  // calendar days. Counting chunks from dailyDays alone dropped today whenever dailyDays was
+  // a multiple of chunkDays (15, 30, 60, 90; audit 6.5).
+  const endDay = Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate());
+  const spanDays = Math.max(1, Math.round((endDay - fullStartDate.getTime()) / 86_400_000) + 1);
+  const totalChunks = Math.ceil(spanDays / chunkDays);
+  const chunks: { since: string; until: string }[] = [];
+  for (let i = 0; i < totalChunks; i++) {
+    const chunkStart = new Date(fullStartDate);
+    chunkStart.setDate(chunkStart.getDate() + i * chunkDays);
+    const chunkEnd = new Date(chunkStart);
+    chunkEnd.setDate(chunkEnd.getDate() + chunkDays - 1);
+    if (chunkEnd > endDate) chunkEnd.setTime(endDate.getTime());
+    chunks.push({ since: chunkStart.toISOString().split("T")[0], until: chunkEnd.toISOString().split("T")[0] });
+  }
+  return chunks;
 }
 
 export function computeDailyWindowDays(opts: {
@@ -306,15 +344,18 @@ export interface DailyRollupInputRow {
   retention_p50?: number | null;
   retention_p75?: number | null;
   retention_p100?: number | null;
+  result_count?: number | null;
 }
 
-export function rollupDailyRows(rows: DailyRollupInputRow[]) {
+export function rollupDailyRows(rows: DailyRollupInputRow[], optimizationGoal?: string | null) {
   const n = (v: number | null | undefined) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
-  let spend = 0, impressions = 0, clicks = 0, purchases = 0, purchase_value = 0;
+  let spend = 0, impressions = 0, clicks = 0, purchases = 0, purchase_value = 0, results = 0;
   let adds_to_cart = 0, video_views = 0, thruplays = 0, vaptWeighted = 0, freqWeighted = 0;
   // Retention: video-view weighted; only days with a scalar AND views contribute.
-  let p25Num = 0, p50Num = 0, p75Num = 0, p100Num = 0, retWeight = 0;
+  // Each quartile has its own weight: the views of the days that report it (audit 6.5).
+  let p25Num = 0, p50Num = 0, p75Num = 0, p100Num = 0;
+  let p25W = 0, p50W = 0, p75W = 0, p100W = 0;
 
   for (const r of rows) {
     const vv = n(r.video_views);
@@ -322,6 +363,7 @@ export function rollupDailyRows(rows: DailyRollupInputRow[]) {
     impressions += n(r.impressions);
     clicks += n(r.clicks);
     purchases += n(r.purchases);
+    results += n(r.result_count);
     purchase_value += n(r.purchase_value);
     adds_to_cart += n(r.adds_to_cart);
     video_views += vv;
@@ -331,11 +373,10 @@ export function rollupDailyRows(rows: DailyRollupInputRow[]) {
     vaptWeighted += n(r.video_avg_play_time) * vv;
     freqWeighted += n(r.frequency) * n(r.impressions);
     if (vv > 0) {
-      if (r.retention_p50 != null) { retWeight += vv; }
-      if (r.retention_p25 != null) p25Num += n(r.retention_p25) * vv;
-      if (r.retention_p50 != null) p50Num += n(r.retention_p50) * vv;
-      if (r.retention_p75 != null) p75Num += n(r.retention_p75) * vv;
-      if (r.retention_p100 != null) p100Num += n(r.retention_p100) * vv;
+      if (r.retention_p25 != null) { p25Num += n(r.retention_p25) * vv; p25W += vv; }
+      if (r.retention_p50 != null) { p50Num += n(r.retention_p50) * vv; p50W += vv; }
+      if (r.retention_p75 != null) { p75Num += n(r.retention_p75) * vv; p75W += vv; }
+      if (r.retention_p100 != null) { p100Num += n(r.retention_p100) * vv; p100W += vv; }
     }
   }
 
@@ -355,13 +396,17 @@ export function rollupDailyRows(rows: DailyRollupInputRow[]) {
     // APPROXIMATE — impression-weighted mean daily frequency; summed daily reach
     // would overcount so no exact aggregate frequency exists locally (accepted).
     frequency: impressions > 0 ? freqWeighted / impressions : 0,
-    result_count: purchases,
-    cost_per_result: purchases > 0 ? spend / purchases : 0,
+    // Results follow the account's goal (audit 6.5): summed daily result counts for
+    // SESSION_CONVERSION, purchases otherwise.
+    result_count: optimizationGoal === "SESSION_CONVERSION" ? results : purchases,
+    cost_per_result: optimizationGoal === "SESSION_CONVERSION"
+      ? (results > 0 ? spend / results : 0)
+      : (purchases > 0 ? spend / purchases : 0),
     // Retention scalars: view-weighted, null when no weighted days.
-    retention_p25: retWeight > 0 ? p25Num / retWeight : null,
-    retention_p50: retWeight > 0 ? p50Num / retWeight : null,
-    retention_p75: retWeight > 0 ? p75Num / retWeight : null,
-    retention_p100: retWeight > 0 ? p100Num / retWeight : null,
+    retention_p25: p25W > 0 ? p25Num / p25W : null,
+    retention_p50: p50W > 0 ? p50Num / p50W : null,
+    retention_p75: p75W > 0 ? p75Num / p75W : null,
+    retention_p100: p100W > 0 ? p100Num / p100W : null,
   };
 }
 
@@ -405,6 +450,47 @@ export function countRealErrors(errs: { message?: string }[]): number {
   return errs.filter((e) => !isInformationalSyncNote(e.message || "")).length;
 }
 
+/**
+ * Write a sync_logs row only while it is still running (audit 5.4). A sync the user
+ * cancelled mid-phase used to be set back to "running" by its own next save, so it
+ * came back. Returns true when the row was updated.
+ */
+// deno-lint-ignore no-explicit-any
+export async function updateRunningSyncLog(supabase: any, syncLogId: string, patch: Record<string, unknown>): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("sync_logs")
+    .update(patch)
+    .eq("id", syncLogId)
+    .eq("status", "running")
+    .select("id");
+  if (error) throw error;
+  return Array.isArray(data) && data.length > 0;
+}
+
+/**
+ * Cancel running and queued syncs (audit 5.4). With an account id, only that
+ * account's syncs are cancelled; it used to cancel every account's. With null, every
+ * active sync is cancelled (the staff "all accounts" view). The update is filtered by
+ * status again so a sync that finished in the meantime is never marked cancelled.
+ * Returns the number cancelled.
+ */
+// deno-lint-ignore no-explicit-any
+export async function cancelActiveSyncs(supabase: any, accountId: string | null): Promise<number> {
+  const now = new Date().toISOString();
+  let query = supabase
+    .from("sync_logs")
+    .update({
+      status: "cancelled",
+      api_errors: JSON.stringify([{ timestamp: now, message: "Cancelled by user" }]),
+      completed_at: now,
+    })
+    .in("status", ["running", "queued"]);
+  if (accountId) query = query.eq("account_id", accountId);
+  const { data, error } = await query.select("id");
+  if (error) throw error;
+  return Array.isArray(data) ? data.length : 0;
+}
+
 export interface MetaFetchCtx {
   metaApiCalls: number;
   apiErrors: { timestamp: string; message: string }[];
@@ -413,6 +499,11 @@ export interface MetaFetchCtx {
   accountId?: string;
   /** Set when Meta returns a permanent error for the account itself (or a bad token). */
   terminalError?: string | null;
+  /**
+   * Audit 8.4: refreshes sync_logs.last_activity. Called while metaFetch waits out a rate
+   * limit, so claim_sync_continue never mistakes a waiting sync for a dead one.
+   */
+  heartbeat?: () => Promise<void>;
 }
 
 export async function metaFetch(
@@ -444,9 +535,11 @@ export async function metaFetch(
           // This prevents rate-limit backoffs from overrunning the phase budget and causing
           // Supabase's hard wall-clock limit to kill the function before state can be saved.
           const waitUntil = Date.now() + waitSec * 1000;
+          await ctx.heartbeat?.();
           while (Date.now() < waitUntil) {
             await new Promise(r => setTimeout(r, 1000));
             if (ctx.isTimedOut()) return { data: null, next: null, error: false, rateLimited: true, retriableUrl: url };
+            await ctx.heartbeat?.();
           }
           continue;
         }
@@ -498,7 +591,7 @@ export async function metaFetch(
       return { data: json.data || [], next: json.paging?.next || null, error: false, rateLimited: false, retriableUrl: null };
     } catch (fetchErr) {
       console.error("Fetch error:", fetchErr);
-      ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Network error: ${String(fetchErr)}` });
+      ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: networkErrorMessage(fetchErr) });
       return { data: null, next: null, error: true, rateLimited: false, retriableUrl: null };
     }
   }
@@ -506,7 +599,7 @@ export async function metaFetch(
 
 // ─── Metrics Parsing Helper ──────────────────────────────────────────────────
 
-function parseInsightsRow(row: any, optimizationGoal?: string) {
+export function parseInsightsRow(row: any, optimizationGoal?: string) {
   const spend = parseFloat(row.spend || "0");
   const roas = row.purchase_roas?.[0]?.value ? parseFloat(row.purchase_roas[0].value) : 0;
   const ctr = parseFloat(row.ctr || "0");
@@ -520,13 +613,12 @@ function parseInsightsRow(row: any, optimizationGoal?: string) {
   let addsToCart = 0, costPerAtc = 0;
   let videoViews = 0, thruPlays = 0;
 
+  // One purchase / add-to-cart type by fixed priority, not Meta's list order (audit 6.1).
   if (row.actions) {
-    const purchaseTypes = ["purchase", "offsite_conversion.fb_pixel_purchase", "omni_purchase"];
-    const pa = row.actions.find((a: any) => purchaseTypes.includes(a.action_type));
-    if (pa) purchases = parseInt(pa.value || "0");
-    const atcTypes = ["add_to_cart", "offsite_conversion.fb_pixel_add_to_cart", "omni_add_to_cart"];
-    const atc = row.actions.find((a: any) => atcTypes.includes(a.action_type));
-    if (atc) addsToCart = parseInt(atc.value || "0");
+    const pa = pickActionValue(row.actions, PURCHASE_ACTION_TYPES);
+    if (pa !== undefined) purchases = parseInt(String(pa || "0"));
+    const atc = pickActionValue(row.actions, ADD_TO_CART_ACTION_TYPES);
+    if (atc !== undefined) addsToCart = parseInt(String(atc || "0"));
     const vv = row.actions.find((a: any) => a.action_type === "video_view");
     if (vv) videoViews = parseInt(vv.value || "0");
   }
@@ -535,17 +627,14 @@ function parseInsightsRow(row: any, optimizationGoal?: string) {
     if (tp) thruPlays = parseInt(tp.value || "0");
   }
   if (row.action_values) {
-    const purchaseTypes = ["purchase", "offsite_conversion.fb_pixel_purchase", "omni_purchase"];
-    const pv = row.action_values.find((a: any) => purchaseTypes.includes(a.action_type));
-    if (pv) purchaseValue = parseFloat(pv.value || "0");
+    const pv = pickActionValue(row.action_values, PURCHASE_ACTION_TYPES);
+    if (pv !== undefined) purchaseValue = parseFloat(String(pv || "0"));
   }
   if (row.cost_per_action_type) {
-    const purchaseTypes = ["purchase", "offsite_conversion.fb_pixel_purchase", "omni_purchase"];
-    const cp = row.cost_per_action_type.find((a: any) => purchaseTypes.includes(a.action_type));
-    if (cp) cpa = parseFloat(cp.value || "0");
-    const atcTypes = ["add_to_cart", "offsite_conversion.fb_pixel_add_to_cart", "omni_add_to_cart"];
-    const cpatc = row.cost_per_action_type.find((a: any) => atcTypes.includes(a.action_type));
-    if (cpatc) costPerAtc = parseFloat(cpatc.value || "0");
+    const cp = pickActionValue(row.cost_per_action_type, PURCHASE_ACTION_TYPES);
+    if (cp !== undefined) cpa = parseFloat(String(cp || "0"));
+    const cpatc = pickActionValue(row.cost_per_action_type, ADD_TO_CART_ACTION_TYPES);
+    if (cpatc !== undefined) costPerAtc = parseFloat(String(cpatc || "0"));
   }
 
   // US-003: Generic outcome metrics — branch on account optimization goal
@@ -602,11 +691,7 @@ async function runSnapshotAlerts(supabase: any, account: any, accountId: string)
     const scaleThreshold = account.scale_threshold || 2.0;
     const killThreshold = account.kill_threshold || 1.0;
 
-    const { data: candidates } = await supabase
-      .from("creatives")
-      .select("ad_id, ad_name, roas, prior_roas, spend")
-      .eq("account_id", accountId)
-      .gt("spend", spendThreshold);
+    const candidates = await loadAlertCandidates(supabase, accountId, spendThreshold);
 
     // Extract a readable display name from raw Meta ad names / naming convention strings.
     // e.g. "iAT:IMG>iName:SomeCoolAd>iSrc:Branded>..." → "SomeCoolAd"
@@ -787,11 +872,13 @@ async function promoteNextQueued(supabase: any): Promise<PromoteResult> {
 //   5 = Finalize
 
 // Legacy rows may still hold token-bearing cursor URLs; scrub on the way out.
-function withSafeSyncState<T extends { sync_state?: unknown } | null>(row: T): T {
-  const s = row?.sync_state;
-  return row && s && typeof s === "object"
-    ? { ...row, sync_state: sanitizeSyncState(s as Record<string, unknown>) }
-    : row;
+function withSafeSyncState<T extends { sync_state?: unknown; api_errors?: unknown } | null>(row: T): T {
+  if (!row) return row;
+  const s = row.sync_state;
+  const out: Record<string, unknown> = { ...row };
+  if (s && typeof s === "object") out.sync_state = sanitizeSyncState(s as Record<string, unknown>);
+  if (typeof row.api_errors === "string") out.api_errors = redact(row.api_errors);
+  return out as T;
 }
 
 async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
@@ -815,6 +902,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       }).eq("id", syncLog.id);
     } catch (_) { /* best effort */ }
   };
+  ctx.heartbeat = heartbeat;
 
   const accountId = syncLog.account_id;
   const { data: account } = await supabase.from("ad_accounts").select("*").eq("id", accountId).single();
@@ -891,7 +979,8 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     // Never persist the Meta access_token embedded in pagination URLs (sync_logs is client-readable).
     const merged = sanitizeSyncState({ ...serializableState, ...newState, last_activity: new Date().toISOString() });
     try {
-      await supabase.from("sync_logs").update({
+      // Only while still running: a cancel during this phase must stick (audit 5.4).
+      await updateRunningSyncLog(supabase, syncLog.id, {
         current_phase: nextPhase,
         sync_state: merged,
         status,
@@ -902,16 +991,16 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         tags_manual_preserved: merged.tags_manual_preserved ?? syncLog.tags_manual_preserved ?? 0,
         tags_untagged: merged.tags_untagged ?? syncLog.tags_untagged ?? 0,
         meta_api_calls: (syncLog.meta_api_calls || 0) + ctx.metaApiCalls,
-        api_errors: JSON.stringify([...JSON.parse(syncLog.api_errors || "[]"), ...ctx.apiErrors]),
+        api_errors: serializeApiErrors(syncLog.api_errors, ctx.apiErrors),
         duration_ms: (syncLog.duration_ms || 0) + (Date.now() - startMs),
         ...(status !== "running" ? { completed_at: new Date().toISOString() } : {}),
-      }).eq("id", syncLog.id);
+      });
     } catch (saveErr) {
       console.error("saveState failed:", saveErr);
       try {
-        await supabase.from("sync_logs").update({
-          sync_state: { ...state, last_activity: new Date().toISOString(), save_error: String(saveErr) },
-        }).eq("id", syncLog.id);
+        await updateRunningSyncLog(supabase, syncLog.id, {
+          sync_state: { ...state, last_activity: new Date().toISOString(), save_error: redact(saveErr) },
+        });
       } catch (_) { /* truly lost */ }
     }
 
@@ -955,10 +1044,18 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       const includeArchived = account.include_archived === true;
       const includeZeroImpression = account.include_zero_impression === true;
 
-      // Get manual/csv-tagged ad IDs to preserve their tags (only update metadata)
-      const { data: taggedAds } = await supabase.from("creatives").select("ad_id")
-        .eq("account_id", accountId).in("tag_source", ["manual", "csv"]);
-      const taggedAdIds = new Set((taggedAds || []).map((a: any) => a.ad_id));
+      // Ad IDs with user or curated tags (manual, csv, csv_match): only their metadata
+      // is updated. Paged, because one select stops at 1,000 rows (audit 5.11).
+      const taggedAdIds = new Set<string>();
+      for (let from = 0; ; from += 1000) {
+        const { data: taggedPage, error: taggedErr } = await supabase.from("creatives").select("ad_id")
+          .eq("account_id", accountId).in("tag_source", PROTECTED_TAG_SOURCES)
+          .order("ad_id")
+          .range(from, from + 999);
+        if (taggedErr) throw taggedErr;
+        for (const a of (taggedPage || []) as { ad_id: string }[]) taggedAdIds.add(a.ad_id);
+        if (!taggedPage || taggedPage.length < 1000) break;
+      }
 
       let fetchedCount = state.creatives_fetched || 0;
 
@@ -1417,35 +1514,13 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // PHASE 3: Cleanup zero-spend creatives + count
+    // PHASE 3: Count creatives
     // ═══════════════════════════════════════════════════════════════════
+    // The zero-spend cleanup that ran here was removed (Matthew's decision 18): it
+    // looked for impressions IS NULL, which never matches because the column defaults
+    // to 0, and fixing it would have deleted thousands of creatives. Nothing is deleted.
     if (phase === 3) {
-      console.log("Phase 3: Cleanup zero-spend creatives...");
-
-      // US-006: when the account opts into zero-impression ads, SKIP the zero-spend
-      // cleanup. A genuinely zero-impression ad is ingested in Phase 1 with
-      // spend<=0 AND impressions IS NULL (Meta never reports metrics for it, so
-      // Phase 4 never populates it), which is EXACTLY the row this cleanup deletes.
-      // Deleting it would silently undo include_zero_impression on every sync. The
-      // media_coverage view already counts these rows as eligible (impressions NULL
-      // OR the flag), so keeping them is correct.
-      if (account.include_zero_impression === true) {
-        console.log("  include_zero_impression=true → skipping zero-spend cleanup (retaining zero-impression ads)");
-      } else {
-        // Delete zero-spend creatives EXCEPT:
-        // - manually/csv-tagged ones (user investment)
-        // - placeholder ads created by Phase 4 auto-create (ad_name = ad_id pattern)
-        //   These will get real metrics in Phase 4 of the current sync.
-        const { count: zeroSpendCount } = await supabase.from("creatives")
-          .delete({ count: "exact" })
-          .eq("account_id", accountId)
-          .lte("spend", 0)
-          .is("impressions", null)  // Only delete truly empty rows (never had data)
-          .not("tag_source", "in", '("manual","csv")');
-        if (zeroSpendCount && zeroSpendCount > 0) {
-          console.log(`  Cleaned up ${zeroSpendCount} zero-spend creatives`);
-        }
-      }
+      console.log("Phase 3: Count creatives...");
 
       // Count remaining
       const { count: remaining } = await supabase.from("creatives")
@@ -1505,11 +1580,11 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       }
       // ────────────────────────────────────────────────────────────────────
 
-      const fullStartDate = new Date(dailySinceDate + "T00:00:00Z");
+      const chunks = phase4Chunks(dailySinceDate, endDate, CHUNK_DAYS);
 
       const chunkOffset = state.daily_chunk_offset || 0;
       const dailyCursor = resumeCursor(state.daily_cursor, metaToken);
-      const totalChunks = Math.ceil(dailyDays / CHUNK_DAYS);
+      const totalChunks = chunks.length;
 
       console.log(`Phase 4: Daily breakdowns (${dailyDays} days, chunk ${chunkOffset + 1}/${totalChunks})...`);
 
@@ -1520,14 +1595,8 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         const { data: sc } = await supabase.from("sync_logs").select("status").eq("id", syncLog.id).single();
         if (sc?.status === "cancelled") return;
 
-        const chunkStart = new Date(fullStartDate);
-        chunkStart.setDate(chunkStart.getDate() + currentChunk * CHUNK_DAYS);
-        const chunkEnd = new Date(chunkStart);
-        chunkEnd.setDate(chunkEnd.getDate() + CHUNK_DAYS - 1);
-        if (chunkEnd > endDate) chunkEnd.setTime(endDate.getTime());
-
-        const chunkSince = chunkStart.toISOString().split("T")[0];
-        const chunkUntil = chunkEnd.toISOString().split("T")[0];
+        const chunkSince = chunks[currentChunk].since;
+        const chunkUntil = chunks[currentChunk].until;
         const chunkRange = JSON.stringify({ since: chunkSince, until: chunkUntil });
 
         console.log(`  Chunk ${currentChunk + 1}/${totalChunks}: ${chunkSince} → ${chunkUntil}`);
@@ -1637,9 +1706,9 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
                 // retention curve from stored daily rows — no second Meta pull.
                 // The parser's normalized `play_curve` number[] maps to the daily
                 // jsonb column `video_play_curve_actions`.
-                // Still stripped (not columns on creative_daily_metrics):
-                // - result_count / cost_per_result: only on the creatives table.
-                const { play_curve, result_count: _resultCount, cost_per_result: _costPerResult, ...daily } =
+                // result_count is kept (each day's result for the account's goal, audit 6.5);
+                // cost_per_result is not a daily column, the rollup derives it.
+                const { play_curve, cost_per_result: _costPerResult, ...daily } =
                   parseInsightsRow(row, account?.optimization_goal);
                 return {
                   ad_id: row.ad_id,
@@ -1690,6 +1759,9 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     // ═══════════════════════════════════════════════════════════════════
     if (phase === 5) {
       console.log("Phase 5: Finalizing...");
+      // Audit 8.4: Phase 5 never refreshed last_activity, so a long finalize could look
+      // dead to claim_sync_continue. heartbeat() is throttled to one write per 20s.
+      await heartbeat();
 
       // ── US-003: LOCAL rollup of the per-ad snapshot ──────────────────────
       // Replaces the old Phase-2 full-window Meta aggregate fetch. Now that
@@ -1719,7 +1791,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         }
       } catch (rollupCatch) {
         console.error("Local rollup error (non-fatal):", rollupCatch);
-        ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Local snapshot rollup threw: ${String(rollupCatch)}` });
+        ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Local snapshot rollup threw: ${redact(rollupCatch)}` });
       }
 
       // ── Winner/concern Slack alert — runs AFTER the local rollup so it reads
@@ -1757,14 +1829,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         // into a Map keyed by unique_code. No manual layer in sync, so the locked
         // precedence reduces to: name_mappings > parser > untagged.
         const convention = await resolveConvention(supabase, accountId);
-        const { data: mappings } = await supabase
-          .from("name_mappings")
-          .select("*")
-          .eq("account_id", accountId);
-        const mappingByCode = new Map<string, Record<string, unknown>>();
-        for (const m of (mappings || [])) {
-          if (m.unique_code) mappingByCode.set(m.unique_code, m);
-        }
+        const mappingByCode = await loadMappingsByCode(supabase, accountId);
 
         // Candidates: tag_source 'untagged' (new ads) or 'parsed' (may have been
         // renamed). needsAutoParse keeps only rows whose ad_name differs from the
@@ -1772,19 +1837,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         // 'manual' rows are never selected, so a manual tag is never overwritten.
         // Paged: PostgREST caps a single select at 1000 rows and large accounts
         // hold far more 'parsed' creatives than that.
-        const candidates: { ad_id: string; ad_name: string; tag_source: string; parsed_ad_name: string | null }[] = [];
-        for (let from = 0; ; from += 1000) {
-          const { data: page, error: pageErr } = await supabase
-            .from("creatives")
-            .select("ad_id, ad_name, tag_source, parsed_ad_name")
-            .eq("account_id", accountId)
-            .in("tag_source", ["untagged", "parsed"])
-            .order("ad_id")
-            .range(from, from + 999);
-          if (pageErr) throw pageErr;
-          candidates.push(...(page || []));
-          if (!page || page.length < 1000) break;
-        }
+        const candidates = await loadAutoParseCandidates(supabase, accountId);
 
         // Batch: collect all updates, then update in chunks instead of one-by-one
         const tagUpdates: { ad_id: string; [k: string]: any }[] = [];
@@ -1868,7 +1921,11 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Failed to record last_synced_at: ${stampErr.message}` });
       }
 
-      // Snapshot current ROAS → prior_roas for next sync's threshold comparison
+      // Snapshot current ROAS → prior_roas. The next sync's Slack winner/concern alerts
+      // (runSnapshotAlerts, which runs before this) and the library's ROAS trend read it.
+      // The in-app notifications / performance_changelog writes that used to follow were
+      // removed (audit 5.2): nothing read those tables, and running after this snapshot
+      // they never saw a change.
       try {
         const { data: snapCount, error: snapErr } = await supabase.rpc("snapshot_prior_roas", { _account_id: accountId });
         if (snapErr) throw snapErr;
@@ -1877,195 +1934,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         console.error("prior_roas snapshot error (non-fatal):", priorErr);
       }
 
-      // ── Record Creative Score snapshots (skip if running low on time) ──
-      if (!isTimedOut()) {
-        try {
-          const { data: activeCreatives } = await supabase
-            .from("creatives")
-            .select("ad_id, roas, ctr, thumb_stop_rate, cpa, spend, ad_status")
-            .eq("account_id", accountId)
-            .gt("spend", 0)
-            .gt("impressions", 0);
-
-          if (activeCreatives && activeCreatives.length > 0) {
-            const scaleThreshold = account.scale_threshold || 2.0;
-            const ctrBenchmark = 3.0;
-            const hookRateBenchmark = 25.0;
-
-            const withCpa = activeCreatives.filter((c: any) => (Number(c.cpa) || 0) > 0);
-            const avgCpa = withCpa.length > 0
-              ? withCpa.reduce((s: number, c: any) => s + (Number(c.cpa) || 0), 0) / withCpa.length
-              : 0;
-
-            const scoreRows: any[] = [];
-            for (const c of activeCreatives) {
-              if (c.ad_status === "PAUSED") continue;
-              const roas = Number(c.roas) || 0;
-              const ctr = Number(c.ctr) || 0;
-              const hookRate = Number(c.thumb_stop_rate) || 0;
-              const cpa = Number(c.cpa) || 0;
-              const roasComp = Math.round(Math.min(1, roas / scaleThreshold) * 35);
-              const ctrComp = Math.round(Math.min(1, ctr / ctrBenchmark) * 20);
-              const hookComp = Math.round(Math.min(1, hookRate / hookRateBenchmark) * 15);
-              let cpaComp = 0;
-              if (avgCpa > 0 && cpa > 0) {
-                const ratio = cpa / avgCpa;
-                if (ratio <= 1) cpaComp = 10;
-                else if (ratio < 2) cpaComp = Math.round(10 * (1 - (ratio - 1)));
-              }
-              const momentumComp = 5;
-              const fatigueComp = 0;
-              const total = Math.max(0, Math.min(100, roasComp + ctrComp + hookComp + cpaComp + momentumComp + fatigueComp));
-              scoreRows.push({
-                ad_id: c.ad_id, account_id: accountId, score: total,
-                roas_component: roasComp, ctr_component: ctrComp, hook_rate_component: hookComp,
-                spend_efficiency_component: cpaComp, momentum_component: momentumComp, fatigue_component: fatigueComp,
-              });
-            }
-
-            for (let i = 0; i < scoreRows.length; i += 500) {
-              if (isTimedOut()) { console.log("  Score snapshots paused — budget exceeded"); break; }
-              const chunk = scoreRows.slice(i, i + 500);
-              const { error: scoreErr } = await supabase.from("score_history").insert(chunk);
-              if (scoreErr) console.error("Score history insert error (non-fatal):", scoreErr.message);
-            }
-            console.log(`  Recorded score snapshots for ${scoreRows.length} creatives`);
-          }
-        } catch (scoreHistoryErr) {
-          console.error("Score history error (non-fatal):", scoreHistoryErr);
-        }
-      } else {
-        console.log("  Skipping score snapshots — budget exceeded");
-      }
-
-      // Get users linked to this account (for notifications AND audit drift alerts)
-      // Hoisted above changelog block so it's in scope for the audit block too
-      const { data: userLinks } = await supabase.from("user_accounts").select("user_id").eq("account_id", accountId);
-      const userIds = (userLinks || []).map((l: any) => l.user_id);
-
-      // ── Auto-log changelog + notifications (consolidated single query) ──
-      try {
-        const scaleThreshold = account.scale_threshold || 2.0;
-        const killThreshold = account.kill_threshold || 1.0;
-
-        // Single query for all creatives with prior_roas — used by changelog AND notifications
-        const { data: allCreatives } = await supabase
-          .from("creatives")
-          .select("ad_id, ad_name, roas, prior_roas, spend, ad_status")
-          .eq("account_id", accountId)
-          .gt("impressions", 0);
-
-        const changelogEntries: any[] = [];
-        const notifications: any[] = [];
-
-        for (const c of (allCreatives || [])) {
-          const currentRoas = Number(c.roas) || 0;
-          const priorRoas = Number(c.prior_roas) || 0;
-          const spend = Number(c.spend) || 0;
-
-          // New creative with spend detected
-          if (spend > 0 && c.prior_roas === null) {
-            changelogEntries.push({
-              account_id: accountId, ad_id: c.ad_id, event_type: "new_creative",
-              description: `New creative detected: ${c.ad_name}`,
-              metadata: { ad_name: c.ad_name, spend, roas: currentRoas },
-            });
-          }
-
-          // ROAS changed by >20%
-          if (priorRoas > 0 && currentRoas > 0) {
-            const pctChange = ((currentRoas - priorRoas) / priorRoas) * 100;
-            if (Math.abs(pctChange) > 20) {
-              changelogEntries.push({
-                account_id: accountId, ad_id: c.ad_id, event_type: "roas_change",
-                description: `${c.ad_name} ROAS ${pctChange > 0 ? "increased" : "decreased"} by ${Math.abs(pctChange).toFixed(0)}%`,
-                old_value: priorRoas, new_value: currentRoas,
-                metadata: { pct_change: pctChange, ad_name: c.ad_name },
-              });
-            }
-          }
-
-          // Crossed scale threshold
-          if (priorRoas > 0 && currentRoas >= scaleThreshold && priorRoas < scaleThreshold) {
-            changelogEntries.push({
-              account_id: accountId, ad_id: c.ad_id, event_type: "threshold_crossed",
-              description: `${c.ad_name} crossed scale threshold (${scaleThreshold}x ROAS)`,
-              old_value: priorRoas, new_value: currentRoas,
-              metadata: { threshold: "scale", threshold_value: scaleThreshold },
-            });
-            // Winner notification
-            for (const uid of userIds) {
-              notifications.push({
-                user_id: uid, account_id: accountId, type: "winner",
-                title: `🏆 New winner: ${c.ad_name}`,
-                body: `ROAS hit ${currentRoas.toFixed(1)}x, crossing the ${scaleThreshold}x scale threshold.`,
-              });
-            }
-          }
-
-          // Dropped below kill threshold
-          if (priorRoas > 0 && currentRoas < killThreshold && priorRoas >= killThreshold && spend > 0) {
-            changelogEntries.push({
-              account_id: accountId, ad_id: c.ad_id, event_type: "threshold_crossed",
-              description: `${c.ad_name} dropped below kill threshold (${killThreshold}x ROAS)`,
-              old_value: priorRoas, new_value: currentRoas,
-              metadata: { threshold: "kill", threshold_value: killThreshold },
-            });
-            // Concern notification
-            for (const uid of userIds) {
-              notifications.push({
-                user_id: uid, account_id: accountId, type: "concern",
-                title: `⚠️ Underperformer: ${c.ad_name}`,
-                body: `ROAS dropped to ${currentRoas.toFixed(1)}x, below the ${killThreshold}x kill threshold.`,
-              });
-            }
-          }
-        }
-
-        // Check paused creatives (zero spend with prior data)
-        const { data: pausedCreatives } = await supabase
-          .from("creatives")
-          .select("ad_id, ad_name, prior_roas")
-          .eq("account_id", accountId)
-          .eq("spend", 0)
-          .not("prior_roas", "is", null)
-          .gt("prior_roas", 0);
-
-        for (const c of (pausedCreatives || [])) {
-          changelogEntries.push({
-            account_id: accountId, ad_id: c.ad_id, event_type: "creative_paused",
-            description: `${c.ad_name} has no spend (was ${Number(c.prior_roas).toFixed(1)}x ROAS)`,
-            metadata: { prior_roas: c.prior_roas },
-          });
-        }
-
-        // Sync complete notification
-        for (const uid of userIds) {
-          notifications.push({
-            user_id: uid, account_id: accountId, type: "sync",
-            title: `Sync complete: ${account.name}`,
-            body: `${totalResult.count || 0} creatives synced.`,
-          });
-        }
-
-        // Insert ALL changelog entries in chunks — the old slice(0, 50) cap silently
-        // dropped every event past 50, so active accounts missed most notifications.
-        for (let i = 0; i < changelogEntries.length; i += 100) {
-          const batch = changelogEntries.slice(i, i + 100);
-          const { error: clErr } = await supabase.from("performance_changelog").insert(batch);
-          if (clErr) console.error("Changelog insert error (non-fatal):", clErr.message);
-        }
-        if (changelogEntries.length > 0) console.log(`  Logged ${changelogEntries.length} changelog entries`);
-
-        for (let i = 0; i < notifications.length; i += 100) {
-          const batch = notifications.slice(i, i + 100);
-          const { error: notifErr } = await supabase.from("notifications").insert(batch);
-          if (notifErr) console.error("Notification insert error (non-fatal):", notifErr.message);
-        }
-        if (notifications.length > 0) console.log(`  Created ${notifications.length} notifications`);
-      } catch (changelogNotifErr) {
-        console.error("Changelog/notification error (non-fatal):", changelogNotifErr);
-      }
+      await heartbeat();
 
       // ── Post-Sync Spend Audit ──────────────────────────────────────────
       // Compare local daily totals against Meta account-level spend
@@ -2099,37 +1968,10 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
               const metaImpressions = parseInt(auditJson.data[0].impressions || "0");
 
               // Sum local daily metrics (paginated)
-              let localSpend = 0;
-              let localImpressions = 0;
-              let localAdIds = 0;
-              let offset = 0;
-              let auditComplete = true;
-              const PAGE = 1000;
-              while (true) {
-                if (isTimedOut()) {
-                  // Partial sums must not masquerade as a completed audit — they read
-                  // as massive under-reporting and would fire false drift alerts.
-                  console.warn("  Post-sync audit interrupted by budget — marking incomplete");
-                  auditComplete = false;
-                  break;
-                }
-                const { data: rows } = await supabase
-                  .from("creative_daily_metrics")
-                  .select("spend, impressions")
-                  .eq("account_id", accountId)
-                  .gte("date", auditStart)
-                  .lte("date", auditEnd)
-                  .range(offset, offset + PAGE - 1);
-                if (!rows || rows.length === 0) break;
-                for (const r of rows) {
-                  localSpend += r.spend || 0;
-                  localImpressions += r.impressions || 0;
-                  localAdIds++;
-                }
-                if (rows.length < PAGE) break;
-                offset += PAGE;
-              }
-
+              const local = await sumLocalDailyMetrics(supabase, accountId, auditStart, auditEnd, isTimedOut);
+              const localSpend = local.spend;
+              const localImpressions = local.impressions;
+              const auditComplete = local.complete;
               const spendDelta = localSpend - metaSpend;
               const spendDeltaPct = metaSpend > 0 ? (spendDelta / metaSpend) * 100 : 0;
               const driftExceeded = auditComplete && Math.abs(spendDeltaPct) >= 2;
@@ -2148,18 +1990,6 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
 
               console.log(`  📊 Post-sync audit: Meta=$${metaSpend.toFixed(2)} Local=$${localSpend.toFixed(2)} Delta=${spendDeltaPct.toFixed(1)}% ${driftExceeded ? "⚠️ DRIFT" : "✅ OK"}`);
 
-              // Send drift warning notification (inserted directly, not through batch)
-              if (driftExceeded) {
-                const direction = spendDelta < 0 ? "under-reporting" : "over-reporting";
-                const driftNotifs = userIds.map((uid: string) => ({
-                  user_id: uid, account_id: accountId, type: "concern",
-                  title: `⚠️ Data drift detected: ${account.name}`,
-                  body: `Local spend is ${direction} by ${Math.abs(spendDeltaPct).toFixed(1)}% vs Meta ($${Math.abs(spendDelta).toFixed(0)} gap). Run a full re-sync or check the Spend Diagnostic.`,
-                }));
-                if (driftNotifs.length > 0) {
-                  await supabase.from("notifications").insert(driftNotifs);
-                }
-              }
             }
           }
         } catch (auditErr) {
@@ -2211,7 +2041,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     try {
       await supabase.from("sync_logs").update({
         status: "failed",
-        api_errors: JSON.stringify([...JSON.parse(syncLog.api_errors || "[]"), ...ctx.apiErrors]),
+        api_errors: serializeApiErrors(syncLog.api_errors, ctx.apiErrors),
         completed_at: new Date().toISOString(),
         duration_ms: (syncLog.duration_ms || 0) + (Date.now() - startMs),
       }).eq("id", syncLog.id);
@@ -2281,17 +2111,14 @@ const handler = async (req: Request) => {
 
     // ─── POST /sync/cancel ─────────────────────────────────────────────
     if (req.method === "POST" && path === "cancel") {
-      const { data: activeSyncs } = await supabase.from("sync_logs").select("id, started_at").in("status", ["running", "queued"]);
-      if (!activeSyncs?.length) {
+      // Scoped to the account asked for (audit 5.4); no account (or "all") cancels every active sync.
+      const cancelBody = await req.json().catch(() => ({})) as { account_id?: string };
+      const cancelAccount = cancelBody.account_id && cancelBody.account_id !== "all" ? cancelBody.account_id : null;
+      const cancelled = await cancelActiveSyncs(supabase, cancelAccount);
+      if (cancelled === 0) {
         return new Response(JSON.stringify({ message: "No running sync to cancel" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
-      const now = new Date().toISOString();
-      await supabase.from("sync_logs").update({
-        status: "cancelled",
-        api_errors: JSON.stringify([{ timestamp: now, message: "Cancelled by user" }]),
-        completed_at: now,
-      }).in("id", activeSyncs.map((s: any) => s.id));
-      return new Response(JSON.stringify({ cancelled: activeSyncs.length }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ cancelled }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ─── POST /sync/continue ───────────────────────────────────────────
@@ -2344,7 +2171,7 @@ const handler = async (req: Request) => {
       // DB-level mutex: atomic claim via claim_sync_continue RPC.
       // Two concurrent callers both pass the status='running' check above; the RPC's WHERE
       // requires an exact claim_id match (chain continuation) or accepts a null claim
-      // only when no active claim exists or last_activity went stale (>90s).
+      // only when no active claim exists or last_activity went stale (>180s, audit 8.4).
       // Postgres serializes concurrent UPDATEs on the same row, so only one caller wins.
       const newClaimId = crypto.randomUUID();
       const { data: claimResult, error: claimError } = await supabase.rpc("claim_sync_continue", {

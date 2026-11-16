@@ -38,6 +38,7 @@
 // parser is the canonical `parsePlayCurve` (../_shared/play-curve.ts) — IMPORTED,
 // never re-implemented. There is exactly one play-curve parser in the codebase.
 
+import { ADD_TO_CART_ACTION_TYPES, PURCHASE_ACTION_TYPES, pickActionValue } from "../_shared/meta-actions.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
@@ -78,6 +79,34 @@ export const MAX_RATE_LIMIT_RETRIES = 5;
 
 // Delay between paginated Graph requests (ms) — gentle pacing under app-wide limits.
 export const INTER_REQUEST_DELAY_MS = 300;
+
+// Self-chain limit (audit 8.2). Each link runs up to DEADLINE_MS, so 30 links is about
+// an hour of continuous backfill before the chain stops and the 20-minute cron resumes.
+export const MAX_CHAIN = 30;
+
+// A single-flight lock older than this is treated as a crashed run and reclaimed.
+export const SINGLEFLIGHT_STALE_SECONDS = 900;
+
+/**
+ * Whether a finished run should start the next link of the chain (audit 8.2).
+ * Only a run that ran out of time continues straight away. An error stops the
+ * chain (retrying immediately would hit the same failure), a rate-limit pause is
+ * left for the next cron run, and the chain stops after MAX_CHAIN links.
+ */
+export function chainDecision(input: {
+  dryRun: boolean;
+  timedOut: boolean;
+  errors: number;
+  paused: boolean;
+  chain: number;
+}): { chain: boolean; reason: "dry_run" | "error" | "rate_limited" | "max_chain" | null } {
+  if (input.dryRun) return { chain: false, reason: "dry_run" };
+  if (input.errors > 0) return { chain: false, reason: "error" };
+  if (input.paused) return { chain: false, reason: "rate_limited" };
+  if (!input.timedOut) return { chain: false, reason: null };
+  if (input.chain >= MAX_CHAIN) return { chain: false, reason: "max_chain" };
+  return { chain: true, reason: null };
+}
 
 // Insights fields — the daily-grain set the sync Phase-4 upsert consumes, plus the
 // play-curve field so the retention curve is backfilled at daily grain too.
@@ -185,7 +214,8 @@ export function insightsUrl(
  * upsert key) or for ad_ids not in `validAdIds`.
  */
 // deno-lint-ignore no-explicit-any
-export function buildDailyRow(row: any, accountId: string, validAdIds: Set<string>) {
+/** optimizationGoal decides the day's result_count (audit 6.5); defaults to PURCHASE. */
+export function buildDailyRow(row: any, accountId: string, validAdIds: Set<string>, optimizationGoal?: string | null) {
   if (!row?.ad_id || !row?.date_start) return null;
   if (!validAdIds.has(row.ad_id)) return null;
 
@@ -201,16 +231,12 @@ export function buildDailyRow(row: any, accountId: string, validAdIds: Set<strin
   let purchases = 0, purchaseValue = 0, cpa = 0, addsToCart = 0, costPerAtc = 0;
   let videoViews = 0, thruPlays = 0;
 
-  const purchaseTypes = ["purchase", "offsite_conversion.fb_pixel_purchase", "omni_purchase"];
-  const atcTypes = ["add_to_cart", "offsite_conversion.fb_pixel_add_to_cart", "omni_add_to_cart"];
-
+  // One purchase / add-to-cart type by fixed priority, the same as sync (audit 6.1).
   if (row.actions) {
-    // deno-lint-ignore no-explicit-any
-    const pa = row.actions.find((a: any) => purchaseTypes.includes(a.action_type));
-    if (pa) purchases = parseInt(pa.value || "0");
-    // deno-lint-ignore no-explicit-any
-    const atc = row.actions.find((a: any) => atcTypes.includes(a.action_type));
-    if (atc) addsToCart = parseInt(atc.value || "0");
+    const pa = pickActionValue(row.actions, PURCHASE_ACTION_TYPES);
+    if (pa !== undefined) purchases = parseInt(String(pa || "0"));
+    const atc = pickActionValue(row.actions, ADD_TO_CART_ACTION_TYPES);
+    if (atc !== undefined) addsToCart = parseInt(String(atc || "0"));
     // deno-lint-ignore no-explicit-any
     const vv = row.actions.find((a: any) => a.action_type === "video_view");
     if (vv) videoViews = parseInt(vv.value || "0");
@@ -221,17 +247,14 @@ export function buildDailyRow(row: any, accountId: string, validAdIds: Set<strin
     if (tp) thruPlays = parseInt(tp.value || "0");
   }
   if (row.action_values) {
-    // deno-lint-ignore no-explicit-any
-    const pv = row.action_values.find((a: any) => purchaseTypes.includes(a.action_type));
-    if (pv) purchaseValue = parseFloat(pv.value || "0");
+    const pv = pickActionValue(row.action_values, PURCHASE_ACTION_TYPES);
+    if (pv !== undefined) purchaseValue = parseFloat(String(pv || "0"));
   }
   if (row.cost_per_action_type) {
-    // deno-lint-ignore no-explicit-any
-    const cp = row.cost_per_action_type.find((a: any) => purchaseTypes.includes(a.action_type));
-    if (cp) cpa = parseFloat(cp.value || "0");
-    // deno-lint-ignore no-explicit-any
-    const cpatc = row.cost_per_action_type.find((a: any) => atcTypes.includes(a.action_type));
-    if (cpatc) costPerAtc = parseFloat(cpatc.value || "0");
+    const cp = pickActionValue(row.cost_per_action_type, PURCHASE_ACTION_TYPES);
+    if (cp !== undefined) cpa = parseFloat(String(cp || "0"));
+    const cpatc = pickActionValue(row.cost_per_action_type, ADD_TO_CART_ACTION_TYPES);
+    if (cpatc !== undefined) costPerAtc = parseFloat(String(cpatc || "0"));
   }
 
   const thumbStopRate = impressions > 0 && videoViews > 0 ? (videoViews / impressions) * 100 : 0;
@@ -273,7 +296,15 @@ export function buildDailyRow(row: any, accountId: string, validAdIds: Set<strin
     retention_p50,
     retention_p75,
     retention_p100,
+    result_count: optimizationGoal === "SESSION_CONVERSION" ? sessionResults(row) : purchases,
   };
+}
+
+// deno-lint-ignore no-explicit-any
+function sessionResults(row: any): number {
+  // deno-lint-ignore no-explicit-any
+  const a = Array.isArray(row?.actions) ? row.actions.find((x: any) => x?.action_type === "onsite_conversion.flow_complete") : null;
+  return a ? parseInt(a.value || "0") : 0;
 }
 
 interface Counters {
@@ -282,11 +313,12 @@ interface Counters {
   upserted: number; // daily rows written
   paused: boolean; // true if a rate-limit pause left the account mid-backfill
   errors: number;
+  dropped_rows: number; // daily rows that failed to save (failed upsert or failed creative insert)
   reached_target: boolean; // true if the account hit the 365d target this run
   watermark: string | null; // watermark after this run
 }
 function newCounters(): Counters {
-  return { chunks: 0, fetched: 0, upserted: 0, paused: false, errors: 0, reached_target: false, watermark: null };
+  return { chunks: 0, fetched: 0, upserted: 0, paused: false, errors: 0, dropped_rows: 0, reached_target: false, watermark: null };
 }
 
 // deno-lint-ignore no-explicit-any
@@ -313,7 +345,7 @@ const defaultMetaFetch: MetaFetcher = async (url: string) => {
  * Fire-and-forget (mirrors sync's selfContinue); never throws into the caller.
  */
 // deno-lint-ignore require-await -- fire-and-forget by design: the request is sent, the response is never awaited.
-async function selfContinue(accountId?: string): Promise<void> {
+async function selfContinue(accountId: string | undefined, chain: number): Promise<void> {
   try {
     // No-serve (test) mode: never fire a real network invocation.
     if (Deno.env.get("BACKFILL_DAILY_HISTORY_NO_SERVE")) return;
@@ -323,7 +355,7 @@ async function selfContinue(accountId?: string): Promise<void> {
       console.warn("backfill selfContinue: missing env vars — falling back to cron");
       return;
     }
-    const body = accountId ? { account_id: accountId } : {};
+    const body = accountId ? { account_id: accountId, chain } : { chain };
     const continuePromise = fetch(`${supabaseUrl}/functions/v1/backfill-daily-history`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
@@ -375,9 +407,32 @@ export async function handler(
 
   const metaFetch = metaFetchOverride ?? defaultMetaFetch;
 
+  let body: { account_id?: string; dry_run?: boolean; chain?: number } = {};
+  try { body = await req.json(); } catch { /* no body */ }
+  const chainDepth = Math.max(0, Number(body.chain ?? 0) || 0);
+
+  // Single flight (audit 8.2): a fresh run (chain 0, from the cron or a manual call)
+  // claims the lock first and skips when another run holds it. Chain links ARE the
+  // running flight and do not claim. The last link releases the lock.
+  if (chainDepth === 0) {
+    const { data: claimed, error: claimErr } = await supabase.rpc("claim_backfill_history_singleflight", {
+      p_stale_seconds: SINGLEFLIGHT_STALE_SECONDS,
+    });
+    if (claimErr) {
+      console.error("backfill single-flight claim error:", claimErr.message ?? claimErr);
+      return new Response(JSON.stringify({ success: false, error: "Could not claim the backfill lock" }), {
+        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (claimed !== true) {
+      return new Response(JSON.stringify({ success: true, skipped: "singleflight-active" }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  }
+  let handedOff = false; // true once the next chain link owns the lock
+
   try {
-    let body: { account_id?: string; dry_run?: boolean } = {};
-    try { body = await req.json(); } catch { /* no body */ }
     const dryRun = body.dry_run === true;
 
     // Meta token: env first, then the settings table (same fallback as sync).
@@ -408,7 +463,7 @@ export async function handler(
     if (body.account_id) {
       const { data, error } = await supabase
         .from("ad_accounts")
-        .select("id, name, click_window, view_window, daily_backfilled_since, creative_count")
+        .select("id, name, click_window, view_window, daily_backfilled_since, creative_count, optimization_goal")
         .eq("id", body.account_id);
       if (error) throw error;
       accounts = data || [];
@@ -419,7 +474,7 @@ export async function handler(
       // with a null check + gt on the target date.
       const { data, error } = await supabase
         .from("ad_accounts")
-        .select("id, name, click_window, view_window, daily_backfilled_since, creative_count")
+        .select("id, name, click_window, view_window, daily_backfilled_since, creative_count, optimization_goal")
         .eq("is_active", true)
         .or(`daily_backfilled_since.is.null,daily_backfilled_since.gt.${globalTarget}`)
         .order("daily_backfilled_since", { ascending: false, nullsFirst: true })
@@ -430,9 +485,10 @@ export async function handler(
 
     const perAccount = new Map<string, Counters>();
     let drained = true; // false if the budget/pause cut work short
+    let ranOutOfTime = false; // the only reason to chain straight away (audit 8.2)
 
     for (const account of accounts) {
-      if (timedOut()) { drained = false; break; }
+      if (timedOut()) { drained = false; ranOutOfTime = true; break; }
 
       const accountId = account.id as string;
       const counters = newCounters();
@@ -474,7 +530,7 @@ export async function handler(
 
       // Walk backward chunk-by-chunk until we reach the target, pause, or time out.
       while (true) {
-        if (timedOut()) { drained = false; break; }
+        if (timedOut()) { drained = false; ranOutOfTime = true; break; }
 
         const chunk = nextChunk(frontier, target, chunkDays);
         if (!chunk) {
@@ -492,9 +548,12 @@ export async function handler(
           insightsUrl(accountId, chunk.since, chunk.until, attributionSetting, metaToken);
         let rateLimitRetries = 0;
         let chunkOk = true;
+        // Any failed write in this chunk keeps the watermark where it is, so the
+        // chunk is fetched again later instead of leaving a hole (audit 5.3).
+        let chunkWriteFailed = false;
 
         while (nextUrl) {
-          if (timedOut()) { drained = false; chunkOk = false; break; }
+          if (timedOut()) { drained = false; ranOutOfTime = true; chunkOk = false; break; }
 
           const result = await metaFetch(nextUrl);
 
@@ -507,7 +566,7 @@ export async function handler(
               let bailed = false;
               while (Date.now() < waitUntil) {
                 await new Promise((r) => setTimeout(r, 1000));
-                if (timedOut()) { drained = false; bailed = true; break; }
+                if (timedOut()) { drained = false; ranOutOfTime = true; bailed = true; break; }
               }
               if (bailed) { chunkOk = false; break; }
               continue; // same URL, post-backoff
@@ -536,6 +595,7 @@ export async function handler(
             // deno-lint-ignore no-explicit-any
             const batchAdIds = [...new Set(pageRows.map((r: any) => r.ad_id).filter(Boolean))] as string[];
             const unknown = batchAdIds.filter((id) => !validAdIds.has(id));
+            let failedAdIds = new Set<string>();
             if (unknown.length > 0) {
               const { data: existing } = await supabase
                 .from("creatives").select("ad_id").eq("account_id", accountId).in("ad_id", unknown);
@@ -553,14 +613,28 @@ export async function handler(
                 }));
                 const { error: insErr } = await supabase
                   .from("creatives").upsert(newCreatives, { onConflict: "ad_id", ignoreDuplicates: true });
-                if (!insErr) for (const id of stillMissing) validAdIds.add(id);
+                if (!insErr) {
+                  for (const id of stillMissing) validAdIds.add(id);
+                } else {
+                  // These ads' daily rows cannot be saved (FK to creatives). Count it,
+                  // count the rows below, and keep the watermark (audit 5.3).
+                  console.error("backfill creative insert error:", insErr.message ?? insErr);
+                  counters.errors++;
+                  chunkWriteFailed = true;
+                  failedAdIds = new Set(stillMissing);
+                }
               } else if (stillMissing.length > 0 && dryRun) {
                 for (const id of stillMissing) validAdIds.add(id);
               }
             }
 
+            if (failedAdIds.size > 0) {
+              // deno-lint-ignore no-explicit-any
+              counters.dropped_rows += pageRows.filter((r: any) => r?.date_start && failedAdIds.has(r.ad_id)).length;
+            }
+
             const rows = pageRows
-              .map((row) => buildDailyRow(row, accountId, validAdIds))
+              .map((row) => buildDailyRow(row, accountId, validAdIds, account.optimization_goal))
               .filter((r): r is NonNullable<typeof r> => r !== null);
 
             if (rows.length > 0 && !dryRun) {
@@ -568,8 +642,14 @@ export async function handler(
                 const slice = rows.slice(i, i + WRITE_BATCH);
                 const { error: upErr } = await supabase
                   .from("creative_daily_metrics").upsert(slice, { onConflict: "ad_id,date" });
-                if (upErr) counters.errors++;
-                else counters.upserted += slice.length;
+                if (upErr) {
+                  console.error("backfill daily upsert error:", upErr.message ?? upErr);
+                  counters.errors++;
+                  counters.dropped_rows += slice.length;
+                  chunkWriteFailed = true;
+                } else {
+                  counters.upserted += slice.length;
+                }
               }
             } else if (rows.length > 0 && dryRun) {
               counters.upserted += rows.length; // would-write count
@@ -582,16 +662,30 @@ export async function handler(
 
         if (!chunkOk) break; // paused / errored / timed out — resume next cron
 
-        // Chunk fully fetched — advance the watermark backward to its start. The
-        // watermark only moves AFTER the chunk's rows are durably written, so a
-        // crash never leaves a gap between the watermark and covered data.
+        // A write failed somewhere in this chunk: keep the watermark so the whole
+        // chunk is fetched again on a later run (the upserts are safe to repeat).
+        // Moving it here would leave those days missing for good (audit 5.3).
+        if (chunkWriteFailed) {
+          drained = false;
+          break;
+        }
+
+        // Chunk fully fetched and saved — advance the watermark backward to its
+        // start. The watermark only moves AFTER every row in the chunk is durably
+        // written, so a crash or failed write never leaves a gap.
+        if (!dryRun) {
+          const { error: wmErr } = await supabase.from("ad_accounts")
+            .update({ daily_backfilled_since: chunk.since }).eq("id", accountId);
+          if (wmErr) {
+            console.error("backfill watermark update error:", wmErr.message ?? wmErr);
+            counters.errors++;
+            drained = false;
+            break;
+          }
+        }
         counters.chunks++;
         frontier = chunk.since;
         counters.watermark = frontier;
-        if (!dryRun) {
-          await supabase.from("ad_accounts")
-            .update({ daily_backfilled_since: frontier }).eq("id", accountId);
-        }
 
         // If this chunk reached the target, pin + finish the account.
         if (frontier <= target) {
@@ -612,22 +706,35 @@ export async function handler(
         fetched: acc.fetched + c.fetched,
         upserted: acc.upserted + c.upserted,
         errors: acc.errors + c.errors,
+        dropped_rows: acc.dropped_rows + c.dropped_rows,
         reached_target: acc.reached_target + (c.reached_target ? 1 : 0),
       }),
-      { chunks: 0, fetched: 0, upserted: 0, errors: 0, reached_target: 0 },
+      { chunks: 0, fetched: 0, upserted: 0, errors: 0, dropped_rows: 0, reached_target: 0 },
     );
 
-    // Self-chain when work remains: a deadline/pause cut this run short but the
-    // account(s) haven't reached the target. Kick the next invocation now instead
-    // of waiting for the cron. Skipped for dry runs (no state was written).
-    if (!dryRun && !drained) {
-      await selfContinue(body.account_id);
+    // Self-chain only when this run ran out of time with work left and nothing went
+    // wrong, up to MAX_CHAIN links (audit 8.2). Errors stop the chain; rate-limited
+    // accounts wait for the next cron run.
+    const anyPaused = [...perAccount.values()].some((c) => c.paused);
+    const decision = chainDecision({
+      dryRun,
+      timedOut: ranOutOfTime && !drained,
+      errors: totals.errors,
+      paused: anyPaused,
+      chain: chainDepth,
+    });
+    if (decision.chain) {
+      await selfContinue(body.account_id, chainDepth + 1);
+      handedOff = true;
     }
 
     const summary = {
       success: true,
       dry_run: dryRun,
       drained,
+      chain_depth: chainDepth,
+      chained: decision.chain,
+      chain_stop_reason: decision.reason,
       accounts_processed: perAccount.size,
       totals,
       per_account: Object.fromEntries([...perAccount.entries()]),
@@ -642,6 +749,12 @@ export async function handler(
     return new Response(JSON.stringify({ success: false, error: msg }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+  } finally {
+    // The flight ends here unless the next chain link now owns it.
+    if (!handedOff) {
+      const { error: relErr } = await supabase.rpc("release_backfill_history_singleflight");
+      if (relErr) console.error("backfill single-flight release error:", relErr.message ?? relErr);
+    }
   }
 }
 

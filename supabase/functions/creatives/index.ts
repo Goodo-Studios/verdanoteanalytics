@@ -4,7 +4,8 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { resolveConvention } from "../_shared/naming-convention.ts";
 import { parseAdName } from "../_shared/parse-ad-name.ts";
 import { parsedDisplayTags } from "../_shared/ad-name-display.ts";
-import { adTypeFilterValues, applyAdTypeFilter, distinctValues } from "../_shared/creative-filters.ts";
+import { adTypeFilterValues, applyAdTypeFilter } from "../_shared/creative-filters.ts";
+import { loadFilterValues } from "../_shared/creative-filter-values.ts";
 import { buildNameSyncChange, nameSyncUpdate, validateSyncFromNameBody, type NameSyncRow } from "../_shared/name-sync-logic.ts";
 import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
 import { sanitizeSearchTerm } from "../_shared/postgrest-search.ts";
@@ -12,7 +13,9 @@ import { errorMessage } from "../_shared/error-message.ts";
 import { safeErrorResponse } from "../_shared/safe-error.ts";
 import { aggregateDailyByAd, computeWeightedAggregates } from "../_shared/creatives-aggregate.ts";
 import { chunk, fetchAllRows, validateTagUpdate } from "../_shared/creative-tag-ops.ts";
+import { workingAccountScope } from "../_shared/creative-account-scope.ts";
 import { TtlCache, makeCreativesCacheKey } from "../_shared/creatives-page-cache.ts";
+import { fetchAllCreatives as fetchAllCreativesPaged } from "./all-creatives.ts";
 
 // Caches the full computed (pre-pagination) result of the date-filtered
 // branch below — see creatives-page-cache.ts for why. 30s balances "page 2
@@ -67,6 +70,17 @@ function mappingTags(m: Record<string, unknown> | null): PartialTags | null {
     hook: (m.hook as string) ?? null,
     theme: (m.theme as string) ?? null,
   };
+}
+
+/** The page's advanced filter conditions (?adv=<json array>), or null when absent or invalid. */
+function advancedConditions(raw: string | null): unknown[] | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 && parsed.length <= 50 ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 serve(async (req) => {
@@ -151,44 +165,18 @@ serve(async (req) => {
       // authenticated user the id + name of EVERY account, plus the distinct product
       // and theme values across all of them — which also supplied the account ids
       // needed to read other tenants' creatives below.
-      let productsQuery = supabase.from("creatives").select("product").not("product", "is", null);
-      let themesQuery = supabase.from("creatives").select("theme").not("theme", "is", null);
       let accountsQuery = supabase.from("ad_accounts").select("id, name");
-      if (allowedIds) {
-        productsQuery = productsQuery.in("account_id", allowedIds);
-        themesQuery = themesQuery.in("account_id", allowedIds);
-        accountsQuery = accountsQuery.in("id", allowedIds);
-      }
-
-      const { data: products } = await productsQuery;
-      const { data: themes } = await themesQuery;
+      if (allowedIds) accountsQuery = accountsQuery.in("id", allowedIds);
       const { data: accounts } = await accountsQuery;
-
-      // Hooks are free text in the naming convention, so the option list is the
-      // distinct hook values actually stored for the caller's accounts (same
-      // allowedIds scope as products/themes). Paged: one PostgREST select is
-      // capped at 1000 rows; bounded at 50 pages so this stays cheap.
-      const hookValues: unknown[] = [];
-      for (let page = 0; page < 50; page++) {
-        let hooksQuery = supabase.from("creatives").select("hook").not("hook", "is", null)
-          .order("hook").range(page * 1000, page * 1000 + 999);
-        if (allowedIds) hooksQuery = hooksQuery.in("account_id", allowedIds);
-        const { data: hookRows, error: hooksErr } = await hooksQuery;
-        if (hooksErr) throw hooksErr;
-        hookValues.push(...(hookRows || []).map((r: { hook: string | null }) => r.hook));
-        if (!hookRows || hookRows.length < 1000) break;
-      }
-
-      const uniqueProducts = [...new Set((products || []).map((r: any) => r.product).filter(Boolean))];
-      const uniqueThemes = [...new Set((themes || []).map((r: any) => r.theme).filter(Boolean))];
+      const values = await loadFilterValues(supabase, allowedIds);
 
       return new Response(JSON.stringify({
         ad_type: controlledTypes,
         person: controlledPersons,
         style: controlledStyles,
-        hook: distinctValues(hookValues),
-        product: uniqueProducts,
-        theme: uniqueThemes,
+        hook: values.hook,
+        product: values.product,
+        theme: values.theme,
         accounts: accounts || [],
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -245,22 +233,8 @@ serve(async (req) => {
       };
 
       // Fetch every matching creative, paging past the 1000-row PostgREST cap.
-      const fetchAllCreatives = async (): Promise<any[]> => {
-        const out: any[] = [];
-        let off = 0;
-        const PAGE = 1000;
-        while (true) {
-          const { data: pageData, error: pageErr } = await applyCreativeFilters(
-            supabase.from("creatives").select(CREATIVE_COLS).order("spend", { ascending: false })
-          ).range(off, off + PAGE - 1);
-          if (pageErr) throw pageErr;
-          if (!pageData || pageData.length === 0) break;
-          out.push(...pageData);
-          if (pageData.length < PAGE) break;
-          off += PAGE;
-        }
-        return out;
-      };
+      const fetchAllCreatives = (): Promise<any[]> =>
+        fetchAllCreativesPaged(() => applyCreativeFilters(supabase.from("creatives").select(CREATIVE_COLS)));
 
       const hasDateFilter = dateFrom || dateTo;
 
@@ -268,7 +242,10 @@ serve(async (req) => {
       // page plus total and aggregates. The loops below page through every daily-metrics
       // row 1000 at a time, which for the all-accounts view (no client picked, default
       // 14-day range) is hundreds of sequential scans at production size. They remain
-      // only for ?all=1, which has no caller in the app today.
+      // only for ?all=1, which the app calls through useAllCreatives (Analytics, Overview,
+      // Compare, Tagging, winner creatives, Data Export and the brief creative picker).
+      // Callers should pass an account and load on demand (audit 7.5); making this path
+      // itself fast is tracked in the audit plan.
       if (!all) {
         const adTypes = adTypeFilterValues(adType);
         const { data: pageResult, error: pageError } = await supabase.rpc("creatives_list_page", {
@@ -288,6 +265,11 @@ serve(async (req) => {
           p_search: search || null,
           p_limit: Number.isFinite(limit) ? limit : 100,
           p_offset: Number.isFinite(offset) ? offset : 0,
+          // Whole-set sort before paging (audit 7.1). The function whitelists the key.
+          p_sort: url.searchParams.get("sort") || "spend",
+          p_sort_dir: url.searchParams.get("sort_dir") === "asc" ? "asc" : "desc",
+          // Advanced filter conditions, applied by the function to the whole set (audit 7.1).
+          p_conditions: advancedConditions(url.searchParams.get("adv")),
         });
         if (pageError) throw pageError;
         return new Response(JSON.stringify(pageResult), {
@@ -487,6 +469,16 @@ serve(async (req) => {
         return new Response(JSON.stringify({ error: validated.error }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
       const update: Record<string, any> = { ...validated.update };
+
+      // A bulk action names the account the user is working in. Refuse a creative from another
+      // account, so a selection left over from a different account cannot be retagged (audit 3.2).
+      const workingAccount = workingAccountScope(url);
+      if (workingAccount) {
+        const { data: owner } = await supabase.from("creatives").select("account_id").eq("ad_id", path).maybeSingle();
+        if (!owner || owner.account_id !== workingAccount) {
+          return new Response(JSON.stringify({ error: "Creative is not in the selected account" }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
 
       if (tag_source === "untagged") {
         // Reset to auto — re-resolve via the canonical parser + name_mappings,

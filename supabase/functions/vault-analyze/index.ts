@@ -12,7 +12,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { isImageOnlyAnalysis, parseLooseJson } from "../_shared/vault-analyze-logic.ts";
-import { resolveImageMediaType, sniffImageMediaType } from "../_shared/image-media-type.ts";
+import { isSignableVaultPath } from "../_shared/vault-paths.ts";
+// Every hop is checked for a public address; redirects are followed by hand (audit 2.3).
+import { fetchImageAsDataUrl } from "../_shared/vault-image-fetch.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
@@ -185,35 +187,6 @@ async function callClaude(
   return data.content?.[0]?.text ?? "";
 }
 
-async function fetchImageAsDataUrl(url: string): Promise<string | null> {
-  try {
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      },
-    });
-    if (!res.ok) return null;
-    const headerContentType = res.headers.get("content-type") ?? "image/jpeg";
-    const buffer = await res.arrayBuffer();
-    const bytes = new Uint8Array(buffer);
-    // Trust the bytes, not the label. Storage/CDN routinely mislabels a PNG as
-    // image/jpeg (e.g. a PNG saved with a .jpeg name), which makes Claude's vision
-    // API reject the request. Sniff the real type from magic bytes; only bail when
-    // neither the bytes nor the header indicate an image at all.
-    const isImageHeader = headerContentType.startsWith("image/");
-    const mediaType = resolveImageMediaType(bytes, headerContentType);
-    if (!isImageHeader && sniffImageMediaType(bytes) === null) return null;
-    let binary = "";
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return `data:${mediaType};base64,${btoa(binary)}`;
-  } catch {
-    return null;
-  }
-}
-
 interface ImageItem {
   brand_name: string | null;
   thumbnail_url: string | null;
@@ -241,7 +214,8 @@ async function analyzeStaticImage(opts: {
   if (item?.thumbnail_url) {
     imageDataUrl = await fetchImageAsDataUrl(item.thumbnail_url);
   }
-  if (!imageDataUrl && item?.file_path) {
+  // Sign only a well-formed Vault path (audit 2.2).
+  if (!imageDataUrl && item?.file_path && isSignableVaultPath(item.file_path)) {
     const { data: signed } = await db.storage
       .from("inspiration-media")
       .createSignedUrl(item.file_path, 600);
@@ -267,7 +241,8 @@ async function analyzeStaticImage(opts: {
 
   const a = parseLooseJson(analysisText);
 
-  await db.from("inspiration_frameworks").insert({
+  // One framework per item: re-analysis replaces it (audit 4.3).
+  await db.from("inspiration_frameworks").upsert({
     item_id: itemId,
     copywriting_framework: (a.copywriting_framework as string) ?? null,
     hook_type: (a.hook_type as string) ?? null,
@@ -279,7 +254,7 @@ async function analyzeStaticImage(opts: {
     cta_formula: (a.cta_formula as string) ?? null,
     fill_in_blank_script: (a.fill_in_blank_script as string) ?? null,
     framework_json: a,
-  });
+  }, { onConflict: "item_id" });
 
   await db
     .from("inspiration_items")
@@ -491,7 +466,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    await db.from("inspiration_frameworks").insert({
+    // One framework per item: re-analysis replaces it (audit 4.3).
+    await db.from("inspiration_frameworks").upsert({
       item_id: itemId,
       copywriting_framework: (frameworkJson.copywriting_framework as string) ?? null,
       hook_type: (frameworkJson.hook_type as string) ?? null,
@@ -503,7 +479,7 @@ Deno.serve(async (req) => {
       cta_formula: (frameworkJson.cta_formula as string) ?? null,
       fill_in_blank_script: (frameworkJson.fill_in_blank_script as string) ?? null,
       framework_json: frameworkJson,
-    });
+    }, { onConflict: "item_id" });
 
     // Calls 3–5 in parallel: brand metadata, script analysis, visual analysis
     const [brandResult, scriptAnalysisText, visualAnalysisText] = await Promise.allSettled([

@@ -36,6 +36,13 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
+import { readCachedMap, writeCachedMap } from "../_shared/media-map-cache.ts";
+
+// Audit 8.7: the regression check runs on every chain link (up to 51 per run), so one
+// coverage drop used to post the same Slack alert dozens of times. The snapshot pair
+// that was last alerted is kept in media_meta_cache and the same pair is not re-sent.
+const ALERTED_PAIR_KEY = "coverage_regression_alerted";
+const ALERTED_PAIR_TTL_MS = 30 * 24 * 60 * 60_000;
 import {
   BATCH_LIMIT,
   buildRegressionSlackBody,
@@ -80,6 +87,12 @@ export async function maybeAlertCoverageRegression(supabase: Supa): Promise<bool
     }
     const reg: CoverageRegression | null = Array.isArray(data) ? (data[0] ?? null) : (data ?? null);
     if (!shouldAlertRegression(reg)) return false;
+
+    const pair = `${reg!.prev_captured_at}|${reg!.curr_captured_at}`;
+    const alerted = await readCachedMap(supabase, ALERTED_PAIR_KEY);
+    if (alerted?.get("pair") === pair) return false;
+    // Mark before posting: a failed post is logged below and not retried every link.
+    await writeCachedMap(supabase, ALERTED_PAIR_KEY, new Map([["pair", pair]]), ALERTED_PAIR_TTL_MS);
 
     const appUrl = Deno.env.get("APP_URL") || "https://verdanote.com";
     const body = buildRegressionSlackBody(reg as CoverageRegression, appUrl);

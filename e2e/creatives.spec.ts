@@ -6,6 +6,7 @@
  *   PLAYWRIGHT_TEST_PASSWORD=your-test-password
  */
 import { test, expect } from "@playwright/test";
+import { creativeRows, waitForCreativesList } from "./support/wait-for-list";
 
 const TEST_EMAIL = process.env.PLAYWRIGHT_TEST_EMAIL || "";
 const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_PASSWORD || "";
@@ -61,11 +62,11 @@ test.describe("Creatives page", () => {
     await loginAs(page, TEST_EMAIL, TEST_PASSWORD);
     await goToCreatives(page);
 
-    // Wait for rows/cards to load (not just skeletons)
-    await page.waitForTimeout(3_000); // allow data fetch
+    // Wait for rows/cards or the empty state (not just skeletons)
+    await waitForCreativesList(page);
 
     // Try clicking the first clickable row in the table
-    const firstRow = page.locator("tbody tr, [class*='card'][class*='creative']").first();
+    const firstRow = creativeRows(page).first();
     const rowCount = await firstRow.count();
     if (rowCount === 0) {
       test.info().annotations.push({ type: "skip-reason", description: "No creatives in account" });

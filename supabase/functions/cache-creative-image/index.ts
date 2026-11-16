@@ -5,7 +5,7 @@ import { hasAccountAccess } from "../_shared/account-access.ts";
 import {
   assetStoragePath,
   computeContentHash,
-  discoverImageUrl,
+  discoverImageUrlWithReason,
   discoverVideoUrl,
   fetchAccountVideoMap,
   fetchPageTokenMap,
@@ -14,8 +14,10 @@ import {
   NO_THUMB_SENTINEL,
   NO_VIDEO_SENTINEL,
   resolveMetaToken,
+  shouldMarkNoThumbnail,
 } from "../_shared/media-discovery.ts";
 import { isMediaContentType } from "../_shared/vault-save-logic.ts";
+import { readMediaBody } from "../_shared/media-download.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 // The env secret is NOT set on this project — token is resolved per-request with a
@@ -60,9 +62,10 @@ async function downloadAndCache(
   try {
     const resp = await fetchWithTimeout(url, 60_000);
     if (!resp.ok) return null;
-    const buffer = await resp.arrayBuffer();
+    const body = await readMediaBody(resp, type, MAX_VIDEO_SIZE);
+    if (!body) return null;
+    const buffer = body.buffer as ArrayBuffer;
     if (type === "image" && buffer.byteLength < 5000) return null;
-    if (type === "video" && buffer.byteLength > MAX_VIDEO_SIZE) return null;
     const contentType =
       resp.headers.get("content-type") ??
       (type === "video" ? "video/mp4" : "image/jpeg");
@@ -241,7 +244,7 @@ serve(async (req) => {
   // ── Image ────────────────────────────────────────────────────────────────
   if (!skipImage) {
     console.log(`[${ad_id}] Discovering image...`);
-    const result = await discoverImageUrl(ad_id, account_id, metaToken!);
+    const { result, reason: imageReason } = await discoverImageUrlWithReason(ad_id, account_id, metaToken!);
     if (result?.thumbnailUrl) {
       const asset = await downloadAndCache(
         supabase, THUMB_BUCKET, account_id, ad_id, result.thumbnailUrl, "image"
@@ -255,9 +258,13 @@ serve(async (req) => {
         if (!creative.thumbnail_url) updates.thumbnail_url = result.thumbnailUrl;
         if (result.fullResUrl) updates.full_res_url = result.fullResUrl;
       }
-    } else {
-      // Discovery found nothing — mark sentinel so we don't retry on every open
+    } else if (shouldMarkNoThumbnail(imageReason)) {
+      // The lookup finished and Meta has no image — mark it so we don't retry on every open.
       updates.thumbnail_url = NO_THUMB_SENTINEL;
+    } else {
+      // Rate limit, error, timeout or expired token: inconclusive (audit 5.5). Leave the
+      // row alone so the next open (or the media drain) tries again.
+      console.log(`[${ad_id}] Image lookup inconclusive (${imageReason}) — not marking no-thumbnail`);
     }
   }
 

@@ -36,7 +36,6 @@ export function AddToBoardModal({ itemId, open, onOpenChange }: Props) {
     queryKey: ["vault-boards", user?.id],
     enabled: !!user && open,
     queryFn: async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await supabase
         .from("boards")
         .select("*")
@@ -51,7 +50,6 @@ export function AddToBoardModal({ itemId, open, onOpenChange }: Props) {
     queryKey: ["vault-board-membership", itemId],
     enabled: !!itemId && open,
     queryFn: async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await supabase
         .from("board_items")
         .select("board_id")
@@ -66,7 +64,6 @@ export function AddToBoardModal({ itemId, open, onOpenChange }: Props) {
       if (!itemId) throw new Error("No item selected");
       const alreadyIn = memberBoardIds.includes(boardId);
       if (alreadyIn) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { error } = await supabase
           .from("board_items")
           .delete()
@@ -74,7 +71,6 @@ export function AddToBoardModal({ itemId, open, onOpenChange }: Props) {
           .eq("item_id", itemId);
         if (error) throw error;
       } else {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { error } = await supabase
           .from("board_items")
           .insert({ board_id: boardId, item_id: itemId });

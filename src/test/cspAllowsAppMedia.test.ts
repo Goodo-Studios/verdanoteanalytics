@@ -93,3 +93,34 @@ describe('CSP allows the media the app actually loads', () => {
     expect(csp['frame-ancestors']).not.toContain("'self'");
   });
 });
+
+/**
+ * The app self-hosts its fonts (src/styles/goodo-os-fonts.css). A 2026-11
+ * audit proposal suggested allowing Google Fonts in the CSP instead; that
+ * would add a third-party request on every page load for no gain. These
+ * checks keep font-src and style-src limited to our own origin so a font
+ * host cannot be slipped back in.
+ */
+describe('CSP keeps fonts self-hosted', () => {
+  const csp = parseCsp();
+  const allowedFontSources = ["'self'", 'data:'];
+
+  it('font-src allows only our own origin and inline data fonts', () => {
+    const fontSrc = csp['font-src'];
+    expect(fontSrc).toBeDefined();
+    const extra = (fontSrc ?? []).filter((s) => !allowedFontSources.includes(s));
+    expect(extra).toEqual([]);
+  });
+
+  it('style-src does not allow any external stylesheet host', () => {
+    const styleSrc = csp['style-src'] ?? [];
+    const external = styleSrc.filter((s) => /^https?:|\*|\./.test(s));
+    expect(external).toEqual([]);
+  });
+
+  it('no directive names a known third-party font host', () => {
+    const fontHosts = /fonts\.googleapis\.com|fonts\.gstatic\.com|use\.typekit\.net|fonts\.bunny\.net|use\.fontawesome\.com/;
+    const offenders = Object.entries(csp).filter(([, values]) => values.some((v) => fontHosts.test(v)));
+    expect(offenders.map(([name]) => name)).toEqual([]);
+  });
+});

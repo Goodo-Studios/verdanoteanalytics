@@ -64,6 +64,13 @@ Deno.test("a failed conversation insert is reported as not saved, not as a conve
   assertEquals(json.saved, false);
 });
 
+Deno.test("8.7: a user over their rate limit gets a 429 and the model is not called", async () => {
+  const { res, sent, db } = await call({ message: "hi" }, { rpc: { check_user_rate_limit: false } });
+  assertEquals(res.status, 429);
+  assertEquals(sent.length, 0);
+  assertEquals(db.rpcCalls.map((c) => c.name), ["check_user_rate_limit"]);
+});
+
 Deno.test("a saved conversation returns its id", async () => {
   const { json } = await call({ message: "hi" }, { tables: { creatives: [], ad_accounts: [], ai_conversations: [{ id: "new-conv" }] }, writeData: { "insert:ai_conversations": [{ id: "new-conv" }] } });
   assertEquals(json.saved, json.conversationId !== null);

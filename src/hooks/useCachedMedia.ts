@@ -273,8 +273,14 @@ export function useCachedMedia(
     }
   }, [mediaUrl, fallbackUrl, placeholderUrl, onExpired]);
 
+  // Load once per media url. loadMedia also changes when callers pass a new onExpired or
+  // fallback on each render, and reloading for that would refetch the same image in a loop,
+  // so the effect reads the latest loadMedia through a ref.
+  const loadMediaRef = useRef(loadMedia);
+  loadMediaRef.current = loadMedia;
+
   useEffect(() => {
-    loadMedia();
+    loadMediaRef.current();
 
     // Cleanup object URL on unmount
     return () => {

@@ -20,15 +20,17 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { isStaffUser } from "../_shared/account-access.ts";
+import { isSignableVaultPath, mediaKindForPath } from "../_shared/vault-paths.ts";
 
 export type ShareAction = "mint" | "revoke" | "resolve";
 
 // Columns exposed to the public viewer. Deliberately omits internal-only fields:
 // user_id, saved_by, performance_snapshot (client spend/roas), source_ad_id,
-// source_account_id, error_message, thumbnail_path.
+// source_account_id, error_message, thumbnail_path, and file_path (it contains the saver's user
+// id; the viewer gets media_kind instead, audit 2.2).
 export const PUBLIC_ITEM_COLUMNS =
   "id, platform, creator_handle, title, source_url, thumbnail_url, video_url, " +
-  "file_path, ad_body_text, brand_name, industry, ad_format, target_audience, " +
+  "ad_body_text, brand_name, industry, ad_format, target_audience, " +
   "script_analysis, visual_analysis, status, created_at";
 
 const SIGNED_URL_TTL_SECONDS = 3600;
@@ -128,13 +130,15 @@ export async function handler(req: Request, injectedDb?: any): Promise<Response>
 
 // deno-lint-ignore no-explicit-any
 async function resolveShare(db: any, token: string): Promise<Response> {
-  const { data: item, error } = await db
+  const { data: row, error } = await db
     .from("inspiration_items")
-    .select(PUBLIC_ITEM_COLUMNS)
+    .select(`${PUBLIC_ITEM_COLUMNS}, file_path`)
     .eq("share_token", token)
     .maybeSingle();
   if (error) return json({ error: error.message }, 500);
-  if (!item) return json({ error: "not found" }, 404);
+  if (!row) return json({ error: "not found" }, 404);
+  // file_path is used here to sign the file and to tell image from video; it is not returned.
+  const { file_path: filePath, ...item } = row as Record<string, unknown> & { file_path: string | null };
 
   const [transcriptRes, frameworkRes] = await Promise.all([
     db.from("inspiration_transcripts")
@@ -146,15 +150,15 @@ async function resolveShare(db: any, token: string): Promise<Response> {
   // Private-bucket uploads need a service-role signed URL — the anon viewer
   // can't mint one. Rows that carry a public video_url skip this.
   let signedUrl: string | null = null;
-  if (item.file_path && !item.video_url) {
+  if (filePath && !item.video_url && isSignableVaultPath(filePath)) {
     const { data: signed } = await db.storage
       .from("inspiration-media")
-      .createSignedUrl(item.file_path, SIGNED_URL_TTL_SECONDS);
+      .createSignedUrl(filePath, SIGNED_URL_TTL_SECONDS);
     signedUrl = signed?.signedUrl ?? null;
   }
 
   return json({
-    item,
+    item: { ...item, media_kind: mediaKindForPath(filePath) },
     transcript: transcriptRes.data?.[0] ?? null,
     framework: frameworkRes.data?.[0] ?? null,
     signed_url: signedUrl,

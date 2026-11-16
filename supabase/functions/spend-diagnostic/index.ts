@@ -1,3 +1,4 @@
+import { PURCHASE_ACTION_TYPES, pickActionValue } from "../_shared/meta-actions.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
@@ -117,29 +118,12 @@ serve(async (req) => {
       metaSpend = parseFloat(row.spend || "0");
       metaImpressions = parseInt(row.impressions || "0");
 
-      // Parse purchases from actions
-      if (row.actions) {
-        for (const action of row.actions) {
-          if (
-            action.action_type === "purchase" ||
-            action.action_type === "omni_purchase" ||
-            action.action_type === "offsite_conversion.fb_pixel_purchase"
-          ) {
-            metaPurchases += parseInt(action.value || "0");
-          }
-        }
-      }
-      if (row.action_values) {
-        for (const av of row.action_values) {
-          if (
-            av.action_type === "purchase" ||
-            av.action_type === "omni_purchase" ||
-            av.action_type === "offsite_conversion.fb_pixel_purchase"
-          ) {
-            metaPurchaseValue += parseFloat(av.value || "0");
-          }
-        }
-      }
+      // One purchase type by fixed priority, the same as sync (audit 6.1). Adding the
+      // overlapping types together counted the same purchase up to three times.
+      const pa = pickActionValue(row.actions, PURCHASE_ACTION_TYPES);
+      if (pa !== undefined) metaPurchases = parseInt(String(pa || "0"));
+      const pv = pickActionValue(row.action_values, PURCHASE_ACTION_TYPES);
+      if (pv !== undefined) metaPurchaseValue = parseFloat(String(pv || "0"));
     }
 
     // 2) Sum spend from Verdanote's creatives table (snapshot) — PAGINATED to avoid 1000-row cap

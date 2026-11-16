@@ -1,3 +1,4 @@
+import { addDailyTotal, buildReportSnapshot, type SnapshotDailyTotal } from "../_shared/report-snapshot.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
@@ -6,7 +7,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 // with neither the Library nor the Overview.
 import { selectWinnersBySpend } from "../_shared/creative-classification.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
-import { computeBlendedMetrics, roundOrNull } from "../_shared/metric-math.ts";
+import { addVideoRow, computeBlendedMetrics, emptyVideoAccumulator, roundOrNull, videoMetricsFromAccumulator } from "../_shared/metric-math.ts";
 
 
 function spendWeightedPercentile(items: { value: number; spend: number }[], pct: number): number {
@@ -181,6 +182,7 @@ function resolveTemplate(template: string, accountName: string, cadence: string)
 // daily-metrics round-trips of aggregating each period separately.
 async function scanDailyMetricsSplit(
   supabase: any, accountId: string, dateStart: string, dateEnd: string, splitDate: string,
+  currentDailyTotals?: Map<string, SnapshotDailyTotal>,
 ): Promise<{ current: Record<string, any>; prior: Record<string, any> }> {
   const current: Record<string, any> = {};
   const prior: Record<string, any> = {};
@@ -202,12 +204,15 @@ async function scanDailyMetricsSplit(
     for (const m of data) {
       // ISO date strings compare correctly lexicographically
       const byAd = m.date >= splitDate ? current : prior;
+      // Per-date totals for the report snapshot's chart (audit 6.2).
+      if (currentDailyTotals && m.date >= splitDate) addDailyTotal(currentDailyTotals, m);
       if (!byAd[m.ad_id]) {
         byAd[m.ad_id] = {
           ad_id: m.ad_id, account_id: m.account_id,
           spend: 0, impressions: 0, clicks: 0, purchases: 0, purchase_value: 0,
           adds_to_cart: 0, video_views: 0, _days: 0,
-          _tsr_sum: 0, _hr_sum: 0,
+          // Hook and hold are built from counts (audit 6.1).
+          _video: emptyVideoAccumulator(),
         };
       }
       const a = byAd[m.ad_id];
@@ -219,8 +224,7 @@ async function scanDailyMetricsSplit(
       a.adds_to_cart += Number(m.adds_to_cart || 0);
       a.video_views += Number(m.video_views || 0);
       a._days++;
-      a._tsr_sum += Number(m.thumb_stop_rate || 0);
-      a._hr_sum += Number(m.hold_rate || 0);
+      addVideoRow(a._video, m);
     }
     if (data.length < batchSize) break;
     offset += batchSize;
@@ -239,7 +243,7 @@ async function fetchCreativeMeta(supabase: any, adIds: string[], cache: Map<stri
     const batch = missing.slice(i, i + 100);
     const { data: crs } = await supabase
       .from("creatives")
-      .select("ad_id, ad_name, unique_code, ad_type, tag_source")
+      .select("ad_id, ad_name, unique_code, ad_type, tag_source, hook, style, person, thumbnail_url")
       .in("ad_id", batch);
     for (const c of crs || []) cache.set(c.ad_id, c);
   }
@@ -252,7 +256,7 @@ function finalizeDailyList(byAd: Record<string, any>, metaCache: Map<string, any
   return Object.keys(byAd).map((adId) => {
     const a = byAd[adId];
     const meta = metaCache.get(adId) || {};
-    const days = a._days || 1;
+    const video = videoMetricsFromAccumulator(a._video);
     return {
       ...meta, ad_id: adId, account_id: a.account_id,
       spend: a.spend, impressions: a.impressions, clicks: a.clicks,
@@ -260,8 +264,9 @@ function finalizeDailyList(byAd: Record<string, any>, metaCache: Map<string, any
       ctr: a.impressions > 0 ? (a.clicks / a.impressions) * 100 : 0,
       cpa: a.purchases > 0 ? a.spend / a.purchases : 0,
       roas: a.spend > 0 ? a.purchase_value / a.spend : 0,
-      thumb_stop_rate: a._tsr_sum / days,
-      hold_rate: a._hr_sum / days,
+      // 0 when there is no data, as before; screens get null handling in a later part of 6.1.
+      thumb_stop_rate: video.hook_rate ?? 0,
+      hold_rate: video.hold_rate ?? 0,
     };
   }).filter((c) => c.spend > 0);
 }
@@ -333,8 +338,9 @@ serve(async (req) => {
 
       // Single daily-metrics scan for current + prior; creative metadata
       // fetched once per ad_id via the shared request-scoped cache.
+      const dailyTotals = new Map<string, SnapshotDailyTotal>();
       const { current: currByAd, prior: priorByAd } = await scanDailyMetricsSplit(
-        supabase, account.id, priorStartStr, endDate, startDateStr,
+        supabase, account.id, priorStartStr, endDate, startDateStr, dailyTotals,
       );
       await fetchCreativeMeta(
         supabase,
@@ -402,6 +408,8 @@ serve(async (req) => {
         date_range_days: dateRangeDays,
         ...(() => { const { counts, suggestions } = computeDiagnostics(list); return { ...counts, iteration_suggestions: JSON.stringify(suggestions) }; })(),
         is_public: !!schedule.deliver_to_slack,
+        // Frozen top creatives, tag mix and chart series for exports (audit 6.2).
+        snapshot: buildReportSnapshot(list, dailyTotals),
       };
 
       let savedReport: any = null;

@@ -18,8 +18,11 @@ export function useCardPresence(accountId: string | null) {
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const currentHoverRef = useRef<string | null>(null);
 
+  const userId = user?.id ?? null;
+  const userName = user?.email?.split("@")[0] || "User";
+
   useEffect(() => {
-    if (!accountId || !user) return;
+    if (!accountId || !userId) return;
 
     const channel = supabase.channel(`card-presence:${accountId}`);
     channelRef.current = channel;
@@ -31,7 +34,7 @@ export function useCardPresence(accountId: string | null) {
 
         for (const key of Object.keys(state)) {
           for (const presence of state[key]) {
-            if (presence.user_id === user.id) continue;
+            if (presence.user_id === userId) continue;
             if (!presence.hovered_ad_id) continue;
             const existing = cardMap.get(presence.hovered_ad_id) || [];
             existing.push(presence);
@@ -42,11 +45,12 @@ export function useCardPresence(accountId: string | null) {
       })
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
+          // Fires again after a reconnect: announce the card hovered now, not "none".
           await channel.track({
-            user_id: user.id,
-            name: user.email?.split("@")[0] || "User",
-            hovered_ad_id: null,
-          });
+            user_id: userId,
+            name: userName,
+            hovered_ad_id: currentHoverRef.current,
+          } satisfies CardPresenceUser);
         }
       });
 
@@ -55,19 +59,19 @@ export function useCardPresence(accountId: string | null) {
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [accountId, user?.id]);
+  }, [accountId, userId, userName]);
 
   const setHoveredCard = useCallback((adId: string | null) => {
-    if (!channelRef.current || !user) return;
+    if (!channelRef.current || !userId) return;
     if (currentHoverRef.current === adId) return;
     currentHoverRef.current = adId;
 
     channelRef.current.track({
-      user_id: user.id,
-      name: user.email?.split("@")[0] || "User",
+      user_id: userId,
+      name: userName,
       hovered_ad_id: adId,
-    });
-  }, [user]);
+    } satisfies CardPresenceUser);
+  }, [userId, userName]);
 
   return { hoveredCards, setHoveredCard };
 }

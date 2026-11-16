@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { buildCreatedTimeUrl, extractLaunchDates } from "../_shared/lifecycle-dates.ts";
+import { notRecentlyChecked, unresolvedIds } from "../_shared/backfill-checked.ts";
 
 // F2 backfill: populate creatives.created_time (and thus launch_date) from the
 // Meta Graph API for ads that predate our created_time capture, then derive the
@@ -18,16 +19,23 @@ import { buildCreatedTimeUrl, extractLaunchDates } from "../_shared/lifecycle-da
 const META_API_VERSION = "v22.0";
 const BUDGET_MS = 100_000; // 100s budget, same as backfill-post-urls
 
-serve(async (req) => {
+// deno-lint-ignore no-explicit-any
+type Supa = any;
+
+export async function handler(req: Request, supabaseOverride?: Supa): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
   // so this check is the only gate. Live pg_cron jobs and function-to-function
   // calls forward the real service-role key. See _shared/internal-auth.ts.
-  const authFailure = await requireServiceRole(req);
-  if (authFailure) return authFailure;
+  // Skipped when a test injects a client.
+  const isInjectedClient = !!supabaseOverride && typeof supabaseOverride.from === "function";
+  if (!isInjectedClient) {
+    const authFailure = await requireServiceRole(req);
+    if (authFailure) return authFailure;
+  }
 
-  const supabase = createClient(
+  const supabase: Supa = isInjectedClient ? supabaseOverride : createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
@@ -65,6 +73,9 @@ serve(async (req) => {
       .select("ad_id")
       .eq("account_id", accountId)
       .is("created_time", null)
+      // Audit 8.7: skip ads Meta could not resolve in the last 7 days.
+      .or(notRecentlyChecked("launch_date_checked_at"))
+      .order("launch_date_checked_at", { ascending: true, nullsFirst: true })
       .limit(500);
 
     if (fetchErr) throw fetchErr;
@@ -93,6 +104,15 @@ serve(async (req) => {
           }
 
           const updates = extractLaunchDates(jsonBody, adIds);
+          // Audit 8.7: Meta answered for this batch, so ads with no created_time are
+          // marked checked and skipped until the recheck window passes.
+          const unresolved = unresolvedIds(adIds, updates.map((u) => u.ad_id));
+          if (unresolved.length) {
+            await supabase
+              .from("creatives")
+              .update({ launch_date_checked_at: new Date().toISOString() })
+              .in("ad_id", unresolved);
+          }
           for (const u of updates) {
             const { error: updErr } = await supabase
               .from("creatives")
@@ -141,4 +161,9 @@ serve(async (req) => {
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
-});
+}
+
+// Guard the network bind so tests can import the handler without serving.
+if (!Deno.env.get("BACKFILL_LAUNCH_DATES_NO_SERVE")) {
+  serve((req) => handler(req));
+}

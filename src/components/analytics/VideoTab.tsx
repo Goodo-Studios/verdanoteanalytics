@@ -32,6 +32,7 @@ import {
   gridProps,
 } from "@/lib/chartTheme";
 import { CartesianGrid } from "recharts";
+import { groupMetrics } from "@/lib/groupMetrics";
 
 interface VideoTabProps {
   creatives: any[];
@@ -117,13 +118,16 @@ export function VideoTab({ creatives, onCreativeClick }: VideoTabProps) {
   // Aggregated metrics
   const agg = useMemo(() => {
     if (videoCreatives.length === 0) return null;
-    const avgHook = videoCreatives.reduce((s, c) => s + c.hook_rate, 0) / videoCreatives.length;
-    const avgHold = videoCreatives.reduce((s, c) => s + c.hold_rate_val, 0) / videoCreatives.length;
-    const avgVTC = videoCreatives.reduce((s, c) => s + c.view_to_click, 0) / videoCreatives.length;
+    // From summed counts across the video creatives, not a plain average of each
+    // creative's rate (audit 6.1). Stored rates are percents; this tab shows 0-1 ratios.
+    const g = groupMetrics(videoCreatives);
+    const avgHook = (g.hook_rate ?? 0) / 100;
+    const avgHold = (g.hold_rate ?? 0) / 100;
+    const avgVTC = (g.ctr ?? 0) / 100;
     const totalSpend = videoCreatives.reduce((s, c) => s + c.spend_val, 0);
     const totalThruplay = videoCreatives.reduce((s, c) => s + c.hold_rate_val * (Number(c.video_views) || 0), 0);
     const avgCPT = totalThruplay > 0 ? totalSpend / totalThruplay : 0;
-    const avgPlayTime = videoCreatives.reduce((s, c) => s + c.avg_play_time, 0) / videoCreatives.length;
+    const avgPlayTime = g.avg_play_time ?? 0;
     const bestHook = videoCreatives.reduce((best, c) => c.hook_rate > best.hook_rate ? c : best, videoCreatives[0]);
     return { avgHook, avgHold, avgVTC, avgCPT, avgPlayTime, bestHook, count: videoCreatives.length };
   }, [videoCreatives]);

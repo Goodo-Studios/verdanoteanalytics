@@ -36,13 +36,15 @@ Deno.test("aggregateDailyByAd sums an ad's spend across the picked days", () => 
 
 Deno.test("aggregateDailyByAd impression-weights rate metrics (frequency, thumb-stop)", () => {
   const rows: DailyMetricRow[] = [
-    { ad_id: "A", impressions: 1000, frequency: 1, thumb_stop_rate: 10 },
-    { ad_id: "A", impressions: 3000, frequency: 2, thumb_stop_rate: 30 },
+    // Hook rate is now computed from video views (audit 6.1), so each day carries the views
+    // its stored thumb_stop_rate implies.
+    { ad_id: "A", impressions: 1000, video_views: 100, frequency: 1, thumb_stop_rate: 10 },
+    { ad_id: "A", impressions: 3000, video_views: 900, frequency: 2, thumb_stop_rate: 30 },
   ];
   const agg = aggregateDailyByAd(rows);
   // weighted freq = (1*1000 + 2*3000) / 4000 = 1.75
   approx(agg["A"]._freq_weighted / agg["A"]._freq_imp, 1.75);
-  // weighted tsr = (10*1000 + 30*3000) / 4000 = 25
+  // hook = (100 + 900) / 4000 x 100 = 25, the same as (10*1000 + 30*3000) / 4000
   approx(agg["A"]._tsr_weighted / agg["A"]._tsr_imp, 25);
 });
 
@@ -75,4 +77,20 @@ Deno.test("computeWeightedAggregates coerces string/null inputs and avoids div-b
   assertEquals(r.total_spend, 100);
   assertEquals(r.avg_cpa, 0); // zero purchases → no division
   approx(r.avg_roas, 2.5);
+});
+
+// Audit plan item 6.1, part 6: the date-range path uses the shared metric-math video
+// formulas, the same as rollup_creatives_from_daily and creatives_list_page. Same fixture as
+// supabase/tests/video_metric_formulas_test.sql, so SQL and TypeScript give the same answer.
+Deno.test("video formulas match the shared metric-math formulas (same fixture as the SQL test)", () => {
+  const rows: DailyMetricRow[] = [
+    { ad_id: "V", impressions: 1000, video_views: 100, thumb_stop_rate: 10, hold_rate: 40, video_avg_play_time: 5, frequency: 2 },
+    { ad_id: "V", impressions: 3000, video_views: 0, thumb_stop_rate: 0, hold_rate: 0, video_avg_play_time: 0, frequency: 1 },
+    { ad_id: "V", impressions: 1000, video_views: 200, thumb_stop_rate: 20, hold_rate: 0, video_avg_play_time: 0, frequency: 0 },
+  ];
+  const a = aggregateDailyByAd(rows)["V"];
+  approx(a._tsr_weighted / a._tsr_imp, 15); // hook: 300 views / 2000 impressions on video days
+  approx(a._hr_weighted / a._hr_vv, (40 * 100) / 300); // hold: a 0% day still counts its views
+  approx(a._vpt_weighted / a._vpt_vv, (5 * 100) / 300); // play time: a 0s day still counts
+  approx(a._freq_weighted / a._freq_imp, 1); // frequency: every day's impressions
 });

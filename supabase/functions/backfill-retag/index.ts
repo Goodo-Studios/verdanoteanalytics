@@ -133,6 +133,11 @@ interface MatrixCoverage {
 /** The request/self-chain body shape. */
 interface BackfillBody {
   account_id?: string;
+  /**
+   * Audit 8.7: chain cursor. A continuation processes only accounts whose id sorts after
+   * this one, so a link does not redo the accounts the previous link finished.
+   */
+  after_account?: string;
   dry_run?: boolean;
   /** Informational: set by selfContinue() so logs distinguish chained invocations. */
   _chained?: boolean;
@@ -174,23 +179,37 @@ async function selfContinue(body: BackfillBody): Promise<void> {
   }
 }
 
-Deno.serve(async (req) => {
+export interface HandlerOptions {
+  /** Test seam: replaces the wall-clock budget check. */
+  timedOut?: () => boolean;
+}
+
+// deno-lint-ignore no-explicit-any
+export async function handler(req: Request, supabaseOverride?: any, opts: HandlerOptions = {}): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
   // so this check is the only gate. Live pg_cron jobs and function-to-function
   // calls forward the real service-role key. See _shared/internal-auth.ts.
-  const authFailure = await requireServiceRole(req);
-  if (authFailure) return authFailure;
+  // Skipped when a test injects a client.
+  const isInjectedClient = !!supabaseOverride && typeof supabaseOverride.from === "function";
+  if (!isInjectedClient) {
+    const authFailure = await requireServiceRole(req);
+    if (authFailure) return authFailure;
+  }
 
   const startedMs = Date.now();
-  const timedOut = () => Date.now() - startedMs > DEADLINE_MS;
+  const timedOut = opts.timedOut ?? (() => Date.now() - startedMs > DEADLINE_MS);
 
   try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
+    const makeClient = () =>
+      createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      );
+    const supabase = isInjectedClient
+      ? (supabaseOverride as ReturnType<typeof makeClient>)
+      : makeClient();
 
     // Optional scoping: { account_id?, dry_run? }. No body is fine (defaults).
     let body: BackfillBody = {};
@@ -202,10 +221,14 @@ Deno.serve(async (req) => {
     if (body.account_id) {
       accountIds = [body.account_id];
     } else {
-      const { data: accounts, error } = await supabase
+      // Audit 8.7: stable order plus the chain cursor, so each link resumes where the
+      // previous one stopped instead of re-listing every account.
+      let accountQuery = supabase
         .from("ad_accounts")
         .select("id")
         .eq("is_active", true);
+      if (body.after_account) accountQuery = accountQuery.gt("id", body.after_account);
+      const { data: accounts, error } = await accountQuery.order("id", { ascending: true });
       if (error) throw error;
       accountIds = (accounts || []).map((a) => a.id);
     }
@@ -214,6 +237,8 @@ Deno.serve(async (req) => {
     const perAccountMatrix = new Map<string, MatrixCounters>();
     const perAccountCoverage = new Map<string, MatrixCoverage>();
     let drained = true; // false if we hit the time budget before finishing
+    // Last account this link finished completely (both passes): the next link's cursor.
+    let lastFinishedAccount: string | undefined = body.after_account;
 
     for (const accountId of accountIds) {
       if (timedOut()) { drained = false; break; }
@@ -463,6 +488,7 @@ Deno.serve(async (req) => {
           type_untagged: typeUntagged,
         });
       }
+      if (accountDrained) lastFinishedAccount = accountId;
     }
 
     const totals = [...perAccount.values()].reduce(
@@ -496,7 +522,12 @@ Deno.serve(async (req) => {
     // / per-pass / per-update condition guards this call, so no remaining work is ever
     // orphaned. When drained === true there is nothing left, so the chain stops.
     if (!drained) {
-      await selfContinue({ account_id: body.account_id, dry_run: dryRun });
+      await selfContinue({
+        account_id: body.account_id,
+        dry_run: dryRun,
+        // A single-account run has no account list to page through.
+        after_account: body.account_id ? undefined : lastFinishedAccount,
+      });
     }
 
     const summary = {
@@ -529,4 +560,9 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-});
+}
+
+// Guard the network bind so tests can import the handler without serving.
+if (!Deno.env.get("BACKFILL_RETAG_NO_SERVE")) {
+  Deno.serve((req) => handler(req));
+}
