@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { formatReportRange } from "@/lib/dateRange";
 import { Button } from "@/components/ui/button";
 import { Download, ArrowLeft, Send, Loader2, Pencil, FileText } from "lucide-react";
 import { exportReportCSV } from "@/lib/csv";
@@ -140,7 +141,7 @@ const ReportDetailPage = () => {
                 <p className="text-sm text-muted-foreground">
                   Generated {new Date(report.created_at).toLocaleString()}
                   {report.date_range_start && report.date_range_end && (
-                    <> · {new Date(report.date_range_start).toLocaleDateString()} – {new Date(report.date_range_end).toLocaleDateString()}</>
+                    <> · {formatReportRange(report.date_range_start, report.date_range_end)}</>
                   )}
                 </p>
               </div>

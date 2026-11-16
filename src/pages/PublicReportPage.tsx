@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { formatReportRange } from "@/lib/dateRange";
 import { Separator } from "@/components/ui/separator";
 import { TrendingUp, AlertTriangle, Loader2, LogIn } from "lucide-react";
 import { useParams, Link } from "react-router-dom";
@@ -100,7 +101,7 @@ const PublicReportPage = () => {
           <p className="text-sm text-muted-foreground">
             Generated {new Date(report.created_at).toLocaleString()}
             {report.date_range_start && report.date_range_end && (
-              <> · {new Date(report.date_range_start).toLocaleDateString()} – {new Date(report.date_range_end).toLocaleDateString()}</>
+              <> · {formatReportRange(report.date_range_start, report.date_range_end)}</>
             )}
           </p>
         </div>
