@@ -18,6 +18,7 @@ export interface SnapshotCreativeInput {
   hook?: string | null;
   style?: string | null;
   ad_type?: string | null;
+  person?: string | null;
   spend?: Num;
   purchase_value?: Num;
   purchases?: Num;
@@ -53,18 +54,33 @@ export interface SnapshotDailyTotal {
   impressions: number;
 }
 
+/** Tag fields the report's tag breakdown can group by (Matthew's decision 17). */
+export const TAG_BREAKDOWN_FIELDS = ["hook", "ad_type", "style", "person"] as const;
+export type TagBreakdownField = typeof TAG_BREAKDOWN_FIELDS[number];
+
 export interface ReportSnapshot {
   version: number;
   top_creatives: SnapshotCreative[];
   tag_mix: TagMixRow[];
+  /** One group list per pickable field. Missing on snapshots saved before decision 17. */
+  tag_mix_by_field?: Record<TagBreakdownField, TagMixRow[]>;
   chart_series: SnapshotDailyTotal[];
 }
 
 /** Group by hook, then style, then ad type; group ROAS = revenue / spend. */
 export function tagMix(rows: SnapshotCreativeInput[], limit = 15): TagMixRow[] {
+  return groupMix(rows, (c) => c.hook || c.style || c.ad_type || "Untagged", limit);
+}
+
+/** Group by one tag field only; creatives without it are "Untagged". */
+export function tagMixByField(rows: SnapshotCreativeInput[], field: TagBreakdownField, limit = 15): TagMixRow[] {
+  return groupMix(rows, (c) => c[field] || "Untagged", limit);
+}
+
+function groupMix(rows: SnapshotCreativeInput[], keyOf: (c: SnapshotCreativeInput) => string, limit: number): TagMixRow[] {
   const groups = new Map<string, SnapshotCreativeInput[]>();
   for (const c of rows) {
-    const key = c.hook || c.style || c.ad_type || "Untagged";
+    const key = keyOf(c);
     const list = groups.get(key) ?? [];
     list.push(c);
     groups.set(key, list);
@@ -116,7 +132,16 @@ export function buildReportSnapshot(
   const series = (Array.isArray(dailyTotals) ? dailyTotals : [...dailyTotals.values()])
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date));
-  return { version: REPORT_SNAPSHOT_VERSION, top_creatives: top, tag_mix: tagMix(list), chart_series: series };
+  const byField = Object.fromEntries(
+    TAG_BREAKDOWN_FIELDS.map((f) => [f, tagMixByField(list, f)]),
+  ) as Record<TagBreakdownField, TagMixRow[]>;
+  return {
+    version: REPORT_SNAPSHOT_VERSION,
+    top_creatives: top,
+    tag_mix: tagMix(list),
+    tag_mix_by_field: byField,
+    chart_series: series,
+  };
 }
 
 /** A saved snapshot this code can read, or null for older reports. */
