@@ -5,7 +5,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 // classifier. This used to be an ad-hoc `roas > 1` filter here, which agreed
 // with neither the Library nor the Overview.
 import { selectWinnersBySpend } from "../_shared/creative-classification.ts";
-import { computeBlendedMetrics, roundOrNull } from "../_shared/metric-math.ts";
+import { addVideoRow, computeBlendedMetrics, emptyVideoAccumulator, roundOrNull, videoMetricsFromAccumulator } from "../_shared/metric-math.ts";
 import { validateAccountIds, validateDateRange } from "../_shared/report-input.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
@@ -195,7 +195,9 @@ async function aggregateDailyMetrics(supabase: any, accountId: string | null, da
         spend: 0, impressions: 0, clicks: 0, purchases: 0, purchase_value: 0,
         adds_to_cart: 0, video_views: 0,
         _days: 0, _ctr_sum: 0, _cpm_sum: 0, _cpc_sum: 0, _cpa_sum: 0, _roas_sum: 0,
-        _tsr_sum: 0, _hr_sum: 0, _freq_sum: 0, _vat_sum: 0, _cpac_sum: 0,
+        _cpac_sum: 0,
+        // Hook, hold, play time and frequency are built from counts (audit 6.1).
+        _video: emptyVideoAccumulator(),
       };
     }
     const a = byAd[m.ad_id];
@@ -212,10 +214,7 @@ async function aggregateDailyMetrics(supabase: any, accountId: string | null, da
     a._cpc_sum += Number(m.cpc || 0);
     a._cpa_sum += Number(m.cpa || 0);
     a._roas_sum += Number(m.roas || 0);
-    a._tsr_sum += Number(m.thumb_stop_rate || 0);
-    a._hr_sum += Number(m.hold_rate || 0);
-    a._freq_sum += Number(m.frequency || 0);
-    a._vat_sum += Number(m.video_avg_play_time || 0);
+    addVideoRow(a._video, m);
     a._cpac_sum += Number(m.cost_per_add_to_cart || 0);
   }
 
@@ -237,7 +236,7 @@ async function aggregateDailyMetrics(supabase: any, accountId: string | null, da
   return adIds.map(adId => {
     const a = byAd[adId];
     const meta = creativeMap[adId] || {};
-    const days = a._days || 1;
+    const video = videoMetricsFromAccumulator(a._video);
     return {
       ...meta,
       ad_id: adId,
@@ -254,10 +253,11 @@ async function aggregateDailyMetrics(supabase: any, accountId: string | null, da
       cpc: a.clicks > 0 ? a.spend / a.clicks : 0,
       cpa: a.purchases > 0 ? a.spend / a.purchases : 0,
       roas: a.spend > 0 ? a.purchase_value / a.spend : 0,
-      thumb_stop_rate: a._tsr_sum / days,
-      hold_rate: a._hr_sum / days,
-      frequency: a._freq_sum / days,
-      video_avg_play_time: a._vat_sum / days,
+      // 0 when there is no data, as before; screens get null handling in a later part of 6.1.
+      thumb_stop_rate: video.hook_rate ?? 0,
+      hold_rate: video.hold_rate ?? 0,
+      frequency: video.frequency_approx ?? 0,
+      video_avg_play_time: video.avg_play_time ?? 0,
       cost_per_add_to_cart: a.adds_to_cart > 0 ? a.spend / a.adds_to_cart : 0,
     };
   }).filter(c => c.spend > 0);
