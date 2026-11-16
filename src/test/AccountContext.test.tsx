@@ -10,7 +10,7 @@
 // story closes.
 
 import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Account } from "@/types/account";
 
@@ -201,5 +201,57 @@ describe("AccountProvider: a client's linked accounts (second-round audit L6)", 
     await act(async () => { release(); });
     await waitFor(() => expect(screen.getByTestId("accounts")).toHaveTextContent("acc_b"));
     expect(screen.getByTestId("accounts")).not.toHaveTextContent("acc_a");
+  });
+});
+
+// Audit plan item 3.4. A ?account= link is applied once and then removed from the address, so a
+// later refresh of the account list cannot undo the user's own switch. The access-denied screen
+// has a way out: "Go to my accounts" clears the bad link and lands on the user's own account.
+describe("AccountProvider: ?account= is applied once (audit 3.4)", () => {
+  function Switcher() {
+    const { selectedAccountId, setSelectedAccountId } = useAccountContext();
+    const location = useLocation();
+    return (
+      <div>
+        <span data-testid="selected">{selectedAccountId ?? "∅"}</span>
+        <span data-testid="search">{location.search || "none"}</span>
+        <button onClick={() => setSelectedAccountId("acc_a")}>switch to A</button>
+      </div>
+    );
+  }
+  const tree = (path: string) => (
+    <MemoryRouter initialEntries={[path]}>
+      <AccountProvider>
+        <Switcher />
+      </AccountProvider>
+    </MemoryRouter>
+  );
+
+  it("removes the parameter from the address after applying it, keeping other parameters", async () => {
+    render(tree("/builder/analytics?account=acc_b&tab=hooks"));
+    expect(await screen.findByTestId("selected")).toHaveTextContent("acc_b");
+    await waitFor(() => expect(screen.getByTestId("search")).toHaveTextContent("?tab=hooks"));
+  });
+
+  it("a refreshed account list does not undo the user's switch", async () => {
+    const view = render(tree("/builder/analytics?account=acc_b"));
+    expect(await screen.findByTestId("selected")).toHaveTextContent("acc_b");
+    fireEvent.click(screen.getByText("switch to A"));
+    expect(screen.getByTestId("selected")).toHaveTextContent("acc_a");
+    // The accounts query refetches and returns a new list.
+    h.accounts = [{ ...ACCOUNT_A }, { ...ACCOUNT_B }];
+    view.rerender(tree("/builder/analytics?account=acc_b"));
+    await act(async () => {});
+    expect(screen.getByTestId("selected")).toHaveTextContent("acc_a");
+  });
+
+  it("the access-denied screen has a button that clears the link and opens the user's own account", async () => {
+    localStorage.setItem("selectedAccountId_user_1", "acc_a");
+    render(tree("/builder/analytics?account=does_not_exist"));
+    const button = await screen.findByRole("button", { name: /go to my accounts/i });
+    fireEvent.click(button);
+    expect(await screen.findByTestId("selected")).toHaveTextContent("acc_a");
+    expect(screen.getByTestId("search")).toHaveTextContent("none");
+    expect(screen.queryByTestId("account-access-denied")).not.toBeInTheDocument();
   });
 });

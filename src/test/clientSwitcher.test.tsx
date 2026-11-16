@@ -17,6 +17,7 @@ const h = vi.hoisted(() => ({
   preview: { isClientPreview: false } as Record<string, unknown>,
   selectedAccountId: "act_c" as string | null,
   setSelectedAccountId: vi.fn(),
+  accountFromLink: null as string | null,
   tables: {} as Record<string, unknown[]>,
   from: vi.fn(),
 }));
@@ -33,6 +34,7 @@ vi.mock("@/contexts/AccountContext", () => ({
     selectedAccountId: h.selectedAccountId,
     setSelectedAccountId: h.setSelectedAccountId,
     isLoading: false,
+    accountFromLink: h.accountFromLink,
   }),
 }));
 vi.mock("@/integrations/supabase/client", () => ({
@@ -90,6 +92,7 @@ beforeEach(() => {
   setRole("builder");
   h.preview = { isClientPreview: false };
   h.selectedAccountId = "act_c";
+  h.accountFromLink = null;
   h.setSelectedAccountId.mockReset();
   h.from.mockReset();
   h.tables = {
@@ -235,6 +238,17 @@ describe("how the client maps to ad accounts", () => {
   it("an explicit ?account= link is left alone", async () => {
     window.localStorage.setItem("verdanote.selectedClient.u1", "glow");
     renderAt("/builder/creative/analytics?account=act_c");
+    await waitFor(() => expect(select().value).toBe("glow"));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(h.setSelectedAccountId).not.toHaveBeenCalled();
+  });
+
+  // Audit 3.4: AccountContext removes ?account= from the address once it applies it, and reports
+  // the linked account instead. The switcher still leaves it alone.
+  it("an applied ?account= link is still left alone after it leaves the address", async () => {
+    window.localStorage.setItem("verdanote.selectedClient.u1", "glow");
+    h.accountFromLink = "act_c";
+    renderAt("/builder/creative/analytics");
     await waitFor(() => expect(select().value).toBe("glow"));
     await new Promise((r) => setTimeout(r, 30));
     expect(h.setSelectedAccountId).not.toHaveBeenCalled();
