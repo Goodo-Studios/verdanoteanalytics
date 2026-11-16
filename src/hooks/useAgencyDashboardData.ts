@@ -5,6 +5,26 @@ import { priorPeriodRange } from "@/lib/dateRange";
 
 type AccountLike = { id: string };
 
+type AgencyAccountEntry = {
+  account_id: string;
+  period_spend: number | string | null;
+  period_revenue: number | string | null;
+  active_ad_count: number | string | null;
+  prior_spend: number | string | null;
+};
+
+type AgencyAdEntry = {
+  ad_id: string;
+  account_id: string;
+  ad_name: string | null;
+  thumbnail_url: string | null;
+  spend: number | string | null;
+  purchase_value: number | string | null;
+  impressions: number | string | null;
+  frequency_weighted: number | string | null;
+  frequency_impressions: number | string | null;
+};
+
 type CreativeRow = {
   ad_id: string;
   account_id: string;
@@ -49,7 +69,11 @@ export function useAgencyDashboardData(accounts: AccountLike[], dateFrom?: strin
     queryFn: async () => {
       const { pFrom, pTo, priorFrom, priorTo } = resolveAgencyRanges(dateFrom, dateTo);
 
-      const { data, error } = await supabase.rpc("get_agency_dashboard_summary", {
+      // Audit 7.3: one jsonb value with every account and every spending ad. The old
+      // get_agency_dashboard_summary returned one row per (account, ad), about 6,000 a month,
+      // and PostgREST's 1,000-row cap dropped whole accounts.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase.rpc as any)("get_agency_dashboard_data", {
         p_from:       pFrom,
         p_to:         pTo,
         p_prior_from: priorFrom,
@@ -58,64 +82,33 @@ export function useAgencyDashboardData(accounts: AccountLike[], dateFrom?: strin
 
       if (error) throw error;
 
-      // The RPC returns one row per (account, ad) combination.
-      // Re-build the Maps and creative array the dashboard components expect.
+      const payload = (data ?? {}) as { accounts?: AgencyAccountEntry[]; ads?: AgencyAdEntry[] };
       const perAccountSpend   = new Map<string, number>();
       const perAccountRevenue = new Map<string, number>();
       const priorMonthSpend   = new Map<string, number>();
       const activeByAccount   = new Map<string, number>();
-
-      // Collect per-ad aggregates; account-level fields repeat per row so we
-      // only need to set them once per account_id.
-      const seenAccounts = new Set<string>();
-      const adMap = new Map<string, {
-        ad_id: string;
-        account_id: string;
-        ad_name: string | null;
-        thumbnail_url: string | null;
-        spend: number;
-        purchase_value: number;
-        impressions: number;
-        frequencyWeighted: number;
-        frequencyImpressions: number;
-      }>();
-
-      for (const row of data ?? []) {
-        if (!seenAccounts.has(row.account_id)) {
-          seenAccounts.add(row.account_id);
-          perAccountSpend.set(row.account_id,   Number(row.period_spend)   || 0);
-          perAccountRevenue.set(row.account_id, Number(row.period_revenue) || 0);
-          priorMonthSpend.set(row.account_id,   Number(row.prior_spend)    || 0);
-          activeByAccount.set(row.account_id,   Number(row.active_ad_count) || 0);
-        }
-
-        if (row.ad_id) {
-          adMap.set(row.ad_id, {
-            ad_id:                row.ad_id,
-            account_id:           row.account_id,
-            ad_name:              row.ad_name ?? null,
-            thumbnail_url:        row.thumbnail_url ?? null,
-            spend:                Number(row.ad_spend)              || 0,
-            purchase_value:       Number(row.ad_purchase_value)     || 0,
-            impressions:          Number(row.ad_impressions)        || 0,
-            frequencyWeighted:    Number(row.ad_frequency_weighted)     || 0,
-            frequencyImpressions: Number(row.ad_frequency_impressions)  || 0,
-          });
-        }
+      for (const a of payload.accounts ?? []) {
+        perAccountSpend.set(a.account_id,   Number(a.period_spend)    || 0);
+        perAccountRevenue.set(a.account_id, Number(a.period_revenue)  || 0);
+        priorMonthSpend.set(a.account_id,   Number(a.prior_spend)     || 0);
+        activeByAccount.set(a.account_id,   Number(a.active_ad_count) || 0);
       }
 
-      const creatives: CreativeRow[] = Array.from(adMap.values()).map((agg) => ({
-        ad_id:         agg.ad_id,
-        account_id:    agg.account_id,
-        ad_name:       agg.ad_name ?? agg.ad_id,
-        thumbnail_url: agg.thumbnail_url,
-        spend:         agg.spend,
-        purchase_value: agg.purchase_value,
-        roas:          agg.spend > 0 ? agg.purchase_value / agg.spend : 0,
-        frequency:     agg.frequencyImpressions > 0
-                         ? agg.frequencyWeighted / agg.frequencyImpressions
-                         : 0,
-      }));
+      const creatives: CreativeRow[] = (payload.ads ?? []).map((ad) => {
+        const spend = Number(ad.spend) || 0;
+        const purchaseValue = Number(ad.purchase_value) || 0;
+        const freqImpressions = Number(ad.frequency_impressions) || 0;
+        return {
+          ad_id:          ad.ad_id,
+          account_id:     ad.account_id,
+          ad_name:        ad.ad_name ?? ad.ad_id,
+          thumbnail_url:  ad.thumbnail_url ?? null,
+          spend,
+          purchase_value: purchaseValue,
+          roas:           spend > 0 ? purchaseValue / spend : 0,
+          frequency:      freqImpressions > 0 ? (Number(ad.frequency_weighted) || 0) / freqImpressions : 0,
+        };
+      });
 
       const mtdSpend   = Array.from(perAccountSpend.values()).reduce((s, v) => s + v, 0);
       const mtdRevenue = Array.from(perAccountRevenue.values()).reduce((s, v) => s + v, 0);
