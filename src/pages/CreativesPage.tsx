@@ -23,6 +23,7 @@ import { RefreshCw, LayoutGrid, Download, Search, X, CalendarDays, SlidersHorizo
 import { useMemo, useState, useCallback } from "react";
 import { useRoleNavigate } from "@/hooks/useRolePath";
 import { useCreatives, CREATIVES_PAGE_SIZE, useCreativeFilters } from "@/hooks/useCreatives";
+import { isServerSorted } from "@/lib/creativeServerSort";
 import { useSync } from "@/hooks/useSyncApi";
 import { useIsSyncing } from "@/hooks/useIsSyncing";
 import { downloadCSV, exportCreativesCSV } from "@/lib/csv";
@@ -207,6 +208,8 @@ const CreativesPage = () => {
     list = applyAdvancedFilters(list, advancedConditions, gradeMap, fatigueMap, wowTrends);
 
     if (!sort.key || !sort.direction) return list;
+    // Columns the server sorts arrive in order across every page; keep that order (audit 7.1).
+    if (isServerSorted(sort)) return list;
     const dir = sort.direction === "asc" ? 1 : -1;
 
     // Special handling for grade sort

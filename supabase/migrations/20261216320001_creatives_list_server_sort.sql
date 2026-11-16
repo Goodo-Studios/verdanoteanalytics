@@ -54,7 +54,24 @@ DECLARE
   v_limit  integer := GREATEST(COALESCE(p_limit, 100), 0);
   v_offset integer := GREATEST(COALESCE(p_offset, 0), 0);
   v_result jsonb;
+  -- Sort keys the list may be ordered by (audit 7.1). Anything else falls back to spend.
+  v_num_sorts constant text[] := ARRAY[
+    'spend', 'roas', 'cpa', 'ctr', 'cpm', 'cpc', 'purchases', 'purchase_value',
+    'impressions', 'clicks', 'adds_to_cart', 'cost_per_add_to_cart', 'video_views',
+    'thumb_stop_rate', 'hold_rate', 'frequency', 'video_avg_play_time',
+    'retention_p25', 'retention_p50', 'retention_p75', 'retention_p100'
+  ];
+  v_text_sorts constant text[] := ARRAY[
+    'ad_name', 'ad_type', 'ad_status', 'person', 'style', 'hook', 'product', 'theme',
+    'campaign_name', 'adset_name'
+  ];
+  v_sort text := CASE
+    WHEN lower(COALESCE(p_sort, '')) = ANY (v_num_sorts || v_text_sorts) THEN lower(p_sort)
+    ELSE 'spend' END;
+  v_asc  boolean := lower(COALESCE(p_sort_dir, 'desc')) = 'asc';
+  v_text boolean;
 BEGIN
+  v_text := v_sort = ANY (v_text_sorts);
   IF p_date_from IS NOT NULL OR p_date_to IS NOT NULL THEN
     -- Accounts whose daily rows are read: the picked account, else every account the
     -- caller may see (NULL allowed = staff = all accounts). Never wider than allowed.
@@ -137,10 +154,42 @@ BEGIN
              OR c.unique_code   ILIKE '%' || v_search || '%'
              OR c.campaign_name ILIKE '%' || v_search || '%')
     ),
-    page AS (
-      SELECT k.*
+    keyed AS (
+      SELECT k.*,
+             CASE v_sort
+               WHEN 'spend' THEN k.spend WHEN 'roas' THEN k.roas WHEN 'cpa' THEN k.cpa
+               WHEN 'ctr' THEN k.ctr WHEN 'cpm' THEN k.cpm WHEN 'cpc' THEN k.cpc
+               WHEN 'purchases' THEN k.purchases WHEN 'purchase_value' THEN k.purchase_value
+               WHEN 'impressions' THEN k.impressions WHEN 'clicks' THEN k.clicks
+               WHEN 'adds_to_cart' THEN k.adds_to_cart
+               WHEN 'cost_per_add_to_cart' THEN k.cost_per_add_to_cart
+               WHEN 'video_views' THEN k.video_views WHEN 'thumb_stop_rate' THEN k.thumb_stop_rate
+               WHEN 'hold_rate' THEN k.hold_rate WHEN 'frequency' THEN k.frequency
+               WHEN 'video_avg_play_time' THEN k.video_avg_play_time
+               WHEN 'retention_p25' THEN c.retention_p25::numeric
+               WHEN 'retention_p50' THEN c.retention_p50::numeric
+               WHEN 'retention_p75' THEN c.retention_p75::numeric
+               WHEN 'retention_p100' THEN c.retention_p100::numeric
+             END AS sort_num,
+             CASE v_sort
+               WHEN 'ad_name' THEN lower(c.ad_name) WHEN 'ad_type' THEN lower(c.ad_type)
+               WHEN 'ad_status' THEN lower(c.ad_status) WHEN 'person' THEN lower(c.person)
+               WHEN 'style' THEN lower(c.style) WHEN 'hook' THEN lower(c.hook)
+               WHEN 'product' THEN lower(c.product) WHEN 'theme' THEN lower(c.theme)
+               WHEN 'campaign_name' THEN lower(c.campaign_name)
+               WHEN 'adset_name' THEN lower(c.adset_name)
+             END AS sort_text
         FROM calc k
-       ORDER BY k.spend DESC, k.ad_id
+        JOIN public.creatives c ON c.ad_id = k.ad_id
+    ),
+    page AS (
+      SELECT q.*
+        FROM keyed q
+       ORDER BY CASE WHEN v_asc AND NOT v_text THEN q.sort_num END ASC NULLS LAST,
+                CASE WHEN NOT v_asc AND NOT v_text THEN q.sort_num END DESC NULLS LAST,
+                CASE WHEN v_asc AND v_text THEN q.sort_text END ASC NULLS LAST,
+                CASE WHEN NOT v_asc AND v_text THEN q.sort_text END DESC NULLS LAST,
+                q.ad_id
        LIMIT v_limit OFFSET v_offset
     )
     SELECT jsonb_build_object(
@@ -158,7 +207,11 @@ BEGIN
                       'video_views', p.video_views,
                       'thumb_stop_rate', p.thumb_stop_rate, 'hold_rate', p.hold_rate,
                       'frequency', p.frequency, 'video_avg_play_time', p.video_avg_play_time)
-                 ORDER BY p.spend DESC, p.ad_id)
+                 ORDER BY CASE WHEN v_asc AND NOT v_text THEN p.sort_num END ASC NULLS LAST,
+                          CASE WHEN NOT v_asc AND NOT v_text THEN p.sort_num END DESC NULLS LAST,
+                          CASE WHEN v_asc AND v_text THEN p.sort_text END ASC NULLS LAST,
+                          CASE WHEN NOT v_asc AND v_text THEN p.sort_text END DESC NULLS LAST,
+                          p.ad_id)
           FROM page p
           JOIN public.creatives c ON c.ad_id = p.ad_id
       ), '[]'::jsonb),
@@ -177,7 +230,33 @@ BEGIN
   -- No date filter: lifetime totals stored on creatives.
   WITH f AS (
     SELECT c.ad_id, COALESCE(c.spend, 0) AS spend, COALESCE(c.purchases, 0) AS purchases,
-           COALESCE(c.purchase_value, 0) AS purchase_value, c.spend AS raw_spend
+           COALESCE(c.purchase_value, 0) AS purchase_value,
+           CASE v_sort
+             WHEN 'spend' THEN c.spend::numeric WHEN 'roas' THEN c.roas::numeric
+             WHEN 'cpa' THEN c.cpa::numeric WHEN 'ctr' THEN c.ctr::numeric
+             WHEN 'cpm' THEN c.cpm::numeric WHEN 'cpc' THEN c.cpc::numeric
+             WHEN 'purchases' THEN c.purchases::numeric
+             WHEN 'purchase_value' THEN c.purchase_value::numeric
+             WHEN 'impressions' THEN c.impressions::numeric WHEN 'clicks' THEN c.clicks::numeric
+             WHEN 'adds_to_cart' THEN c.adds_to_cart::numeric
+             WHEN 'cost_per_add_to_cart' THEN c.cost_per_add_to_cart::numeric
+             WHEN 'video_views' THEN c.video_views::numeric
+             WHEN 'thumb_stop_rate' THEN c.thumb_stop_rate::numeric
+             WHEN 'hold_rate' THEN c.hold_rate::numeric WHEN 'frequency' THEN c.frequency::numeric
+             WHEN 'video_avg_play_time' THEN c.video_avg_play_time::numeric
+             WHEN 'retention_p25' THEN c.retention_p25::numeric
+             WHEN 'retention_p50' THEN c.retention_p50::numeric
+             WHEN 'retention_p75' THEN c.retention_p75::numeric
+             WHEN 'retention_p100' THEN c.retention_p100::numeric
+           END AS sort_num,
+           CASE v_sort
+             WHEN 'ad_name' THEN lower(c.ad_name) WHEN 'ad_type' THEN lower(c.ad_type)
+             WHEN 'ad_status' THEN lower(c.ad_status) WHEN 'person' THEN lower(c.person)
+             WHEN 'style' THEN lower(c.style) WHEN 'hook' THEN lower(c.hook)
+             WHEN 'product' THEN lower(c.product) WHEN 'theme' THEN lower(c.theme)
+             WHEN 'campaign_name' THEN lower(c.campaign_name)
+             WHEN 'adset_name' THEN lower(c.adset_name)
+           END AS sort_text
       FROM public.creatives c
      WHERE (p_allowed_ids IS NULL OR c.account_id = ANY (p_allowed_ids))
        AND (p_account_id  IS NULL OR c.account_id = p_account_id)
@@ -197,9 +276,13 @@ BEGIN
             OR c.campaign_name ILIKE '%' || v_search || '%')
   ),
   page AS (
-    SELECT f.ad_id, f.raw_spend
+    SELECT f.ad_id, f.sort_num, f.sort_text
       FROM f
-     ORDER BY f.raw_spend DESC, f.ad_id
+     ORDER BY CASE WHEN v_asc AND NOT v_text THEN f.sort_num END ASC NULLS LAST,
+              CASE WHEN NOT v_asc AND NOT v_text THEN f.sort_num END DESC NULLS LAST,
+              CASE WHEN v_asc AND v_text THEN f.sort_text END ASC NULLS LAST,
+              CASE WHEN NOT v_asc AND v_text THEN f.sort_text END DESC NULLS LAST,
+              f.ad_id
      LIMIT v_limit OFFSET v_offset
   )
   SELECT jsonb_build_object(
@@ -208,7 +291,11 @@ BEGIN
                (SELECT jsonb_object_agg(e.key, e.value)
                   FROM jsonb_each(to_jsonb(c)) e
                  WHERE e.key = ANY (v_cols))
-               ORDER BY p.raw_spend DESC, p.ad_id)
+               ORDER BY CASE WHEN v_asc AND NOT v_text THEN p.sort_num END ASC NULLS LAST,
+                        CASE WHEN NOT v_asc AND NOT v_text THEN p.sort_num END DESC NULLS LAST,
+                        CASE WHEN v_asc AND v_text THEN p.sort_text END ASC NULLS LAST,
+                        CASE WHEN NOT v_asc AND v_text THEN p.sort_text END DESC NULLS LAST,
+                        p.ad_id)
         FROM page p
         JOIN public.creatives c ON c.ad_id = p.ad_id
     ), '[]'::jsonb),

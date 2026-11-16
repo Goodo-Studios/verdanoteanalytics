@@ -41,8 +41,8 @@ SELECT is((public.creatives_list_page(
   'dates, ad_name asc: alphabetical over the whole set (Ad 001 is ad 105)');
 SELECT is((public.creatives_list_page(
             p_account_id := 'act_cls', p_date_from := '2020-04-01', p_date_to := '2020-04-30',
-            p_sort := 'roas', p_sort_dir := 'desc', p_limit := 100, p_offset := 100)->'data'->0->>'ad_id'), 'cls_001',
-  'dates, roas desc, page two continues the same order (ties broken by ad_id)');
+            p_sort := 'roas', p_sort_dir := 'desc', p_limit := 100, p_offset := 100)->'data'->0->>'ad_id'), 'cls_100',
+  'dates, roas desc, page two continues the same order (ad 105 first, then ties by ad_id)');
 SELECT is((public.creatives_list_page(
             p_account_id := 'act_cls', p_date_from := '2020-04-01', p_date_to := '2020-04-30',
             p_sort := 'spend; drop table x', p_sort_dir := 'sideways')->'data'->0->>'ad_id'), 'cls_001',

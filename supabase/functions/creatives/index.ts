@@ -288,6 +288,9 @@ serve(async (req) => {
           p_search: search || null,
           p_limit: Number.isFinite(limit) ? limit : 100,
           p_offset: Number.isFinite(offset) ? offset : 0,
+          // Whole-set sort before paging (audit 7.1). The function whitelists the key.
+          p_sort: url.searchParams.get("sort") || "spend",
+          p_sort_dir: url.searchParams.get("sort_dir") === "asc" ? "asc" : "desc",
         });
         if (pageError) throw pageError;
         return new Response(JSON.stringify(pageResult), {

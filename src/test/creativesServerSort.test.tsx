@@ -5,6 +5,8 @@
  * showed the best ROAS among the top-spend page rather than the best overall. The sort now
  * travels with the list request, and a new sort goes back to page one.
  */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { act, renderHook } from "@testing-library/react";
@@ -18,6 +20,7 @@ vi.mock("@/contexts/DateRangeContext", () => ({
 }));
 
 import { useCreativesPageState } from "@/hooks/useCreativesPageState";
+import { SERVER_SORT_FIELDS } from "@/lib/creativeServerSort";
 
 const wrapper = ({ children }: { children: ReactNode }) => <MemoryRouter>{children}</MemoryRouter>;
 
@@ -49,5 +52,18 @@ describe("Creatives page sort is sent to the server", () => {
     const { result } = renderHook(() => useCreativesPageState(), { wrapper });
     act(() => result.current.handleSort("grade"));
     expect(result.current.allFilters).not.toHaveProperty("sort");
+  });
+});
+
+describe("server sort whitelist", () => {
+  it("matches the fields creatives_list_page accepts", () => {
+    const sql = readFileSync(
+      resolve(__dirname, "../../supabase/migrations/20261216320001_creatives_list_server_sort.sql"), "utf8");
+    const list = (name: string) => {
+      const m = sql.match(new RegExp(`${name} constant text\\[\\] := ARRAY\\[([^\\]]*)\\]`));
+      expect(m, `${name} not found`).toBeTruthy();
+      return [...m![1].matchAll(/'([a-z0-9_]+)'/g)].map((x) => x[1]);
+    };
+    expect([...list("v_num_sorts"), ...list("v_text_sorts")].sort()).toEqual([...SERVER_SORT_FIELDS].sort());
   });
 });

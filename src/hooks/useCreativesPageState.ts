@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { TABLE_COLUMNS, COLUMN_ORDER_KEY, COLUMN_VISIBLE_KEY, loadColumnPrefs } from "@/components/creatives/constants";
+import { serverSortParams } from "@/lib/creativeServerSort";
 import { type SortConfig } from "@/components/SortableTableHead";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { useDateRangeContext } from "@/contexts/DateRangeContext";
@@ -91,6 +92,8 @@ export function useCreativesPageState() {
   }, [selectedAccountId]);
 
   const handleSort = useCallback((key: string) => {
+    // The server sorts the whole set, so a new sort starts again at page one.
+    setPage(0);
     setSort(prev => ({
       key,
       direction: prev.key === key ? (prev.direction === "asc" ? "desc" : prev.direction === "desc" ? null : "asc") : "asc",
@@ -104,7 +107,8 @@ export function useCreativesPageState() {
     ...(dateFrom ? { date_from: dateFrom } : {}),
     ...(dateTo ? { date_to: dateTo } : {}),
     ...(search ? { search } : {}),
-  }), [selectedAccountId, filters, dateFrom, dateTo, search]);
+    ...serverSortParams(sort),
+  }), [selectedAccountId, filters, dateFrom, dateTo, search, sort]);
 
   return {
     viewMode, setViewMode,
