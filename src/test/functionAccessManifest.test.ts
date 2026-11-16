@@ -45,11 +45,11 @@ describe("function access manifest", () => {
     expect(Object.keys(manifest).sort()).toEqual(deployed);
   });
 
-  it("covers all 85 functions today (Slack import and vault-ads removed 2026-11-15)", () => {
+  it("covers all 84 functions today (Slack import, vault-ads and quick-save removed 2026-11-15)", () => {
     // 83 + clickup-os-sync and clickup-webhook (OS-007) + clickup-writeback (OS-017) + client-invite (OS-021)
     // + cleanup-application-uploads (security close-out) - the 3 Slack import functions (audit 0.3)
-    // - vault-ads (audit 2.3).
-    expect(deployed).toHaveLength(85);
+    // - vault-ads (audit 2.3) - quick-save (retired, audit 4.1).
+    expect(deployed).toHaveLength(84);
   });
 
   it("vault-ads is removed (audit 2.3: nothing in the app called it)", () => {
@@ -124,7 +124,7 @@ describe("function access manifest", () => {
     // with the service role or call paid APIs, so they need their own gate.
     const mustBeStaff = [
       "vault-save", "vault-save-creative", "vault-search", "vault-status", "vault-frame-analyze",
-      "vault-share-item", "quick-save", "scrape-ad", "transcribe-ad",
+      "vault-share-item", "scrape-ad", "transcribe-ad",
       "account-taxonomy", "creative-library", "creative-media-archive",
     ];
     for (const name of mustBeStaff) expect(manifest[name]?.class, name).toBe("staff");

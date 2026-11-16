@@ -20,7 +20,7 @@ Before this change a client token (a signed-in client account) was accepted by t
 
 | Function | What a client could do | Fix |
 |---|---|---|
-| `vault-save`, `vault-save-creative`, `quick-save` | Write into the vault (service-role insert) | Staff gate |
+| `vault-save`, `vault-save-creative` | Write into the vault (service-role insert) | Staff gate (`quick-save` was retired in audit 4.1) |
 | `vault-search`, `vault-status`, `vault-frame-analyze` | Spend embedding and vision budget, read vault status | Staff gate |
 | `vault-share-item` | Mint or revoke public share links (owner check only) | Mint and revoke need staff. `resolve` stays public by share token |
 | `scrape-ad`, `transcribe-ad` | Spend Apify and Deepgram budget | Staff gate |
