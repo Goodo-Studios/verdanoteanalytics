@@ -66,13 +66,17 @@ export function shouldPauseForDailyRetry(priorRetries: number, cap: number): boo
  * breakdown requests, CHUNK_DAYS at a time, with the last chunk capped at endDate.
  */
 export function phase4Chunks(
-  dailyDays: number,
   dailySinceDate: string,
   endDate: Date,
   chunkDays = 15,
 ): { since: string; until: string }[] {
   const fullStartDate = new Date(dailySinceDate + "T00:00:00Z");
-  const totalChunks = Math.ceil(dailyDays / chunkDays);
+  // The window runs from dailySinceDate through today inclusive, which is dailyDays + 1
+  // calendar days. Counting chunks from dailyDays alone dropped today whenever dailyDays was
+  // a multiple of chunkDays (15, 30, 60, 90; audit 6.5).
+  const endDay = Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate());
+  const spanDays = Math.max(1, Math.round((endDay - fullStartDate.getTime()) / 86_400_000) + 1);
+  const totalChunks = Math.ceil(spanDays / chunkDays);
   const chunks: { since: string; until: string }[] = [];
   for (let i = 0; i < totalChunks; i++) {
     const chunkStart = new Date(fullStartDate);
@@ -1529,7 +1533,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       }
       // ────────────────────────────────────────────────────────────────────
 
-      const chunks = phase4Chunks(dailyDays, dailySinceDate, endDate, CHUNK_DAYS);
+      const chunks = phase4Chunks(dailySinceDate, endDate, CHUNK_DAYS);
 
       const chunkOffset = state.daily_chunk_offset || 0;
       const dailyCursor = resumeCursor(state.daily_cursor, metaToken);

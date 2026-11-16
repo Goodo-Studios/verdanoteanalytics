@@ -22,7 +22,7 @@ const now = new Date("2026-11-16T12:00:00Z");
 for (const days of [14, 15, 16, 28, 30, 60, 90]) {
   Deno.test(`a ${days}-day window covers every day from the start through today, with no gaps`, () => {
     const since = iso(new Date(now.getTime() - days * DAY));
-    const chunks = phase4Chunks(days, since, now, 15);
+    const chunks = phase4Chunks(since, now, 15);
     assertEquals(chunks[0].since, since);
     assertEquals(chunks[chunks.length - 1].until, "2026-11-16", "the last chunk must end today");
     for (let i = 1; i < chunks.length; i++) {
