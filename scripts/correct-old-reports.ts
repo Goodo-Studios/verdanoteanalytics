@@ -40,21 +40,27 @@ for (const id of ids) {
     out.push({ id, status: "missing", error: error?.message ?? null });
     continue;
   }
-  if (apply) {
-    const r = await correctReport(supabase, row);
-    counts[r.status] = (counts[r.status] ?? 0) + 1;
-    out.push(r);
-  } else {
-    const f = await buildStandardReportFields(
-      supabase, row.account_id ?? null, row.date_range_start, row.date_range_end, row.date_range_days,
-    );
-    const status = f.creative_count ? "would_correct" : "no_data";
-    counts[status] = (counts[status] ?? 0) + 1;
-    out.push({
-      id, status,
-      before: { total_spend: row.total_spend, blended_roas: row.blended_roas, average_cpa: row.average_cpa, average_ctr: row.average_ctr },
-      after: { total_spend: f.total_spend, blended_roas: f.blended_roas, average_cpa: f.average_cpa, average_ctr: f.average_ctr },
-    });
+  try {
+    if (apply) {
+      const r = await correctReport(supabase, row);
+      counts[r.status] = (counts[r.status] ?? 0) + 1;
+      out.push(r);
+    } else {
+      const f = await buildStandardReportFields(
+        supabase, row.account_id ?? null, row.date_range_start, row.date_range_end, row.date_range_days,
+      );
+      const status = f.creative_count ? "would_correct" : "no_data";
+      counts[status] = (counts[status] ?? 0) + 1;
+      out.push({
+        id, status, account_id: row.account_id, range: [row.date_range_start, row.date_range_end],
+        before: { total_spend: row.total_spend, blended_roas: row.blended_roas, average_cpa: row.average_cpa, average_ctr: row.average_ctr },
+        after: { total_spend: f.total_spend, blended_roas: f.blended_roas, average_cpa: f.average_cpa, average_ctr: f.average_ctr },
+      });
+    }
+  } catch (e) {
+    // A failed read leaves the report untouched; record it and carry on with the next one.
+    counts.error = (counts.error ?? 0) + 1;
+    out.push({ id, status: "error", account_id: row.account_id, range: [row.date_range_start, row.date_range_end], error: String((e as { message?: string })?.message ?? e) });
   }
 }
 
