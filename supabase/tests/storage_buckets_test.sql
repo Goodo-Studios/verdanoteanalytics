@@ -16,12 +16,8 @@
 --   6. A client reads no other user's file in a private bucket.
 --   7. A client can upload into no bucket.
 --
--- KNOWN OPEN HOLES, listed so they stay visible. Each is closed by its own restrictive release
--- (plan ground rule 4) and removed from these lists in that release:
---   client upload: ad-thumbnails, ad-videos (policies "Service role can upload ..." are TO public
---                  with only a bucket check), annotations ("Auth users can upload
---                  annotations" has no owner check), inspiration-media (own folder; Vault is
---                  staff only per decision 5)
+-- KNOWN OPEN HOLES: none. The last ones (ad-thumbnails, ad-videos, annotations, inspiration-media)
+-- were closed by their own restrictive releases (plan ground rule 4).
 
 BEGIN;
 SELECT plan(7);
@@ -126,10 +122,10 @@ SELECT set_config('request.jwt.claim.sub', '5b000000-0000-4000-8000-000000000001
 SELECT is(pg_temp.readable_private_files(true), 0, 'a client reads no other user''s file in a private bucket');
 SELECT set_eq(
   $$SELECT unnest(pg_temp.uploads_allowed('5b000000-0000-4000-8000-000000000001'))$$,
-  -- ad-thumbnails, ad-videos and annotations were closed by migration 20261216490001.
-  -- inspiration-media stays open until the Vault upload moves server-side (audit 1.6 step 3).
-  ARRAY['inspiration-media'],
-  'a client can upload only where a known open hole is listed'
+  -- ad-thumbnails, ad-videos and annotations were closed by migration 20261216490001;
+  -- inspiration-media by 20261216530001 (Vault is staff only).
+  ARRAY[]::text[],
+  'a client can upload into no bucket'
 );
 RESET role;
 
