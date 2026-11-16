@@ -5,7 +5,7 @@
  * showed the best ROAS among the top-spend page rather than the best overall. The sort now
  * travels with the list request, and a new sort goes back to page one.
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
@@ -48,17 +48,26 @@ describe("Creatives page sort is sent to the server", () => {
     expect(result.current.page).toBe(0);
   });
 
-  it("sends no sort for columns the server cannot order (grade, CPMr)", () => {
+  it("sends no sort for the column the server cannot order (CPMr)", () => {
+    const { result } = renderHook(() => useCreativesPageState(), { wrapper });
+    act(() => result.current.handleSort("cpmr"));
+    expect(result.current.allFilters).not.toHaveProperty("sort");
+  });
+
+  it("sends the grade sort to the server (audit 7.1 part 2)", () => {
     const { result } = renderHook(() => useCreativesPageState(), { wrapper });
     act(() => result.current.handleSort("grade"));
-    expect(result.current.allFilters).not.toHaveProperty("sort");
+    expect(result.current.allFilters).toMatchObject({ sort: "grade", sort_dir: "asc" });
   });
 });
 
 describe("server sort whitelist", () => {
   it("matches the fields creatives_list_page accepts", () => {
-    const sql = readFileSync(
-      resolve(__dirname, "../../supabase/migrations/20261216320001_creatives_list_server_sort.sql"), "utf8");
+    // The newest migration that defines the whitelist is the one in force.
+    const dir = resolve(__dirname, "../../supabase/migrations");
+    const newest = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort().reverse()
+      .find((f) => readFileSync(resolve(dir, f), "utf8").includes("v_num_sorts constant"));
+    const sql = readFileSync(resolve(dir, newest!), "utf8");
     const list = (name: string) => {
       const m = sql.match(new RegExp(`${name} constant text\\[\\] := ARRAY\\[([^\\]]*)\\]`));
       expect(m, `${name} not found`).toBeTruthy();
