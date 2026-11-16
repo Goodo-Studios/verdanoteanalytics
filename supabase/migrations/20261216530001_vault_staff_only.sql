@@ -17,11 +17,19 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
   SELECT i.id FROM public.inspiration_items i
-   WHERE (SELECT public.has_role(auth.uid(), 'builder'::public.app_role))
-      OR (SELECT public.has_role(auth.uid(), 'employee'::public.app_role))
+   WHERE (SELECT public.has_role((SELECT auth.uid()), 'builder'::public.app_role))
+      OR (SELECT public.has_role((SELECT auth.uid()), 'employee'::public.app_role))
 $$;
 
--- 2. Items: no owner rules; the staff select, update and delete rules stay.
+-- 2. Items: no owner rules; the staff update and delete rules stay. The read rule loses its
+--    "OR saved_by = auth.uid()" branch (from 20260808000001) and becomes staff only.
+DROP POLICY IF EXISTS inspiration_items_select ON public.inspiration_items;
+CREATE POLICY inspiration_items_select ON public.inspiration_items
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.has_role((SELECT auth.uid()), 'builder'::public.app_role))
+    OR (SELECT public.has_role((SELECT auth.uid()), 'employee'::public.app_role))
+  );
 DROP POLICY IF EXISTS inspiration_items_insert ON public.inspiration_items;
 DROP POLICY IF EXISTS inspiration_items_update ON public.inspiration_items;
 DROP POLICY IF EXISTS inspiration_items_delete ON public.inspiration_items;
@@ -48,8 +56,8 @@ CREATE POLICY boards_insert ON public.boards
   FOR INSERT TO authenticated
   WITH CHECK (
     user_id = (SELECT auth.uid())
-    AND ((SELECT public.has_role(auth.uid(), 'builder'::public.app_role))
-      OR (SELECT public.has_role(auth.uid(), 'employee'::public.app_role)))
+    AND ((SELECT public.has_role((SELECT auth.uid()), 'builder'::public.app_role))
+      OR (SELECT public.has_role((SELECT auth.uid()), 'employee'::public.app_role)))
   );
 
 -- 5. inspiration-media: the folder rules also require staff.
@@ -63,8 +71,8 @@ CREATE POLICY inspiration_media_staff_select ON storage.objects
   USING (
     bucket_id = 'inspiration-media'
     AND (storage.foldername(name))[2] = (SELECT auth.uid())::text
-    AND ((SELECT public.has_role(auth.uid(), 'builder'::public.app_role))
-      OR (SELECT public.has_role(auth.uid(), 'employee'::public.app_role)))
+    AND ((SELECT public.has_role((SELECT auth.uid()), 'builder'::public.app_role))
+      OR (SELECT public.has_role((SELECT auth.uid()), 'employee'::public.app_role)))
   );
 
 CREATE POLICY inspiration_media_staff_insert ON storage.objects
@@ -73,8 +81,8 @@ CREATE POLICY inspiration_media_staff_insert ON storage.objects
     bucket_id = 'inspiration-media'
     AND (storage.foldername(name))[1] IN ('uploads', 'thumbnails')
     AND (storage.foldername(name))[2] = (SELECT auth.uid())::text
-    AND ((SELECT public.has_role(auth.uid(), 'builder'::public.app_role))
-      OR (SELECT public.has_role(auth.uid(), 'employee'::public.app_role)))
+    AND ((SELECT public.has_role((SELECT auth.uid()), 'builder'::public.app_role))
+      OR (SELECT public.has_role((SELECT auth.uid()), 'employee'::public.app_role)))
   );
 
 CREATE POLICY inspiration_media_staff_update ON storage.objects
@@ -83,8 +91,8 @@ CREATE POLICY inspiration_media_staff_update ON storage.objects
     bucket_id = 'inspiration-media'
     AND (storage.foldername(name))[1] = 'thumbnails'
     AND (storage.foldername(name))[2] = (SELECT auth.uid())::text
-    AND ((SELECT public.has_role(auth.uid(), 'builder'::public.app_role))
-      OR (SELECT public.has_role(auth.uid(), 'employee'::public.app_role)))
+    AND ((SELECT public.has_role((SELECT auth.uid()), 'builder'::public.app_role))
+      OR (SELECT public.has_role((SELECT auth.uid()), 'employee'::public.app_role)))
   )
   WITH CHECK (
     bucket_id = 'inspiration-media'
@@ -97,6 +105,6 @@ CREATE POLICY inspiration_media_staff_delete ON storage.objects
   USING (
     bucket_id = 'inspiration-media'
     AND (storage.foldername(name))[2] = (SELECT auth.uid())::text
-    AND ((SELECT public.has_role(auth.uid(), 'builder'::public.app_role))
-      OR (SELECT public.has_role(auth.uid(), 'employee'::public.app_role)))
+    AND ((SELECT public.has_role((SELECT auth.uid()), 'builder'::public.app_role))
+      OR (SELECT public.has_role((SELECT auth.uid()), 'employee'::public.app_role)))
   );
