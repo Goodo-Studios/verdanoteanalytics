@@ -13,6 +13,7 @@ import {
   creativeAiDetailKey,
   type CreativeAiDetail,
 } from "@/hooks/useCreativeAiDetail";
+import type { TablesUpdate } from "@/integrations/supabase/types";
 
 /**
  * Full-parity AI tabs for the analytics creative modal, mirroring the live
@@ -83,7 +84,7 @@ function useSaveCreativeField(adId: string) {
     }) => {
       const { error } = await supabase
         .from("creatives")
-        .update({ [field]: value })
+        .update({ [field]: value } as TablesUpdate<"creatives">)
         .eq("ad_id", adId);
       if (error) throw error;
     },

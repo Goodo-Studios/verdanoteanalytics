@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { describeCsvErrors, parseTagMappingsCsv } from "@/lib/csv";
 import { DEFAULT_CREATIVE_PROMPT, DEFAULT_INSIGHTS_PROMPT } from "@/components/settings/AIContextSection";
 import { useSettings, useSaveSettings } from "@/hooks/useSettingsApi";
+import type { TablesUpdate } from "@/integrations/supabase/types";
 
 /** Matches the sync function's default when no cooldown is saved. */
 export const DEFAULT_SYNC_COOLDOWN_MINUTES = "2";
@@ -145,7 +146,7 @@ export function useSettingsPageState() {
 
   const handleApplyPromptsToAll = useCallback(async () => {
     const allAccounts = (accounts || []) as any[];
-    const promptValues: Record<string, string | null> = {
+    const promptValues: TablesUpdate<"ad_accounts"> = {
       creative_analysis_prompt: creativePrompt === DEFAULT_CREATIVE_PROMPT ? null : creativePrompt || null,
       insights_prompt: insightsPrompt === DEFAULT_INSIGHTS_PROMPT ? null : insightsPrompt || null,
     };
