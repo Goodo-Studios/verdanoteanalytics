@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { fetchWithTimeout } from "../_shared/fetch-with-timeout.ts";
+import { userRateLimitResponse } from "../_shared/user-rate-limit.ts";
 import {
   CREATIVE_TABLE_COLUMNS,
   formatCreativeTable,
@@ -65,6 +66,14 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Audit 8.7: each message is a paid model call, so cap calls per user.
+    const limited = await userRateLimitResponse(
+      (deps.createClient ?? createClient)(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!),
+      user.id,
+      "ai-chat",
+    );
+    if (limited) return limited;
 
     // Load existing conversation if continuing
     let existingMessages: { role: string; content: string }[] = [];
