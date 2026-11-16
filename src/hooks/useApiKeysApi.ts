@@ -37,19 +37,14 @@ export function useCreateApiKey() {
       const randomHex = Array.from(randomBytes).map(b => b.toString(16).padStart(2, "0")).join("");
       const apiKey = `vdn_${randomHex}`;
 
-      const { data, error } = await supabase.rpc("create_api_key", {
+      // create_api_key checks that the caller is staff and that every scope is known, and stores
+      // the scopes itself (audit 1.5). No direct table write follows.
+      const { error } = await (supabase.rpc as any)("create_api_key", {
         key_name: name,
         api_key: apiKey,
+        scopes,
       });
       if (error) throw error;
-
-      // Update permissions to the selected scopes
-      if (data && scopes.length > 0) {
-        await supabase
-          .from("api_keys")
-          .update({ permissions: scopes } as any)
-          .eq("id", data);
-      }
 
       return apiKey; // Return the plaintext key (only shown once)
     },
