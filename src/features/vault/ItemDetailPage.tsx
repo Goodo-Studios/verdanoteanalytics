@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Tabs from "@radix-ui/react-tabs";
@@ -31,6 +31,7 @@ import { AddToBoardModal } from "./components/AddToBoardModal";
 import { CopyButton } from "./components/CopyButton";
 import { VaultShareControl } from "./components/VaultShareControl";
 import { safeExternalHref } from "@/lib/safe-url";
+import { useServerDraft } from "./hooks/useServerDraft";
 
 interface TranscriptRow {
   id: string;
@@ -70,12 +71,6 @@ export default function ItemDetailPage() {
   const [reanalyzeInFlight, setReanalyzeInFlight] = useState(false);
   const [addToBoardOpen, setAddToBoardOpen] = useState(false);
 
-  // ── Editable field drafts ───────────────────────────────────────────────────
-  const [scriptDraft, setScriptDraft] = useState("");
-  const [scriptAnalysisDraft, setScriptAnalysisDraft] = useState("");
-  const [visualAnalysisDraft, setVisualAnalysisDraft] = useState("");
-  const hasInitialized = useRef(false);
-
   const { data, isLoading, error } = useQuery({
     queryKey: ["vault-item", id],
     enabled: !!id && !!user,
@@ -98,16 +93,12 @@ export default function ItemDetailPage() {
     },
   });
 
-  // Initialise once when query data first resolves; don't overwrite user edits.
-  // NOTE: must be declared after `data` to avoid a temporal dead zone crash.
-  useEffect(() => {
-    if (!data || hasInitialized.current) return;
-    const tr = data.inspiration_transcripts?.[0];
-    setScriptDraft(tr?.cleaned_script ?? "");
-    setScriptAnalysisDraft(data.script_analysis ?? "");
-    setVisualAnalysisDraft(data.visual_analysis ?? "");
-    hasInitialized.current = true;
-  }, [data]);
+  // ── Editable field drafts ───────────────────────────────────────────────────
+  // Each follows the server until the user types, saves on blur only after typing, and resets
+  // when the item changes (audit 4.2). Declared after `data` (temporal dead zone).
+  const scriptField = useServerDraft(data?.inspiration_transcripts?.[0]?.cleaned_script, id);
+  const scriptAnalysisField = useServerDraft(data?.script_analysis, id);
+  const visualAnalysisField = useServerDraft(data?.visual_analysis, id);
 
   const isProcessing = data ? VAULT_PROCESSING_STATUSES.has(data.status) : false;
   // Poll while the item is mid-pipeline so Transcript/Framework/Analysis tabs
@@ -570,22 +561,19 @@ export default function ItemDetailPage() {
                   <div className="space-y-2">
                     <div className="relative">
                       <div className="absolute top-2 right-2 z-10">
-                        <CopyButton text={scriptDraft} />
+                        <CopyButton text={scriptField.value} />
                       </div>
                       <textarea
-                        value={scriptDraft}
-                        onChange={(e) => setScriptDraft(e.target.value)}
-                        onBlur={() => {
-                          if (
-                            transcriptRow?.id &&
-                            scriptDraft !== (transcriptRow.cleaned_script ?? "")
-                          ) {
-                            saveScript.mutate({
-                              transcriptId: transcriptRow.id,
-                              value: scriptDraft,
-                            });
-                          }
-                        }}
+                        value={scriptField.value}
+                        onFocus={scriptField.onFocus}
+                        onChange={(e) => scriptField.onChange(e.target.value)}
+                        onBlur={() =>
+                          scriptField.onBlur((value) => {
+                            if (transcriptRow?.id) {
+                              saveScript.mutate({ transcriptId: transcriptRow.id, value });
+                            }
+                          })
+                        }
                         placeholder="No script extracted yet."
                         className="w-full min-h-[300px] font-sans text-sm leading-relaxed text-foreground bg-muted rounded-lg p-4 pr-9 border-0 focus:outline-none focus:ring-2 focus:ring-primary/30 resize-y"
                       />
@@ -651,21 +639,17 @@ export default function ItemDetailPage() {
                       <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                         Script Analysis
                       </h3>
-                      <CopyButton text={scriptAnalysisDraft} />
+                      <CopyButton text={scriptAnalysisField.value} />
                     </div>
                     <textarea
-                      value={scriptAnalysisDraft}
-                      onChange={(e) => setScriptAnalysisDraft(e.target.value)}
-                      onBlur={() => {
-                        if (
-                          scriptAnalysisDraft !== (data.script_analysis ?? "")
-                        ) {
-                          saveItemField.mutate({
-                            field: "script_analysis",
-                            value: scriptAnalysisDraft,
-                          });
-                        }
-                      }}
+                      value={scriptAnalysisField.value}
+                      onFocus={scriptAnalysisField.onFocus}
+                      onChange={(e) => scriptAnalysisField.onChange(e.target.value)}
+                      onBlur={() =>
+                        scriptAnalysisField.onBlur((value) =>
+                          saveItemField.mutate({ field: "script_analysis", value }),
+                        )
+                      }
                       placeholder="No script analysis yet."
                       className="w-full min-h-[180px] text-sm leading-relaxed whitespace-pre-wrap rounded-lg bg-muted p-4 border-0 focus:outline-none focus:ring-2 focus:ring-primary/30 resize-y"
                     />
@@ -676,21 +660,17 @@ export default function ItemDetailPage() {
                       <h3 className="text-xs font-semibold uppercase tracking-widest text-sky-600 dark:text-sky-400">
                         Visual Analysis
                       </h3>
-                      <CopyButton text={visualAnalysisDraft} />
+                      <CopyButton text={visualAnalysisField.value} />
                     </div>
                     <textarea
-                      value={visualAnalysisDraft}
-                      onChange={(e) => setVisualAnalysisDraft(e.target.value)}
-                      onBlur={() => {
-                        if (
-                          visualAnalysisDraft !== (data.visual_analysis ?? "")
-                        ) {
-                          saveItemField.mutate({
-                            field: "visual_analysis",
-                            value: visualAnalysisDraft,
-                          });
-                        }
-                      }}
+                      value={visualAnalysisField.value}
+                      onFocus={visualAnalysisField.onFocus}
+                      onChange={(e) => visualAnalysisField.onChange(e.target.value)}
+                      onBlur={() =>
+                        visualAnalysisField.onBlur((value) =>
+                          saveItemField.mutate({ field: "visual_analysis", value }),
+                        )
+                      }
                       placeholder="No visual analysis yet."
                       className="w-full min-h-[180px] text-sm leading-relaxed whitespace-pre-wrap rounded-lg bg-muted p-4 border border-sky-200 dark:border-sky-900 focus:outline-none focus:ring-2 focus:ring-primary/30 resize-y"
                     />
