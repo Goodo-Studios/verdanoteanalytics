@@ -1,8 +1,7 @@
 import { useMemo } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useDailyTrends } from "@/hooks/useDailyTrends";
 import { MultiLineTrendChart, type TrendLine } from "@/components/MultiLineTrendChart";
 import { CHART_SERIES } from "@/lib/chartTheme";
 
@@ -24,39 +23,20 @@ export function ChartSection({ config, report, isEditing, onConfigChange }: Char
   const metric = config.metric || "spend";
   const metaInfo = METRIC_OPTIONS.find((m) => m.value === metric) || METRIC_OPTIONS[0];
 
-  const { data: dailyData } = useQuery({
-    queryKey: ["report-chart-data", report.account_id, report.date_range_start, report.date_range_end],
-    queryFn: async () => {
-      if (!report.date_range_start || !report.date_range_end) return [];
-      let q = supabase
-        .from("creative_daily_metrics")
-        .select("date, spend, roas, cpa, ctr")
-        .gte("date", report.date_range_start)
-        .lte("date", report.date_range_end)
-        .order("date");
-      if (report.account_id) q = q.eq("account_id", report.account_id);
-      const { data } = await q;
-      return data || [];
-    },
-    enabled: !!report.date_range_start && !!report.date_range_end,
-  });
+  // Audit 7.3 / 6.1: per-day totals from the database (get_daily_trends), so every day in the
+  // range is present (a raw per-ad select stopped at 1,000 rows, dropping the newest days) and
+  // ROAS, CPA and CTR are totals over totals, not averages of per-ad values.
+  const dateRange = report.date_range_start && report.date_range_end
+    ? { from: report.date_range_start as string, to: report.date_range_end as string }
+    : undefined;
+  const { data: trends } = useDailyTrends(report.account_id || undefined, dateRange);
 
   const chartData = useMemo(() => {
-    if (!dailyData?.length) return { dates: [] as string[], values: [] as number[] };
-    const byDate = new Map<string, number[]>();
-    for (const row of dailyData) {
-      const vals = byDate.get(row.date) || [];
-      vals.push(Number((row as any)[metric]) || 0);
-      byDate.set(row.date, vals);
-    }
-    const dates = [...byDate.keys()].sort();
-    const values = dates.map((d) => {
-      const vals = byDate.get(d)!;
-      if (metric === "spend") return vals.reduce((s, v) => s + v, 0);
-      return vals.reduce((s, v) => s + v, 0) / vals.length;
-    });
-    return { dates, values };
-  }, [dailyData, metric]);
+    if (!dateRange || !trends?.length) return { dates: [] as string[], values: [] as number[] };
+    const points = [...trends].sort((a, b) => a.date.localeCompare(b.date));
+    const key = metric as "spend" | "roas" | "cpa" | "ctr";
+    return { dates: points.map((p) => p.date), values: points.map((p) => Number(p[key]) || 0) };
+  }, [trends, metric, dateRange]);
 
   const trendLines: TrendLine[] = useMemo(
     () => [
