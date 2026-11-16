@@ -55,3 +55,33 @@ Deno.test("every report generator saves a snapshot", async () => {
     assert(/snapshot:\s/.test(src), `${f} must store the snapshot on the report`);
   }
 });
+
+// Decision 17: the tag breakdown groups by the field the user picks, so the snapshot keeps one
+// group list per pickable field, and both generators load every one of those fields.
+Deno.test("decision 17: the snapshot keeps a tag mix for each pickable field", async () => {
+  const { buildReportSnapshot } = await load();
+  const rows = [
+    { ad_id: "a1", hook: "Q", ad_type: "UGC", style: "Talk", person: "Ana", spend: 600, purchase_value: 1800 },
+    { ad_id: "a2", hook: "Q", ad_type: "Static", style: null, person: "Ben", spend: 400, purchase_value: 400 },
+  ];
+  const by = buildReportSnapshot(rows, []).tag_mix_by_field;
+  assertEquals(by.hook.map((t: { tag: string }) => t.tag), ["Q"]);
+  assertEquals(by.ad_type.map((t: { tag: string }) => t.tag), ["UGC", "Static"]);
+  assertEquals(by.style.map((t: { tag: string }) => t.tag), ["Talk", "Untagged"]);
+  assertEquals(by.person.map((t: { tag: string }) => t.tag), ["Ana", "Ben"]);
+  assertAlmostEquals(by.person[0].roas, 3, 1e-9);
+  assertAlmostEquals(by.person[0].spendPct, 60, 1e-9);
+});
+
+Deno.test("decision 17: both report generators load every pickable tag field", async () => {
+  for (const f of ["../reports/index.ts", "../scheduled-reports/index.ts"]) {
+    const src = await Deno.readTextFile(new URL(f, import.meta.url));
+    const selects = [...src.matchAll(/\.from\("creatives"\)\s*\.select\("([^"]+)"\)/g)].map((m) => m[1]);
+    const meta = selects.find((s) => s.includes("thumbnail_url"));
+    assert(meta, `${f}: creative metadata select not found`);
+    const cols = meta.split(",").map((s) => s.trim());
+    for (const field of ["hook", "ad_type", "style", "person"]) {
+      assert(cols.includes(field), `${f} does not load ${field}`);
+    }
+  }
+});
