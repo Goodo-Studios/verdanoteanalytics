@@ -5,6 +5,8 @@ import { useParams, Link } from "react-router-dom";
 import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import type { Tables } from "@/integrations/supabase/types";
+import { fetchPublicReport } from "@/lib/publicShareLookups";
 import { SectionRenderer } from "@/components/reports/SectionRenderer";
 import { ReportSection } from "@/lib/reportSections";
 import { PortfolioReportView } from "@/components/reports/PortfolioReportView";
@@ -14,9 +16,7 @@ function usePublicReport(id: string | undefined) {
     queryKey: ["public-report", id],
     queryFn: async () => {
       if (!id) throw new Error("No report ID");
-      const { data, error } = await supabase.from("reports").select("*").eq("id", id).single();
-      if (error) throw error;
-      return data;
+      return (await fetchPublicReport(id)) as Tables<"reports"> | null;
     },
     enabled: !!id,
   });
