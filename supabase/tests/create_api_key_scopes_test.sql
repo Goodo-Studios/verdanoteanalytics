@@ -27,13 +27,13 @@ SELECT has_function('public', 'create_api_key', ARRAY['text', 'text', 'text[]'],
 SELECT pg_temp.as_user('c1500000-0000-4000-8000-000000000001');
 SET LOCAL ROLE authenticated;
 SELECT lives_ok(
-  $$SELECT public.create_api_key('Zapier', 'vdn_00112233445566778899aabb', ARRAY['sync', 'read', 'read'])$$,
+  $$SELECT public.create_api_key('Zapier', 'vdn_000000000000000000000001', ARRAY['sync', 'read', 'read'])$$,
   'an employee creates a key with scopes');
 SELECT throws_ok(
-  $$SELECT public.create_api_key('Bad', 'vdn_00112233445566778899aabc', ARRAY['admin'])$$,
+  $$SELECT public.create_api_key('Bad', 'vdn_000000000000000000000002', ARRAY['admin'])$$,
   '22023', 'unknown scope', 'an unknown scope is refused');
 SELECT throws_ok(
-  $$SELECT public.create_api_key('Empty', 'vdn_00112233445566778899aabd', ARRAY[]::text[])$$,
+  $$SELECT public.create_api_key('Empty', 'vdn_000000000000000000000003', ARRAY[]::text[])$$,
   '22023', 'choose at least one scope', 'no scopes is refused');
 SELECT throws_ok(
   $$SELECT public.create_api_key('Short', 'abc', ARRAY['read'])$$,
@@ -51,14 +51,14 @@ SELECT is(
 SELECT pg_temp.as_user('c1500000-0000-4000-8000-000000000002');
 SET LOCAL ROLE authenticated;
 SELECT throws_ok(
-  $$SELECT public.create_api_key('Client', 'vdn_00112233445566778899aabe', ARRAY['read'])$$,
+  $$SELECT public.create_api_key('Client', 'vdn_000000000000000000000004', ARRAY['read'])$$,
   '42501', NULL, 'a client cannot create a key');
 RESET ROLE;
 
 SELECT pg_temp.as_user('c1500000-0000-4000-8000-000000000003');
 SET LOCAL ROLE authenticated;
 SELECT throws_ok(
-  $$SELECT public.create_api_key('Nobody', 'vdn_00112233445566778899aabf', ARRAY['read'])$$,
+  $$SELECT public.create_api_key('Nobody', 'vdn_000000000000000000000005', ARRAY['read'])$$,
   '42501', NULL, 'a login with no role cannot create a key');
 RESET ROLE;
 
