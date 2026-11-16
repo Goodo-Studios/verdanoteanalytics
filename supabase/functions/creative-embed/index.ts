@@ -26,6 +26,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { json } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { buildFeatureText } from "../_shared/entity-clustering.ts";
+import { loadEmbeddedAdIds } from "./existing.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -90,10 +91,7 @@ Deno.serve(async (req) => {
   // When not forcing, skip creatives that already have an embedding.
   let alreadyEmbedded = new Set<string>();
   if (!force) {
-    let eq = db.from("creative_embeddings").select("ad_id");
-    if (accountId) eq = eq.eq("account_id", accountId);
-    const { data: existing } = await eq;
-    alreadyEmbedded = new Set((existing ?? []).map((r: { ad_id: string }) => r.ad_id));
+    alreadyEmbedded = await loadEmbeddedAdIds(db, accountId, creatives.map((c: { ad_id: string }) => c.ad_id));
   }
 
   let embedded = 0;
