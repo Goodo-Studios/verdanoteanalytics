@@ -12,6 +12,7 @@ import { errorMessage } from "../_shared/error-message.ts";
 import { safeErrorResponse } from "../_shared/safe-error.ts";
 import { aggregateDailyByAd, computeWeightedAggregates } from "../_shared/creatives-aggregate.ts";
 import { chunk, fetchAllRows, validateTagUpdate } from "../_shared/creative-tag-ops.ts";
+import { workingAccountScope } from "../_shared/creative-account-scope.ts";
 import { TtlCache, makeCreativesCacheKey } from "../_shared/creatives-page-cache.ts";
 
 // Caches the full computed (pre-pagination) result of the date-filtered
@@ -487,6 +488,16 @@ serve(async (req) => {
         return new Response(JSON.stringify({ error: validated.error }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
       const update: Record<string, any> = { ...validated.update };
+
+      // A bulk action names the account the user is working in. Refuse a creative from another
+      // account, so a selection left over from a different account cannot be retagged (audit 3.2).
+      const workingAccount = workingAccountScope(url);
+      if (workingAccount) {
+        const { data: owner } = await supabase.from("creatives").select("account_id").eq("ad_id", path).maybeSingle();
+        if (!owner || owner.account_id !== workingAccount) {
+          return new Response(JSON.stringify({ error: "Creative is not in the selected account" }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
 
       if (tag_source === "untagged") {
         // Reset to auto — re-resolve via the canonical parser + name_mappings,

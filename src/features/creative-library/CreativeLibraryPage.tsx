@@ -31,6 +31,7 @@ import { archiveCreatives, exportCreativesZip, type LibraryCreative } from "./ap
 import { LibraryCard } from "./components/LibraryCard";
 import { GovernedTagEditor } from "./components/GovernedTagEditor";
 import { CLASS_META } from "./components/classMeta";
+import { announceZipExport } from "./zipDownload";
 
 // BUILDER dogfood gate (roadmap §4 rollout): the Creative Library ships behind
 // the internal builder account (Goodo) first. Non-matching accounts see a notice
@@ -154,14 +155,7 @@ export default function CreativeLibraryPage() {
 
   const { mutate: doExport, isPending: exporting } = useMutation({
     mutationFn: async (adIds: string[]) => exportCreativesZip(selectedAccountId!, adIds),
-    onSuccess: (res) => {
-      if (res.download_url) {
-        window.open(res.download_url, "_blank", "noopener");
-        toast.success(`Zip ready — ${res.file_count} file${res.file_count === 1 ? "" : "s"}`);
-      } else {
-        toast.error(res.error ?? "Export produced no file");
-      }
-    },
+    onSuccess: (res) => announceZipExport(res),
     onError: (e) => toast.error(e instanceof Error ? e.message : "Export failed"),
   });
 
