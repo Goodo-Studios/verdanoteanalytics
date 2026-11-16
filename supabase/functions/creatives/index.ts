@@ -15,6 +15,7 @@ import { aggregateDailyByAd, computeWeightedAggregates } from "../_shared/creati
 import { chunk, fetchAllRows, validateTagUpdate } from "../_shared/creative-tag-ops.ts";
 import { workingAccountScope } from "../_shared/creative-account-scope.ts";
 import { TtlCache, makeCreativesCacheKey } from "../_shared/creatives-page-cache.ts";
+import { fetchAllCreatives as fetchAllCreativesPaged } from "./all-creatives.ts";
 
 // Caches the full computed (pre-pagination) result of the date-filtered
 // branch below — see creatives-page-cache.ts for why. 30s balances "page 2
@@ -232,22 +233,8 @@ serve(async (req) => {
       };
 
       // Fetch every matching creative, paging past the 1000-row PostgREST cap.
-      const fetchAllCreatives = async (): Promise<any[]> => {
-        const out: any[] = [];
-        let off = 0;
-        const PAGE = 1000;
-        while (true) {
-          const { data: pageData, error: pageErr } = await applyCreativeFilters(
-            supabase.from("creatives").select(CREATIVE_COLS).order("spend", { ascending: false })
-          ).range(off, off + PAGE - 1);
-          if (pageErr) throw pageErr;
-          if (!pageData || pageData.length === 0) break;
-          out.push(...pageData);
-          if (pageData.length < PAGE) break;
-          off += PAGE;
-        }
-        return out;
-      };
+      const fetchAllCreatives = (): Promise<any[]> =>
+        fetchAllCreativesPaged(() => applyCreativeFilters(supabase.from("creatives").select(CREATIVE_COLS)));
 
       const hasDateFilter = dateFrom || dateTo;
 
