@@ -18,7 +18,7 @@ import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { useUploadMappings } from "@/hooks/useAccountsApi";
 import { TAG_OPTIONS_MAP } from "@/lib/tagOptions";
 import { TAG_FIELD_LABELS, TAG_FIELD_ORDER } from "@/lib/tagDisplay";
-import { parseCsvLine } from "@/lib/csv";
+import { describeCsvErrors, parseTagMappingsCsv } from "@/lib/csv";
 import { toast } from "sonner";
 import {
   Search, ChevronLeft, ChevronRight, Filter, Upload, LayoutGrid, Loader2, Save, X, Plus, Wand2, Zap, FileCheck,
@@ -177,19 +177,17 @@ const TaggingPage = () => {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (event) => {
-      const text = event.target?.result as string;
-      const lines = text.split("\n").filter((l) => l.trim());
-      if (lines.length < 2) { toast.error("Invalid CSV — must have headers and at least one row."); return; }
-      const headers = parseCsvLine(lines[0]);
-      const required = ["UniqueCode", "Type", "Person", "Style", "Product", "Hook", "Theme"];
-      const missing = required.filter((r) => !headers.includes(r));
-      if (missing.length > 0) { toast.error(`Missing columns: ${missing.join(", ")}`); return; }
-      const rows = lines.slice(1).map((line) => {
-        const values = parseCsvLine(line);
-        const row: Record<string, string> = {};
-        headers.forEach((h, i) => { row[h] = values[i] || ""; });
-        return row;
-      });
+      // Whole-file parse with every row checked before anything is sent (audit 5.9).
+      const { rows, errors, fatal } = parseTagMappingsCsv(event.target?.result as string);
+      if (fatal) { toast.error(fatal); return; }
+      if (errors.length > 0) {
+        toast.error(`${errors.length} row${errors.length === 1 ? "" : "s"} need fixing before upload`, {
+          description: describeCsvErrors(errors),
+        });
+        setCsvPreview([]);
+        setCsvMappings([]);
+        return;
+      }
       setCsvPreview(rows.slice(0, 5));
       setCsvMappings(rows);
     };
