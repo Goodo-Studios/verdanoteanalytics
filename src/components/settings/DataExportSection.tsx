@@ -6,7 +6,7 @@ import { useAllCreatives } from "@/hooks/useAllCreatives";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { downloadCSV } from "@/lib/csv";
 import { gradeCreatives } from "@/lib/creativeGrading";
-import { computeScoreMap } from "@/lib/creativeScore";
+import { exportScoreMap, scaleThresholdFor } from "@/lib/exportScores";
 import { computeFatigueMap } from "@/lib/fatigueScore";
 import { groupByConcept } from "@/lib/conceptGrouping";
 import { useKillScaleLogic } from "@/lib/killScaleLogic";
@@ -159,11 +159,8 @@ function CreativePerformanceExport({ accounts, selectedAccountId }: { accounts: 
       const minS = parseFloat(minSpend);
       if (minS > 0) filtered = filtered.filter((c: any) => (Number(c.spend) || 0) >= minS);
 
-      const account = accounts.find((a: any) => a.id === (filtered[0] as any)?.account_id);
-      const scaleThreshold = parseFloat(account?.scale_threshold || "2.0");
-
       const grades = gradeCreatives(filtered);
-      const scores = computeScoreMap(filtered, scaleThreshold);
+      const scores = exportScoreMap(filtered, accounts);
       const fatigueMap = computeFatigueMap(filtered);
 
       if (format === "csv") {
@@ -281,8 +278,6 @@ function TagPerformanceExport({ accounts, selectedAccountId }: { accounts: any[]
       try {
         const tagCategories = ["ad_type", "hook", "style", "person", "product", "theme"] as const;
         const rows: string[][] = [];
-        const account = accounts.find((a: any) => a.id === accountFilter);
-        const scaleThreshold = parseFloat(account?.scale_threshold || "2.0");
 
         for (const cat of tagCategories) {
           const groups: Record<string, { count: number; spend: number; pv: number; clicks: number; imps: number; purchases: number; winners: number }> = {};
@@ -297,7 +292,8 @@ function TagPerformanceExport({ accounts, selectedAccountId }: { accounts: any[]
             g.clicks += Number(c.clicks) || 0;
             g.imps += Number(c.impressions) || 0;
             g.purchases += Number(c.purchases) || 0;
-            if ((Number(c.roas) || 0) >= scaleThreshold) g.winners++;
+            // Each creative against its own account's threshold (audit 6.5).
+            if ((Number(c.roas) || 0) >= scaleThresholdFor(accounts, (c as any).account_id)) g.winners++;
           }
           for (const [val, g] of Object.entries(groups)) {
             rows.push([
