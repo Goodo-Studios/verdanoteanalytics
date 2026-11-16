@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { fetchWithTimeout } from "../_shared/fetch-with-timeout.ts";
+import { computeBlendedMetrics } from "../_shared/metric-math.ts";
 import {
   CREATIVE_TABLE_COLUMNS,
   formatCreativeTable,
@@ -196,7 +197,7 @@ if (!Deno.env.get("AI_CHAT_NO_SERVE")) {
 async function fetchCreativeContext(supabase: any, accountId: string | null) {
   let creativesQuery = supabase
     .from("creatives")
-    .select("ad_name, spend, roas, cpa, ctr, thumb_stop_rate, hold_rate, ad_type, tag_source, hook, theme, product, style, ad_status, person, unique_code, created_at")
+    .select("ad_name, spend, impressions, clicks, purchases, purchase_value, roas, cpa, ctr, thumb_stop_rate, hold_rate, ad_type, tag_source, hook, theme, product, style, ad_status, person, unique_code, created_at")
     .order("spend", { ascending: false })
     .limit(60);
 
@@ -219,17 +220,12 @@ async function fetchCreativeContext(supabase: any, accountId: string | null) {
   return { creatives: creatives || [], accountName };
 }
 
-function computeStats(creatives: any[]) {
-  const totalSpend = creatives.reduce((s, c) => s + (c.spend || 0), 0);
-  const avgRoas = creatives.length
-    ? creatives.reduce((s, c) => s + (c.roas || 0), 0) / creatives.length
-    : 0;
-  const avgCtr = creatives.length
-    ? creatives.reduce((s, c) => s + (c.ctr || 0), 0) / creatives.length
-    : 0;
-  const avgCpa = creatives.length
-    ? creatives.reduce((s, c) => s + (c.cpa || 0), 0) / creatives.length
-    : 0;
+// Dataset summary from summed counts (audit 6.1): plain means of each creative's ROAS,
+// CTR and CPA over-weighted tiny ads and counted no-purchase ads as a $0 CPA.
+export function computeStats(creatives: any[]) {
+  const blended = computeBlendedMetrics(creatives);
+  const totalSpend = blended.spend;
+  const { roas, ctr, cpa } = blended;
 
   const topByRoas = [...creatives]
     .filter(c => c.roas > 0)
@@ -244,7 +240,7 @@ function computeStats(creatives: any[]) {
     .map(c => `"${c.ad_name}" (Spend: $${c.spend?.toFixed(0)}, ROAS: ${c.roas?.toFixed(2)}x)`)
     .join("; ");
 
-  return { totalSpend, avgRoas, avgCtr, avgCpa, topByRoas, topBySpend };
+  return { totalSpend, roas, ctr, cpa, topByRoas, topBySpend };
 }
 
 function buildSystemPrompt(
@@ -258,7 +254,7 @@ function buildSystemPrompt(
   const table = formatCreativeTable(creatives);
 
   const baseContext = `CURRENT ACCOUNT: ${accountName}
-DATASET: ${creatives.length} creatives | Total Spend: $${stats.totalSpend.toFixed(0)} | Avg ROAS: ${stats.avgRoas.toFixed(2)}x | Avg CTR: ${stats.avgCtr.toFixed(2)}% | Avg CPA: $${stats.avgCpa.toFixed(0)}
+DATASET: ${creatives.length} creatives | Total Spend: $${stats.totalSpend.toFixed(0)} | Blended ROAS: ${stats.roas === null ? "n/a" : `${stats.roas.toFixed(2)}x`} | Blended CTR: ${stats.ctr === null ? "n/a" : `${stats.ctr.toFixed(2)}%`} | Blended CPA: ${stats.cpa === null ? "n/a" : `$${stats.cpa.toFixed(0)}`}
 
 TOP PERFORMERS (by spend — highest spend = most trusted by media buyers): ${stats.topBySpend || "N/A"}
 HIGH ROAS (efficient but not necessarily best): ${stats.topByRoas || "N/A"}
