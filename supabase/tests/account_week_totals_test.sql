@@ -8,6 +8,10 @@ BEGIN;
 SELECT plan(5);
 
 INSERT INTO public.ad_accounts (id, name, last_synced_at) VALUES ('act_awt', 'AWT', now()), ('act_awt_x', 'AWT X', now());
+-- The daily rows reference creatives, so the ads exist first.
+INSERT INTO public.creatives (ad_id, account_id, ad_name)
+SELECT 'awt_' || i, 'act_awt', 'Ad ' || i FROM generate_series(1, 1500) AS i;
+INSERT INTO public.creatives (ad_id, account_id, ad_name) VALUES ('awt_x', 'act_awt_x', 'Ad X');
 -- 1,500 ads with one row each on 2020-07-01 (spend 2, value 6), plus rows outside the range
 -- and in another account that must not count.
 INSERT INTO public.creative_daily_metrics (ad_id, account_id, date, spend, purchase_value)
