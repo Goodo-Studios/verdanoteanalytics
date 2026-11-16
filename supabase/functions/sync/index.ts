@@ -306,12 +306,13 @@ export interface DailyRollupInputRow {
   retention_p50?: number | null;
   retention_p75?: number | null;
   retention_p100?: number | null;
+  result_count?: number | null;
 }
 
-export function rollupDailyRows(rows: DailyRollupInputRow[]) {
+export function rollupDailyRows(rows: DailyRollupInputRow[], optimizationGoal?: string | null) {
   const n = (v: number | null | undefined) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
-  let spend = 0, impressions = 0, clicks = 0, purchases = 0, purchase_value = 0;
+  let spend = 0, impressions = 0, clicks = 0, purchases = 0, purchase_value = 0, results = 0;
   let adds_to_cart = 0, video_views = 0, thruplays = 0, vaptWeighted = 0, freqWeighted = 0;
   // Retention: video-view weighted; only days with a scalar AND views contribute.
   let p25Num = 0, p50Num = 0, p75Num = 0, p100Num = 0, retWeight = 0;
@@ -322,6 +323,7 @@ export function rollupDailyRows(rows: DailyRollupInputRow[]) {
     impressions += n(r.impressions);
     clicks += n(r.clicks);
     purchases += n(r.purchases);
+    results += n(r.result_count);
     purchase_value += n(r.purchase_value);
     adds_to_cart += n(r.adds_to_cart);
     video_views += vv;
@@ -355,8 +357,12 @@ export function rollupDailyRows(rows: DailyRollupInputRow[]) {
     // APPROXIMATE — impression-weighted mean daily frequency; summed daily reach
     // would overcount so no exact aggregate frequency exists locally (accepted).
     frequency: impressions > 0 ? freqWeighted / impressions : 0,
-    result_count: purchases,
-    cost_per_result: purchases > 0 ? spend / purchases : 0,
+    // Results follow the account's goal (audit 6.5): summed daily result counts for
+    // SESSION_CONVERSION, purchases otherwise.
+    result_count: optimizationGoal === "SESSION_CONVERSION" ? results : purchases,
+    cost_per_result: optimizationGoal === "SESSION_CONVERSION"
+      ? (results > 0 ? spend / results : 0)
+      : (purchases > 0 ? spend / purchases : 0),
     // Retention scalars: view-weighted, null when no weighted days.
     retention_p25: retWeight > 0 ? p25Num / retWeight : null,
     retention_p50: retWeight > 0 ? p50Num / retWeight : null,
@@ -1637,9 +1643,9 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
                 // retention curve from stored daily rows — no second Meta pull.
                 // The parser's normalized `play_curve` number[] maps to the daily
                 // jsonb column `video_play_curve_actions`.
-                // Still stripped (not columns on creative_daily_metrics):
-                // - result_count / cost_per_result: only on the creatives table.
-                const { play_curve, result_count: _resultCount, cost_per_result: _costPerResult, ...daily } =
+                // result_count is kept (each day's result for the account's goal, audit 6.5);
+                // cost_per_result is not a daily column, the rollup derives it.
+                const { play_curve, cost_per_result: _costPerResult, ...daily } =
                   parseInsightsRow(row, account?.optimization_goal);
                 return {
                   ad_id: row.ad_id,

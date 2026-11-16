@@ -185,7 +185,8 @@ export function insightsUrl(
  * upsert key) or for ad_ids not in `validAdIds`.
  */
 // deno-lint-ignore no-explicit-any
-export function buildDailyRow(row: any, accountId: string, validAdIds: Set<string>) {
+/** optimizationGoal decides the day's result_count (audit 6.5); defaults to PURCHASE. */
+export function buildDailyRow(row: any, accountId: string, validAdIds: Set<string>, optimizationGoal?: string | null) {
   if (!row?.ad_id || !row?.date_start) return null;
   if (!validAdIds.has(row.ad_id)) return null;
 
@@ -273,7 +274,15 @@ export function buildDailyRow(row: any, accountId: string, validAdIds: Set<strin
     retention_p50,
     retention_p75,
     retention_p100,
+    result_count: optimizationGoal === "SESSION_CONVERSION" ? sessionResults(row) : purchases,
   };
+}
+
+// deno-lint-ignore no-explicit-any
+function sessionResults(row: any): number {
+  // deno-lint-ignore no-explicit-any
+  const a = Array.isArray(row?.actions) ? row.actions.find((x: any) => x?.action_type === "onsite_conversion.flow_complete") : null;
+  return a ? parseInt(a.value || "0") : 0;
 }
 
 interface Counters {
@@ -408,7 +417,7 @@ export async function handler(
     if (body.account_id) {
       const { data, error } = await supabase
         .from("ad_accounts")
-        .select("id, name, click_window, view_window, daily_backfilled_since, creative_count")
+        .select("id, name, click_window, view_window, daily_backfilled_since, creative_count, optimization_goal")
         .eq("id", body.account_id);
       if (error) throw error;
       accounts = data || [];
@@ -419,7 +428,7 @@ export async function handler(
       // with a null check + gt on the target date.
       const { data, error } = await supabase
         .from("ad_accounts")
-        .select("id, name, click_window, view_window, daily_backfilled_since, creative_count")
+        .select("id, name, click_window, view_window, daily_backfilled_since, creative_count, optimization_goal")
         .eq("is_active", true)
         .or(`daily_backfilled_since.is.null,daily_backfilled_since.gt.${globalTarget}`)
         .order("daily_backfilled_since", { ascending: false, nullsFirst: true })
@@ -560,7 +569,7 @@ export async function handler(
             }
 
             const rows = pageRows
-              .map((row) => buildDailyRow(row, accountId, validAdIds))
+              .map((row) => buildDailyRow(row, accountId, validAdIds, account.optimization_goal))
               .filter((r): r is NonNullable<typeof r> => r !== null);
 
             if (rows.length > 0 && !dryRun) {
