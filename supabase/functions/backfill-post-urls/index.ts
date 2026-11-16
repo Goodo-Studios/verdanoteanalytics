@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
+import { resolveMetaToken } from "../_shared/media-discovery.ts";
 
 
 const META_API_VERSION = "v22.0";
@@ -27,7 +28,21 @@ export async function handler(req: Request, supabaseOverride?: Supa): Promise<Re
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
-  const metaToken = Deno.env.get("META_ACCESS_TOKEN")!;
+  // Audit 8.7: the env var is not set in production; the token lives in
+  // settings.meta_access_token. Env first, then settings (same as sync and the other
+  // backfills). Never call Meta with access_token=undefined.
+  let metaToken = resolveMetaToken(Deno.env.get("META_ACCESS_TOKEN"), null);
+  if (!metaToken) {
+    const { data: tokenRow } = await supabase
+      .from("settings").select("value").eq("key", "meta_access_token").single();
+    metaToken = resolveMetaToken(null, tokenRow?.value as string | undefined);
+  }
+  if (!metaToken) {
+    return new Response(JSON.stringify({ error: "META_ACCESS_TOKEN not configured" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
   const startMs = Date.now();
   const isTimedOut = () => Date.now() - startMs > BUDGET_MS;
 
