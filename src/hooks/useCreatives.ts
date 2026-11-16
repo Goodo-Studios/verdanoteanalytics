@@ -3,6 +3,7 @@ import { apiFetch } from "@/lib/api";
 import { supabase } from "@/integrations/supabase/client";
 import { withDisplayTags, withDisplayTagsAll } from "@/lib/tagDisplay";
 import { useMutationWithToast } from "./useMutationWithToast";
+import { TAG_CHANGE_QUERY_KEYS } from "@/lib/tagRefresh";
 
 const PAGE_SIZE = 100;
 
@@ -43,7 +44,7 @@ export function useUpdateCreative() {
   return useMutationWithToast({
     mutationFn: ({ adId, updates, accountId }: { adId: string; updates: Record<string, any>; accountId?: string | null }) =>
       apiFetch("creatives", creativeUpdatePath(adId, accountId), { method: "PUT", body: JSON.stringify(updates) }).then(withDisplayTags),
-    invalidateKeys: [["creatives"], ["all-creatives"], ["accounts"]],
+    invalidateKeys: TAG_CHANGE_QUERY_KEYS, // every tag screen (audit 5.6)
     successMessage: "Tags updated",
     errorMessage: "Error updating tags",
   });
@@ -61,7 +62,7 @@ export function useAutoTagApply() {
   return useMutationWithToast({
     mutationFn: (accountId: string) =>
       apiFetch("creatives", "auto-tag", { method: "POST", body: JSON.stringify({ account_id: accountId }) }),
-    invalidateKeys: [["creatives"], ["accounts"]],
+    invalidateKeys: TAG_CHANGE_QUERY_KEYS, // every tag screen (audit 5.6)
     successMessage: (data: any) => `Auto-tagged ${data.applied} creatives`,
     errorMessage: "Failed to apply auto-tags",
   });
