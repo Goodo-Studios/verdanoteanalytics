@@ -91,7 +91,12 @@ Deno.serve(async (req) => {
   // When not forcing, skip creatives that already have an embedding.
   let alreadyEmbedded = new Set<string>();
   if (!force) {
-    alreadyEmbedded = await loadEmbeddedAdIds(db, accountId, creatives.map((c: { ad_id: string }) => c.ad_id));
+    try {
+      alreadyEmbedded = await loadEmbeddedAdIds(db, accountId, creatives.map((c: { ad_id: string }) => c.ad_id));
+    } catch (e) {
+      // Without the lookup every ad looks new and would be paid for again: stop instead.
+      return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+    }
   }
 
   let embedded = 0;
