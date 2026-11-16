@@ -64,6 +64,7 @@ import {
   peekAndValidateMediaStream,
   resolveMetaToken,
   THROTTLED,
+  shouldMarkNoThumbnail,
 } from "../_shared/media-discovery.ts";
 import { isMediaContentType } from "../_shared/vault-save-logic.ts";
 import {
@@ -692,8 +693,13 @@ export async function processQueuedAd(
         // columns untouched and flag for a short transient retry.
         throttled = true;
         reasons.push(THROTTLED);
-      } else if (!imgUrl && !isLowResPlaceholder) {
+      } else if (!imgUrl && !isLowResPlaceholder && shouldMarkNoThumbnail(imgReason)) {
+        // Only a lookup that finished and found no image is permanent (audit 5.5).
         updates.thumbnail_url = NO_THUMB_SENTINEL;
+      } else if (!imgUrl && imgReason) {
+        // Error, timeout, expired token, Meta 5xx: inconclusive. Leave the image columns
+        // alone and fail the row so it is retried with the normal backoff.
+        reasons.push(imgReason);
       }
     }
 

@@ -5,7 +5,7 @@ import { hasAccountAccess } from "../_shared/account-access.ts";
 import {
   assetStoragePath,
   computeContentHash,
-  discoverImageUrl,
+  discoverImageUrlWithReason,
   discoverVideoUrl,
   fetchAccountVideoMap,
   fetchPageTokenMap,
@@ -14,6 +14,7 @@ import {
   NO_THUMB_SENTINEL,
   NO_VIDEO_SENTINEL,
   resolveMetaToken,
+  shouldMarkNoThumbnail,
 } from "../_shared/media-discovery.ts";
 import { isMediaContentType } from "../_shared/vault-save-logic.ts";
 
@@ -241,7 +242,7 @@ serve(async (req) => {
   // ── Image ────────────────────────────────────────────────────────────────
   if (!skipImage) {
     console.log(`[${ad_id}] Discovering image...`);
-    const result = await discoverImageUrl(ad_id, account_id, metaToken!);
+    const { result, reason: imageReason } = await discoverImageUrlWithReason(ad_id, account_id, metaToken!);
     if (result?.thumbnailUrl) {
       const asset = await downloadAndCache(
         supabase, THUMB_BUCKET, account_id, ad_id, result.thumbnailUrl, "image"
@@ -255,9 +256,13 @@ serve(async (req) => {
         if (!creative.thumbnail_url) updates.thumbnail_url = result.thumbnailUrl;
         if (result.fullResUrl) updates.full_res_url = result.fullResUrl;
       }
-    } else {
-      // Discovery found nothing — mark sentinel so we don't retry on every open
+    } else if (shouldMarkNoThumbnail(imageReason)) {
+      // The lookup finished and Meta has no image — mark it so we don't retry on every open.
       updates.thumbnail_url = NO_THUMB_SENTINEL;
+    } else {
+      // Rate limit, error, timeout or expired token: inconclusive (audit 5.5). Leave the
+      // row alone so the next open (or the media drain) tries again.
+      console.log(`[${ad_id}] Image lookup inconclusive (${imageReason}) — not marking no-thumbnail`);
     }
   }
 
