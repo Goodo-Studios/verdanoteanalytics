@@ -413,6 +413,11 @@ export interface MetaFetchCtx {
   accountId?: string;
   /** Set when Meta returns a permanent error for the account itself (or a bad token). */
   terminalError?: string | null;
+  /**
+   * Audit 8.4: refreshes sync_logs.last_activity. Called while metaFetch waits out a rate
+   * limit, so claim_sync_continue never mistakes a waiting sync for a dead one.
+   */
+  heartbeat?: () => Promise<void>;
 }
 
 export async function metaFetch(
@@ -444,9 +449,11 @@ export async function metaFetch(
           // This prevents rate-limit backoffs from overrunning the phase budget and causing
           // Supabase's hard wall-clock limit to kill the function before state can be saved.
           const waitUntil = Date.now() + waitSec * 1000;
+          await ctx.heartbeat?.();
           while (Date.now() < waitUntil) {
             await new Promise(r => setTimeout(r, 1000));
             if (ctx.isTimedOut()) return { data: null, next: null, error: false, rateLimited: true, retriableUrl: url };
+            await ctx.heartbeat?.();
           }
           continue;
         }
@@ -815,6 +822,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       }).eq("id", syncLog.id);
     } catch (_) { /* best effort */ }
   };
+  ctx.heartbeat = heartbeat;
 
   const accountId = syncLog.account_id;
   const { data: account } = await supabase.from("ad_accounts").select("*").eq("id", accountId).single();
@@ -1690,6 +1698,9 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     // ═══════════════════════════════════════════════════════════════════
     if (phase === 5) {
       console.log("Phase 5: Finalizing...");
+      // Audit 8.4: Phase 5 never refreshed last_activity, so a long finalize could look
+      // dead to claim_sync_continue. heartbeat() is throttled to one write per 20s.
+      await heartbeat();
 
       // ── US-003: LOCAL rollup of the per-ad snapshot ──────────────────────
       // Replaces the old Phase-2 full-window Meta aggregate fetch. Now that
@@ -1926,6 +1937,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
             for (let i = 0; i < scoreRows.length; i += 500) {
               if (isTimedOut()) { console.log("  Score snapshots paused — budget exceeded"); break; }
               const chunk = scoreRows.slice(i, i + 500);
+              await heartbeat();
               const { error: scoreErr } = await supabase.from("score_history").insert(chunk);
               if (scoreErr) console.error("Score history insert error (non-fatal):", scoreErr.message);
             }
@@ -1938,6 +1950,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         console.log("  Skipping score snapshots — budget exceeded");
       }
 
+      await heartbeat();
       // Get users linked to this account (for notifications AND audit drift alerts)
       // Hoisted above changelog block so it's in scope for the audit block too
       const { data: userLinks } = await supabase.from("user_accounts").select("user_id").eq("account_id", accountId);
@@ -2344,7 +2357,7 @@ const handler = async (req: Request) => {
       // DB-level mutex: atomic claim via claim_sync_continue RPC.
       // Two concurrent callers both pass the status='running' check above; the RPC's WHERE
       // requires an exact claim_id match (chain continuation) or accepts a null claim
-      // only when no active claim exists or last_activity went stale (>90s).
+      // only when no active claim exists or last_activity went stale (>180s, audit 8.4).
       // Postgres serializes concurrent UPDATEs on the same row, so only one caller wins.
       const newClaimId = crypto.randomUUID();
       const { data: claimResult, error: claimError } = await supabase.rpc("claim_sync_continue", {
