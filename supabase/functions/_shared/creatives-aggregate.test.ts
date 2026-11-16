@@ -36,13 +36,15 @@ Deno.test("aggregateDailyByAd sums an ad's spend across the picked days", () => 
 
 Deno.test("aggregateDailyByAd impression-weights rate metrics (frequency, thumb-stop)", () => {
   const rows: DailyMetricRow[] = [
-    { ad_id: "A", impressions: 1000, frequency: 1, thumb_stop_rate: 10 },
-    { ad_id: "A", impressions: 3000, frequency: 2, thumb_stop_rate: 30 },
+    // Hook rate is now computed from video views (audit 6.1), so each day carries the views
+    // its stored thumb_stop_rate implies.
+    { ad_id: "A", impressions: 1000, video_views: 100, frequency: 1, thumb_stop_rate: 10 },
+    { ad_id: "A", impressions: 3000, video_views: 900, frequency: 2, thumb_stop_rate: 30 },
   ];
   const agg = aggregateDailyByAd(rows);
   // weighted freq = (1*1000 + 2*3000) / 4000 = 1.75
   approx(agg["A"]._freq_weighted / agg["A"]._freq_imp, 1.75);
-  // weighted tsr = (10*1000 + 30*3000) / 4000 = 25
+  // hook = (100 + 900) / 4000 x 100 = 25, the same as (10*1000 + 30*3000) / 4000
   approx(agg["A"]._tsr_weighted / agg["A"]._tsr_imp, 25);
 });
 
