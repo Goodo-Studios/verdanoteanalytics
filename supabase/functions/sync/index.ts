@@ -1872,7 +1872,11 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         ctx.apiErrors.push({ timestamp: new Date().toISOString(), message: `Failed to record last_synced_at: ${stampErr.message}` });
       }
 
-      // Snapshot current ROAS → prior_roas for next sync's threshold comparison
+      // Snapshot current ROAS → prior_roas. The next sync's Slack winner/concern alerts
+      // (runSnapshotAlerts, which runs before this) and the library's ROAS trend read it.
+      // The in-app notifications / performance_changelog writes that used to follow were
+      // removed (audit 5.2): nothing read those tables, and running after this snapshot
+      // they never saw a change.
       try {
         const { data: snapCount, error: snapErr } = await supabase.rpc("snapshot_prior_roas", { _account_id: accountId });
         if (snapErr) throw snapErr;
@@ -1940,135 +1944,6 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         }
       } else {
         console.log("  Skipping score snapshots — budget exceeded");
-      }
-
-      // Get users linked to this account (for notifications AND audit drift alerts)
-      // Hoisted above changelog block so it's in scope for the audit block too
-      const { data: userLinks } = await supabase.from("user_accounts").select("user_id").eq("account_id", accountId);
-      const userIds = (userLinks || []).map((l: any) => l.user_id);
-
-      // ── Auto-log changelog + notifications (consolidated single query) ──
-      try {
-        const scaleThreshold = account.scale_threshold || 2.0;
-        const killThreshold = account.kill_threshold || 1.0;
-
-        // Single query for all creatives with prior_roas — used by changelog AND notifications
-        const { data: allCreatives } = await supabase
-          .from("creatives")
-          .select("ad_id, ad_name, roas, prior_roas, spend, ad_status")
-          .eq("account_id", accountId)
-          .gt("impressions", 0);
-
-        const changelogEntries: any[] = [];
-        const notifications: any[] = [];
-
-        for (const c of (allCreatives || [])) {
-          const currentRoas = Number(c.roas) || 0;
-          const priorRoas = Number(c.prior_roas) || 0;
-          const spend = Number(c.spend) || 0;
-
-          // New creative with spend detected
-          if (spend > 0 && c.prior_roas === null) {
-            changelogEntries.push({
-              account_id: accountId, ad_id: c.ad_id, event_type: "new_creative",
-              description: `New creative detected: ${c.ad_name}`,
-              metadata: { ad_name: c.ad_name, spend, roas: currentRoas },
-            });
-          }
-
-          // ROAS changed by >20%
-          if (priorRoas > 0 && currentRoas > 0) {
-            const pctChange = ((currentRoas - priorRoas) / priorRoas) * 100;
-            if (Math.abs(pctChange) > 20) {
-              changelogEntries.push({
-                account_id: accountId, ad_id: c.ad_id, event_type: "roas_change",
-                description: `${c.ad_name} ROAS ${pctChange > 0 ? "increased" : "decreased"} by ${Math.abs(pctChange).toFixed(0)}%`,
-                old_value: priorRoas, new_value: currentRoas,
-                metadata: { pct_change: pctChange, ad_name: c.ad_name },
-              });
-            }
-          }
-
-          // Crossed scale threshold
-          if (priorRoas > 0 && currentRoas >= scaleThreshold && priorRoas < scaleThreshold) {
-            changelogEntries.push({
-              account_id: accountId, ad_id: c.ad_id, event_type: "threshold_crossed",
-              description: `${c.ad_name} crossed scale threshold (${scaleThreshold}x ROAS)`,
-              old_value: priorRoas, new_value: currentRoas,
-              metadata: { threshold: "scale", threshold_value: scaleThreshold },
-            });
-            // Winner notification
-            for (const uid of userIds) {
-              notifications.push({
-                user_id: uid, account_id: accountId, type: "winner",
-                title: `🏆 New winner: ${c.ad_name}`,
-                body: `ROAS hit ${currentRoas.toFixed(1)}x, crossing the ${scaleThreshold}x scale threshold.`,
-              });
-            }
-          }
-
-          // Dropped below kill threshold
-          if (priorRoas > 0 && currentRoas < killThreshold && priorRoas >= killThreshold && spend > 0) {
-            changelogEntries.push({
-              account_id: accountId, ad_id: c.ad_id, event_type: "threshold_crossed",
-              description: `${c.ad_name} dropped below kill threshold (${killThreshold}x ROAS)`,
-              old_value: priorRoas, new_value: currentRoas,
-              metadata: { threshold: "kill", threshold_value: killThreshold },
-            });
-            // Concern notification
-            for (const uid of userIds) {
-              notifications.push({
-                user_id: uid, account_id: accountId, type: "concern",
-                title: `⚠️ Underperformer: ${c.ad_name}`,
-                body: `ROAS dropped to ${currentRoas.toFixed(1)}x, below the ${killThreshold}x kill threshold.`,
-              });
-            }
-          }
-        }
-
-        // Check paused creatives (zero spend with prior data)
-        const { data: pausedCreatives } = await supabase
-          .from("creatives")
-          .select("ad_id, ad_name, prior_roas")
-          .eq("account_id", accountId)
-          .eq("spend", 0)
-          .not("prior_roas", "is", null)
-          .gt("prior_roas", 0);
-
-        for (const c of (pausedCreatives || [])) {
-          changelogEntries.push({
-            account_id: accountId, ad_id: c.ad_id, event_type: "creative_paused",
-            description: `${c.ad_name} has no spend (was ${Number(c.prior_roas).toFixed(1)}x ROAS)`,
-            metadata: { prior_roas: c.prior_roas },
-          });
-        }
-
-        // Sync complete notification
-        for (const uid of userIds) {
-          notifications.push({
-            user_id: uid, account_id: accountId, type: "sync",
-            title: `Sync complete: ${account.name}`,
-            body: `${totalResult.count || 0} creatives synced.`,
-          });
-        }
-
-        // Insert ALL changelog entries in chunks — the old slice(0, 50) cap silently
-        // dropped every event past 50, so active accounts missed most notifications.
-        for (let i = 0; i < changelogEntries.length; i += 100) {
-          const batch = changelogEntries.slice(i, i + 100);
-          const { error: clErr } = await supabase.from("performance_changelog").insert(batch);
-          if (clErr) console.error("Changelog insert error (non-fatal):", clErr.message);
-        }
-        if (changelogEntries.length > 0) console.log(`  Logged ${changelogEntries.length} changelog entries`);
-
-        for (let i = 0; i < notifications.length; i += 100) {
-          const batch = notifications.slice(i, i + 100);
-          const { error: notifErr } = await supabase.from("notifications").insert(batch);
-          if (notifErr) console.error("Notification insert error (non-fatal):", notifErr.message);
-        }
-        if (notifications.length > 0) console.log(`  Created ${notifications.length} notifications`);
-      } catch (changelogNotifErr) {
-        console.error("Changelog/notification error (non-fatal):", changelogNotifErr);
       }
 
       // ── Post-Sync Spend Audit ──────────────────────────────────────────
@@ -2152,18 +2027,6 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
 
               console.log(`  📊 Post-sync audit: Meta=$${metaSpend.toFixed(2)} Local=$${localSpend.toFixed(2)} Delta=${spendDeltaPct.toFixed(1)}% ${driftExceeded ? "⚠️ DRIFT" : "✅ OK"}`);
 
-              // Send drift warning notification (inserted directly, not through batch)
-              if (driftExceeded) {
-                const direction = spendDelta < 0 ? "under-reporting" : "over-reporting";
-                const driftNotifs = userIds.map((uid: string) => ({
-                  user_id: uid, account_id: accountId, type: "concern",
-                  title: `⚠️ Data drift detected: ${account.name}`,
-                  body: `Local spend is ${direction} by ${Math.abs(spendDeltaPct).toFixed(1)}% vs Meta ($${Math.abs(spendDelta).toFixed(0)} gap). Run a full re-sync or check the Spend Diagnostic.`,
-                }));
-                if (driftNotifs.length > 0) {
-                  await supabase.from("notifications").insert(driftNotifs);
-                }
-              }
             }
           }
         } catch (auditErr) {
