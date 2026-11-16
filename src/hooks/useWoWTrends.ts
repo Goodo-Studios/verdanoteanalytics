@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { format, subDays } from "date-fns";
+import { utcToday } from "@/lib/dateRange";
 
 export interface WoWTrend {
   thisWeekRoas: number;
@@ -10,7 +12,11 @@ export interface WoWTrend {
 }
 
 /**
- * Fetch last 14 days of daily metrics per ad_id and compute WoW ROAS trends.
+ * Fetch two full weeks of daily metrics per ad_id and compute WoW ROAS trends.
+ *
+ * Both weeks are 7 whole UTC days ending yesterday (audit 6.5): this week is yesterday and the
+ * 6 days before, the prior week is the 7 days before that. Today is a partial day and is left
+ * out, so the two weeks are the same length.
  *
  * @returns Query for a Map<ad_id, WoWTrend>. A trend's `direction` may be
  * `"insufficient"` — a new ad with no prior-week baseline (or too few spend
@@ -22,18 +28,16 @@ export function useWoWTrends(accountId?: string) {
     queryKey: ["wow-trends", accountId || "all"],
     // Intentionally no keepPreviousData — on account switch, stale cross-account data must not render.
     queryFn: async () => {
-      const now = new Date();
-      const d14ago = new Date(now);
-      d14ago.setDate(d14ago.getDate() - 14);
-      const d7ago = new Date(now);
-      d7ago.setDate(d7ago.getDate() - 7);
-
-      const dateFrom = d14ago.toISOString().split("T")[0];
+      const yesterday = subDays(utcToday(), 1);
+      const dateTo = format(yesterday, "yyyy-MM-dd");
+      const thisWeekFrom = format(subDays(yesterday, 6), "yyyy-MM-dd");
+      const dateFrom = format(subDays(yesterday, 13), "yyyy-MM-dd");
 
       let query = supabase
         .from("creative_daily_metrics")
         .select("ad_id, date, spend, purchase_value")
         .gte("date", dateFrom)
+        .lte("date", dateTo)
         .order("date", { ascending: true })
         // Tiebreaker: many rows share a date, so paging by date alone can skip or repeat rows
         // across pages. (date, ad_id) is unique per account because (ad_id, date) is the primary key.
@@ -55,13 +59,13 @@ export function useWoWTrends(accountId?: string) {
         offset += PAGE;
       }
 
-      // MED-011: use UTC date string so the 7-day boundary never drifts due to local timezone offset near midnight
-      const d7agoStr = `${d7ago.getUTCFullYear()}-${String(d7ago.getUTCMonth() + 1).padStart(2, "0")}-${String(d7ago.getUTCDate()).padStart(2, "0")}`;
 
       // Aggregate by ad_id into two buckets
       const map = new Map<string, { tw_spend: number; tw_pv: number; tw_days: Set<string>; pw_spend: number; pw_pv: number; pw_days: Set<string> }>();
 
       for (const row of allRows) {
+        // Only the two full weeks count, whatever the read returned.
+        if (row.date < dateFrom || row.date > dateTo) continue;
         if (!map.has(row.ad_id)) {
           map.set(row.ad_id, { tw_spend: 0, tw_pv: 0, tw_days: new Set(), pw_spend: 0, pw_pv: 0, pw_days: new Set() });
         }
@@ -69,7 +73,7 @@ export function useWoWTrends(accountId?: string) {
         const spend = Number(row.spend) || 0;
         const pv = Number(row.purchase_value) || 0;
 
-        if (row.date >= d7agoStr) {
+        if (row.date >= thisWeekFrom) {
           b.tw_spend += spend;
           b.tw_pv += pv;
           if (spend > 0) b.tw_days.add(row.date);

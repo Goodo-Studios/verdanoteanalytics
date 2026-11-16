@@ -13,7 +13,7 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("@/integrations/supabase/client", () => {
-  // deno-lint-ignore no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const builder: any = {};
   builder.select = () => builder;
   builder.order = () => builder;
