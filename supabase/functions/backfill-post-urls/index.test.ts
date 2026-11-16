@@ -1,9 +1,8 @@
-// Audit 8.7: backfill-post-urls read only the META_ACCESS_TOKEN environment variable,
-// which is not set in production (the token lives in settings.meta_access_token), so
-// every Meta call went out with access_token=undefined and failed.
+// Audit 8.7 tests for backfill-post-urls.
 //   deno test -A supabase/functions/backfill-post-urls/index.test.ts
 
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { makeBackfillTestDb, withMetaFetch } from "../_shared/backfill-test-db.ts";
 
 Deno.env.set("BACKFILL_POST_URLS_NO_SERVE", "1");
 Deno.env.set("SUPABASE_URL", "https://example.supabase.co");
@@ -11,89 +10,81 @@ Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "fake-service-role");
 
 const { handler } = await import("./index.ts");
 
-// deno-lint-ignore no-explicit-any
-function makeDb(settingsToken: string | null): any {
-  const updates: Array<Record<string, unknown>> = [];
-  return {
-    updates,
-    from(table: string) {
-      // deno-lint-ignore no-explicit-any
-      const b: any = {};
-      let updatePayload: Record<string, unknown> | null = null;
-      b.select = () => b;
-      b.eq = () => b;
-      b.is = () => b;
-      b.gt = () => b;
-      b.limit = () => Promise.resolve({ data: [{ ad_id: "ad_1" }], error: null });
-      b.single = () =>
-        Promise.resolve(
-          table === "settings" && settingsToken
-            ? { data: { value: settingsToken }, error: null }
-            : { data: null, error: { message: "no rows" } },
-        );
-      b.maybeSingle = b.single;
-      b.update = (p: Record<string, unknown>) => {
-        updatePayload = p;
-        return b;
-      };
-      // deno-lint-ignore no-explicit-any
-      b.then = (resolve: (v: any) => void) => {
-        if (updatePayload) updates.push(updatePayload);
-        resolve({ data: null, error: null });
-      };
-      return b;
-    },
-  };
-}
+const RESOLVABLE = { ad_1: { creative: { effective_object_story_id: "111_222" } } };
 
 async function run(db: unknown) {
-  const metaUrls: string[] = [];
-  const realFetch = globalThis.fetch;
-  // deno-lint-ignore no-explicit-any
-  (globalThis as any).fetch = (input: string | URL | Request) => {
-    const url = typeof input === "string" ? input : input.toString();
-    metaUrls.push(url);
-    return Promise.resolve(new Response(JSON.stringify({
-      ad_1: { creative: { effective_object_story_id: "111_222" } },
-    })));
-  };
-  try {
-    const res = await handler(
-      new Request("http://test.local/backfill-post-urls", {
-        method: "POST",
-        body: JSON.stringify({ account_id: "act_1" }),
-      }),
-      db,
-    );
-    return { status: res.status, body: await res.json(), metaUrls };
-  } finally {
-    globalThis.fetch = realFetch;
-  }
+  const res = await handler(
+    new Request("http://test.local/backfill-post-urls", {
+      method: "POST",
+      body: JSON.stringify({ account_id: "act_1" }),
+    }),
+    db,
+  );
+  return { status: res.status, body: await res.json() };
 }
+
+// ── The saved Meta token is used (backfill-post-urls read only an unset env var) ──
 
 Deno.test("8.7: backfill-post-urls uses the token saved in settings when the env var is unset", async () => {
   Deno.env.delete("META_ACCESS_TOKEN");
-  const db = makeDb("db-token");
-  const { status, metaUrls } = await run(db);
-  assertEquals(status, 200);
-  assertEquals(metaUrls.length, 1);
-  assert(metaUrls[0].includes("access_token=db-token"), `uses the settings token: ${metaUrls[0]}`);
-  assertEquals(db.updates[0], { ad_post_url: "https://www.facebook.com/111/posts/222/" });
+  const db = makeBackfillTestDb({ candidates: ["ad_1"], settingsToken: "db-token" });
+  await withMetaFetch(RESOLVABLE, async (urls) => {
+    const { status } = await run(db);
+    assertEquals(status, 200);
+    assertEquals(urls.length, 1);
+    assert(urls[0].includes("access_token=db-token"), `uses the settings token: ${urls[0]}`);
+  });
+  const written = db.updates.find((u) => u.ad_id === "ad_1");
+  assertEquals(written?.payload.ad_post_url, "https://www.facebook.com/111/posts/222/");
 });
 
 Deno.test("8.7: backfill-post-urls stops before calling Meta when no token is configured", async () => {
   Deno.env.delete("META_ACCESS_TOKEN");
-  const { status, metaUrls } = await run(makeDb(null));
-  assertEquals(status, 400);
-  assertEquals(metaUrls.length, 0, "no Meta call with access_token=undefined");
+  await withMetaFetch(RESOLVABLE, async (urls) => {
+    const { status } = await run(makeBackfillTestDb({ candidates: ["ad_1"], settingsToken: null }));
+    assertEquals(status, 400);
+    assertEquals(urls.length, 0, "no Meta call with access_token=undefined");
+  });
 });
 
 Deno.test("8.7: the env token still wins when it is set", async () => {
   Deno.env.set("META_ACCESS_TOKEN", "env-token");
   try {
-    const { metaUrls } = await run(makeDb("db-token"));
-    assert(metaUrls[0].includes("access_token=env-token"));
+    await withMetaFetch(RESOLVABLE, async (urls) => {
+      await run(makeBackfillTestDb({ candidates: ["ad_1"], settingsToken: "db-token" }));
+      assert(urls[0].includes("access_token=env-token"));
+    });
   } finally {
     Deno.env.delete("META_ACCESS_TOKEN");
   }
+});
+
+// ── Unresolvable rows are not re-picked every run ─────────────────────────────
+
+Deno.test("8.7: an ad Meta cannot resolve is marked checked", async () => {
+  Deno.env.delete("META_ACCESS_TOKEN");
+  const db = makeBackfillTestDb({ candidates: ["ad_1", "ad_2"], settingsToken: "db-token" });
+  // ad_2 comes back with no story id, so no post URL can be built.
+  await withMetaFetch({ ...RESOLVABLE, ad_2: { creative: {} } }, () => run(db));
+  const stamp = db.updates.find((u) => u.ad_id === "ad_2");
+  assert(stamp, "the unresolvable ad is written");
+  assert(typeof stamp.payload.post_url_checked_at === "string", "and marked with post_url_checked_at");
+  assertEquals(db.updates.find((u) => u.ad_id === "ad_1")?.payload.post_url_checked_at, undefined);
+});
+
+Deno.test("8.7: a recently checked ad is not picked again", async () => {
+  Deno.env.delete("META_ACCESS_TOKEN");
+  const db = makeBackfillTestDb({ candidates: ["ad_1"], settingsToken: "db-token" });
+  await withMetaFetch(RESOLVABLE, () => run(db));
+  assert(
+    db.selectOrs.some((e) => e.startsWith("post_url_checked_at.is.null,post_url_checked_at.lt.")),
+    `candidate select skips recently checked rows: ${JSON.stringify(db.selectOrs)}`,
+  );
+});
+
+Deno.test("8.7: a failed Meta batch marks nothing", async () => {
+  Deno.env.delete("META_ACCESS_TOKEN");
+  const db = makeBackfillTestDb({ candidates: ["ad_2"], settingsToken: "db-token" });
+  await withMetaFetch({ error: { code: 4, message: "(#4) Application request limit reached" } }, () => run(db));
+  assertEquals(db.updates.length, 0, "a throttled batch is retried next run, not marked");
 });
