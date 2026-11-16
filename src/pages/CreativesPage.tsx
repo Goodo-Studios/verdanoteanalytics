@@ -41,6 +41,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useCardPresence } from "@/hooks/useCardPresence";
 import { toast } from "sonner";
 import { saveCreativesToVault, formatBulkSaveSummary } from "@/lib/vaultSave";
+import { groupMetrics } from "@/lib/groupMetrics";
 
 import type { GradeInfo } from "@/lib/creativeGrading";
 
@@ -288,8 +289,9 @@ const CreativesPage = () => {
     return Object.entries(groups).map(([name, items]) => {
       const withSpend = items.filter(c => (Number(c.spend) || 0) > 0);
       const totalSpend = items.reduce((s, c) => s + (Number(c.spend) || 0), 0);
-      const avgField = (field: string) => withSpend.length > 0 ? withSpend.reduce((s, c) => s + (Number(c[field]) || 0), 0) / withSpend.length : 0;
-      return { name, count: items.length, totalSpend, avgRoas: avgField("roas"), avgCpa: avgField("cpa"), avgSpend: withSpend.length > 0 ? totalSpend / withSpend.length : 0 };
+      // Group ROAS and CPA from summed counts, not an average of each creative's ratio (audit 6.1).
+      const g = groupMetrics(items);
+      return { name, count: items.length, totalSpend, roas: g.roas, cpa: g.cpa, avgSpend: withSpend.length > 0 ? totalSpend / withSpend.length : 0 };
     }).sort((a, b) => b.totalSpend - a.totalSpend);
   }, [sortedCreatives, groupBy]);
 
