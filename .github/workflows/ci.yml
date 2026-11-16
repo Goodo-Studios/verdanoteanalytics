@@ -157,6 +157,8 @@ jobs:
       PLAYWRIGHT_TEST_PASSWORD: ${{ secrets.PLAYWRIGHT_TEST_PASSWORD }}
       PLAYWRIGHT_CLIENT_EMAIL: ${{ secrets.PLAYWRIGHT_CLIENT_EMAIL }}
       PLAYWRIGHT_CLIENT_PASSWORD: ${{ secrets.PLAYWRIGHT_CLIENT_PASSWORD }}
+      PLAYWRIGHT_EMPLOYEE_EMAIL: ${{ secrets.PLAYWRIGHT_EMPLOYEE_EMAIL }}
+      PLAYWRIGHT_EMPLOYEE_PASSWORD: ${{ secrets.PLAYWRIGHT_EMPLOYEE_PASSWORD }}
       # Runs on main pushes only, after the deploy. The staging browser tests (e2e-staging) gate the
       # release itself, in deploy-functions.
       # The tests run against the live production site, not a local preview server.

@@ -194,6 +194,10 @@ describe("CI deployment safety", () => {
 
   it("fails CI before E2E when authenticated-test secrets are missing", () => {
     expect(workflow).toContain("run: npm run check:e2e-env");
+    // Audit Batch 9: the employee login is passed in, so employee specs run instead of skipping.
+    const e2e = job("e2e");
+    expect(e2e).toContain("PLAYWRIGHT_EMPLOYEE_EMAIL: ${{ secrets.PLAYWRIGHT_EMPLOYEE_EMAIL }}");
+    expect(e2e).toContain("PLAYWRIGHT_EMPLOYEE_PASSWORD: ${{ secrets.PLAYWRIGHT_EMPLOYEE_PASSWORD }}");
   });
 
   it("runs the node script tests (scripts/*.test.mjs) in the check job", () => {
