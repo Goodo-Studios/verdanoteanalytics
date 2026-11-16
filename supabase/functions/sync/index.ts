@@ -12,7 +12,6 @@ import {
   loadAlertCandidates,
   loadAutoParseCandidates,
   loadMappingsByCode,
-  loadScoreCreatives,
   sumLocalDailyMetrics,
 } from "./reads.ts";
 import { resolveTags, type PartialTags } from "../_shared/resolve-tags.ts";
@@ -1955,63 +1954,6 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         console.log(`  Snapshotted prior_roas for ${snapCount} creatives`);
       } catch (priorErr) {
         console.error("prior_roas snapshot error (non-fatal):", priorErr);
-      }
-
-      // ── Record Creative Score snapshots (skip if running low on time) ──
-      if (!isTimedOut()) {
-        try {
-          const activeCreatives = await loadScoreCreatives(supabase, accountId);
-
-          if (activeCreatives && activeCreatives.length > 0) {
-            const scaleThreshold = account.scale_threshold || 2.0;
-            const ctrBenchmark = 3.0;
-            const hookRateBenchmark = 25.0;
-
-            const withCpa = activeCreatives.filter((c: any) => (Number(c.cpa) || 0) > 0);
-            const avgCpa = withCpa.length > 0
-              ? withCpa.reduce((s: number, c: any) => s + (Number(c.cpa) || 0), 0) / withCpa.length
-              : 0;
-
-            const scoreRows: any[] = [];
-            for (const c of activeCreatives) {
-              if (c.ad_status === "PAUSED") continue;
-              const roas = Number(c.roas) || 0;
-              const ctr = Number(c.ctr) || 0;
-              const hookRate = Number(c.thumb_stop_rate) || 0;
-              const cpa = Number(c.cpa) || 0;
-              const roasComp = Math.round(Math.min(1, roas / scaleThreshold) * 35);
-              const ctrComp = Math.round(Math.min(1, ctr / ctrBenchmark) * 20);
-              const hookComp = Math.round(Math.min(1, hookRate / hookRateBenchmark) * 15);
-              let cpaComp = 0;
-              if (avgCpa > 0 && cpa > 0) {
-                const ratio = cpa / avgCpa;
-                if (ratio <= 1) cpaComp = 10;
-                else if (ratio < 2) cpaComp = Math.round(10 * (1 - (ratio - 1)));
-              }
-              const momentumComp = 5;
-              const fatigueComp = 0;
-              const total = Math.max(0, Math.min(100, roasComp + ctrComp + hookComp + cpaComp + momentumComp + fatigueComp));
-              scoreRows.push({
-                ad_id: c.ad_id, account_id: accountId, score: total,
-                roas_component: roasComp, ctr_component: ctrComp, hook_rate_component: hookComp,
-                spend_efficiency_component: cpaComp, momentum_component: momentumComp, fatigue_component: fatigueComp,
-              });
-            }
-
-            for (let i = 0; i < scoreRows.length; i += 500) {
-              if (isTimedOut()) { console.log("  Score snapshots paused — budget exceeded"); break; }
-              const chunk = scoreRows.slice(i, i + 500);
-              await heartbeat();
-              const { error: scoreErr } = await supabase.from("score_history").insert(chunk);
-              if (scoreErr) console.error("Score history insert error (non-fatal):", scoreErr.message);
-            }
-            console.log(`  Recorded score snapshots for ${scoreRows.length} creatives`);
-          }
-        } catch (scoreHistoryErr) {
-          console.error("Score history error (non-fatal):", scoreHistoryErr);
-        }
-      } else {
-        console.log("  Skipping score snapshots — budget exceeded");
       }
 
       await heartbeat();
