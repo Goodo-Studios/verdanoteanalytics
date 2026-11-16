@@ -1,5 +1,11 @@
 # Creative Library (Feature 4 + F3 + F6) — migration notes
 
+> **History note (audit Batch 9, 2026-11-16):** the placeholder numbers below were
+> renumbered before these migrations shipped. They are now
+> `20260714000014` to `20260714000020` (lifecycle dates, creative rotation, media archive,
+> classification library, creative embeddings, clusters, landing page creatives). The
+> renumbering instructions are kept as a record and need no action.
+
 These migrations use **placeholder** numbers in the `20260716000001…` range.
 They are additive, idempotent, and safe to re-run.
 
@@ -19,8 +25,8 @@ They are additive, idempotent, and safe to re-run.
 
 | Placeholder | File | Purpose |
 |---|---|---|
-| `20260716000001` | `20260716000001_media_archive_durable.sql` | F3 durable media archive: `media_archive` (references `media_assets`, `retention='keep'`, captures transcript/framework/perf snapshot at archive time) + `media_archive_export_jobs` (bulk-zip tracking) + private `creative-archive` storage bucket + RLS mirroring `media_assets`. |
-| `20260716000002` | `20260716000002_rpc_creative_classification_library.sql` | F6 + Feature 4 RPCs: `get_creative_classification` (window roll-up + recent/prior trend split for the shared classifier) and `get_creative_library` (every live creative + window perf + trend + media + durability + vault presence). Both **SECURITY DEFINER, trust `p_account_id`** → `authenticated` EXECUTE **revoked**, `service_role` only. |
+| `20260716000001` | `20260714000016_media_archive_durable.sql` | F3 durable media archive: `media_archive` (references `media_assets`, `retention='keep'`, captures transcript/framework/perf snapshot at archive time) + `media_archive_export_jobs` (bulk-zip tracking) + private `creative-archive` storage bucket + RLS mirroring `media_assets`. |
+| `20260716000002` | `20260714000017_rpc_creative_classification_library.sql` | F6 + Feature 4 RPCs: `get_creative_classification` (window roll-up + recent/prior trend split for the shared classifier) and `get_creative_library` (every live creative + window perf + trend + media + durability + vault presence). Both **SECURITY DEFINER, trust `p_account_id`** → `authenticated` EXECUTE **revoked**, `service_role` only. |
 
 ## Security posture (must hold in prod)
 
