@@ -15,6 +15,94 @@ DROP FUNCTION IF EXISTS public.creatives_list_page(
   text[], text, date, date, text[], text, text, text, text, text, text, text, text, text, integer, integer, text, text
 );
 
+-- One Creatives-page advanced condition against one row (audit 7.1 part 3). Mirrors
+-- passesCondition in src/components/creatives/AdvancedFiltersPanel.tsx: numbers read as 0 when
+-- missing, an unknown field passes, an empty multi-select passes except for Grade.
+CREATE OR REPLACE FUNCTION public.creative_condition_passes(
+  cond        jsonb,
+  p_roas      numeric,
+  p_spend     numeric,
+  p_ctr       numeric,
+  p_tsr       numeric,
+  p_cpa       numeric,
+  p_frequency numeric,
+  p_ad_type   text,
+  p_hook      text,
+  p_campaign  text,
+  p_created   timestamptz,
+  p_ad_status text,
+  p_grade     text,
+  p_wow_dir   text,
+  p_wow_pct   numeric
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = ''
+AS $fn$
+  WITH v AS (
+    SELECT
+      cond->>'field' AS field,
+      COALESCE(cond->>'operator', '') AS op,
+      CASE WHEN COALESCE(cond->>'value', '') ~ '^\s*-?[0-9]+(\.[0-9]+)?\s*$'
+           THEN (cond->>'value')::numeric ELSE 0 END AS target,
+      CASE WHEN COALESCE(cond->>'valueTo', '') ~ '^\s*-?[0-9]+(\.[0-9]+)?\s*$'
+           THEN (cond->>'valueTo')::numeric ELSE 0 END AS target_to,
+      lower(btrim(COALESCE(cond->>'value', ''))) AS needle,
+      lower(COALESCE(cond->>'value', '')) AS needle_raw,
+      ARRAY(SELECT jsonb_array_elements_text(
+              CASE WHEN jsonb_typeof(cond->'multiValues') = 'array' THEN cond->'multiValues' ELSE '[]'::jsonb END)) AS mv
+  ),
+  n AS (
+    SELECT v.*,
+           CASE v.field
+             WHEN 'roas' THEN COALESCE(p_roas, 0)
+             WHEN 'spend' THEN COALESCE(p_spend, 0)
+             WHEN 'ctr' THEN COALESCE(p_ctr, 0)
+             WHEN 'hook_rate' THEN COALESCE(p_tsr, 0)
+             WHEN 'cpa' THEN COALESCE(p_cpa, 0)
+             WHEN 'days_running' THEN floor(extract(epoch FROM (now() - p_created)) / 86400)
+           END AS val
+      FROM v
+  )
+  SELECT CASE n.field
+    WHEN 'roas' THEN num_ok WHEN 'spend' THEN num_ok WHEN 'ctr' THEN num_ok
+    WHEN 'hook_rate' THEN num_ok WHEN 'cpa' THEN num_ok
+    WHEN 'days_running' THEN p_created IS NOT NULL AND num_ok
+    WHEN 'grade' THEN p_grade IS NOT NULL AND p_grade = ANY (n.mv)
+    WHEN 'format' THEN cardinality(n.mv) = 0 OR (
+      CASE WHEN lower(btrim(COALESCE(p_ad_type, ''))) IN ('static', 'image', 'photo') THEN 'Static'
+           ELSE btrim(COALESCE(p_ad_type, '')) END) = ANY (n.mv)
+    WHEN 'hook_type' THEN n.needle = '' OR position(n.needle IN lower(COALESCE(p_hook, ''))) > 0
+    WHEN 'campaign' THEN position(n.needle_raw IN lower(COALESCE(p_campaign, ''))) > 0
+    WHEN 'status' THEN cardinality(n.mv) = 0 OR n.mv && ARRAY_REMOVE(ARRAY[
+      CASE WHEN (CASE WHEN COALESCE(p_frequency, 0) > 5 THEN 50 WHEN COALESCE(p_frequency, 0) > 3 THEN 30 ELSE 0 END)
+              + (CASE WHEN p_wow_dir IS NULL OR p_wow_dir = 'insufficient' THEN 0
+                      WHEN p_wow_pct < -20 THEN 25 WHEN p_wow_pct < -15 THEN 20 ELSE 0 END) >= 60
+           THEN 'High Fatigue' END,
+      CASE p_wow_dir WHEN 'up' THEN 'Scaling' WHEN 'flat' THEN 'Monitoring' WHEN 'down' THEN 'Losing Momentum' END,
+      CASE WHEN p_ad_status = 'PAUSED' THEN 'Paused' END
+    ], NULL)
+    ELSE true
+  END
+  FROM n
+  CROSS JOIN LATERAL (
+    SELECT CASE n.op
+             WHEN 'gt' THEN n.val > n.target
+             WHEN 'lt' THEN n.val < n.target
+             WHEN 'between' THEN n.val >= n.target AND n.val <= n.target_to
+             ELSE true
+           END AS num_ok
+  ) o
+$fn$;
+
+REVOKE ALL ON FUNCTION public.creative_condition_passes(
+  jsonb, numeric, numeric, numeric, numeric, numeric, numeric, text, text, text, timestamptz, text, text, text, numeric
+) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.creative_condition_passes(
+  jsonb, numeric, numeric, numeric, numeric, numeric, numeric, text, text, text, timestamptz, text, text, text, numeric
+) TO service_role;
+
 CREATE OR REPLACE FUNCTION public.creatives_list_page(
   p_allowed_ids text[]  DEFAULT NULL,
   p_account_id  text    DEFAULT NULL,
@@ -73,7 +161,17 @@ DECLARE
     ELSE 'spend' END;
   v_asc  boolean := lower(COALESCE(p_sort_dir, 'desc')) = 'asc';
   v_text boolean;
+  -- Advanced filters from the Creatives page (audit 7.1 part 3), applied to the whole set.
+  v_conds jsonb := CASE WHEN jsonb_typeof(p_conditions) = 'array' AND jsonb_array_length(p_conditions) > 0
+                        THEN p_conditions END;
+  v_need_wow boolean;
+  v_need_grade boolean;
+  v_today date := (now() AT TIME ZONE 'UTC')::date;
 BEGIN
+  v_need_wow := v_conds IS NOT NULL
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(v_conds) e WHERE e->>'field' = 'status');
+  v_need_grade := v_conds IS NOT NULL
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(v_conds) e WHERE e->>'field' = 'grade');
   v_text := v_sort = ANY (v_text_sorts);
   IF p_date_from IS NOT NULL OR p_date_to IS NOT NULL THEN
     -- Accounts whose daily rows are read: the picked account, else every account the
@@ -130,6 +228,8 @@ BEGIN
     calc AS (
       SELECT
         a.ad_id, c.account_id AS acct,
+        c.ad_type AS c_ad_type, c.hook AS c_hook, c.campaign_name AS c_campaign,
+        c.created_at AS c_created, c.ad_status AS c_status,
         a.spend, a.impressions, a.clicks, a.purchases, a.purchase_value, a.adds_to_cart, a.video_views,
         CASE WHEN a.impressions > 0 THEN (a.clicks / a.impressions) * 100 ELSE 0 END      AS ctr,
         CASE WHEN a.impressions > 0 THEN (a.spend / a.impressions) * 1000 ELSE 0 END      AS cpm,
@@ -165,6 +265,52 @@ BEGIN
        WHERE s.spend > 0
        GROUP BY s.acct
     ),
+    -- Week-over-week ROAS for the Status filter: two full UTC weeks ending yesterday, the same
+    -- rule as src/hooks/useWoWTrends.ts (audit 6.5). Empty unless a Status condition is set.
+    wow AS (
+      SELECT w.ad_id,
+             CASE WHEN w.tw_d < 3 OR w.pw_d < 3 OR (r.pr = 0 AND r.tr > 0) THEN 'insufficient'
+                  WHEN x.pct > 10 THEN 'up' WHEN x.pct < -10 THEN 'down' ELSE 'flat' END AS dir,
+             x.pct
+        FROM (
+          SELECT m.ad_id,
+                 SUM(COALESCE(m.spend, 0)) FILTER (WHERE m.date >= v_today - 7)          AS tw_s,
+                 SUM(COALESCE(m.purchase_value, 0)) FILTER (WHERE m.date >= v_today - 7) AS tw_pv,
+                 count(DISTINCT m.date) FILTER (WHERE m.date >= v_today - 7 AND m.spend > 0) AS tw_d,
+                 SUM(COALESCE(m.spend, 0)) FILTER (WHERE m.date < v_today - 7)           AS pw_s,
+                 SUM(COALESCE(m.purchase_value, 0)) FILTER (WHERE m.date < v_today - 7)  AS pw_pv,
+                 count(DISTINCT m.date) FILTER (WHERE m.date < v_today - 7 AND m.spend > 0)  AS pw_d
+            FROM public.creative_daily_metrics m
+           WHERE v_need_wow
+             AND m.date BETWEEN v_today - 14 AND v_today - 1
+             AND (p_allowed_ids IS NULL OR m.account_id = ANY (p_allowed_ids))
+             AND (p_account_id IS NULL OR m.account_id = p_account_id)
+           GROUP BY m.ad_id
+        ) w
+        CROSS JOIN LATERAL (
+          SELECT CASE WHEN w.tw_s > 0 THEN w.tw_pv / w.tw_s ELSE 0 END AS tr,
+                 CASE WHEN w.pw_s > 0 THEN w.pw_pv / w.pw_s ELSE 0 END AS pr
+        ) r
+        CROSS JOIN LATERAL (
+          SELECT CASE WHEN r.pr > 0 THEN (r.tr - r.pr) / r.pr * 100 ELSE 0 END AS pct
+        ) x
+    ),
+    -- The base set narrowed by the advanced conditions. Grades stay over the base set.
+    adv AS (
+      SELECT k.*
+        FROM calc k
+        LEFT JOIN wow w ON w.ad_id = k.ad_id
+       WHERE v_conds IS NULL
+          OR NOT EXISTS (
+               SELECT 1 FROM jsonb_array_elements(v_conds) e
+                WHERE NOT public.creative_condition_passes(
+                        e, k.roas, k.spend, k.ctr, k.thumb_stop_rate, k.cpa, k.frequency,
+                        k.c_ad_type, k.c_hook, k.c_campaign, k.c_created, k.c_status,
+                        CASE WHEN v_need_grade THEN
+                          (SELECT CASE WHEN (CASE WHEN k.spend > 0 THEN CASE WHEN d.mn = d.mx THEN 50::numeric ELSE (d.n - width_bucket(-(k.spend)::float8, d.neg)) * 100.0 / d.n END END) IS NULL THEN NULL WHEN (CASE WHEN k.spend > 0 THEN CASE WHEN d.mn = d.mx THEN 50::numeric ELSE (d.n - width_bucket(-(k.spend)::float8, d.neg)) * 100.0 / d.n END END) >= 80 THEN 'A' WHEN (CASE WHEN k.spend > 0 THEN CASE WHEN d.mn = d.mx THEN 50::numeric ELSE (d.n - width_bucket(-(k.spend)::float8, d.neg)) * 100.0 / d.n END END) >= 60 THEN 'B' WHEN (CASE WHEN k.spend > 0 THEN CASE WHEN d.mn = d.mx THEN 50::numeric ELSE (d.n - width_bucket(-(k.spend)::float8, d.neg)) * 100.0 / d.n END END) >= 40 THEN 'C' WHEN (CASE WHEN k.spend > 0 THEN CASE WHEN d.mn = d.mx THEN 50::numeric ELSE (d.n - width_bucket(-(k.spend)::float8, d.neg)) * 100.0 / d.n END END) >= 20 THEN 'D' ELSE 'F' END FROM dist d WHERE d.acct = k.acct)
+                        END,
+                        w.dir, w.pct))
+    ),
     keyed AS (
       SELECT k.*,
              CASE v_sort
@@ -191,7 +337,7 @@ BEGIN
                WHEN 'campaign_name' THEN lower(c.campaign_name)
                WHEN 'adset_name' THEN lower(c.adset_name)
              END AS sort_text
-        FROM calc k
+        FROM adv k
         JOIN public.creatives c ON c.ad_id = k.ad_id
     ),
     page AS (
@@ -277,13 +423,13 @@ BEGIN
           FROM pg p
           JOIN public.creatives c ON c.ad_id = p.ad_id
       ), '[]'::jsonb),
-      'total', (SELECT count(*) FROM calc),
+      'total', (SELECT count(*) FROM adv),
       'aggregates', (
         SELECT jsonb_build_object(
           'total_spend', COALESCE(SUM(k.spend), 0),
           'avg_cpa',  CASE WHEN COALESCE(SUM(k.purchases), 0) > 0 THEN SUM(k.spend) / SUM(k.purchases) ELSE 0 END,
           'avg_roas', CASE WHEN COALESCE(SUM(k.spend), 0) > 0 THEN SUM(k.purchase_value) / SUM(k.spend) ELSE 0 END)
-          FROM calc k)
+          FROM adv k)
     ) INTO v_result;
 
     RETURN v_result;
@@ -291,7 +437,10 @@ BEGIN
 
   -- No date filter: lifetime totals stored on creatives.
   WITH f AS (
-    SELECT c.ad_id, c.account_id AS acct, COALESCE(c.spend, 0) AS spend, COALESCE(c.purchases, 0) AS purchases,
+    SELECT c.ad_id, c.account_id AS acct, COALESCE(c.spend, 0) AS spend,
+           c.roas AS c_roas, c.ctr AS c_ctr, c.thumb_stop_rate AS c_tsr, c.cpa AS c_cpa,
+           c.frequency AS c_freq, c.ad_type AS c_ad_type, c.hook AS c_hook,
+           c.campaign_name AS c_campaign, c.created_at AS c_created, c.ad_status AS c_status, COALESCE(c.purchases, 0) AS purchases,
            COALESCE(c.purchase_value, 0) AS purchase_value,
            CASE v_sort
              WHEN 'spend' THEN c.spend::numeric WHEN 'roas' THEN c.roas::numeric
@@ -345,12 +494,58 @@ BEGIN
      WHERE s.spend > 0
      GROUP BY s.acct
   ),
+  -- Week-over-week ROAS for the Status filter: two full UTC weeks ending yesterday, the same
+  -- rule as src/hooks/useWoWTrends.ts (audit 6.5). Empty unless a Status condition is set.
+  wow AS (
+    SELECT w.ad_id,
+           CASE WHEN w.tw_d < 3 OR w.pw_d < 3 OR (r.pr = 0 AND r.tr > 0) THEN 'insufficient'
+                WHEN x.pct > 10 THEN 'up' WHEN x.pct < -10 THEN 'down' ELSE 'flat' END AS dir,
+           x.pct
+      FROM (
+        SELECT m.ad_id,
+               SUM(COALESCE(m.spend, 0)) FILTER (WHERE m.date >= v_today - 7)          AS tw_s,
+               SUM(COALESCE(m.purchase_value, 0)) FILTER (WHERE m.date >= v_today - 7) AS tw_pv,
+               count(DISTINCT m.date) FILTER (WHERE m.date >= v_today - 7 AND m.spend > 0) AS tw_d,
+               SUM(COALESCE(m.spend, 0)) FILTER (WHERE m.date < v_today - 7)           AS pw_s,
+               SUM(COALESCE(m.purchase_value, 0)) FILTER (WHERE m.date < v_today - 7)  AS pw_pv,
+               count(DISTINCT m.date) FILTER (WHERE m.date < v_today - 7 AND m.spend > 0)  AS pw_d
+          FROM public.creative_daily_metrics m
+         WHERE v_need_wow
+           AND m.date BETWEEN v_today - 14 AND v_today - 1
+           AND (p_allowed_ids IS NULL OR m.account_id = ANY (p_allowed_ids))
+           AND (p_account_id IS NULL OR m.account_id = p_account_id)
+         GROUP BY m.ad_id
+      ) w
+      CROSS JOIN LATERAL (
+        SELECT CASE WHEN w.tw_s > 0 THEN w.tw_pv / w.tw_s ELSE 0 END AS tr,
+               CASE WHEN w.pw_s > 0 THEN w.pw_pv / w.pw_s ELSE 0 END AS pr
+      ) r
+      CROSS JOIN LATERAL (
+        SELECT CASE WHEN r.pr > 0 THEN (r.tr - r.pr) / r.pr * 100 ELSE 0 END AS pct
+      ) x
+  ),
+  -- The base set narrowed by the advanced conditions. Grades stay over the base set.
+  adv AS (
+    SELECT k.*
+      FROM f k
+      LEFT JOIN wow w ON w.ad_id = k.ad_id
+     WHERE v_conds IS NULL
+        OR NOT EXISTS (
+             SELECT 1 FROM jsonb_array_elements(v_conds) e
+              WHERE NOT public.creative_condition_passes(
+                      e, k.c_roas, k.spend, k.c_ctr, k.c_tsr, k.c_cpa, k.c_freq,
+                      k.c_ad_type, k.c_hook, k.c_campaign, k.c_created, k.c_status,
+                      CASE WHEN v_need_grade THEN
+                        (SELECT CASE WHEN (CASE WHEN k.spend > 0 THEN CASE WHEN d.mn = d.mx THEN 50::numeric ELSE (d.n - width_bucket(-(k.spend)::float8, d.neg)) * 100.0 / d.n END END) IS NULL THEN NULL WHEN (CASE WHEN k.spend > 0 THEN CASE WHEN d.mn = d.mx THEN 50::numeric ELSE (d.n - width_bucket(-(k.spend)::float8, d.neg)) * 100.0 / d.n END END) >= 80 THEN 'A' WHEN (CASE WHEN k.spend > 0 THEN CASE WHEN d.mn = d.mx THEN 50::numeric ELSE (d.n - width_bucket(-(k.spend)::float8, d.neg)) * 100.0 / d.n END END) >= 60 THEN 'B' WHEN (CASE WHEN k.spend > 0 THEN CASE WHEN d.mn = d.mx THEN 50::numeric ELSE (d.n - width_bucket(-(k.spend)::float8, d.neg)) * 100.0 / d.n END END) >= 40 THEN 'C' WHEN (CASE WHEN k.spend > 0 THEN CASE WHEN d.mn = d.mx THEN 50::numeric ELSE (d.n - width_bucket(-(k.spend)::float8, d.neg)) * 100.0 / d.n END END) >= 20 THEN 'D' ELSE 'F' END FROM dist d WHERE d.acct = k.acct)
+                      END,
+                      w.dir, w.pct))
+  ),
   graded AS (
     SELECT q.ad_id, q.acct, q.spend, q.sort_text,
            CASE WHEN v_sort = 'grade'
                 THEN (SELECT CASE WHEN (CASE WHEN q.spend > 0 THEN CASE WHEN d.mn = d.mx THEN 50::numeric ELSE (d.n - width_bucket(-(q.spend)::float8, d.neg)) * 100.0 / d.n END END) IS NULL THEN 6 WHEN (CASE WHEN q.spend > 0 THEN CASE WHEN d.mn = d.mx THEN 50::numeric ELSE (d.n - width_bucket(-(q.spend)::float8, d.neg)) * 100.0 / d.n END END) >= 80 THEN 1 WHEN (CASE WHEN q.spend > 0 THEN CASE WHEN d.mn = d.mx THEN 50::numeric ELSE (d.n - width_bucket(-(q.spend)::float8, d.neg)) * 100.0 / d.n END END) >= 60 THEN 2 WHEN (CASE WHEN q.spend > 0 THEN CASE WHEN d.mn = d.mx THEN 50::numeric ELSE (d.n - width_bucket(-(q.spend)::float8, d.neg)) * 100.0 / d.n END END) >= 40 THEN 3 WHEN (CASE WHEN q.spend > 0 THEN CASE WHEN d.mn = d.mx THEN 50::numeric ELSE (d.n - width_bucket(-(q.spend)::float8, d.neg)) * 100.0 / d.n END END) >= 20 THEN 4 ELSE 5 END FROM dist d WHERE d.acct = q.acct)
                 ELSE q.sort_num END AS sort_num
-      FROM f q
+      FROM adv q
   ),
   page AS (
     SELECT f.ad_id, f.acct, f.spend, f.sort_num, f.sort_text
@@ -427,13 +622,13 @@ BEGIN
         FROM pg p
         JOIN public.creatives c ON c.ad_id = p.ad_id
     ), '[]'::jsonb),
-    'total', (SELECT count(*) FROM f),
+    'total', (SELECT count(*) FROM adv),
     'aggregates', (
       SELECT jsonb_build_object(
         'total_spend', COALESCE(SUM(f.spend), 0),
         'avg_cpa',  CASE WHEN COALESCE(SUM(f.purchases), 0) > 0 THEN SUM(f.spend) / SUM(f.purchases) ELSE 0 END,
         'avg_roas', CASE WHEN COALESCE(SUM(f.spend), 0) > 0 THEN SUM(f.purchase_value) / SUM(f.spend) ELSE 0 END)
-        FROM f)
+        FROM adv f)
   ) INTO v_result;
 
   RETURN v_result;

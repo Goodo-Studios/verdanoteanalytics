@@ -69,6 +69,17 @@ function mappingTags(m: Record<string, unknown> | null): PartialTags | null {
   };
 }
 
+/** The page's advanced filter conditions (?adv=<json array>), or null when absent or invalid. */
+function advancedConditions(raw: string | null): unknown[] | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 && parsed.length <= 50 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -291,6 +302,8 @@ serve(async (req) => {
           // Whole-set sort before paging (audit 7.1). The function whitelists the key.
           p_sort: url.searchParams.get("sort") || "spend",
           p_sort_dir: url.searchParams.get("sort_dir") === "asc" ? "asc" : "desc",
+          // Advanced filter conditions, applied by the function to the whole set (audit 7.1).
+          p_conditions: advancedConditions(url.searchParams.get("adv")),
         });
         if (pageError) throw pageError;
         return new Response(JSON.stringify(pageResult), {
