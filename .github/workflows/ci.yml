@@ -155,6 +155,8 @@ jobs:
       PLAYWRIGHT_TEST_PASSWORD: ${{ secrets.PLAYWRIGHT_TEST_PASSWORD }}
       PLAYWRIGHT_CLIENT_EMAIL: ${{ secrets.PLAYWRIGHT_CLIENT_EMAIL }}
       PLAYWRIGHT_CLIENT_PASSWORD: ${{ secrets.PLAYWRIGHT_CLIENT_PASSWORD }}
+      PLAYWRIGHT_EMPLOYEE_EMAIL: ${{ secrets.PLAYWRIGHT_EMPLOYEE_EMAIL }}
+      PLAYWRIGHT_EMPLOYEE_PASSWORD: ${{ secrets.PLAYWRIGHT_EMPLOYEE_PASSWORD }}
       # KNOWN GAP, kept on purpose: the tests run against the live production site with production
       # secrets and the production test logins, on pull requests as well as on main. A pull request
       # run therefore does not exercise the pull request's code. Pointing this at a preview or
