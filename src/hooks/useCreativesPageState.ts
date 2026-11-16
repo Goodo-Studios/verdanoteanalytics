@@ -86,9 +86,10 @@ export function useCreativesPageState() {
     setFilters(prev => { const next = { ...prev }; if (val === "__all__") delete next[key]; else next[key] = val; return next; });
   }, []);
 
+  // A new account or date range is a different list, so start at page one (audit 7.2).
   useEffect(() => {
     setPage(0);
-  }, [selectedAccountId]);
+  }, [selectedAccountId, dateFrom, dateTo]);
 
   const handleSort = useCallback((key: string) => {
     setSort(prev => ({
