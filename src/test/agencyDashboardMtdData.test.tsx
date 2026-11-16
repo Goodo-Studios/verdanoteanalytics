@@ -14,7 +14,11 @@ vi.mock("@/integrations/supabase/client", () => ({
     rpc: (_name: string, args: Record<string, string>) => {
       h.calls.push(args);
       const spend = args.p_from === "2026-11-01" ? 1000 : 3000;
-      return Promise.resolve({ data: [{ account_id: "act_1", period_spend: spend, period_revenue: 0, prior_spend: 0, active_ad_count: 1 }], error: null });
+      // get_agency_dashboard_data returns one jsonb value (audit 7.3).
+      return Promise.resolve({
+        data: { accounts: [{ account_id: "act_1", period_spend: spend, period_revenue: 0, prior_spend: 0, active_ad_count: 1 }], ads: [] },
+        error: null,
+      });
     },
   },
 }));

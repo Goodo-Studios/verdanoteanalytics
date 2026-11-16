@@ -31,9 +31,12 @@ export function ChartSection({ config, report, isEditing, onConfigChange }: Char
   // Older reports without a snapshot read per-day totals from the database (get_daily_trends,
   // audit 7.3 / 6.1), so every day in the range is present and ROAS, CPA and CTR are totals
   // over totals, not averages of per-ad values.
-  const dateRange = report.date_range_start && report.date_range_end
-    ? { from: report.date_range_start as string, to: report.date_range_end as string }
-    : undefined;
+  const dateRange = useMemo(
+    () => report.date_range_start && report.date_range_end
+      ? { from: report.date_range_start as string, to: report.date_range_end as string }
+      : undefined,
+    [report.date_range_start, report.date_range_end],
+  );
   const { data: trends } = useDailyTrends(report.account_id || undefined, dateRange, {
     enabled: !savedSeries && !!dateRange,
   });

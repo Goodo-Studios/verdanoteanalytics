@@ -56,18 +56,26 @@ test.describe("sign-out cleanup", () => {
 
     // Hold every data request that client A starts from here on for 6 seconds.
     let delayA = true;
+    let held = 0;
     await page.route(/\/(functions|rest)\/v1\//, async (route) => {
-      if (delayA) await new Promise((r) => setTimeout(r, 6_000));
-      await route.continue();
+      if (!delayA) return route.continue();
+      held++;
+      try {
+        await new Promise((r) => setTimeout(r, 6_000));
+        await route.continue();
+      } finally {
+        held--;
+      }
     });
+    const firstHeld = page.waitForRequest(/\/(functions|rest)\/v1\//);
     await page.goto("/client/reports");
-    await page.waitForTimeout(500);
+    await firstHeld; // client A has a data request in flight
     await signOut(page);
     delayA = false;
 
     await signIn(page, CLIENT_B, { load: false });
     // Let every held response for client A arrive while client B is signed in.
-    await page.waitForTimeout(8_000);
+    await expect.poll(() => held, { timeout: 15_000 }).toBe(0);
     const body = await page.locator("body").innerText();
     for (const name of names) expect(body, `client B must not see client A's account "${name}"`).not.toContain(name);
   });

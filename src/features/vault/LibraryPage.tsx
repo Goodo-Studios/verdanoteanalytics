@@ -164,7 +164,6 @@ export default function LibraryPage() {
 
   const { mutate: toggleFeatured } = useMutation({
     mutationFn: async ({ id, featured }: { id: string; featured: boolean }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error } = await supabase
         .from("inspiration_items")
         .update({ is_featured: featured })
@@ -193,7 +192,6 @@ export default function LibraryPage() {
     queryKey: ["vault-tags", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await supabase
         .from("inspiration_tags")
         .select("tag, inspiration_items!inner(user_id)")
@@ -225,7 +223,6 @@ export default function LibraryPage() {
       // and none of them are rendered on a card — `*` was pulling all of it for
       // every item in the library on each load. The detail page still selects
       // `*` for the single item it shows.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       // Tag filtering is an embedded inner join on inspiration_tags (FK item_id -> id),
       // evaluated server-side. The old approach fetched every matching item id first and
       // sent them all in an `in (...)` URL, which hit the 1000-row cap and URL length limits.

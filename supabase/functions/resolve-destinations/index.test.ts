@@ -15,17 +15,13 @@ const { resolveAccountDestinations } = await import("./index.ts");
 
 const KEY = "https://shop.example.com/products/late-sock";
 
-// 1,000 stored rows on the first page, then the row for KEY on the second page.
+// 1,001 stored rows: 1,000 fill the first page, the row for KEY is on the second page. The shared
+// fake applies .range() to this list, as PostgREST does.
 function pagedStore() {
-  let call = 0;
-  return () => {
-    call++;
-    if (call === 1) {
-      return Array.from({ length: 1000 }, (_, i) => ({ destination_key: `k${i}`, page_title: `T${i}` }));
-    }
-    if (call === 2) return [{ destination_key: KEY, page_title: "Late Sock" }];
-    return [];
-  };
+  return [
+    ...Array.from({ length: 1000 }, (_, i) => ({ destination_key: `k${i}`, page_title: `T${i}` })),
+    { destination_key: KEY, page_title: "Late Sock" },
+  ];
 }
 
 const upsertFor = (db: ReturnType<typeof fakeSupabase>, key: string) =>

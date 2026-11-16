@@ -76,7 +76,6 @@ export default function ItemDetailPage() {
     queryKey: ["vault-item", id],
     enabled: !!id && !!user,
     queryFn: async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await supabase
         .from("inspiration_items")
         .select(

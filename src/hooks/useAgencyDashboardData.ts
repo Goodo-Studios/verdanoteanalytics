@@ -117,7 +117,9 @@ export function useAgencyDashboardData(accounts: AccountLike[], dateFrom?: strin
       let mtdSpendByAccount = perAccountSpend;
       if (mtd.from !== pFrom || mtd.to !== pTo) {
         const mtdPrior = priorPeriodRange(mtd.from, mtd.to);
-        const { data: mtdRows, error: mtdError } = await supabase.rpc("get_agency_dashboard_summary", {
+        // Same uncapped RPC as above (audit 7.3), so no account drops out of month to date.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data: mtdData, error: mtdError } = await (supabase.rpc as any)("get_agency_dashboard_data", {
           p_from:       mtd.from,
           p_to:         mtd.to,
           p_prior_from: mtdPrior.dateFrom,
@@ -125,10 +127,8 @@ export function useAgencyDashboardData(accounts: AccountLike[], dateFrom?: strin
         });
         if (mtdError) throw mtdError;
         mtdSpendByAccount = new Map<string, number>();
-        for (const row of mtdRows ?? []) {
-          if (!mtdSpendByAccount.has(row.account_id)) {
-            mtdSpendByAccount.set(row.account_id, Number(row.period_spend) || 0);
-          }
+        for (const a of ((mtdData ?? {}) as { accounts?: AgencyAccountEntry[] }).accounts ?? []) {
+          mtdSpendByAccount.set(a.account_id, Number(a.period_spend) || 0);
         }
       }
       const monthToDateSpend = Array.from(mtdSpendByAccount.values()).reduce((s, v) => s + v, 0);
