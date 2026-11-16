@@ -171,6 +171,27 @@ describe("CI deployment safety", () => {
     }
   });
 
+  it("runs production E2E only after a successful production deploy on main, never on pull requests", () => {
+    // Audit Batch 9: always() let E2E run after a failed deploy, and pull request runs tested the
+    // build already live in production instead of the pull request's code.
+    const e2e = job("e2e");
+    expect(e2e).not.toContain("always()");
+    expect(e2e).toContain("github.event_name == 'push'");
+    expect(e2e).toContain("github.ref == 'refs/heads/main'");
+    expect(e2e).toContain("needs.deploy-functions.result == 'success'");
+  });
+
+  it("deploys to production only when staging browser tests passed for the same code", () => {
+    const prod = job("deploy-functions");
+    const gate = prod.indexOf("node scripts/require-staging-e2e.mjs");
+    expect(gate, "staging E2E gate step").toBeGreaterThanOrEqual(0);
+    expect(gate).toBeLessThan(prod.indexOf("bash scripts/deploy-functions.sh"));
+    // The gate reads staging CI runs; the one top-level permissions block grants that, read only.
+    const head = workflow.slice(0, workflow.search(/^jobs:\s*$/m));
+    expect(head).toMatch(/^ {2}actions: read\s*$/m);
+    expect(prod).toContain("GITHUB_TOKEN: ${{ github.token }}");
+  });
+
   it("fails CI before E2E when authenticated-test secrets are missing", () => {
     expect(workflow).toContain("run: npm run check:e2e-env");
   });
