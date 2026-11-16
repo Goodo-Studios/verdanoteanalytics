@@ -278,7 +278,6 @@ function TagPerformanceExport({ accounts, selectedAccountId }: { accounts: any[]
       try {
         const tagCategories = ["ad_type", "hook", "style", "person", "product", "theme"] as const;
         const rows: string[][] = [];
-        const scaleThreshold = scaleThresholdFor(accounts, accountFilter);
 
         for (const cat of tagCategories) {
           const groups: Record<string, { count: number; spend: number; pv: number; clicks: number; imps: number; purchases: number; winners: number }> = {};
@@ -293,7 +292,8 @@ function TagPerformanceExport({ accounts, selectedAccountId }: { accounts: any[]
             g.clicks += Number(c.clicks) || 0;
             g.imps += Number(c.impressions) || 0;
             g.purchases += Number(c.purchases) || 0;
-            if ((Number(c.roas) || 0) >= scaleThreshold) g.winners++;
+            // Each creative against its own account's threshold (audit 6.5).
+            if ((Number(c.roas) || 0) >= scaleThresholdFor(accounts, (c as any).account_id)) g.winners++;
           }
           for (const [val, g] of Object.entries(groups)) {
             rows.push([
