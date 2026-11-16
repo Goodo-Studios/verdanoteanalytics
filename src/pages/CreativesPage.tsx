@@ -157,7 +157,7 @@ const CreativesPage = () => {
       if (next.has(adId)) next.delete(adId); else next.add(adId);
       return next;
     });
-  }, []);
+  }, [setBulkSelectedIds]);
 
   const toggleBulkAll = useCallback(() => {
     setBulkSelectedIds(prev => {
@@ -165,7 +165,7 @@ const CreativesPage = () => {
       const allSelected = allIds.every(id => prev.has(id));
       return allSelected ? new Set<string>() : new Set(allIds);
     });
-  }, [sortedCreatives]);
+  }, [sortedCreatives, setBulkSelectedIds]);
 
   const exportBulkCSV = useCallback(() => {
     const selected = sortedCreatives.filter((c: any) => bulkSelectedIds.has(c.ad_id));
@@ -207,7 +207,7 @@ const CreativesPage = () => {
     } finally {
       setBulkSavingToVault(false);
     }
-  }, [sortedCreatives, bulkSelectedIds]);
+  }, [sortedCreatives, bulkSelectedIds, setBulkSelectedIds]);
 
 
   const groupedData = useMemo(() => {
