@@ -18,16 +18,23 @@ import { buildCreatedTimeUrl, extractLaunchDates } from "../_shared/lifecycle-da
 const META_API_VERSION = "v22.0";
 const BUDGET_MS = 100_000; // 100s budget, same as backfill-post-urls
 
-serve(async (req) => {
+// deno-lint-ignore no-explicit-any
+type Supa = any;
+
+export async function handler(req: Request, supabaseOverride?: Supa): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
   // so this check is the only gate. Live pg_cron jobs and function-to-function
   // calls forward the real service-role key. See _shared/internal-auth.ts.
-  const authFailure = await requireServiceRole(req);
-  if (authFailure) return authFailure;
+  // Skipped when a test injects a client.
+  const isInjectedClient = !!supabaseOverride && typeof supabaseOverride.from === "function";
+  if (!isInjectedClient) {
+    const authFailure = await requireServiceRole(req);
+    if (authFailure) return authFailure;
+  }
 
-  const supabase = createClient(
+  const supabase: Supa = isInjectedClient ? supabaseOverride : createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
@@ -141,4 +148,9 @@ serve(async (req) => {
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
-});
+}
+
+// Guard the network bind so tests can import the handler without serving.
+if (!Deno.env.get("BACKFILL_LAUNCH_DATES_NO_SERVE")) {
+  serve((req) => handler(req));
+}
