@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { CLIENT_ACCOUNT_SELECT, toClientAccount } from "../_shared/client-account-fields.ts";
+import { loadMappingsByCode, loadUntaggedCreatives } from "./rematch-reads.ts";
 
 // deno-lint-ignore no-explicit-any
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -306,32 +307,8 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
 
       // Re-match untagged creatives. Read every untagged creative (paged past the 1000-row cap)
       // and every mapping for the account once, then update once per code.
-      const untagged: Array<{ ad_id: string; unique_code: string | null }> = [];
-      for (let from = 0; ; from += 1000) {
-        const { data, error } = await supabase
-          .from("creatives")
-          .select("ad_id, unique_code")
-          .eq("account_id", accountId)
-          .eq("tag_source", "untagged")
-          .order("ad_id")
-          .range(from, from + 999);
-        if (error) throw error;
-        untagged.push(...(data || []));
-        if (!data || data.length < 1000) break;
-      }
-
-      const mappingByCode = new Map<string, Record<string, unknown>>();
-      for (let from = 0; ; from += 1000) {
-        const { data, error } = await supabase
-          .from("name_mappings")
-          .select("*")
-          .eq("account_id", accountId)
-          .order("unique_code")
-          .range(from, from + 999);
-        if (error) throw error;
-        for (const row of data || []) mappingByCode.set(row.unique_code, row);
-        if (!data || data.length < 1000) break;
-      }
+      const untagged = await loadUntaggedCreatives(supabase, accountId);
+      const mappingByCode = await loadMappingsByCode(supabase, accountId);
 
       const adIdsByCode = new Map<string, string[]>();
       const unmatched = new Set<string>();
