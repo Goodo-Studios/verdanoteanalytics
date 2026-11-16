@@ -515,7 +515,9 @@ serve(async (req) => {
 
       const report = {
         report_name: finalName,
-        account_id: account_ids[0], // primary account for RLS
+        // No owning account: a portfolio report holds several clients' numbers, and an owner
+        // would let that one client read them all (audit 1.3). A database check enforces this.
+        account_id: null,
         is_public: isPublic,
         report_type: "portfolio",
         portfolio_account_ids: account_ids,
