@@ -8,7 +8,7 @@ import { CreativesGroupTable } from "@/components/creatives/CreativesGroupTable"
 
 import { CreativesFilters } from "@/components/creatives/CreativesFilters";
 import { CreativesPagination } from "@/components/creatives/CreativesPagination";
-import { AdvancedFiltersPanel, applyAdvancedFilters, countActiveConditions } from "@/components/creatives/AdvancedFiltersPanel";
+import { AdvancedFiltersPanel, countActiveConditions } from "@/components/creatives/AdvancedFiltersPanel";
 
 import { BulkActionBar } from "@/components/creatives/BulkActionBar";
 import { BulkTagModal } from "@/components/creatives/BulkTagModal";
@@ -37,9 +37,6 @@ import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
 import { useWoWTrends } from "@/hooks/useWoWTrends";
 import { pageGrades, gradeOrder } from "@/lib/creativeGrading";
 import { computeFatigueMap } from "@/lib/fatigueScore";
-import { isForecastedToFatigue } from "@/lib/fatigueForecast";
-import { supabase } from "@/integrations/supabase/client";
-import { useQuery } from "@tanstack/react-query";
 import { useCardPresence } from "@/hooks/useCardPresence";
 import { toast } from "sonner";
 import { saveCreativesToVault, formatBulkSaveSummary } from "@/lib/vaultSave";
@@ -67,15 +64,6 @@ const CreativesPage = () => {
   } = state;
 
   const [advFiltersOpen, setAdvFiltersOpen] = useState(false);
-
-  // Momentum filter
-  const [momentumFilter, setMomentumFilter] = useState("__all__");
-
-  // Fatigue filter
-  const [fatigueFilter, setFatigueFilter] = useState("__all__");
-
-  // Platform filter
-  const [platformFilter, setPlatformFilter] = useState("__all__");
 
   // Bulk selection
   // Belongs to the selected account: switching accounts empties it (audit 3.2).
@@ -110,39 +98,6 @@ const CreativesPage = () => {
   // player already resolved (no-op for image ads / cached videos).
   const prefetchAdPreview = useAdPreviewPrefetch();
 
-  // Fetch daily metrics for fatigue forecast filter (only when filter active)
-  const { data: dailyMetricsMap } = useQuery({
-    queryKey: ["daily-metrics-forecast", selectedAccountId, fatigueFilter],
-    queryFn: async () => {
-      const today = new Date();
-      const from = new Date(today);
-      from.setDate(from.getDate() - 14);
-      const fromStr = from.toISOString().split("T")[0];
-
-      const query = supabase
-        .from("creative_daily_metrics")
-        .select("ad_id, date, spend, frequency, ctr, roas")
-        .gte("date", fromStr);
-
-      if (selectedAccountId && selectedAccountId !== "all") {
-        query.eq("account_id", selectedAccountId);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      if (!data) return new Map<string, any[]>();
-
-      const map = new Map<string, any[]>();
-      for (const row of data) {
-        if (!map.has(row.ad_id)) map.set(row.ad_id, []);
-        map.get(row.ad_id)!.push(row);
-      }
-      return map;
-    },
-    enabled: fatigueFilter === "forecast",
-    staleTime: 5 * 60 * 1000,
-  });
-
   const avgMetrics = useMemo(() => {
     // Prefer server-side aggregates (covers ALL creatives, not just current page)
     const agg = (creativesResult as any)?.aggregates;
@@ -166,49 +121,10 @@ const CreativesPage = () => {
   }, [creatives, creativesResult]);
 
   const sortedCreatives = useMemo(() => {
-    let list = [...creatives].map((c: any) => ({ ...c, _cpmr: (Number(c.cpm) || 0) * (Number(c.frequency) || 0) }));
+    const list = [...creatives].map((c: any) => ({ ...c, _cpmr: (Number(c.cpm) || 0) * (Number(c.frequency) || 0) }));
 
-    // Apply platform filter
-    if (platformFilter !== "__all__") {
-      list = list.filter((c: any) => (c.platform || "meta") === platformFilter);
-    }
-
-    // Apply momentum filter
-    if (momentumFilter !== "__all__" && wowTrends) {
-      list = list.filter((c: any) => {
-        const trend = wowTrends.get(c.ad_id);
-        if (!trend || trend.direction === "insufficient") return false;
-        if (momentumFilter === "gaining") return trend.direction === "up";
-        if (momentumFilter === "steady") return trend.direction === "flat";
-        if (momentumFilter === "losing") return trend.direction === "down" && trend.pctChange >= -30;
-        if (momentumFilter === "fading") return trend.direction === "down" && trend.pctChange < -30;
-        return true;
-      });
-    }
-
-    // Apply fatigue filter
-    if (fatigueFilter !== "__all__") {
-      if (fatigueFilter === "forecast") {
-        // Show creatives forecasted to hit warning within 7 days
-        if (dailyMetricsMap) {
-          list = list.filter((c: any) => {
-            const rows = dailyMetricsMap.get(c.ad_id);
-            return rows ? isForecastedToFatigue(rows, 7) : false;
-          });
-        }
-      } else {
-        list = list.filter((c: any) => {
-          const f = fatigueMap.get(c.ad_id);
-          if (fatigueFilter === "high") return f?.level === "high";
-          if (fatigueFilter === "warning") return f?.level === "warning";
-          if (fatigueFilter === "ok") return !f || f.level === "ok";
-          return true;
-        });
-      }
-    }
-
-    // Apply advanced filters
-    list = applyAdvancedFilters(list, advancedConditions, gradeMap, fatigueMap, wowTrends);
+    // Advanced filters run on the server over the whole list (audit 7.1 part 3). The
+    // momentum, fatigue and platform dropdown filters that used to sit here had no control.
 
     if (!sort.key || !sort.direction) return list;
     // Columns the server sorts arrive in order across every page; keep that order (audit 7.1).
@@ -226,7 +142,7 @@ const CreativesPage = () => {
 
     // Shared comparator (numeric/string, nulls-last) — resolves field via SORT_FIELD_MAP.
     return list.sort((a: any, b: any) => compareCreativesBy(a, b, sort.key!, sort.direction!));
-  }, [creatives, sort, momentumFilter, wowTrends, gradeMap, fatigueFilter, fatigueMap, advancedConditions, platformFilter, dailyMetricsMap]);
+  }, [creatives, sort, gradeMap]);
 
   const toggleBulkId = useCallback((adId: string) => {
     setBulkSelectedIds(prev => {

@@ -60,9 +60,14 @@ export function useCreativesPageState() {
   const searchTimeout = useRef<ReturnType<typeof setTimeout>>();
 
   // Advanced filters
-  const [advancedConditions, setAdvancedConditions] = useState<AdvancedConditions>(() =>
+  const [advancedConditions, setAdvancedConditionsState] = useState<AdvancedConditions>(() =>
     deserializeConditions(searchParams.get("adv") || "")
   );
+  // The server applies the conditions to the whole list, so a change starts at page one.
+  const setAdvancedConditions = useCallback((next: AdvancedConditions) => {
+    setPage(0);
+    setAdvancedConditionsState(next);
+  }, []);
 
   // Debounced search
   useEffect(() => {
@@ -108,7 +113,9 @@ export function useCreativesPageState() {
     ...(dateTo ? { date_to: dateTo } : {}),
     ...(search ? { search } : {}),
     ...serverSortParams(sort),
-  }), [selectedAccountId, filters, dateFrom, dateTo, search, sort]);
+    // Advanced filters as the same JSON the URL keeps (audit 7.1 part 3).
+    ...(advancedConditions.length > 0 ? { adv: serializeConditions(advancedConditions) } : {}),
+  }), [selectedAccountId, filters, dateFrom, dateTo, search, sort, advancedConditions]);
 
   return {
     viewMode, setViewMode,
