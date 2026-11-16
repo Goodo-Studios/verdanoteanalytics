@@ -65,6 +65,34 @@ export function shouldPauseForDailyRetry(priorRetries: number, cap: number): boo
   return priorRetries + 1 <= cap;
 }
 
+/**
+ * Phase 4 date chunks: the [since, until] ranges (inclusive "yyyy-MM-dd") the daily
+ * breakdown requests, CHUNK_DAYS at a time, with the last chunk capped at endDate.
+ */
+export function phase4Chunks(
+  dailySinceDate: string,
+  endDate: Date,
+  chunkDays = 15,
+): { since: string; until: string }[] {
+  const fullStartDate = new Date(dailySinceDate + "T00:00:00Z");
+  // The window runs from dailySinceDate through today inclusive, which is dailyDays + 1
+  // calendar days. Counting chunks from dailyDays alone dropped today whenever dailyDays was
+  // a multiple of chunkDays (15, 30, 60, 90; audit 6.5).
+  const endDay = Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate());
+  const spanDays = Math.max(1, Math.round((endDay - fullStartDate.getTime()) / 86_400_000) + 1);
+  const totalChunks = Math.ceil(spanDays / chunkDays);
+  const chunks: { since: string; until: string }[] = [];
+  for (let i = 0; i < totalChunks; i++) {
+    const chunkStart = new Date(fullStartDate);
+    chunkStart.setDate(chunkStart.getDate() + i * chunkDays);
+    const chunkEnd = new Date(chunkStart);
+    chunkEnd.setDate(chunkEnd.getDate() + chunkDays - 1);
+    if (chunkEnd > endDate) chunkEnd.setTime(endDate.getTime());
+    chunks.push({ since: chunkStart.toISOString().split("T")[0], until: chunkEnd.toISOString().split("T")[0] });
+  }
+  return chunks;
+}
+
 export function computeDailyWindowDays(opts: {
   /** true only for a scheduled/incremental sync on an already-backfilled account */
   rollingEligible: boolean;
@@ -1557,11 +1585,11 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       }
       // ────────────────────────────────────────────────────────────────────
 
-      const fullStartDate = new Date(dailySinceDate + "T00:00:00Z");
+      const chunks = phase4Chunks(dailySinceDate, endDate, CHUNK_DAYS);
 
       const chunkOffset = state.daily_chunk_offset || 0;
       const dailyCursor = resumeCursor(state.daily_cursor, metaToken);
-      const totalChunks = Math.ceil(dailyDays / CHUNK_DAYS);
+      const totalChunks = chunks.length;
 
       console.log(`Phase 4: Daily breakdowns (${dailyDays} days, chunk ${chunkOffset + 1}/${totalChunks})...`);
 
@@ -1572,14 +1600,8 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         const { data: sc } = await supabase.from("sync_logs").select("status").eq("id", syncLog.id).single();
         if (sc?.status === "cancelled") return;
 
-        const chunkStart = new Date(fullStartDate);
-        chunkStart.setDate(chunkStart.getDate() + currentChunk * CHUNK_DAYS);
-        const chunkEnd = new Date(chunkStart);
-        chunkEnd.setDate(chunkEnd.getDate() + CHUNK_DAYS - 1);
-        if (chunkEnd > endDate) chunkEnd.setTime(endDate.getTime());
-
-        const chunkSince = chunkStart.toISOString().split("T")[0];
-        const chunkUntil = chunkEnd.toISOString().split("T")[0];
+        const chunkSince = chunks[currentChunk].since;
+        const chunkUntil = chunks[currentChunk].until;
         const chunkRange = JSON.stringify({ since: chunkSince, until: chunkUntil });
 
         console.log(`  Chunk ${currentChunk + 1}/${totalChunks}: ${chunkSince} → ${chunkUntil}`);
