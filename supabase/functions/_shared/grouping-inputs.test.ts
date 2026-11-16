@@ -69,3 +69,9 @@ Deno.test("a failed embeddings read is an error, not a silent gap", async () => 
   }
   assert(threw);
 });
+
+Deno.test("cluster-creatives reads its inputs through loadGroupingInputs, not an account-wide embeddings read", async () => {
+  const src = await Deno.readTextFile(new URL("../cluster-creatives/index.ts", import.meta.url));
+  assert(src.includes("loadGroupingInputs("), "cluster-creatives must use loadGroupingInputs");
+  assertEquals(/from\("creative_embeddings"\)/.test(src), false, "no direct creative_embeddings read left");
+});
