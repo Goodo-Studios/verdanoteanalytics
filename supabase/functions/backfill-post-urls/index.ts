@@ -2,25 +2,47 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
+import { resolveMetaToken } from "../_shared/media-discovery.ts";
 
 
 const META_API_VERSION = "v22.0";
 const BUDGET_MS = 100_000; // 100s budget
 
-serve(async (req) => {
+// deno-lint-ignore no-explicit-any
+type Supa = any;
+
+export async function handler(req: Request, supabaseOverride?: Supa): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
   // so this check is the only gate. Live pg_cron jobs and function-to-function
   // calls forward the real service-role key. See _shared/internal-auth.ts.
-  const authFailure = await requireServiceRole(req);
-  if (authFailure) return authFailure;
+  // Skipped when a test injects a client.
+  const isInjectedClient = !!supabaseOverride && typeof supabaseOverride.from === "function";
+  if (!isInjectedClient) {
+    const authFailure = await requireServiceRole(req);
+    if (authFailure) return authFailure;
+  }
 
-  const supabase = createClient(
+  const supabase: Supa = isInjectedClient ? supabaseOverride : createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
-  const metaToken = Deno.env.get("META_ACCESS_TOKEN")!;
+  // Audit 8.7: the env var is not set in production; the token lives in
+  // settings.meta_access_token. Env first, then settings (same as sync and the other
+  // backfills). Never call Meta with access_token=undefined.
+  let metaToken = resolveMetaToken(Deno.env.get("META_ACCESS_TOKEN"), null);
+  if (!metaToken) {
+    const { data: tokenRow } = await supabase
+      .from("settings").select("value").eq("key", "meta_access_token").single();
+    metaToken = resolveMetaToken(null, tokenRow?.value as string | undefined);
+  }
+  if (!metaToken) {
+    return new Response(JSON.stringify({ error: "META_ACCESS_TOKEN not configured" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
   const startMs = Date.now();
   const isTimedOut = () => Date.now() - startMs > BUDGET_MS;
 
@@ -131,4 +153,9 @@ serve(async (req) => {
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
-});
+}
+
+// Guard the network bind so tests can import the handler without serving.
+if (!Deno.env.get("BACKFILL_POST_URLS_NO_SERVE")) {
+  serve((req) => handler(req));
+}
