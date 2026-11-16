@@ -76,7 +76,7 @@ const CreativesPage = () => {
   const canBulkAction = isBuilder || isEmployee;
 
   const { data: creativesResult, isLoading } = useCreatives(allFilters, page);
-  const creatives = creativesResult?.data || [];
+  const creatives = useMemo(() => creativesResult?.data || [], [creativesResult?.data]);
   // True when the picked date range has zero synced daily-metrics rows (vs. the
   // account simply having no creatives). Lets the empty state explain "no data
   // for this range" instead of the misleading "add an account" message.
