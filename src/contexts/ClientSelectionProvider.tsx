@@ -43,7 +43,7 @@ const untyped = supabase as unknown as Untyped;
 export function ClientSelectionProvider({ children }: { children: ReactNode }) {
   const { user, isClient } = useAuth();
   const { isClientPreview } = useClientPreview();
-  const { accounts, selectedAccountId, setSelectedAccountId, isLoading: accountsLoading } = useAccountContext();
+  const { accounts, selectedAccountId, setSelectedAccountId, isLoading: accountsLoading, accountFromLink } = useAccountContext();
   const location = useLocation();
   const navigate = useNavigate();
   // A client login, and a builder previewing the client view, keep the client menu and have no switcher.
@@ -116,7 +116,9 @@ export function ClientSelectionProvider({ children }: { children: ReactNode }) {
   const accountRef = useRef(selectedAccountId);
   accountRef.current = selectedAccountId;
   const linkedKey = linkedAccounts.map((a) => a.id).join(",");
-  const hasAccountParam = new URLSearchParams(location.search).has("account");
+  // A ?account= link is removed from the address once AccountContext applies it (audit 3.4);
+  // accountFromLink keeps the hold until the user picks another account.
+  const hasAccountParam = new URLSearchParams(location.search).has("account") || !!accountFromLink;
   useEffect(() => {
     if (!enabled || !linksReady || accountsLoading || hasAccountParam) return;
     const current = accountRef.current;

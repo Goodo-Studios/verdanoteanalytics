@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useMemo, ReactNode, useEffect } from "react";
+import { createContext, useCallback, useContext, useState, useMemo, ReactNode, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAccounts } from "@/hooks/useAccountsApi";
 import { useAuth } from "@/contexts/AuthContext";
@@ -18,9 +18,16 @@ interface AccountContextType {
   /** True when a client's linked accounts could not be loaded. The provider shows a retry screen. */
   linkedAccountsError: boolean;
   retryLinkedAccounts: () => void;
+  /**
+   * The account a ?account= link selected, until the user picks another one. The link is removed
+   * from the address once applied (audit 3.4), so other code (the client switcher) reads this to
+   * know the current account came from a link and must be left alone.
+   */
+  accountFromLink: string | null;
 }
 
 const AccountContext = createContext<AccountContextType>({
+  accountFromLink: null,
   selectedAccountId: null,
   setSelectedAccountId: () => {},
   accounts: [],
@@ -49,11 +56,19 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const linkedAccountsError = needsAccountFilter && !!linkedForUser?.failed;
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [accountAccessError, setAccountAccessError] = useState(false);
+  const [accountFromLink, setAccountFromLink] = useState<string | null>(null);
   // ?account= on the URL is the deep-link contract (US-008): a client-scoped
   // link carries the account explicitly instead of relying on whatever this
   // browser last had selected, which previously made every such link a
   // potential wrong-client data leak.
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Remove ?account= from the address, keeping every other parameter (audit 3.4).
+  const clearAccountParam = () =>
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("account");
+      return next;
+    }, { replace: true });
   const urlAccountId = searchParams.get("account");
 
   // Fetch linked accounts for clients
@@ -89,7 +104,10 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   // logout — this explicit clear is redundant with that guard, intentionally,
   // so neither effect silently depends on the other for logout safety.
   useEffect(() => {
-    if (!user) setSelectedAccountId(null);
+    if (!user) {
+      setSelectedAccountId(null);
+      setAccountFromLink(null);
+    }
   }, [user]);
 
   // Filter accounts for clients. Until the linked ids are known a client sees no accounts at all,
@@ -124,6 +142,10 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       if ((urlAccountId === "all" && allowAll) || accounts.some(a => a.id === urlAccountId)) {
         setAccountAccessError(false);
         if (selectedAccountId !== urlAccountId) setSelectedAccountId(urlAccountId);
+        setAccountFromLink(urlAccountId);
+        // Apply the link once, then drop it from the address. Left in place it would win again on
+        // every refresh of the account list and undo the user's own switch (audit 3.4).
+        clearAccountParam();
       } else {
         setAccountAccessError(true);
       }
@@ -166,7 +188,15 @@ export function AccountProvider({ children }: { children: ReactNode }) {
 
   const selectedAccount = accounts.find(a => a.id === selectedAccountId) || null;
 
-  const value = { selectedAccountId, setSelectedAccountId, accounts, isLoading, selectedAccount, accountAccessError, linkedAccountsError, retryLinkedAccounts };
+  // A choice made in the app (account picker, client switcher) ends the link's hold.
+  // Stable identity, like the useState setter it wraps, so effects that list it do not re-run.
+  const chooseAccount = useCallback((id: string | null) => {
+    setAccountFromLink(null);
+    setSelectedAccountId(id);
+  }, []);
+  const linkHold = accountFromLink !== null && accountFromLink === selectedAccountId ? accountFromLink : null;
+
+  const value = { selectedAccountId, setSelectedAccountId: chooseAccount, accounts, isLoading, selectedAccount, accountAccessError, linkedAccountsError, retryLinkedAccounts, accountFromLink: linkHold };
 
   // A bad ?account= id renders the denial state INSTEAD of children — never
   // alongside them. Downstream pages read selectedAccount without checking
@@ -175,7 +205,12 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   if (accountAccessError) {
     return (
       <AccountContext.Provider value={value}>
-        <AccountAccessDeniedState />
+        <AccountAccessDeniedState
+          onGoToMyAccounts={() => {
+            setAccountAccessError(false);
+            clearAccountParam();
+          }}
+        />
       </AccountContext.Provider>
     );
   }
