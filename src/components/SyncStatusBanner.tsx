@@ -25,7 +25,7 @@ export function SyncStatusBanner({ accountId }: SyncStatusBannerProps = {}) {
   const logs = accountId
     ? (allLogs || []).filter((log) => log.account_id === accountId)
     : allLogs;
-  const cancelSync = useCancelSync();
+  const cancelSync = useCancelSync(accountId);
   const [elapsed, setElapsed] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
