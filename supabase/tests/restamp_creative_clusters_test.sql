@@ -30,7 +30,8 @@ INSERT INTO public.creatives (ad_id, account_id, ad_name, tag_source, cluster_id
 SELECT is(
   public.restamp_creative_clusters('act_pgtap_restamp', '[
     {"ad_id":"rs_1","cluster_id":"00000000-0000-0000-0000-0000000000b1","confidence":"exact"},
-    {"ad_id":"rs_2","cluster_id":"00000000-0000-0000-0000-0000000000b1","confidence":"exact"}
+    {"ad_id":"rs_2","cluster_id":"00000000-0000-0000-0000-0000000000b1","confidence":"exact"},
+    {"ad_id":"rs_x","cluster_id":"00000000-0000-0000-0000-0000000000b1","confidence":"exact"}
   ]'::jsonb),
   2, 'returns the number of creatives stamped');
 
