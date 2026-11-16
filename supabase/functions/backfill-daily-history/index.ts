@@ -38,6 +38,7 @@
 // parser is the canonical `parsePlayCurve` (../_shared/play-curve.ts) — IMPORTED,
 // never re-implemented. There is exactly one play-curve parser in the codebase.
 
+import { ADD_TO_CART_ACTION_TYPES, PURCHASE_ACTION_TYPES, pickActionValue } from "../_shared/meta-actions.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
@@ -201,16 +202,12 @@ export function buildDailyRow(row: any, accountId: string, validAdIds: Set<strin
   let purchases = 0, purchaseValue = 0, cpa = 0, addsToCart = 0, costPerAtc = 0;
   let videoViews = 0, thruPlays = 0;
 
-  const purchaseTypes = ["purchase", "offsite_conversion.fb_pixel_purchase", "omni_purchase"];
-  const atcTypes = ["add_to_cart", "offsite_conversion.fb_pixel_add_to_cart", "omni_add_to_cart"];
-
+  // One purchase / add-to-cart type by fixed priority, the same as sync (audit 6.1).
   if (row.actions) {
-    // deno-lint-ignore no-explicit-any
-    const pa = row.actions.find((a: any) => purchaseTypes.includes(a.action_type));
-    if (pa) purchases = parseInt(pa.value || "0");
-    // deno-lint-ignore no-explicit-any
-    const atc = row.actions.find((a: any) => atcTypes.includes(a.action_type));
-    if (atc) addsToCart = parseInt(atc.value || "0");
+    const pa = pickActionValue(row.actions, PURCHASE_ACTION_TYPES);
+    if (pa !== undefined) purchases = parseInt(String(pa || "0"));
+    const atc = pickActionValue(row.actions, ADD_TO_CART_ACTION_TYPES);
+    if (atc !== undefined) addsToCart = parseInt(String(atc || "0"));
     // deno-lint-ignore no-explicit-any
     const vv = row.actions.find((a: any) => a.action_type === "video_view");
     if (vv) videoViews = parseInt(vv.value || "0");
@@ -221,17 +218,14 @@ export function buildDailyRow(row: any, accountId: string, validAdIds: Set<strin
     if (tp) thruPlays = parseInt(tp.value || "0");
   }
   if (row.action_values) {
-    // deno-lint-ignore no-explicit-any
-    const pv = row.action_values.find((a: any) => purchaseTypes.includes(a.action_type));
-    if (pv) purchaseValue = parseFloat(pv.value || "0");
+    const pv = pickActionValue(row.action_values, PURCHASE_ACTION_TYPES);
+    if (pv !== undefined) purchaseValue = parseFloat(String(pv || "0"));
   }
   if (row.cost_per_action_type) {
-    // deno-lint-ignore no-explicit-any
-    const cp = row.cost_per_action_type.find((a: any) => purchaseTypes.includes(a.action_type));
-    if (cp) cpa = parseFloat(cp.value || "0");
-    // deno-lint-ignore no-explicit-any
-    const cpatc = row.cost_per_action_type.find((a: any) => atcTypes.includes(a.action_type));
-    if (cpatc) costPerAtc = parseFloat(cpatc.value || "0");
+    const cp = pickActionValue(row.cost_per_action_type, PURCHASE_ACTION_TYPES);
+    if (cp !== undefined) cpa = parseFloat(String(cp || "0"));
+    const cpatc = pickActionValue(row.cost_per_action_type, ADD_TO_CART_ACTION_TYPES);
+    if (cpatc !== undefined) costPerAtc = parseFloat(String(cpatc || "0"));
   }
 
   const thumbStopRate = impressions > 0 && videoViews > 0 ? (videoViews / impressions) * 100 : 0;
