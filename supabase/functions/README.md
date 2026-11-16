@@ -117,10 +117,6 @@ The Vault is a creative-inspiration library: paste a TikTok, Instagram, YouTube,
 | `vault-embed` | Internal | Generates vector embeddings for the cleaned transcript so items are searchable via `vault-search`. |
 | `vault-search` | User action | Semantic search across the user's saved inspiration items. |
 | `vault-status` | Polling | Returns the current pipeline status for a single item (`extracting`, `transcribing`, `analyzing`, `ready`, `error`). |
-| `vault-ads` | User action | Fetches saved/inspiration ads for the Library UI with filtering and pagination. |
-| `vault-slack-connect` | OAuth | Connects a Slack workspace so shared ad links are auto-imported into the user's vault. |
-| `vault-slack-events` | Slack events | Inbound webhook receiver for Slack `message` events containing ad URLs. |
-| `vault-slack-import` | Internal | Worker that processes Slack-shared URLs through the standard `vault-save` pipeline. |
 | `vault-share-item` | User action / Public | Public, revocable share links for a single vault item. `verify_jwt=false`; auth enforced per-action: `mint`/`revoke` (any authenticated user — the library is global) manage the item's `share_token`; `resolve` (anonymous, no login) maps a token to a public column allowlist (omits `user_id`, `saved_by`, `performance_snapshot`, and other internal fields) and service-role-signs the private `inspiration-media` URL. Powers the `/vault/share/:token` page. |
 
 ### Ad Library & Research
@@ -129,7 +125,6 @@ The Vault is a creative-inspiration library: paste a TikTok, Instagram, YouTube,
 |---|---|---|
 | `competitor-ads` | User action | Fetches competitor ads from the Meta Ad Library for a given search query. |
 | `scrape-ad` | User action | Scrapes ad landing page metadata (title, description, OG image) for a given URL. |
-| `quick-save` | User action | Saves an ad from the Ad Library bookmarklet to the user's saved ads. |
 | `transcribe-ad` | User action | Transcribes audio/video from an ad using a speech-to-text model. |
 | `resolve-destinations` | Internal / service role | Classifies unique landing destinations and optionally refines product names from bounded page-title fetches. External URLs and every redirect are checked with `_shared/public-url.ts` to reject private, loopback, link-local, and other non-public network targets. |
 

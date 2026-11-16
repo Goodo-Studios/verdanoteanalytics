@@ -68,6 +68,22 @@ export const NO_VIDEO_OVERSIZED_SENTINEL = "no-video-oversized";
 // soon." Bias is always toward "retry, record nothing."
 export const THROTTLED = "throttled";
 
+// ── Image discovery reasons (audit 5.5) ───────────────────────────────────────
+// Every failed image lookup now says why, so a short Meta failure is never recorded as
+// the permanent "no-thumbnail" marker.
+//   • NO_IMAGE            — the lookup completed and Meta has no image for this ad. The
+//                           only reason that may write the marker.
+//   • IMAGE_LOOKUP_FAILED — an error, timeout, expired token, or Meta server error
+//                           (5xx/429) on any step. Inconclusive: leave the row alone.
+//   • THROTTLED           — rate-limited (above). Inconclusive.
+export const NO_IMAGE = "no-image";
+export const IMAGE_LOOKUP_FAILED = "lookup-failed";
+
+/** True only when the lookup finished and found no image, never for errors or throttles. */
+export function shouldMarkNoThumbnail(reason: string | undefined): boolean {
+  return reason === NO_IMAGE;
+}
+
 // Numeric Graph error codes that denote throttling (app / user / page / BUC limits).
 const THROTTLE_CODES: ReadonlySet<string> = new Set(["4", "17", "32", "613"]);
 // A message matching this is a throttle regardless of code — Meta is inconsistent
@@ -799,7 +815,9 @@ export async function discoverImageUrlWithReason(
       if (isThrottleError(errData?.error)) {
         return { result: null, reason: THROTTLED };
       }
-      return { result: null };
+      // Expired token, permission error, server error...: we could not look, so this
+      // says nothing about whether the ad has an image (audit 5.5).
+      return { result: null, reason: IMAGE_LOOKUP_FAILED };
     }
     const data = await res.json();
     // A 200 body can still carry a throttle error object (Meta sometimes 200s with an
@@ -807,15 +825,17 @@ export async function discoverImageUrlWithReason(
     if (isThrottleError(data?.error)) {
       return { result: null, reason: THROTTLED };
     }
+    if (data?.error) return { result: null, reason: IMAGE_LOOKUP_FAILED };
     const creative = data?.creative;
-    if (!creative) return { result: null };
-    const found = await discoverImageStrategies(
+    if (!creative) return { result: null, reason: NO_IMAGE };
+    const { found, inconclusive } = await discoverImageStrategies(
       adId, accountId, accessToken, timeoutMs, creative,
     );
-    return { result: found };
+    if (found) return { result: found };
+    return { result: null, reason: inconclusive ? IMAGE_LOOKUP_FAILED : NO_IMAGE };
   } catch (e) {
     console.log(`Meta API error for ${adId}:`, e);
-    return { result: null };
+    return { result: null, reason: IMAGE_LOOKUP_FAILED };
   }
 }
 
@@ -832,8 +852,39 @@ async function discoverImageStrategies(
   timeoutMs: number,
   // deno-lint-ignore no-explicit-any
   creative: any,
+): Promise<{ found: ImageDiscovery | null; inconclusive: boolean }> {
+  // A strategy that hit a timeout, network error, 429 or 5xx did not really look, so a
+  // null result is then inconclusive rather than "no image" (audit 5.5).
+  let inconclusive = false;
+  const fetchTracked = async (url: string, ms: number): Promise<Response> => {
+    try {
+      const r = await fetchWithTimeout(url, ms);
+      if (!r.ok && (r.status === 429 || r.status >= 500)) inconclusive = true;
+      return r;
+    } catch (e) {
+      inconclusive = true;
+      throw e;
+    }
+  };
+  const found = await discoverImageStrategyLadder(adId, accountId, accessToken, timeoutMs, creative, fetchTracked)
+    .catch((e) => {
+      console.log(`Meta API error for ${adId}:`, e);
+      inconclusive = true;
+      return null;
+    });
+  return { found, inconclusive };
+}
+
+async function discoverImageStrategyLadder(
+  adId: string,
+  accountId: string,
+  accessToken: string,
+  timeoutMs: number,
+  // deno-lint-ignore no-explicit-any
+  creative: any,
+  fetchWithTimeout: (url: string, ms: number) => Promise<Response>,
 ): Promise<ImageDiscovery | null> {
-  try {
+  {
     // Strategy 1: Resolve image_hash → full-res URL
     const imageHash =
       creative.image_hash ||
@@ -1076,9 +1127,6 @@ async function discoverImageStrategies(
       return { thumbnailUrl: creative.thumbnail_url, fullResUrl: null, imageQuality: "low_res" };
     }
 
-    return null;
-  } catch (e) {
-    console.log(`Meta API error for ${adId}:`, e);
     return null;
   }
 }

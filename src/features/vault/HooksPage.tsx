@@ -109,7 +109,6 @@ export default function HooksPage() {
     const entries: HookEntry[] = [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const item of items as any[]) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const fw = Array.isArray(item.inspiration_frameworks) ? item.inspiration_frameworks[0] : null;
       const itemMeta = {
         id: item.id,

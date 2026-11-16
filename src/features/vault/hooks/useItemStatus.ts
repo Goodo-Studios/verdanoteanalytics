@@ -23,7 +23,6 @@ export function useItemStatus(itemId: string | null, onDone?: (id: string) => vo
     if (!itemId) return;
 
     const poll = async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data } = await supabase
         .from("inspiration_items")
         .select("status, error_message")

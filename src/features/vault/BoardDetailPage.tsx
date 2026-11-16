@@ -59,7 +59,6 @@ export default function BoardDetailPage() {
     queryKey: ["vault-board", id],
     enabled: !!id && !!user,
     queryFn: async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await supabase
         .from("boards")
         .select("*")
@@ -77,7 +76,6 @@ export default function BoardDetailPage() {
     queryKey: ["vault-board-items", id],
     enabled: !!id && !!user,
     queryFn: async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await supabase
         .from("board_items")
         .select(
@@ -97,7 +95,6 @@ export default function BoardDetailPage() {
 
   const deleteBoard = useMutation({
     mutationFn: async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error } = await supabase
         .from("boards")
         .delete()
@@ -115,7 +112,6 @@ export default function BoardDetailPage() {
 
   const removeItem = useMutation({
     mutationFn: async (boardItemId: string) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error } = await supabase
         .from("board_items")
         .delete()

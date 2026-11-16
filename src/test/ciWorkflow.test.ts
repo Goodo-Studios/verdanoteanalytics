@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const workflow = readFileSync(`${process.cwd()}/.github/workflows/ci.yml`, "utf8");
@@ -80,7 +80,7 @@ describe("CI deployment safety", () => {
     expect(e2e).toContain("STAGING_GATE_PASSWORD");
     // Every step after the check only runs when the secrets are present.
     const steps = e2e.split(/\n {6}- /);
-    for (const marker of ["setup-node@v4", "npm ci", "playwright install", "npm run test:e2e:staging"]) {
+    for (const marker of ["actions/setup-node@", "npm ci", "playwright install", "npm run test:e2e:staging"]) {
       const step = steps.find((s) => s.includes(marker));
       expect(step, marker).toBeDefined();
       expect(step, marker).toContain("if: steps.cfg.outputs.configured == 'true'");
@@ -171,6 +171,27 @@ describe("CI deployment safety", () => {
     }
   });
 
+  it("runs production E2E only after a successful production deploy on main, never on pull requests", () => {
+    // Audit Batch 9: always() let E2E run after a failed deploy, and pull request runs tested the
+    // build already live in production instead of the pull request's code.
+    const e2e = job("e2e");
+    expect(e2e).not.toContain("always()");
+    expect(e2e).toContain("github.event_name == 'push'");
+    expect(e2e).toContain("github.ref == 'refs/heads/main'");
+    expect(e2e).toContain("needs.deploy-functions.result == 'success'");
+  });
+
+  it("deploys to production only when staging browser tests passed for the same code", () => {
+    const prod = job("deploy-functions");
+    const gate = prod.indexOf("node scripts/require-staging-e2e.mjs");
+    expect(gate, "staging E2E gate step").toBeGreaterThanOrEqual(0);
+    expect(gate).toBeLessThan(prod.indexOf("bash scripts/deploy-functions.sh"));
+    // The gate reads staging CI runs; the one top-level permissions block grants that, read only.
+    const head = workflow.slice(0, workflow.search(/^jobs:\s*$/m));
+    expect(head).toMatch(/^ {2}actions: read\s*$/m);
+    expect(prod).toContain("GITHUB_TOKEN: ${{ github.token }}");
+  });
+
   it("fails CI before E2E when authenticated-test secrets are missing", () => {
     expect(workflow).toContain("run: npm run check:e2e-env");
     // Audit Batch 9: the employee login is passed in, so employee specs run instead of skipping.
@@ -200,7 +221,8 @@ describe("CI deployment safety", () => {
     // twice on 2026-11-09 (db push defaulting to local, remote SQL asking for
     // confirmation). Every setup-cli step must name the same exact version.
     const steps = [
-      ...workflow.matchAll(/uses: supabase\/setup-cli@\S+\n((?: {8,}.*\n)*)/g),
+      // The ref may carry a trailing "# vX.Y.Z" comment (actions are pinned by commit).
+      ...workflow.matchAll(/uses: supabase\/setup-cli@\S+(?: #.*)?\n((?: {8,}.*\n)*)/g),
     ];
     expect(steps.length).toBeGreaterThanOrEqual(3);
     const versions = steps.map((m) => {
@@ -214,6 +236,32 @@ describe("CI deployment safety", () => {
     }
     expect(new Set(versions).size).toBe(1);
     expect(workflow).not.toMatch(/version: *latest/);
+  });
+
+  it("pins every action in every workflow to a full commit, with the release named (audit Batch 9)", () => {
+    // A moving tag (@v4) can be repointed upstream; a 40-character commit cannot.
+    const dir = `${process.cwd()}/.github/workflows`;
+    const refs = readdirSync(dir)
+      .filter((f) => /\.ya?ml$/.test(f))
+      .flatMap((f) =>
+        [...readFileSync(`${dir}/${f}`, "utf8").matchAll(/^\s*-?\s*uses:\s*(\S+)(.*)$/gm)].map((m) => ({
+          file: f,
+          ref: m[1],
+          rest: m[2],
+        })),
+      );
+    expect(refs.length).toBeGreaterThanOrEqual(20);
+    const unpinned = refs
+      .filter(({ ref, rest }) => !/^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/.test(ref) || !/^\s+# v\d+\.\d+\.\d+\s*$/.test(rest))
+      .map(({ file, ref }) => `${file}: ${ref}`);
+    expect(unpinned).toEqual([]);
+  });
+
+  it("pins Deno to one exact version in every setup-deno step (audit Batch 9)", () => {
+    const versions = [...workflow.matchAll(/^ +deno-version: *(\S+)\s*$/gm)].map((m) => m[1]);
+    expect(versions.length).toBeGreaterThanOrEqual(2);
+    for (const v of versions) expect(v).toMatch(/^v?\d+\.\d+\.\d+$/);
+    expect(new Set(versions).size).toBe(1);
   });
 
   it("keeps the staging deploy commands explicit about the remote project", () => {

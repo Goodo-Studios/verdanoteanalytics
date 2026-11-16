@@ -1,3 +1,4 @@
+import { addDailyTotal, buildReportSnapshot, type SnapshotDailyTotal } from "../_shared/report-snapshot.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
@@ -5,7 +6,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 // classifier. This used to be an ad-hoc `roas > 1` filter here, which agreed
 // with neither the Library nor the Overview.
 import { selectWinnersBySpend } from "../_shared/creative-classification.ts";
-import { computeBlendedMetrics, roundOrNull } from "../_shared/metric-math.ts";
+import { addVideoRow, computeBlendedMetrics, emptyVideoAccumulator, roundOrNull, videoMetricsFromAccumulator } from "../_shared/metric-math.ts";
 import { validateAccountIds, validateDateRange } from "../_shared/report-input.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
@@ -161,7 +162,11 @@ async function sendReportToSlack(report: any) {
 }
 
 // Aggregate daily metrics per ad_id within a date range, returning enriched creative objects
-async function aggregateDailyMetrics(supabase: any, accountId: string | null, dateStart: string, dateEnd: string) {
+// dailyTotals (optional) collects per-date totals for the report snapshot's chart (audit 6.2).
+async function aggregateDailyMetrics(
+  supabase: any, accountId: string | null, dateStart: string, dateEnd: string,
+  dailyTotals?: Map<string, SnapshotDailyTotal>,
+) {
   // Fetch daily metrics within range
   let dmQuery = supabase
     .from("creative_daily_metrics")
@@ -189,13 +194,16 @@ async function aggregateDailyMetrics(supabase: any, accountId: string | null, da
   // Aggregate per ad_id
   const byAd: Record<string, any> = {};
   for (const m of allMetrics) {
+    if (dailyTotals) addDailyTotal(dailyTotals, m);
     if (!byAd[m.ad_id]) {
       byAd[m.ad_id] = {
         ad_id: m.ad_id, account_id: m.account_id,
         spend: 0, impressions: 0, clicks: 0, purchases: 0, purchase_value: 0,
         adds_to_cart: 0, video_views: 0,
         _days: 0, _ctr_sum: 0, _cpm_sum: 0, _cpc_sum: 0, _cpa_sum: 0, _roas_sum: 0,
-        _tsr_sum: 0, _hr_sum: 0, _freq_sum: 0, _vat_sum: 0, _cpac_sum: 0,
+        _cpac_sum: 0,
+        // Hook, hold, play time and frequency are built from counts (audit 6.1).
+        _video: emptyVideoAccumulator(),
       };
     }
     const a = byAd[m.ad_id];
@@ -212,10 +220,7 @@ async function aggregateDailyMetrics(supabase: any, accountId: string | null, da
     a._cpc_sum += Number(m.cpc || 0);
     a._cpa_sum += Number(m.cpa || 0);
     a._roas_sum += Number(m.roas || 0);
-    a._tsr_sum += Number(m.thumb_stop_rate || 0);
-    a._hr_sum += Number(m.hold_rate || 0);
-    a._freq_sum += Number(m.frequency || 0);
-    a._vat_sum += Number(m.video_avg_play_time || 0);
+    addVideoRow(a._video, m);
     a._cpac_sum += Number(m.cost_per_add_to_cart || 0);
   }
 
@@ -229,7 +234,7 @@ async function aggregateDailyMetrics(supabase: any, accountId: string | null, da
     const batch = adIds.slice(i, i + 100);
     const { data: crs } = await supabase
       .from("creatives")
-      .select("ad_id, ad_name, unique_code, ad_type, tag_source, person, style, hook, product, theme, campaign_name, adset_name")
+      .select("ad_id, ad_name, unique_code, ad_type, tag_source, person, style, hook, product, theme, campaign_name, adset_name, thumbnail_url")
       .in("ad_id", batch);
     for (const c of crs || []) creativeMap[c.ad_id] = c;
   }
@@ -237,7 +242,7 @@ async function aggregateDailyMetrics(supabase: any, accountId: string | null, da
   return adIds.map(adId => {
     const a = byAd[adId];
     const meta = creativeMap[adId] || {};
-    const days = a._days || 1;
+    const video = videoMetricsFromAccumulator(a._video);
     return {
       ...meta,
       ad_id: adId,
@@ -254,10 +259,11 @@ async function aggregateDailyMetrics(supabase: any, accountId: string | null, da
       cpc: a.clicks > 0 ? a.spend / a.clicks : 0,
       cpa: a.purchases > 0 ? a.spend / a.purchases : 0,
       roas: a.spend > 0 ? a.purchase_value / a.spend : 0,
-      thumb_stop_rate: a._tsr_sum / days,
-      hold_rate: a._hr_sum / days,
-      frequency: a._freq_sum / days,
-      video_avg_play_time: a._vat_sum / days,
+      // 0 when there is no data, as before; screens get null handling in a later part of 6.1.
+      thumb_stop_rate: video.hook_rate ?? 0,
+      hold_rate: video.hold_rate ?? 0,
+      frequency: video.frequency_approx ?? 0,
+      video_avg_play_time: video.avg_play_time ?? 0,
       cost_per_add_to_cart: a.adds_to_cart > 0 ? a.spend / a.adds_to_cart : 0,
     };
   }).filter(c => c.spend > 0);
@@ -314,7 +320,8 @@ serve(async (req) => {
       }
 
       // Aggregate from daily metrics
-      const list = await aggregateDailyMetrics(supabase, account_id || null, dateStart, dateEnd);
+      const dailyTotals = new Map<string, SnapshotDailyTotal>();
+      const list = await aggregateDailyMetrics(supabase, account_id || null, dateStart, dateEnd, dailyTotals);
 
       // Blended ratios come from summed totals (null when the denominator is 0), not a mean of per-creative ratios.
       const blended = computeBlendedMetrics(list);
@@ -359,6 +366,8 @@ serve(async (req) => {
         date_range_days: days,
         iteration_suggestions: JSON.stringify(diagSuggestions),
         ...diagCounts,
+        // Frozen top creatives, tag mix and chart series for exports (audit 6.2).
+        snapshot: buildReportSnapshot(list, dailyTotals),
       };
 
       const { data, error } = await supabase.from("reports").insert(report).select().single();
@@ -515,7 +524,9 @@ serve(async (req) => {
 
       const report = {
         report_name: finalName,
-        account_id: account_ids[0], // primary account for RLS
+        // No owning account: a portfolio report holds several clients' numbers, and an owner
+        // would let that one client read them all (audit 1.3). A database check enforces this.
+        account_id: null,
         is_public: isPublic,
         report_type: "portfolio",
         portfolio_account_ids: account_ids,
@@ -570,7 +581,8 @@ serve(async (req) => {
       for (const accountId of account_ids) {
         const accountName = acctMap[accountId] || accountId;
         try {
-          const list = await aggregateDailyMetrics(supabase, accountId, dateStart, dateEnd);
+          const dailyTotals = new Map<string, SnapshotDailyTotal>();
+          const list = await aggregateDailyMetrics(supabase, accountId, dateStart, dateEnd, dailyTotals);
 
           const blended = computeBlendedMetrics(list);
           const totalSpend = blended.spend;
@@ -670,6 +682,8 @@ serve(async (req) => {
             date_range_days: days,
             iteration_suggestions: JSON.stringify(diagSuggestions),
             sections,
+            // Frozen top creatives, tag mix and chart series for exports (audit 6.2).
+            snapshot: buildReportSnapshot(list, dailyTotals),
             ...diagCounts,
           };
 
@@ -699,50 +713,10 @@ serve(async (req) => {
             if (shareErr) throw shareErr;
           }
 
-          let sharedCount = 0;
-          // Auto-share: create notifications for client users linked to this account
-          if (auto_share && savedReport) {
-            const { data: linkedUsers } = await supabase
-              .from("user_accounts")
-              .select("user_id")
-              .eq("account_id", accountId);
-
-            if (linkedUsers && linkedUsers.length > 0) {
-              // Check which of these are clients
-              const { data: clientRoles } = await supabase
-                .from("user_roles")
-                .select("user_id")
-                .eq("role", "client")
-                .in("user_id", linkedUsers.map((u: any) => u.user_id));
-
-              const clientUserIds = (clientRoles || []).map((r: any) => r.user_id);
-
-              if (clientUserIds.length > 0) {
-                const title = `New Report: ${reportName}`;
-                // Skip clients who already got this exact notification (a retry must not notify twice).
-                const { data: alreadyNotified } = await supabase
-                  .from("notifications")
-                  .select("user_id")
-                  .eq("type", "report")
-                  .eq("account_id", accountId)
-                  .eq("title", title)
-                  .in("user_id", clientUserIds);
-                const notifiedIds = new Set((alreadyNotified || []).map((n: any) => n.user_id));
-                const pendingIds = clientUserIds.filter((uid: string) => !notifiedIds.has(uid));
-                if (pendingIds.length > 0) {
-                  const notifications = pendingIds.map((uid: string) => ({
-                    user_id: uid,
-                    account_id: accountId,
-                    title,
-                    body: `Your ${monthName} ${year} performance report is ready. View it in Reports.`,
-                    type: "report",
-                  }));
-                  await supabase.from("notifications").insert(notifications);
-                }
-                sharedCount = pendingIds.length;
-              }
-            }
-          }
+          // Auto-share makes the report visible (is_public above). It used to also write
+          // in-app "New Report" notification rows, which nothing in the app reads, so that
+          // write was removed (audit 5.2). shared_count stays in the response for the modal.
+          const sharedCount = 0;
 
           results.push({ account_id: accountId, account_name: accountName, report_id: savedReport.id, shared_count: sharedCount, reused: reusedReport, success: true });
         } catch (err) {

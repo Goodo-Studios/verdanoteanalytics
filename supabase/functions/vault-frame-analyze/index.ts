@@ -10,6 +10,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { requireStaffOrServiceRole } from "../_shared/internal-auth.ts";
+import { userRateLimitResponse } from "../_shared/user-rate-limit.ts";
 
 const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -90,6 +91,14 @@ Deno.serve(async (req) => {
   });
   const { data: { user }, error: authErr } = await userClient.auth.getUser();
   if (authErr || !user) return json({ error: "Unauthorized" }, 401);
+
+  // Audit 8.7: each request is a paid vision call, so cap calls per user.
+  const limited = await userRateLimitResponse(
+    createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!),
+    user.id,
+    "vault-frame-analyze",
+  );
+  if (limited) return limited;
 
   const { frames } = await req.json() as { frames: Frame[] };
   if (!frames?.length) return json({ error: "frames array required" }, 400);

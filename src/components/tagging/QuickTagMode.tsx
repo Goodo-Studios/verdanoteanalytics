@@ -78,15 +78,19 @@ export function QuickTagMode({ creatives, allCreatives = [], onExit }: QuickTagM
   const creative = creatives[index];
   const total = creatives.length;
 
-  // Reset local tags when index changes
+  // Re-seed the form when we move to another creative or when this creative's stored tags
+  // change underneath us (a sync, a CSV import, a teammate's save). A refresh that brings the
+  // same stored values keeps any unsaved edit.
+  const storedTagsKey = creative ? JSON.stringify(TAG_FIELDS.map((f) => creative[f] ?? null)) : "";
   useEffect(() => {
-    if (!creative) return;
+    if (!storedTagsKey) return;
+    const values = JSON.parse(storedTagsKey) as (string | null)[];
     const existing: Record<string, string> = {};
-    for (const f of TAG_FIELDS) {
-      if (creative[f]) existing[f] = creative[f];
-    }
+    TAG_FIELDS.forEach((f, i) => {
+      if (values[i]) existing[f] = values[i] as string;
+    });
     setLocalTags(existing);
-  }, [index, creative?.ad_id]);
+  }, [index, creative?.ad_id, storedTagsKey]);
 
   const suggestions = useMemo(
     () => creative ? getSuggestions(creative, allCreatives) : {},
@@ -123,10 +127,17 @@ export function QuickTagMode({ creatives, allCreatives = [], onExit }: QuickTagM
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { onExit(); return; }
-      // Arrow keys move the caret while typing a free-text tag (e.g. hook).
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+      const typing = !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+      if (e.key === "Escape") {
+        // In a field, Escape only leaves the field so a half-typed tag is not lost
+        // (audit 5.10). A second Escape then closes Quick Tag.
+        if (typing) { t.blur(); return; }
+        onExit();
+        return;
+      }
+      // Arrow keys move the caret while typing a free-text tag (e.g. hook).
+      if (typing) return;
       if (e.key === "ArrowRight") { saveAndNext(); return; }
       if (e.key === "ArrowLeft") { goPrev(); return; }
     };

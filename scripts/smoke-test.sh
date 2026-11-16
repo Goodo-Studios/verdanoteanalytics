@@ -78,7 +78,6 @@ OTHER_FUNCTIONS=(
   competitor-ads
   enrich-thumbnails
   portfolio
-  quick-save
   refresh-thumbnails
   reports
   sadie-read

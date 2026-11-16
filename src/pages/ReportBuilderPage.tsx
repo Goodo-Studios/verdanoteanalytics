@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { formatReportRange } from "@/lib/dateRange";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { SectionRenderer } from "@/components/reports/SectionRenderer";
@@ -95,9 +96,7 @@ const ReportBuilderPage = () => {
               placeholder="Report name..."
             />
             <p className="font-body text-[13px] text-muted-foreground">
-              {report.date_range_start && report.date_range_end
-                ? `${new Date(report.date_range_start).toLocaleDateString()} – ${new Date(report.date_range_end).toLocaleDateString()}`
-                : ""}
+              {formatReportRange(report.date_range_start, report.date_range_end)}
               {report.date_range_days ? ` · ${report.date_range_days} days` : ""}
             </p>
           </div>

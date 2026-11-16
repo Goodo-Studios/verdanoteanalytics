@@ -49,6 +49,7 @@ import {
   worstCaseInvocationMs,
 } from "../_shared/analyze-creative-concurrency.ts";
 import { NO_VIDEO_SENTINEL } from "../_shared/media-discovery.ts";
+import { analyzeVideo, type VideoStepDeps } from "../_shared/analyze-video-steps.ts";
 import {
   BRAND_METADATA_PROMPT,
   CLEAN_TRANSCRIPT_PROMPT,
@@ -415,13 +416,17 @@ interface CreativeRow {
   ad_id: string;
   account_id: string;
   transcript: string | null;
+  transcript_status: string | null;
   thumbnail_url: string | null;
   full_res_url: string | null;
   video_url: string | null;
 }
 
 // Analyze one claimed creative. Returns the columns to write + the USD spent.
-async function analyzeOne(c: CreativeRow): Promise<{ update: Record<string, unknown>; costUsd: number }> {
+async function analyzeOne(
+  c: CreativeRow,
+  hooks: Pick<VideoStepDeps, "onSpend" | "saveTranscript">,
+): Promise<{ update: Record<string, unknown>; costUsd: number }> {
   let cost = 0;
   // Respect the media sentinels: video_url can be the "no-video" sentinel (an
   // image ad or an uncached video) and thumbnail_url can be "no-thumbnail". A
@@ -478,50 +483,12 @@ async function analyzeOne(c: CreativeRow): Promise<{ update: Record<string, unkn
   }
 
   // ── VIDEO branch: transcribe → clean → framework(vision) → brand/script/visual
-  //    → frame vision. ──
-  let raw = c.transcript;
-  if (!raw && c.video_url) {
-    const t = await transcribe(c.video_url);
-    cost += t.costUsd;
-    raw = t.text;
-  }
-
-  let cleaned = "";
-  if (raw) {
-    const { text, costUsd } = await orChat(TEXT_MODEL, CLEAN_TRANSCRIPT_PROMPT, raw, 2048);
-    cost += costUsd;
-    cleaned = text.trim();
-  }
-
-  // Framework (vision + script + thumbnail).
-  const fw: Record<string, unknown> = {};
-  {
-    const dataUrl = thumb ? await fetchImageAsDataUrl(thumb) : null;
-    const userContent: unknown = dataUrl
-      ? [
-        { type: "text", text: `Cleaned script:\n${cleaned}` },
-        { type: "image_url", image_url: { url: dataUrl, detail: "low" } },
-      ]
-      : `Cleaned script:\n${cleaned}`;
-    const { text, costUsd } = await orChat(
-      VISION_MODEL,
-      FRAMEWORK_PROMPT,
-      userContent,
-      2048,
-      dataUrl ? 1 : 0,
-    );
-    cost += costUsd;
-    Object.assign(fw, parseLooseJson(text));
-  }
-
+  //    → frame vision. The steps live in _shared/analyze-video-steps.ts. ──
   // Frame-vision pipeline. It depends ONLY on the cached frames (DB + image
   // fetches), NOT on any of the text-analysis LLM outputs, so it runs CONCURRENTLY
-  // with the brand/script/visual group below instead of sequentially after it —
-  // a per-item latency win on the video path. Returns the frame-derived visual
-  // notes (empty when there are no cached frames → caller falls back to the
-  // script-inferred visual analysis). Resolves cached frame image URLs in two
-  // steps (creative_frames.asset_id → media_assets.public_url) to avoid a
-  // PostgREST embed on an unknown FK name.
+  // with the brand/script/visual group instead of sequentially after it.
+  // Resolves cached frame image URLs in two steps (creative_frames.asset_id →
+  // media_assets.public_url) to avoid a PostgREST embed on an unknown FK name.
   const frameAnalysis = async (): Promise<{ notes: string; costUsd: number; hadFrames: boolean }> => {
     const { data: frameAssetRows } = await db
       .from("creative_frames")
@@ -573,47 +540,26 @@ async function analyzeOne(c: CreativeRow): Promise<{ update: Record<string, unkn
     return { notes, costUsd, hadFrames: true };
   };
 
-  // Brand metadata + script analysis + visual (script-inferred) analysis, run
-  // concurrently with the independent frame-vision pipeline above.
-  const [brandR, scriptR, visualR, frameRes] = await Promise.all([
-    orChat(TEXT_MODEL, BRAND_METADATA_PROMPT, cleaned, 1024),
-    orChat(TEXT_MODEL, SCRIPT_ANALYSIS_PROMPT, cleaned, 1024),
-    orChat(TEXT_MODEL, VISUAL_ANALYSIS_PROMPT, cleaned, 512),
-    frameAnalysis(),
-  ]);
-  cost += brandR.costUsd + scriptR.costUsd + visualR.costUsd + frameRes.costUsd;
-  const brand = parseLooseJson(brandR.text);
-
-  // Frame vision → ai_visual_notes (preferred over the script-only inference when
-  // cached frames yielded a description).
-  const visualNotes = frameRes.notes.trim() || visualR.text.trim();
-
-  const hookAnalysis = [fw.hook_verbal, fw.hook_text, fw.hook_type, fw.hook_formula]
-    .filter(Boolean)
-    .join(" | ");
-
-  return {
-    update: {
-      // Vault-parity structured framework (discrete fields + framework_json).
-      ...buildFrameworkColumns(fw, { isImage: false }),
-      // Vault-parity metadata promoted to first-class columns (from BRAND_METADATA_PROMPT).
-      // style + person ride in framework_json + tag_suggestions (auto-tag layer
-      // promotes them to the style/person tag columns).
-      ...metadataColumns(brand),
-      transcript: cleaned || raw || null,
-      transcript_status: cleaned || raw ? "ready" : "none",
-      ai_analysis: scriptR.text.trim() || null,
-      ai_hook_analysis: hookAnalysis || null,
-      ai_cta_notes: [fw.cta_type, fw.cta_formula].filter(Boolean).join(" | ") || null,
-      ai_visual_notes: visualNotes || null,
-      tag_suggestions: buildTagSuggestions(fw, brand, frameRes.hadFrames),
-      analysis_status: "done",
-      analyzed_at: new Date().toISOString(),
-      _script_text: cleaned || raw,
-      _visual_text: visualNotes,
+  return await analyzeVideo(
+    c,
+    thumb,
+    { text: TEXT_MODEL, vision: VISION_MODEL },
+    {
+      clean: CLEAN_TRANSCRIPT_PROMPT,
+      framework: FRAMEWORK_PROMPT,
+      brand: BRAND_METADATA_PROMPT,
+      script: SCRIPT_ANALYSIS_PROMPT,
+      visual: VISUAL_ANALYSIS_PROMPT,
     },
-    costUsd: cost,
-  };
+    {
+      transcribe,
+      chat: orChat,
+      fetchImageAsDataUrl,
+      frameAnalysis,
+      onSpend: hooks.onSpend,
+      saveTranscript: hooks.saveTranscript,
+    },
+  );
 }
 
 // US-003: multi-modal embeddings — visual-description text + script text.
@@ -748,9 +694,34 @@ Deno.serve(async (req) => {
       // Per-ITEM deadline: a creative whose provider chain runs long is abandoned
       // here so it can never pin this worker (and drag the whole invocation past
       // the edge wall, orphaning every in-flight 'analyzing' row). analyzeOne only
-      // writes to the DB via the worker below AFTER it returns, so abandoning it
-      // leaves no partial write — the row is simply recycled to 'pending'.
-      const { update, costUsd } = await withTimeout(analyzeOne(c), ITEM_TIMEOUT_MS, c.ad_id);
+      // writes the analysis via the worker below AFTER it returns, so abandoning it
+      // leaves no partial analysis and the row is simply recycled to 'pending'.
+      // Two writes happen during the item on purpose (audit 8.6): spend is added
+      // after every paid call, so a timed-out item still counts toward the account
+      // cap, and the raw transcript is saved before the AI calls, so the retry does
+      // not pay to transcribe again.
+      const recordSpend = async (usd: number) => {
+        if (!(usd > 0)) return;
+        const { data: newTotal } = await db.rpc("add_creative_analysis_spend", {
+          p_account_id: accountId,
+          p_usd: usd,
+        });
+        spent = Number(newTotal ?? spent + usd);
+      };
+      let reported = 0;
+      const hooks = {
+        onSpend: async (usd: number) => {
+          reported += usd;
+          await recordSpend(usd);
+        },
+        saveTranscript: async (text: string | null) => {
+          await db
+            .from("creatives")
+            .update(text ? { transcript: text, transcript_status: "ready" } : { transcript_status: "no_speech" })
+            .eq("ad_id", c.ad_id);
+        },
+      };
+      const { update, costUsd } = await withTimeout(analyzeOne(c, hooks), ITEM_TIMEOUT_MS, c.ad_id);
       const scriptText = update._script_text as string | null;
       const visualText = update._visual_text as string | null;
       delete update._script_text;
@@ -760,12 +731,9 @@ Deno.serve(async (req) => {
       if (upErr) throw new Error(upErr.message);
 
       const embedCost = await embedCreative(c, scriptText, visualText);
-      const total = costUsd + embedCost;
-      const { data: newTotal } = await db.rpc("add_creative_analysis_spend", {
-        p_account_id: accountId,
-        p_usd: total,
-      });
-      spent = Number(newTotal ?? spent + total);
+      // The video path already reported its calls; record what is left (the image
+      // path's vision call, and the embeddings).
+      await recordSpend(Math.max(0, costUsd - reported) + embedCost);
       analyzed++;
     } catch (e) {
       if (e instanceof TimeoutError) {

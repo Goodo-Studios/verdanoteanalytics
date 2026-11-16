@@ -49,7 +49,7 @@ describe("PublicVaultItemPage", () => {
           source_url: null,
           thumbnail_url: "https://cdn/thumb.jpg",
           video_url: null,
-          file_path: null,
+          media_kind: null,
           ad_body_text: "Buy now",
           brand_name: "Acme Co",
           industry: "Beauty",

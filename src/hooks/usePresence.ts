@@ -17,8 +17,18 @@ export function usePresence(accountId: string | null) {
   const [users, setUsers] = useState<PresenceUser[]>([]);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
+  const userId = user?.id ?? null;
+  const userName = user?.email?.split("@")[0] || "User";
+  const pathname = location.pathname;
+
+  // The latest page, read when the channel (re)subscribes. Supabase fires SUBSCRIBED again
+  // after a reconnect; using the value captured when the channel opened would announce the
+  // page the user started on.
+  const pageRef = useRef(pathname);
+  pageRef.current = pathname;
+
   useEffect(() => {
-    if (!accountId || !user) {
+    if (!accountId || !userId) {
       setUsers([]);
       return;
     }
@@ -27,20 +37,13 @@ export function usePresence(accountId: string | null) {
     const channel = supabase.channel(channelName);
     channelRef.current = channel;
 
-    const userPayload: PresenceUser = {
-      user_id: user.id,
-      name: user.email?.split("@")[0] || "User",
-      current_page: location.pathname,
-      last_seen: new Date().toISOString(),
-    };
-
     channel
       .on("presence", { event: "sync" }, () => {
         const state = channel.presenceState<PresenceUser>();
         const allUsers: PresenceUser[] = [];
         for (const key of Object.keys(state)) {
           for (const presence of state[key]) {
-            if (presence.user_id !== user.id) {
+            if (presence.user_id !== userId) {
               allUsers.push(presence);
             }
           }
@@ -49,7 +52,12 @@ export function usePresence(accountId: string | null) {
       })
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
-          await channel.track(userPayload);
+          await channel.track({
+            user_id: userId,
+            name: userName,
+            current_page: pageRef.current,
+            last_seen: new Date().toISOString(),
+          } satisfies PresenceUser);
         }
       });
 
@@ -58,18 +66,18 @@ export function usePresence(accountId: string | null) {
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [accountId, user?.id]);
+  }, [accountId, userId, userName]);
 
   // Update presence when page changes
   useEffect(() => {
-    if (!channelRef.current || !user) return;
+    if (!channelRef.current || !userId) return;
     channelRef.current.track({
-      user_id: user.id,
-      name: user.email?.split("@")[0] || "User",
-      current_page: location.pathname,
+      user_id: userId,
+      name: userName,
+      current_page: pathname,
       last_seen: new Date().toISOString(),
-    });
-  }, [location.pathname]);
+    } satisfies PresenceUser);
+  }, [pathname, userId, userName]);
 
   return users;
 }

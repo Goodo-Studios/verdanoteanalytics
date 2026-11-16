@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { TABLE_COLUMNS, COLUMN_ORDER_KEY, COLUMN_VISIBLE_KEY, loadColumnPrefs } from "@/components/creatives/constants";
+import { serverSortParams } from "@/lib/creativeServerSort";
 import { type SortConfig } from "@/components/SortableTableHead";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { useDateRangeContext } from "@/contexts/DateRangeContext";
@@ -59,9 +60,14 @@ export function useCreativesPageState() {
   const searchTimeout = useRef<ReturnType<typeof setTimeout>>();
 
   // Advanced filters
-  const [advancedConditions, setAdvancedConditions] = useState<AdvancedConditions>(() =>
+  const [advancedConditions, setAdvancedConditionsState] = useState<AdvancedConditions>(() =>
     deserializeConditions(searchParams.get("adv") || "")
   );
+  // The server applies the conditions to the whole list, so a change starts at page one.
+  const setAdvancedConditions = useCallback((next: AdvancedConditions) => {
+    setPage(0);
+    setAdvancedConditionsState(next);
+  }, []);
 
   // Debounced search
   useEffect(() => {
@@ -86,11 +92,14 @@ export function useCreativesPageState() {
     setFilters(prev => { const next = { ...prev }; if (val === "__all__") delete next[key]; else next[key] = val; return next; });
   }, []);
 
+  // A new account or date range is a different list, so start at page one (audit 7.2).
   useEffect(() => {
     setPage(0);
-  }, [selectedAccountId]);
+  }, [selectedAccountId, dateFrom, dateTo]);
 
   const handleSort = useCallback((key: string) => {
+    // The server sorts the whole set, so a new sort starts again at page one.
+    setPage(0);
     setSort(prev => ({
       key,
       direction: prev.key === key ? (prev.direction === "asc" ? "desc" : prev.direction === "desc" ? null : "asc") : "asc",
@@ -104,7 +113,10 @@ export function useCreativesPageState() {
     ...(dateFrom ? { date_from: dateFrom } : {}),
     ...(dateTo ? { date_to: dateTo } : {}),
     ...(search ? { search } : {}),
-  }), [selectedAccountId, filters, dateFrom, dateTo, search]);
+    ...serverSortParams(sort),
+    // Advanced filters as the same JSON the URL keeps (audit 7.1 part 3).
+    ...(advancedConditions.length > 0 ? { adv: serializeConditions(advancedConditions) } : {}),
+  }), [selectedAccountId, filters, dateFrom, dateTo, search, sort, advancedConditions]);
 
   return {
     viewMode, setViewMode,

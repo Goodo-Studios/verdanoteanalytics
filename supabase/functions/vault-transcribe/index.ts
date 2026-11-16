@@ -1,3 +1,4 @@
+
 // vault-transcribe — port from Creative Vault (US-003).
 // Differences from source:
 //   • No workspace_id references — items are scoped by user_id directly.
@@ -17,6 +18,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { isImageOnlyItem } from "../_shared/vault-save-logic.ts";
+import { isSignableVaultPath } from "../_shared/vault-paths.ts";
+import { kickOffVaultStep } from "../_shared/vault-kickoff.ts";
 import {
   classifyGroqFailure,
   extractDeepgramTranscript,
@@ -96,6 +99,8 @@ Deno.serve(async (req) => {
     let mediaUrl: string;
     let ext = "mp4";
     if (item.file_path) {
+      // Sign only a well-formed Vault path (audit 2.2).
+      if (!isSignableVaultPath(item.file_path)) throw new Error("Stored file path is not a valid Vault path");
       const { data: signedData } = await db.storage
         .from("inspiration-media")
         .createSignedUrl(item.file_path, 600);
@@ -118,13 +123,15 @@ Deno.serve(async (req) => {
     // code) must never leave two rows for one item.
     const finishWithTranscript = async (rawTranscript: string, provider: string) => {
       const wordCount = rawTranscript.split(/\s+/).filter(Boolean).length;
-      await db.from("inspiration_transcripts").delete().eq("item_id", itemId);
-      await db.from("inspiration_transcripts").insert({
+      // One transcript per item (unique item_id, audit 4.3). cleaned_script is cleared so
+      // vault-analyze re-cleans the new raw transcript instead of keeping the old cleaned text.
+      await db.from("inspiration_transcripts").upsert({
         item_id: itemId,
         raw_transcript: rawTranscript,
+        cleaned_script: null,
         duration_seconds: null,
         word_count: wordCount,
-      });
+      }, { onConflict: "item_id" });
 
       await db.from("inspiration_items").update({ status: "analyzing" }).eq("id", itemId);
 
@@ -133,47 +140,15 @@ Deno.serve(async (req) => {
       // stuck at status='analyzing' forever. Bounded ack: await the dispatch for a
       // short window (immediate failures mark the item errored so useItemStatus
       // surfaces them), then let the in-flight call ride on waitUntil — at that
-      // point vault-analyze owns item status.
-      const markKickoffFailed = async (reason: string) => {
-        console.error(`vault-transcribe: vault-analyze kick-off failed for item ${itemId}:`, reason);
-        const { error: markError } = await db
-          .from("inspiration_items")
-          .update({ status: "error", error_message: `Analyze kick-off failed: ${reason}` })
-          .eq("id", itemId);
-        if (markError) console.error("vault-transcribe: failed to mark item errored:", markError);
-      };
-
-      const kickoff = (async () => {
-        try {
-          const res = await fetch(`${supabaseUrl}/functions/v1/vault-analyze`, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${serviceRoleKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ item_id: itemId }),
-          });
-          if (!res.ok) {
-            const text = await res.text().catch(() => "");
-            await markKickoffFailed(`vault-analyze responded ${res.status}${text ? `: ${text.slice(0, 300)}` : ""}`);
-          }
-        } catch (e) {
-          await markKickoffFailed(e instanceof Error ? e.message : String(e));
-        }
-      })();
-
-      const TIMED_OUT = Symbol("kickoff-ack-timeout");
-      let ackTimer: ReturnType<typeof setTimeout> | undefined;
-      const settled = await Promise.race([
-        kickoff,
-        new Promise((resolve) => {
-          ackTimer = setTimeout(() => resolve(TIMED_OUT), KICKOFF_ACK_TIMEOUT_MS);
-        }),
-      ]);
-      if (ackTimer !== undefined) clearTimeout(ackTimer);
-      if (settled === TIMED_OUT) {
-        EdgeRuntime.waitUntil(kickoff);
-      }
+      // point vault-analyze owns item status. Shared with vault-extract-webhook (audit 4.4).
+      await kickOffVaultStep(db, {
+        supabaseUrl,
+        serviceRoleKey,
+        itemId,
+        step: "vault-analyze",
+        ackTimeoutMs: KICKOFF_ACK_TIMEOUT_MS,
+        keepAlive: (p) => EdgeRuntime.waitUntil(p),
+      });
 
       return json({ ok: true, item_id: itemId, provider });
     };

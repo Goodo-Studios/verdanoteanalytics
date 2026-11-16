@@ -1,10 +1,59 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { CLIENT_ACCOUNT_SELECT, toClientAccount } from "../_shared/client-account-fields.ts";
+import { loadMappingsByCode, loadUntaggedCreatives } from "./rematch-reads.ts";
 
 // deno-lint-ignore no-explicit-any
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SupabaseLike = any;
+
+const MAPPING_FIELDS = ["ad_type", "person", "style", "product", "hook", "theme"] as const;
+type MappingField = typeof MAPPING_FIELDS[number];
+// CSV header for each stored column (the browser sends rows keyed by the CSV header).
+const CSV_HEADER: Record<MappingField, string> = {
+  ad_type: "Type", person: "Person", style: "Style", product: "Product", hook: "Hook", theme: "Theme",
+};
+
+export interface ParsedMappingRow extends Partial<Record<MappingField, string>> {
+  unique_code: string;
+}
+
+/**
+ * Check every uploaded row before anything is written (audit 5.9). A row needs a code and a
+ * code may appear once. Blank cells are left out (undefined) so the caller keeps the stored
+ * value. Lines count from 2 because the CSV header is line 1.
+ */
+export function parseMappingRows(mappings: unknown[]): {
+  rows: ParsedMappingRow[];
+  errors: Array<{ line: number; message: string }>;
+} {
+  const rows: ParsedMappingRow[] = [];
+  const errors: Array<{ line: number; message: string }> = [];
+  const firstLine = new Map<string, number>();
+  const text = (v: unknown) => (typeof v === "string" ? v.trim() : v == null ? "" : String(v).trim());
+  mappings.forEach((raw, i) => {
+    const line = i + 2;
+    const m = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+    const code = text(m.unique_code ?? m.UniqueCode);
+    if (!code) {
+      errors.push({ line, message: "UniqueCode is empty" });
+      return;
+    }
+    const first = firstLine.get(code);
+    if (first !== undefined) {
+      errors.push({ line, message: `UniqueCode ${code} appears more than once (first on line ${first})` });
+      return;
+    }
+    firstLine.set(code, line);
+    const row: ParsedMappingRow = { unique_code: code };
+    for (const f of MAPPING_FIELDS) {
+      const v = text(m[f] ?? m[CSV_HEADER[f]]);
+      if (v) row[f] = v;
+    }
+    rows.push(row);
+  });
+  return { rows, errors };
+}
 
 export interface Deps {
   /** Service-role client. Tests pass a fake; production builds one from the env. */
@@ -218,52 +267,19 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
         });
       }
 
-      // Bulk upsert in chunks (one request per chunk, not per row). A row with no code cannot
-      // be keyed, and a repeated code inside one statement makes Postgres reject the chunk,
-      // so the last row for a code wins.
-      const byCode = new Map<string, Record<string, unknown>>();
-      for (const m of mappings) {
-        const code = m.unique_code || m.UniqueCode;
-        if (!code) continue;
-        byCode.set(String(code), {
-          account_id: accountId,
-          unique_code: String(code),
-          ad_type: m.ad_type || m.Type,
-          person: m.person || m.Person,
-          style: m.style || m.Style,
-          product: m.product || m.Product,
-          hook: m.hook || m.Hook,
-          theme: m.theme || m.Theme,
-        });
-      }
-      const rowsToUpsert = [...byCode.values()];
-      let upserted = 0;
-      for (let i = 0; i < rowsToUpsert.length; i += 500) {
-        const chunk = rowsToUpsert.slice(i, i + 500);
-        const { error } = await supabase
-          .from("name_mappings")
-          .upsert(chunk, { onConflict: "account_id,unique_code" });
-        if (error) throw error;
-        upserted += chunk.length;
+      // Check every row before writing anything (audit 5.9). Line numbers match the file:
+      // the header is line 1, so mappings[0] is line 2.
+      const parsed = parseMappingRows(mappings);
+      if (parsed.errors.length > 0) {
+        return new Response(JSON.stringify({
+          error: `${parsed.errors.length} row(s) need fixing. Nothing was saved.`,
+          row_errors: parsed.errors,
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // Re-match untagged creatives. Read every untagged creative (paged past the 1000-row cap)
-      // and every mapping for the account once, then update once per code.
-      const untagged: Array<{ ad_id: string; unique_code: string | null }> = [];
-      for (let from = 0; ; from += 1000) {
-        const { data, error } = await supabase
-          .from("creatives")
-          .select("ad_id, unique_code")
-          .eq("account_id", accountId)
-          .eq("tag_source", "untagged")
-          .order("ad_id")
-          .range(from, from + 999);
-        if (error) throw error;
-        untagged.push(...(data || []));
-        if (!data || data.length < 1000) break;
-      }
-
-      const mappingByCode = new Map<string, Record<string, unknown>>();
+      // A blank cell keeps the stored value instead of clearing it, so read the account's
+      // current mappings first.
+      const stored = new Map<string, Record<string, unknown>>();
       for (let from = 0; ; from += 1000) {
         const { data, error } = await supabase
           .from("name_mappings")
@@ -272,9 +288,27 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
           .order("unique_code")
           .range(from, from + 999);
         if (error) throw error;
-        for (const row of data || []) mappingByCode.set(row.unique_code, row);
+        for (const r of data || []) stored.set(r.unique_code, r);
         if (!data || data.length < 1000) break;
       }
+      const rowsToUpsert = parsed.rows.map((r) => {
+        const prev = stored.get(r.unique_code);
+        const out: Record<string, unknown> = { account_id: accountId, unique_code: r.unique_code };
+        for (const f of MAPPING_FIELDS) out[f] = r[f] ?? (prev?.[f] ?? null);
+        return out;
+      });
+
+      // One upsert is one statement, so the file is saved whole or not at all.
+      const { error: upsertError } = await supabase
+        .from("name_mappings")
+        .upsert(rowsToUpsert, { onConflict: "account_id,unique_code" });
+      if (upsertError) throw upsertError;
+      const upserted = rowsToUpsert.length;
+
+      // Re-match untagged creatives. Read every untagged creative (paged past the 1000-row cap)
+      // and every mapping for the account once, then update once per code.
+      const untagged = await loadUntaggedCreatives(supabase, accountId);
+      const mappingByCode = await loadMappingsByCode(supabase, accountId);
 
       const adIdsByCode = new Map<string, string[]>();
       const unmatched = new Set<string>();

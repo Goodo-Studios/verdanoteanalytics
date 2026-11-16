@@ -30,6 +30,8 @@ interface SyncSettingsSectionProps {
   syncCooldownMinutes: string;
   setSyncCooldownMinutes: (v: string) => void;
   onSaveCooldown: () => void;
+  /** False until settings have loaded; Save stays disabled so a placeholder is never saved. */
+  cooldownLoaded?: boolean;
   onSave: () => void;
   onApplyToAll: () => void;
   saving: boolean;
@@ -61,7 +63,7 @@ export function SyncSettingsSection({
   winnerKpiThreshold, setWinnerKpiThreshold,
   killScaleKpi, setKillScaleKpi, killScaleKpiDirection, setKillScaleKpiDirection,
   scaleThreshold, setScaleThreshold, killThreshold, setKillThreshold,
-  syncCooldownMinutes, setSyncCooldownMinutes, onSaveCooldown,
+  syncCooldownMinutes, setSyncCooldownMinutes, onSaveCooldown, cooldownLoaded = true,
   onSave, onApplyToAll, saving, showApplyAll,
   targetRoas, setTargetRoas, targetCpa, setTargetCpa,
   targetMonthlySpend, setTargetMonthlySpend,
@@ -111,7 +113,7 @@ export function SyncSettingsSection({
               ? "No cooldown — accounts sync back-to-back."
               : `~${syncCooldownMinutes} minute${Number(syncCooldownMinutes) !== 1 ? "s" : ""} wait after each account finishes before the next begins.`}
           </p>
-          <Button size="sm" variant="outline" onClick={onSaveCooldown} className="mt-1">
+          <Button size="sm" variant="outline" onClick={onSaveCooldown} disabled={!cooldownLoaded} className="mt-1">
             Save Cooldown
           </Button>
         </div>

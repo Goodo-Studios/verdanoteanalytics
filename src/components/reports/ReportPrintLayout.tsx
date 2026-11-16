@@ -2,12 +2,14 @@
  * Print-only layout for PDF export.
  * Hidden on screen via .print-only class — rendered in DOM but display:none until @media print.
  */
+import { formatReportRange } from "@/lib/dateRange";
 
 interface Props {
   report: any;
   previousReport?: any;
   topCreatives: any[];
-  tagBreakdown: { tag: string; avgRoas: number; count: number; spendPct: number }[];
+  /** null when the report was generated before snapshots were saved (audit 6.2). */
+  tagBreakdown: { tag: string; roas: number | null; count: number; spendPct: number }[] | null;
   highlights: string[];
 }
 
@@ -26,7 +28,7 @@ function fmtDelta(current: number | null, previous: number | null) {
 export function ReportPrintLayout({ report, previousReport, topCreatives, tagBreakdown, highlights }: Props) {
   const prev = previousReport;
   const dateRange = report.date_range_start && report.date_range_end
-    ? `${new Date(report.date_range_start).toLocaleDateString()} – ${new Date(report.date_range_end).toLocaleDateString()}`
+    ? formatReportRange(report.date_range_start, report.date_range_end)
     : report.date_range_days
       ? `Last ${report.date_range_days} days`
       : "";
@@ -112,13 +114,13 @@ export function ReportPrintLayout({ report, previousReport, topCreatives, tagBre
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: "9pt" }}>
                   <span style={{
-                    background: Number(c.roas) >= 2 ? "#dcfce7" : "#fef3c7",
-                    color: Number(c.roas) >= 2 ? "#166534" : "#92400e",
+                    background: c.roas !== null && Number(c.roas) >= 2 ? "#dcfce7" : "#fef3c7",
+                    color: c.roas !== null && Number(c.roas) >= 2 ? "#166534" : "#92400e",
                     padding: "2pt 6pt",
                     borderRadius: "3px",
                     fontWeight: 600,
                   }}>
-                    {Number(c.roas || 0).toFixed(2)}x ROAS
+                    {c.roas === null || c.roas === undefined ? "–" : `${Number(c.roas).toFixed(2)}x`} ROAS
                   </span>
                   <span style={{ color: "#666" }}>
                     {fmtCurrency(c.spend)} spend
@@ -131,14 +133,22 @@ export function ReportPrintLayout({ report, previousReport, topCreatives, tagBre
       )}
 
       {/* ═══════════════ FINAL PAGE — TAG BREAKDOWN ═══════════════ */}
-      {tagBreakdown.length > 0 && (
+      {tagBreakdown === null && (
+        <div className="print-page-break">
+          <h2 className="print-section-title">Tag Breakdown</h2>
+          <p style={{ fontSize: "10pt", color: "#666" }}>
+            The tag mix was not saved with this report, so it is left out rather than shown with today's numbers.
+          </p>
+        </div>
+      )}
+      {tagBreakdown && tagBreakdown.length > 0 && (
         <div className="print-page-break">
           <h2 className="print-section-title">Tag Breakdown</h2>
           <table className="print-tag-table">
             <thead>
               <tr>
                 <th>Tag / Hook Type</th>
-                <th style={{ textAlign: "right" }}>Avg ROAS</th>
+                <th style={{ textAlign: "right" }}>ROAS</th>
                 <th style={{ textAlign: "right" }}>Creatives</th>
                 <th style={{ textAlign: "right" }}>% of Spend</th>
               </tr>
@@ -148,7 +158,7 @@ export function ReportPrintLayout({ report, previousReport, topCreatives, tagBre
                 <tr key={row.tag}>
                   <td style={{ fontWeight: 500 }}>{row.tag}</td>
                   <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                    {row.avgRoas.toFixed(2)}x
+                    {row.roas === null ? "–" : `${row.roas.toFixed(2)}x`}
                   </td>
                   <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                     {row.count}

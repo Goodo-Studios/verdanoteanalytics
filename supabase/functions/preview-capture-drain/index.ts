@@ -102,12 +102,20 @@ export async function handler(req: Request, supabaseOverride?: SupabaseClient): 
 
   // ── SINGLE-FLIGHT for cron pokes (chain=0). Self-chain continuations (chain>0)
   //    ARE the running flight and skip the claim. Reuses the apify_drain_state
-  //    primitives (kept by the pivot migration). ──
-  let claimedLock = false;
+  //    primitives (kept by the pivot migration).
+  //    Audit 8.5: the flight owns the lock until a link stops chaining. A link that
+  //    fires a self-chain hands the lock to the next link instead of releasing it, and
+  //    each chain link refreshes running_since so a long chain outlives the 15-minute
+  //    stale timeout. Only the link that does not chain releases. ──
+  let ownsFlight = false;
+  let chained = false;
   if (isCronPoke) {
     const { data: got } = await db.rpc("claim_apify_drain_singleflight", { p_stale_seconds: 900 });
     if (got !== true) return json({ ok: true, status: "skipped", reason: "singleflight-active" });
-    claimedLock = true;
+    ownsFlight = true;
+  } else {
+    ownsFlight = true;
+    try { await db.rpc("touch_apify_drain_singleflight"); } catch { /* best effort */ }
   }
 
   try {
@@ -188,7 +196,6 @@ export async function handler(req: Request, supabaseOverride?: SupabaseClient): 
     // ── Self-chain while pending rows remain, unless quota halted or dry-run.
     //    Bounded by MAX_CHAIN. ──
     const pending = await pendingCount(db);
-    let chained = false;
     if (!dryRun && !quotaHalt && pending > 0 && chainDepth < MAX_CHAIN) {
       chained = true;
       fetch(`${SUPABASE_URL}/functions/v1/preview-capture-drain?chain=${chainDepth + 1}`, {
@@ -213,7 +220,7 @@ export async function handler(req: Request, supabaseOverride?: SupabaseClient): 
       results,
     });
   } finally {
-    if (claimedLock) {
+    if (ownsFlight && !chained) {
       try { await db.rpc("release_apify_drain_singleflight"); } catch { /* best effort */ }
     }
   }
