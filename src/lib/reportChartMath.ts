@@ -39,20 +39,5 @@ export interface TagRow extends MetricRowLike {
 }
 
 /** Report page tag breakdown: group ROAS = revenue / spend (null with no spend), share of spend. */
-export function tagBreakdown(rows: TagRow[], limit = 15) {
-  const groups = new Map<string, TagRow[]>();
-  for (const c of rows) {
-    const key = c.hook || c.style || c.ad_type || "Untagged";
-    const list = groups.get(key) ?? [];
-    list.push(c);
-    groups.set(key, list);
-  }
-  const total = computeBlendedMetrics(rows).spend;
-  return [...groups.entries()]
-    .map(([tag, items]) => {
-      const m = computeBlendedMetrics(items);
-      return { tag, roas: m.roas, count: items.length, spendPct: total > 0 ? (m.spend / total) * 100 : 0 };
-    })
-    .sort((a, b) => b.spendPct - a.spendPct)
-    .slice(0, limit);
-}
+// Same function the report snapshot saves at generation time (audit 6.2).
+export { tagMix as tagBreakdown } from "../../supabase/functions/_shared/report-snapshot.ts";

@@ -7,7 +7,8 @@ interface Props {
   report: any;
   previousReport?: any;
   topCreatives: any[];
-  tagBreakdown: { tag: string; roas: number | null; count: number; spendPct: number }[];
+  /** null when the report was generated before snapshots were saved (audit 6.2). */
+  tagBreakdown: { tag: string; roas: number | null; count: number; spendPct: number }[] | null;
   highlights: string[];
 }
 
@@ -112,13 +113,13 @@ export function ReportPrintLayout({ report, previousReport, topCreatives, tagBre
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: "9pt" }}>
                   <span style={{
-                    background: Number(c.roas) >= 2 ? "#dcfce7" : "#fef3c7",
-                    color: Number(c.roas) >= 2 ? "#166534" : "#92400e",
+                    background: c.roas !== null && Number(c.roas) >= 2 ? "#dcfce7" : "#fef3c7",
+                    color: c.roas !== null && Number(c.roas) >= 2 ? "#166534" : "#92400e",
                     padding: "2pt 6pt",
                     borderRadius: "3px",
                     fontWeight: 600,
                   }}>
-                    {Number(c.roas || 0).toFixed(2)}x ROAS
+                    {c.roas === null || c.roas === undefined ? "–" : `${Number(c.roas).toFixed(2)}x`} ROAS
                   </span>
                   <span style={{ color: "#666" }}>
                     {fmtCurrency(c.spend)} spend
@@ -131,7 +132,15 @@ export function ReportPrintLayout({ report, previousReport, topCreatives, tagBre
       )}
 
       {/* ═══════════════ FINAL PAGE — TAG BREAKDOWN ═══════════════ */}
-      {tagBreakdown.length > 0 && (
+      {tagBreakdown === null && (
+        <div className="print-page-break">
+          <h2 className="print-section-title">Tag Breakdown</h2>
+          <p style={{ fontSize: "10pt", color: "#666" }}>
+            The tag mix was not saved with this report, so it is left out rather than shown with today's numbers.
+          </p>
+        </div>
+      )}
+      {tagBreakdown && tagBreakdown.length > 0 && (
         <div className="print-page-break">
           <h2 className="print-section-title">Tag Breakdown</h2>
           <table className="print-tag-table">

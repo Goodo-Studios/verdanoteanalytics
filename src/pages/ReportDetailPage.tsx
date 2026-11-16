@@ -5,7 +5,7 @@ import { exportReportCSV } from "@/lib/csv";
 import { useReports, useSendReportToSlack } from "@/hooks/useReportsApi";
 import { useParams } from "react-router-dom";
 import { useRoleNavigate } from "@/hooks/useRolePath";
-import { useMemo, useState, useCallback, useEffect } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { fmtMetric } from "@/lib/formatters";
 import { SectionRenderer } from "@/components/reports/SectionRenderer";
 import { legacySectionsFromReport, ReportSection } from "@/lib/reportSections";
@@ -14,7 +14,7 @@ import { CreativeDetailModal } from "@/components/CreativeDetailModal";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { ReportPrintLayout } from "@/components/reports/ReportPrintLayout";
-import { tagBreakdown } from "@/lib/reportChartMath";
+import { reportPrintData } from "@/lib/reportSnapshot";
 
 const ReportDetailPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -44,34 +44,8 @@ const ReportDetailPage = () => {
     return undefined;
   }, [report, reports]);
 
-  // Fetch top creatives for print layout
-  const [topCreatives, setTopCreatives] = useState<any[]>([]);
-  const [tagRows, setTagRows] = useState<any[]>([]);
-
-  // useEffect for async side effects (not useMemo which is for pure computation)
-  useEffect(() => {
-    if (!report?.account_id) return;
-    supabase
-      .from("creatives")
-      .select("ad_id, ad_name, thumbnail_url, roas, spend, cpa, hook, style, ad_type")
-      .eq("account_id", report.account_id)
-      .order("spend", { ascending: false })
-      .limit(6)
-      .then(({ data }) => setTopCreatives(data || []));
-
-    supabase
-      .from("creatives")
-      .select("hook, style, ad_type, spend, purchase_value")
-      .eq("account_id", report.account_id)
-      .not("spend", "is", null)
-      .gt("spend", 0)
-      .limit(500)
-      .then(({ data }) => {
-        if (!data) return;
-        // Group ROAS = revenue / spend, not a mean of creative ROAS (audit 6.1).
-        setTagRows(tagBreakdown(data));
-      });
-  }, [report?.account_id]);
+  // Exports use the report's own saved data, never today's creatives (audit 6.2).
+  const printData = useMemo(() => (report ? reportPrintData(report) : null), [report]);
 
   const handleExportPDF = useCallback(() => {
     window.print();
@@ -138,8 +112,8 @@ const ReportDetailPage = () => {
       <ReportPrintLayout
         report={report}
         previousReport={prev}
-        topCreatives={topCreatives}
-        tagBreakdown={tagRows}
+        topCreatives={printData?.topCreatives ?? []}
+        tagBreakdown={printData?.tagRows ?? null}
         highlights={highlights}
       />
 
