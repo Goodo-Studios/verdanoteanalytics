@@ -101,6 +101,43 @@ export function computeDailyWindowDays(opts: {
 
 // US-008: Event-driven media cache enqueue helper.
 //
+// The slice of the Supabase client that writeScoreHistory uses (kept narrow so tests can fake it).
+export interface ScoreHistoryClient {
+  from(table: "score_history"): {
+    upsert(
+      rows: Record<string, unknown>[],
+      options: { onConflict: string; ignoreDuplicates: boolean },
+    ): PromiseLike<{ error: { message: string } | null }>;
+  };
+}
+
+// Audit 8.4 part 2: Phase 5 can run again for the same sync (a takeover after a stalled
+// heartbeat, or a continuation that re-enters the phase). Each snapshot carries the sync run
+// id and the write skips (ad_id, sync_log_id) pairs that already exist, so a repeat adds
+// nothing. Writes in chunks of 500 and stops between chunks when the phase budget runs out.
+// Returns how many rows were sent.
+export async function writeScoreHistory(
+  client: ScoreHistoryClient,
+  scoreRows: Record<string, unknown>[],
+  syncLogId: number,
+  isTimedOut: () => boolean,
+): Promise<number> {
+  let sent = 0;
+  for (let i = 0; i < scoreRows.length; i += 500) {
+    if (isTimedOut()) {
+      console.log("  Score snapshots paused — budget exceeded");
+      break;
+    }
+    const chunk = scoreRows.slice(i, i + 500).map((r) => ({ ...r, sync_log_id: syncLogId }));
+    const { error } = await client
+      .from("score_history")
+      .upsert(chunk, { onConflict: "ad_id,sync_log_id", ignoreDuplicates: true });
+    if (error) console.error("Score history insert error (non-fatal):", error.message);
+    sent += chunk.length;
+  }
+  return sent;
+}
+
 // Given the ad_ids in a Phase-1 upsert batch and the set of ad_ids that ALREADY
 // existed in public.creatives before this run, return the ad_ids that are NEWLY
 // inserted this run — the only ones that should be enqueued for media caching.
@@ -1923,13 +1960,8 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
               });
             }
 
-            for (let i = 0; i < scoreRows.length; i += 500) {
-              if (isTimedOut()) { console.log("  Score snapshots paused — budget exceeded"); break; }
-              const chunk = scoreRows.slice(i, i + 500);
-              const { error: scoreErr } = await supabase.from("score_history").insert(chunk);
-              if (scoreErr) console.error("Score history insert error (non-fatal):", scoreErr.message);
-            }
-            console.log(`  Recorded score snapshots for ${scoreRows.length} creatives`);
+            const sent = await writeScoreHistory(supabase, scoreRows, syncLog.id, isTimedOut);
+            console.log(`  Recorded score snapshots for ${sent} of ${scoreRows.length} creatives`);
           }
         } catch (scoreHistoryErr) {
           console.error("Score history error (non-fatal):", scoreHistoryErr);

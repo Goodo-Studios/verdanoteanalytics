@@ -3229,6 +3229,7 @@ export type Database = {
           roas_component: number | null
           score: number
           spend_efficiency_component: number | null
+          sync_log_id: number | null
         }
         Insert: {
           account_id: string
@@ -3242,6 +3243,7 @@ export type Database = {
           roas_component?: number | null
           score: number
           spend_efficiency_component?: number | null
+          sync_log_id?: number | null
         }
         Update: {
           account_id?: string
@@ -3255,6 +3257,7 @@ export type Database = {
           roas_component?: number | null
           score?: number
           spend_efficiency_component?: number | null
+          sync_log_id?: number | null
         }
         Relationships: []
       }
