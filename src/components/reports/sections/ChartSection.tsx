@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MultiLineTrendChart, type TrendLine } from "@/components/MultiLineTrendChart";
 import { CHART_SERIES } from "@/lib/chartTheme";
+import { dailySeries, type DailyRow } from "@/lib/reportChartMath";
 
 interface ChartSectionProps {
   config: Record<string, any>;
@@ -28,34 +29,31 @@ export function ChartSection({ config, report, isEditing, onConfigChange }: Char
     queryKey: ["report-chart-data", report.account_id, report.date_range_start, report.date_range_end],
     queryFn: async () => {
       if (!report.date_range_start || !report.date_range_end) return [];
-      let q = supabase
-        .from("creative_daily_metrics")
-        .select("date, spend, roas, cpa, ctr")
-        .gte("date", report.date_range_start)
-        .lte("date", report.date_range_end)
-        .order("date");
-      if (report.account_id) q = q.eq("account_id", report.account_id);
-      const { data } = await q;
-      return data || [];
+      // Counts, not stored ratios, and paged past the 1,000-row cap (audit 6.1).
+      const rows: DailyRow[] = [];
+      for (let from = 0; ; from += 1000) {
+        let q = supabase
+          .from("creative_daily_metrics")
+          .select("date, spend, purchase_value, purchases, clicks, impressions")
+          .gte("date", report.date_range_start)
+          .lte("date", report.date_range_end)
+          .order("date")
+          .order("ad_id");
+        if (report.account_id) q = q.eq("account_id", report.account_id);
+        const { data, error } = await q.range(from, from + 999);
+        if (error) throw error;
+        rows.push(...((data || []) as DailyRow[]));
+        if (!data || data.length < 1000) break;
+      }
+      return rows;
     },
     enabled: !!report.date_range_start && !!report.date_range_end,
   });
 
   const chartData = useMemo(() => {
     if (!dailyData?.length) return { dates: [] as string[], values: [] as number[] };
-    const byDate = new Map<string, number[]>();
-    for (const row of dailyData) {
-      const vals = byDate.get(row.date) || [];
-      vals.push(Number((row as any)[metric]) || 0);
-      byDate.set(row.date, vals);
-    }
-    const dates = [...byDate.keys()].sort();
-    const values = dates.map((d) => {
-      const vals = byDate.get(d)!;
-      if (metric === "spend") return vals.reduce((s, v) => s + v, 0);
-      return vals.reduce((s, v) => s + v, 0) / vals.length;
-    });
-    return { dates, values };
+    // Each day's totals divided out (audit 6.1); a day with no denominator is a gap.
+    return dailySeries(dailyData, metric);
   }, [dailyData, metric]);
 
   const trendLines: TrendLine[] = useMemo(

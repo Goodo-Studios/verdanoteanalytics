@@ -14,6 +14,7 @@ import { CreativeDetailModal } from "@/components/CreativeDetailModal";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { ReportPrintLayout } from "@/components/reports/ReportPrintLayout";
+import { tagBreakdown } from "@/lib/reportChartMath";
 
 const ReportDetailPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -45,7 +46,7 @@ const ReportDetailPage = () => {
 
   // Fetch top creatives for print layout
   const [topCreatives, setTopCreatives] = useState<any[]>([]);
-  const [tagBreakdown, setTagBreakdown] = useState<any[]>([]);
+  const [tagRows, setTagRows] = useState<any[]>([]);
 
   // useEffect for async side effects (not useMemo which is for pure computation)
   useEffect(() => {
@@ -60,33 +61,15 @@ const ReportDetailPage = () => {
 
     supabase
       .from("creatives")
-      .select("hook, style, ad_type, roas, spend")
+      .select("hook, style, ad_type, spend, purchase_value")
       .eq("account_id", report.account_id)
       .not("spend", "is", null)
       .gt("spend", 0)
       .limit(500)
       .then(({ data }) => {
         if (!data) return;
-        const byHook = new Map<string, { count: number; totalRoas: number; totalSpend: number }>();
-        const totalSpend = data.reduce((s, c) => s + (Number(c.spend) || 0), 0);
-        for (const c of data) {
-          const key = c.hook || c.style || c.ad_type || "Untagged";
-          const existing = byHook.get(key) || { count: 0, totalRoas: 0, totalSpend: 0 };
-          existing.count++;
-          existing.totalRoas += Number(c.roas) || 0;
-          existing.totalSpend += Number(c.spend) || 0;
-          byHook.set(key, existing);
-        }
-        const rows = [...byHook.entries()]
-          .map(([tag, d]) => ({
-            tag,
-            avgRoas: d.count > 0 ? d.totalRoas / d.count : 0,
-            count: d.count,
-            spendPct: totalSpend > 0 ? (d.totalSpend / totalSpend) * 100 : 0,
-          }))
-          .sort((a, b) => b.spendPct - a.spendPct)
-          .slice(0, 15);
-        setTagBreakdown(rows);
+        // Group ROAS = revenue / spend, not a mean of creative ROAS (audit 6.1).
+        setTagRows(tagBreakdown(data));
       });
   }, [report?.account_id]);
 
@@ -156,7 +139,7 @@ const ReportDetailPage = () => {
         report={report}
         previousReport={prev}
         topCreatives={topCreatives}
-        tagBreakdown={tagBreakdown}
+        tagBreakdown={tagRows}
         highlights={highlights}
       />
 
