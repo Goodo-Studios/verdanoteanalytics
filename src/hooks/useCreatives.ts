@@ -31,10 +31,18 @@ export function useCreativeFilters() {
   return useQuery({ queryKey: ["creative-filters"], queryFn: () => apiFetch("creatives", "filters") });
 }
 
+/**
+ * Path for a tag save. With a single working account the server refuses a creative from another
+ * account (audit 3.2); "all" or no account leaves the save unscoped.
+ */
+export function creativeUpdatePath(adId: string, accountId?: string | null): string {
+  return accountId && accountId !== "all" ? `${adId}?account_id=${encodeURIComponent(accountId)}` : adId;
+}
+
 export function useUpdateCreative() {
   return useMutationWithToast({
-    mutationFn: ({ adId, updates }: { adId: string; updates: Record<string, any> }) =>
-      apiFetch("creatives", adId, { method: "PUT", body: JSON.stringify(updates) }).then(withDisplayTags),
+    mutationFn: ({ adId, updates, accountId }: { adId: string; updates: Record<string, any>; accountId?: string | null }) =>
+      apiFetch("creatives", creativeUpdatePath(adId, accountId), { method: "PUT", body: JSON.stringify(updates) }).then(withDisplayTags),
     invalidateKeys: [["creatives"], ["all-creatives"], ["accounts"]],
     successMessage: "Tags updated",
     errorMessage: "Error updating tags",

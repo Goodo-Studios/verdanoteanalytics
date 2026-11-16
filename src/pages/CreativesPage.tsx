@@ -30,6 +30,7 @@ import { useCreativesPageState } from "@/hooks/useCreativesPageState";
 import { useAuth } from "@/contexts/AuthContext";
 import { useClientPreview } from "@/hooks/useClientPreviewMode";
 import { useAccountContext } from "@/contexts/AccountContext";
+import { useScopedSelection } from "@/hooks/useScopedSelection";
 import { SyncStatusBanner } from "@/components/SyncStatusBanner";
 import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
 import { useWoWTrends } from "@/hooks/useWoWTrends";
@@ -75,7 +76,8 @@ const CreativesPage = () => {
   const [platformFilter, setPlatformFilter] = useState("__all__");
 
   // Bulk selection
-  const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
+  // Belongs to the selected account: switching accounts empties it (audit 3.2).
+  const [bulkSelectedIds, setBulkSelectedIds] = useScopedSelection(selectedAccountId);
   const [bulkTagOpen, setBulkTagOpen] = useState(false);
   const [syncFromNameOpen, setSyncFromNameOpen] = useState(false);
   const [addToReportOpen, setAddToReportOpen] = useState(false);
@@ -423,6 +425,7 @@ const CreativesPage = () => {
             open={bulkTagOpen}
             onClose={() => { setBulkTagOpen(false); setBulkSelectedIds(new Set()); }}
             adIds={[...bulkSelectedIds]}
+            accountId={selectedAccountId}
           />
           <SyncFromNameDialog
             open={syncFromNameOpen}

@@ -18,11 +18,13 @@ interface BulkTagModalProps {
   open: boolean;
   onClose: () => void;
   adIds: string[];
+  /** The account the user is working in; the server refuses creatives from another one. */
+  accountId?: string | null;
 }
 
 const EMPTY = "__empty__";
 
-export function BulkTagModal({ open, onClose, adIds }: BulkTagModalProps) {
+export function BulkTagModal({ open, onClose, adIds, accountId }: BulkTagModalProps) {
   const updateCreative = useUpdateCreative();
   const [tags, setTags] = useState({
     ad_type: EMPTY, person: EMPTY, style: EMPTY, product: "", hook: "", theme: "",
@@ -57,7 +59,7 @@ export function BulkTagModal({ open, onClose, adIds }: BulkTagModalProps) {
 
     setSaving(true);
     try {
-      const results = await Promise.allSettled(adIds.map(adId => updateCreative.mutateAsync({ adId, updates })));
+      const results = await Promise.allSettled(adIds.map(adId => updateCreative.mutateAsync({ adId, updates, accountId })));
       const failed = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
       if (failed.length === 0) {
         toast.success(`Tags applied to ${adIds.length} creatives`);
