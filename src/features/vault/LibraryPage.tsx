@@ -17,6 +17,17 @@ import {
   type VaultStatusFilter,
 } from "./components/FilterToolbar";
 import { useItemStatus } from "./hooks/useItemStatus";
+import { deleteVaultItems, vaultDeleteMessage, type VaultDeleteResult } from "./deleteVaultItems";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   isImageFilePath,
   vaultListPollInterval,
@@ -116,41 +127,36 @@ export default function LibraryPage() {
     setConfirmDelete(false);
   };
 
+  const afterDelete = (result: VaultDeleteResult) => {
+    queryClient.invalidateQueries({ queryKey: ["vault-items"] });
+    queryClient.invalidateQueries({ queryKey: ["vault-featured"] });
+    queryClient.invalidateQueries({ queryKey: ["vault-tags"] });
+    const message = vaultDeleteMessage(result);
+    if (message.ok) toast.success(message.text);
+    else toast.error(message.text);
+  };
+
   const { mutate: bulkDelete, isPending: isDeleting } = useMutation({
-    mutationFn: async (ids: string[]) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await supabase
-        .from("inspiration_items")
-        .delete()
-        .in("id", ids);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["vault-items"] });
-      queryClient.invalidateQueries({ queryKey: ["vault-featured"] });
-      queryClient.invalidateQueries({ queryKey: ["vault-tags"] });
+    mutationFn: (ids: string[]) => deleteVaultItems(ids),
+    onSuccess: (result) => {
       clearSelection();
-      toast.success("Deleted");
+      afterDelete(result);
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Delete failed"),
   });
 
-  const { mutate: deleteOne } = useMutation({
-    mutationFn: async (id: string) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await supabase
-        .from("inspiration_items")
-        .delete()
-        .eq("id", id);
-      if (error) throw error;
+  // Single delete from a card's menu asks first, like bulk delete (audit 4.6).
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const { mutate: deleteOne, isPending: isDeletingOne } = useMutation({
+    mutationFn: (id: string) => deleteVaultItems([id]),
+    onSuccess: (result) => {
+      setPendingDeleteId(null);
+      afterDelete(result);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["vault-items"] });
-      queryClient.invalidateQueries({ queryKey: ["vault-featured"] });
-      queryClient.invalidateQueries({ queryKey: ["vault-tags"] });
-      toast.success("Deleted");
+    onError: (err) => {
+      setPendingDeleteId(null);
+      toast.error(err instanceof Error ? err.message : "Delete failed");
     },
-    onError: (err) => toast.error(err instanceof Error ? err.message : "Delete failed"),
   });
 
   const { mutate: toggleFeatured } = useMutation({
@@ -415,7 +421,7 @@ export default function LibraryPage() {
         selected={selectedIds.has(item.id)}
         onSelect={toggleSelect}
         onToggleFeatured={(id, val) => toggleFeatured({ id, featured: val })}
-        onDelete={(id) => deleteOne(id)}
+        onDelete={(id) => setPendingDeleteId(id)}
         useProvidedSignedUrls
         // A path already in the (possibly placeholder) map keeps its URL even while the next
         // batch is signing; only paths with no URL yet wait or fall back.
@@ -582,6 +588,36 @@ export default function LibraryPage() {
           )}
         </div>
       )}
+
+      <AlertDialog
+        open={pendingDeleteId !== null}
+        onOpenChange={(open) => {
+          if (!open && !isDeletingOne) setPendingDeleteId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this item permanently?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The saved ad, its transcript and its analysis are removed. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingOne}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isDeletingOne}
+              onClick={(e) => {
+                e.preventDefault();
+                if (pendingDeleteId) deleteOne(pendingDeleteId);
+              }}
+            >
+              {isDeletingOne && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              Yes, delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
