@@ -21,9 +21,17 @@ export function useSync() {
   });
 }
 
-export function useCancelSync() {
+/**
+ * Cancel running and queued syncs. With an account id only that account's syncs are
+ * cancelled; without one (the all-accounts view) every active sync is (audit 5.4).
+ */
+export function useCancelSync(accountId?: string) {
   return useMutationWithToast({
-    mutationFn: () => apiFetch("sync", "cancel", { method: "POST" }),
+    mutationFn: () =>
+      apiFetch("sync", "cancel", {
+        method: "POST",
+        body: JSON.stringify(accountId && accountId !== "all" ? { account_id: accountId } : {}),
+      }),
     invalidateKeys: [["sync-history"]],
     successMessage: "Sync cancelled",
     errorMessage: "Failed to cancel sync",

@@ -405,6 +405,47 @@ export function countRealErrors(errs: { message?: string }[]): number {
   return errs.filter((e) => !isInformationalSyncNote(e.message || "")).length;
 }
 
+/**
+ * Write a sync_logs row only while it is still running (audit 5.4). A sync the user
+ * cancelled mid-phase used to be set back to "running" by its own next save, so it
+ * came back. Returns true when the row was updated.
+ */
+// deno-lint-ignore no-explicit-any
+export async function updateRunningSyncLog(supabase: any, syncLogId: string, patch: Record<string, unknown>): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("sync_logs")
+    .update(patch)
+    .eq("id", syncLogId)
+    .eq("status", "running")
+    .select("id");
+  if (error) throw error;
+  return Array.isArray(data) && data.length > 0;
+}
+
+/**
+ * Cancel running and queued syncs (audit 5.4). With an account id, only that
+ * account's syncs are cancelled; it used to cancel every account's. With null, every
+ * active sync is cancelled (the staff "all accounts" view). The update is filtered by
+ * status again so a sync that finished in the meantime is never marked cancelled.
+ * Returns the number cancelled.
+ */
+// deno-lint-ignore no-explicit-any
+export async function cancelActiveSyncs(supabase: any, accountId: string | null): Promise<number> {
+  const now = new Date().toISOString();
+  let query = supabase
+    .from("sync_logs")
+    .update({
+      status: "cancelled",
+      api_errors: JSON.stringify([{ timestamp: now, message: "Cancelled by user" }]),
+      completed_at: now,
+    })
+    .in("status", ["running", "queued"]);
+  if (accountId) query = query.eq("account_id", accountId);
+  const { data, error } = await query.select("id");
+  if (error) throw error;
+  return Array.isArray(data) ? data.length : 0;
+}
+
 export interface MetaFetchCtx {
   metaApiCalls: number;
   apiErrors: { timestamp: string; message: string }[];
@@ -891,7 +932,8 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     // Never persist the Meta access_token embedded in pagination URLs (sync_logs is client-readable).
     const merged = sanitizeSyncState({ ...serializableState, ...newState, last_activity: new Date().toISOString() });
     try {
-      await supabase.from("sync_logs").update({
+      // Only while still running: a cancel during this phase must stick (audit 5.4).
+      await updateRunningSyncLog(supabase, syncLog.id, {
         current_phase: nextPhase,
         sync_state: merged,
         status,
@@ -905,13 +947,13 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         api_errors: JSON.stringify([...JSON.parse(syncLog.api_errors || "[]"), ...ctx.apiErrors]),
         duration_ms: (syncLog.duration_ms || 0) + (Date.now() - startMs),
         ...(status !== "running" ? { completed_at: new Date().toISOString() } : {}),
-      }).eq("id", syncLog.id);
+      });
     } catch (saveErr) {
       console.error("saveState failed:", saveErr);
       try {
-        await supabase.from("sync_logs").update({
+        await updateRunningSyncLog(supabase, syncLog.id, {
           sync_state: { ...state, last_activity: new Date().toISOString(), save_error: String(saveErr) },
-        }).eq("id", syncLog.id);
+        });
       } catch (_) { /* truly lost */ }
     }
 
@@ -2281,17 +2323,14 @@ const handler = async (req: Request) => {
 
     // ─── POST /sync/cancel ─────────────────────────────────────────────
     if (req.method === "POST" && path === "cancel") {
-      const { data: activeSyncs } = await supabase.from("sync_logs").select("id, started_at").in("status", ["running", "queued"]);
-      if (!activeSyncs?.length) {
+      // Scoped to the account asked for (audit 5.4); no account (or "all") cancels every active sync.
+      const cancelBody = await req.json().catch(() => ({})) as { account_id?: string };
+      const cancelAccount = cancelBody.account_id && cancelBody.account_id !== "all" ? cancelBody.account_id : null;
+      const cancelled = await cancelActiveSyncs(supabase, cancelAccount);
+      if (cancelled === 0) {
         return new Response(JSON.stringify({ message: "No running sync to cancel" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
-      const now = new Date().toISOString();
-      await supabase.from("sync_logs").update({
-        status: "cancelled",
-        api_errors: JSON.stringify([{ timestamp: now, message: "Cancelled by user" }]),
-        completed_at: now,
-      }).in("id", activeSyncs.map((s: any) => s.id));
-      return new Response(JSON.stringify({ cancelled: activeSyncs.length }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ cancelled }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ─── POST /sync/continue ───────────────────────────────────────────

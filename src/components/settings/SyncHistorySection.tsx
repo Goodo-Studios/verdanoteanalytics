@@ -118,7 +118,7 @@ export function SyncHistorySection({ accountId }: { accountId?: string }) {
   const { data: accounts } = useAccounts();
   const { data: logs, isLoading } = useSyncHistory(accountId);
   const syncMut = useSync();
-  const cancelMut = useCancelSync();
+  const cancelMut = useCancelSync(accountId);
   const isSyncing = useIsSyncing();
   const prevRunningIdsRef = useRef<Set<string>>(new Set());
 
