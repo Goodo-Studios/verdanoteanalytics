@@ -1,7 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { digestWeeks, loadWeekTotals } from "../_shared/digest-totals.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { isStaffUser } from "../_shared/account-access.ts";
-import { type DigestRow, digestWindows, percentChange, summarizeWeek, topCreativeOfWeek } from "./digest-math.ts";
+import { type DigestRow, digestWindows, percentChange, topCreativeOfWeek } from "./digest-math.ts";
 
 // Daily rows for one account and date window, paged past the 1,000-row cap.
 // deno-lint-ignore no-explicit-any
@@ -118,8 +119,9 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
       );
     }
 
-    // This week = the last 7 full days, last week = the 7 before (audit 6.1).
-    const { thisWeek: thisWin, lastWeek: lastWin } = digestWindows(new Date());
+    // This week = the last 7 full days, last week = the 7 before (audit 6.1 and 6.5).
+    const { thisWeek: thisWin } = digestWindows(new Date());
+    const weeks = digestWeeks(new Date());
     const fmtDay = (iso: string, withYear = false) =>
       new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
         month: "short", day: "numeric", timeZone: "UTC", ...(withYear ? { year: "numeric" } : {}),
@@ -129,16 +131,17 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
     // Build per-account summaries
     const accountSections: string[] = [];
     for (const account of accounts) {
-      const thisWeekRows = await fetchDailyRows(admin, account.id, thisWin.start, thisWin.end);
-      const lastWeekRows = await fetchDailyRows(admin, account.id, lastWin.start, lastWin.end);
-
-      // ROAS = total revenue / total spend, never an average of daily ROAS.
-      const thisWeekSum = summarizeWeek(thisWeekRows);
-      const lastWeekSum = summarizeWeek(lastWeekRows);
+      // Totals are summed in the database over every row (audit 7.3).
+      // ROAS = total revenue / total spend, never an average of daily ROAS; null with no spend.
+      const thisTotals = await loadWeekTotals(admin, account.id, ...weeks.thisWeek);
+      const lastTotals = await loadWeekTotals(admin, account.id, ...weeks.lastWeek);
+      const thisWeekSum = { spend: thisTotals.spend, roas: thisTotals.spend > 0 ? thisTotals.roas : null };
+      const lastWeekSum = { spend: lastTotals.spend, roas: lastTotals.spend > 0 ? lastTotals.roas : null };
       const thisWeekSpend = thisWeekSum.spend;
       const lastWeekSpend = lastWeekSum.spend;
 
       // Top creative: best ROAS this week among ads over the spend floor.
+      const thisWeekRows = await fetchDailyRows(admin, account.id, thisWin.start, thisWin.end);
       const top = topCreativeOfWeek(thisWeekRows);
       let topCreative: { ad_name: string | null; thumbnail_url: string | null; roas: number } | null = null;
       if (top) {

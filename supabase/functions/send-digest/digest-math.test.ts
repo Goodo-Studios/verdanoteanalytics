@@ -57,7 +57,9 @@ Deno.test("change from last week is null when last week has nothing to compare",
 
 Deno.test("send-digest uses the shared week math", async () => {
   const src = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
-  for (const name of ["digestWindows(", "summarizeWeek(", "topCreativeOfWeek("]) {
+  // Week totals are summed in the database (audit 7.3, loadWeekTotals); the top creative still
+  // comes from this week's rows.
+  for (const name of ["digestWindows(", "loadWeekTotals(", "topCreativeOfWeek("]) {
     assert(src.includes(name), `send-digest must call ${name}`);
   }
   assertEquals(/order\("roas"/.test(src), false, "top creative must not come from lifetime ROAS");
