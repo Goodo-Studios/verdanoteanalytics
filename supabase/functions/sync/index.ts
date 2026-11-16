@@ -506,7 +506,7 @@ export async function metaFetch(
 
 // ─── Metrics Parsing Helper ──────────────────────────────────────────────────
 
-function parseInsightsRow(row: any, optimizationGoal?: string) {
+export function parseInsightsRow(row: any, optimizationGoal?: string) {
   const spend = parseFloat(row.spend || "0");
   const roas = row.purchase_roas?.[0]?.value ? parseFloat(row.purchase_roas[0].value) : 0;
   const ctr = parseFloat(row.ctr || "0");
