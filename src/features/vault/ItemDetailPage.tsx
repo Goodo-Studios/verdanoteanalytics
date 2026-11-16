@@ -33,6 +33,7 @@ import { VaultShareControl } from "./components/VaultShareControl";
 import { safeExternalHref } from "@/lib/safe-url";
 import { useServerDraft } from "./hooks/useServerDraft";
 import { newestFirst } from "./newestFirst";
+import type { TablesUpdate } from "@/integrations/supabase/types";
 
 interface TranscriptRow {
   id: string;
@@ -266,7 +267,8 @@ export default function ItemDetailPage() {
     }) => {
       const { error } = await supabase
         .from("inspiration_items")
-        .update({ [field]: value })
+        // field is one of the two analysis columns (typed above).
+        .update({ [field]: value } as TablesUpdate<"inspiration_items">)
         .eq("id", id!);
       if (error) throw error;
     },
@@ -289,7 +291,7 @@ export default function ItemDetailPage() {
     }) => {
       const { error } = await supabase
         .from("inspiration_frameworks")
-        .update({ [field]: value })
+        .update({ [field]: value } as TablesUpdate<"inspiration_frameworks">)
         .eq("id", frameworkId);
       if (error) throw error;
     },
@@ -310,7 +312,8 @@ export default function ItemDetailPage() {
     }) => {
       const { error } = await supabase
         .from("inspiration_items")
-        .update({ [field]: value })
+        // field is one of the three hook flags (typed above).
+        .update({ [field]: value } as TablesUpdate<"inspiration_items">)
         .eq("id", id!);
       if (error) throw error;
     },
