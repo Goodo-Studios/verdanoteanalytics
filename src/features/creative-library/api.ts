@@ -8,6 +8,7 @@
 import { apiFetch } from "@/lib/api";
 import { supabase } from "@/integrations/supabase/client";
 import type { AccountTaxonomy } from "@/lib/tagOptions";
+import type { TablesUpdate } from "@/integrations/supabase/types";
 
 /** One row from get_creative_library (a live creative + window perf + trend). */
 export interface LibraryCreative {
@@ -189,7 +190,7 @@ export async function saveGovernedTags(
   adId: string,
   patch: GovernedTagPatch,
 ): Promise<void> {
-  const update: Record<string, string | null> = {};
+  const update: TablesUpdate<"creatives"> = {};
   if ("angle_id" in patch) update.angle_id = patch.angle_id ?? null;
   if ("creative_lane" in patch) update.creative_lane = patch.creative_lane ?? null;
   if ("creative_type" in patch) update.creative_type = patch.creative_type ?? null;

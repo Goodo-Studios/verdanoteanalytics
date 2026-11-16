@@ -10,6 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Clock, RefreshCw, Loader2, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { TablesUpdate } from "@/integrations/supabase/types";
 
 interface SyncScheduleSectionProps {
   accounts: any[];
@@ -54,7 +55,7 @@ export function SyncScheduleSection({ accounts, onSyncAll, onSyncAccount, isSync
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState<string | null>(null);
 
-  const handleUpdate = useCallback(async (accountId: string, updates: Record<string, any>) => {
+  const handleUpdate = useCallback(async (accountId: string, updates: TablesUpdate<"ad_accounts">) => {
     setSaving(accountId);
     try {
       // Calculate next_sync_at if frequency changed

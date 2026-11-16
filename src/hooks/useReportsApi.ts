@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useMutationWithToast } from "./useMutationWithToast";
 import { supabase } from "@/integrations/supabase/client";
+import type { TablesUpdate } from "@/integrations/supabase/types";
 
 export function useReports() {
   return useQuery({ queryKey: ["reports"], queryFn: () => apiFetch("reports") });
@@ -68,7 +69,7 @@ export function useUpsertReportSchedule() {
 export function useUpdateReportSections() {
   return useMutationWithToast({
     mutationFn: async ({ id, sections, report_name }: { id: string; sections: any[]; report_name?: string }) => {
-      const update: Record<string, any> = { sections };
+      const update: TablesUpdate<"reports"> = { sections: sections as TablesUpdate<"reports">["sections"] };
       if (report_name) update.report_name = report_name;
       const { data, error } = await supabase.from("reports").update(update).eq("id", id).select().single();
       if (error) throw error;
