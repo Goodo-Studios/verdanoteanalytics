@@ -174,6 +174,17 @@ export interface GovernedTagPatch {
  * the keys present in `patch` are written, so a partial edit never clobbers a
  * sibling axis; an explicit null clears a dimension (the "Untagged" choice).
  */
+/** The creative's current Theme/Persona reference, read when the tag editor opens (audit 5.1). */
+export async function fetchCreativeAngleId(adId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("creatives")
+    .select("angle_id")
+    .eq("ad_id", adId)
+    .maybeSingle();
+  if (error) throw new Error(error.message ?? "Failed to load the current Theme/Persona");
+  return (data as { angle_id: string | null } | null)?.angle_id ?? null;
+}
+
 export async function saveGovernedTags(
   adId: string,
   patch: GovernedTagPatch,
