@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { format, startOfMonth } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import { priorPeriodRange } from "@/lib/dateRange";
+import { monthToDateRange } from "@/lib/monthPacing";
 
 type AccountLike = { id: string };
 
@@ -117,6 +118,29 @@ export function useAgencyDashboardData(accounts: AccountLike[], dateFrom?: strin
                          : 0,
       }));
 
+      // Real month to date for the MTD tile and pacing (audit 6.5): the picked range is often
+      // not the calendar month, so read the month separately unless they are the same.
+      const mtd = monthToDateRange();
+      let mtdSpendByAccount = perAccountSpend;
+      if (mtd.from !== pFrom || mtd.to !== pTo) {
+        const mtdPrior = priorPeriodRange(mtd.from, mtd.to);
+        const { data: mtdRows, error: mtdError } = await supabase.rpc("get_agency_dashboard_summary", {
+          p_from:       mtd.from,
+          p_to:         mtd.to,
+          p_prior_from: mtdPrior.dateFrom,
+          p_prior_to:   mtdPrior.dateTo,
+        });
+        if (mtdError) throw mtdError;
+        mtdSpendByAccount = new Map<string, number>();
+        for (const row of mtdRows ?? []) {
+          if (!mtdSpendByAccount.has(row.account_id)) {
+            mtdSpendByAccount.set(row.account_id, Number(row.period_spend) || 0);
+          }
+        }
+      }
+      const monthToDateSpend = Array.from(mtdSpendByAccount.values()).reduce((s, v) => s + v, 0);
+
+      // Spend and revenue for the picked range.
       const mtdSpend   = Array.from(perAccountSpend.values()).reduce((s, v) => s + v, 0);
       const mtdRevenue = Array.from(perAccountRevenue.values()).reduce((s, v) => s + v, 0);
 
@@ -126,8 +150,10 @@ export function useAgencyDashboardData(accounts: AccountLike[], dateFrom?: strin
         perAccountRevenue,
         priorMonthSpend,
         activeByAccount,
+        mtdSpendByAccount,
         portfolio: {
           mtdSpend,
+          monthToDateSpend,
           portfolioRoas:   mtdSpend > 0 ? mtdRevenue / mtdSpend : 0,
           activeCreatives: creatives.length,
         },

@@ -12,6 +12,7 @@ import { useWoWTrends } from "@/hooks/useWoWTrends";
 import { useSync } from "@/hooks/useSyncApi";
 import { computeFatigue } from "@/lib/fatigueScore";
 import { selectWinners } from "@/lib/winnerSelection";
+import { paceVsTarget } from "@/lib/monthPacing";
 
 import { cn } from "@/lib/utils";
 import { fmt$, fmtSignedPct } from "@/lib/formatters";
@@ -36,6 +37,7 @@ export default function AgencyDashboardPage() {
   const perAccountRevenue = agencyData?.perAccountRevenue ?? new Map<string, number>();
   const priorMonthSpend = agencyData?.priorMonthSpend ?? new Map<string, number>();
   const activeByAccount = agencyData?.activeByAccount ?? new Map<string, number>();
+  const mtdSpendByAccount = agencyData?.mtdSpendByAccount ?? new Map<string, number>();
 
   const portfolioMetrics = useMemo(() => {
     const activeCreatives = creativesArr.filter((c: any) => (Number(c.spend) || 0) > 0);
@@ -59,7 +61,8 @@ export default function AgencyDashboardPage() {
     const winRate = activeCreatives.length > 0 ? winnerCount / activeCreatives.length : 0;
 
     return {
-      mtdSpend: agencyData?.portfolio.mtdSpend ?? 0,
+      // Real calendar month to date, not the picked range (audit 6.5).
+      mtdSpend: agencyData?.portfolio.monthToDateSpend ?? 0,
       portfolioRoas: agencyData?.portfolio.portfolioRoas ?? 0,
       activeCreatives: agencyData?.portfolio.activeCreatives ?? 0,
       winRate,
@@ -117,6 +120,7 @@ export default function AgencyDashboardPage() {
           <h2 className="font-label text-[10px] uppercase tracking-[0.12em] text-muted-foreground mb-3">Accounts</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {sortedAccounts.map((acc: any) => {
+              // Spend for the picked range; pacing uses the real month to date (audit 6.5).
               const mtd = perAccountSpend.get(acc.id) || 0;
               const prior = priorMonthSpend.get(acc.id) || 0;
               const spendDelta = prior > 0 ? (mtd - prior) / prior : 0;
@@ -127,7 +131,7 @@ export default function AgencyDashboardPage() {
               const topCreative = [...accCreatives].sort((a: any, b: any) => (Number(b.roas) || 0) - (Number(a.roas) || 0))[0];
               const wowTrend = topCreative ? wowTrends?.get(topCreative.ad_id) : undefined;
               const target = Number(acc.target_monthly_spend) || 0;
-              const pacing = target > 0 ? mtd / target : null;
+              const pacing = paceVsTarget(mtdSpendByAccount.get(acc.id) || 0, target);
 
               return (
                 <Card key={acc.id} className="p-4 space-y-3 hover:shadow-card-hover transition-shadow">
@@ -140,7 +144,7 @@ export default function AgencyDashboardPage() {
                   {/* Metrics row */}
                   <div className="grid grid-cols-3 gap-2">
                     <div>
-                      <p className="font-label text-[9px] uppercase tracking-wider text-muted-foreground">Spend MTD</p>
+                      <p className="font-label text-[9px] uppercase tracking-wider text-muted-foreground">Spend</p>
                       <p className="font-data text-[17px] font-medium tabular-nums text-foreground">{fmt$(mtd)}</p>
                       {prior > 0 && (
                         <span className={cn("font-data text-[10px] tabular-nums", spendDelta >= 0 ? "text-primary" : "text-destructive")}>
@@ -179,7 +183,7 @@ export default function AgencyDashboardPage() {
                   {pacing !== null && (
                     <div className="space-y-1">
                       <div className="flex items-center justify-between">
-                        <span className="font-label text-[9px] uppercase tracking-wider text-muted-foreground">Pacing</span>
+                        <span className="font-label text-[9px] uppercase tracking-wider text-muted-foreground">Pacing (MTD)</span>
                         <span className="font-data text-[10px] tabular-nums text-muted-foreground">{(pacing * 100).toFixed(0)}%</span>
                       </div>
                       <div className="h-1.5 bg-muted rounded-full overflow-hidden">
