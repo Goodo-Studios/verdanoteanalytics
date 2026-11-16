@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { buildCreatedTimeUrl, extractLaunchDates } from "../_shared/lifecycle-dates.ts";
+import { notRecentlyChecked, unresolvedIds } from "../_shared/backfill-checked.ts";
 
 // F2 backfill: populate creatives.created_time (and thus launch_date) from the
 // Meta Graph API for ads that predate our created_time capture, then derive the
@@ -72,6 +73,9 @@ export async function handler(req: Request, supabaseOverride?: Supa): Promise<Re
       .select("ad_id")
       .eq("account_id", accountId)
       .is("created_time", null)
+      // Audit 8.7: skip ads Meta could not resolve in the last 7 days.
+      .or(notRecentlyChecked("launch_date_checked_at"))
+      .order("launch_date_checked_at", { ascending: true, nullsFirst: true })
       .limit(500);
 
     if (fetchErr) throw fetchErr;
@@ -100,6 +104,15 @@ export async function handler(req: Request, supabaseOverride?: Supa): Promise<Re
           }
 
           const updates = extractLaunchDates(jsonBody, adIds);
+          // Audit 8.7: Meta answered for this batch, so ads with no created_time are
+          // marked checked and skipped until the recheck window passes.
+          const unresolved = unresolvedIds(adIds, updates.map((u) => u.ad_id));
+          if (unresolved.length) {
+            await supabase
+              .from("creatives")
+              .update({ launch_date_checked_at: new Date().toISOString() })
+              .in("ad_id", unresolved);
+          }
           for (const u of updates) {
             const { error: updErr } = await supabase
               .from("creatives")

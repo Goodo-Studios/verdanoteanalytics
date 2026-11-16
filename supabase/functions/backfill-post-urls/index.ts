@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { resolveMetaToken } from "../_shared/media-discovery.ts";
+import { notRecentlyChecked, unresolvedIds } from "../_shared/backfill-checked.ts";
 
 
 const META_API_VERSION = "v22.0";
@@ -64,6 +65,9 @@ export async function handler(req: Request, supabaseOverride?: Supa): Promise<Re
       .eq("account_id", accountId)
       .is("ad_post_url", null)
       .gt("impressions", 0)
+      // Audit 8.7: skip ads Meta could not resolve in the last 7 days.
+      .or(notRecentlyChecked("post_url_checked_at"))
+      .order("post_url_checked_at", { ascending: true, nullsFirst: true })
       .limit(500);
 
     if (fetchErr) throw fetchErr;
@@ -120,6 +124,16 @@ export async function handler(req: Request, supabaseOverride?: Supa): Promise<Re
           if (postUrl) {
             updates.push({ ad_id: adId, ad_post_url: postUrl });
           }
+        }
+
+        // Audit 8.7: Meta answered for this batch, so ads with no post URL are marked
+        // checked and skipped until the recheck window passes.
+        const unresolved = unresolvedIds(adIds, updates.map((u) => u.ad_id));
+        if (unresolved.length) {
+          await supabase
+            .from("creatives")
+            .update({ post_url_checked_at: new Date().toISOString() })
+            .in("ad_id", unresolved);
         }
 
         // Batch update
