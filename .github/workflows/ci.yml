@@ -8,8 +8,10 @@ on:
 
 # Least privilege for the default GITHUB_TOKEN. Every job only checks out the repository; none of
 # them writes to it, opens a PR or comments, and artifact upload does not use this token's scopes.
+# actions: read lets the production deploy's staging E2E gate read staging CI runs (read only).
 permissions:
   contents: read
+  actions: read
 
 # A new push to a pull request cancels that pull request's older run. Pushes to main and staging
 # each get their own group (the run id), so a release run is never cancelled or queued behind
@@ -141,12 +143,12 @@ jobs:
     runs-on: ubuntu-24.04
     # On a push to main, deploy-functions runs too; wait for it so E2E exercises
     # the freshly-deployed edge functions instead of racing the redeploy (which
-    # left vault-save-creative cold/mid-swap and timed the save flow out). On
-    # PRs deploy-functions is skipped (it is gated to main pushes), so the
-    # always() guard keeps E2E running there as long as `check` passed.
+    # left vault-save-creative cold/mid-swap and timed the save flow out).
     needs: [check, deploy-functions]
-    # Never runs for the staging branch: its secrets point at production.
-    if: ${{ always() && needs.check.result == 'success' && github.ref != 'refs/heads/staging' && github.base_ref != 'staging' }}
+    # Only after a successful production deploy on main (audit Batch 9). Pull requests no longer run
+    # it: they would test the build already live, not their own code. Never runs for staging, whose
+    # secrets point at production.
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.check.result == 'success' && needs.deploy-functions.result == 'success' && github.ref != 'refs/heads/staging' && github.base_ref != 'staging' }}
 
     env:
       VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
@@ -155,10 +157,8 @@ jobs:
       PLAYWRIGHT_TEST_PASSWORD: ${{ secrets.PLAYWRIGHT_TEST_PASSWORD }}
       PLAYWRIGHT_CLIENT_EMAIL: ${{ secrets.PLAYWRIGHT_CLIENT_EMAIL }}
       PLAYWRIGHT_CLIENT_PASSWORD: ${{ secrets.PLAYWRIGHT_CLIENT_PASSWORD }}
-      # KNOWN GAP, kept on purpose: the tests run against the live production site with production
-      # secrets and the production test logins, on pull requests as well as on main. A pull request
-      # run therefore does not exercise the pull request's code. Pointing this at a preview or
-      # staging deployment is a separate decision; the staging job below covers the staging site.
+      # Runs on main pushes only, after the deploy. The staging browser tests (e2e-staging) gate the
+      # release itself, in deploy-functions.
       # The tests run against the live production site, not a local preview server.
       # Production's edge functions only allow the SITE_URL origin (CORS), so a
       # localhost origin gets an empty account list and Settings tests fail. This
@@ -275,6 +275,13 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: 3.1.0
+
+      - name: Require green staging browser tests for this code
+        # Audit Batch 9: the production release waits for e2e-staging to have passed on a staging
+        # commit with the same file tree (a promotion merge keeps the staging tree).
+        run: node scripts/require-staging-e2e.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Deploy all edge functions
         run: bash scripts/deploy-functions.sh
