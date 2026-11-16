@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { useAccountTaxonomy } from "../hooks/useAccountTaxonomy";
 import { saveGovernedTags, type GovernedTagPatch } from "../api";
+import { refreshAfterTagChange } from "@/lib/tagRefresh";
 
 // Radix <Select> forbids an empty-string item value, so the "Untagged" choice
 // uses this UI-only sentinel and is mapped back to a real null on save.
@@ -65,8 +66,7 @@ export function GovernedTagEditor({ adId, accountId, initial, hook, onSaved }: G
     },
     onSuccess: () => {
       toast.success("Theme/Persona saved");
-      void queryClient.invalidateQueries({ queryKey: ["creative-library"] });
-      void queryClient.invalidateQueries({ queryKey: ["creatives"] });
+      void refreshAfterTagChange(queryClient); // every tag screen (audit 5.6)
       onSaved?.();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to save tags"),

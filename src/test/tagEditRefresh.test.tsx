@@ -22,7 +22,7 @@ let qc: QueryClient;
 function wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
 }
-function invalidatedKeys(spy: ReturnType<typeof vi.spyOn>) {
+function invalidatedKeys(spy: { mock: { calls: unknown[][] } }) {
   return spy.mock.calls.map((c) => JSON.stringify((c[0] as { queryKey: unknown }).queryKey));
 }
 
