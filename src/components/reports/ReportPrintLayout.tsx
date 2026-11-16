@@ -7,7 +7,7 @@ interface Props {
   report: any;
   previousReport?: any;
   topCreatives: any[];
-  tagBreakdown: { tag: string; avgRoas: number; count: number; spendPct: number }[];
+  tagBreakdown: { tag: string; roas: number | null; count: number; spendPct: number }[];
   highlights: string[];
 }
 
@@ -138,7 +138,7 @@ export function ReportPrintLayout({ report, previousReport, topCreatives, tagBre
             <thead>
               <tr>
                 <th>Tag / Hook Type</th>
-                <th style={{ textAlign: "right" }}>Avg ROAS</th>
+                <th style={{ textAlign: "right" }}>ROAS</th>
                 <th style={{ textAlign: "right" }}>Creatives</th>
                 <th style={{ textAlign: "right" }}>% of Spend</th>
               </tr>
@@ -148,7 +148,7 @@ export function ReportPrintLayout({ report, previousReport, topCreatives, tagBre
                 <tr key={row.tag}>
                   <td style={{ fontWeight: 500 }}>{row.tag}</td>
                   <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                    {row.avgRoas.toFixed(2)}x
+                    {row.roas === null ? "–" : `${row.roas.toFixed(2)}x`}
                   </td>
                   <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                     {row.count}
