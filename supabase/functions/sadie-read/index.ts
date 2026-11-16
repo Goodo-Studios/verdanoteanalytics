@@ -2,6 +2,13 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { timingSafeEqual } from "../_shared/timing.ts";
+import {
+  loadAccountCreatives,
+  loadMediaRows,
+  SUMMARY_ALL_COLUMNS,
+  SUMMARY_ONE_COLUMNS,
+  TAG_COLUMNS,
+} from "./reads.ts";
 
 // Private API key for Sadie — set this in Supabase edge function secrets
 const SADIE_API_KEY = Deno.env.get("SADIE_API_KEY")!;
@@ -97,11 +104,8 @@ serve(async (req) => {
 
         // Get aggregate stats per account
         const summaries = await Promise.all((data || []).map(async (acc) => {
-          const { data: stats } = await supabase
-            .from("creatives")
-            .select("spend, roas, cpa, purchases, impressions")
-            .eq("account_id", acc.id)
-            .gt("impressions", 0);
+          const stats = await loadAccountCreatives(supabase, acc.id, SUMMARY_ALL_COLUMNS)
+            .catch(() => [] as any[]);
 
           const totals = (stats || []).reduce((acc, c) => ({
             total_spend: acc.total_spend + (c.spend || 0),
@@ -121,12 +125,7 @@ serve(async (req) => {
       }
 
       // Single account summary
-      const { data: stats, error } = await supabase
-        .from("creatives")
-        .select("spend, roas, cpa, purchases, impressions, thumb_stop_rate, hold_rate, ad_status")
-        .eq("account_id", accountId)
-        .gt("impressions", 0);
-      if (error) throw error;
+      const stats = await loadAccountCreatives(supabase, accountId, SUMMARY_ONE_COLUMNS);
 
       const active = (stats || []).filter(c => c.ad_status === "ACTIVE");
       const withRoas = (stats || []).filter(c => c.roas && c.roas > 0);
@@ -150,29 +149,14 @@ serve(async (req) => {
     // GET /sadie-read/tags — tag performance breakdown
     if (path === "tags") {
       if (!accountId) return json({ error: "account_id required" }, 400);
-      const { data, error } = await supabase
-        .from("creatives")
-        .select("spend, roas, cpa, ctr, purchases, impressions, tag_source, ad_status")
-        .eq("account_id", accountId)
-        .gt("impressions", 0)
-        .neq("tag_source", "untagged");
-      if (error) throw error;
-      return json({ tags: data, count: data?.length });
+      const data = await loadAccountCreatives(supabase, accountId, TAG_COLUMNS, true);
+      return json({ tags: data, count: data.length });
     }
 
     // GET /sadie-read/media-stats — media URL health across one account (or all accounts)
     if (path === "media-stats") {
       const acctFilter = accountId;
-      let query = supabase
-        .from("creatives")
-        .select("ad_id, video_url, thumbnail_url, video_views, spend, impressions")
-        .gt("impressions", 0);
-      if (acctFilter) query = query.eq("account_id", acctFilter);
-
-      const { data, error } = await query.limit(50000);
-      if (error) throw error;
-
-      const rows = data || [];
+      const rows = await loadMediaRows(supabase, acctFilter);
       const total = rows.length;
 
       // Video URL buckets
