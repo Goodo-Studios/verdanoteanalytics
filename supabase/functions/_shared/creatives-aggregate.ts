@@ -69,7 +69,6 @@ export function aggregateDailyByAd(rows: DailyMetricRow[]): Record<string, AdAgg
     const imp = num(row.impressions);
     const vv = num(row.video_views);
     const freq = num(row.frequency);
-    const tsr = num(row.thumb_stop_rate);
     const hr = num(row.hold_rate);
     const vpt = num(row.video_avg_play_time);
     a.spend += num(row.spend);
@@ -79,12 +78,16 @@ export function aggregateDailyByAd(rows: DailyMetricRow[]): Record<string, AdAgg
     a.purchase_value += num(row.purchase_value);
     a.adds_to_cart += num(row.adds_to_cart);
     a.video_views += vv;
-    // Impressions-weighted average for frequency & thumb stop rate
-    if (freq > 0 && imp > 0) { a._freq_weighted += freq * imp; a._freq_imp += imp; }
-    if (tsr > 0 && imp > 0) { a._tsr_weighted += tsr * imp; a._tsr_imp += imp; }
-    // Video-views-weighted average for hold rate & avg play time
-    if (hr > 0 && vv > 0) { a._hr_weighted += hr * vv; a._hr_vv += vv; }
-    if (vpt > 0 && vv > 0) { a._vpt_weighted += vpt * vv; a._vpt_vv += vv; }
+    // Video formulas shared with metric-math.ts and the SQL rollups (audit 6.1):
+    // frequency is weighted by every day's impressions; hook rate is views over the
+    // impressions of days with views; hold and play time are weighted by views, and a
+    // 0% hold or 0s play day still counts its views.
+    if (imp > 0) { a._freq_weighted += freq * imp; a._freq_imp += imp; }
+    if (vv > 0 && imp > 0) { a._tsr_weighted += vv * 100; a._tsr_imp += imp; }
+    if (vv > 0) {
+      a._hr_weighted += hr * vv; a._hr_vv += vv;
+      a._vpt_weighted += vpt * vv; a._vpt_vv += vv;
+    }
     a._days += 1;
   }
   return aggMap;

@@ -35,7 +35,6 @@ export default function BoardsPage() {
     queryKey: ["vault-boards", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await supabase
         .from("boards")
         .select("*, board_items(item_id)")

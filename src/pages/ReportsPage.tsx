@@ -27,6 +27,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { fmtMetric } from "@/lib/formatters";
+import { reportsForAccount } from "@/lib/reportFilters";
 import { useRoleNavigate } from "@/hooks/useRolePath";
 import { useReports, useGenerateReport, useDeleteReport, useSendReportToSlack, useReportSchedules, useUpsertReportSchedule } from "@/hooks/useReportsApi";
 import { useAccounts } from "@/hooks/useAccountsApi";
@@ -78,8 +79,7 @@ const ReportsPage = () => {
 
   const reports = useMemo(() => {
     if (!rawReports) return [];
-    if (!selectedAccountId || selectedAccountId === "all") return rawReports;
-    return rawReports.filter((r: any) => r.account_id === selectedAccountId);
+    return reportsForAccount(rawReports, selectedAccountId);
   }, [rawReports, selectedAccountId]);
 
   // Local state for schedule name template inputs — keyed by "{accountId}:{cadence}".

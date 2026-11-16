@@ -30,6 +30,21 @@ export function utcToday(now: Date = new Date()): Date {
   return new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
 }
 
+/**
+ * "yyyy-MM-dd" for the UTC calendar day `days - 1` days before today, so `utcDaysAgoIso(1)` is
+ * today and `utcDaysAgoIso(30)` starts a 30-day window ending today. Calendar math on
+ * utcToday() cannot slip a day across a daylight-saving change (audit 6.4).
+ */
+export function utcDaysAgoIso(days: number, now: Date = new Date()): string {
+  return format(subDays(utcToday(now), days - 1), "yyyy-MM-dd");
+}
+
+/** A report's date range in the viewer's locale, each day read as a local calendar date (audit 6.4). */
+export function formatReportRange(start?: string | null, end?: string | null): string {
+  if (!start || !end) return "";
+  return `${parsePickerDate(start).toLocaleDateString()} – ${parsePickerDate(end).toLocaleDateString()}`;
+}
+
 export interface RollingPreset {
   id: string;
   label: string;

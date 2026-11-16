@@ -83,7 +83,7 @@ export default function LandingPagesPage() {
     enabled: !gated && !!selectedAccountId,
   });
 
-  const rows = data?.rows ?? [];
+  const rows = useMemo(() => data?.rows ?? [], [data?.rows]);
   // Report baseline: spend/purchases/adds-to-cart are per-page means; ratios are
   // aggregates (from summed totals), NOT means-of-ratios, so they reconcile.
   const avg = useMemo(() => {

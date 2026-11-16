@@ -38,14 +38,15 @@ function SyncProgressBanner({ logs, onCancel, cancelPending }: { logs: any[]; on
     return total / completed.length;
   }, [logs]);
 
+  const runningStartedAt: string | null = runningLog?.started_at ?? null;
   useEffect(() => {
-    if (!runningLog) { setElapsed(0); return; }
-    const start = new Date(runningLog.started_at).getTime();
+    if (!runningStartedAt) { setElapsed(0); return; }
+    const start = new Date(runningStartedAt).getTime();
     const tick = () => setElapsed(Date.now() - start);
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [runningLog?.id]);
+  }, [runningStartedAt]);
 
   if (!runningLog) return null;
 
@@ -118,7 +119,7 @@ export function SyncHistorySection({ accountId }: { accountId?: string }) {
   const { data: accounts } = useAccounts();
   const { data: logs, isLoading } = useSyncHistory(accountId);
   const syncMut = useSync();
-  const cancelMut = useCancelSync();
+  const cancelMut = useCancelSync(accountId);
   const isSyncing = useIsSyncing();
   const prevRunningIdsRef = useRef<Set<string>>(new Set());
 

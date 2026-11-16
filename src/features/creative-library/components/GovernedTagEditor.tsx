@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAccountTaxonomy } from "../hooks/useAccountTaxonomy";
-import { saveGovernedTags, type GovernedTagPatch } from "../api";
+import { fetchCreativeAngleId, saveGovernedTags, type GovernedTagPatch } from "../api";
+import { refreshAfterTagChange } from "@/lib/tagRefresh";
 
 // Radix <Select> forbids an empty-string item value, so the "Untagged" choice
 // uses this UI-only sentinel and is mapped back to a real null on save.
@@ -50,32 +51,50 @@ export function GovernedTagEditor({ adId, accountId, initial, hook, onSaved }: G
   const { options, isLoading, isError, error } = useAccountTaxonomy(accountId);
   const queryClient = useQueryClient();
 
-  const [angleId, setAngleId] = useState<string>(initial?.angle_id ?? UNTAGGED);
+  // The current value comes from the caller when it has it, otherwise it is read by
+  // ad_id. Until it is known, Save stays disabled: saving from the "Untagged"
+  // default used to erase the creative's Theme/Persona (audit 5.1).
+  const current = useQuery({
+    queryKey: ["creative-angle-id", adId],
+    queryFn: () => fetchCreativeAngleId(adId),
+    enabled: initial === undefined,
+    staleTime: 0,
+  });
+  const currentAngleId: string | null | undefined =
+    initial !== undefined ? (initial.angle_id ?? null) : current.data;
+  const currentKnown = initial !== undefined || current.isSuccess;
+
+  const [angleId, setAngleId] = useState<string>(UNTAGGED);
 
   useEffect(() => {
-    setAngleId(initial?.angle_id ?? UNTAGGED);
-  }, [adId, initial?.angle_id]);
+    if (currentKnown) setAngleId(currentAngleId ?? UNTAGGED);
+  }, [adId, currentKnown, currentAngleId]);
 
   const { mutate: save, isPending } = useMutation({
-    mutationFn: () => {
-      const patch: GovernedTagPatch = {
-        angle_id: angleId === UNTAGGED ? null : angleId,
-      };
-      return saveGovernedTags(adId, patch);
+    mutationFn: async () => {
+      const next = angleId === UNTAGGED ? null : angleId;
+      // Nothing changed: skip the write so an untouched Save never rewrites the tag.
+      if (next === (currentAngleId ?? null)) return false;
+      const patch: GovernedTagPatch = { angle_id: next };
+      await saveGovernedTags(adId, patch);
+      return true;
     },
-    onSuccess: () => {
-      toast.success("Theme/Persona saved");
-      void queryClient.invalidateQueries({ queryKey: ["creative-library"] });
-      void queryClient.invalidateQueries({ queryKey: ["creatives"] });
+    onSuccess: (wrote) => {
+      if (wrote) {
+        toast.success("Theme/Persona saved");
+        void refreshAfterTagChange(queryClient); // every tag screen (audit 5.6)
+        void queryClient.invalidateQueries({ queryKey: ["creative-angle-id", adId] });
+      }
       onSaved?.();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to save tags"),
   });
 
-  if (isError) {
+  if (isError || current.isError) {
+    const err = isError ? error : current.error;
     return (
       <p className="text-sm text-destructive">
-        {error instanceof Error ? error.message : "Failed to load account lists"}
+        {err instanceof Error ? err.message : "Failed to load account lists"}
       </p>
     );
   }
@@ -84,7 +103,7 @@ export function GovernedTagEditor({ adId, accountId, initial, hook, onSaved }: G
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">Theme / Persona</h3>
-        <Button size="sm" onClick={() => save()} disabled={isPending || isLoading}>
+        <Button size="sm" onClick={() => save()} disabled={isPending || isLoading || !currentKnown}>
           {isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Save className="h-3 w-3 mr-1" />}
           Save
         </Button>
@@ -94,7 +113,7 @@ export function GovernedTagEditor({ adId, accountId, initial, hook, onSaved }: G
         {/* Theme/Persona — value is the angle_id reference. */}
         <div className="space-y-1.5">
           <Label className="text-xs">Theme / Persona</Label>
-          <Select value={angleId} onValueChange={setAngleId} disabled={isLoading}>
+          <Select value={angleId} onValueChange={setAngleId} disabled={isLoading || !currentKnown}>
             <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select Theme/Persona" /></SelectTrigger>
             <SelectContent>
               <SelectItem value={UNTAGGED}>Untagged</SelectItem>

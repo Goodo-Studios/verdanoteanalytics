@@ -21,6 +21,7 @@ const TAG_DIMENSIONS = [
   { key: "theme", label: "Theme" },
 ];
 
+import { fmtOrDash, groupMetricValue } from "@/lib/groupMetrics";
 const METRIC_OPTIONS = [
   { key: "roas", label: "ROAS", format: (v: number) => `${v.toFixed(2)}x` },
   { key: "ctr", label: "CTR", format: (v: number) => `${v.toFixed(2)}%` },
@@ -72,14 +73,8 @@ export function TagInsightsTab({
   // Account average for the selected metric
   const accountAvg = useMemo(() => {
     const withSpend = taggedCreatives.filter((c: any) => (Number(c.spend) || 0) > 0);
-    if (withSpend.length === 0) return 0;
-    const totalSpend = withSpend.reduce((s: number, c: any) => s + (Number(c.spend) || 0), 0);
-    const weighted = withSpend.reduce((s: number, c: any) => {
-      const spend = Number(c.spend) || 0;
-      const val = Number(c[metric]) || 0;
-      return s + val * spend;
-    }, 0);
-    return totalSpend > 0 ? weighted / totalSpend : 0;
+    // From summed counts, not spend-weighted ratios (audit 6.1). Null with no data.
+    return groupMetricValue(withSpend, metric);
   }, [taggedCreatives, metric]);
 
   // Winner logic
@@ -115,19 +110,17 @@ export function TagInsightsTab({
 
         const totalSpend = withSpend.reduce((s: number, c: any) => s + (Number(c.spend) || 0), 0);
 
-        // Spend-weighted average for the selected metric
-        const weightedMetric = totalSpend > 0
-          ? withSpend.reduce((s: number, c: any) => s + (Number(c[metric]) || 0) * (Number(c.spend) || 0), 0) / totalSpend
-          : 0;
-
-        const weightedCpa = totalSpend > 0
-          ? withSpend.reduce((s: number, c: any) => s + (Number(c.cpa) || 0) * (Number(c.spend) || 0), 0) / totalSpend
-          : 0;
+        // Group metric from summed counts (audit 6.1): spend-weighting was only right for
+        // ROAS, and an ad with no purchases counted as a $0 CPA. Null means no data.
+        const weightedMetric = groupMetricValue(withSpend, metric);
+        const weightedCpa = groupMetricValue(withSpend, "cpa");
 
         const winners = withSpend.filter(isWinner).length;
         const winRate = withSpend.length > 0 ? (winners / withSpend.length) * 100 : 0;
 
-        const vsAvg = accountAvg > 0 ? ((weightedMetric - accountAvg) / accountAvg) * 100 : 0;
+        const vsAvg = accountAvg !== null && accountAvg > 0 && weightedMetric !== null
+          ? ((weightedMetric - accountAvg) / accountAvg) * 100
+          : 0;
 
         const tagValues = dims.map(d => {
           const val = items[0][d];
@@ -151,12 +144,16 @@ export function TagInsightsTab({
   // Sort by metric descending (for "higher is better" metrics) or ascending (for CPA/CPM)
   const isLowerBetter = metric === "cpa" || metric === "cpm";
   const sorted = useMemo(() => {
-    return [...combinations].sort((a, b) =>
-      isLowerBetter ? (a as any).avgMetric - (b as any).avgMetric : (b as any).avgMetric - (a as any).avgMetric
-    );
+    // Groups with no data for the metric (null) sort last.
+    return [...combinations].sort((a, b) => {
+      const av = (a as any).avgMetric as number | null;
+      const bv = (b as any).avgMetric as number | null;
+      if (av === null || bv === null) return av === null ? (bv === null ? 0 : 1) : -1;
+      return isLowerBetter ? av - bv : bv - av;
+    });
   }, [combinations, isLowerBetter]);
 
-  const maxMetric = sorted.length > 0 ? Math.max(...sorted.map((r: any) => r.avgMetric)) : 1;
+  const maxMetric = sorted.length > 0 ? Math.max(0, ...sorted.map((r: any) => r.avgMetric ?? 0)) : 1;
 
   // Insight cards
   const bestRecipe = sorted.length > 0 ? sorted[0] : null;
@@ -285,7 +282,7 @@ export function TagInsightsTab({
             </TableHeader>
             <TableBody>
               {sorted.map((row: any) => {
-                const barWidth = maxMetric > 0 ? (row.avgMetric / maxMetric) * 100 : 0;
+                const barWidth = maxMetric > 0 ? ((row.avgMetric ?? 0) / maxMetric) * 100 : 0;
                 return (
                   <TableRow key={row.key} className="border-b border-border-light">
                     <TableCell>
@@ -304,7 +301,7 @@ export function TagInsightsTab({
 ...
                       </div>
                     </TableCell>
-                    <TableCell className="font-data text-[17px] font-medium text-charcoal tabular-nums text-right">${row.avgCpa.toFixed(2)}</TableCell>
+                    <TableCell className="font-data text-[17px] font-medium text-charcoal tabular-nums text-right">{fmtOrDash(row.avgCpa, (v) => `$${v.toFixed(2)}`)}</TableCell>
                     <TableCell className="font-data text-[17px] font-medium text-charcoal tabular-nums text-right">${row.totalSpend.toLocaleString("en-US", { maximumFractionDigits: 0 })}</TableCell>
                     <TableCell className={cn(
                       "font-data text-[17px] font-medium tabular-nums text-right",
@@ -337,21 +334,21 @@ export function TagInsightsTab({
             <InsightCard
               icon={<Trophy className="h-5 w-5 text-verdant" />}
               title="Best Recipe"
-              body={`${formatComboName(bestRecipe)} averages ${metricConfig.format((bestRecipe as any).avgMetric)}, ${Math.abs((bestRecipe as any).vsAvg).toFixed(0)}% ${(bestRecipe as any).vsAvg >= 0 ? "above" : "below"} your account average, across ${(bestRecipe as any).count} creatives with $${(bestRecipe as any).totalSpend.toLocaleString("en-US", { maximumFractionDigits: 0 })} in spend.`}
+              body={`${formatComboName(bestRecipe)} averages ${fmtOrDash((bestRecipe as any).avgMetric, metricConfig.format)}, ${Math.abs((bestRecipe as any).vsAvg).toFixed(0)}% ${(bestRecipe as any).vsAvg >= 0 ? "above" : "below"} your account average, across ${(bestRecipe as any).count} creatives with $${(bestRecipe as any).totalSpend.toLocaleString("en-US", { maximumFractionDigits: 0 })} in spend.`}
             />
           )}
           {worstRecipe && (
             <InsightCard
               icon={<AlertTriangle className="h-5 w-5 text-red-700" />}
               title="Worst Recipe"
-              body={`${formatComboName(worstRecipe)} averages ${metricConfig.format((worstRecipe as any).avgMetric)}, ${Math.abs((worstRecipe as any).vsAvg).toFixed(0)}% ${(worstRecipe as any).vsAvg >= 0 ? "above" : "below"} average. Consider pausing or reworking creatives with this approach.`}
+              body={`${formatComboName(worstRecipe)} averages ${fmtOrDash((worstRecipe as any).avgMetric, metricConfig.format)}, ${Math.abs((worstRecipe as any).vsAvg).toFixed(0)}% ${(worstRecipe as any).vsAvg >= 0 ? "above" : "below"} average. Consider pausing or reworking creatives with this approach.`}
             />
           )}
           {underexplored && (
             <InsightCard
               icon={<Lightbulb className="h-5 w-5 text-gold" />}
               title="Underexplored"
-              body={`${formatComboName(underexplored)} shows strong early results (${metricConfig.format((underexplored as any).avgMetric)}) but only has ${(underexplored as any).count} creatives. Consider producing more to validate.`}
+              body={`${formatComboName(underexplored)} shows strong early results (${fmtOrDash((underexplored as any).avgMetric, metricConfig.format)}) but only has ${(underexplored as any).count} creatives. Consider producing more to validate.`}
             />
           )}
         </div>

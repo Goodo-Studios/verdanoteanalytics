@@ -3,6 +3,7 @@ import { apiFetch } from "@/lib/api";
 import { supabase } from "@/integrations/supabase/client";
 import { withDisplayTags, withDisplayTagsAll } from "@/lib/tagDisplay";
 import { useMutationWithToast } from "./useMutationWithToast";
+import { TAG_CHANGE_QUERY_KEYS } from "@/lib/tagRefresh";
 
 const PAGE_SIZE = 100;
 
@@ -31,13 +32,26 @@ export function useCreativeFilters() {
   return useQuery({ queryKey: ["creative-filters"], queryFn: () => apiFetch("creatives", "filters") });
 }
 
-export function useUpdateCreative() {
+/**
+ * Path for a tag save. With a single working account the server refuses a creative from another
+ * account (audit 3.2); "all" or no account leaves the save unscoped.
+ */
+export function creativeUpdatePath(adId: string, accountId?: string | null): string {
+  return accountId && accountId !== "all" ? `${adId}?account_id=${encodeURIComponent(accountId)}` : adId;
+}
+
+/**
+ * Update one creative's tags. `silent` turns off the per-creative messages so a
+ * caller that updates many creatives (Bulk Tag) can show one summary (audit 5.7).
+ */
+export function useUpdateCreative(options: { silent?: boolean } = {}) {
   return useMutationWithToast({
-    mutationFn: ({ adId, updates }: { adId: string; updates: Record<string, any> }) =>
-      apiFetch("creatives", adId, { method: "PUT", body: JSON.stringify(updates) }).then(withDisplayTags),
-    invalidateKeys: [["creatives"], ["all-creatives"], ["accounts"]],
-    successMessage: "Tags updated",
+    mutationFn: ({ adId, updates, accountId }: { adId: string; updates: Record<string, any>; accountId?: string | null }) =>
+      apiFetch("creatives", creativeUpdatePath(adId, accountId), { method: "PUT", body: JSON.stringify(updates) }).then(withDisplayTags),
+    invalidateKeys: TAG_CHANGE_QUERY_KEYS, // every tag screen (audit 5.6)
+    successMessage: options.silent ? undefined : "Tags updated",
     errorMessage: "Error updating tags",
+    silentError: options.silent,
   });
 }
 
@@ -53,7 +67,7 @@ export function useAutoTagApply() {
   return useMutationWithToast({
     mutationFn: (accountId: string) =>
       apiFetch("creatives", "auto-tag", { method: "POST", body: JSON.stringify({ account_id: accountId }) }),
-    invalidateKeys: [["creatives"], ["accounts"]],
+    invalidateKeys: TAG_CHANGE_QUERY_KEYS, // every tag screen (audit 5.6)
     successMessage: (data: any) => `Auto-tagged ${data.applied} creatives`,
     errorMessage: "Failed to apply auto-tags",
   });

@@ -5,6 +5,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { requireStaffOrServiceRole } from "../_shared/internal-auth.ts";
+import { clampInt, clampNumber } from "../_shared/input-limits.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -49,11 +50,15 @@ Deno.serve(async (req) => {
     global: { headers: { Authorization: authHeader } },
   });
 
-  const { query, threshold = 0.4, limit = 20 } = await req.json() as {
+  const body = await req.json() as {
     query: string;
-    threshold?: number;
-    limit?: number;
+    threshold?: unknown;
+    limit?: unknown;
   };
+  const query = body.query;
+  // Keep the search bounded (audit 2.4): 1 to 50 results, similarity 0 to 1.
+  const threshold = clampNumber(body.threshold, 0.4, 0, 1);
+  const limit = clampInt(body.limit, 20, 1, 50);
 
   if (!query?.trim()) return json({ error: "query required" }, 400);
 

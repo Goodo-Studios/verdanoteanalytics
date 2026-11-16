@@ -1,11 +1,12 @@
 import { Badge } from "@/components/ui/badge";
+import { formatReportRange } from "@/lib/dateRange";
 import { Button } from "@/components/ui/button";
 import { Download, ArrowLeft, Send, Loader2, Pencil, FileText } from "lucide-react";
 import { exportReportCSV } from "@/lib/csv";
 import { useReports, useSendReportToSlack } from "@/hooks/useReportsApi";
 import { useParams } from "react-router-dom";
 import { useRoleNavigate } from "@/hooks/useRolePath";
-import { useMemo, useState, useCallback, useEffect } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { fmtMetric } from "@/lib/formatters";
 import { SectionRenderer } from "@/components/reports/SectionRenderer";
 import { legacySectionsFromReport, ReportSection } from "@/lib/reportSections";
@@ -14,6 +15,7 @@ import { CreativeDetailModal } from "@/components/CreativeDetailModal";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { ReportPrintLayout } from "@/components/reports/ReportPrintLayout";
+import { reportPrintData } from "@/lib/reportSnapshot";
 
 const ReportDetailPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -43,52 +45,8 @@ const ReportDetailPage = () => {
     return undefined;
   }, [report, reports]);
 
-  // Fetch top creatives for print layout
-  const [topCreatives, setTopCreatives] = useState<any[]>([]);
-  const [tagBreakdown, setTagBreakdown] = useState<any[]>([]);
-
-  // useEffect for async side effects (not useMemo which is for pure computation)
-  useEffect(() => {
-    if (!report?.account_id) return;
-    supabase
-      .from("creatives")
-      .select("ad_id, ad_name, thumbnail_url, roas, spend, cpa, hook, style, ad_type")
-      .eq("account_id", report.account_id)
-      .order("spend", { ascending: false })
-      .limit(6)
-      .then(({ data }) => setTopCreatives(data || []));
-
-    supabase
-      .from("creatives")
-      .select("hook, style, ad_type, roas, spend")
-      .eq("account_id", report.account_id)
-      .not("spend", "is", null)
-      .gt("spend", 0)
-      .limit(500)
-      .then(({ data }) => {
-        if (!data) return;
-        const byHook = new Map<string, { count: number; totalRoas: number; totalSpend: number }>();
-        const totalSpend = data.reduce((s, c) => s + (Number(c.spend) || 0), 0);
-        for (const c of data) {
-          const key = c.hook || c.style || c.ad_type || "Untagged";
-          const existing = byHook.get(key) || { count: 0, totalRoas: 0, totalSpend: 0 };
-          existing.count++;
-          existing.totalRoas += Number(c.roas) || 0;
-          existing.totalSpend += Number(c.spend) || 0;
-          byHook.set(key, existing);
-        }
-        const rows = [...byHook.entries()]
-          .map(([tag, d]) => ({
-            tag,
-            avgRoas: d.count > 0 ? d.totalRoas / d.count : 0,
-            count: d.count,
-            spendPct: totalSpend > 0 ? (d.totalSpend / totalSpend) * 100 : 0,
-          }))
-          .sort((a, b) => b.spendPct - a.spendPct)
-          .slice(0, 15);
-        setTagBreakdown(rows);
-      });
-  }, [report?.account_id]);
+  // Exports use the report's own saved data, never today's creatives (audit 6.2).
+  const printData = useMemo(() => (report ? reportPrintData(report) : null), [report]);
 
   const handleExportPDF = useCallback(() => {
     window.print();
@@ -155,8 +113,8 @@ const ReportDetailPage = () => {
       <ReportPrintLayout
         report={report}
         previousReport={prev}
-        topCreatives={topCreatives}
-        tagBreakdown={tagBreakdown}
+        topCreatives={printData?.topCreatives ?? []}
+        tagBreakdown={printData?.tagRows ?? null}
         highlights={highlights}
       />
 
@@ -183,7 +141,7 @@ const ReportDetailPage = () => {
                 <p className="text-sm text-muted-foreground">
                   Generated {new Date(report.created_at).toLocaleString()}
                   {report.date_range_start && report.date_range_end && (
-                    <> · {new Date(report.date_range_start).toLocaleDateString()} – {new Date(report.date_range_end).toLocaleDateString()}</>
+                    <> · {formatReportRange(report.date_range_start, report.date_range_end)}</>
                   )}
                 </p>
               </div>

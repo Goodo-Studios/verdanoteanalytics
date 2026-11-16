@@ -109,7 +109,7 @@ export function useKillScaleLogic(
       watch,
       kill: kill.sort(sortKill),
     };
-  }, [creatives, winnerKpi, winnerKpiDirection, scaleAt, killAt, spendThreshold, isGte, kpiLabel]);
+  }, [creatives, winnerKpi, scaleAt, killAt, spendThreshold, isGte, kpiLabel]);
 
   const dirLabel = isGte
     ? `Scale: ${kpiLabel} ≥ ${scaleAt} · Kill: ${kpiLabel} < ${killAt} · Watch: in between`

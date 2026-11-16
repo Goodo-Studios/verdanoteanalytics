@@ -4,6 +4,7 @@ import { isAllowedFacebookUrl } from "../_shared/ssrf.ts";
 import { isMediaContentType } from "../_shared/vault-save-logic.ts";
 import { ACTOR_CONFIGS } from "../_shared/actor-configs.ts";
 import { requireStaffOrServiceRole } from "../_shared/internal-auth.ts";
+import { userRateLimitResponse } from "../_shared/user-rate-limit.ts";
 
 const APIFY_BASE = "https://api.apify.com/v2";
 
@@ -214,6 +215,10 @@ Deno.serve(async (req) => {
 
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) return json({ success: false, error: "Unauthorized" }, 401);
+
+    // Audit 8.7: each scrape is a paid Apify run, so cap calls per user.
+    const limited = await userRateLimitResponse(supabaseAdmin, user.id, "scrape-ad");
+    if (limited) return limited;
 
     const { url } = await req.json();
     if (!url) {

@@ -35,6 +35,8 @@ verify_jwt = false
 # internally (auth.getUser) + enforces account ownership, then calls the
 # SECURITY DEFINER RPC with the service role. Do not link from anon.
 [functions.landing-pages]
+verify_jwt = false
+
 # ─── Entity Report (Feature 2, v1 text clustering) ───────────────────────────
 # creative-embed + cluster-creatives are internal/service-role batch jobs (same
 # model as vault-embed / backfill-*): invoked by the orchestrator with the
@@ -63,6 +65,8 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.entity-report]
+verify_jwt = false
+
 # Creative Library (Feature 4 + F3). Like leaderboard, does its OWN session-JWT
 # verification + per-account ownership check inside the handler, then calls the
 # SECURITY DEFINER RPCs (get_creative_library / get_creative_classification) with
@@ -185,8 +189,7 @@ verify_jwt = true
 [functions.vault-save-creative]
 verify_jwt = true
 
-[functions.vault-ads]
-verify_jwt = true
+# vault-ads removed 2026-11-15 (audit 2.3): nothing in the app called it.
 
 # vault-extract is invoked internally by vault-save with the service-role bearer
 # and never directly from the browser — no JWT verification needed.
@@ -238,26 +241,9 @@ verify_jwt = false
 # earlier; crons unscheduled and viral_feed_items dropped in migration
 # 20260609000001_remove_viral_feed.sql).
 
-# ─── Slack import edge functions (ported from Creative Vault, US-011) ────────
-# slack_connections is user-scoped (auth.uid()) — each user connects their own
-# Slack workspace and selects channels to monitor.
-# Secret names mirror Creative Vault verbatim:
-#   SLACK_CLIENT_ID, SLACK_CLIENT_SECRET, SLACK_SIGNING_SECRET.
-
-# User-facing connect endpoint — called from frontend with the user JWT.
-# Validates the bot token via slack.com/api/auth.test and stores the connection.
-[functions.vault-slack-connect]
-verify_jwt = true
-
-# Slack Events API webhook — Slack calls this directly. Auth is HMAC over the
-# X-Slack-Signature header (verified against signing_secret), so no JWT.
-[functions.vault-slack-events]
-verify_jwt = false
-
-# Backfill a Slack channel's history into the user's vault — called from
-# frontend with the user JWT.
-[functions.vault-slack-import]
-verify_jwt = true
+# Slack import to the Vault (the three vault-slack functions) was removed on
+# 2026-11-15 (audit plan item 0.3, migration 20261216130001). It was never used
+# from the app and trusted Slack connections any signed-in user could write.
 
 [functions.ad-preview]
 verify_jwt = false
@@ -362,11 +348,6 @@ verify_jwt = true
 # portfolio_enabled opt-in flag + unguessable portfolio_slug; no JWT possible.
 [functions.portfolio]
 verify_jwt = false
-
-# Browser/bookmarklet-called; validates the user JWT internally via
-# auth.getUser().
-[functions.quick-save]
-verify_jwt = true
 
 # External read API for Sadie. Caller sends no Supabase JWT; auth is the
 # x-sadie-key shared secret (SADIE_API_KEY) checked internally — 401 on miss.

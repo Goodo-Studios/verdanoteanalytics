@@ -6,8 +6,12 @@ import { useSync, useRefreshMedia } from "@/hooks/useSyncApi";
 import { useAccountContext } from "@/contexts/AccountContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { describeCsvErrors, parseTagMappingsCsv } from "@/lib/csv";
 import { DEFAULT_CREATIVE_PROMPT, DEFAULT_INSIGHTS_PROMPT } from "@/components/settings/AIContextSection";
 import { useSettings, useSaveSettings } from "@/hooks/useSettingsApi";
+
+/** Matches the sync function's default when no cooldown is saved. */
+export const DEFAULT_SYNC_COOLDOWN_MINUTES = "2";
 
 export function useSettingsPageState() {
   const { isBuilder, user } = useAuth();
@@ -60,11 +64,16 @@ export function useSettingsPageState() {
   const [tiktokAdvertiserId, setTiktokAdvertiserId] = useState("");
   const [tiktokAccessToken, setTiktokAccessToken] = useState("");
   // Global cooldown setting (from settings table, not per-account)
-  const [syncCooldownMinutes, setSyncCooldownMinutes] = useState(() => {
-    if (!globalSettings) return "0";
-    const row = (globalSettings as any[]).find?.((r: any) => r.key === "sync_cooldown_minutes");
-    return row?.value ?? "0";
-  });
+  // GET /settings returns an object keyed by setting name. The field shows the user's edit
+  // if there is one, else the saved value, else the server default of 2 minutes. Saving is
+  // blocked until settings have loaded, so a placeholder never overwrites the saved value
+  // (audit 5.9).
+  const [cooldownEdit, setSyncCooldownMinutes] = useState<string | null>(null);
+  const cooldownLoaded = globalSettings !== undefined && globalSettings !== null;
+  const savedCooldown = cooldownLoaded
+    ? (globalSettings as Record<string, string | undefined>).sync_cooldown_minutes
+    : undefined;
+  const syncCooldownMinutes = cooldownEdit ?? (savedCooldown || DEFAULT_SYNC_COOLDOWN_MINUTES);
 
   // Sync form state when account changes
   if (account && initialized !== account.id) {
@@ -92,8 +101,9 @@ export function useSettingsPageState() {
   }
 
   const handleSaveCooldown = useCallback(() => {
+    if (!cooldownLoaded) return;
     saveSettings.mutate({ sync_cooldown_minutes: syncCooldownMinutes });
-  }, [syncCooldownMinutes, saveSettings]);
+  }, [cooldownLoaded, syncCooldownMinutes, saveSettings]);
 
   const handleSave = useCallback(() => {
     if (!account) return;
@@ -160,19 +170,17 @@ export function useSettingsPageState() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (event) => {
-      const text = event.target?.result as string;
-      const lines = text.split("\n").filter((l) => l.trim());
-      if (lines.length < 2) { toast.error("Invalid CSV — file must have headers and at least one row."); return; }
-      const headers = lines[0].split(",").map((h) => h.trim());
-      const required = ["UniqueCode", "Type", "Person", "Style", "Product", "Hook", "Theme"];
-      const missing = required.filter((r) => !headers.includes(r));
-      if (missing.length > 0) { toast.error(`Missing columns: ${missing.join(", ")}`); return; }
-      const rows = lines.slice(1).map((line) => {
-        const values = line.split(",").map((v) => v.trim());
-        const row: Record<string, string> = {};
-        headers.forEach((h, i) => { row[h] = values[i] || ""; });
-        return row;
-      });
+      // Whole-file parse with every row checked before anything is sent (audit 5.9).
+      const { rows, errors, fatal } = parseTagMappingsCsv(event.target?.result as string);
+      if (fatal) { toast.error(fatal); return; }
+      if (errors.length > 0) {
+        toast.error(`${errors.length} row${errors.length === 1 ? "" : "s"} need fixing before upload`, {
+          description: describeCsvErrors(errors),
+        });
+        setCsvPreview([]);
+        setCsvMappings([]);
+        return;
+      }
       setCsvPreview(rows.slice(0, 5));
       setCsvMappings(rows);
     };
@@ -203,7 +211,7 @@ export function useSettingsPageState() {
     primaryKpi, setPrimaryKpi, secondaryKpis, setSecondaryKpis,
     companyPdfUrl, setCompanyPdfUrl,
     creativePrompt, setCreativePrompt, insightsPrompt, setInsightsPrompt,
-    syncCooldownMinutes, setSyncCooldownMinutes,
+    syncCooldownMinutes, setSyncCooldownMinutes, cooldownLoaded,
     targetRoas, setTargetRoas, targetCpa, setTargetCpa, targetMonthlySpend, setTargetMonthlySpend,
     tiktokAdvertiserId, setTiktokAdvertiserId, tiktokAccessToken, setTiktokAccessToken,
     // Handlers

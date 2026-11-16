@@ -1,4 +1,5 @@
 import { ShieldAlert } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 /**
  * AccountAccessDeniedState — rendered by AccountProvider (US-008) in place of
@@ -8,7 +9,7 @@ import { ShieldAlert } from "lucide-react";
  * account id must never fall through to whatever account was last selected,
  * so nothing downstream gets a chance to render another account's data.
  */
-export function AccountAccessDeniedState() {
+export function AccountAccessDeniedState({ onGoToMyAccounts }: { onGoToMyAccounts?: () => void }) {
   return (
     <div
       data-testid="account-access-denied"
@@ -23,8 +24,15 @@ export function AccountAccessDeniedState() {
       <p className="font-heading text-[16px] text-forest">This account isn't available</p>
       <p className="font-body text-[13px] text-slate font-light mt-1.5 max-w-[340px]">
         The account in this link doesn't exist or you don't have access to it.
-        Double-check the link, or pick an account from your account list.
+        Double-check the link, or go back to your own accounts.
       </p>
+      {onGoToMyAccounts && (
+        // This screen replaces the whole app, sidebar included, so it carries its own way out
+        // (audit 3.4): clear the bad link and open the user's own account.
+        <Button className="mt-4" onClick={onGoToMyAccounts}>
+          Go to my accounts
+        </Button>
+      )}
     </div>
   );
 }

@@ -13,7 +13,7 @@ const h = vi.hoisted(() => ({
 
 vi.mock("@/integrations/supabase/client", () => {
   const builder: any = {};
-  for (const m of ["select", "gte", "eq"]) builder[m] = () => builder;
+  for (const m of ["select", "gte", "lte", "eq"]) builder[m] = () => builder;
   builder.order = (col: string) => {
     h.orders.push(col);
     return builder;

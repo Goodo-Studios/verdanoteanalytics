@@ -35,6 +35,23 @@ describe("config.toml function blocks", () => {
     expect(verifyJwt(name)).toBe(true);
   });
 
+  // Audit plan item 2.5: these two headers had a comment block where their verify_jwt line
+  // should be, so they silently fell back to the platform default. Both check the session
+  // inside the handler (like leaderboard), so they are meant to be verify_jwt = false.
+  it.each(["landing-pages", "entity-report"])("%s is explicitly verify_jwt = false", (name) => {
+    expect(verifyJwt(name)).toBe(false);
+  });
+
+  it("every [functions.*] block states verify_jwt explicitly", () => {
+    const missing = toml
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith("[functions."))
+      .map((l) => l.slice("[functions.".length, -1))
+      .filter((name) => verifyJwt(name) === null);
+    expect(missing).toEqual([]);
+  });
+
   it("has no duplicate function blocks", () => {
     const headers = toml.split("\n").map((l) => l.trim()).filter((l) => l.startsWith("[functions."));
     expect(new Set(headers).size).toBe(headers.length);

@@ -117,7 +117,7 @@ function scalar(raw) {
  * without a closing --- line is treated as having no frontmatter.
  */
 export function parseFrontmatter(text) {
-  const src = String(text ?? '').replace(/^﻿/, '').replace(/\r\n/g, '\n');
+  const src = String(text ?? '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
   if (!src.startsWith('---\n')) return { data: {}, body: src };
   const end = src.indexOf('\n---', 4);
   if (end === -1) return { data: {}, body: src };

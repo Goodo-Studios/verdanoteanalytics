@@ -61,7 +61,6 @@ FUNCTIONS=(
   public-link
   public-apply
   cleanup-application-uploads
-  quick-save
   refresh-thumbnails
   reports
   resolve-destinations
@@ -89,7 +88,6 @@ FUNCTIONS=(
   system-health-check
   transcribe-ad
   user-management
-  vault-ads
   vault-analyze
   vault-embed
   vault-extract
@@ -99,9 +97,6 @@ FUNCTIONS=(
   vault-save-creative
   vault-search
   vault-share-item
-  vault-slack-connect
-  vault-slack-events
-  vault-slack-import
   vault-status
   vault-transcribe
   webhooks-dispatch

@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { isApifyRunId } from "../_shared/input-limits.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -18,6 +19,8 @@ Deno.serve(async (req) => {
   const apifyToken = Deno.env.get("APIFY_TOKEN")!;
   const body = await req.json().catch(() => ({}));
   const runId = body.run_id;
+  // The run id goes into an Apify URL that carries the org token (audit 2.4).
+  if (runId != null && !isApifyRunId(runId)) return json({ error: "invalid run_id" }, 400);
 
   if (runId) {
     const res = await fetch(`https://api.apify.com/v2/actor-runs/${runId}/dataset/items?token=${apifyToken}`);

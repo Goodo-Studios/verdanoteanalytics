@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchSharedBrief } from "@/lib/publicShareLookups";
 import { toast } from "sonner";
 
 /* ── Types ────────────────────────────────── */
@@ -60,13 +61,8 @@ export function useBriefByShareToken(token: string | undefined) {
     queryKey: ["brief_share", token],
     enabled: !!token,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("briefs" as any)
-        .select("*")
-        .eq("share_token", token)
-        .maybeSingle();
-      if (error) throw error;
-      return (data as unknown as Brief) || null;
+      // One-row lookup by token (audit 1.3); see src/lib/publicShareLookups.ts.
+      return ((await fetchSharedBrief(token as string)) as unknown as Brief) || null;
     },
   });
 }

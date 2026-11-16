@@ -43,19 +43,25 @@ export function CreativeTagEditor({ creative }: CreativeTagEditorProps) {
     ad_type: "", person: "", style: "", product: "", hook: "", theme: "",
   });
 
+  // Re-seed when the creative or its stored tags change (e.g. after a sync).
+  const adId = creative?.ad_id;
+  const storedAdType = creative?.ad_type;
+  const storedPerson = creative?.person;
+  const storedStyle = creative?.style;
+  const storedProduct = creative?.product;
+  const storedHook = creative?.hook;
+  const storedTheme = creative?.theme;
   useEffect(() => {
-    if (creative) {
-      setTags({
-        ad_type: creative.ad_type || "",
-        person: creative.person || "",
-        style: creative.style || "",
-        product: creative.product || "",
-        hook: creative.hook || "",
-        theme: creative.theme || "",
-      });
-    }
-    // Re-seed when the creative or its stored tags change (e.g. after a sync).
-  }, [creative?.ad_id, creative?.ad_type, creative?.person, creative?.style, creative?.product, creative?.hook, creative?.theme]);
+    if (!adId) return;
+    setTags({
+      ad_type: storedAdType || "",
+      person: storedPerson || "",
+      style: storedStyle || "",
+      product: storedProduct || "",
+      hook: storedHook || "",
+      theme: storedTheme || "",
+    });
+  }, [adId, storedAdType, storedPerson, storedStyle, storedProduct, storedHook, storedTheme]);
 
   const handleSave = () => {
     const updates: Record<string, string | null> = {};

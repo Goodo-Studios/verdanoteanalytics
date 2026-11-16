@@ -1,5 +1,11 @@
 # Creative Rotation + F2 lifecycle dates — migration & deploy notes
 
+> **History note (audit Batch 9, 2026-11-16):** the placeholder numbers below were
+> renumbered before these migrations shipped. They are now
+> `20260714000014` to `20260714000020` (lifecycle dates, creative rotation, media archive,
+> classification library, creative embeddings, clusters, landing page creatives). The
+> renumbering instructions are kept as a record and need no action.
+
 Branch: `feature/creative-rotation`. Nothing here was pushed or `db push`ed.
 
 > **Orchestrator: the two migrations use placeholder date prefix `20260715000001`
@@ -10,7 +16,7 @@ Branch: `feature/creative-rotation`. Nothing here was pushed or `db push`ed.
 
 ## Migrations (apply in order)
 
-1. **`20260715000001_creative_lifecycle_dates.sql`** — F2 shared foundation.
+1. **`20260714000014_creative_lifecycle_dates.sql`** — F2 shared foundation.
    - Adds nullable columns to `public.creatives`: `launch_date`,
      `first_added_date`, `first_spend_date` (+ index
      `idx_creatives_account_launch_date`).
@@ -28,7 +34,7 @@ Branch: `feature/creative-rotation`. Nothing here was pushed or `db push`ed.
      is harmless but should be de-duped when reconciling). Do not ship two
      divergent definitions of these columns.
 
-2. **`20260715000002_rpc_creative_rotation.sql`** — Feature 3 report RPCs (depends
+2. **`20260714000015_rpc_creative_rotation.sql`** — Feature 3 report RPCs (depends
    on the F2 columns above). Three SECURITY DEFINER RPCs, all trusting
    `p_account_id` → EXECUTE revoked from `authenticated`, granted to `service_role`:
    - `rpc_creative_rotation_freshness(account, from, to, fresh_days)` — weekly
@@ -70,7 +76,7 @@ derive step; older ads missing `created_time` get a Meta batch lookup. Idempoten
 
 ## Shared foundations touched (reconcile with parallel branches)
 
-- `supabase/migrations/20260715000001_creative_lifecycle_dates.sql` (F2) — shared
+- `supabase/migrations/20260714000014_creative_lifecycle_dates.sql` (F2) — shared
   with `feature/fatigue-curve`.
 - `supabase/functions/_shared/lifecycle-dates.ts` — new shared util (F2 helpers).
 - `supabase/config.toml`, `scripts/deploy-functions.sh` — appended two entries
@@ -93,9 +99,9 @@ guaranteed to sort after whatever else has landed on `main` by merge time.
 
 1. **Renumber** the placeholder migrations so their timestamps sort strictly
    after the latest migration already on `main`, preserving relative order:
-   - `20260717000001_entity_creative_embeddings.sql` — `creative_embeddings`
+   - `20260714000018_entity_creative_embeddings.sql` — `creative_embeddings`
      table (512-dim pgvector, HNSW cosine) + RLS.
-   - `20260717000002_entity_clusters.sql` — `creative_clusters` table,
+   - `20260714000019_entity_clusters.sql` — `creative_clusters` table,
      `cluster_id` / `cluster_confidence` columns on `creatives`,
      `match_creatives()` helper, and the IDOR-guarded read RPCs
      (`rpc_entity_report`, `rpc_entity_cluster_members`) with `authenticated`
@@ -134,7 +140,7 @@ them to the next free slot at deploy time if a collision exists.
 
 ## Pending (feature branch: landing-pages)
 
-### `20260718000001_rpc_landing_page_creatives.sql` — PLACEHOLDER, orchestrator renumbers
+### `20260714000020_rpc_landing_page_creatives.sql` — PLACEHOLDER, orchestrator renumbers
 
 Landing Pages report US-004 (destination drill-in). Adds the
 `get_landing_page_creatives(p_account_id text, p_from date, p_to date, p_destination_key text)`

@@ -8,7 +8,7 @@
 
 // Media CDNs Meta serves creative bytes from, plus this project's own Supabase
 // storage (cache-creative-image rewrites recovered URLs onto SUPABASE_URL).
-// Used by quick-save, transcribe-ad, vault-save-creative, cache-creative-image.
+// Used by transcribe-ad, vault-save-creative, cache-creative-image.
 export function isAllowedMediaUrl(raw: string): boolean {
   let u: URL;
   try {

@@ -33,6 +33,10 @@ INSERT INTO allow VALUES
   ('browser','create_api_key'), ('browser','get_agency_dashboard_summary'),
   ('browser','get_creative_window_aggregates'), ('browser','get_daily_trends'),
   ('browser','get_period_metrics'), ('browser','get_user_role'),
+  -- Audit 7.3 part 9: the agency dashboard as one jsonb value (replaces the per-row
+  -- get_agency_dashboard_summary). Same staff-only gate in its body: anyone without the builder
+  -- or employee role (and not service_role) is refused with 42501.
+  ('browser','get_agency_dashboard_data'),
   -- OS-008: task comment threads. Both check the caller inside: staff (has_role builder/employee)
   -- see and post in both threads; a client only the client thread of their own client's visible
   -- task (get_user_client_slugs); anyone else is refused or gets no rows.
@@ -60,7 +64,10 @@ INSERT INTO allow VALUES
   ('row_rules','owns_ad_library_ad'), ('row_rules','owns_ad_library_board'),
   ('row_rules','vault_owns_board'), ('row_rules','vault_visible_item_ids'),
   ('edge_user','match_items'),
-  ('anon','board_is_public'), ('anon','ad_is_on_public_board');
+  ('anon','board_is_public'), ('anon','ad_is_on_public_board'),
+  -- Audit 1.3: shared links. Each returns at most the one row its id or token names, and only
+  -- when that row is shared (is_public / is_shared). Tested in public_share_lookups_test.sql.
+  ('anon','get_public_report'), ('anon','get_shared_brief');
 INSERT INTO allow
   SELECT 'staff_area', unnest(ARRAY[
     'app_user_role_mapping', 'apply_actor_approval_votes', 'apply_approval_votes',
