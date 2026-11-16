@@ -1,6 +1,28 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders } from "../_shared/cors.ts";
 import { isStaffUser } from "../_shared/account-access.ts";
+import { type DigestRow, digestWindows, percentChange, summarizeWeek, topCreativeOfWeek } from "./digest-math.ts";
+
+// Daily rows for one account and date window, paged past the 1,000-row cap.
+// deno-lint-ignore no-explicit-any
+async function fetchDailyRows(admin: any, accountId: string, start: string, end: string): Promise<DigestRow[]> {
+  const rows: DigestRow[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await admin
+      .from("creative_daily_metrics")
+      .select("ad_id, spend, purchase_value")
+      .eq("account_id", accountId)
+      .gte("date", start)
+      .lte("date", end)
+      .order("ad_id")
+      .order("date")
+      .range(from, from + 999);
+    if (error) throw error;
+    rows.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  return rows;
+}
 
 
 export interface Deps {
@@ -96,57 +118,42 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
       );
     }
 
-    // Date range: last 7 days
-    const now = new Date();
-    const weekAgo = new Date(now);
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    const twoWeeksAgo = new Date(now);
-    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
-    const dateStr = `${weekAgo.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+    // This week = the last 7 full days, last week = the 7 before (audit 6.1).
+    const { thisWeek: thisWin, lastWeek: lastWin } = digestWindows(new Date());
+    const fmtDay = (iso: string, withYear = false) =>
+      new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
+        month: "short", day: "numeric", timeZone: "UTC", ...(withYear ? { year: "numeric" } : {}),
+      });
+    const dateStr = `${fmtDay(thisWin.start)} – ${fmtDay(thisWin.end, true)}`;
 
     // Build per-account summaries
     const accountSections: string[] = [];
     for (const account of accounts) {
-      // This week metrics
-      const { data: thisWeek } = await admin
-        .from("creative_daily_metrics")
-        .select("spend, roas, ad_id")
-        .eq("account_id", account.id)
-        .gte("date", weekAgo.toISOString().split("T")[0])
-        .lte("date", now.toISOString().split("T")[0]);
+      const thisWeekRows = await fetchDailyRows(admin, account.id, thisWin.start, thisWin.end);
+      const lastWeekRows = await fetchDailyRows(admin, account.id, lastWin.start, lastWin.end);
 
-      // Last week metrics (for trend)
-      const { data: lastWeek } = await admin
-        .from("creative_daily_metrics")
-        .select("spend, roas")
-        .eq("account_id", account.id)
-        .gte("date", twoWeeksAgo.toISOString().split("T")[0])
-        .lt("date", weekAgo.toISOString().split("T")[0]);
+      // ROAS = total revenue / total spend, never an average of daily ROAS.
+      const thisWeekSum = summarizeWeek(thisWeekRows);
+      const lastWeekSum = summarizeWeek(lastWeekRows);
+      const thisWeekSpend = thisWeekSum.spend;
+      const lastWeekSpend = lastWeekSum.spend;
 
-      const thisWeekSpend = (thisWeek || []).reduce((s, r) => s + (Number(r.spend) || 0), 0);
-      const thisWeekRoas =
-        (thisWeek || []).length > 0
-          ? (thisWeek || []).reduce((s, r) => s + (Number(r.roas) || 0), 0) / (thisWeek || []).length
-          : 0;
-
-      const lastWeekSpend = (lastWeek || []).reduce((s, r) => s + (Number(r.spend) || 0), 0);
-      const lastWeekRoas =
-        (lastWeek || []).length > 0
-          ? (lastWeek || []).reduce((s, r) => s + (Number(r.roas) || 0), 0) / (lastWeek || []).length
-          : 0;
-
-      // Top creative by ROAS this week
-      const { data: topCreative } = await admin
-        .from("creatives")
-        .select("ad_name, thumbnail_url, roas")
-        .eq("account_id", account.id)
-        .order("roas", { ascending: false })
-        .limit(1)
-        .single();
+      // Top creative: best ROAS this week among ads over the spend floor.
+      const top = topCreativeOfWeek(thisWeekRows);
+      let topCreative: { ad_name: string | null; thumbnail_url: string | null; roas: number } | null = null;
+      if (top) {
+        const { data: meta } = await admin
+          .from("creatives")
+          .select("ad_name, thumbnail_url")
+          .eq("ad_id", top.ad_id)
+          .maybeSingle();
+        topCreative = { ad_name: meta?.ad_name ?? top.ad_id, thumbnail_url: meta?.thumbnail_url ?? null, roas: top.roas };
+      }
 
       // Trends
-      const spendChange = lastWeekSpend > 0 ? ((thisWeekSpend - lastWeekSpend) / lastWeekSpend) * 100 : 0;
-      const roasChange = lastWeekRoas > 0 ? ((thisWeekRoas - lastWeekRoas) / lastWeekRoas) * 100 : 0;
+      const spendChange = percentChange(thisWeekSpend, lastWeekSpend) ?? 0;
+      const roasChangeOrNull = percentChange(thisWeekSum.roas, lastWeekSum.roas);
+      const roasChange = roasChangeOrNull ?? 0;
       const spendArrow = spendChange >= 0 ? "▲" : "▼";
       const roasArrow = roasChange >= 0 ? "▲" : "▼";
       const spendColor = spendChange >= 0 ? "#16a34a" : "#dc2626";
@@ -170,7 +177,7 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
               <td style="width:8px;"></td>
               <td style="padding:12px 16px;background:#f8faf8;border-radius:8px;text-align:center;width:33%;">
                 <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">ROAS</div>
-                <div style="font-size:20px;font-weight:700;color:#1a2e1a;margin-top:4px;">${thisWeekRoas.toFixed(2)}x</div>
+                <div style="font-size:20px;font-weight:700;color:#1a2e1a;margin-top:4px;">${thisWeekSum.roas === null ? "–" : `${thisWeekSum.roas.toFixed(2)}x`}</div>
               </td>
               <td style="width:8px;"></td>
               <td style="padding:12px 16px;background:#f8faf8;border-radius:8px;width:33%;">
@@ -188,7 +195,9 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
         </td></tr>
         <tr><td style="padding:0 0 16px 0;">
           <div style="font-size:13px;color:#475569;">
-            <span style="color:${roasColor};font-weight:600;">${roasArrow} ROAS ${roasChange >= 0 ? "up" : "down"} ${Math.abs(roasChange).toFixed(0)}%</span> from last week
+            ${roasChangeOrNull === null
+              ? `<span style="color:#64748b;">No ROAS last week to compare</span>`
+              : `<span style="color:${roasColor};font-weight:600;">${roasArrow} ROAS ${roasChange >= 0 ? "up" : "down"} ${Math.abs(roasChange).toFixed(0)}%</span> from last week`}
             &nbsp;·&nbsp;
             <span style="color:${spendColor};font-weight:600;">${spendArrow} Spend ${spendChange >= 0 ? "up" : "down"} ${Math.abs(spendChange).toFixed(0)}%</span>
           </div>
