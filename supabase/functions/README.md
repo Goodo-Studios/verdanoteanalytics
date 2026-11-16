@@ -129,7 +129,6 @@ The Vault is a creative-inspiration library: paste a TikTok, Instagram, YouTube,
 |---|---|---|
 | `competitor-ads` | User action | Fetches competitor ads from the Meta Ad Library for a given search query. |
 | `scrape-ad` | User action | Scrapes ad landing page metadata (title, description, OG image) for a given URL. |
-| `quick-save` | User action | Saves an ad from the Ad Library bookmarklet to the user's saved ads. |
 | `transcribe-ad` | User action | Transcribes audio/video from an ad using a speech-to-text model. |
 | `resolve-destinations` | Internal / service role | Classifies unique landing destinations and optionally refines product names from bounded page-title fetches. External URLs and every redirect are checked with `_shared/public-url.ts` to reject private, loopback, link-local, and other non-public network targets. |
 

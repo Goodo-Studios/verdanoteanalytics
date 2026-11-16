@@ -45,10 +45,10 @@ describe("function access manifest", () => {
     expect(Object.keys(manifest).sort()).toEqual(deployed);
   });
 
-  it("covers all 89 functions today", () => {
+  it("covers all 88 functions today", () => {
     // 83 + clickup-os-sync and clickup-webhook (OS-007) + clickup-writeback (OS-017) + client-invite (OS-021)
-    // + cleanup-application-uploads (security close-out).
-    expect(deployed).toHaveLength(89);
+    // + cleanup-application-uploads (security close-out) - quick-save (retired, audit 4.1).
+    expect(deployed).toHaveLength(88);
   });
 
   it("uses only known classes", () => {
@@ -115,7 +115,7 @@ describe("function access manifest", () => {
     // with the service role or call paid APIs, so they need their own gate.
     const mustBeStaff = [
       "vault-ads", "vault-save", "vault-save-creative", "vault-search", "vault-status", "vault-frame-analyze",
-      "vault-slack-connect", "vault-slack-import", "vault-share-item", "quick-save", "scrape-ad", "transcribe-ad",
+      "vault-slack-connect", "vault-slack-import", "vault-share-item", "scrape-ad", "transcribe-ad",
       "account-taxonomy", "creative-library", "creative-media-archive",
     ];
     for (const name of mustBeStaff) expect(manifest[name]?.class, name).toBe("staff");

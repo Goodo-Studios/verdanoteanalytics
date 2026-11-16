@@ -363,11 +363,6 @@ verify_jwt = true
 [functions.portfolio]
 verify_jwt = false
 
-# Browser/bookmarklet-called; validates the user JWT internally via
-# auth.getUser().
-[functions.quick-save]
-verify_jwt = true
-
 # External read API for Sadie. Caller sends no Supabase JWT; auth is the
 # x-sadie-key shared secret (SADIE_API_KEY) checked internally — 401 on miss.
 [functions.sadie-read]

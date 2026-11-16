@@ -20,7 +20,7 @@ Before this change a client token (a signed-in client account) was accepted by t
 
 | Function | What a client could do | Fix |
 |---|---|---|
-| `vault-save`, `vault-save-creative`, `quick-save` | Write into the vault (service-role insert) | Staff gate |
+| `vault-save`, `vault-save-creative` | Write into the vault (service-role insert) | Staff gate (`quick-save` was retired in audit 4.1) |
 | `vault-ads` | Search the Meta ad library with the org token | Staff gate |
 | `vault-search`, `vault-status`, `vault-frame-analyze` | Spend embedding and vision budget, read vault status | Staff gate |
 | `vault-slack-connect`, `vault-slack-import` | Store Slack credentials and import channels with the service role | Staff gate |
