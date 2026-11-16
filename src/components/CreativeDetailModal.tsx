@@ -17,8 +17,7 @@ import { CreativeFrames } from "@/components/creative-detail/CreativeFrames";
 import { GradeBadge } from "@/components/creatives/GradeBadge";
 
 import type { GradeInfo } from "@/lib/creativeGrading";
-import { useAuth } from "@/contexts/AuthContext";
-import { useClientPreview } from "@/hooks/useClientPreviewMode";
+import { useCanEditTags } from "@/hooks/useCanEditTags";
 import { PushToClickUpDialog } from "@/components/clickup/PushToClickUpDialog";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
@@ -286,12 +285,11 @@ export function MediaPreview({ creative, caching = false }: { creative: Creative
   );
 }
 export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModalProps>(function CreativeDetailModal({ creative, open, onClose, gradeMap }, ref) {
-  const { isBuilder, isEmployee } = useAuth();
   const queryClient = useQueryClient();
-  const canEdit = isBuilder || isEmployee;
-  const { isClientPreview } = useClientPreview();
-  // "Create brief in ClickUp": staff only, hidden while a builder previews the client view.
-  const canPushToClickUp = canEdit && !isClientPreview;
+  // Staff who are not previewing the client view (audit 3.3). Gates the tag editor, Save to Vault,
+  // the ClickUp brief button and the other edit controls in this window.
+  const canEdit = useCanEditTags();
+  const canPushToClickUp = canEdit;
   const [clickUpOpen, setClickUpOpen] = useState(false);
   const [savingToVault, setSavingToVault] = useState(false);
   const [savedToVault, setSavedToVault] = useState(false);
@@ -541,7 +539,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
             </div>
 
             {/* Save to Vault */}
-            {(isBuilder || isEmployee) && (
+            {canEdit && (
               <div className="flex items-center gap-2 flex-wrap">
                 {canPushToClickUp && (
                   <Button
@@ -577,7 +575,7 @@ export const CreativeDetailModal = forwardRef<HTMLDivElement, CreativeDetailModa
               </div>
             )}
 
-            <CreativeTagEditor creative={creative} />
+            {canEdit && <CreativeTagEditor creative={creative} />}
           </TabsContent>
 
           {/* AI-analysis tabs — full parity with the Creative Vault detail view.
