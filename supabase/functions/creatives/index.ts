@@ -242,7 +242,10 @@ serve(async (req) => {
       // page plus total and aggregates. The loops below page through every daily-metrics
       // row 1000 at a time, which for the all-accounts view (no client picked, default
       // 14-day range) is hundreds of sequential scans at production size. They remain
-      // only for ?all=1, which has no caller in the app today.
+      // only for ?all=1, which the app calls through useAllCreatives (Analytics, Overview,
+      // Compare, Tagging, winner creatives, Data Export and the brief creative picker).
+      // Callers should pass an account and load on demand (audit 7.5); making this path
+      // itself fast is tracked in the audit plan.
       if (!all) {
         const adTypes = adTypeFilterValues(adType);
         const { data: pageResult, error: pageError } = await supabase.rpc("creatives_list_page", {

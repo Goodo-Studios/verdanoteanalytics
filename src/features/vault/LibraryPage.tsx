@@ -52,6 +52,9 @@ function ActiveItemPoller({ itemId, onDone }: { itemId: string; onDone: (id: str
   return null;
 }
 
+/** Reuse a signed URL for 50 minutes of its 60-minute life before signing it again. */
+const SIGNED_URL_REUSE_MS = 50 * 60 * 1000;
+
 /** Core Creative Vault library page (replaces Verdanote AdLibraryPage).
  *
  * Behaviour parity with `repos/private/creative-vault/src/pages/LibraryPage.tsx`
@@ -319,13 +322,24 @@ export default function LibraryPage() {
     () => collectVaultStoragePaths([...featuredAll, ...items]),
     [featuredAll, items],
   );
+  // Audit 7.5: signed URLs are cached per path for most of their 1h life, so "Load more"
+  // signs only the paths the new page adds. Keying the batch on every path on screen re-signed
+  // all of them on each page (hundreds of still-valid URLs per click).
+  const signedUrlCache = useRef(new Map<string, { url: string; signedAt: number }>());
+  const unsignedPaths = useMemo(() => {
+    const now = Date.now();
+    return storagePaths.filter((path) => {
+      const hit = signedUrlCache.current.get(path);
+      return !hit || now - hit.signedAt > SIGNED_URL_REUSE_MS;
+    });
+  }, [storagePaths]);
   const {
-    data: signedUrlMap,
+    data: freshSignedUrls,
     status: signedUrlsStatus,
     isPlaceholderData: signedUrlsArePlaceholder,
   } = useQuery({
-    queryKey: ["vault-signed-urls", storagePaths],
-    enabled: storagePaths.length > 0,
+    queryKey: ["vault-signed-urls", unsignedPaths],
+    enabled: unsignedPaths.length > 0,
     // The key changes every time infinite scroll appends a page. Without this the map goes
     // undefined while the new batch signs, and every already-loaded thumbnail flickers.
     // Keep the previous map on screen; the fresh one replaces it when it lands.
@@ -333,16 +347,28 @@ export default function LibraryPage() {
     queryFn: async () => {
       const { data, error } = await supabase.storage
         .from("inspiration-media")
-        .createSignedUrls(storagePaths, 3600);
+        .createSignedUrls(unsignedPaths, 3600);
       if (error) throw error;
-      return buildSignedUrlMap(data);
+      const map = buildSignedUrlMap(data);
+      const signedAt = Date.now();
+      for (const [path, url] of Object.entries(map)) signedUrlCache.current.set(path, { url, signedAt });
+      return map;
     },
     staleTime: 55 * 60 * 1000,
     retry: false,
   });
+  const signedUrlMap = useMemo(() => {
+    const merged: Record<string, string> = {};
+    for (const path of storagePaths) {
+      const hit = signedUrlCache.current.get(path);
+      if (hit) merged[path] = hit.url;
+    }
+    return { ...merged, ...(freshSignedUrls ?? {}) };
+  }, [storagePaths, freshSignedUrls]);
   // While the previous map is only a placeholder, cards missing from it must wait for the
-  // real batch rather than self-signing one by one.
-  const signedUrlsSettled = signedUrlsStatus !== "pending" && !signedUrlsArePlaceholder;
+  // real batch rather than self-signing one by one. Nothing to sign means every path is cached.
+  const signedUrlsSettled =
+    unsignedPaths.length === 0 || (signedUrlsStatus !== "pending" && !signedUrlsArePlaceholder);
 
   // Semantic search results from vault-search edge function.
   const { data: searchResults, isFetching: isSearching } = useQuery<LibraryItem[]>({
