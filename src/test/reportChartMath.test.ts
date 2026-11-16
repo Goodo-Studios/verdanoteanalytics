@@ -62,7 +62,9 @@ describe("report page uses the shared math", () => {
   it("chart section", () => {
     const src = read("../components/reports/sections/ChartSection.tsx");
     expect(src).toContain("dailySeries(");
-    expect(src).toMatch(/\.range\(/);
+    // Live reads are per-day database totals (audit 7.3), not a capped per-ad select.
+    expect(src).toContain("useDailyTrends(");
+    expect(src).not.toContain('.from("creative_daily_metrics")');
   });
   it("report detail page", () => {
     const src = read("../pages/ReportDetailPage.tsx");

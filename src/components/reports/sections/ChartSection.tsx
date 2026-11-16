@@ -1,8 +1,7 @@
 import { useMemo } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useDailyTrends } from "@/hooks/useDailyTrends";
 import { MultiLineTrendChart, type TrendLine } from "@/components/MultiLineTrendChart";
 import { CHART_SERIES } from "@/lib/chartTheme";
 import { dailySeries, type DailyRow } from "@/lib/reportChartMath";
@@ -29,37 +28,26 @@ export function ChartSection({ config, report, isEditing, onConfigChange }: Char
   // A saved report chart comes from its snapshot, so it does not change later (audit 6.2).
   const savedSeries = readReportSnapshot(report.snapshot)?.chart_series ?? null;
 
-  const { data: liveData } = useQuery({
-    queryKey: ["report-chart-data", report.account_id, report.date_range_start, report.date_range_end],
-    queryFn: async () => {
-      if (!report.date_range_start || !report.date_range_end) return [];
-      // Counts, not stored ratios, and paged past the 1,000-row cap (audit 6.1).
-      const rows: DailyRow[] = [];
-      for (let from = 0; ; from += 1000) {
-        let q = supabase
-          .from("creative_daily_metrics")
-          .select("date, spend, purchase_value, purchases, clicks, impressions")
-          .gte("date", report.date_range_start)
-          .lte("date", report.date_range_end)
-          .order("date")
-          .order("ad_id");
-        if (report.account_id) q = q.eq("account_id", report.account_id);
-        const { data, error } = await q.range(from, from + 999);
-        if (error) throw error;
-        rows.push(...((data || []) as DailyRow[]));
-        if (!data || data.length < 1000) break;
-      }
-      return rows;
-    },
-    enabled: !savedSeries && !!report.date_range_start && !!report.date_range_end,
+  // Older reports without a snapshot read per-day totals from the database (get_daily_trends,
+  // audit 7.3 / 6.1), so every day in the range is present and ROAS, CPA and CTR are totals
+  // over totals, not averages of per-ad values.
+  const dateRange = report.date_range_start && report.date_range_end
+    ? { from: report.date_range_start as string, to: report.date_range_end as string }
+    : undefined;
+  const { data: trends } = useDailyTrends(report.account_id || undefined, dateRange, {
+    enabled: !savedSeries && !!dateRange,
   });
-  const dailyData: DailyRow[] | undefined = savedSeries ?? liveData;
 
   const chartData = useMemo(() => {
-    if (!dailyData?.length) return { dates: [] as string[], values: [] as number[] };
-    // Each day's totals divided out (audit 6.1); a day with no denominator is a gap.
-    return dailySeries(dailyData, metric);
-  }, [dailyData, metric]);
+    if (savedSeries?.length) {
+      // Each day's totals divided out (audit 6.1); a day with no denominator is a gap.
+      return dailySeries(savedSeries as DailyRow[], metric);
+    }
+    if (!dateRange || !trends?.length) return { dates: [] as string[], values: [] as number[] };
+    const points = [...trends].sort((a, b) => a.date.localeCompare(b.date));
+    const key = metric as "spend" | "roas" | "cpa" | "ctr";
+    return { dates: points.map((p) => p.date), values: points.map((p) => Number(p[key]) || 0) };
+  }, [savedSeries, trends, metric, dateRange]);
 
   const trendLines: TrendLine[] = useMemo(
     () => [
