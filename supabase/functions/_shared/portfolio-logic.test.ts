@@ -19,7 +19,7 @@ Deno.test("fetchAllRows reads past the 1000-row cap, page by page", async () => 
   const all = await fetchAllRows(p.fetchPage);
   assertEquals(all.length, 2500);
   assertEquals(all[2499], { id: 2499 });
-  assertEquals(p.calls, [[0, 999], [1000, 1999], [2000, 2999]]);
+  assertEquals(p.calls, [[0, 999], [1000, 1999], [2000, 2999], [2500, 3499]]);
 });
 
 Deno.test("fetchAllRows stops on an exact page boundary with an empty next page", async () => {
@@ -72,4 +72,19 @@ Deno.test("summarizePortfolio is spend-weighted and zero when nothing was spent"
 
 Deno.test("the featured-creative spend floor is $100", () => {
   assertEquals(PORTFOLIO_MIN_TOP_SPEND, 100);
+});
+
+// Audit 7.3: a server row cap below the page size (PostgREST max_rows, say 500) must not end the
+// read after the first short page. The read keeps going until a page comes back empty.
+function cappedPager(total: number, cap: number) {
+  const rows = Array.from({ length: total }, (_, i) => i);
+  return (from: number, to: number) =>
+    Promise.resolve({ data: rows.slice(from, Math.min(to + 1, from + cap)), error: null });
+}
+
+Deno.test("fetchAllRows keeps reading when the server returns fewer rows than asked for", async () => {
+  const all = await fetchAllRows<number>(cappedPager(2300, 500));
+  assertEquals(all.length, 2300);
+  assertEquals(all[2299], 2299);
+  assertEquals(new Set(all).size, 2300);
 });

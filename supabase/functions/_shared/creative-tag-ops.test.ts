@@ -15,7 +15,7 @@ Deno.test("fetchAllRows reads past the 1000-row cap", async () => {
     return Promise.resolve({ data: all.slice(from, to + 1), error: null });
   });
   assertEquals(rows.length, 2500);
-  assertEquals(calls, [[0, 999], [1000, 1999], [2000, 2999]]);
+  assertEquals(calls, [[0, 999], [1000, 1999], [2000, 2999], [2500, 3499]]);
 });
 
 Deno.test("fetchAllRows throws on a page error instead of returning a truncated list", async () => {
@@ -45,4 +45,19 @@ Deno.test("validateTagUpdate rejects non-strings, long values and bad dates", ()
 
 Deno.test("validateTagUpdate leaves absent fields out", () => {
   assertEquals(validateTagUpdate({}), { ok: true, update: {} });
+});
+
+// Audit 7.3: a server row cap below the page size (PostgREST max_rows, say 500) must not end the
+// read after the first short page. The read keeps going until a page comes back empty.
+function cappedPager(total: number, cap: number) {
+  const rows = Array.from({ length: total }, (_, i) => i);
+  return (from: number, to: number) =>
+    Promise.resolve({ data: rows.slice(from, Math.min(to + 1, from + cap)), error: null });
+}
+
+Deno.test("fetchAllRows keeps reading when the server returns fewer rows than asked for", async () => {
+  const all = await fetchAllRows<number>(cappedPager(2300, 500));
+  assertEquals(all.length, 2300);
+  assertEquals(all[2299], 2299);
+  assertEquals(new Set(all).size, 2300);
 });
