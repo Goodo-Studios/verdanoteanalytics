@@ -199,3 +199,18 @@ Deno.test("preview mode never sends and never marks the digest as sent", async (
   assertEquals(fetchCalls.length, 0);
   assertEquals(sentMarks(db).length, 0);
 });
+
+// Audit 7.3 / 6.5: the digest compares two full UTC weeks ending yesterday, read as totals.
+Deno.test("the digest reads two full weeks ending yesterday as database totals", async () => {
+  const { db } = await call({ cfg: cfg({ role: "builder" }), body: { preview: true } });
+  const weeks = db.rpcCalls.filter((c) => c.name === "account_week_totals")
+    .map((c) => c.args as { p_from: string; p_to_exclusive: string });
+  const day = (n: number) => {
+    const d = new Date();
+    d.setUTCHours(0, 0, 0, 0);
+    d.setUTCDate(d.getUTCDate() - n);
+    return d.toISOString().slice(0, 10);
+  };
+  assert(weeks.some((w) => w.p_from === day(7) && w.p_to_exclusive === day(0)), "this week is the 7 days before today");
+  assert(weeks.some((w) => w.p_from === day(14) && w.p_to_exclusive === day(7)), "last week is the 7 days before that");
+});
