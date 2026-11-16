@@ -35,7 +35,7 @@ import { useScopedSelection } from "@/hooks/useScopedSelection";
 import { SyncStatusBanner } from "@/components/SyncStatusBanner";
 import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
 import { useWoWTrends } from "@/hooks/useWoWTrends";
-import { gradeCreatives, gradeOrder } from "@/lib/creativeGrading";
+import { pageGrades, gradeOrder } from "@/lib/creativeGrading";
 import { computeFatigueMap } from "@/lib/fatigueScore";
 import { isForecastedToFatigue } from "@/lib/fatigueForecast";
 import { supabase } from "@/integrations/supabase/client";
@@ -100,7 +100,7 @@ const CreativesPage = () => {
   const isSyncing = useIsSyncing();
 
   // Compute grades from current page data (pure spend percentile)
-  const gradeMap = useMemo(() => gradeCreatives(creatives), [creatives]);
+  const gradeMap = useMemo(() => pageGrades(creatives), [creatives]);
 
   // Compute fatigue scores
   const fatigueMap = useMemo(() => computeFatigueMap(creatives, wowTrends), [creatives, wowTrends]);
