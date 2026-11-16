@@ -15,6 +15,7 @@
  * behaviour appropriate to that mode.
  */
 import { test, expect, type Page } from "@playwright/test";
+import { waitForVaultLibrary } from "./support/wait-for-list";
 
 const TEST_EMAIL = process.env.PLAYWRIGHT_TEST_EMAIL || "";
 const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_PASSWORD || "";
@@ -247,8 +248,8 @@ test.describe("Vault features — authenticated golden path", () => {
     await page.goto(`${prefix}/ad-library`);
     await expect(page).toHaveURL(VAULT_LIBRARY_URL);
 
-    // Give the grid a moment to fetch
-    await page.waitForTimeout(2_500);
+    // Wait for an item card or the empty state
+    await waitForVaultLibrary(page, vaultItemCards(page));
 
     const firstCard = vaultItemCards(page).first();
 
@@ -488,7 +489,6 @@ test.describe("Vault — save analytics creative to global library (US-006)", ()
     // --- AC2: navigate to the global vault library and assert presence ---
     await page.goto(`${prefix}/ad-library`);
     await expect(page).toHaveURL(VAULT_LIBRARY_URL);
-    await page.waitForTimeout(2_500); // let the library grid fetch
 
     // The library is global; the just-saved item should render as a card with
     // media. We assert at least one item card is present (global read works).
