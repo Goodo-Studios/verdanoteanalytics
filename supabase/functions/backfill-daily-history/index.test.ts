@@ -89,6 +89,11 @@ function makeRecorder(
 
   const supabase = {
     from: (table: string) => { calls.push({ method: "from", args: [table] }); return builderFor(table); },
+    // Single-flight lock RPCs (audit 8.2): the lock is always free in these tests.
+    rpc: (name: string) => {
+      calls.push({ method: "rpc", args: [name] });
+      return Promise.resolve({ data: name.startsWith("claim_") ? true : null, error: null });
+    },
   };
   return { supabase, calls, upserts, updates };
 }

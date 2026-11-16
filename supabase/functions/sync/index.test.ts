@@ -498,7 +498,14 @@ function makeSupabase(
     };
     return builder;
   }
-  return { supabase: { from: (t: string) => builderFor(t) }, watermarks };
+  return {
+    supabase: {
+      from: (t: string) => builderFor(t),
+      // backfill-daily-history's single-flight lock (audit 8.2): always free here.
+      rpc: (name: string) => Promise.resolve({ data: name.startsWith("claim_") ? true : null, error: null }),
+    },
+    watermarks,
+  };
 }
 
 function bfReq(body: unknown) {
