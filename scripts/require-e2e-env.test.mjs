@@ -19,7 +19,9 @@ test("complete E2E environment passes validation", () => {
 
 test("the employee login is required, so employee specs cannot skip silently (audit Batch 9)", () => {
   assert.deepEqual(missingE2eVariables(complete), []);
-  const { PLAYWRIGHT_EMPLOYEE_EMAIL: _e, PLAYWRIGHT_EMPLOYEE_PASSWORD: _p, ...noEmployee } = complete;
+  const noEmployee = { ...complete };
+  delete noEmployee.PLAYWRIGHT_EMPLOYEE_EMAIL;
+  delete noEmployee.PLAYWRIGHT_EMPLOYEE_PASSWORD;
   assert.deepEqual(missingE2eVariables(noEmployee), ["PLAYWRIGHT_EMPLOYEE_EMAIL", "PLAYWRIGHT_EMPLOYEE_PASSWORD"]);
 });
 
