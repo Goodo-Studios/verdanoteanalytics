@@ -1,6 +1,6 @@
 import { ADD_TO_CART_ACTION_TYPES, PURCHASE_ACTION_TYPES, pickActionValue } from "../_shared/meta-actions.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { PROTECTED_TAG_SOURCES, protectedTagSourcesInList } from "../_shared/protected-tag-sources.ts";
+import { PROTECTED_TAG_SOURCES } from "../_shared/protected-tag-sources.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireStaffOrServiceRole } from "../_shared/internal-auth.ts";
@@ -1514,35 +1514,13 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // PHASE 3: Cleanup zero-spend creatives + count
+    // PHASE 3: Count creatives
     // ═══════════════════════════════════════════════════════════════════
+    // The zero-spend cleanup that ran here was removed (Matthew's decision 18): it
+    // looked for impressions IS NULL, which never matches because the column defaults
+    // to 0, and fixing it would have deleted thousands of creatives. Nothing is deleted.
     if (phase === 3) {
-      console.log("Phase 3: Cleanup zero-spend creatives...");
-
-      // US-006: when the account opts into zero-impression ads, SKIP the zero-spend
-      // cleanup. A genuinely zero-impression ad is ingested in Phase 1 with
-      // spend<=0 AND impressions IS NULL (Meta never reports metrics for it, so
-      // Phase 4 never populates it), which is EXACTLY the row this cleanup deletes.
-      // Deleting it would silently undo include_zero_impression on every sync. The
-      // media_coverage view already counts these rows as eligible (impressions NULL
-      // OR the flag), so keeping them is correct.
-      if (account.include_zero_impression === true) {
-        console.log("  include_zero_impression=true → skipping zero-spend cleanup (retaining zero-impression ads)");
-      } else {
-        // Delete zero-spend creatives EXCEPT:
-        // - manually/csv/csv_match-tagged ones (user investment, audit 5.11)
-        // - placeholder ads created by Phase 4 auto-create (ad_name = ad_id pattern)
-        //   These will get real metrics in Phase 4 of the current sync.
-        const { count: zeroSpendCount } = await supabase.from("creatives")
-          .delete({ count: "exact" })
-          .eq("account_id", accountId)
-          .lte("spend", 0)
-          .is("impressions", null)  // Only delete truly empty rows (never had data)
-          .not("tag_source", "in", protectedTagSourcesInList());
-        if (zeroSpendCount && zeroSpendCount > 0) {
-          console.log(`  Cleaned up ${zeroSpendCount} zero-spend creatives`);
-        }
-      }
+      console.log("Phase 3: Count creatives...");
 
       // Count remaining
       const { count: remaining } = await supabase.from("creatives")
