@@ -699,50 +699,10 @@ serve(async (req) => {
             if (shareErr) throw shareErr;
           }
 
-          let sharedCount = 0;
-          // Auto-share: create notifications for client users linked to this account
-          if (auto_share && savedReport) {
-            const { data: linkedUsers } = await supabase
-              .from("user_accounts")
-              .select("user_id")
-              .eq("account_id", accountId);
-
-            if (linkedUsers && linkedUsers.length > 0) {
-              // Check which of these are clients
-              const { data: clientRoles } = await supabase
-                .from("user_roles")
-                .select("user_id")
-                .eq("role", "client")
-                .in("user_id", linkedUsers.map((u: any) => u.user_id));
-
-              const clientUserIds = (clientRoles || []).map((r: any) => r.user_id);
-
-              if (clientUserIds.length > 0) {
-                const title = `New Report: ${reportName}`;
-                // Skip clients who already got this exact notification (a retry must not notify twice).
-                const { data: alreadyNotified } = await supabase
-                  .from("notifications")
-                  .select("user_id")
-                  .eq("type", "report")
-                  .eq("account_id", accountId)
-                  .eq("title", title)
-                  .in("user_id", clientUserIds);
-                const notifiedIds = new Set((alreadyNotified || []).map((n: any) => n.user_id));
-                const pendingIds = clientUserIds.filter((uid: string) => !notifiedIds.has(uid));
-                if (pendingIds.length > 0) {
-                  const notifications = pendingIds.map((uid: string) => ({
-                    user_id: uid,
-                    account_id: accountId,
-                    title,
-                    body: `Your ${monthName} ${year} performance report is ready. View it in Reports.`,
-                    type: "report",
-                  }));
-                  await supabase.from("notifications").insert(notifications);
-                }
-                sharedCount = pendingIds.length;
-              }
-            }
-          }
+          // Auto-share makes the report visible (is_public above). It used to also write
+          // in-app "New Report" notification rows, which nothing in the app reads, so that
+          // write was removed (audit 5.2). shared_count stays in the response for the modal.
+          const sharedCount = 0;
 
           results.push({ account_id: accountId, account_name: accountName, report_id: savedReport.id, shared_count: sharedCount, reused: reusedReport, success: true });
         } catch (err) {
