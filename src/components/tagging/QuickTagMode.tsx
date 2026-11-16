@@ -123,10 +123,17 @@ export function QuickTagMode({ creatives, allCreatives = [], onExit }: QuickTagM
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { onExit(); return; }
-      // Arrow keys move the caret while typing a free-text tag (e.g. hook).
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+      const typing = !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+      if (e.key === "Escape") {
+        // In a field, Escape only leaves the field so a half-typed tag is not lost
+        // (audit 5.10). A second Escape then closes Quick Tag.
+        if (typing) { t.blur(); return; }
+        onExit();
+        return;
+      }
+      // Arrow keys move the caret while typing a free-text tag (e.g. hook).
+      if (typing) return;
       if (e.key === "ArrowRight") { saveAndNext(); return; }
       if (e.key === "ArrowLeft") { goPrev(); return; }
     };
