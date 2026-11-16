@@ -39,6 +39,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { logSafeError } from "../_shared/safe-error.ts";
+import { timingSafeEqual } from "../_shared/timing.ts";
 
 // ---- Constants -------------------------------------------------------------
 
@@ -177,9 +178,10 @@ export function toBriefRow(v: ValidationResult) {
 export function isAuthorized(req: Request, secret: string | undefined): boolean {
   if (!secret) return false; // no secret configured -> reject (fail closed)
   const headerSecret = req.headers.get("x-write-brief-secret");
-  if (headerSecret && headerSecret === secret) return true;
+  // Constant-time comparison (audit 2.4).
+  if (headerSecret && timingSafeEqual(headerSecret, secret)) return true;
   const auth = req.headers.get("Authorization") || "";
-  if (auth.startsWith("Bearer ") && auth.slice(7) === secret) return true;
+  if (auth.startsWith("Bearer ") && timingSafeEqual(auth.slice(7), secret)) return true;
   return false;
 }
 

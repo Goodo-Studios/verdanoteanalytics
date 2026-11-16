@@ -28,15 +28,24 @@ export function parseCsvLine(line: string): string[] {
   return fields;
 }
 
+/**
+ * One CSV cell. Text a spreadsheet would run as a formula (starting with =, +, -, @, tab or
+ * carriage return) gets a leading apostrophe; real numbers, negative ones included, are left
+ * as numbers (audit 2.4).
+ */
+export function escapeCsvCell(val: string): string {
+  if (val == null) return "";
+  let s = String(val);
+  const isNumber = s.trim() !== "" && Number.isFinite(Number(s));
+  if (!isNumber && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
 export function downloadCSV(filename: string, headers: string[], rows: string[][]) {
-  const escape = (val: string) => {
-    if (val == null) return '';
-    const s = String(val);
-    if (s.includes(",") || s.includes('"') || s.includes("\n")) {
-      return `"${s.replace(/"/g, '""')}"`;
-    }
-    return s;
-  };
+  const escape = escapeCsvCell;
 
   const csvContent = [
     headers.map(escape).join(","),
