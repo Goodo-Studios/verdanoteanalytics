@@ -174,23 +174,37 @@ async function selfContinue(body: BackfillBody): Promise<void> {
   }
 }
 
-Deno.serve(async (req) => {
+export interface HandlerOptions {
+  /** Test seam: replaces the wall-clock budget check. */
+  timedOut?: () => boolean;
+}
+
+// deno-lint-ignore no-explicit-any
+export async function handler(req: Request, supabaseOverride?: any, opts: HandlerOptions = {}): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
   // so this check is the only gate. Live pg_cron jobs and function-to-function
   // calls forward the real service-role key. See _shared/internal-auth.ts.
-  const authFailure = await requireServiceRole(req);
-  if (authFailure) return authFailure;
+  // Skipped when a test injects a client.
+  const isInjectedClient = !!supabaseOverride && typeof supabaseOverride.from === "function";
+  if (!isInjectedClient) {
+    const authFailure = await requireServiceRole(req);
+    if (authFailure) return authFailure;
+  }
 
   const startedMs = Date.now();
-  const timedOut = () => Date.now() - startedMs > DEADLINE_MS;
+  const timedOut = opts.timedOut ?? (() => Date.now() - startedMs > DEADLINE_MS);
 
   try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
+    const makeClient = () =>
+      createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      );
+    const supabase = isInjectedClient
+      ? (supabaseOverride as ReturnType<typeof makeClient>)
+      : makeClient();
 
     // Optional scoping: { account_id?, dry_run? }. No body is fine (defaults).
     let body: BackfillBody = {};
@@ -529,4 +543,9 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-});
+}
+
+// Guard the network bind so tests can import the handler without serving.
+if (!Deno.env.get("BACKFILL_RETAG_NO_SERVE")) {
+  Deno.serve((req) => handler(req));
+}
