@@ -1,3 +1,4 @@
+import { ADD_TO_CART_ACTION_TYPES, PURCHASE_ACTION_TYPES, pickActionValue } from "../_shared/meta-actions.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { PROTECTED_TAG_SOURCES, protectedTagSourcesInList } from "../_shared/protected-tag-sources.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -550,7 +551,7 @@ export async function metaFetch(
 
 // ─── Metrics Parsing Helper ──────────────────────────────────────────────────
 
-function parseInsightsRow(row: any, optimizationGoal?: string) {
+export function parseInsightsRow(row: any, optimizationGoal?: string) {
   const spend = parseFloat(row.spend || "0");
   const roas = row.purchase_roas?.[0]?.value ? parseFloat(row.purchase_roas[0].value) : 0;
   const ctr = parseFloat(row.ctr || "0");
@@ -564,13 +565,12 @@ function parseInsightsRow(row: any, optimizationGoal?: string) {
   let addsToCart = 0, costPerAtc = 0;
   let videoViews = 0, thruPlays = 0;
 
+  // One purchase / add-to-cart type by fixed priority, not Meta's list order (audit 6.1).
   if (row.actions) {
-    const purchaseTypes = ["purchase", "offsite_conversion.fb_pixel_purchase", "omni_purchase"];
-    const pa = row.actions.find((a: any) => purchaseTypes.includes(a.action_type));
-    if (pa) purchases = parseInt(pa.value || "0");
-    const atcTypes = ["add_to_cart", "offsite_conversion.fb_pixel_add_to_cart", "omni_add_to_cart"];
-    const atc = row.actions.find((a: any) => atcTypes.includes(a.action_type));
-    if (atc) addsToCart = parseInt(atc.value || "0");
+    const pa = pickActionValue(row.actions, PURCHASE_ACTION_TYPES);
+    if (pa !== undefined) purchases = parseInt(String(pa || "0"));
+    const atc = pickActionValue(row.actions, ADD_TO_CART_ACTION_TYPES);
+    if (atc !== undefined) addsToCart = parseInt(String(atc || "0"));
     const vv = row.actions.find((a: any) => a.action_type === "video_view");
     if (vv) videoViews = parseInt(vv.value || "0");
   }
@@ -579,17 +579,14 @@ function parseInsightsRow(row: any, optimizationGoal?: string) {
     if (tp) thruPlays = parseInt(tp.value || "0");
   }
   if (row.action_values) {
-    const purchaseTypes = ["purchase", "offsite_conversion.fb_pixel_purchase", "omni_purchase"];
-    const pv = row.action_values.find((a: any) => purchaseTypes.includes(a.action_type));
-    if (pv) purchaseValue = parseFloat(pv.value || "0");
+    const pv = pickActionValue(row.action_values, PURCHASE_ACTION_TYPES);
+    if (pv !== undefined) purchaseValue = parseFloat(String(pv || "0"));
   }
   if (row.cost_per_action_type) {
-    const purchaseTypes = ["purchase", "offsite_conversion.fb_pixel_purchase", "omni_purchase"];
-    const cp = row.cost_per_action_type.find((a: any) => purchaseTypes.includes(a.action_type));
-    if (cp) cpa = parseFloat(cp.value || "0");
-    const atcTypes = ["add_to_cart", "offsite_conversion.fb_pixel_add_to_cart", "omni_add_to_cart"];
-    const cpatc = row.cost_per_action_type.find((a: any) => atcTypes.includes(a.action_type));
-    if (cpatc) costPerAtc = parseFloat(cpatc.value || "0");
+    const cp = pickActionValue(row.cost_per_action_type, PURCHASE_ACTION_TYPES);
+    if (cp !== undefined) cpa = parseFloat(String(cp || "0"));
+    const cpatc = pickActionValue(row.cost_per_action_type, ADD_TO_CART_ACTION_TYPES);
+    if (cpatc !== undefined) costPerAtc = parseFloat(String(cpatc || "0"));
   }
 
   // US-003: Generic outcome metrics — branch on account optimization goal
