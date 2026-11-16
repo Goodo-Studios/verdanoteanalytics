@@ -73,9 +73,24 @@ export function gradeCreatives(creatives: any[]): Map<string, GradeInfo> {
   return grades;
 }
 
-/** Grades for the rows of one list page. */
+const GRADES: ReadonlySet<string> = new Set(["A", "B", "C", "D", "F"]);
+
+/**
+ * Grades for the rows of one list page. creatives_list_page grades every row over the whole
+ * filtered set within its account (audit 7.1), so those grades are used as sent and stay the
+ * same on every page. Rows without server grades (older API, other callers) are graded
+ * against the loaded rows as before.
+ */
 export function pageGrades(rows: any[]): Map<string, GradeInfo> {
-  return gradeCreatives(rows);
+  const fromServer = rows.length > 0 && rows.every((r) => r && "grade" in r && "spend_percentile" in r);
+  if (!fromServer) return gradeCreatives(rows);
+  const grades = new Map<string, GradeInfo>();
+  for (const r of rows) {
+    if (typeof r.grade === "string" && GRADES.has(r.grade)) {
+      grades.set(r.ad_id, { grade: r.grade as Grade, spendPercentile: Number(r.spend_percentile) || 0 });
+    }
+  }
+  return grades;
 }
 
 /** Numeric value for sorting grades (lower = better) */
