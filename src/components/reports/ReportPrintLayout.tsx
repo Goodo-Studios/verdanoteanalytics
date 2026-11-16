@@ -2,6 +2,7 @@
  * Print-only layout for PDF export.
  * Hidden on screen via .print-only class — rendered in DOM but display:none until @media print.
  */
+import { formatReportRange } from "@/lib/dateRange";
 
 interface Props {
   report: any;
@@ -26,7 +27,7 @@ function fmtDelta(current: number | null, previous: number | null) {
 export function ReportPrintLayout({ report, previousReport, topCreatives, tagBreakdown, highlights }: Props) {
   const prev = previousReport;
   const dateRange = report.date_range_start && report.date_range_end
-    ? `${new Date(report.date_range_start).toLocaleDateString()} – ${new Date(report.date_range_end).toLocaleDateString()}`
+    ? formatReportRange(report.date_range_start, report.date_range_end)
     : report.date_range_days
       ? `Last ${report.date_range_days} days`
       : "";

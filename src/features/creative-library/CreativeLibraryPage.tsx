@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { utcDaysAgoIso } from "@/lib/dateRange";
 import { useMutation } from "@tanstack/react-query";
 import { Loader2, Search, Download, Archive, Vault as VaultIcon, X, LayoutGrid } from "lucide-react";
 import { toast } from "sonner";
@@ -62,12 +63,9 @@ const FILTERS: { key: CreativeClass | "all"; label: string }[] = [
   { key: "fatiguing", label: CLASS_META.fatiguing.short },
 ];
 
-function isoDaysAgo(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - days + 1);
-  return d.toISOString().slice(0, 10);
-}
-const today = () => new Date().toISOString().slice(0, 10);
+// UTC calendar days, like the server's reporting windows (audit 6.4).
+const isoDaysAgo = (days: number): string => utcDaysAgoIso(days);
+const today = () => utcDaysAgoIso(1);
 
 export default function CreativeLibraryPage() {
   const { selectedAccountId } = useAccountContext();

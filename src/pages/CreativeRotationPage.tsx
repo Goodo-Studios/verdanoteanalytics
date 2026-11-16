@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
+import { formatPickerDate } from "@/lib/dateRange";
 import { Download, HelpCircle, ChevronDown } from "lucide-react";
 
 import { PageHeader } from "@/components/PageHeader";
@@ -249,8 +250,8 @@ const CreativeRotationPage = () => {
 
   const cohortLabel = (launchWeek: string) =>
     cohortView === "monthly"
-      ? format(new Date(launchWeek), "MMM yyyy")
-      : `Wk of ${format(new Date(launchWeek), "MMM d, yyyy")}`;
+      ? formatPickerDate(launchWeek, "MMM yyyy")
+      : `Wk of ${formatPickerDate(launchWeek, "MMM d, yyyy")}`;
 
   const handleExportCohorts = () => {
     const headers = [cohortView === "monthly" ? "Month" : "Launch week", "Creatives", "Still Live", "Spend", "Share %", "Purchases", "Purchase Value", "CPA", "ROAS"];
