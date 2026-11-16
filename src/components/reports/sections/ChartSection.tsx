@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { MultiLineTrendChart, type TrendLine } from "@/components/MultiLineTrendChart";
 import { CHART_SERIES } from "@/lib/chartTheme";
 import { dailySeries, type DailyRow } from "@/lib/reportChartMath";
+import { readReportSnapshot } from "../../../../supabase/functions/_shared/report-snapshot.ts";
 
 interface ChartSectionProps {
   config: Record<string, any>;
@@ -25,7 +26,10 @@ export function ChartSection({ config, report, isEditing, onConfigChange }: Char
   const metric = config.metric || "spend";
   const metaInfo = METRIC_OPTIONS.find((m) => m.value === metric) || METRIC_OPTIONS[0];
 
-  const { data: dailyData } = useQuery({
+  // A saved report chart comes from its snapshot, so it does not change later (audit 6.2).
+  const savedSeries = readReportSnapshot(report.snapshot)?.chart_series ?? null;
+
+  const { data: liveData } = useQuery({
     queryKey: ["report-chart-data", report.account_id, report.date_range_start, report.date_range_end],
     queryFn: async () => {
       if (!report.date_range_start || !report.date_range_end) return [];
@@ -47,8 +51,9 @@ export function ChartSection({ config, report, isEditing, onConfigChange }: Char
       }
       return rows;
     },
-    enabled: !!report.date_range_start && !!report.date_range_end,
+    enabled: !savedSeries && !!report.date_range_start && !!report.date_range_end,
   });
+  const dailyData: DailyRow[] | undefined = savedSeries ?? liveData;
 
   const chartData = useMemo(() => {
     if (!dailyData?.length) return { dates: [] as string[], values: [] as number[] };

@@ -1,3 +1,4 @@
+import { addDailyTotal, buildReportSnapshot, type SnapshotDailyTotal } from "../_shared/report-snapshot.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
@@ -181,6 +182,7 @@ function resolveTemplate(template: string, accountName: string, cadence: string)
 // daily-metrics round-trips of aggregating each period separately.
 async function scanDailyMetricsSplit(
   supabase: any, accountId: string, dateStart: string, dateEnd: string, splitDate: string,
+  currentDailyTotals?: Map<string, SnapshotDailyTotal>,
 ): Promise<{ current: Record<string, any>; prior: Record<string, any> }> {
   const current: Record<string, any> = {};
   const prior: Record<string, any> = {};
@@ -202,6 +204,8 @@ async function scanDailyMetricsSplit(
     for (const m of data) {
       // ISO date strings compare correctly lexicographically
       const byAd = m.date >= splitDate ? current : prior;
+      // Per-date totals for the report snapshot's chart (audit 6.2).
+      if (currentDailyTotals && m.date >= splitDate) addDailyTotal(currentDailyTotals, m);
       if (!byAd[m.ad_id]) {
         byAd[m.ad_id] = {
           ad_id: m.ad_id, account_id: m.account_id,
@@ -239,7 +243,7 @@ async function fetchCreativeMeta(supabase: any, adIds: string[], cache: Map<stri
     const batch = missing.slice(i, i + 100);
     const { data: crs } = await supabase
       .from("creatives")
-      .select("ad_id, ad_name, unique_code, ad_type, tag_source")
+      .select("ad_id, ad_name, unique_code, ad_type, tag_source, hook, style, thumbnail_url")
       .in("ad_id", batch);
     for (const c of crs || []) cache.set(c.ad_id, c);
   }
@@ -333,8 +337,9 @@ serve(async (req) => {
 
       // Single daily-metrics scan for current + prior; creative metadata
       // fetched once per ad_id via the shared request-scoped cache.
+      const dailyTotals = new Map<string, SnapshotDailyTotal>();
       const { current: currByAd, prior: priorByAd } = await scanDailyMetricsSplit(
-        supabase, account.id, priorStartStr, endDate, startDateStr,
+        supabase, account.id, priorStartStr, endDate, startDateStr, dailyTotals,
       );
       await fetchCreativeMeta(
         supabase,
@@ -402,6 +407,8 @@ serve(async (req) => {
         date_range_days: dateRangeDays,
         ...(() => { const { counts, suggestions } = computeDiagnostics(list); return { ...counts, iteration_suggestions: JSON.stringify(suggestions) }; })(),
         is_public: !!schedule.deliver_to_slack,
+        // Frozen top creatives, tag mix and chart series for exports (audit 6.2).
+        snapshot: buildReportSnapshot(list, dailyTotals),
       };
 
       let savedReport: any = null;

@@ -1,3 +1,4 @@
+import { addDailyTotal, buildReportSnapshot, type SnapshotDailyTotal } from "../_shared/report-snapshot.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
@@ -161,7 +162,11 @@ async function sendReportToSlack(report: any) {
 }
 
 // Aggregate daily metrics per ad_id within a date range, returning enriched creative objects
-async function aggregateDailyMetrics(supabase: any, accountId: string | null, dateStart: string, dateEnd: string) {
+// dailyTotals (optional) collects per-date totals for the report snapshot's chart (audit 6.2).
+async function aggregateDailyMetrics(
+  supabase: any, accountId: string | null, dateStart: string, dateEnd: string,
+  dailyTotals?: Map<string, SnapshotDailyTotal>,
+) {
   // Fetch daily metrics within range
   let dmQuery = supabase
     .from("creative_daily_metrics")
@@ -189,6 +194,7 @@ async function aggregateDailyMetrics(supabase: any, accountId: string | null, da
   // Aggregate per ad_id
   const byAd: Record<string, any> = {};
   for (const m of allMetrics) {
+    if (dailyTotals) addDailyTotal(dailyTotals, m);
     if (!byAd[m.ad_id]) {
       byAd[m.ad_id] = {
         ad_id: m.ad_id, account_id: m.account_id,
@@ -229,7 +235,7 @@ async function aggregateDailyMetrics(supabase: any, accountId: string | null, da
     const batch = adIds.slice(i, i + 100);
     const { data: crs } = await supabase
       .from("creatives")
-      .select("ad_id, ad_name, unique_code, ad_type, tag_source, person, style, hook, product, theme, campaign_name, adset_name")
+      .select("ad_id, ad_name, unique_code, ad_type, tag_source, person, style, hook, product, theme, campaign_name, adset_name, thumbnail_url")
       .in("ad_id", batch);
     for (const c of crs || []) creativeMap[c.ad_id] = c;
   }
@@ -314,7 +320,8 @@ serve(async (req) => {
       }
 
       // Aggregate from daily metrics
-      const list = await aggregateDailyMetrics(supabase, account_id || null, dateStart, dateEnd);
+      const dailyTotals = new Map<string, SnapshotDailyTotal>();
+      const list = await aggregateDailyMetrics(supabase, account_id || null, dateStart, dateEnd, dailyTotals);
 
       // Blended ratios come from summed totals (null when the denominator is 0), not a mean of per-creative ratios.
       const blended = computeBlendedMetrics(list);
@@ -359,6 +366,8 @@ serve(async (req) => {
         date_range_days: days,
         iteration_suggestions: JSON.stringify(diagSuggestions),
         ...diagCounts,
+        // Frozen top creatives, tag mix and chart series for exports (audit 6.2).
+        snapshot: buildReportSnapshot(list, dailyTotals),
       };
 
       const { data, error } = await supabase.from("reports").insert(report).select().single();
@@ -570,7 +579,8 @@ serve(async (req) => {
       for (const accountId of account_ids) {
         const accountName = acctMap[accountId] || accountId;
         try {
-          const list = await aggregateDailyMetrics(supabase, accountId, dateStart, dateEnd);
+          const dailyTotals = new Map<string, SnapshotDailyTotal>();
+          const list = await aggregateDailyMetrics(supabase, accountId, dateStart, dateEnd, dailyTotals);
 
           const blended = computeBlendedMetrics(list);
           const totalSpend = blended.spend;
@@ -670,6 +680,8 @@ serve(async (req) => {
             date_range_days: days,
             iteration_suggestions: JSON.stringify(diagSuggestions),
             sections,
+            // Frozen top creatives, tag mix and chart series for exports (audit 6.2).
+            snapshot: buildReportSnapshot(list, dailyTotals),
             ...diagCounts,
           };
 

@@ -3090,6 +3090,7 @@ export type Database = {
           report_name: string
           report_type: string
           sections: Json | null
+          snapshot: Json | null
           tags_csv_count: number | null
           tags_manual_count: number | null
           tags_parsed_count: number | null
@@ -3127,6 +3128,7 @@ export type Database = {
           report_name: string
           report_type?: string
           sections?: Json | null
+          snapshot?: Json | null
           tags_csv_count?: number | null
           tags_manual_count?: number | null
           tags_parsed_count?: number | null
@@ -3164,6 +3166,7 @@ export type Database = {
           report_name?: string
           report_type?: string
           sections?: Json | null
+          snapshot?: Json | null
           tags_csv_count?: number | null
           tags_manual_count?: number | null
           tags_parsed_count?: number | null

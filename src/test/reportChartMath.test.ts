@@ -66,7 +66,11 @@ describe("report page uses the shared math", () => {
   });
   it("report detail page", () => {
     const src = read("../pages/ReportDetailPage.tsx");
-    expect(src).toContain("tagBreakdown(");
+    // Since audit 6.2 the tag mix is saved with the report by the same function
+    // (tagBreakdown is tagMix from _shared/report-snapshot.ts) and the page reads it back.
+    expect(src).toContain("reportPrintData(");
     expect(src).not.toMatch(/totalRoas \/ d\.count/);
+    const snap = read("../../supabase/functions/_shared/report-snapshot.ts");
+    expect(snap).toContain("tag_mix: tagMix(list)");
   });
 });
