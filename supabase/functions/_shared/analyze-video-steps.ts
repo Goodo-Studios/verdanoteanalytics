@@ -45,18 +45,34 @@ export async function analyzeVideo(
   deps: VideoStepDeps,
 ): Promise<{ update: Record<string, unknown>; costUsd: number }> {
   let cost = 0;
+  // Report each paid call as soon as it returns. The item can still time out or fail
+  // afterwards, and before this the per-account spending cap only counted finished items.
+  const paid = async <T extends { costUsd: number }>(call: Promise<T>): Promise<T> => {
+    const r = await call;
+    cost += r.costUsd;
+    if (r.costUsd > 0) await deps.onSpend(r.costUsd);
+    return r;
+  };
 
   let raw = c.transcript;
-  if (!raw && c.video_url) {
-    const t = await deps.transcribe(c.video_url);
-    cost += t.costUsd;
+  // A provider that answered (and charged) with no text means the video has no speech.
+  // Remember that, so a retry does not pay to transcribe it again.
+  let noSpeech = c.transcript_status === "no_speech";
+  if (!raw && !noSpeech && c.video_url) {
+    const t = await paid(deps.transcribe(c.video_url));
     raw = t.text;
+    if (raw) {
+      // Saved before any AI call, so a retry after a timeout reuses it.
+      await deps.saveTranscript(raw);
+    } else if (t.costUsd > 0) {
+      noSpeech = true;
+      await deps.saveTranscript(null);
+    }
   }
 
   let cleaned = "";
   if (raw) {
-    const { text, costUsd } = await deps.chat(models.text, prompts.clean, raw, 2048);
-    cost += costUsd;
+    const { text } = await paid(deps.chat(models.text, prompts.clean, raw, 2048));
     cleaned = text.trim();
   }
 
@@ -70,21 +86,22 @@ export async function analyzeVideo(
         { type: "image_url", image_url: { url: dataUrl, detail: "low" } },
       ]
       : `Cleaned script:\n${cleaned}`;
-    const { text, costUsd } = await deps.chat(models.vision, prompts.framework, userContent, 2048, dataUrl ? 1 : 0);
-    cost += costUsd;
+    const { text } = await paid(deps.chat(models.vision, prompts.framework, userContent, 2048, dataUrl ? 1 : 0));
     Object.assign(fw, parseLooseJson(text));
   }
 
   // Brand metadata + script analysis + visual (script-inferred) analysis, run concurrently
-  // with the independent frame-vision pipeline.
+  // with the independent frame-vision pipeline. All three read the script, so with no
+  // script there is nothing for them to read and they are skipped.
+  const empty: ChatResult = { text: "", costUsd: 0 };
+  const hasScript = cleaned.length > 0;
   const [brandR, scriptR, visualR, frameRes] = await Promise.all([
-    deps.chat(models.text, prompts.brand, cleaned, 1024),
-    deps.chat(models.text, prompts.script, cleaned, 1024),
-    deps.chat(models.text, prompts.visual, cleaned, 512),
-    deps.frameAnalysis(),
+    hasScript ? paid(deps.chat(models.text, prompts.brand, cleaned, 1024)) : empty,
+    hasScript ? paid(deps.chat(models.text, prompts.script, cleaned, 1024)) : empty,
+    hasScript ? paid(deps.chat(models.text, prompts.visual, cleaned, 512)) : empty,
+    paid(deps.frameAnalysis()),
   ]);
-  cost += brandR.costUsd + scriptR.costUsd + visualR.costUsd + frameRes.costUsd;
-  const brand = parseLooseJson(brandR.text);
+  const brand = hasScript ? parseLooseJson(brandR.text) : {};
 
   // Frame vision → ai_visual_notes (preferred over the script-only inference when cached
   // frames yielded a description).
@@ -103,7 +120,7 @@ export async function analyzeVideo(
       // them to the style/person tag columns).
       ...metadataColumns(brand),
       transcript: cleaned || raw || null,
-      transcript_status: cleaned || raw ? "ready" : "none",
+      transcript_status: cleaned || raw ? "ready" : noSpeech ? "no_speech" : "none",
       ai_analysis: scriptR.text.trim() || null,
       ai_hook_analysis: hookAnalysis || null,
       ai_cta_notes: [fw.cta_type, fw.cta_formula].filter(Boolean).join(" | ") || null,

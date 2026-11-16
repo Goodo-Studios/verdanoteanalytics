@@ -694,13 +694,34 @@ Deno.serve(async (req) => {
       // Per-ITEM deadline: a creative whose provider chain runs long is abandoned
       // here so it can never pin this worker (and drag the whole invocation past
       // the edge wall, orphaning every in-flight 'analyzing' row). analyzeOne only
-      // writes to the DB via the worker below AFTER it returns, so abandoning it
-      // leaves no partial write — the row is simply recycled to 'pending'.
-      const { update, costUsd } = await withTimeout(
-        analyzeOne(c, { onSpend: () => Promise.resolve(), saveTranscript: () => Promise.resolve() }),
-        ITEM_TIMEOUT_MS,
-        c.ad_id,
-      );
+      // writes the analysis via the worker below AFTER it returns, so abandoning it
+      // leaves no partial analysis and the row is simply recycled to 'pending'.
+      // Two writes happen during the item on purpose (audit 8.6): spend is added
+      // after every paid call, so a timed-out item still counts toward the account
+      // cap, and the raw transcript is saved before the AI calls, so the retry does
+      // not pay to transcribe again.
+      const recordSpend = async (usd: number) => {
+        if (!(usd > 0)) return;
+        const { data: newTotal } = await db.rpc("add_creative_analysis_spend", {
+          p_account_id: accountId,
+          p_usd: usd,
+        });
+        spent = Number(newTotal ?? spent + usd);
+      };
+      let reported = 0;
+      const hooks = {
+        onSpend: async (usd: number) => {
+          reported += usd;
+          await recordSpend(usd);
+        },
+        saveTranscript: async (text: string | null) => {
+          await db
+            .from("creatives")
+            .update(text ? { transcript: text, transcript_status: "ready" } : { transcript_status: "no_speech" })
+            .eq("ad_id", c.ad_id);
+        },
+      };
+      const { update, costUsd } = await withTimeout(analyzeOne(c, hooks), ITEM_TIMEOUT_MS, c.ad_id);
       const scriptText = update._script_text as string | null;
       const visualText = update._visual_text as string | null;
       delete update._script_text;
@@ -710,12 +731,9 @@ Deno.serve(async (req) => {
       if (upErr) throw new Error(upErr.message);
 
       const embedCost = await embedCreative(c, scriptText, visualText);
-      const total = costUsd + embedCost;
-      const { data: newTotal } = await db.rpc("add_creative_analysis_spend", {
-        p_account_id: accountId,
-        p_usd: total,
-      });
-      spent = Number(newTotal ?? spent + total);
+      // The video path already reported its calls; record what is left (the image
+      // path's vision call, and the embeddings).
+      await recordSpend(Math.max(0, costUsd - reported) + embedCost);
       analyzed++;
     } catch (e) {
       if (e instanceof TimeoutError) {
