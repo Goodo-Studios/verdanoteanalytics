@@ -31,13 +31,18 @@ export function useCreativeFilters() {
   return useQuery({ queryKey: ["creative-filters"], queryFn: () => apiFetch("creatives", "filters") });
 }
 
-export function useUpdateCreative() {
+/**
+ * Update one creative's tags. `silent` turns off the per-creative messages so a
+ * caller that updates many creatives (Bulk Tag) can show one summary (audit 5.7).
+ */
+export function useUpdateCreative(options: { silent?: boolean } = {}) {
   return useMutationWithToast({
     mutationFn: ({ adId, updates }: { adId: string; updates: Record<string, any> }) =>
       apiFetch("creatives", adId, { method: "PUT", body: JSON.stringify(updates) }).then(withDisplayTags),
     invalidateKeys: [["creatives"], ["all-creatives"], ["accounts"]],
-    successMessage: "Tags updated",
+    successMessage: options.silent ? undefined : "Tags updated",
     errorMessage: "Error updating tags",
+    silentError: options.silent,
   });
 }
 

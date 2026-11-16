@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -22,12 +22,19 @@ interface BulkTagModalProps {
 
 const EMPTY = "__empty__";
 
+const NO_CHANGES = { ad_type: EMPTY, person: EMPTY, style: EMPTY, product: "", hook: "", theme: "" };
+
 export function BulkTagModal({ open, onClose, adIds }: BulkTagModalProps) {
-  const updateCreative = useUpdateCreative();
-  const [tags, setTags] = useState({
-    ad_type: EMPTY, person: EMPTY, style: EMPTY, product: "", hook: "", theme: "",
-  });
+  // Silent: one summary for the whole batch instead of a message per creative (audit 5.7).
+  const updateCreative = useUpdateCreative({ silent: true });
+  const [tags, setTags] = useState(NO_CHANGES);
   const [saving, setSaving] = useState(false);
+
+  // Start from "No change" every time the dialog opens, so last time's choices are
+  // never applied to a new selection by accident (audit 5.7).
+  useEffect(() => {
+    if (open) setTags(NO_CHANGES);
+  }, [open]);
 
   const selectFields = [
     { key: "ad_type" as const, label: TAG_FIELD_LABELS.ad_type, options: TYPE_OPTIONS },
