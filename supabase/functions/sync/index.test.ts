@@ -815,3 +815,19 @@ Deno.test(
     assertEquals(newlyInsertedAdIds(batch, existing), ["ad_2"]);
   },
 );
+
+// Audit 8.4: a rate-limit wait could sleep through the whole phase budget without
+// updating last_activity, so claim_sync_continue saw a healthy sync as dead and a
+// second run took it over. metaFetch now calls ctx.heartbeat while it waits.
+Deno.test("8.4: metaFetch keeps the sync alive while it waits out a rate limit", async () => {
+  try {
+    stubFetch({ error: { code: 4, message: "Application request limit reached" } });
+    let beats = 0;
+    const c = { ...ctx(), heartbeat: () => { beats++; return Promise.resolve(); } };
+    const result = await metaFetch(URL_UNDER_TEST, c);
+    assertEquals(result.rateLimited, true);
+    assert(beats >= 5, `one heartbeat per rate-limit wait (5 waits), got ${beats}`);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
