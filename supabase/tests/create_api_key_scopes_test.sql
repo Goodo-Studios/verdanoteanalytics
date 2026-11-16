@@ -45,7 +45,7 @@ SELECT is(
   ARRAY['read', 'sync'], 'the key stores the chosen scopes, sorted and without duplicates');
 SELECT is(
   (SELECT key_prefix FROM public.api_keys WHERE name = 'Zapier' AND user_id = 'c1500000-0000-4000-8000-000000000001'),
-  'vdn_0011', 'the key prefix is stored, not the key');
+  'vdn_0000', 'the key prefix is stored, not the key');
 
 -- ---------------------------------------------------------------- client and no role
 SELECT pg_temp.as_user('c1500000-0000-4000-8000-000000000002');

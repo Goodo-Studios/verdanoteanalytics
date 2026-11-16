@@ -126,7 +126,9 @@ SELECT set_config('request.jwt.claim.sub', '5b000000-0000-4000-8000-000000000001
 SELECT is(pg_temp.readable_private_files(true), 0, 'a client reads no other user''s file in a private bucket');
 SELECT set_eq(
   $$SELECT unnest(pg_temp.uploads_allowed('5b000000-0000-4000-8000-000000000001'))$$,
-  ARRAY['ad-thumbnails', 'ad-videos', 'annotations', 'inspiration-media'],
+  -- ad-thumbnails, ad-videos and annotations were closed by migration 20261216490001.
+  -- inspiration-media stays open until the Vault upload moves server-side (audit 1.6 step 3).
+  ARRAY['inspiration-media'],
   'a client can upload only where a known open hole is listed'
 );
 RESET role;
