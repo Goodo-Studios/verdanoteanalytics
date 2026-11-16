@@ -41,6 +41,7 @@ import {
   resolveMetaToken,
 } from "../_shared/media-discovery.ts";
 import { isMediaContentType } from "../_shared/vault-save-logic.ts";
+import { readMediaBody } from "../_shared/media-download.ts";
 import {
   alreadyCovered,
   buildPreviewsUrl,
@@ -113,13 +114,13 @@ async function downloadAndStore(
       await res.body?.cancel().catch(() => {});
       return null;
     }
-    const buffer = await res.arrayBuffer();
-    const bytes = new Uint8Array(buffer);
-    if (type === "image" && bytes.byteLength < 2000) return null; // too small to be a real image
-    if (type === "video" && bytes.byteLength > MAX_VIDEO_SIZE) {
+    const bytes = await readMediaBody(res, type, MAX_VIDEO_SIZE);
+    if (!bytes) {
       console.warn(`[${adId}] preview video exceeds ${MAX_VIDEO_SIZE} bytes — not stored`);
       return null;
     }
+    const buffer = bytes.buffer as ArrayBuffer;
+    if (type === "image" && bytes.byteLength < 2000) return null; // too small to be a real image
     const contentType =
       res.headers.get("content-type") || (type === "video" ? "video/mp4" : "image/jpeg");
     if (!isMediaContentType(contentType, type)) {

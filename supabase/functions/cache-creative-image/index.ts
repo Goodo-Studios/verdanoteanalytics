@@ -16,6 +16,7 @@ import {
   resolveMetaToken,
 } from "../_shared/media-discovery.ts";
 import { isMediaContentType } from "../_shared/vault-save-logic.ts";
+import { readMediaBody } from "../_shared/media-download.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 // The env secret is NOT set on this project — token is resolved per-request with a
@@ -60,9 +61,10 @@ async function downloadAndCache(
   try {
     const resp = await fetchWithTimeout(url, 60_000);
     if (!resp.ok) return null;
-    const buffer = await resp.arrayBuffer();
+    const body = await readMediaBody(resp, type, MAX_VIDEO_SIZE);
+    if (!body) return null;
+    const buffer = body.buffer as ArrayBuffer;
     if (type === "image" && buffer.byteLength < 5000) return null;
-    if (type === "video" && buffer.byteLength > MAX_VIDEO_SIZE) return null;
     const contentType =
       resp.headers.get("content-type") ??
       (type === "video" ? "video/mp4" : "image/jpeg");
