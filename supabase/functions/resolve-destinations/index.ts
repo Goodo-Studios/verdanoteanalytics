@@ -22,9 +22,8 @@ import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { classifyDestination, productNameFromTitle } from "../_shared/classify-destination.ts";
 import { assertPublicNetworkTarget } from "../_shared/public-url.ts";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+// deno-lint-ignore no-explicit-any
+type Db = any;
 
 async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
   if (!response.body) return "";
@@ -91,39 +90,48 @@ async function fetchPageTitle(url: string): Promise<string | null> {
   }
 }
 
-Deno.serve(async (req) => {
+export interface ResolveOptions {
+  accountId: string;
+  limit?: number;
+  fetchTitles?: boolean;
+  force?: boolean;
+}
 
-  // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
-  // so this check is the only gate. Live pg_cron jobs and function-to-function
-  // calls forward the real service-role key. See _shared/internal-auth.ts.
-  const authFailure = await requireServiceRole(req);
-  if (authFailure) return authFailure;
-  if (req.method !== "POST") return json({ error: "POST only" }, 405);
-
-  const body = await req.json().catch(() => ({}));
-  const accountId: string | undefined = body.account_id;
-  if (!accountId) return json({ error: "account_id required" }, 400);
-  const limit = Math.min(Math.max(Number(body.limit) || 2000, 1), 5000);
-  const fetchTitles: boolean = body.fetch_titles === true;
-  const force: boolean = body.force === true;
+export async function resolveAccountDestinations(
+  db: Db,
+  opts: ResolveOptions,
+  deps: { fetchTitle?: (url: string) => Promise<string | null> } = {},
+) {
+  const accountId = opts.accountId;
+  const limit = Math.min(Math.max(Number(opts.limit) || 2000, 1), 5000);
+  const fetchTitles = opts.fetchTitles === true;
+  const force = opts.force === true;
+  const fetchTitle = deps.fetchTitle ?? fetchPageTitle;
 
   const { data: dests, error } = await db.rpc("distinct_destinations", {
     p_account_id: accountId,
     p_limit: limit,
   });
-  if (error) return json({ error: error.message }, 500);
+  if (error) throw new Error(error.message);
   const rows = (dests ?? []) as { destination_key: string; sample_url: string | null }[];
-  if (!rows.length) return json({ ok: true, account_id: accountId, total: 0, resolved: 0 });
+  if (!rows.length) return { ok: true, account_id: accountId, total: 0, resolved: 0, skipped: 0 };
 
-  // Skip already-resolved destinations unless forcing or a title refinement is
-  // requested for one that has none yet (path classification is deterministic).
-  let existing = new Map<string, string | null>();
-  if (!force) {
-    const { data: ex } = await db
+  // Stored rows, read in pages of 1,000 (an unpaged select stops at 1,000, and every
+  // destination past that looked new and got a null title). Read on forced runs too,
+  // so a run never writes null over a stored title (audit 5.10).
+  const existing = new Map<string, string | null>();
+  for (let from = 0; ; from += 1000) {
+    const { data: page, error: exErr } = await db
       .from("landing_destinations")
       .select("destination_key, page_title")
-      .eq("account_id", accountId);
-    existing = new Map((ex ?? []).map((r: { destination_key: string; page_title: string | null }) => [r.destination_key, r.page_title]));
+      .eq("account_id", accountId)
+      .order("destination_key")
+      .range(from, from + 999);
+    if (exErr) throw new Error(exErr.message);
+    for (const r of (page ?? []) as { destination_key: string; page_title: string | null }[]) {
+      existing.set(r.destination_key, r.page_title);
+    }
+    if (!page || page.length < 1000) break;
   }
 
   const byType: Record<string, number> = {};
@@ -146,7 +154,7 @@ Deno.serve(async (req) => {
     let pageTitle: string | null = priorTitle;
 
     if (fetchTitles && (c.type === "product" || c.type === "collection") && (force || !pageTitle)) {
-      const t = await fetchPageTitle(key);
+      const t = await fetchTitle(key);
       if (t) {
         pageTitle = t;
         titlesFetched++;
@@ -176,7 +184,7 @@ Deno.serve(async (req) => {
     resolved++;
   }
 
-  return json({
+  return {
     ok: true,
     account_id: accountId,
     total: rows.length,
@@ -186,5 +194,34 @@ Deno.serve(async (req) => {
     by_type: byType,
     errors: errors.slice(0, 20),
     error_count: errors.length,
-  });
-});
+  };
+}
+
+export async function handler(req: Request): Promise<Response> {
+  // verify_jwt = false: the Supabase gateway does NOT authenticate this endpoint,
+  // so this check is the only gate. Live pg_cron jobs and function-to-function
+  // calls forward the real service-role key. See _shared/internal-auth.ts.
+  const authFailure = await requireServiceRole(req);
+  if (authFailure) return authFailure;
+  if (req.method !== "POST") return json({ error: "POST only" }, 405);
+
+  const body = await req.json().catch(() => ({}));
+  const accountId: string | undefined = body.account_id;
+  if (!accountId) return json({ error: "account_id required" }, 400);
+  const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  try {
+    return json(await resolveAccountDestinations(db, {
+      accountId,
+      limit: body.limit,
+      fetchTitles: body.fetch_titles === true,
+      force: body.force === true,
+    }));
+  } catch (e) {
+    return json({ error: (e as Error).message }, 500);
+  }
+}
+
+// Tests import resolveAccountDestinations with RESOLVE_DESTINATIONS_NO_SERVE set.
+if (!Deno.env.get("RESOLVE_DESTINATIONS_NO_SERVE")) {
+  Deno.serve(handler);
+}
