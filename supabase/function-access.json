@@ -326,9 +326,6 @@
       "class": "staff",
       "minRole": "builder"
     },
-    "vault-ads": {
-      "class": "staff"
-    },
     "vault-analyze": {
       "class": "service"
     },

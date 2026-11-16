@@ -185,8 +185,7 @@ verify_jwt = true
 [functions.vault-save-creative]
 verify_jwt = true
 
-[functions.vault-ads]
-verify_jwt = true
+# vault-ads removed 2026-11-15 (audit 2.3): nothing in the app called it.
 
 # vault-extract is invoked internally by vault-save with the service-role bearer
 # and never directly from the browser — no JWT verification needed.

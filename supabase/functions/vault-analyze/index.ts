@@ -12,8 +12,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { isImageOnlyAnalysis, parseLooseJson } from "../_shared/vault-analyze-logic.ts";
-import { resolveImageMediaType, sniffImageMediaType } from "../_shared/image-media-type.ts";
 import { isSignableVaultPath } from "../_shared/vault-paths.ts";
+// Every hop is checked for a public address; redirects are followed by hand (audit 2.3).
+import { fetchImageAsDataUrl } from "../_shared/vault-image-fetch.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
@@ -184,35 +185,6 @@ async function callClaude(
 
   const data = await res.json();
   return data.content?.[0]?.text ?? "";
-}
-
-async function fetchImageAsDataUrl(url: string): Promise<string | null> {
-  try {
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      },
-    });
-    if (!res.ok) return null;
-    const headerContentType = res.headers.get("content-type") ?? "image/jpeg";
-    const buffer = await res.arrayBuffer();
-    const bytes = new Uint8Array(buffer);
-    // Trust the bytes, not the label. Storage/CDN routinely mislabels a PNG as
-    // image/jpeg (e.g. a PNG saved with a .jpeg name), which makes Claude's vision
-    // API reject the request. Sniff the real type from magic bytes; only bail when
-    // neither the bytes nor the header indicate an image at all.
-    const isImageHeader = headerContentType.startsWith("image/");
-    const mediaType = resolveImageMediaType(bytes, headerContentType);
-    if (!isImageHeader && sniffImageMediaType(bytes) === null) return null;
-    let binary = "";
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return `data:${mediaType};base64,${btoa(binary)}`;
-  } catch {
-    return null;
-  }
 }
 
 interface ImageItem {

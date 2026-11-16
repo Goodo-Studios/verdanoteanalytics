@@ -89,7 +89,6 @@ FUNCTIONS=(
   system-health-check
   transcribe-ad
   user-management
-  vault-ads
   vault-analyze
   vault-embed
   vault-extract

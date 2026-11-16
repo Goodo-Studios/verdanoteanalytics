@@ -45,10 +45,19 @@ describe("function access manifest", () => {
     expect(Object.keys(manifest).sort()).toEqual(deployed);
   });
 
-  it("covers all 86 functions today (Slack import removed 2026-11-15)", () => {
+  it("covers all 85 functions today (Slack import and vault-ads removed 2026-11-15)", () => {
     // 83 + clickup-os-sync and clickup-webhook (OS-007) + clickup-writeback (OS-017) + client-invite (OS-021)
-    // + cleanup-application-uploads (security close-out).
-    expect(deployed).toHaveLength(86);
+    // + cleanup-application-uploads (security close-out) - the 3 Slack import functions (audit 0.3)
+    // - vault-ads (audit 2.3).
+    expect(deployed).toHaveLength(85);
+  });
+
+  it("vault-ads is removed (audit 2.3: nothing in the app called it)", () => {
+    expect(deployed).not.toContain("vault-ads");
+    expect(manifest["vault-ads"]).toBeUndefined();
+    for (const f of ["supabase/config.toml", "scripts/deploy-functions.sh"]) {
+      expect(readFileSync(join(root, f), "utf8"), f).not.toMatch(/^\s*(\[functions\.)?vault-ads\]?\s*$/m);
+    }
   });
 
   it("uses only known classes", () => {
@@ -114,7 +123,7 @@ describe("function access manifest", () => {
     // Vault tables are staff-only through row rules, but these functions read or write
     // with the service role or call paid APIs, so they need their own gate.
     const mustBeStaff = [
-      "vault-ads", "vault-save", "vault-save-creative", "vault-search", "vault-status", "vault-frame-analyze",
+      "vault-save", "vault-save-creative", "vault-search", "vault-status", "vault-frame-analyze",
       "vault-share-item", "quick-save", "scrape-ad", "transcribe-ad",
       "account-taxonomy", "creative-library", "creative-media-archive",
     ];

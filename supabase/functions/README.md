@@ -117,7 +117,6 @@ The Vault is a creative-inspiration library: paste a TikTok, Instagram, YouTube,
 | `vault-embed` | Internal | Generates vector embeddings for the cleaned transcript so items are searchable via `vault-search`. |
 | `vault-search` | User action | Semantic search across the user's saved inspiration items. |
 | `vault-status` | Polling | Returns the current pipeline status for a single item (`extracting`, `transcribing`, `analyzing`, `ready`, `error`). |
-| `vault-ads` | User action | Fetches saved/inspiration ads for the Library UI with filtering and pagination. |
 | `vault-share-item` | User action / Public | Public, revocable share links for a single vault item. `verify_jwt=false`; auth enforced per-action: `mint`/`revoke` (any authenticated user — the library is global) manage the item's `share_token`; `resolve` (anonymous, no login) maps a token to a public column allowlist (omits `user_id`, `saved_by`, `performance_snapshot`, and other internal fields) and service-role-signs the private `inspiration-media` URL. Powers the `/vault/share/:token` page. |
 
 ### Ad Library & Research
