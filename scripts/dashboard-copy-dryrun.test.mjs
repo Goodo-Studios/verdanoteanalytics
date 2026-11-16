@@ -55,7 +55,7 @@ test('the script with no flags exits 0, prints the plan and needs no credentials
   const r = run([]);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /dry run, nothing read or written/);
-  assert.match(r.stdout, /dashboard_creators \(key id\)  from creators/);
+  assert.match(r.stdout, /dashboard_creators \(key id\) {2}from creators/);
 });
 
 test('the script refuses --write without the owner approval before any network call', () => {
