@@ -8,7 +8,7 @@
 -- Run with the local stack (requires Docker):  supabase test db
 
 BEGIN;
-SELECT plan(7);
+SELECT plan(9);
 
 SELECT has_column('public', 'creatives', 'analysis_attempts',
   'creatives has an analysis_attempts column');
@@ -54,6 +54,22 @@ SELECT is(
   (SELECT analysis_attempts FROM public.creatives WHERE ad_id = 'aat_fresh'),
   2,
   'a recycled creative keeps its attempt count'
+);
+
+-- A deliberate re-queue (force, re-analyze button, new media from preview-capture) moves a
+-- finished or failed creative back to pending and must start a fresh set of attempts.
+UPDATE public.creatives SET analysis_status = 'pending' WHERE ad_id = 'aat_spent';
+SELECT is(
+  (SELECT analysis_attempts FROM public.creatives WHERE ad_id = 'aat_spent'),
+  0,
+  're-queueing a failed creative resets its attempts'
+);
+UPDATE public.creatives SET analysis_status = 'done' WHERE ad_id = 'aat_fresh';
+UPDATE public.creatives SET analysis_status = 'pending' WHERE ad_id = 'aat_fresh';
+SELECT is(
+  (SELECT analysis_attempts FROM public.creatives WHERE ad_id = 'aat_fresh'),
+  0,
+  're-queueing a finished creative resets its attempts'
 );
 
 SELECT * FROM finish();
