@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { loadWeekTotals } from "../_shared/digest-totals.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { isStaffUser } from "../_shared/account-access.ts";
 
@@ -107,33 +108,12 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
     // Build per-account summaries
     const accountSections: string[] = [];
     for (const account of accounts) {
-      // This week metrics
-      const { data: thisWeek } = await admin
-        .from("creative_daily_metrics")
-        .select("spend, roas, ad_id")
-        .eq("account_id", account.id)
-        .gte("date", weekAgo.toISOString().split("T")[0])
-        .lte("date", now.toISOString().split("T")[0]);
-
-      // Last week metrics (for trend)
-      const { data: lastWeek } = await admin
-        .from("creative_daily_metrics")
-        .select("spend, roas")
-        .eq("account_id", account.id)
-        .gte("date", twoWeeksAgo.toISOString().split("T")[0])
-        .lt("date", weekAgo.toISOString().split("T")[0]);
-
-      const thisWeekSpend = (thisWeek || []).reduce((s, r) => s + (Number(r.spend) || 0), 0);
-      const thisWeekRoas =
-        (thisWeek || []).length > 0
-          ? (thisWeek || []).reduce((s, r) => s + (Number(r.roas) || 0), 0) / (thisWeek || []).length
-          : 0;
-
-      const lastWeekSpend = (lastWeek || []).reduce((s, r) => s + (Number(r.spend) || 0), 0);
-      const lastWeekRoas =
-        (lastWeek || []).length > 0
-          ? (lastWeek || []).reduce((s, r) => s + (Number(r.roas) || 0), 0) / (lastWeek || []).length
-          : 0;
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const { spend: thisWeekSpend, roas: thisWeekRoas } = await loadWeekTotals(
+        admin, account.id, weekAgo.toISOString().split("T")[0], tomorrow.toISOString().split("T")[0]);
+      const { spend: lastWeekSpend, roas: lastWeekRoas } = await loadWeekTotals(
+        admin, account.id, twoWeeksAgo.toISOString().split("T")[0], weekAgo.toISOString().split("T")[0]);
 
       // Top creative by ROAS this week
       const { data: topCreative } = await admin
