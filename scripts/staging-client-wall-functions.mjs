@@ -19,6 +19,8 @@
 //
 //   - the client progress feed (P9): no token, wrong token and every login are refused by
 //     ingest-client-progress, only a builder manages ingest tokens, a revoked token is refused.
+//   - callers with no login (audit 2.5): every function outside the "public" class refuses a
+//     request with no Authorization header and one whose bearer is the public anon key.
 //
 // Exit code 1 if anything fails. Refuses to run against production.
 import { readFileSync } from "node:fs";
@@ -332,6 +334,33 @@ for (const [label, jwt] of [["client A", clientA], ["employee", employee], ["bui
     }
   }
   if (token) check("a revoked ingest token is refused with 401", (await ingest(token)).status === 401);
+}
+
+// 9. Callers with no login (audit 2.5). Every function that is not in the "public" class of
+// function-access.json must refuse a request that carries no Authorization header at all, and
+// one that presents only the public anon key as its bearer. The anon key ships in the browser
+// bundle, so accepting it is the same as accepting nobody. Secret-gated functions may answer 400
+// (no valid secret or signature) instead of 401/403; either way no work is done.
+const anonCall = async (name, mode, opts = {}) => {
+  const { method = "POST", body = {}, query = "" } = opts;
+  const headers = { apikey: anon, "Content-Type": "application/json" };
+  if (mode === "anon-bearer") headers.Authorization = "Bearer " + anon;
+  const res = await fetch(`${url}/functions/v1/${name}${query ? `?${query}` : ""}`, {
+    method,
+    headers,
+    body: method === "GET" ? undefined : JSON.stringify(body),
+  });
+  await res.text();
+  return res.status;
+};
+for (const [name, entry] of Object.entries(manifest)) {
+  if (entry.class === "public") continue;
+  const opts = entry.probe ?? entry.crossAccountProbe ?? {};
+  for (const mode of ["no-token", "anon-bearer"]) {
+    const status = await anonCall(name, mode, opts);
+    const ok = entry.class === "secret" ? refused(status) || status === 400 : refused(status);
+    check(`${mode} refused by ${name} (${entry.class})`, ok, `status=${status}`);
+  }
 }
 
 console.log(failed ? `\n${failed} check(s) failed` : "\nAll server function wall checks passed");

@@ -35,6 +35,8 @@ verify_jwt = false
 # internally (auth.getUser) + enforces account ownership, then calls the
 # SECURITY DEFINER RPC with the service role. Do not link from anon.
 [functions.landing-pages]
+verify_jwt = false
+
 # ─── Entity Report (Feature 2, v1 text clustering) ───────────────────────────
 # creative-embed + cluster-creatives are internal/service-role batch jobs (same
 # model as vault-embed / backfill-*): invoked by the orchestrator with the
@@ -63,6 +65,8 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.entity-report]
+verify_jwt = false
+
 # Creative Library (Feature 4 + F3). Like leaderboard, does its OWN session-JWT
 # verification + per-account ownership check inside the handler, then calls the
 # SECURITY DEFINER RPCs (get_creative_library / get_creative_classification) with
