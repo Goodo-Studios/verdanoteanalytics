@@ -73,6 +73,11 @@ export function gradeCreatives(creatives: any[]): Map<string, GradeInfo> {
   return grades;
 }
 
+/** Grades for the rows of one list page. */
+export function pageGrades(rows: any[]): Map<string, GradeInfo> {
+  return gradeCreatives(rows);
+}
+
 /** Numeric value for sorting grades (lower = better) */
 export function gradeOrder(grade: Grade): number {
   const map: Record<Grade, number> = { A: 1, B: 2, C: 3, D: 4, F: 5 };
