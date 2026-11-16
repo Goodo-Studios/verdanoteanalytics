@@ -14,6 +14,7 @@ import {
   type SprintAccountSettings,
   type SprintMappingRow,
 } from "../_shared/sprint-performance.ts";
+import { loadMetricRows, loadSummaryRows, loadTagSources } from "./creative-reads.ts";
 
 // Rate limiting is enforced durably inside withApiAuth (see _shared/api-auth.ts),
 // backed by the api_rate_limit_counters table — survives cold starts and holds
@@ -339,21 +340,7 @@ export async function handleApi(
 
       if (error) {
         // Fallback: paginate manually if RPC doesn't exist yet
-        let allRows: any[] = [];
-        let from = 0;
-        const pageSize = 1000;
-        while (true) {
-          let q = supabase
-            .from("creatives")
-            .select("spend, impressions, clicks, purchases, purchase_value")
-            .range(from, from + pageSize - 1);
-          if (accountId) q = q.eq("account_id", accountId);
-          const { data: page, error: pageErr } = await q;
-          if (pageErr || !page || page.length === 0) break;
-          allRows = allRows.concat(page);
-          if (page.length < pageSize) break;
-          from += pageSize;
-        }
+        const allRows = await loadMetricRows(supabase, accountId || null);
 
         const total_spend = allRows.reduce((s, c) => s + (c.spend || 0), 0);
         const total_purchase_value = allRows.reduce((s, c) => s + (c.purchase_value || 0), 0);
@@ -407,20 +394,7 @@ export async function handleApi(
       if (accErr) throw accErr;
 
       // Aggregate metrics via pagination
-      let allRows: any[] = [];
-      let from = 0;
-      const pageSize = 1000;
-      while (true) {
-        const { data: page, error: pageErr } = await supabase
-          .from("creatives")
-          .select("spend, roas, cpa, ctr, impressions, clicks, purchases, purchase_value, ad_status")
-          .eq("account_id", accountId)
-          .range(from, from + pageSize - 1);
-        if (pageErr || !page || page.length === 0) break;
-        allRows = allRows.concat(page);
-        if (page.length < pageSize) break;
-        from += pageSize;
-      }
+      const allRows = await loadSummaryRows(supabase, accountId);
 
       const total_spend = allRows.reduce((s, c) => s + (c.spend || 0), 0);
       const total_revenue = allRows.reduce((s, c) => s + (c.purchase_value || 0), 0);
@@ -561,24 +535,11 @@ export async function handleApi(
       const bySource: Record<string, number> = {};
       let total = 0;
       let untagged = 0;
-      let from = 0;
-      const pageSize = 1000;
-      while (true) {
-        const { data: page, error: pageErr } = await supabase
-          .from("creatives")
-          .select("tag_source")
-          .eq("account_id", accountId)
-          .range(from, from + pageSize - 1);
-        if (pageErr) throw pageErr;
-        if (!page || page.length === 0) break;
-        for (const row of page) {
-          total++;
-          const src = (row.tag_source && String(row.tag_source).trim()) || "untagged";
-          bySource[src] = (bySource[src] || 0) + 1;
-          if (src === "untagged") untagged++;
-        }
-        if (page.length < pageSize) break;
-        from += pageSize;
+      for (const row of await loadTagSources(supabase, accountId)) {
+        total++;
+        const src = (row.tag_source && String(row.tag_source).trim()) || "untagged";
+        bySource[src] = (bySource[src] || 0) + 1;
+        if (src === "untagged") untagged++;
       }
 
       const tagged = total - untagged;
