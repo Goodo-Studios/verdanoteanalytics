@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -20,12 +21,20 @@ export function AddToReportModal({ open, onClose, adIds, creatives }: AddToRepor
   const { data: reports = [], isLoading } = useReports();
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const queryClient = useQueryClient();
 
   const handleAdd = async () => {
     if (!selectedReportId) return;
     setSaving(true);
     try {
-      const report = (reports as any[]).find((r: any) => r.id === selectedReportId);
+      // Read the report fresh: merging into the cached copy dropped creatives that
+      // another quick addition had just saved (audit 5.7).
+      const { data: report, error: readErr } = await supabase
+        .from("reports")
+        .select("id, report_name, top_performers")
+        .eq("id", selectedReportId)
+        .single();
+      if (readErr) throw readErr;
       if (!report) throw new Error("Report not found");
 
       // Build featured creatives from selected ids
@@ -50,6 +59,7 @@ export function AddToReportModal({ open, onClose, adIds, creatives }: AddToRepor
         .eq("id", selectedReportId);
 
       if (error) throw error;
+      void queryClient.invalidateQueries({ queryKey: ["reports"] });
       toast.success(`Added ${featured.length} creatives to "${report.report_name}"`);
       onClose();
     } catch (err: any) {

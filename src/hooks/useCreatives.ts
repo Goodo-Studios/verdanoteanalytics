@@ -40,13 +40,18 @@ export function creativeUpdatePath(adId: string, accountId?: string | null): str
   return accountId && accountId !== "all" ? `${adId}?account_id=${encodeURIComponent(accountId)}` : adId;
 }
 
-export function useUpdateCreative() {
+/**
+ * Update one creative's tags. `silent` turns off the per-creative messages so a
+ * caller that updates many creatives (Bulk Tag) can show one summary (audit 5.7).
+ */
+export function useUpdateCreative(options: { silent?: boolean } = {}) {
   return useMutationWithToast({
     mutationFn: ({ adId, updates, accountId }: { adId: string; updates: Record<string, any>; accountId?: string | null }) =>
       apiFetch("creatives", creativeUpdatePath(adId, accountId), { method: "PUT", body: JSON.stringify(updates) }).then(withDisplayTags),
     invalidateKeys: TAG_CHANGE_QUERY_KEYS, // every tag screen (audit 5.6)
-    successMessage: "Tags updated",
+    successMessage: options.silent ? undefined : "Tags updated",
     errorMessage: "Error updating tags",
+    silentError: options.silent,
   });
 }
 
