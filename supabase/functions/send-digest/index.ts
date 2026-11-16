@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { loadWeekTotals } from "../_shared/digest-totals.ts";
+import { digestWeeks, loadWeekTotals } from "../_shared/digest-totals.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { isStaffUser } from "../_shared/account-access.ts";
 
@@ -99,21 +99,20 @@ export async function handler(req: Request, deps: Deps = {}): Promise<Response> 
 
     // Date range: last 7 days
     const now = new Date();
-    const weekAgo = new Date(now);
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    const twoWeeksAgo = new Date(now);
-    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
-    const dateStr = `${weekAgo.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+    // Two full UTC weeks ending yesterday (audit 6.5); the header names the week reported.
+    const weeks = digestWeeks(now);
+    const shown = (iso: string, opts: Intl.DateTimeFormatOptions) =>
+      new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { ...opts, timeZone: "UTC" });
+    const lastDay = new Date(`${weeks.thisWeek[1]}T00:00:00Z`);
+    lastDay.setUTCDate(lastDay.getUTCDate() - 1);
+    const dateStr = `${shown(weeks.thisWeek[0], { month: "short", day: "numeric" })} – ${shown(lastDay.toISOString().slice(0, 10), { month: "short", day: "numeric", year: "numeric" })}`;
 
     // Build per-account summaries
     const accountSections: string[] = [];
     for (const account of accounts) {
-      const tomorrow = new Date(now);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const { spend: thisWeekSpend, roas: thisWeekRoas } = await loadWeekTotals(
-        admin, account.id, weekAgo.toISOString().split("T")[0], tomorrow.toISOString().split("T")[0]);
-      const { spend: lastWeekSpend, roas: lastWeekRoas } = await loadWeekTotals(
-        admin, account.id, twoWeeksAgo.toISOString().split("T")[0], weekAgo.toISOString().split("T")[0]);
+      // Summed in the database over every row (audit 7.3).
+      const { spend: thisWeekSpend, roas: thisWeekRoas } = await loadWeekTotals(admin, account.id, ...weeks.thisWeek);
+      const { spend: lastWeekSpend, roas: lastWeekRoas } = await loadWeekTotals(admin, account.id, ...weeks.lastWeek);
 
       // Top creative by ROAS this week
       const { data: topCreative } = await admin
