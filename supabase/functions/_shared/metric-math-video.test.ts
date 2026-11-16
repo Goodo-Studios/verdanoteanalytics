@@ -68,8 +68,12 @@ Deno.test("an accumulator fed row by row matches the batch result", () => {
 });
 
 Deno.test("reports and scheduled-reports use the shared video math, not per-day averages", async () => {
-  for (const fn of ["reports", "scheduled-reports"]) {
-    const src = await Deno.readTextFile(new URL(`../${fn}/index.ts`, import.meta.url));
+  // The reports function aggregates through _shared/standard-report.ts (audit 6.3).
+  const reportsSrc = await Deno.readTextFile(new URL("../reports/index.ts", import.meta.url));
+  assert(reportsSrc.includes('from "../_shared/standard-report.ts"'), "reports must use the shared standard report build");
+  for (const file of ["./standard-report.ts", "../scheduled-reports/index.ts"]) {
+    const fn = file;
+    const src = await Deno.readTextFile(new URL(file, import.meta.url));
     assertEquals(/_tsr_sum\s*\/\s*days/.test(src), false, `${fn} still averages hook rate per day`);
     assertEquals(/_hr_sum\s*\/\s*days/.test(src), false, `${fn} still averages hold rate per day`);
     assert(src.includes("videoMetricsFromAccumulator("), `${fn} must use videoMetricsFromAccumulator`);

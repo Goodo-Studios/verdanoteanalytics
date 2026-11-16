@@ -74,7 +74,10 @@ Deno.test("decision 17: the snapshot keeps a tag mix for each pickable field", a
 });
 
 Deno.test("decision 17: both report generators load every pickable tag field", async () => {
-  for (const f of ["../reports/index.ts", "../scheduled-reports/index.ts"]) {
+  // The reports function loads creative metadata through _shared/standard-report.ts (audit 6.3).
+  const reportsSrc = await Deno.readTextFile(new URL("../reports/index.ts", import.meta.url));
+  assert(reportsSrc.includes('from "../_shared/standard-report.ts"'), "reports must use the shared standard report build");
+  for (const f of ["./standard-report.ts", "../scheduled-reports/index.ts"]) {
     const src = await Deno.readTextFile(new URL(f, import.meta.url));
     const selects = [...src.matchAll(/\.from\("creatives"\)\s*\.select\("([^"]+)"\)/g)].map((m) => m[1]);
     const meta = selects.find((s) => s.includes("thumbnail_url"));
