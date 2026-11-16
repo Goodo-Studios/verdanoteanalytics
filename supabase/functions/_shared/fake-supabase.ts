@@ -16,6 +16,8 @@ export interface Op {
   payload?: unknown;
   /** Each filter as [method, column, value], for example ["eq", "user_id", "u1"]. */
   filters: Array<[string, string, unknown]>;
+  /** The [from, to] of a .range() call. A select answered with a row list returns only that slice. */
+  range?: [number, number];
 }
 
 type Result = { data: unknown; error?: unknown; count?: number | null };
@@ -54,7 +56,9 @@ export function fakeSupabase(cfg: FakeConfig = {}) {
     if (typeof t === "function") t = t(op);
     if (t && !Array.isArray(t) && typeof t === "object" && "data" in t) return t as Result;
     const rows = Array.isArray(t) ? t : [];
-    return { data: single ? (rows[0] ?? null) : rows, error: null, count: rows.length };
+    // A ranged read pages like PostgREST: past the last row it gets an empty page.
+    const page = op.range ? rows.slice(op.range[0], op.range[1] + 1) : rows;
+    return { data: single ? (page[0] ?? null) : page, error: null, count: rows.length };
   };
 
   const from = (table: string) => {
@@ -83,7 +87,11 @@ export function fakeSupabase(cfg: FakeConfig = {}) {
         return b;
       };
     }
-    for (const m of ["order", "limit", "range"]) b[m] = () => b;
+    for (const m of ["order", "limit"]) b[m] = () => b;
+    b.range = (from: number, to: number) => {
+      op.range = [from, to];
+      return b;
+    };
     b.single = () => {
       single = true;
       return b;
