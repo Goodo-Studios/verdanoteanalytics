@@ -75,6 +75,7 @@ import {
   VIDEO_MAP_TTL_MS,
 } from "../_shared/media-map-cache.ts";
 import { rescueEnqueueDecision } from "../_shared/preview-drain-logic.ts";
+import { mediaRetryAfter, PERMISSION_MIN_BACKOFF_HOURS } from "../_shared/media-refresh-logic.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const THUMB_BUCKET = "ad-thumbnails";
@@ -511,7 +512,7 @@ export async function processQueuedAd(
 ): Promise<{ outcome: "cached" | "skipped" | "failed" | "throttled"; reason?: string; rescue?: RescueContext }> {
   const { data: creative, error: fetchErr } = await supabase
     .from("creatives")
-    .select("ad_id, account_id, thumbnail_url, full_res_url, video_url, thumb_asset_id, video_asset_id, image_quality, expected_frame_count, frames_retry_count, meta_video_ids, meta_image_hashes, capture_status")
+    .select("ad_id, account_id, thumbnail_url, full_res_url, video_url, thumb_asset_id, video_asset_id, image_quality, expected_frame_count, frames_retry_count, thumb_retry_count, video_retry_count, meta_video_ids, meta_image_hashes, capture_status")
     .eq("ad_id", adId)
     .maybeSingle();
 
@@ -580,6 +581,12 @@ export async function processQueuedAd(
     creative.thumbnail_url === NO_THUMB_SENTINEL ||
     (isStorageUrl(creative.thumbnail_url) && hasRealFullRes && !isLowResPlaceholder);
 
+  // Audit 8.1: per-path outcome, so a failed path backs off and a cached one clears it.
+  let videoCached = false;
+  let videoThrottled = false;
+  let imageCached = false;
+  let imageThrottled = false;
+
   // ── Video (the heavy path) ──────────────────────────────────────────────────
   if (!skipVideo) {
     // A usable live CDN url only if the stored value is one (never the generic
@@ -614,6 +621,7 @@ export async function processQueuedAd(
           // flag the ad for a short transient retry, and record NOTHING. A throttle
           // means "we could not check", never "no video exists".
           throttled = true;
+          videoThrottled = true;
           reasons.push(THROTTLED);
         } else {
           // Genuinely could not resolve. Record the DISTINCT honest reason (AC#3):
@@ -633,6 +641,7 @@ export async function processQueuedAd(
         if (result.assetId) updates.video_asset_id = result.assetId;
         if (result.deduped) console.log(`Video dedupe hit for ${adId} (video ${resolvedVideoId}) — reused stored copy, no download`);
         didCache = true;
+        videoCached = true;
       } else if (result.reason === "too-large") {
         // US-007: exceeds the deliberate 2GB capture ceiling. Streaming keeps worker
         // memory flat, so this is a POLICY limit, not a memory failure — the video is
@@ -692,6 +701,7 @@ export async function processQueuedAd(
         // permanently mark a rate-limited ad as having no image). Leave the image
         // columns untouched and flag for a short transient retry.
         throttled = true;
+        imageThrottled = true;
         reasons.push(THROTTLED);
       } else if (!imgUrl && !isLowResPlaceholder && shouldMarkNoThumbnail(imgReason)) {
         // Only a lookup that finished and found no image is permanent (audit 5.5).
@@ -714,6 +724,7 @@ export async function processQueuedAd(
         updates.image_quality = "full_res";
         if (asset.assetId) updates.thumb_asset_id = asset.assetId;
         didCache = true;
+        imageCached = true;
       } else if (!creative.thumbnail_url) {
         // Caching failed (e.g. non-image bytes) and no existing image — fall back to
         // the CDN url so the card at least renders; leave quality unresolved (NULL).
@@ -729,6 +740,31 @@ export async function processQueuedAd(
         updates.thumbnail_url = imgUrl;
       }
       if (creative.image_quality !== "low_res") updates.image_quality = "low_res";
+    }
+  }
+
+  // ── Retry backoff (audit 8.1) ───────────────────────────────────────────────
+  // A path that was attempted and neither cached nor throttled backs off exponentially;
+  // a path that cached clears its backoff. A throttle records nothing (retried soon).
+  if (!skipVideo) {
+    if (videoCached) {
+      updates.video_retry_count = 0;
+      updates.video_retry_after = null;
+    } else if (!videoThrottled) {
+      const next = (creative.video_retry_count ?? 0) + 1;
+      const minHours = updates.video_url === NO_VIDEO_PERMISSION_SENTINEL ? PERMISSION_MIN_BACKOFF_HOURS : 0;
+      updates.video_retry_count = next;
+      updates.video_retry_after = mediaRetryAfter(next, minHours);
+    }
+  }
+  if (!skipImage) {
+    if (imageCached) {
+      updates.thumb_retry_count = 0;
+      updates.thumb_retry_after = null;
+    } else if (!imageThrottled) {
+      const next = (creative.thumb_retry_count ?? 0) + 1;
+      updates.thumb_retry_count = next;
+      updates.thumb_retry_after = mediaRetryAfter(next);
     }
   }
 

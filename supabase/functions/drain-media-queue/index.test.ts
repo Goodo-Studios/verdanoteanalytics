@@ -46,6 +46,10 @@ interface Creative {
   image_quality?: string | null;
   expected_frame_count?: number | null;
   frames_retry_count?: number | null;
+  thumb_retry_count?: number | null;
+  thumb_retry_after?: string | null;
+  video_retry_count?: number | null;
+  video_retry_after?: string | null;
 }
 
 /**
@@ -1349,3 +1353,107 @@ Deno.test("processQueuedAd: heals a carousel's pending frame images (video+image
   });
   assert(fr[0].asset_id && fr[1].asset_id, "both pending frames are now linked");
 })
+
+// ── Audit 8.1: failed media refreshes back off ────────────────────────────────
+// The feeder skips ads whose thumb_retry_after / video_retry_after is in the future, but the
+// drain never wrote those fields, so an ad that cannot be fixed (permission-blocked video, an ad
+// with no image) was re-enqueued and re-fetched from Meta every 15 minutes, forever.
+
+const STORED_IMG = "https://x.supabase.co/storage/v1/object/public/ad-thumbnails/act_1/ad.jpg";
+const STORED_VID = "https://x.supabase.co/storage/v1/object/public/ad-videos/act_1/ad.mp4";
+const HOUR = 60 * 60 * 1000;
+const hoursFromNow = (iso: string | null | undefined) => (Date.parse(String(iso)) - Date.now()) / HOUR;
+
+function videoTarget(extra: Partial<Creative> = {}): Creative {
+  // Image already cached full-res (image skipped); video never resolved (discovery target).
+  return {
+    ad_id: "ad_v", account_id: "act_1",
+    thumbnail_url: STORED_IMG, full_res_url: STORED_IMG, video_url: null,
+    thumb_asset_id: "t", video_asset_id: null, image_quality: "full_res",
+    expected_frame_count: null, frames_retry_count: 0,
+    thumb_retry_count: 0, thumb_retry_after: null, video_retry_count: 0, video_retry_after: null,
+    ...extra,
+  };
+}
+
+Deno.test("8.1: a permission-blocked video backs off for days, not minutes", async () => {
+  const creatives = [videoTarget()];
+  const { supabase } = makeDb({ queue: [], creatives });
+  await withFetch((url) => {
+    if (url.includes("graph.facebook.com")) {
+      return jsonResponse({ error: { code: 10, message: "(#10) Requires pages_read_engagement permission" } }, 400);
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  }, async () => {
+    await mod.processQueuedAd(supabase, "ad_v", "act_1", "tok", new Map(), new Map());
+  });
+  assertEquals(creatives[0].video_url, "no-video-permission");
+  assertEquals(creatives[0].video_retry_count, 1);
+  assert(hoursFromNow(creatives[0].video_retry_after) >= 71, `permission backoff is days: ${creatives[0].video_retry_after}`);
+});
+
+Deno.test("8.1: an unresolved video backs off exponentially from 1 hour", async () => {
+  const creatives = [videoTarget({ video_retry_count: 2 })];
+  const { supabase } = makeDb({ queue: [], creatives });
+  await withFetch((url) => {
+    if (url.includes("graph.facebook.com")) return jsonResponse({});
+    throw new Error(`unexpected fetch: ${url}`);
+  }, async () => {
+    await mod.processQueuedAd(supabase, "ad_v", "act_1", "tok", new Map(), new Map());
+  });
+  assertEquals(creatives[0].video_retry_count, 3);
+  const h = hoursFromNow(creatives[0].video_retry_after);
+  assert(h > 11 && h <= 12.1, `third failure waits 12h: ${h}`);
+});
+
+Deno.test("8.1: an ad with no findable image backs off its image retry", async () => {
+  const creatives: Creative[] = [{
+    ad_id: "ad_i", account_id: "act_1",
+    thumbnail_url: null, full_res_url: null, video_url: STORED_VID,
+    thumb_asset_id: null, video_asset_id: "v", image_quality: null,
+    expected_frame_count: null, frames_retry_count: 0,
+    thumb_retry_count: 0, thumb_retry_after: null, video_retry_count: 0, video_retry_after: null,
+  }];
+  const { supabase } = makeDb({ queue: [], creatives });
+  await withFetch((url) => {
+    if (url.includes("graph.facebook.com")) return jsonResponse({});
+    throw new Error(`unexpected fetch: ${url}`);
+  }, async () => {
+    await mod.processQueuedAd(supabase, "ad_i", "act_1", "tok", new Map(), new Map());
+  });
+  assertEquals(creatives[0].thumb_retry_count, 1);
+  assert(hoursFromNow(creatives[0].thumb_retry_after) > 0.9, "image retry is pushed out");
+  assertEquals(creatives[0].video_retry_count, 0, "the cached video is not touched");
+});
+
+Deno.test("8.1: a throttle records no backoff (the ad is retried soon)", async () => {
+  const creatives = [videoTarget()];
+  const { supabase } = makeDb({ queue: [], creatives });
+  await withFetch((url) => {
+    if (url.includes("graph.facebook.com")) {
+      return jsonResponse({ error: { code: 4, message: "(#4) Application request limit reached" } }, 400);
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  }, async () => {
+    await mod.processQueuedAd(supabase, "ad_v", "act_1", "tok", new Map(), new Map());
+  });
+  assertEquals(creatives[0].video_retry_count, 0);
+  assertEquals(creatives[0].video_retry_after, null);
+});
+
+Deno.test("8.1: a cached video clears its earlier backoff", async () => {
+  const creatives = [videoTarget({
+    video_url: "https://video.cdn/v.mp4", video_retry_count: 3, video_retry_after: new Date(Date.now() - HOUR).toISOString(),
+  })];
+  const { supabase } = makeDb({ queue: [], creatives });
+  await withFetch((url) => {
+    if (url === "https://video.cdn/v.mp4") return videoResponse(2048);
+    if (url.includes("/storage/v1/object/")) return new Response("{}", { status: 200 });
+    throw new Error(`unexpected fetch: ${url}`);
+  }, async () => {
+    await mod.processQueuedAd(supabase, "ad_v", "act_1", "tok", new Map(), new Map());
+  });
+  assert(String(creatives[0].video_url).includes("/storage/v1/"), "video cached");
+  assertEquals(creatives[0].video_retry_count, 0);
+  assertEquals(creatives[0].video_retry_after, null);
+});
