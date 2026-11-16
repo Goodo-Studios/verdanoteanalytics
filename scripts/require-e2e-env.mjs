@@ -7,6 +7,9 @@ export const REQUIRED_E2E_VARIABLES = [
   "PLAYWRIGHT_TEST_PASSWORD",
   "PLAYWRIGHT_CLIENT_EMAIL",
   "PLAYWRIGHT_CLIENT_PASSWORD",
+  // Audit Batch 9: without these the employee setup (e2e/auth.setup.ts) and employee specs skip silently.
+  "PLAYWRIGHT_EMPLOYEE_EMAIL",
+  "PLAYWRIGHT_EMPLOYEE_PASSWORD",
 ];
 
 export function missingE2eVariables(env) {
