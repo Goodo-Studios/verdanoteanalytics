@@ -23,9 +23,10 @@ Deno.test("sync no longer hardcodes a protected list without csv_match", () => {
   assertEquals(src.includes(`'("manual","csv")'`), false, "zero-spend cleanup still uses (manual,csv)");
 });
 
-Deno.test("sync uses the shared list in the Phase 1 lookup and the zero-spend cleanup", () => {
+// The zero-spend cleanup was removed by Matthew's decision 18 (see no-phase3-cleanup.test.ts),
+// so the Phase 1 lookup is the only place sync uses the list.
+Deno.test("sync uses the shared list in the Phase 1 lookup", () => {
   assert(src.includes('.in("tag_source", PROTECTED_TAG_SOURCES)'), "Phase 1 lookup must use PROTECTED_TAG_SOURCES");
-  assert(src.includes('.not("tag_source", "in", protectedTagSourcesInList())'), "cleanup must use the shared list");
 });
 
 Deno.test("the Phase 1 protected-ad lookup is paged past 1,000 rows", () => {
