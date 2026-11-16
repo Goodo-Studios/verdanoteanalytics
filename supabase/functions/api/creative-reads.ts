@@ -1,64 +1,44 @@
 // Paged creatives reads behind the public API's /metrics fallback, /summary and tag-status
 // endpoints.
+//
+// Audit 7.4: these loops paged by offset with no order, so Postgres could return rows in a
+// different arrangement on each page, skipping some and repeating others, and a failed page
+// ended the loop and returned partial totals as if complete. Each read now goes through the
+// shared fetchAllRows, ordered by ad_id (unique), and a failed page throws.
 // deno-lint-ignore-file no-explicit-any
+import { fetchAllRows } from "../_shared/paging.ts";
 
 type Db = { from: (table: string) => any };
 
 /** Creative rows for the /metrics totals (fallback when the RPC is missing). */
-export async function loadMetricRows(db: Db, accountId: string | null): Promise<any[]> {
-  let allRows: any[] = [];
-  let from = 0;
-  const pageSize = 1000;
-  while (true) {
-    let q = db
-      .from("creatives")
-      .select("spend, impressions, clicks, purchases, purchase_value")
-      .range(from, from + pageSize - 1);
+export function loadMetricRows(db: Db, accountId: string | null): Promise<any[]> {
+  return fetchAllRows<any>((from, to) => {
+    let q = db.from("creatives").select("spend, impressions, clicks, purchases, purchase_value");
     if (accountId) q = q.eq("account_id", accountId);
-    const { data: page, error: pageErr } = await q;
-    if (pageErr || !page || page.length === 0) break;
-    allRows = allRows.concat(page);
-    if (page.length < pageSize) break;
-    from += pageSize;
-  }
-  return allRows;
+    return q.order("ad_id").range(from, to);
+  });
 }
 
 /** Creative rows for one account's /summary totals. */
-export async function loadSummaryRows(db: Db, accountId: string): Promise<any[]> {
-  let allRows: any[] = [];
-  let from = 0;
-  const pageSize = 1000;
-  while (true) {
-    const { data: page, error: pageErr } = await db
+export function loadSummaryRows(db: Db, accountId: string): Promise<any[]> {
+  return fetchAllRows<any>((from, to) =>
+    db
       .from("creatives")
       .select("spend, roas, cpa, ctr, impressions, clicks, purchases, purchase_value, ad_status")
       .eq("account_id", accountId)
-      .range(from, from + pageSize - 1);
-    if (pageErr || !page || page.length === 0) break;
-    allRows = allRows.concat(page);
-    if (page.length < pageSize) break;
-    from += pageSize;
-  }
-  return allRows;
+      .order("ad_id")
+      .range(from, to)
+  );
 }
 
 /** Every creative's tag_source for one account. */
-export async function loadTagSources(db: Db, accountId: string): Promise<{ tag_source: string | null }[]> {
-  const rows: { tag_source: string | null }[] = [];
-  let from = 0;
-  const pageSize = 1000;
-  while (true) {
-    const { data: page, error: pageErr } = await db
+export function loadTagSources(db: Db, accountId: string): Promise<{ tag_source: string | null }[]> {
+  return fetchAllRows<{ tag_source: string | null }>((from, to) =>
+    db
       .from("creatives")
       .select("tag_source")
       .eq("account_id", accountId)
-      .range(from, from + pageSize - 1);
-    if (pageErr) throw pageErr;
-    if (!page || page.length === 0) break;
-    rows.push(...page);
-    if (page.length < pageSize) break;
-    from += pageSize;
-  }
-  return rows;
+      .order("ad_id")
+      .range(from, to)
+  );
 }
