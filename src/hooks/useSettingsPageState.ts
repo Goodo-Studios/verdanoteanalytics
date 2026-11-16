@@ -10,6 +10,9 @@ import { describeCsvErrors, parseTagMappingsCsv } from "@/lib/csv";
 import { DEFAULT_CREATIVE_PROMPT, DEFAULT_INSIGHTS_PROMPT } from "@/components/settings/AIContextSection";
 import { useSettings, useSaveSettings } from "@/hooks/useSettingsApi";
 
+/** Matches the sync function's default when no cooldown is saved. */
+export const DEFAULT_SYNC_COOLDOWN_MINUTES = "2";
+
 export function useSettingsPageState() {
   const { isBuilder, user } = useAuth();
   const { selectedAccountId, selectedAccount, setSelectedAccountId } = useAccountContext();
@@ -61,11 +64,16 @@ export function useSettingsPageState() {
   const [tiktokAdvertiserId, setTiktokAdvertiserId] = useState("");
   const [tiktokAccessToken, setTiktokAccessToken] = useState("");
   // Global cooldown setting (from settings table, not per-account)
-  const [syncCooldownMinutes, setSyncCooldownMinutes] = useState(() => {
-    if (!globalSettings) return "0";
-    const row = (globalSettings as any[]).find?.((r: any) => r.key === "sync_cooldown_minutes");
-    return row?.value ?? "0";
-  });
+  // GET /settings returns an object keyed by setting name. The field shows the user's edit
+  // if there is one, else the saved value, else the server default of 2 minutes. Saving is
+  // blocked until settings have loaded, so a placeholder never overwrites the saved value
+  // (audit 5.9).
+  const [cooldownEdit, setSyncCooldownMinutes] = useState<string | null>(null);
+  const cooldownLoaded = globalSettings !== undefined && globalSettings !== null;
+  const savedCooldown = cooldownLoaded
+    ? (globalSettings as Record<string, string | undefined>).sync_cooldown_minutes
+    : undefined;
+  const syncCooldownMinutes = cooldownEdit ?? (savedCooldown || DEFAULT_SYNC_COOLDOWN_MINUTES);
 
   // Sync form state when account changes
   if (account && initialized !== account.id) {
@@ -93,8 +101,9 @@ export function useSettingsPageState() {
   }
 
   const handleSaveCooldown = useCallback(() => {
+    if (!cooldownLoaded) return;
     saveSettings.mutate({ sync_cooldown_minutes: syncCooldownMinutes });
-  }, [syncCooldownMinutes, saveSettings]);
+  }, [cooldownLoaded, syncCooldownMinutes, saveSettings]);
 
   const handleSave = useCallback(() => {
     if (!account) return;
@@ -202,7 +211,7 @@ export function useSettingsPageState() {
     primaryKpi, setPrimaryKpi, secondaryKpis, setSecondaryKpis,
     companyPdfUrl, setCompanyPdfUrl,
     creativePrompt, setCreativePrompt, insightsPrompt, setInsightsPrompt,
-    syncCooldownMinutes, setSyncCooldownMinutes,
+    syncCooldownMinutes, setSyncCooldownMinutes, cooldownLoaded,
     targetRoas, setTargetRoas, targetCpa, setTargetCpa, targetMonthlySpend, setTargetMonthlySpend,
     tiktokAdvertiserId, setTiktokAdvertiserId, tiktokAccessToken, setTiktokAccessToken,
     // Handlers

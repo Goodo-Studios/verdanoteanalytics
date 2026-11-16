@@ -241,7 +241,7 @@ const SettingsPage = () => {
                 scaleThreshold={accountState.scaleThreshold} setScaleThreshold={accountState.setScaleThreshold}
                 killThreshold={accountState.killThreshold} setKillThreshold={accountState.setKillThreshold}
                 syncCooldownMinutes={accountState.syncCooldownMinutes} setSyncCooldownMinutes={accountState.setSyncCooldownMinutes}
-                onSaveCooldown={accountState.handleSaveCooldown}
+                onSaveCooldown={accountState.handleSaveCooldown} cooldownLoaded={accountState.cooldownLoaded}
                 onSave={accountState.handleSave} onApplyToAll={accountState.handleApplyToAll}
                 saving={accountState.updateAccountSettings.isPending} showApplyAll={accountState.accounts.length > 1}
                 targetRoas={accountState.targetRoas} setTargetRoas={accountState.setTargetRoas}
