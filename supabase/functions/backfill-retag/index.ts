@@ -133,6 +133,11 @@ interface MatrixCoverage {
 /** The request/self-chain body shape. */
 interface BackfillBody {
   account_id?: string;
+  /**
+   * Audit 8.7: chain cursor. A continuation processes only accounts whose id sorts after
+   * this one, so a link does not redo the accounts the previous link finished.
+   */
+  after_account?: string;
   dry_run?: boolean;
   /** Informational: set by selfContinue() so logs distinguish chained invocations. */
   _chained?: boolean;
@@ -216,10 +221,14 @@ export async function handler(req: Request, supabaseOverride?: any, opts: Handle
     if (body.account_id) {
       accountIds = [body.account_id];
     } else {
-      const { data: accounts, error } = await supabase
+      // Audit 8.7: stable order plus the chain cursor, so each link resumes where the
+      // previous one stopped instead of re-listing every account.
+      let accountQuery = supabase
         .from("ad_accounts")
         .select("id")
         .eq("is_active", true);
+      if (body.after_account) accountQuery = accountQuery.gt("id", body.after_account);
+      const { data: accounts, error } = await accountQuery.order("id", { ascending: true });
       if (error) throw error;
       accountIds = (accounts || []).map((a) => a.id);
     }
@@ -228,6 +237,8 @@ export async function handler(req: Request, supabaseOverride?: any, opts: Handle
     const perAccountMatrix = new Map<string, MatrixCounters>();
     const perAccountCoverage = new Map<string, MatrixCoverage>();
     let drained = true; // false if we hit the time budget before finishing
+    // Last account this link finished completely (both passes): the next link's cursor.
+    let lastFinishedAccount: string | undefined = body.after_account;
 
     for (const accountId of accountIds) {
       if (timedOut()) { drained = false; break; }
@@ -477,6 +488,7 @@ export async function handler(req: Request, supabaseOverride?: any, opts: Handle
           type_untagged: typeUntagged,
         });
       }
+      if (accountDrained) lastFinishedAccount = accountId;
     }
 
     const totals = [...perAccount.values()].reduce(
@@ -510,7 +522,12 @@ export async function handler(req: Request, supabaseOverride?: any, opts: Handle
     // / per-pass / per-update condition guards this call, so no remaining work is ever
     // orphaned. When drained === true there is nothing left, so the chain stops.
     if (!drained) {
-      await selfContinue({ account_id: body.account_id, dry_run: dryRun });
+      await selfContinue({
+        account_id: body.account_id,
+        dry_run: dryRun,
+        // A single-account run has no account list to page through.
+        after_account: body.account_id ? undefined : lastFinishedAccount,
+      });
     }
 
     const summary = {
