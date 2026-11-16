@@ -241,7 +241,8 @@ async function analyzeStaticImage(opts: {
 
   const a = parseLooseJson(analysisText);
 
-  await db.from("inspiration_frameworks").insert({
+  // One framework per item: re-analysis replaces it (audit 4.3).
+  await db.from("inspiration_frameworks").upsert({
     item_id: itemId,
     copywriting_framework: (a.copywriting_framework as string) ?? null,
     hook_type: (a.hook_type as string) ?? null,
@@ -253,7 +254,7 @@ async function analyzeStaticImage(opts: {
     cta_formula: (a.cta_formula as string) ?? null,
     fill_in_blank_script: (a.fill_in_blank_script as string) ?? null,
     framework_json: a,
-  });
+  }, { onConflict: "item_id" });
 
   await db
     .from("inspiration_items")
@@ -465,7 +466,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    await db.from("inspiration_frameworks").insert({
+    // One framework per item: re-analysis replaces it (audit 4.3).
+    await db.from("inspiration_frameworks").upsert({
       item_id: itemId,
       copywriting_framework: (frameworkJson.copywriting_framework as string) ?? null,
       hook_type: (frameworkJson.hook_type as string) ?? null,
@@ -477,7 +479,7 @@ Deno.serve(async (req) => {
       cta_formula: (frameworkJson.cta_formula as string) ?? null,
       fill_in_blank_script: (frameworkJson.fill_in_blank_script as string) ?? null,
       framework_json: frameworkJson,
-    });
+    }, { onConflict: "item_id" });
 
     // Calls 3–5 in parallel: brand metadata, script analysis, visual analysis
     const [brandResult, scriptAnalysisText, visualAnalysisText] = await Promise.allSettled([

@@ -225,12 +225,13 @@ Deno.serve(async (req) => {
         if (isTextAnalysisPlatform && config.extractAdCopy) {
           const adCopy = config.extractAdCopy(items[0]);
           if (adCopy) {
-            const { error: transcriptErr } = await db.from("inspiration_transcripts").insert({
+            // Upsert so a webhook delivered twice keeps one transcript (audit 4.3).
+            const { error: transcriptErr } = await db.from("inspiration_transcripts").upsert({
               item_id: itemId,
               raw_transcript: adCopy,
               cleaned_script: adCopy, // already clean copy — vault-analyze skips Call 1
               word_count: adCopy.split(/\s+/).filter(Boolean).length,
-            });
+            }, { onConflict: "item_id" });
             if (transcriptErr) {
               console.error("transcript insert failed:", transcriptErr);
             } else {

@@ -122,13 +122,15 @@ Deno.serve(async (req) => {
     // code) must never leave two rows for one item.
     const finishWithTranscript = async (rawTranscript: string, provider: string) => {
       const wordCount = rawTranscript.split(/\s+/).filter(Boolean).length;
-      await db.from("inspiration_transcripts").delete().eq("item_id", itemId);
-      await db.from("inspiration_transcripts").insert({
+      // One transcript per item (unique item_id, audit 4.3). cleaned_script is cleared so
+      // vault-analyze re-cleans the new raw transcript instead of keeping the old cleaned text.
+      await db.from("inspiration_transcripts").upsert({
         item_id: itemId,
         raw_transcript: rawTranscript,
+        cleaned_script: null,
         duration_seconds: null,
         word_count: wordCount,
-      });
+      }, { onConflict: "item_id" });
 
       await db.from("inspiration_items").update({ status: "analyzing" }).eq("id", itemId);
 
