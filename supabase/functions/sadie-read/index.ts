@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { timingSafeEqual } from "../_shared/timing.ts";
+import { clampInt, sadieOrderColumn } from "../_shared/input-limits.ts";
 
 // Private API key for Sadie — set this in Supabase edge function secrets
 const SADIE_API_KEY = Deno.env.get("SADIE_API_KEY")!;
@@ -27,8 +28,15 @@ serve(async (req) => {
   const url = new URL(req.url);
   const path = url.pathname.split("/sadie-read/")[1] || "";
   const accountId = url.searchParams.get("account_id");
-  const limit = parseInt(url.searchParams.get("limit") || "100");
-  const orderBy = url.searchParams.get("order_by") || "spend";
+  // Bounded page size and a known sort column only (audit 2.4).
+  const limit = clampInt(url.searchParams.get("limit"), 100, 1, 1000);
+  const orderBy = sadieOrderColumn(url.searchParams.get("order_by"));
+  if (!orderBy) {
+    return new Response(JSON.stringify({ error: "unknown order_by" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
   const direction = url.searchParams.get("direction") === "asc" ? true : false;
 
   try {
