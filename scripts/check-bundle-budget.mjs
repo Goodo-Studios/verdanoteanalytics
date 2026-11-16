@@ -13,9 +13,12 @@ import path from "node:path";
 //
 // maxInitialLoadBytes was set to the measured first-load size on 2026-11-10
 // (764,031 bytes in 5 files) plus about 10 percent.
+// Raised to 920,000 on 2026-11-16 (Matthew's decision) for the npm minor updates in #431:
+// supabase-js 2.95 to 2.119 adds about 56 KB and the Radix minors about 16 KB; measured
+// first load 905,092 bytes.
 export const DEFAULT_BUNDLE_BUDGET = {
   maxChunkBytes: 380_000,
-  maxInitialLoadBytes: 840_000,
+  maxInitialLoadBytes: 920_000,
 };
 
 const SCRIPT_TAG = /<script\b[^>]*>/gi;
