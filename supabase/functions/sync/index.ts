@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { PROTECTED_TAG_SOURCES, protectedTagSourcesInList } from "../_shared/protected-tag-sources.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireStaffOrServiceRole } from "../_shared/internal-auth.ts";
@@ -1001,10 +1002,18 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
       const includeArchived = account.include_archived === true;
       const includeZeroImpression = account.include_zero_impression === true;
 
-      // Get manual/csv-tagged ad IDs to preserve their tags (only update metadata)
-      const { data: taggedAds } = await supabase.from("creatives").select("ad_id")
-        .eq("account_id", accountId).in("tag_source", ["manual", "csv"]);
-      const taggedAdIds = new Set((taggedAds || []).map((a: any) => a.ad_id));
+      // Ad IDs with user or curated tags (manual, csv, csv_match): only their metadata
+      // is updated. Paged, because one select stops at 1,000 rows (audit 5.11).
+      const taggedAdIds = new Set<string>();
+      for (let from = 0; ; from += 1000) {
+        const { data: taggedPage, error: taggedErr } = await supabase.from("creatives").select("ad_id")
+          .eq("account_id", accountId).in("tag_source", PROTECTED_TAG_SOURCES)
+          .order("ad_id")
+          .range(from, from + 999);
+        if (taggedErr) throw taggedErr;
+        for (const a of (taggedPage || []) as { ad_id: string }[]) taggedAdIds.add(a.ad_id);
+        if (!taggedPage || taggedPage.length < 1000) break;
+      }
 
       let fetchedCount = state.creatives_fetched || 0;
 
@@ -1479,7 +1488,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
         console.log("  include_zero_impression=true → skipping zero-spend cleanup (retaining zero-impression ads)");
       } else {
         // Delete zero-spend creatives EXCEPT:
-        // - manually/csv-tagged ones (user investment)
+        // - manually/csv/csv_match-tagged ones (user investment, audit 5.11)
         // - placeholder ads created by Phase 4 auto-create (ad_name = ad_id pattern)
         //   These will get real metrics in Phase 4 of the current sync.
         const { count: zeroSpendCount } = await supabase.from("creatives")
@@ -1487,7 +1496,7 @@ async function runSyncPhase(supabase: any, syncLog: any, metaToken: string) {
           .eq("account_id", accountId)
           .lte("spend", 0)
           .is("impressions", null)  // Only delete truly empty rows (never had data)
-          .not("tag_source", "in", '("manual","csv")');
+          .not("tag_source", "in", protectedTagSourcesInList());
         if (zeroSpendCount && zeroSpendCount > 0) {
           console.log(`  Cleaned up ${zeroSpendCount} zero-spend creatives`);
         }
