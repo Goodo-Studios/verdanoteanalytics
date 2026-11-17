@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
@@ -64,11 +64,13 @@ export function GovernedTagEditor({ adId, accountId, initial, hook, onSaved }: G
     initial !== undefined ? (initial.angle_id ?? null) : current.data;
   const currentKnown = initial !== undefined || current.isSuccess;
 
-  const [angleId, setAngleId] = useState<string>(UNTAGGED);
-
-  useEffect(() => {
-    if (currentKnown) setAngleId(currentAngleId ?? UNTAGGED);
-  }, [adId, currentKnown, currentAngleId]);
+  // The field shows the user's pick for this ad if they made one, otherwise the
+  // current value. It is derived during render, not copied in by an effect: the effect
+  // ran one render after Save was enabled, and a click in that gap saved "Untagged".
+  const [picked, setPicked] = useState<{ adId: string; value: string } | null>(null);
+  const angleId =
+    picked && picked.adId === adId ? picked.value : currentKnown ? (currentAngleId ?? UNTAGGED) : UNTAGGED;
+  const setAngleId = (value: string) => setPicked({ adId, value });
 
   const { mutate: save, isPending } = useMutation({
     mutationFn: async () => {
