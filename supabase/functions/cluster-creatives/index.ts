@@ -30,6 +30,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { json } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { loadGroupingInputs } from "../_shared/grouping-inputs.ts";
+import { restampInSteps } from "./restamp.ts";
 import {
   blendedTier,
   type CandidateGroup,
@@ -322,11 +323,12 @@ Deno.serve(async (req) => {
   }));
   const matched = matchGroupsToEntities(candidates, existing, threshold);
 
-  // 6. Upsert entities in place (persistent ids), then restamp members in one call.
-  //    The clear and the re-stamp happen together in restamp_creative_clusters, so a
-  //    failure part way never leaves the account unclustered (audit 5.10). Until that
-  //    call, creatives keep their previous stamps, whose entities still exist because
-  //    stale entities are only retired in step 7.
+  // 6. Upsert entities in place (persistent ids), then restamp members. restampInSteps
+  //    changes only creatives whose stamp differs, a few hundred per database call, so
+  //    the largest accounts stay under the 8 second statement limit (7.3 follow-up).
+  //    A failure part way never leaves the account unclustered (audit 5.10): every
+  //    creative keeps either its previous stamp or its new one, and both entities
+  //    still exist because stale entities are only retired in step 7.
   const stamps: Array<{ ad_id: string; cluster_id: string; confidence: string }> = [];
 
   const assignedIds: string[] = [];
@@ -383,11 +385,11 @@ Deno.serve(async (req) => {
     tierCounts[tier] = (tierCounts[tier] ?? 0) + 1;
   }
 
-  const { error: stampErr } = await db.rpc("restamp_creative_clusters", {
-    p_account_id: accountId,
-    p_stamps: stamps,
-  });
-  if (stampErr) return json({ error: `member stamp: ${stampErr.message}` }, 500);
+  try {
+    await restampInSteps(db, accountId, stamps);
+  } catch (e) {
+    return json({ error: `member stamp: ${e instanceof Error ? e.message : String(e)}` }, 500);
+  }
 
   // 7. Retire entities not seen this run (empty). Ids are UUIDs — never reused.
   let retired = 0;

@@ -1,9 +1,12 @@
-// cluster-creatives restamps members in one database call (audit plan item 5.10).
+// cluster-creatives restamps members only after every group is saved (audit plan
+// item 5.10), in small steps (7.3 follow-up).
 //
 // It used to clear every creative's cluster stamp for the account, then re-stamp group by
-// group, so a failure part way left the account unclustered. The clear and the re-stamp
-// now happen together in restamp_creative_clusters (see the pgTAP test
-// supabase/tests/restamp_creative_clusters_test.sql), after every group is saved.
+// group, so a failure part way left the account unclustered. The stamps are now applied
+// by restampInSteps (restamp.ts) after every group is saved. Each step changes only rows
+// whose stamp differs, so an interrupted run leaves every creative stamped with either
+// its old or its new group, and both still exist because stale groups are retired last.
+// See supabase/tests/restamp_creative_clusters_step_test.sql for the database side.
 //
 //   deno test -A supabase/functions/cluster-creatives/restamp.test.ts
 
@@ -19,9 +22,14 @@ Deno.test("no per-group member stamp updates", () => {
   assertEquals(/update\(\{\s*cluster_id:\s*entityId/.test(src), false);
 });
 
-Deno.test("members are stamped with one restamp_creative_clusters call after the groups are saved", () => {
-  const rpcAt = src.indexOf('rpc("restamp_creative_clusters"');
-  assert(rpcAt > 0, "restamp_creative_clusters call missing");
-  assert(rpcAt > src.lastIndexOf('from("creative_clusters").upsert('), "restamp must run after the group upserts");
-  assertEquals(src.split('rpc("restamp_creative_clusters"').length - 1, 1);
+Deno.test("no single all-at-once restamp call", () => {
+  assertEquals(src.includes('rpc("restamp_creative_clusters"'), false);
+});
+
+Deno.test("members are stamped with one restampInSteps call after the groups are saved", () => {
+  const at = src.indexOf("await restampInSteps(");
+  assert(at > 0, "restampInSteps call missing");
+  assert(at > src.lastIndexOf('from("creative_clusters").upsert('), "restamp must run after the group upserts");
+  assert(at < src.indexOf('from("creative_clusters").delete()'), "restamp must run before stale groups are retired");
+  assertEquals(src.split("await restampInSteps(").length - 1, 1);
 });
