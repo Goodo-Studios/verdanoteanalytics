@@ -322,6 +322,15 @@ describe("setupModel", () => {
     expect(checklistSummary(buildChecklist(null, now))).toBe("0 of 3 set up");
   });
 
+  it("marks ClickUp done when cards are syncing even with zero linked folders", () => {
+    const synced = buildChecklist({ client_slug: "a", ad_account_count: 0, clickup_folder_count: 0, member_count: 0, last_clickup_sync: "2026-10-01T09:00:00Z" }, now);
+    expect(synced.find((i) => i.key === "clickup")).toMatchObject({ done: true, detail: "Linked (cards are syncing)" });
+    const folder = buildChecklist({ client_slug: "a", ad_account_count: 0, clickup_folder_count: 1, member_count: 0, last_clickup_sync: "2026-10-01T09:00:00Z" }, now);
+    expect(folder.find((i) => i.key === "clickup")).toMatchObject({ done: true, detail: "Linked" });
+    const neither = buildChecklist({ client_slug: "a", ad_account_count: 0, clickup_folder_count: 0, member_count: 0, last_clickup_sync: null }, now);
+    expect(neither.find((i) => i.key === "clickup")).toMatchObject({ done: false, detail: "No ClickUp folder yet" });
+  });
+
   it("a client with a ClickUp folder, a login and a sync but no ad account is fully set up", () => {
     const items = buildChecklist({ client_slug: "a", ad_account_count: 0, clickup_folder_count: 1, member_count: 1, last_clickup_sync: "2026-10-01T09:00:00Z" }, now);
     expect(items[0]).toMatchObject({ key: "ad_account", done: false, optional: true, detail: "None (optional)" });

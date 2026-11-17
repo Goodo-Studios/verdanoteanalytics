@@ -23,7 +23,11 @@ const hasEmployeeCreds = !!process.env.PLAYWRIGHT_EMPLOYEE_EMAIL && !!process.en
  * src/test/StaffArea.test.tsx and the sections in src/lib/sections.ts.
  */
 /** Builder-only pages: an employee is redirected to the index. */
-const BUILDER_ONLY_PATHS = ["/matrix", "/growth-dashboard", "/operating-costs", "/creative/matrix", "/admin/growth", "/admin/operating-costs"];
+// Admin is builder only (product review 2026-11-16), so an employee is sent to the index from every Admin page.
+const BUILDER_ONLY_PATHS = [
+  "/matrix", "/growth-dashboard", "/operating-costs", "/creative/matrix", "/admin/growth", "/admin/operating-costs",
+  "/admin/team", "/admin/support", "/team", "/support", "/operations", "/agent-evaluations", "/integration-health",
+];
 
 /** The new section addresses (one tab each is enough to show the section loads). */
 const SECTION_PATHS = [
@@ -137,10 +141,11 @@ test.describe("employee reaches staff pages", () => {
     await expect(page.getByText("Growth Dashboard")).toHaveCount(0); // builder only
   });
 
-  test("the sidebar has the nine employee menu items (no Growth Dashboard), and the client switcher shows on Creative only", async ({ page }) => {
+  test("the sidebar has the nine employee menu items (no Growth Dashboard, no Admin), and the client switcher shows on Creative only", async ({ page }) => {
     await page.goto("/employee/");
     await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Growth Dashboard", exact: true })).toHaveCount(0);
-    for (const name of ["Home", "Clients", "Production", "Creators", "Creative", "Creative Vault", "Knowledge", "Ad Name Generator", "Time", "Admin"]) {
+    await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Admin", exact: true })).toHaveCount(0);
+    for (const name of ["Home", "Clients", "Production", "Creators", "Creative", "Creative Vault", "Knowledge", "Ad Name Generator", "Time"]) {
       await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link", { name, exact: true })).toBeVisible({ timeout: 30_000 });
     }
     await expect(page.getByRole("link", { name: "Staff menu" })).toHaveCount(0);

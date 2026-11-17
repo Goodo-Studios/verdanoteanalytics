@@ -30,6 +30,6 @@ Deno.test("members are stamped with one restampInSteps call after the groups are
   const at = src.indexOf("await restampInSteps(");
   assert(at > 0, "restampInSteps call missing");
   assert(at > src.lastIndexOf('from("creative_clusters").upsert('), "restamp must run after the group upserts");
-  assert(at < src.indexOf('from("creative_clusters").delete()'), "restamp must run before stale groups are retired");
+  assert(at < src.indexOf("await retireEntities("), "restamp must run before stale groups are retired");
   assertEquals(src.split("await restampInSteps(").length - 1, 1);
 });

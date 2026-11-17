@@ -72,7 +72,7 @@ export const staffNavItems: NavItem[] = STAFF_NAV.map((entry) => ({
 }));
 
 /** Menu items only a real builder sees (the section's tabs are all builder only). */
-const BUILDER_ONLY_URLS = new Set(STAFF_NAV.filter((e) => e.id === "growth").map((e) => e.url));
+const BUILDER_ONLY_URLS = new Set(STAFF_NAV.filter((e) => e.id === "growth" || e.id === "admin").map((e) => e.url));
 
 // Client surface: clients get the core analytics tabs — Overview, Creatives,
 // Analytics — alongside their Content Pipeline + Reports. Overview routes to the

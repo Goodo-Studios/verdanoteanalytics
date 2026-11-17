@@ -37,7 +37,7 @@ vi.mock("@/features/dashboard/api", () => ({
 }));
 
 import CreatorPipelinePage from "@/features/dashboard/CreatorPipelinePage";
-import { ACTIVE_STAGES, PRODUCTION_STAGES, addableCreators, boardColumns, currentAppUser, groupByStage, ownerOptions } from "@/features/dashboard/model";
+import { ACTIVE_STAGES, PIPELINE_STAGES, PRODUCTION_STAGES, RETIRED_STAGES, addableCreators, boardColumns, boardStage, currentAppUser, groupByStage, ownerOptions } from "@/features/dashboard/model";
 
 const row = (id: string, stage: string, slug = "glow", extra: Partial<Assignment> = {}): Assignment => ({
   id, creator_id: `c-${id}`, client_slug: slug, stage, owner_id: null, next_follow_up_at: null, next_follow_up_source: null,
@@ -160,10 +160,40 @@ describe("Creator pipeline page", () => {
 
 describe("creator pipeline model", () => {
   it("picks columns by brand and scope", () => {
-    expect(boardColumns("glow", "production")).toHaveLength(18);
+    // 18 stages less the two retired ones (outreach_sent, interested).
+    expect(boardColumns("glow", "production")).toHaveLength(16);
+    expect(boardColumns("glow", "production")).toEqual(PIPELINE_STAGES.map((s) => s.value));
+    expect(boardColumns("glow", "production").slice(0, 3)).toEqual(["sourced", "shortlisted", "client_approved"]);
     expect(boardColumns("all", "production")).toEqual(PRODUCTION_STAGES);
     expect(boardColumns("all", "all")).toEqual(ACTIVE_STAGES);
     expect(ACTIVE_STAGES).not.toContain("declined");
+  });
+  it("drops the retired stages from every board and from the stage picker list", () => {
+    expect(RETIRED_STAGES).toEqual(["outreach_sent", "interested"]);
+    for (const c of [boardColumns("glow", "production"), boardColumns("glow", "all"), boardColumns("all", "production"), boardColumns("all", "all")]) {
+      expect(c).not.toContain("outreach_sent");
+      expect(c).not.toContain("interested");
+    }
+    expect(ACTIVE_STAGES).not.toContain("outreach_sent");
+    expect(ACTIVE_STAGES).not.toContain("interested");
+    expect(PIPELINE_STAGES.map((s) => s.value)).not.toContain("outreach_sent");
+    expect(PIPELINE_STAGES.map((s) => s.value)).not.toContain("interested");
+    expect(boardColumns("glow", "all")).toContain("declined");
+  });
+  it("puts creators in a retired stage in the Sourced column", () => {
+    for (const columns of [boardColumns("glow", "production"), boardColumns("all", "all")]) {
+      const g = groupByStage(
+        [row("c", "outreach_sent"), row("a", "interested"), row("b", "sourced"), row("d", "shortlisted")],
+        columns,
+      );
+      expect(g.get("sourced")?.map((r) => r.id)).toEqual(["a", "b", "c"]);
+      expect(g.get("shortlisted")?.map((r) => r.id)).toEqual(["d"]);
+      expect(g.has("outreach_sent")).toBe(false);
+      expect(g.has("interested")).toBe(false);
+    }
+    expect(boardStage("outreach_sent")).toBe("sourced");
+    expect(boardStage("interested")).toBe("sourced");
+    expect(boardStage("shooting")).toBe("shooting");
   });
   it("groups by stage and leaves out unknown stages", () => {
     const g = groupByStage([row("b", "sourced"), row("a", "sourced"), row("x", "weird")], ["sourced"]);

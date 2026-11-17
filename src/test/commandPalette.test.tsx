@@ -114,14 +114,14 @@ describe("what it lists", () => {
     for (const to of ["/", "/work", "/clients"]) expect(items.some((i) => i.to === to), to).toBe(true);
   });
 
-  it("offers Agent evaluations and Learning to everyone, and Early pages to a builder only", () => {
+  it("offers Learning to everyone, and leaves the hidden pages out for a builder too", () => {
     const labels = (b: boolean) => pageItems(b).map((i) => i.label);
-    for (const shown of ["Agent evaluations", "Learning"]) {
-      expect(labels(true), shown).toContain(shown);
-      expect(labels(false), shown).toContain(shown);
+    expect(labels(true)).toContain("Learning");
+    expect(labels(false)).toContain("Learning");
+    for (const hidden of ["Agent evaluations", "Early pages", "Operations", "Operating costs", "Support inbox"]) {
+      expect(labels(true), hidden).not.toContain(hidden);
+      expect(labels(false), hidden).not.toContain(hidden);
     }
-    expect(labels(true)).toContain("Early pages");
-    expect(labels(false)).not.toContain("Early pages");
   });
 
   it("matches clients by name, ignoring case, and lists them before pages", () => {
@@ -135,9 +135,9 @@ describe("what it lists", () => {
 
   it("hides the builder-only tabs from an employee", () => {
     const labelsFor = (b: boolean) => pageItems(b).map((i) => i.label);
-    for (const t of ["Matrix", "Operating costs", "Growth Dashboard"]) {
-      expect(labelsFor(true)).toContain(t);
-      expect(labelsFor(false)).not.toContain(t);
+    for (const t of ["Matrix", "Growth Dashboard", "Team and settings", "Integration health", "Notifications"]) {
+      expect(labelsFor(true), t).toContain(t);
+      expect(labelsFor(false), t).not.toContain(t);
     }
   });
 

@@ -2,7 +2,11 @@
 // pipeline_tasks by the client (client_slug), not by ad account, so a client with no ad account, or
 // with several, still has its board. The client-facing board (/pipeline for a client login) is a
 // different component with the client's wording.
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { useTaskByClickupId } from "@/hooks/useMyWork";
+import { TaskSidePanel } from "@/features/home/TaskSidePanel";
+import { clickupTaskUrl, todayIso } from "@/lib/homeData";
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { fmtTimeAgo } from "@/lib/formatters";
@@ -24,6 +28,17 @@ export default function ClientWorkTab() {
   // A card whose status changed settles into its new column (OS-025).
   const settled = useChangedIds(tasks, (t) => t.id, (t) => t.stage);
   const name = selectedClient?.name ?? selectedSlug;
+  // A card opens the task panel (brief, dates, people). A card with no task row behind it falls
+  // back to its ClickUp page, as on the Work page.
+  const [openCard, setOpenCard] = useState<Parameters<typeof clickupTaskUrl>[0] | null>(null);
+  const opened = useTaskByClickupId(openCard?.clickup_task_id ?? null);
+  const noTaskRow = !!openCard && opened.isFetched && opened.data === null;
+  useEffect(() => {
+    if (!noTaskRow || !openCard) return;
+    const fallback = clickupTaskUrl(openCard);
+    if (fallback) window.open(fallback, "_blank", "noopener,noreferrer");
+    setOpenCard(null);
+  }, [noTaskRow, openCard]);
 
   if (!selectedSlug) return null;
 
@@ -81,7 +96,13 @@ export default function ClientWorkTab() {
                         data-settled={settled.has(t.id) ? "true" : undefined}
                       >
                         {t.content_type ? <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.content_type}</p> : null}
-                        <p className="text-[13px]">{t.task_name || "Untitled task"}</p>
+                        {t.clickup_task_id ? (
+                          <button type="button" onClick={() => setOpenCard({ clickup_task_id: t.clickup_task_id ?? null })} className="block w-full text-left text-[13px] hover:underline" data-testid="client-work-card-open">
+                            {t.task_name || "Untitled task"}
+                          </button>
+                        ) : (
+                          <p className="text-[13px]">{t.task_name || "Untitled task"}</p>
+                        )}
                         {due ? <p className={`mt-1 text-[11px] ${due.urgent && col === CLIENT_REVIEW_STAGE ? "font-medium text-blue-600" : "text-muted-foreground"}`}>{due.text}</p> : null}
                         <ViewAssetLink link={t.asset_link} className="mt-2" />
                         {(() => {
@@ -106,6 +127,7 @@ export default function ClientWorkTab() {
           </div>
         </>
       )}
+      {openCard ? <TaskSidePanel task={opened.data ?? null} today={todayIso()} onClose={() => setOpenCard(null)} /> : null}
     </PageShell>
   );
 }

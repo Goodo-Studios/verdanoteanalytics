@@ -18,6 +18,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { ClientMonthHours } from "@/features/clients/ClientMonthHours";
 import { hubPath } from "@/lib/clientHub";
 import { useRolePrefix } from "@/hooks/useRolePath";
+import { useStaffPeople } from "@/hooks/useTaskEdit";
 import { STATUS_LABEL as ENGAGEMENT_STATUS_LABEL, type EngagementStatus } from "@/features/engagements/model";
 import {
   DashboardError,
@@ -83,6 +84,15 @@ function DetailsForm({ client, onSaved }: { client: DashboardClient; onSaved: (m
   });
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // The strategist is picked from the team. A name that is saved but no longer on the team stays
+  // in the list so opening and saving the form does not wipe it.
+  const team = useStaffPeople(true);
+  const strategistOptions = useMemo(() => {
+    const names = (team.data ?? []).map((p) => p.name).filter(Boolean);
+    const current = client.strategist?.trim();
+    if (current && !names.includes(current)) names.push(current);
+    return [...new Set(names)].sort((a, b) => a.localeCompare(b)).map((n) => ({ value: n, label: n }));
+  }, [team.data, client.strategist]);
   const set = (k: keyof ClientDetailsPatch) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value || null });
   const save = async () => {
     setSaving(true);
@@ -100,7 +110,14 @@ function DetailsForm({ client, onSaved }: { client: DashboardClient; onSaved: (m
     <div className={`${CARD} space-y-2`} aria-label="Edit details" role="group">
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
         <TextField label="Service type" hideLabel placeholder="Service type" value={form.service_type ?? ""} onChange={set("service_type")} />
-        <TextField label="Strategist" hideLabel placeholder="Strategist" value={form.strategist ?? ""} onChange={set("strategist")} />
+        <SelectField
+          label="Strategist"
+          hideLabel
+          placeholder="Pick a strategist"
+          value={form.strategist ?? ""}
+          onChange={set("strategist")}
+          options={strategistOptions}
+        />
         <TextField label="Contract start" hideLabel type="date" value={form.contract_start ?? ""} onChange={set("contract_start")} />
         <TextField label="Contract end" hideLabel type="date" value={form.contract_end ?? ""} onChange={set("contract_end")} />
         <SelectField label="Status" hideLabel value={form.status ?? ""} onChange={set("status")} options={CLIENT_STATUSES.map((s) => ({ value: s, label: s }))} />

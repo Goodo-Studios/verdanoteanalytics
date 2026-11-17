@@ -1,6 +1,6 @@
 /**
  * The staff menu has ten items whatever client is selected (including "All clients", the
- * old Agency View), Admin shows for builders and employees, a client's sidebar is unchanged,
+ * old Agency View), Admin shows for builders only (every Admin tab is builder only), a client's sidebar is unchanged,
  * pages that need one client ask for one, and the mobile menu button is labelled.
  */
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -59,7 +59,7 @@ function renderSidebar(role: Role) {
 
 const TEN = ["Home", "Clients", "Production", "Creators", "Creative", "Creative Vault", "Knowledge", "Growth Dashboard", "Ad Name Generator", "Time", "Admin"];
 // An employee does not see the builder-only Growth Dashboard.
-const EMPLOYEE_MENU = TEN.filter((t) => t !== "Growth Dashboard");
+const EMPLOYEE_MENU = TEN.filter((t) => t !== "Growth Dashboard" && t !== "Admin");
 
 beforeEach(() => {
   h.selected = "all";
