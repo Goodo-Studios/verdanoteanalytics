@@ -8,6 +8,7 @@
  * finishes, and skips the write when nothing changed.
  */
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { Profiler } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -84,6 +85,30 @@ describe("GovernedTagEditor prefill", () => {
     fireEvent.click(save);
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(updates).toEqual([]);
+  });
+
+  // The field used to be copied into state by an effect that runs after the render
+  // that enables Save. A click in that gap saved "Untagged" and erased the tag; the
+  // test above caught it only when its click landed in the gap (flaky in CI). A
+  // Profiler callback runs at every commit, before passive effects, so it sees the
+  // screen exactly as a user could click it.
+  it("never shows Save enabled while the field still reads Untagged", async () => {
+    const seen: Array<{ enabled: boolean; field: string }> = [];
+    const onCommit = () => {
+      const button = screen.queryByRole("button", { name: /save/i }) as HTMLButtonElement | null;
+      const field = screen.queryByRole("combobox");
+      if (button && field) seen.push({ enabled: !button.disabled, field: field.textContent ?? "" });
+    };
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <Profiler id="editor" onRender={onCommit}>
+        <QueryClientProvider client={qc}>
+          <GovernedTagEditor adId="ad-1" accountId="act_1" hook="Did you know" />
+        </QueryClientProvider>
+      </Profiler>,
+    );
+    await waitFor(() => expect(seen.some((c) => c.enabled && c.field.includes("Busy parents"))).toBe(true));
+    expect(seen.filter((c) => c.enabled && !c.field.includes("Busy parents"))).toEqual([]);
   });
 
   it("does not write when the creative is already Untagged and nothing changed", async () => {
