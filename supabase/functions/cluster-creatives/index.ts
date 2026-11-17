@@ -31,6 +31,7 @@ import { json } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { loadGroupingInputs } from "../_shared/grouping-inputs.ts";
 import { restampInSteps } from "./restamp.ts";
+import { type ExistingEntityRow, loadExistingEntityRows, retireEntities } from "./entity-reads.ts";
 import {
   blendedTier,
   type CandidateGroup,
@@ -271,12 +272,14 @@ Deno.serve(async (req) => {
   const groups = completeLinkageBlocks(n, pairDistance, 1 - threshold, seedBlocks);
 
   // 4. Existing entities for the account (for match-not-regenerate).
-  const { data: existRows, error: existErr } = await db
-    .from("creative_clusters")
-    .select("id, centroid, asset_keys, meta_video_ids, meta_image_hashes")
-    .eq("account_id", accountId);
-  if (existErr) return json({ error: existErr.message }, 500);
-  const existing: ExistingEntity[] = (existRows ?? []).map((r) => {
+  //    Paged, so accounts with more than 1,000 groups see all of them (7.3 follow-up).
+  let existRows: ExistingEntityRow[];
+  try {
+    existRows = await loadExistingEntityRows(db, accountId);
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+  }
+  const existing: ExistingEntity[] = existRows.map((r) => {
     const row = r as Record<string, unknown>;
     return {
       id: row.id as string,
@@ -392,14 +395,13 @@ Deno.serve(async (req) => {
   }
 
   // 7. Retire entities not seen this run (empty). Ids are UUIDs — never reused.
-  let retired = 0;
-  const staleIds = existing.map((e) => e.id).filter((id) => !assignedIds.includes(id));
-  if (staleIds.length) {
-    for (let i = 0; i < staleIds.length; i += 200) {
-      const chunk = staleIds.slice(i, i + 200);
-      const { error: delErr } = await db.from("creative_clusters").delete().in("id", chunk);
-      if (!delErr) retired += chunk.length;
-    }
+  const assignedSet = new Set(assignedIds);
+  const staleIds = existing.map((e) => e.id).filter((id) => !assignedSet.has(id));
+  let retired: number;
+  try {
+    retired = await retireEntities(db, staleIds);
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
 
   return json({
