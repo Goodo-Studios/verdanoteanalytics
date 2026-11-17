@@ -1,5 +1,7 @@
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useAccountContext } from "@/contexts/AccountContext";
+import { useLocation } from "react-router-dom";
+import { pickerClients } from "@/lib/clientPickerOptions";
 
 const SELECT =
   "h-9 max-w-[220px] rounded-md border border-input bg-background px-2 font-body text-[13px] font-medium text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -12,6 +14,7 @@ const SELECT =
 export function ClientSwitcher() {
   const { clients, isLoading, selectedSlug, setSelectedSlug, linkedAccounts, noAccount } = useClientSelection();
   const { selectedAccountId, setSelectedAccountId } = useAccountContext();
+  const { pathname } = useLocation();
 
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2" data-testid="client-switcher">
@@ -29,8 +32,7 @@ export function ClientSwitcher() {
         <option value="">{isLoading && clients.length === 0 ? "Loading clients..." : "All clients"}</option>
         {/* Active clients only. A client hidden from the client list stays out of the picker,
             unless it is the one already selected (it then keeps its inactive label). */}
-        {clients
-          .filter((c) => c.active || c.slug === selectedSlug)
+        {pickerClients(clients, selectedSlug, pathname)
           .map((c) => (
             <option key={c.slug} value={c.slug}>
               {c.name}
