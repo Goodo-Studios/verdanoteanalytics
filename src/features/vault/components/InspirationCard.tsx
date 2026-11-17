@@ -25,6 +25,9 @@ interface Props {
   hookText?: string | null;
   framework?: string | null;
   selected?: boolean;
+  /** True while any card in the grid is selected. Keeps every checkbox visible so more can be
+   * ticked without hovering, and so touch screens can tick at all. */
+  selectionActive?: boolean;
   onSelect?: (id: string) => void;
   onToggleFeatured?: (id: string, featured: boolean) => void;
   onDelete?: (id: string) => void;
@@ -48,6 +51,7 @@ export function InspirationCard({
   hookVerbal,
   hookText,
   selected = false,
+  selectionActive = false,
   onSelect,
   onToggleFeatured,
   onDelete,
@@ -342,11 +346,16 @@ export function InspirationCard({
             e.stopPropagation();
             onSelect(item.id);
           }}
+          type="button"
+          aria-label={selected ? "Deselect item" : "Select item"}
+          aria-pressed={selected}
           className={cn(
             "absolute top-2 left-2 z-20 w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
             selected
               ? "bg-primary border-primary text-white opacity-100"
-              : "border-white/90 bg-black/40 opacity-0 group-hover:opacity-100",
+              : selectionActive
+                ? "border-white/90 bg-black/40 opacity-100"
+                : "border-white/90 bg-black/40 opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
           )}
         >
           {selected && <Check className="w-3 h-3" />}

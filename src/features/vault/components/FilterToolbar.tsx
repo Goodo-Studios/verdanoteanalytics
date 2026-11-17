@@ -62,7 +62,7 @@ export function FilterToolbar({
           type="text"
           value={searchInput}
           onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="Search by concept, hook style, or script content…"
+          placeholder="Search script, brand, title, hooks, tags…"
           className="w-full pl-9 pr-8 py-2 border border-input rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring"
         />
         {searchInput && (
@@ -146,7 +146,7 @@ export function FilterToolbar({
 
       {isSemanticMode && (
         <p className="text-xs text-muted-foreground">
-          Semantic search — showing results most similar to "{searchQuery}"
+          Showing matches for "{searchQuery}" in scripts, brands, titles, hooks and tags, then similar results
         </p>
       )}
     </div>

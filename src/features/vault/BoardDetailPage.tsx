@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { normalizeItemEmbeds } from "./embedRows";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -89,7 +90,11 @@ export default function BoardDetailPage() {
         .eq("board_id", id!)
         .order("added_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as BoardItemWithInspiration[];
+      // The transcript and framework embeds are one-to-one, so they arrive as objects (embedRows.ts).
+      return ((data ?? []) as BoardItemWithInspiration[]).map((bi) => ({
+        ...bi,
+        inspiration_items: bi.inspiration_items ? normalizeItemEmbeds(bi.inspiration_items) : bi.inspiration_items,
+      }));
     },
   });
 

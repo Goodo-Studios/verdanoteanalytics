@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, Star, Trash2, Vault, Search, X } from "lucide-react";
+import { Download, Loader2, Plus, Star, Trash2, Vault, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { EmptyState, LoadingState, PageHeader, PageShell } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,18 @@ import {
 } from "./components/FilterToolbar";
 import { useItemStatus } from "./hooks/useItemStatus";
 import { deleteVaultItems, vaultDeleteMessage, type VaultDeleteResult } from "./deleteVaultItems";
+import { downloadVaultItems, vaultDownloadMessage } from "./bulkDownload";
+import { normalizeItemEmbeds } from "./embedRows";
+import {
+  buildIlikeOr,
+  ilikePattern,
+  mergeIds,
+  mergeSearchResults,
+  VAULT_FRAMEWORK_SEARCH_COLUMNS,
+  VAULT_ITEM_SEARCH_COLUMNS,
+  VAULT_TEXT_SEARCH_LIMIT,
+  VAULT_TEXT_SEARCH_MIN_LENGTH,
+} from "./utils/textSearch";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -148,6 +160,17 @@ export default function LibraryPage() {
     onError: (err) => toast.error(err instanceof Error ? err.message : "Delete failed"),
   });
 
+  // Bulk download works on whatever is loaded; ids that have scrolled out of the list are not fetched.
+  const { mutate: bulkDownload, isPending: isDownloading } = useMutation({
+    mutationFn: (rows: LibraryItem[]) => downloadVaultItems(rows),
+    onSuccess: (result) => {
+      const message = vaultDownloadMessage(result);
+      if (message.ok) toast.success(message.text);
+      else toast.error(message.text);
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Download failed"),
+  });
+
   // Single delete from a card's menu asks first, like bulk delete (audit 4.6).
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const { mutate: deleteOne, isPending: isDeletingOne } = useMutation({
@@ -268,7 +291,7 @@ export default function LibraryPage() {
         fetchRange: async (from, to) => {
           const { data, error } = await selectItems(activeTag).range(from, to);
           if (error) throw error;
-          return (data ?? []) as unknown as LibraryItem[];
+          return ((data ?? []) as unknown as LibraryItem[]).map(normalizeItemEmbeds);
         },
       });
     },
@@ -295,7 +318,7 @@ export default function LibraryPage() {
     queryFn: async () => {
       const { data, error } = await selectItems(activeTag).eq("is_featured", true);
       if (error) throw error;
-      return (data ?? []) as unknown as LibraryItem[];
+      return ((data ?? []) as unknown as LibraryItem[]).map(normalizeItemEmbeds);
     },
   });
 
@@ -367,10 +390,70 @@ export default function LibraryPage() {
   const signedUrlsSettled =
     unsignedPaths.length === 0 || (signedUrlsStatus !== "pending" && !signedUrlsArePlaceholder);
 
+  // Search runs two ways and shows both. Text search matches the literal words in the title,
+  // brand, script, hooks, tags and the other metadata. Semantic search (vault-search edge
+  // function) ranks by meaning. A failed semantic search still leaves the text matches.
+  const isTextSearchMode = searchQuery.length >= VAULT_TEXT_SEARCH_MIN_LENGTH;
+
+  const { data: textResults, isFetching: isTextSearching } = useQuery<LibraryItem[]>({
+    queryKey: ["vault-text-search", user?.id, searchQuery],
+    enabled: !!user && isTextSearchMode,
+    retry: false,
+    queryFn: async () => {
+      const pattern = ilikePattern(searchQuery);
+      const [byItem, byTranscript, byFramework, byTag] = await Promise.all([
+        supabase
+          .from("inspiration_items")
+          .select("id")
+          .or(buildIlikeOr(searchQuery, VAULT_ITEM_SEARCH_COLUMNS))
+          .order("created_at", { ascending: false })
+          .limit(VAULT_TEXT_SEARCH_LIMIT),
+        supabase
+          .from("inspiration_transcripts")
+          .select("item_id")
+          .ilike("cleaned_script", pattern)
+          .limit(VAULT_TEXT_SEARCH_LIMIT),
+        supabase
+          .from("inspiration_frameworks")
+          .select("item_id")
+          .or(buildIlikeOr(searchQuery, VAULT_FRAMEWORK_SEARCH_COLUMNS))
+          .limit(VAULT_TEXT_SEARCH_LIMIT),
+        supabase
+          .from("inspiration_tags")
+          .select("item_id")
+          .ilike("tag", pattern)
+          .limit(VAULT_TEXT_SEARCH_LIMIT),
+      ]);
+      for (const r of [byItem, byTranscript, byFramework, byTag]) {
+        if (r.error) throw r.error;
+      }
+      const ids = mergeIds(
+        (byItem.data ?? []).map((r) => r.id),
+        (byTranscript.data ?? []).map((r) => r.item_id),
+        (byFramework.data ?? []).map((r) => r.item_id),
+        (byTag.data ?? []).map((r) => r.item_id),
+      ).slice(0, VAULT_TEXT_SEARCH_LIMIT);
+      if (ids.length === 0) return [];
+
+      const { data, error } = await supabase
+        .from("inspiration_items")
+        .select(
+          `${VAULT_CARD_COLUMNS},
+           inspiration_transcripts(cleaned_script),
+           inspiration_frameworks(hook_verbal, hook_text, copywriting_framework)`,
+        )
+        .in("id", ids)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return ((data ?? []) as unknown as LibraryItem[]).map(normalizeItemEmbeds);
+    },
+  });
+
   // Semantic search results from vault-search edge function.
-  const { data: searchResults, isFetching: isSearching } = useQuery<LibraryItem[]>({
+  const { data: semanticResults, isFetching: isSemanticSearching } = useQuery<LibraryItem[]>({
     queryKey: ["vault-search", searchQuery],
     enabled: searchQuery.length >= 3,
+    retry: false,
     queryFn: async () => {
       const {
         data: { session },
@@ -386,17 +469,24 @@ export default function LibraryPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Search failed");
-      return data.items as LibraryItem[];
+      return ((data.items ?? []) as LibraryItem[]).map(normalizeItemEmbeds);
     },
   });
 
-  const isSemanticMode = searchQuery.length >= 3;
-  // Grid items are already media-filtered by fillVaultPage; semantic results
-  // come straight from the edge function, so they still need the filter here.
-  const displayItems = isSemanticMode ? (searchResults ?? []).filter(matchesMediaType) : items;
-  const displayLoading = isSemanticMode ? isSearching : isLoading;
+  // "Semantic mode" is any active search; the name is kept for the props below.
+  const isSemanticMode = isTextSearchMode;
+  const searchResults = useMemo(
+    () => mergeSearchResults(textResults, semanticResults),
+    [textResults, semanticResults],
+  );
+  const isSearching = isTextSearching || isSemanticSearching;
+  // Grid items are already media-filtered by fillVaultPage; search results
+  // come from other queries, so they still need the filter here.
+  const displayItems = isSemanticMode ? searchResults.filter(matchesMediaType) : items;
+  // Show results as soon as either search has some; only block on an empty first load.
+  const displayLoading = isSemanticMode ? isSearching && searchResults.length === 0 : isLoading;
   const featuredItems = isSemanticMode ? [] : featuredAll.filter(matchesMediaType);
-  // Paging is a grid concern; semantic search returns its whole result set.
+  // Paging is a grid concern; search returns its whole result set.
   const canLoadMore = !isSemanticMode && hasNextPage;
 
   // Restore scroll position once real content has rendered — restoring
@@ -418,6 +508,17 @@ export default function LibraryPage() {
     observer.observe(el);
     return () => observer.disconnect();
   }, [canLoadMore, isFetchingNextPage, fetchNextPage]);
+
+  // The loaded items that are ticked, without repeats (an item can be in both Featured and the grid).
+  const selectedItems = useMemo(() => {
+    const byId = new Map<string, LibraryItem>();
+    for (const item of [...featuredItems, ...displayItems]) {
+      if (selectedIds.has(item.id)) byId.set(item.id, item);
+    }
+    return [...byId.values()];
+  }, [featuredItems, displayItems, selectedIds]);
+
+  const selectAllShown = () => setSelectedIds(new Set(displayItems.map((i) => i.id)));
 
   const handleItemCreated = (itemId: string) => {
     setPollingIds((prev) => [...prev, itemId]);
@@ -442,6 +543,7 @@ export default function LibraryPage() {
         hookText={hookText}
         framework={framework}
         selected={selectedIds.has(item.id)}
+        selectionActive={selectedIds.size > 0}
         onSelect={toggleSelect}
         onToggleFeatured={(id, val) => toggleFeatured({ id, featured: val })}
         onDelete={(id) => setPendingDeleteId(id)}
@@ -594,6 +696,27 @@ export default function LibraryPage() {
                 {selectedIds.size} selected
               </span>
               <div className="w-px h-4 bg-border" />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="rounded-full"
+                onClick={selectAllShown}
+                disabled={displayItems.length === 0 || selectedIds.size >= displayItems.length}
+              >
+                Select all shown
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-full"
+                onClick={() => bulkDownload(selectedItems)}
+                disabled={isDownloading || selectedItems.length === 0}
+              >
+                {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                Download
+              </Button>
               <Button
                 type="button"
                 variant="outline"
