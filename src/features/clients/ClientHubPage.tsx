@@ -5,7 +5,7 @@
 //
 // Staff only (the route guard in App.tsx). Old addresses of the pages that moved in here redirect to
 // the matching tab, so bookmarks and the ?client= links keep working.
-import { Suspense } from "react";
+import { lazy, Suspense } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { EmptyState, PageShell } from "@/components/page-kit";
 import { PageSkeleton } from "@/components/skeletons/PageSkeleton";
@@ -13,10 +13,13 @@ import { pageFor, prefetchPage } from "@/components/sections/lazyPages";
 import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useAccountReady } from "@/hooks/useAccountReady";
 import { useRolePrefix } from "@/hooks/useRolePath";
-import { HUB_TABS, SCOPE_SUBTABS, hubPath } from "@/lib/clientHub";
+import { HUB_CUSTOM_TABS, HUB_TABS, SCOPE_SUBTABS, hubPath } from "@/lib/clientHub";
 import { isHiddenPage } from "@/lib/hiddenPages";
 import { useRealBuilder } from "@/hooks/useRealBuilder";
 import { ClientMonthDelivery } from "./ClientMonthDelivery";
+
+// The taxonomy editor is heavy and builder only, so it loads when its tab opens.
+const ClientTaxonomyTab = lazy(() => import("./ClientTaxonomyTab"));
 
 const TAB_LINK = "whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors";
 const TAB_ON = "border-verdant font-semibold text-forest";
@@ -42,17 +45,22 @@ export default function ClientHubPage() {
     );
   }
 
-  const active = HUB_TABS.find((t) => t.slug === (tab ?? "overview"));
-  if (!active) return <Navigate to={`${prefix}${hubPath(slug)}`} replace />;
+  const customTab = HUB_CUSTOM_TABS.find((t) => t.slug === tab);
+  const active = customTab ? undefined : HUB_TABS.find((t) => t.slug === (tab ?? "overview"));
+  if (!active && !customTab) return <Navigate to={`${prefix}${hubPath(slug)}`} replace />;
+  if (customTab && sub) return <Navigate to={`${prefix}${hubPath(slug, customTab.slug)}`} replace />;
+  const activeSlug = customTab ? customTab.slug : active!.slug;
   // Hidden pages (src/lib/hiddenPages.ts) are not listed; the address opens for a builder only.
   const shownSubs = SCOPE_SUBTABS.filter((s) => !isHiddenPage(s.page));
-  const activeSub = active.slug === "scope" ? SCOPE_SUBTABS.find((s) => s.slug === (sub ?? shownSubs[0].slug)) : undefined;
+  const activeSub = active?.slug === "scope" ? SCOPE_SUBTABS.find((s) => s.slug === (sub ?? shownSubs[0].slug)) : undefined;
   if (activeSub && isHiddenPage(activeSub.page) && !realBuilder) return <Navigate to={`${prefix}${hubPath(slug, "scope")}`} replace />;
-  if (active.slug === "scope" && !activeSub) return <Navigate to={`${prefix}${hubPath(slug, "scope")}`} replace />;
-  if (active.slug !== "scope" && sub) return <Navigate to={`${prefix}${hubPath(slug, active.slug)}`} replace />;
+  if (active?.slug === "scope" && !activeSub) return <Navigate to={`${prefix}${hubPath(slug, "scope")}`} replace />;
+  if (active && active.slug !== "scope" && sub) return <Navigate to={`${prefix}${hubPath(slug, active.slug)}`} replace />;
 
   const name = selectedClient?.name ?? slug;
-  const Page = pageFor(activeSub ? activeSub.page : active.page);
+  const Page = active ? pageFor(activeSub ? activeSub.page : active.page) : null;
+  const needsAccount = customTab ? customTab.needsAccount : active?.needsAccount;
+  const activeLabel = customTab ? customTab.label : active!.label;
 
   return (
     <div data-testid="client-hub">
@@ -66,9 +74,19 @@ export default function ClientHubPage() {
             <Link
               key={t.slug}
               to={`${prefix}${hubPath(slug, t.slug)}`}
-              aria-current={t.slug === active.slug ? "page" : undefined}
+              aria-current={t.slug === activeSlug ? "page" : undefined}
               onMouseEnter={() => prefetchPage(t.page)}
-              className={`${TAB_LINK} ${t.slug === active.slug ? TAB_ON : TAB_OFF}`}
+              className={`${TAB_LINK} ${t.slug === activeSlug ? TAB_ON : TAB_OFF}`}
+            >
+              {t.label}
+            </Link>
+          ))}
+          {HUB_CUSTOM_TABS.filter((t) => !t.builderOnly || realBuilder).map((t) => (
+            <Link
+              key={t.slug}
+              to={`${prefix}${hubPath(slug, t.slug)}`}
+              aria-current={t.slug === activeSlug ? "page" : undefined}
+              className={`${TAB_LINK} ${t.slug === activeSlug ? TAB_ON : TAB_OFF}`}
             >
               {t.label}
             </Link>
@@ -91,17 +109,19 @@ export default function ClientHubPage() {
         ) : null}
       </div>
       <Suspense fallback={<PageSkeleton />}>
-        {active.needsAccount && noAccount ? (
+        {needsAccount && noAccount ? (
           <PageShell data-testid="no-ad-account">
             <EmptyState
               title={`${name} has no ad account linked yet.`}
-              description={`${active.label} reads a client’s ad account, so there is nothing to show here.`}
+              description={`${activeLabel} reads a client’s ad account, so there is nothing to show here.`}
             />
           </PageShell>
-        ) : active.needsAccount && !accountReady ? (
+        ) : needsAccount && !accountReady ? (
           <PageSkeleton />
+        ) : customTab ? (
+          <ClientTaxonomyTab clientName={name} />
         ) : (
-          <Page />
+          Page && <Page />
         )}
       </Suspense>
     </div>

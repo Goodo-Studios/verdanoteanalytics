@@ -1,4 +1,7 @@
+import { useMemo } from "react";
 import { useClientCycles, PipelineTask } from "@/hooks/usePipelineTasks";
+import { useClientCards } from "@/hooks/useClientCards";
+import { cardsAsCycleTasks } from "@/lib/clientPages";
 import { parseISO, format } from "date-fns";
 import { CloudOff, PackageOpen } from "lucide-react";
 import { ClientEmptyState } from "@/components/client/ClientEmptyState";
@@ -422,15 +425,21 @@ export function ContentPipeline({ accountId, own, clientSlug }: { accountId?: st
   const { tasks, engagements, isLoading, isError, pastCyclesFailed, refetch } = useClientCycles(accountId, own, clientSlug);
   const decisions = useOwnDecisions(!!own);
   const record = useRecordDecision();
+  // The pipeline tables are filled by their own ClickUp sync. When they hold nothing for this client,
+  // show the client's task cards instead of an empty board that says nothing is in production.
+  const cards = useClientCards(!!own);
+  const pipelineEmpty = !!own && !isLoading && !isError && (tasks?.length ?? 0) === 0;
+  const fallback = useMemo(() => (pipelineEmpty ? cardsAsCycleTasks(cards.data) : []), [pipelineEmpty, cards.data]);
+  const showTasks = fallback.length > 0 ? fallback : tasks;
   return (
     <ContentPipelineView
       decisions={own ? decisions.data : undefined}
       decisionsFailed={own ? decisions.isError : false}
       onDecide={own ? (input) => record.mutateAsync(input) : undefined}
-      tasks={tasks}
+      tasks={showTasks}
       engagements={engagements}
       pastCyclesFailed={pastCyclesFailed}
-      isLoading={isLoading}
+      isLoading={isLoading || (pipelineEmpty && cards.isLoading)}
       isError={isError}
       onRetry={() => void refetch()}
     />

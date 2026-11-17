@@ -66,4 +66,25 @@ test.describe("client: home, Briefs, Review and Assets", () => {
       await expect(links.nth(i)).toHaveAttribute("target", "_blank");
     }
   });
+
+  // The Air link of delivered work comes from the pipeline tables (asset_link): the Assets page and the
+  // Content Pipeline both show it, and only as an https air.inc address.
+  test("Air links on Assets and the Content Pipeline are https air.inc addresses", async ({ page }) => {
+    const AIR_LINK = /^https:\/\/([a-z0-9-]+\.)*air\.inc([/?#]|$)/;
+    await page.goto("/client/pipeline");
+    await expect(page.getByTestId("pipeline-cycle").first().or(page.getByTestId("pipeline-empty"))).toBeVisible();
+    // Open every cycle so delivered cards in earlier cycles are in the page.
+    await page.locator('[data-testid="pipeline-cycle"]:not([open]) summary').evaluateAll((els) => els.forEach((el) => (el as HTMLElement).click()));
+    const viewLinks = page.getByTestId("view-asset");
+    for (let i = 0; i < (await viewLinks.count()); i++) {
+      await expect(viewLinks.nth(i)).toHaveAttribute("href", AIR_LINK);
+    }
+  });
+
+  test("a ?client= link in the address does not change a client's pages", async ({ page }) => {
+    await page.goto("/client/assets?client=some-other-client");
+    await expect(page.getByTestId("client-assets-page")).toBeVisible();
+    await page.goto("/client/pipeline?client=some-other-client");
+    await expect(page.getByTestId("pipeline-cycle").first().or(page.getByTestId("pipeline-empty"))).toBeVisible();
+  });
 });

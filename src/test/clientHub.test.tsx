@@ -103,6 +103,12 @@ vi.mock("@/features/handoffs/HandoffsPage", () => stub("page-handoffs", "handoff
 vi.mock("@/features/scope-changes/ScopeChangesPage", () => stub("page-scope-changes", "scope changes"));
 vi.mock("@/features/strategy/StrategyPage", () => stub("page-strategy", "strategy"));
 vi.mock("@/features/recommendations/RecommendationsPage", () => stub("page-recommendations", "recommendations"));
+// The taxonomy editor is the existing component; the stub shows which ad accounts the hub gave it.
+vi.mock("@/features/matrix/config/TaxonomyConfigSection", () => ({
+  default: ({ accounts }: { accounts: Array<{ id: string; name: string }> }) => (
+    <div data-testid="taxonomy-editor">{accounts.map((a) => a.name).join("|")}</div>
+  ),
+}));
 
 import ClientHubPage from "@/features/clients/ClientHubPage";
 import { ClientSelectionProvider } from "@/contexts/ClientSelectionProvider";
@@ -158,10 +164,11 @@ beforeEach(() => {
 });
 
 describe("hub tabs", () => {
-  it("lists the eight tabs (Setup is for builders), marks the open one and links each into the client's address", async () => {
+  it("lists the nine tabs (Setup and Taxonomy are for builders), marks the open one and links each into the client's address", async () => {
     renderHub("/builder/clients/glow/work");
     const nav = await screen.findByRole("navigation", { name: "Client tabs" });
-    expect(within(nav).getAllByRole("link").map((a) => a.textContent)).toEqual(["Overview", "Work", "Briefs", "Performance", "Brand doc", "Meetings", "Scope", "Setup"]);
+    expect(within(nav).getAllByRole("link").map((a) => a.textContent)).toEqual(["Overview", "Work", "Briefs", "Performance", "Brand doc", "Meetings", "Scope", "Setup", "Taxonomy"]);
+    expect(within(nav).getByRole("link", { name: "Taxonomy" }).getAttribute("href")).toBe("/builder/clients/glow/taxonomy");
     expect(within(nav).getByRole("link", { name: "Work" }).getAttribute("aria-current")).toBe("page");
     expect(within(nav).getByRole("link", { name: "Overview" }).getAttribute("href")).toBe("/builder/clients/glow");
     expect(within(nav).getByRole("link", { name: "Brand doc" }).getAttribute("href")).toBe("/builder/clients/glow/brand-doc");
@@ -175,6 +182,36 @@ describe("hub tabs", () => {
     const nav = await screen.findByRole("navigation", { name: "Client tabs" });
     expect(within(nav).getAllByRole("link").map((a) => a.textContent)).toEqual(["Overview", "Work", "Briefs", "Performance", "Brand doc", "Meetings", "Scope"]);
     expect(await screen.findByTestId("client-setup-builders-only")).toBeTruthy();
+  });
+
+  it("Taxonomy shows the existing editor for this client's ad accounts only", async () => {
+    h.selectedAccountId = "act_multi1";
+    renderHub("/builder/clients/multi/taxonomy");
+    const editor = await screen.findByTestId("taxonomy-editor");
+    // Multi Brand has two ad accounts; Glow Drip's account is not offered.
+    await waitFor(() => expect(editor.textContent).toBe("Multi One|Multi Two"));
+    expect(within(screen.getByRole("navigation", { name: "Client tabs" })).getByRole("link", { name: "Taxonomy" }).getAttribute("aria-current")).toBe("page");
+  });
+
+  it("Taxonomy says plainly when the client has no ad account", async () => {
+    renderHub("/builder/clients/bare/taxonomy");
+    const notice = await screen.findByTestId("no-ad-account");
+    expect(notice.textContent).toContain("Bare Bones has no ad account linked yet.");
+    expect(screen.queryByTestId("taxonomy-editor")).toBeNull();
+  });
+
+  it("hides the Taxonomy tab from an employee, and its address says only a builder can change it", async () => {
+    h.isBuilder = false;
+    renderHub("/builder/clients/glow/taxonomy");
+    const nav = await screen.findByRole("navigation", { name: "Client tabs" });
+    expect(within(nav).queryByRole("link", { name: "Taxonomy" })).toBeNull();
+    expect(await screen.findByTestId("client-taxonomy-builders-only")).toBeTruthy();
+    expect(screen.queryByTestId("taxonomy-editor")).toBeNull();
+  });
+
+  it("a sub-path under Taxonomy goes back to the tab", async () => {
+    renderHub("/builder/clients/glow/taxonomy/extra");
+    expect(await screen.findByTestId("taxonomy-editor")).toBeTruthy();
   });
 
   it("Overview is the client detail content for the client in the address", async () => {
