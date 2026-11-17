@@ -73,6 +73,37 @@ export function buildAdName(fields: AdNameFields): string {
     .join("_");
 }
 
+/** The name without its code: what claim_and_save_ad_name puts after the code it claims. */
+export function nameTail(fields: AdNameFields): string {
+  return buildAdName({ ...fields, uniqueCode: "" });
+}
+
+export type AdNameTags = {
+  ad_type: string;
+  person: string;
+  style: string;
+  product: string;
+  hook: string;
+  theme: string;
+};
+
+/**
+ * The six tags saved with the name (audit 5.8). Product, hook and creative type are saved
+ * as they appear in the name, the same values the ad-name parser would read. A theme
+ * picked from the client's list is saved by its label, so the tag resolver can match it
+ * to the theme; a typed theme is saved as it appears in the name.
+ */
+export function tagsFor(fields: AdNameFields, themeFromList: boolean): AdNameTags {
+  return {
+    ad_type: fields.adType,
+    person: fields.personOnCamera,
+    style: sanitizeSegment(fields.creativeType),
+    product: sanitizeSegment(fields.productName),
+    hook: sanitizeSegment(fields.hook),
+    theme: themeFromList ? fields.themeOfAd.trim() : sanitizeSegment(fields.themeOfAd),
+  };
+}
+
 export type FieldErrors = Partial<Record<keyof AdNameFields, string>>;
 
 /** Every field is required. */

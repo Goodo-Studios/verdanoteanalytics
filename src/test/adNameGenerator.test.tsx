@@ -2,7 +2,8 @@
  * Ad Name Generator: the name format and the screen behaviour, checked against the old
  * app's own tests (repos/private/goodo-ad-name-generator/src/lib/adName.test.ts and
  * src/components/AdNameGenerator.test.tsx). The Supabase client is mocked: peek_ad_code
- * and claim_ad_code are the counter, ad_accounts and angle_clusters the client list.
+ * previews the counter, claim_and_save_ad_name spends a code and saves the name with its
+ * client and tags (audit 5.8), ad_accounts and angle_clusters are the client list.
  */
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -141,12 +142,16 @@ const writeText = vi.fn<(text: string) => Promise<void>>();
 let peekValue: number;
 let claimResult: { data: number | null; error: { message: string } | null };
 
-function counter(name: string) {
+function counter(name: string, args?: { p_name_tail?: string }) {
   if (name === "peek_ad_code") return Promise.resolve({ data: peekValue, error: null });
-  if (name === "claim_ad_code") return Promise.resolve(claimResult);
+  if (name === "claim_and_save_ad_name") {
+    if (claimResult.error || claimResult.data === null) return Promise.resolve({ data: null, error: claimResult.error });
+    const code = `GS${String(claimResult.data).padStart(6, "0")}`;
+    return Promise.resolve({ data: { code: claimResult.data, ad_name: `${code}_${args?.p_name_tail}` }, error: null });
+  }
   throw new Error(`unexpected rpc ${name}`);
 }
-const claims = () => db.rpc.mock.calls.filter(([n]) => n === "claim_ad_code").length;
+const claims = () => db.rpc.mock.calls.filter(([n]) => n === "claim_and_save_ad_name").length;
 const peeks = () => db.rpc.mock.calls.filter(([n]) => n === "peek_ad_code").length;
 
 function pick(label: RegExp, value: string) {
@@ -209,6 +214,50 @@ describe("Ad Name Generator page", () => {
     fireEvent.click(screen.getByRole("button", { name: /Copy Ad Name/ }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("GS200001_Video_Customer_UGCNative_Greens_TiredBy3pm_ChronicFatigue"));
     expect(claims()).toBe(1);
+  });
+
+  it("saves the name with its client and tags in the same call that spends the code", async () => {
+    await renderReady();
+    await fillForm();
+    fireEvent.click(screen.getByRole("button", { name: /Copy Ad Name/ }));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(db.rpc.mock.calls.filter(([n]) => n === "claim_ad_code")).toHaveLength(0);
+    const call = db.rpc.mock.calls.find(([n]) => n === "claim_and_save_ad_name");
+    expect(call?.[1]).toEqual({
+      p_account_id: "act_governed",
+      p_name_tail: "Video_Customer_UGCNative_Greens_TiredBy3pm_ChronicFatigue",
+      p_tags: {
+        ad_type: "Video",
+        person: "Customer",
+        style: "UGCNative",
+        product: "Greens",
+        hook: "TiredBy3pm",
+        theme: "ChronicFatigue",
+      },
+    });
+  });
+
+  it("saves a picked theme by its label, so the saved row matches the client's theme list", async () => {
+    db.clusters = [{ id: "a1", account_id: "act_governed", label: "Chronic Fatigue" }];
+    await renderReady();
+    await fillForm();
+    pick(/^Theme/, "Chronic Fatigue");
+    fireEvent.click(screen.getByRole("button", { name: /Copy Ad Name/ }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/_ChronicFatigue$/)));
+    const call = db.rpc.mock.calls.find(([n]) => n === "claim_and_save_ad_name");
+    expect((call?.[1] as { p_tags: { theme: string } }).p_tags.theme).toBe("Chronic Fatigue");
+  });
+
+  it("copies the name the server saved", async () => {
+    await renderReady();
+    await fillForm();
+    db.rpc.mockImplementation((name: string) =>
+      name === "claim_and_save_ad_name"
+        ? Promise.resolve({ data: { code: 200009, ad_name: "GS200009_Video_Customer_UGCNative_Greens_TiredBy3pm_ChronicFatigue" }, error: null })
+        : counter(name),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Copy Ad Name/ }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("GS200009_Video_Customer_UGCNative_Greens_TiredBy3pm_ChronicFatigue"));
   });
 
   it("has no style or body field and takes the hook as typed text", async () => {
