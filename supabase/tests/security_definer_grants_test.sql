@@ -72,7 +72,7 @@ INSERT INTO allow
   SELECT 'staff_area', unnest(ARRAY[
     'app_user_role_mapping', 'apply_actor_approval_votes', 'apply_approval_votes',
     'approve_actor_application', 'approve_application', 'archive_crew_member',
-    'cast_actor_onto_shoot', 'claim_ad_code', 'confirm_actor_for_shoot',
+    'cast_actor_onto_shoot', 'claim_ad_code', 'claim_and_save_ad_name', 'confirm_actor_for_shoot',
     'create_call_sheet', 'create_client', 'create_crew_member', 'create_location',
     'create_prop', 'create_shoot', 'create_shoot_schedule_block',
     'create_studio_shipment', 'delete_location', 'goodo_os_user_role_mapping',

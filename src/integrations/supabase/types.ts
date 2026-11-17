@@ -2553,12 +2553,15 @@ export type Database = {
       name_mappings: {
         Row: {
           account_id: string
+          ad_name: string | null
           ad_type: string | null
           created_at: string
+          created_by: string | null
           hook: string | null
           id: string
           person: string | null
           product: string | null
+          source: string
           style: string | null
           theme: string | null
           unique_code: string
@@ -2566,12 +2569,15 @@ export type Database = {
         }
         Insert: {
           account_id: string
+          ad_name?: string | null
           ad_type?: string | null
           created_at?: string
+          created_by?: string | null
           hook?: string | null
           id?: string
           person?: string | null
           product?: string | null
+          source?: string
           style?: string | null
           theme?: string | null
           unique_code: string
@@ -2579,12 +2585,15 @@ export type Database = {
         }
         Update: {
           account_id?: string
+          ad_name?: string | null
           ad_type?: string | null
           created_at?: string
+          created_by?: string | null
           hook?: string | null
           id?: string
           person?: string | null
           product?: string | null
+          source?: string
           style?: string | null
           theme?: string | null
           unique_code?: string
@@ -2604,6 +2613,7 @@ export type Database = {
         Row: {
           convention_id: string
           created_at: string
+          created_by: string | null
           dimension: string
           id: string
           position: number
@@ -3873,6 +3883,10 @@ export type Database = {
       }
       bulk_update_creative_metrics: { Args: { payload: Json }; Returns: number }
       claim_ad_code: { Args: never; Returns: number }
+      claim_and_save_ad_name: {
+        Args: { p_account_id: string; p_name_tail: string; p_tags: Json }
+        Returns: Json
+      }
       check_api_rate_limit: {
         Args: { p_key_id: string; p_limit?: number; p_window_seconds?: number }
         Returns: boolean
