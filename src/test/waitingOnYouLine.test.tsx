@@ -47,6 +47,11 @@ vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => h.auth }));
 vi.mock("@/contexts/AccountContext", () => ({ useAccountContext: () => h.accounts }));
 vi.mock("@/hooks/useClientPreviewMode", () => ({ useClientPreview: () => ({ isClientPreview: false }) }));
 vi.mock("@/hooks/useRolePath", () => ({ useRolePrefix: () => "/client" }));
+// Staff with All clients picked get the agency overview (see overviewAllClients.test.tsx); these
+// tests are about the single-client overview, so a client is picked.
+vi.mock("@/contexts/ClientSelectionContext", () => ({
+  useClientSelection: () => ({ selectedSlug: "glow", isLoading: false, clients: [] }),
+}));
 vi.mock("@/hooks/useSyncApi", () => ({ useSync: () => ({ mutate: () => {}, isPending: false }) }));
 vi.mock("@/hooks/useOverviewPageState", () => ({
   useOverviewPageState: () => ({

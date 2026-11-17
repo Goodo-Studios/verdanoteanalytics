@@ -289,6 +289,13 @@ const CreativeRotationPage = () => {
   }
 
   const kpis = data?.kpis;
+  // Spend that has a launch date is split into fresh/mid/stale. Spend on ads with
+  // no launch date is in total_spend but in none of the buckets, which used to
+  // render as 0% fresh / 0 days / $0 CPA. Surface that as missing data instead.
+  const classifiedSpend = kpis ? (kpis.fresh_spend ?? 0) + (kpis.mid_spend ?? 0) + (kpis.stale_spend ?? 0) : 0;
+  const unclassifiedSpend = kpis ? Math.max(0, kpis.total_spend - classifiedSpend) : 0;
+  const hasAgeData = classifiedSpend > 0;
+  const partialAgeData = hasAgeData && kpis ? unclassifiedSpend / kpis.total_spend > 0.01 : false;
 
   return (
     <>
@@ -339,8 +346,28 @@ const CreativeRotationPage = () => {
             <p className="font-body text-[14px] text-slate">No spend in this window for {selectedAccount?.name ?? "this account"}.</p>
           </CardContent>
         </Card>
+      ) : !hasAgeData ? (
+        <Card>
+          <CardContent className="p-8 text-center space-y-2" data-testid="rotation-no-launch-dates">
+            <p className="font-body text-[14px] text-charcoal">
+              {selectedAccount?.name ?? "This account"} has {fmtMoney(kpis.total_spend)} of spend in this window, but none of
+              its ads have a launch date yet, so creative age cannot be worked out.
+            </p>
+            <p className="font-body text-[13px] text-slate">
+              This is missing data, not zero freshness. Run a sync for this account, then check back.
+            </p>
+          </CardContent>
+        </Card>
       ) : (
         <div className="space-y-6">
+          {partialAgeData && (
+            <div className="rounded-md border-l-2 border-amber-500 bg-amber-50 px-4 py-3" data-testid="rotation-partial-age">
+              <p className="font-body text-[13px] text-charcoal">
+                {fmtMoney(unclassifiedSpend)} of {fmtMoney(kpis.total_spend)} spend is on ads with no launch date and is left out
+                of the fresh, mid and stale split below.
+              </p>
+            </div>
+          )}
           {/* Headline KPI strip */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <KpiTile
@@ -357,13 +384,17 @@ const CreativeRotationPage = () => {
             />
             <KpiTile
               label={`Fresh CPA (≤${freshDays}d)`}
-              value={fmtMoney2(kpis.fresh_cpa)}
+              value={kpis.fresh_purchases > 0 ? fmtMoney2(kpis.fresh_cpa) : "No purchases"}
               sub={`${fmtNum(kpis.fresh_purchases)} purchases`}
             />
             <KpiTile
               label={`Stale CPA (>${freshDays}d)`}
-              value={fmtMoney2(kpis.stale_cpa)}
-              sub={kpis.stale_cpa > kpis.fresh_cpa ? "fresh converts cheaper" : "stale converts cheaper"}
+              value={kpis.stale_purchases > 0 ? fmtMoney2(kpis.stale_cpa) : "No purchases"}
+              sub={
+                kpis.stale_purchases > 0 && kpis.fresh_purchases > 0
+                  ? kpis.stale_cpa > kpis.fresh_cpa ? "fresh converts cheaper" : "stale converts cheaper"
+                  : `${fmtNum(kpis.stale_purchases)} purchases`
+              }
             />
           </div>
 
