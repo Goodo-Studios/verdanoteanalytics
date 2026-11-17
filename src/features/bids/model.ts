@@ -10,7 +10,7 @@ export interface BidSummary {
   client_slug: string;
   version: number;
   title: string;
-  source: "bid-builder" | "staging-seed";
+  source: "bid-builder" | "staging-seed" | "upload";
   data_origin: "made_up" | "real";
   generated_at: string;
   imported_at: string;
@@ -74,6 +74,7 @@ export function latestByClient(rows: BidSummary[]): Map<string, BidSummary[]> {
 
 export function originLabel(b: Pick<BidSummary, "data_origin" | "source">): string {
   if (b.data_origin === "made_up") return "Made-up staging BID";
+  if (b.source === "upload") return "Uploaded by staff";
   return b.source === "bid-builder" ? "From the BID Builder" : b.source;
 }
 

@@ -16,7 +16,7 @@ import { useLocation, useSearchParams } from "react-router-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, useConfirm } from "@/components/page-kit";
+import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField, TextareaField, TextField, useConfirm } from "@/components/page-kit";
 import { Button } from "@/components/ui/button";
 import { fmtDate } from "@/lib/formatters";
 import { BrainAsk } from "./BrainAsk";
@@ -34,8 +34,13 @@ import {
   needsReview,
   parseBrainHref,
   SECTION_BLURB,
+  SECTION_LABEL,
   sectionFromParam,
 } from "./model";
+import { FileChooser, OriginalFileLink } from "@/features/documents/DocumentUploadParts";
+import { titleFromDocument } from "@/features/documents/model";
+import { submitDocument } from "@/features/documents/upload";
+import { useBusy } from "@/hooks/useBusy";
 
 // brain_pages and its functions are not in the generated types yet.
 interface DbResult {
@@ -89,6 +94,63 @@ function Meta({ owner, lastReviewed }: { owner: string; lastReviewed: string | n
       <span data-testid="brain-reviewed">{reviewedText(lastReviewed)}</span>
       {needsReview(lastReviewed) ? <NeedsReviewTag /> : null}
     </p>
+  );
+}
+
+/** Staff upload a document into one of the four sections (playbooks especially): a file or pasted text. */
+function UploadPage({ defaultSection, onAdded }: { defaultSection: BrainSection; onAdded: (section: BrainSection, slug: string) => void }) {
+  const [sectionChoice, setSectionChoice] = useState<BrainSection | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [text, setText] = useState("");
+  const [title, setTitle] = useState("");
+  const [owner, setOwner] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const { busy, run } = useBusy();
+  const target = sectionChoice ?? defaultSection;
+  const upload = () => run(async () => {
+    setError(null);
+    const result = await submitDocument<{ slug: string }>({
+      area: "brain",
+      file,
+      pastedText: text,
+      failureText: "The document could not be uploaded.",
+      call: async (body, stored) => {
+        const { data, error: e } = await db.rpc("upload_brain_page", {
+          p_section: target,
+          p_title: title.trim() || titleFromDocument(file?.name ?? null, body),
+          p_body_md: body,
+          p_owner: owner.trim() || null,
+          p_file_path: stored?.path ?? null,
+          p_file_name: stored?.name ?? null,
+          p_mime_type: stored?.mime ?? null,
+          p_size_bytes: stored?.size ?? null,
+        });
+        return { data: (data as { slug: string } | null) ?? null, error: e };
+      },
+    });
+    if (!result.ok) return setError(result.message);
+    setFile(null);
+    setText("");
+    setTitle("");
+    setOwner("");
+    onAdded(target, result.data.slug);
+  });
+  return (
+    <details className="rounded-lg border border-input bg-background p-4" data-testid="brain-upload">
+      <summary className="cursor-pointer text-sm font-medium">Upload a document</summary>
+      <div className="mt-3 space-y-2">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <SelectField label="Upload section" hideLabel value={target} onChange={(e) => setSectionChoice(e.target.value as BrainSection)} options={BRAIN_SECTIONS.map((s) => ({ value: s, label: SECTION_LABEL[s] }))} />
+          <TextField label="Upload owner" hideLabel placeholder="Owner (optional)" value={owner} onChange={(e) => setOwner(e.target.value)} />
+        </div>
+        <TextField label="Upload title" hideLabel placeholder="Title (optional, taken from the file when empty)" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <FileChooser file={file} onFile={setFile} label="Document file" />
+        <TextareaField label="Upload text" hideLabel inputClassName="min-h-[100px]" placeholder="Or paste the text" value={text} onChange={(e) => setText(e.target.value)} />
+        <p className="text-[12px] text-muted-foreground">For a PDF the text is not read, so paste it above if you want it searchable; the PDF stays available to open. An uploaded page is kept when HQ publishes again.</p>
+        <Button size="sm" disabled={busy || (!file && !text.trim())} onClick={() => void upload()}>Upload</Button>
+        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+      </div>
+    </details>
   );
 }
 
@@ -193,6 +255,7 @@ function PageView({ section, slug, onOpen, onDirtyChange }: { section: BrainSect
       <header className="mx-auto max-w-[68ch] space-y-2 border-b border-input pb-5">
         <h2 className="gos-page-title">{page.title}</h2>
         <Meta owner={page.owner} lastReviewed={page.last_reviewed} />
+        <OriginalFileLink area="brain" targetId={page.id} />
         {page.edited_in_app ? (
           <p className="text-[12px] text-muted-foreground" data-testid="brain-edited">
             Edited in the app{page.edited_at ? ` on ${fmtDate(page.edited_at)}` : ""}. Publishing from HQ keeps this text.
@@ -279,6 +342,7 @@ export default function BrainPage() {
     <PageShell data-testid="brain">
       <PageHeader title="Brain" description="Goodo's handbook, playbooks, client notes and insights, published from HQ. Open a page and press Edit to add to it or remove from it. Your change shows right away and is kept when HQ publishes again." />
       <BrainAsk onOpen={openPage} />
+      <UploadPage defaultSection={section} onAdded={(s, newSlug) => { void load(); openPage(s, newSlug); }} />
       <nav aria-label="Brain sections" className="flex flex-wrap gap-1 border-b border-input">
         {BRAIN_SECTIONS.map((s) => (
           <button
@@ -288,7 +352,7 @@ export default function BrainPage() {
             className={`-mb-px border-b-2 px-3 py-2 text-sm ${s === section ? "border-foreground font-medium" : "border-transparent text-muted-foreground"}`}
             onClick={() => void open(s, null)}
           >
-            {s}
+            {SECTION_LABEL[s]}
             {rows ? <span className="text-muted-foreground"> {counts.get(s) ?? 0}</span> : null}
           </button>
         ))}
@@ -296,7 +360,7 @@ export default function BrainPage() {
 
       {slug ? (
         <div className="space-y-3">
-          <button type="button" className="text-sm underline" onClick={() => void open(section, null)}>Back to {section}</button>
+          <button type="button" className="text-sm underline" onClick={() => void open(section, null)}>Back to {SECTION_LABEL[section]}</button>
           <PageView section={section} slug={slug} onOpen={openPage} onDirtyChange={(d) => { dirty.current = d; }} />
         </div>
       ) : (
@@ -306,7 +370,7 @@ export default function BrainPage() {
           {error ? <ErrorState message={error} onRetry={() => { setError(null); void load(); }} /> : null}
           {rows === null ? <LoadingState label="Loading the Brain" /> : null}
           {rows && !error && visible.length === 0 ? (
-            <EmptyState title={query ? "Nothing matches." : `Nothing has been published to ${section} yet.`} />
+            <EmptyState title={query ? "Nothing matches." : `Nothing is in ${SECTION_LABEL[section]} yet. Upload a document above, or publish from HQ.`} />
           ) : null}
           {visible.length ? (
             <ul className="divide-y divide-input rounded-lg border border-input" data-testid="brain-list">

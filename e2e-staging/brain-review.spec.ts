@@ -9,7 +9,7 @@
 import { test, expect } from "@playwright/test";
 import { hasLogins, NEEDS_PASSWORD, storagePath, watchConsole } from "./support";
 
-const SECTIONS = ["Handbook", "Playbooks", "Clients", "Insights"];
+const SECTIONS = ["Handbooks", "Playbooks", "Clients", "Insights"];
 
 test.describe("builder: Brain review and edit", () => {
   test.use({ storageState: storagePath("builder") });
@@ -25,7 +25,7 @@ test.describe("builder: Brain review and edit", () => {
     for (const name of SECTIONS) {
       await nav.getByRole("button", { name: new RegExp(`^${name}`) }).click();
       const list = page.getByTestId("brain-list");
-      await expect(list.or(page.getByText(`Nothing has been published to ${name} yet.`))).toBeVisible();
+      await expect(list.or(page.getByText(`Nothing is in ${name} yet.`))).toBeVisible();
       if (!(await list.isVisible())) continue;
 
       await list.getByRole("button").first().click();
