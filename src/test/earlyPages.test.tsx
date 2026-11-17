@@ -1,10 +1,11 @@
 /**
- * Early pages (Admin, builders only): lists the pages hidden until something feeds them, with a
- * one-line note on what feeds each and a link to open it. The list is src/lib/hiddenPages.ts.
- * Agent evaluations, Learning, Recommendations and Strategy are now in the menu, so the list is
- * empty and the page says so. The listing itself is tested in earlyPagesList.test.tsx with a list.
+ * Early pages (Admin, builders only): lists the pages left out of the menu, with a one-line note on
+ * why and a link to open each. The list is src/lib/hiddenPages.ts. After the 2026-11-16 product
+ * review it holds Operations, Early pages, Operating costs, Agent evaluations, the Support inbox and
+ * the client Scope sub-tabs other than Engagements. Learning is shown. The listing mechanism with a
+ * list of its own is tested in earlyPagesList.test.tsx.
  */
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
@@ -15,28 +16,45 @@ import { EARLY_PAGE_NOTES, HIDDEN_PAGES, isHiddenPage } from "@/lib/hiddenPages"
 
 afterEach(() => cleanup());
 
+const HIDDEN = [
+  "operations", "earlyPages", "operatingCosts", "agentEvaluations", "supportInbox",
+  "deliverables", "qaGates", "handoffs", "scopeChanges", "strategy", "recommendations",
+] as const;
+
 describe("hidden pages config", () => {
-  it("hides nothing: Agent evaluations, Learning, Recommendations and Strategy are shown", () => {
-    expect([...HIDDEN_PAGES]).toEqual([]);
-    for (const key of ["agentEvaluations", "learning", "recommendations", "strategy"] as const) {
+  it("hides Operations, Early pages, Operating costs, Agent evaluations, Support inbox and the Scope sub-tabs", () => {
+    expect([...HIDDEN_PAGES]).toEqual([...HIDDEN]);
+    for (const key of HIDDEN) expect(isHiddenPage(key), key).toBe(true);
+  });
+
+  it("keeps Learning, Engagements and the other menu pages shown", () => {
+    for (const key of ["learning", "engagements", "team", "integrationHealth", "notifications"] as const) {
       expect(isHiddenPage(key), key).toBe(false);
     }
   });
 
-  it("keeps a one-line note and an address for each of the four pages, without an em dash, so one can be hidden again", () => {
-    expect(Object.keys(EARLY_PAGE_NOTES).sort()).toEqual(["agentEvaluations", "learning", "recommendations", "strategy"]);
+  it("keeps a one-line note and an address for each hidden page that has one, without an em dash", () => {
+    expect(Object.keys(EARLY_PAGE_NOTES).sort()).toEqual([
+      "agentEvaluations", "deliverables", "handoffs", "learning", "operatingCosts", "operations", "qaGates",
+      "recommendations", "scopeChanges", "strategy", "supportInbox",
+    ]);
     for (const [key, note] of Object.entries(EARLY_PAGE_NOTES)) {
       expect(note, key).toBeTruthy();
-      expect(note!.feeds).not.toMatch(/—|\n/);
+      expect(note!.feeds).not.toMatch(/\u2014|\n/);
       expect(note!.to.startsWith("/")).toBe(true);
     }
   });
 });
 
 describe("EarlyPagesPage", () => {
-  it("says no page is early while nothing is hidden", () => {
+  it("lists each hidden page that has a note, in the order of the hidden list, and opens it", () => {
     render(<MemoryRouter><EarlyPagesPage /></MemoryRouter>);
-    expect(screen.queryAllByTestId("early-page-row")).toHaveLength(0);
-    expect(screen.getByTestId("empty-state").textContent).toContain("No early pages");
+    const rows = screen.getAllByTestId("early-page-row");
+    expect(rows.map((r) => within(r).getByRole("link").textContent)).toEqual([
+      "Operations", "Operating costs", "Agent evaluations", "Support inbox", "Deliverables", "QA gates", "Handoffs",
+      "Scope changes", "Strategy", "Recommendations",
+    ]);
+    expect(within(rows[0]).getByRole("link").getAttribute("href")).toBe("/builder/admin/operations");
+    expect(screen.queryByTestId("empty-state")).toBeNull();
   });
 });

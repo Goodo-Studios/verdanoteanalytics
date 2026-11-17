@@ -45,6 +45,8 @@ export function SectionPage({ section }: { section: SectionDef }) {
   if (!staffPage) return home;
 
   const tabs = tabsFor(section, effectiveBuilder);
+  // A section with no tab this person may see (Admin for an employee) is not theirs to open.
+  if (tabs.length === 0) return home;
   if (!tabSlug) {
     return <Navigate to={`${prefix}${sectionPath(section, tabs[0])}`} replace />;
   }

@@ -30,8 +30,11 @@ import {
 import {
   ALL_BRANDS,
   DELIVERY_STAGES,
+  PIPELINE_STAGES,
+  RETIRED_STAGES,
   STAGES,
   TERMINAL_STAGES,
+  boardStage,
   addableCreators,
   boardColumns,
   creatorName,
@@ -92,7 +95,7 @@ function AssignmentCard({ a, users, brandName, canRemove, onPatch, onRemove, onS
       {brandName && <div className="text-muted-foreground">{brandName}</div>}
       {a.brief_name && <div className="text-muted-foreground">Brief: {a.brief_name}</div>}
       <div className="mt-2 space-y-1">
-        <SelectField label={`Stage for ${name}`} hideLabel inputClassName={COMPACT} value={a.stage} onChange={(e) => onPatch(a, { stage: e.target.value })} options={STAGES.map((s) => ({ value: s.value, label: s.label }))} />
+        <SelectField label={`Stage for ${name}`} hideLabel inputClassName={COMPACT} value={a.stage} onChange={(e) => onPatch(a, { stage: e.target.value })} options={(RETIRED_STAGES.includes(a.stage) ? STAGES : PIPELINE_STAGES).map((s) => ({ value: s.value, label: s.label }))} />
         <SelectField label={`Owner for ${name}`} hideLabel inputClassName={COMPACT} value={a.owner_id ?? ""} onChange={(e) => onPatch(a, { owner_id: e.target.value || null })} placeholder="No owner" options={ownerOptions(users, a.owner_id).map((u) => ({ value: u.id, label: `${u.name}${u.active ? "" : " (inactive)"}` }))} />
         <TextField label={`Follow-up for ${name}`} hideLabel type="date" inputClassName={COMPACT} value={a.next_follow_up_at ?? ""} onChange={(e) => onPatch(a, { next_follow_up_at: e.target.value || null })} />
       </div>
@@ -178,7 +181,7 @@ export default function CreatorPipelinePage() {
   const columns = boardColumns(brand, scope);
   const visible = useMemo(() => searchAssignments(rows ?? [], query, brandNames), [rows, query, brandNames]);
   const grouped = useMemo(() => groupByStage(visible, columns), [visible, columns]);
-  const offBoard = isAll ? visible.filter((r) => !columns.includes(r.stage)).length : 0;
+  const offBoard = isAll ? visible.filter((r) => !columns.includes(boardStage(r.stage))).length : 0;
 
   // Switching client closes the add-creators panel.
   useEffect(() => setAdding(false), [brand]);

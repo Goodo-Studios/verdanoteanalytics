@@ -195,34 +195,37 @@ describe("hub tabs", () => {
     expect(screen.queryByRole("combobox", { name: "Client" })).toBeNull();
   });
 
-  it.each(SCOPE_SUBTABS.map((s) => [s.slug, s.label]))("Scope > %s (%s) shows its page for the client in the address", async (sub) => {
+  it.each(SCOPE_SUBTABS.map((s) => [s.slug, s.label]))("Scope > %s (%s) shows its page for a builder who types the address", async (sub) => {
     renderHub(`/builder/clients/glow/scope/${sub}`);
     const page = await screen.findByTestId(`page-${sub}`);
     expect(page.textContent).toMatch(/ for glow$/);
     const subnav = screen.getByRole("navigation", { name: "Scope sections" });
-    // Strategy and Recommendations are listed with the other scope pages; the open one is marked.
-    expect(within(subnav).getAllByRole("link")).toHaveLength(7);
-    expect(within(subnav).getAllByRole("link").filter((a) => a.getAttribute("aria-current") === "page")).toHaveLength(1);
+    // Only Engagements is listed; the other scope pages are hidden pages, so a builder reaches them by address only.
+    expect(within(subnav).getAllByRole("link").map((a) => a.textContent)).toEqual(["Engagements"]);
+    const open = within(subnav).getAllByRole("link").filter((a) => a.getAttribute("aria-current") === "page");
+    expect(open).toHaveLength(sub === "engagements" ? 1 : 0);
   });
 
-  it("Scope opens on Engagements and offers every old scope page as a sub-tab", async () => {
+  it("Scope opens on Engagements and lists only Engagements as a sub-tab", async () => {
     renderHub("/builder/clients/glow/scope");
     expect(await screen.findByTestId("page-engagements")).toBeTruthy();
     const subnav = screen.getByRole("navigation", { name: "Scope sections" });
-    expect(within(subnav).getAllByRole("link").map((a) => a.textContent)).toEqual([
-      "Engagements", "Deliverables", "QA gates", "Handoffs", "Scope changes", "Strategy", "Recommendations",
-    ]);
-    expect(within(subnav).getByRole("link", { name: "QA gates" }).getAttribute("href")).toBe("/builder/clients/glow/scope/qa-gates");
-    expect(within(subnav).getByRole("link", { name: "Strategy" }).getAttribute("href")).toBe("/builder/clients/glow/scope/strategy");
-    expect(within(subnav).getByRole("link", { name: "Recommendations" }).getAttribute("href")).toBe("/builder/clients/glow/scope/recommendations");
+    expect(within(subnav).getAllByRole("link").map((a) => a.textContent)).toEqual(["Engagements"]);
+    expect(within(subnav).getByRole("link", { name: "Engagements" }).getAttribute("href")).toBe("/builder/clients/glow/scope/engagements");
+    for (const hidden of ["Deliverables", "QA gates", "Handoffs", "Scope changes", "Strategy", "Recommendations"]) {
+      expect(within(subnav).queryByRole("link", { name: hidden }), hidden).toBeNull();
+    }
   });
 
-  it.each(["strategy", "recommendations"])("an employee who opens Scope > %s sees the page", async (sub) => {
-    h.isBuilder = false;
-    renderHub(`/builder/clients/glow/scope/${sub}`);
-    expect(await screen.findByTestId(`page-${sub}`)).toBeTruthy();
-    expect(screen.queryByTestId("page-engagements")).toBeNull();
-  });
+  it.each(["strategy", "recommendations", "deliverables", "qa-gates", "handoffs", "scope-changes"])(
+    "an employee who opens Scope > %s is sent to Engagements",
+    async (sub) => {
+      h.isBuilder = false;
+      renderHub(`/builder/clients/glow/scope/${sub}`);
+      expect(await screen.findByTestId("page-engagements")).toBeTruthy();
+      expect(screen.queryByTestId(`page-${sub}`)).toBeNull();
+    },
+  );
 
   it("an unknown tab goes to the Overview and an unknown scope section goes to Scope", async () => {
     renderHub("/builder/clients/glow/nonsense");
