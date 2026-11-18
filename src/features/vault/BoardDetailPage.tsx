@@ -16,6 +16,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { InspirationCard } from "./components/InspirationCard";
 import type { InspirationItem } from "./types/vault";
+import { embeddedRows } from "./newestFirst";
 
 interface Board {
   id: string;
@@ -199,8 +200,8 @@ export default function BoardDetailPage() {
             {boardItems.filter(bi => bi.inspiration_items != null).map((bi) => {
               const item = bi.inspiration_items;
               const hookPreview =
-                item.inspiration_transcripts?.[0]?.cleaned_script?.split("\n")[0] ?? null;
-              const fw = item.inspiration_frameworks?.[0];
+                embeddedRows(item.inspiration_transcripts)[0]?.cleaned_script?.split("\n")[0] ?? null;
+              const fw = embeddedRows(item.inspiration_frameworks)[0];
               const hookVerbal = fw?.hook_verbal ?? hookPreview;
               const hookText = fw?.hook_text ?? null;
               const framework = fw?.copywriting_framework ?? null;
