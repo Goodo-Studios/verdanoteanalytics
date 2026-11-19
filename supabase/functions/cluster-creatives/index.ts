@@ -208,12 +208,20 @@ Deno.serve(async (req) => {
     tierCounts[tier] = (tierCounts[tier] ?? 0) + 1;
   }
 
+  // Only the saved rows and the stamps are needed from here. The merged groups carry three centre
+  // vectors each, so they are released before the save (accounts with thousands of groups were
+  // stopped by the memory limit while restamping).
+  built.length = 0;
+  groups.length = 0;
+  candidates.length = 0;
+
   // Groups are saved in chunks of 50 (entity-writes.ts), before any member is restamped.
   try {
     await saveEntities(db, entityRows);
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
+  entityRows.length = 0; // saved; the centre vectors are not needed for the restamp
 
   try {
     await restampInSteps(db, accountId, stamps);
