@@ -36,6 +36,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { json } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { GROUPING_BATCH, GROUPING_MAX_ADS, loadGroupingInputs } from "../_shared/grouping-inputs.ts";
+import { loadAssetKeys } from "./asset-keys.ts";
 import { restampInSteps } from "./restamp.ts";
 import { type ExistingEntityRow, loadExistingEntityRows, retireEntities } from "./entity-reads.ts";
 import {
@@ -131,14 +132,7 @@ async function buildParticipants(
     });
   }
 
-  const assetKeyById = new Map<string, string>();
-  const assetIds = [...assetIdSet];
-  for (let i = 0; i < assetIds.length; i += 500) {
-    const chunk = assetIds.slice(i, i + 500);
-    const { data: assets, error } = await db.from("media_assets").select("id, asset_key").in("id", chunk);
-    if (error) throw new Error(`media_assets read: ${error.message}`);
-    for (const a of assets ?? []) assetKeyById.set((a as { id: string }).id, (a as { asset_key: string }).asset_key);
-  }
+  const assetKeyById = await loadAssetKeys(db, [...assetIdSet]);
   const byAd = new Map(creatives.map((c) => [c.ad_id as string, c]));
   for (const p of participants) {
     const raw = byAd.get(p.ad_id);
