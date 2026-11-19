@@ -37,6 +37,7 @@ import { json } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { GROUPING_BATCH, GROUPING_MAX_ADS, loadGroupingInputs } from "../_shared/grouping-inputs.ts";
 import { loadAssetKeys } from "./asset-keys.ts";
+import { saveEntities } from "./entity-writes.ts";
 import { restampInSteps } from "./restamp.ts";
 import { type ExistingEntityRow, loadExistingEntityRows, retireEntities } from "./entity-reads.ts";
 import {
@@ -247,6 +248,7 @@ Deno.serve(async (req) => {
   //    creative keeps either its previous stamp or its new one, and both entities
   //    still exist because stale entities are only retired in step 7.
   const stamps: Array<{ ad_id: string; cluster_id: string; confidence: string }> = [];
+  const entityRows: Record<string, unknown>[] = [];
 
   const assignedIds: string[] = [];
   const clusterSpends: number[] = [];
@@ -276,7 +278,7 @@ Deno.serve(async (req) => {
     if (matched[gi]) reused++; else minted++;
     assignedIds.push(entityId);
 
-    const { error: upErr } = await db.from("creative_clusters").upsert({
+    entityRows.push({
       id: entityId,
       account_id: accountId,
       label,
@@ -292,14 +294,20 @@ Deno.serve(async (req) => {
       meta_video_ids: g.group.metaVideoIds,
       meta_image_hashes: g.group.metaImageHashes,
       last_seen_at: nowIso,
-    }, { onConflict: "id" });
-    if (upErr) return json({ error: `entity upsert: ${upErr.message}` }, 500);
+    });
 
     for (const adId of g.group.memberIds) stamps.push({ ad_id: adId, cluster_id: entityId, confidence: tier });
 
     clusterSpends.push(totalSpend);
     clusteredCount += members.length;
     tierCounts[tier] = (tierCounts[tier] ?? 0) + 1;
+  }
+
+  // Groups are saved in chunks of 50 (entity-writes.ts), before any member is restamped.
+  try {
+    await saveEntities(db, entityRows);
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
 
   try {
