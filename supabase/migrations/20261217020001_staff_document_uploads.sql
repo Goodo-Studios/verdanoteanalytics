@@ -82,7 +82,7 @@ GRANT ALL ON TABLE public.staff_document_files TO service_role;
 
 CREATE POLICY "Builder/employee can read staff_document_files" ON public.staff_document_files
   FOR SELECT TO authenticated
-  USING (public.has_role(auth.uid(), 'builder'::public.app_role) OR public.has_role(auth.uid(), 'employee'::public.app_role));
+  USING ((SELECT public.has_role((SELECT auth.uid()), 'builder'::public.app_role)) OR (SELECT public.has_role((SELECT auth.uid()), 'employee'::public.app_role)));
 
 -- ------------------------------------------------------------------ existing rules, widened
 
