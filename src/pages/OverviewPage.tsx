@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { useOverviewPageState } from "@/hooks/useOverviewPageState";
 import { useSync } from "@/hooks/useSyncApi";
@@ -9,13 +10,16 @@ import { ClientHomeLead } from "@/features/client-pages/ClientHomeLead";
 import { RefreshCw } from "lucide-react";
 import { Navigate } from "react-router-dom";
 import { useAccountContext } from "@/contexts/AccountContext";
+import { useClientSelection } from "@/contexts/ClientSelectionContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
 import { useOwnClientLinks } from "@/hooks/usePipelineTasks";
 import { clientLanding } from "@/lib/pipelineCycles";
 import { EmptyState, LoadingState, MetricCard, MetricGrid, PageHeader, PageShell } from "@/components/page-kit";
 import { fmt$, fmtN, fmtPct, delta, deltaInverse } from "@/lib/formatters";
 
-const OverviewPage = () => {
+const AgencyDashboardPage = lazy(() => import("@/pages/AgencyDashboardPage"));
+
+const ClientOverview = () => {
   const sync = useSync();
   const { isClient } = useAuth();
   const { isClientPreview } = useClientPreview();
@@ -109,6 +113,29 @@ const OverviewPage = () => {
       ) : null}
     </PageShell>
   );
+};
+
+/**
+ * With "All clients" picked in the top client switcher, staff see the agency overview here.
+ * A picked client (and every client login) sees that client's overview as before.
+ */
+const OverviewPage = () => {
+  const { isBuilder, isEmployee, isClient } = useAuth();
+  const { isClientPreview } = useClientPreview();
+  const { selectedSlug, isLoading, clients } = useClientSelection();
+  const staffView = (isBuilder || isEmployee) && !isClient && !isClientPreview;
+
+  if (staffView && !selectedSlug) {
+    if (isLoading && clients.length === 0) return <LoadingState label="Loading overview" variant="cards" />;
+    return (
+      <Suspense fallback={<LoadingState label="Loading agency overview" variant="cards" />}>
+        <div data-testid="overview-agency">
+          <AgencyDashboardPage />
+        </div>
+      </Suspense>
+    );
+  }
+  return <ClientOverview />;
 };
 
 export default OverviewPage;

@@ -20,6 +20,8 @@ import type { ConfirmCopy } from "@/components/page-kit/ConfirmAction";
 import { ClientsSettings } from "./ClientsSettings";
 import { InviteSection, type InvitePrefill } from "./InviteSection";
 import { ClientInvitesSection } from "./ClientInvitesSection";
+import { useDismissedSuggestions } from "./useDismissedSuggestions";
+import { X } from "lucide-react";
 import {
   canAddToTeam,
   canPrepareInvite,
@@ -65,7 +67,11 @@ interface Untyped {
 }
 const db = supabase as unknown as Untyped;
 
-function PersonRow({ row, onChanged }: { row: ReconRow; onChanged: () => void }) {
+const RECON_SURFACE = "staff_reconciliation";
+/** One key per person and issue list, so a new issue on a hidden person shows up again. */
+const reconKey = (r: ReconRow) => `${r.email}:${r.issues.join(",")}`;
+
+function PersonRow({ row, onChanged, onDismiss, onRestore }: { row: ReconRow; onChanged: () => void; onDismiss?: () => void; onRestore?: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const { confirm, dialog } = useConfirm();
@@ -90,6 +96,15 @@ function PersonRow({ row, onChanged }: { row: ReconRow; onChanged: () => void })
         <div>
           <span className="font-medium">{name}</span> <span className="text-muted-foreground">{row.email}</span>
         </div>
+        {onDismiss ? (
+          <button type="button" aria-label={`Hide the suggestion for ${name}`} title="Hide this suggestion" onClick={onDismiss}
+            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        ) : null}
+        {onRestore ? (
+          <Button size="sm" variant="outline" onClick={onRestore} aria-label={`Show the suggestion for ${name} again`}>Show again</Button>
+        ) : null}
         <div className="text-[12px] text-muted-foreground">
           Team list: {row.team_member_id ? `${roleLabel(row.team_role)}${row.team_active ? "" : " (deactivated)"}` : "not on it"} · Login:{" "}
           {row.user_id ? (row.staff_roles.length ? row.staff_roles.map(roleLabel).join(", ") : row.has_client_role ? "Client" : "no role") : "none"}
@@ -145,6 +160,10 @@ function Reconciliation({ rows, onChanged }: { rows: ReconRow[]; onChanged: () =
   const summary = summarize(rows);
   const people = sortPeople(rows);
   const withIssues = people.filter((r) => r.issues.length > 0);
+  const { dismissed, error: dismissError, dismiss, restore } = useDismissedSuggestions(RECON_SURFACE);
+  const [showHidden, setShowHidden] = useState(false);
+  const visible = withIssues.filter((r) => !dismissed.has(reconKey(r)));
+  const hidden = withIssues.filter((r) => dismissed.has(reconKey(r)));
   return (
     <section aria-label="Reconciliation" className="space-y-2">
       <h2 className="text-lg font-semibold">Staff list check</h2>
@@ -160,9 +179,22 @@ function Reconciliation({ rows, onChanged }: { rows: ReconRow[]; onChanged: () =
           <li key={i}>{ISSUE_INFO[i].label}: {summary.counts[i]}</li>
         ))}
       </ul>
+      {dismissError ? <p role="alert" className="text-sm text-destructive">{dismissError}</p> : null}
       <ul className="space-y-2">
-        {withIssues.map((r) => <PersonRow key={`${r.email}:${r.issues.join(",")}`} row={r} onChanged={onChanged} />)}
+        {visible.map((r) => <PersonRow key={reconKey(r)} row={r} onChanged={onChanged} onDismiss={() => void dismiss(reconKey(r))} />)}
       </ul>
+      {hidden.length > 0 ? (
+        <div className="space-y-2" data-testid="recon-hidden">
+          <button type="button" className="text-[13px] underline text-muted-foreground" aria-expanded={showHidden} onClick={() => setShowHidden((v) => !v)}>
+            {showHidden ? "Hide" : "Show"} {hidden.length} hidden {hidden.length === 1 ? "suggestion" : "suggestions"}
+          </button>
+          {showHidden ? (
+            <ul className="space-y-2">
+              {hidden.map((r) => <PersonRow key={reconKey(r)} row={r} onChanged={onChanged} onRestore={() => void restore(reconKey(r))} />)}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }

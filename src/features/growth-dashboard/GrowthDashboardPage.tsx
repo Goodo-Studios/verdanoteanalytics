@@ -29,6 +29,7 @@ import {
   computeKpis,
   dealTally,
   emptyPlan,
+  emptyState,
   fmtMoney,
   iso,
   monthCallTotal,
@@ -60,6 +61,7 @@ import {
   type Status,
   type Tile,
 } from "./model";
+import { CsvImportBlock } from "./CsvImportBlock";
 
 const GROWTH_TABLE = "growth_dashboard_data";
 const GROWTH_QUERY_KEY = ["growth-dashboard"] as const;
@@ -826,7 +828,7 @@ function OutputsTab({
 
 // ---------------------------------------------------------------- Import tab
 
-function ImportTab({ hasData, onImport }: { hasData: boolean; onImport: (s: GrowthState) => Promise<void> }) {
+function ImportTab({ state, hasData, onImport }: { state: GrowthState; hasData: boolean; onImport: (s: GrowthState) => Promise<void> }) {
   const [text, setText] = useState("");
   const [result, setResult] = useState<ImportResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -843,6 +845,8 @@ function ImportTab({ hasData, onImport }: { hasData: boolean; onImport: (s: Grow
   };
 
   return (
+    <>
+    <CsvImportBlock state={state} onImport={onImport} />
     <Block
       title="One-time import from the old Growth Dashboard"
       hint="Plan figures go on the Plan tab."
@@ -915,6 +919,7 @@ function ImportTab({ hasData, onImport }: { hasData: boolean; onImport: (s: Grow
       )}
       {done && <p className="text-[13px] text-emerald-700" role="status">{done}</p>}
     </Block>
+    </>
   );
 }
 
@@ -1093,7 +1098,7 @@ export default function GrowthDashboardPage({ now: nowProp }: { now?: Date } = {
           </TabsContent>
         )}
         <TabsContent value="import">
-          <ImportTab hasData={!!state && hasNumbers(state)} onImport={importState} />
+          <ImportTab state={state ?? emptyState()} hasData={!!state && hasNumbers(state)} onImport={importState} />
         </TabsContent>
       </Tabs>
 
