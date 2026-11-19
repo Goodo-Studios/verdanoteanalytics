@@ -4,7 +4,9 @@
 import { memo, useMemo } from "react";
 import { EmptyState, ErrorState, LoadingState } from "@/components/page-kit";
 import { useClientCards } from "@/hooks/useClientCards";
-import { groupAssetsByMonth, type AssetMonth } from "@/lib/clientPages";
+import { useClientCycles } from "@/hooks/usePipelineTasks";
+import { useAuth } from "@/contexts/AuthContext";
+import { groupAssetsByMonth, mergeAssetSources, pipelineAssetCards, type AssetMonth } from "@/lib/clientPages";
 import { shortDate } from "@/lib/homeData";
 import { AssetLink, PageIntro } from "./ClientCardBits";
 
@@ -29,15 +31,30 @@ const MonthGroup = memo(function MonthGroup({ month }: { month: AssetMonth }) {
 
 export default function ClientAssetsPage() {
   const cards = useClientCards();
-  const months = useMemo(() => groupAssetsByMonth(cards.data ?? []), [cards.data]);
+  // The Air links of delivered ClickUp work are in the Content Pipeline tables (asset_link), not in the
+  // task cards. A real client reads its own rows of both ("own"). A builder previewing the client view
+  // must not pass own: the staff row rules would return every client's rows.
+  const { isClient } = useAuth();
+  const pipeline = useClientCycles(undefined, isClient);
+  const months = useMemo(
+    () => groupAssetsByMonth(mergeAssetSources(cards.data ?? [], pipelineAssetCards(pipeline.tasks))),
+    [cards.data, pipeline.tasks],
+  );
+  const isLoading = cards.isLoading || pipeline.isLoading;
+  // One source failing is not an empty list: show what loaded. Both failing is an error.
+  const failed = cards.isError && pipeline.isError;
 
   return (
     <div className="max-w-3xl space-y-6" data-testid="client-assets-page">
       <PageIntro title="Assets" description="Your approved and delivered work, by month." />
-      {cards.isLoading ? (
+      {isLoading ? (
         <LoadingState />
-      ) : cards.isError ? (
-        <ErrorState title="We could not load your assets." message="Please try again." onRetry={() => void cards.refetch()} />
+      ) : failed ? (
+        <ErrorState
+          title="We could not load your assets."
+          message="Please try again."
+          onRetry={() => { void cards.refetch(); void pipeline.refetch(); }}
+        />
       ) : months.length === 0 ? (
         <EmptyState title="No assets yet" description="Approved work shows here with a download link." />
       ) : (

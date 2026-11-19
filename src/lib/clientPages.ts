@@ -7,6 +7,8 @@
 import { format, parseISO } from "date-fns";
 import { isLateDue } from "@/lib/myWork";
 import { shortDate } from "@/lib/homeData";
+import { safeAssetLink } from "@/lib/airLink";
+import { cardTitle, stageOf, DELIVERED_STAGE as PIPELINE_DELIVERED, type CycleTask } from "@/lib/pipelineCycles";
 
 export type ClientDecisionKind = "approved" | "changes_requested";
 
@@ -90,6 +92,65 @@ export const briefCards = (cards: ClientCard[]): ClientCard[] =>
 /** Approved or delivered work with an asset link. */
 export const assetCards = (cards: ClientCard[]): ClientCard[] =>
   cards.filter((c) => c.stage === DELIVERED_STAGE && c.asset_url !== null);
+
+/**
+ * Delivered work from the Content Pipeline tables (pipeline_tasks and pipeline_delivered) as asset cards.
+ * The Air link lives there, in asset_link, written by the ClickUp sync after a host check. The card
+ * list from os_client_task_cards() only holds tasks of the app's own task table, so on its own it
+ * misses every delivered ClickUp task. A value that is not an https air.inc link becomes no link, and
+ * a row with no link is not an asset.
+ */
+export function pipelineAssetCards(rows: CycleTask[] | null | undefined): ClientCard[] {
+  const out: ClientCard[] = [];
+  for (const t of rows ?? []) {
+    if (stageOf(t) !== PIPELINE_DELIVERED) continue;
+    const link = safeAssetLink(t.asset_link);
+    if (!link) continue;
+    out.push({
+      id: `pipeline:${t.id}`,
+      title: cardTitle(t).title,
+      stage: DELIVERED_STAGE,
+      due_date: t.delivered_at ?? t.due_date ?? t.cycle_month ?? null,
+      brief: null,
+      asset_url: link,
+      decision: null,
+    });
+  }
+  return out;
+}
+
+/**
+ * The client's task cards shaped like Content Pipeline rows, so the board can show them when the pipeline
+ * tables hold nothing for this client (they are filled by a separate ClickUp sync). A card has no
+ * ClickUp id, so no Approve or Request changes buttons show on these: the Review page answers them.
+ */
+export function cardsAsCycleTasks(cards: ClientCard[] | null | undefined): CycleTask[] {
+  return (cards ?? []).map((c) => ({
+    id: `card:${c.id}`,
+    clickup_task_id: null,
+    task_name: c.title,
+    stage: c.stage,
+    due_date: c.due_date,
+    content_type: null,
+    updated_at: null,
+    cycle_month: null,
+    delivered_at: null,
+    asset_link: safeAssetLink(c.asset_url),
+  }));
+}
+
+/** Both sources in one list, one entry per link (the same asset can be in both). The first one wins. */
+export function mergeAssetSources(...lists: ClientCard[][]): ClientCard[] {
+  const seen = new Set<string>();
+  const out: ClientCard[] = [];
+  for (const card of lists.flat()) {
+    const key = card.asset_url ?? card.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(card);
+  }
+  return out;
+}
 
 export type NextItem =
   | { kind: "review"; card: ClientCard }
