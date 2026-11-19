@@ -16,9 +16,11 @@ const NOV_2026 = new Date(2026, 10, 1);
 
 describe("Calendar", () => {
   it("shows the month with its days and seven weekday headings", () => {
-    render(<Calendar mode="single" defaultMonth={NOV_2026} showOutsideDays={false} />);
+    const { container } = render(<Calendar mode="single" defaultMonth={NOV_2026} showOutsideDays={false} />);
     expect(screen.getByText(/November 2026/)).toBeTruthy();
-    expect(screen.getAllByRole("columnheader")).toHaveLength(7);
+    // Version 9 hides the weekday row from assistive technology (each day cell carries its own
+    // label instead), so count the header cells in the markup rather than by accessible role.
+    expect(container.querySelectorAll("th")).toHaveLength(7);
     for (const day of ["1", "15", "30"]) expect(screen.getByText(day)).toBeTruthy();
     expect(screen.queryByText("31")).toBeNull();
   });
