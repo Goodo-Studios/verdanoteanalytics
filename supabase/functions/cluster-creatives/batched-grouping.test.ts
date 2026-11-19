@@ -137,7 +137,7 @@ Deno.test("a merged group counts as coherent on a modality only when every part 
   const mk = (id: string, visualCoherent: boolean) => ({
     memberIds: [id, `${id}x`], metrics: [participant(id, [1, 0, 0]).metrics, participant(`${id}x`, [1, 0, 0]).metrics],
     adNames: [[id, id], [`${id}x`, `${id}x`]],
-    noteCentroid: [1, 0, 0], noteCount: 2, visualCentroid: null, visualCount: 0, scriptCentroid: null, scriptCount: 0,
+    noteCentroid: [1, 0, 0], noteCount: 2, visualCentroid: [1, 0, 0], visualCount: 2, scriptCentroid: null, scriptCount: 0,
     assetKeys: [], metaVideoIds: [], metaImageHashes: [], isExact: false,
     visualCoherent, scriptCoherent: false, destinations: [null, null],
   });

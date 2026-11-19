@@ -50,7 +50,7 @@ Deno.test("walking the batches covers every running ad exactly once, and a short
   const { loadGroupingInputs, GROUPING_BATCH } = await load();
   const db = fakeSupabase({ tables: { creatives: active, creative_embeddings: embeddingAnswer } });
   const seen: string[] = [];
-  let sizes: number[] = [];
+  const sizes: number[] = [];
   for (let offset = 0; ; offset += GROUPING_BATCH) {
     const out = await loadGroupingInputs(db.client, "act_1", "ad_id", GROUPING_BATCH, offset);
     sizes.push(out.creatives.length);
