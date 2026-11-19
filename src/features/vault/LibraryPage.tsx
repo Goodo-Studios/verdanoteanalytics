@@ -49,6 +49,7 @@ import {
 } from "./types/vault";
 import { buildSignedUrlMap, collectVaultStoragePaths, resolveProvidedSignedUrl } from "./utils/signedUrls";
 import { fillVaultPage, type VaultPage } from "./utils/pagination";
+import { embeddedRows } from "./newestFirst";
 
 const VAULT_STATUSES: VaultStatusFilter[] = ["all", "pending", "ready", "error"];
 const VAULT_SORTS: VaultSort[] = ["newest", "oldest"];
@@ -529,8 +530,8 @@ export default function LibraryPage() {
   };
 
   const renderCard = (item: LibraryItem) => {
-    const hookPreview = item.inspiration_transcripts?.[0]?.cleaned_script?.split("\n")[0] ?? null;
-    const fw = item.inspiration_frameworks?.[0];
+    const hookPreview = embeddedRows(item.inspiration_transcripts)[0]?.cleaned_script?.split("\n")[0] ?? null;
+    const fw = embeddedRows(item.inspiration_frameworks)[0];
     const hookVerbal = fw?.hook_verbal ?? hookPreview;
     const hookText = fw?.hook_text ?? null;
     const framework = fw?.copywriting_framework ?? null;

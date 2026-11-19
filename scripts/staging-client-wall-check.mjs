@@ -1092,7 +1092,7 @@ check("builder passes the role check in update_client (no such client)", builder
 // src/test/pageQueryCheck.test.ts fails if the two lists differ). Staff load them; a client reads no
 // account links and no other client's row.
 const SHELL_QUERIES = [
-  ["clients", "slug, name, active"],
+  ["clients", "slug, name, active, does_creators"],
   ["client_ad_accounts", "account_id, client_slug"],
   // Client hub Work tab: the cards of one client, read by client_slug (the third item).
   ["pipeline_tasks", "id, clickup_task_id, task_name, stage, due_date, content_type, updated_at, asset_link", "client_slug"],

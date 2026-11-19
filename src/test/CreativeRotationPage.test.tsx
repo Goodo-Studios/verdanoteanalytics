@@ -109,3 +109,38 @@ describe("CreativeRotationPage report", () => {
     );
   });
 });
+
+describe("CreativeRotationPage missing launch dates", () => {
+  it("says launch dates are missing instead of showing 0% / 0 days when no spend is classified by age", async () => {
+    getCreativeRotation.mockResolvedValue({
+      ...sampleResponse,
+      kpis: {
+        ...sampleResponse.kpis, total_spend: 5000, fresh_spend: 0, mid_spend: 0, stale_spend: 0,
+        fresh_spend_pct: 0, spend_weighted_age: 0, fresh_purchases: 0, stale_purchases: 0, fresh_cpa: 0, stale_cpa: 0,
+      },
+    });
+    renderPage();
+    expect(await screen.findByTestId("rotation-no-launch-dates")).toHaveTextContent(/none of its ads have a launch date/i);
+    expect(screen.queryByText("0.0%")).not.toBeInTheDocument();
+    expect(screen.queryByText("0 days")).not.toBeInTheDocument();
+  });
+
+  it("warns when part of the spend has no launch date", async () => {
+    getCreativeRotation.mockResolvedValue({
+      ...sampleResponse,
+      kpis: { ...sampleResponse.kpis, total_spend: 12000 },
+    });
+    renderPage();
+    expect(await screen.findByTestId("rotation-partial-age")).toHaveTextContent(/no launch date/i);
+  });
+
+  it("shows No purchases rather than a $0.00 CPA when a bucket has no purchases", async () => {
+    getCreativeRotation.mockResolvedValue({
+      ...sampleResponse,
+      kpis: { ...sampleResponse.kpis, stale_purchases: 0, stale_cpa: 0 },
+    });
+    renderPage();
+    expect(await screen.findByText("No purchases")).toBeInTheDocument();
+    expect(screen.queryByText("$0.00")).not.toBeInTheDocument();
+  });
+});

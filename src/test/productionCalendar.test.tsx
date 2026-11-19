@@ -33,7 +33,7 @@ vi.mock("@/features/dashboard/productionApi", () => api);
 
 import { answerConfirm } from "@/test/productionConfirm";
 import ProductionCalendarPage from "@/features/dashboard/ProductionCalendarPage";
-import { EMPTY_BLOCK_FORM, EMPTY_SHOOT_FORM, formToBlockArgs, formToShootArgs, formatTime, groupByDate, monthRange, parseMonth, shiftMonth } from "@/features/dashboard/productionModel";
+import { activeClientOptions, monthGrid, shootsByDay, EMPTY_BLOCK_FORM, EMPTY_SHOOT_FORM, formToBlockArgs, formToShootArgs, formatTime, groupByDate, monthRange, parseMonth, shiftMonth } from "@/features/dashboard/productionModel";
 
 const shoot = (id: string, date: string, extra: Partial<Shoot> = {}): Shoot => ({
   id, client_slug: "harbor", shoot_date: date, location: "Demo Loft", location_id: "l1", notes: null, shoot_schedule_blocks: [], call_sheets: [], ...extra,
@@ -74,6 +74,29 @@ describe("production calendar model", () => {
   });
 });
 
+describe("month grid model", () => {
+  it("builds whole Sunday-first weeks and marks days outside the month", () => {
+    const g = monthGrid("2026-12");
+    expect(g.every((w) => w.length === 7)).toBe(true);
+    expect(g.length).toBe(5);
+    expect(g[0][0]).toEqual({ date: "2026-11-29", inMonth: false });
+    expect(g[0][2]).toEqual({ date: "2026-12-01", inMonth: true });
+    expect(g[4][4]).toEqual({ date: "2026-12-31", inMonth: true });
+    expect(monthGrid("2027-02").length).toBe(5);
+    expect(monthGrid("2026-02").length).toBe(4);
+    expect(monthGrid("2026-02")[0][0].date).toBe("2026-02-01");
+  });
+
+  it("places shoots on their days and offers only active clients (keeping the selected one)", () => {
+    const by = shootsByDay([S1, S2, shoot("s3", "2026-12-04", { client_slug: "pine" })]);
+    expect(by.get("2026-12-04")?.map((s) => s.id)).toEqual(["s1", "s3"]);
+    expect(by.get("2026-12-05")).toBeUndefined();
+    const brands = [{ slug: "a", active: true }, { slug: "b", active: false }, { slug: "c", active: false }];
+    expect(activeClientOptions(brands, "").map((b) => b.slug)).toEqual(["a"]);
+    expect(activeClientOptions(brands, "c").map((b) => b.slug)).toEqual(["a", "c"]);
+  });
+});
+
 describe("Production calendar page", () => {
   beforeEach(() => {
     for (const f of [...Object.values(api), loadBrandsAndTeam]) f.mockReset();
@@ -82,7 +105,7 @@ describe("Production calendar page", () => {
     for (const [k, f] of Object.entries(api)) if (k !== "loadCalendar") f.mockResolvedValue(k === "createShoot" ? "new" : undefined);
   });
 
-  const renderAt = (q = "?month=2026-12") => render(<MemoryRouter initialEntries={[`/x${q}`]}><Routes><Route path="/x" element={<ProductionCalendarPage />} /></Routes></MemoryRouter>);
+  const renderAt = (q = "?month=2026-12&view=list") => render(<MemoryRouter initialEntries={[`/x${q}`]}><Routes><Route path="/x" element={<ProductionCalendarPage />} /></Routes></MemoryRouter>);
 
   it("lists the month's shoots by day with talent, blocks in time order and call sheet state", async () => {
     renderAt();
@@ -112,7 +135,7 @@ describe("Production calendar page", () => {
   it("schedules a shoot and refuses a missing date first", async () => {
     renderAt();
     await screen.findByTestId("shoot-s1");
-    fireEvent.click(screen.getByText("Schedule a shoot"));
+    fireEvent.click(screen.getByText("New shoot"));
     fireEvent.change(screen.getByLabelText("Shoot client"), { target: { value: "harbor" } });
     fireEvent.click(screen.getByText("Save shoot"));
     expect((await screen.findByRole("alert")).textContent).toMatch(/date/);
@@ -152,5 +175,54 @@ describe("Production calendar page", () => {
     await screen.findByTestId("shoot-s1");
     fireEvent.click(screen.getByText("Next month"));
     await waitFor(() => expect(api.loadCalendar).toHaveBeenLastCalledWith("2027-01-01", "2027-01-31"));
+  });
+
+  it("shows shoots on their days in the month view and has no sibling-tab links", async () => {
+    renderAt("?month=2026-12");
+    await screen.findByTestId("month-grid");
+    expect(within(screen.getByTestId("day-2026-12-04")).getByTestId("chip-s1").textContent).toBe("Harbor Home");
+    expect(within(screen.getByTestId("day-2026-12-18")).getByTestId("chip-s2").textContent).toBe("Pinecrest");
+    expect(within(screen.getByTestId("day-2026-12-05")).queryByTestId(/^chip-/)).toBeNull();
+    expect(screen.queryByText("Call sheets")).toBeNull();
+    expect(screen.queryByText("Locations")).toBeNull();
+    expect(screen.queryByText("Crew")).toBeNull();
+    fireEvent.click(within(screen.getByTestId("day-2026-12-04")).getByTestId("chip-s1"));
+    expect(await screen.findByTestId("shoot-s1")).toBeTruthy();
+    expect(screen.queryByTestId("shoot-s2")).toBeNull();
+  });
+
+  it("moves between months in the month view and toggles to the list", async () => {
+    renderAt("?month=2026-12");
+    await screen.findByTestId("month-grid");
+    fireEvent.click(screen.getByText("Next month"));
+    await waitFor(() => expect(api.loadCalendar).toHaveBeenLastCalledWith("2027-01-01", "2027-01-31"));
+    expect(screen.getByTestId("calendar-month").textContent).toBe("January 2027");
+    fireEvent.click(screen.getByText("Previous month"));
+    await waitFor(() => expect(api.loadCalendar).toHaveBeenLastCalledWith("2026-12-01", "2026-12-31"));
+    fireEvent.click(screen.getByText("List"));
+    expect(await screen.findByTestId("shoot-s1")).toBeTruthy();
+    expect(screen.queryByTestId("month-grid")).toBeNull();
+  });
+
+  it("creates a shoot from a day with the date prefilled", async () => {
+    renderAt("?month=2026-12");
+    await screen.findByTestId("month-grid");
+    fireEvent.click(within(screen.getByTestId("day-2026-12-09")).getByText("+"));
+    expect((screen.getByLabelText("Shoot date") as HTMLInputElement).value).toBe("2026-12-09");
+    fireEvent.change(screen.getByLabelText("Shoot client"), { target: { value: "pine" } });
+    fireEvent.change(screen.getByLabelText("Typed location"), { target: { value: "Studio B" } });
+    fireEvent.change(screen.getByLabelText("Shoot notes"), { target: { value: "Bring props" } });
+    fireEvent.click(screen.getByText("Save shoot"));
+    await waitFor(() => expect(api.createShoot).toHaveBeenCalledWith({ p_client_slug: "pine", p_shoot_date: "2026-12-09", p_location_id: null, p_location: "Studio B", p_notes: "Bring props" }));
+  });
+
+  it("offers only active clients in the shoot form", async () => {
+    loadBrandsAndTeam.mockResolvedValue({ brands: [{ slug: "harbor", name: "Harbor Home", active: true }, { slug: "old", name: "Old Client", active: false }], users: [] });
+    renderAt("?month=2026-12");
+    await screen.findByTestId("month-grid");
+    fireEvent.click(screen.getByText("New shoot"));
+    const select = screen.getByLabelText("Shoot client");
+    expect(within(select).queryByText("Old Client")).toBeNull();
+    expect(within(select).getByText("Harbor Home")).toBeTruthy();
   });
 });

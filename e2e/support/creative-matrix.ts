@@ -104,6 +104,27 @@ export async function openTaxonomyTab(page: Page): Promise<boolean> {
 }
 
 /**
+ * Open the Taxonomy tab of a client in the client hub (/clients/:slug/taxonomy). Taxonomy moved there
+ * from Settings. Opens the client list, picks the pilot client (MATRIX_ACCOUNT_NAME) or the first one,
+ * then the hub's Taxonomy tab. Returns false when the hub has no Taxonomy tab (not a builder).
+ */
+export async function openClientTaxonomy(page: Page): Promise<boolean> {
+  await page.goto(`${rolePrefix(page)}/clients`);
+  const cards = page.locator('[data-testid^="overview-client-"]');
+  await cards.first().waitFor({ state: "visible", timeout: 15_000 });
+  const pilot = cards.filter({ hasText: new RegExp(MATRIX_ACCOUNT_NAME, "i") });
+  await ((await pilot.count()) > 0 ? pilot.first() : cards.first()).click();
+  try {
+    const tab = page.getByRole("navigation", { name: "Client tabs" }).getByRole("link", { name: /^Taxonomy$/ });
+    await tab.waitFor({ state: "visible", timeout: 8_000 });
+    await tab.click();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Select the pilot account in the board's account picker when it is present
  * (it only renders for multi-account sessions). No-op when the account can't be
  * found — the board falls back to the app-selected / first account, which is

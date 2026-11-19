@@ -22,8 +22,9 @@
 --                (vault-search), which reads only vault_visible_item_ids()
 --   staff_area   the staff pages' functions; each must refuse non-staff in its own body
 --                (checked below: the body has has_role(auth.uid(), ...))
---   anon         row rules for public Ad Library boards, a yes/no for one id; signed-in
---                users may call these too
+--   anon         the two shared-link lookups (get_public_report, get_shared_brief). The
+--                public Ad Library board helpers were removed from this list in audit 3.3
+--                part 3; nothing may call them any more.
 
 BEGIN;
 SELECT plan(9);
@@ -64,7 +65,6 @@ INSERT INTO allow VALUES
   ('row_rules','owns_ad_library_ad'), ('row_rules','owns_ad_library_board'),
   ('row_rules','vault_owns_board'), ('row_rules','vault_visible_item_ids'),
   ('edge_user','match_items'),
-  ('anon','board_is_public'), ('anon','ad_is_on_public_board'),
   -- Audit 1.3: shared links. Each returns at most the one row its id or token names, and only
   -- when that row is shared (is_public / is_shared). Tested in public_share_lookups_test.sql.
   ('anon','get_public_report'), ('anon','get_shared_brief');
@@ -72,7 +72,7 @@ INSERT INTO allow
   SELECT 'staff_area', unnest(ARRAY[
     'app_user_role_mapping', 'apply_actor_approval_votes', 'apply_approval_votes',
     'approve_actor_application', 'approve_application', 'archive_crew_member',
-    'cast_actor_onto_shoot', 'claim_ad_code', 'confirm_actor_for_shoot',
+    'cast_actor_onto_shoot', 'claim_ad_code', 'claim_and_save_ad_name', 'confirm_actor_for_shoot',
     'create_call_sheet', 'create_client', 'create_crew_member', 'create_location',
     'create_prop', 'create_shoot', 'create_shoot_schedule_block',
     'create_studio_shipment', 'delete_location', 'goodo_os_user_role_mapping',

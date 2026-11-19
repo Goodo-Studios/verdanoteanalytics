@@ -176,7 +176,8 @@ describe("TeamPage", () => {
     expect(byName("Vic Viewer")).toHaveTextContent("No client linked yet");
     expect(within(byName("Vic Viewer")).getByTestId("no-client-linked-link").getAttribute("href")).toMatch(/\/clients$/);
     expect(within(byName("Vic Viewer")).queryByRole("button", { name: /Set role/ })).toBeNull();
-    expect(within(byName("Client Mail")).queryByRole("button")).toBeNull();
+    // A client login row has no action button; the only button is the X that hides the suggestion.
+    expect(within(byName("Client Mail")).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["Hide the suggestion for Client Mail"]);
     expect(byName("Client Mail")).toHaveTextContent("Check by hand who this login belongs to");
     expect(screen.getByText(/Nothing is sent until a builder presses Send invite by email/)).toBeTruthy();
   });
