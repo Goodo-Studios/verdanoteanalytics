@@ -57,7 +57,7 @@ export function useCreativesPageState() {
   const [page, setPage] = useState(0);
   const [searchInput, setSearchInput] = useState(() => searchParams.get("q") || "");
   const [search, setSearch] = useState(() => searchParams.get("q") || "");
-  const searchTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Advanced filters
   const [advancedConditions, setAdvancedConditionsState] = useState<AdvancedConditions>(() =>
