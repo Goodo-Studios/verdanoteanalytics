@@ -8,6 +8,7 @@
  * object and got nothing. Every earlier test fed arrays, which hid it. These feed the real shape.
  */
 import { render, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -82,7 +83,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 import ItemDetailPage from "@/features/vault/ItemDetailPage";
 import HooksPage from "@/features/vault/HooksPage";
 
-function renderAt(path: string, routePath: string, element: JSX.Element) {
+function renderAt(path: string, routePath: string, element: ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
