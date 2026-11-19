@@ -16,6 +16,12 @@
 //      place (centroid + anchors + last_seen refreshed); entities no longer seen
 //      are retired. A re-run with no new creatives reproduces identical entity ids.
 //
+// BATCHING (audit 7.3, option B): every running ad is grouped, not just the newest 1,000.
+// Complete linkage over one account (up to about 5,800 ads) needs an m by m matrix and is
+// roughly cubic, so the account is read GROUPING_BATCH ads at a time, each batch is grouped on
+// its own (clusterBatch), and the batch groups are merged by shared anchors and by complete
+// linkage over their centres (mergeBatchGroups). See batched-grouping.ts.
+//
 // SCOPE: ACTIVE ads only. The Entity Report is a LIVE diversity signal — "is the
 // content currently running in this account too similar or too diverse?" — so
 // clustering only considers ad_status = 'ACTIVE'. Paused/old creatives are reset
@@ -29,22 +35,25 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { json } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
-import { loadGroupingInputs } from "../_shared/grouping-inputs.ts";
+import { GROUPING_BATCH, GROUPING_MAX_ADS, loadGroupingInputs } from "../_shared/grouping-inputs.ts";
 import { restampInSteps } from "./restamp.ts";
 import { type ExistingEntityRow, loadExistingEntityRows, retireEntities } from "./entity-reads.ts";
 import {
+  clusterBatch,
+  type GroupSummary,
+  groupKey,
+  mergeBatchGroups,
+  type Participant,
+  sharedDestination,
+} from "./batched-grouping.ts";
+import {
   blendedTier,
   type CandidateGroup,
-  centroid,
   clusterLabel,
   clusterStats,
-  completeLinkageBlocks,
-  cosineSimilarity,
-  type CreativeMetrics,
   effectiveEntities,
   type ExistingEntity,
   matchGroupsToEntities,
-  modalityCoherent,
   representativeAdId,
 } from "../_shared/entity-clustering.ts";
 
@@ -71,34 +80,81 @@ function parseEmbedding(v: unknown): number[] | null {
 const arr = (v: unknown): string[] =>
   Array.isArray(v) ? (v as unknown[]).map(String).filter(Boolean) : [];
 
-// Union-find over an index space.
-function makeUF(n: number) {
-  const parent = Array.from({ length: n }, (_, i) => i);
-  const find = (x: number): number => {
-    while (parent[x] !== x) {
-      parent[x] = parent[parent[x]];
-      x = parent[x];
-    }
-    return x;
-  };
-  const union = (a: number, b: number) => {
-    const ra = find(a), rb = find(b);
-    if (ra !== rb) parent[ra] = rb;
-  };
-  return { find, union };
-}
+// Turn one batch of creative rows into participants: parse their embeddings, resolve asset ids to
+// asset keys (the primary exact anchor), and keep only ads that can cluster (an embedding in any
+// modality, or at least one anchor).
+async function buildParticipants(
+  creatives: Record<string, unknown>[],
+  embeddings: Map<string, Record<string, unknown>>,
+): Promise<Participant[]> {
+  const embById = new Map<string, number[]>();
+  const visualById = new Map<string, number[]>();
+  const scriptById = new Map<string, number[]>();
+  for (const [adId, row] of embeddings) {
+    const e = parseEmbedding(row.embedding);
+    if (e) embById.set(adId, e);
+    const ve = parseEmbedding(row.visual_embedding);
+    if (ve) visualById.set(adId, ve);
+    const se = parseEmbedding(row.script_embedding);
+    if (se) scriptById.set(adId, se);
+  }
 
-interface Participant {
-  ad_id: string;
-  embedding: number[] | null;
-  visualEmb: number[] | null;
-  scriptEmb: number[] | null;
-  destinationKey: string | null;
-  assetKeys: string[];
-  metaVideoIds: string[];
-  metaImageHashes: string[];
-  metrics: CreativeMetrics;
-  ad_name?: string;
+  const participants: Participant[] = [];
+  const assetIdSet = new Set<string>();
+  for (const row of creatives) {
+    const adId = row.ad_id as string;
+    if (row.thumb_asset_id) assetIdSet.add(row.thumb_asset_id as string);
+    if (row.video_asset_id) assetIdSet.add(row.video_asset_id as string);
+    participants.push({
+      ad_id: adId,
+      embedding: embById.get(adId) ?? null,
+      visualEmb: visualById.get(adId) ?? null,
+      scriptEmb: scriptById.get(adId) ?? null,
+      destinationKey: (row.destination_key as string) ?? null,
+      assetKeys: [], // filled after the media_assets lookup
+      metaVideoIds: arr(row.meta_video_ids),
+      metaImageHashes: arr(row.meta_image_hashes),
+      ad_name: (row.ad_name as string) ?? undefined,
+      metrics: {
+        ad_id: adId,
+        spend: Number(row.spend) || 0,
+        roas: Number(row.roas) || 0,
+        ctr: Number(row.ctr) || 0,
+        cpa: Number(row.cpa) || 0,
+        tag_source: (row.tag_source as string) ?? null,
+        tags: {
+          ad_type: row.ad_type as string, person: row.person as string,
+          style: row.style as string, product: row.product as string,
+          hook: row.hook as string, theme: row.theme as string,
+        },
+      },
+    });
+  }
+
+  const assetKeyById = new Map<string, string>();
+  const assetIds = [...assetIdSet];
+  for (let i = 0; i < assetIds.length; i += 500) {
+    const chunk = assetIds.slice(i, i + 500);
+    const { data: assets, error } = await db.from("media_assets").select("id, asset_key").in("id", chunk);
+    if (error) throw new Error(`media_assets read: ${error.message}`);
+    for (const a of assets ?? []) assetKeyById.set((a as { id: string }).id, (a as { asset_key: string }).asset_key);
+  }
+  const byAd = new Map(creatives.map((c) => [c.ad_id as string, c]));
+  for (const p of participants) {
+    const raw = byAd.get(p.ad_id);
+    const keys: string[] = [];
+    const thumb = raw?.thumb_asset_id as string | null | undefined;
+    const video = raw?.video_asset_id as string | null | undefined;
+    if (thumb && assetKeyById.has(thumb)) keys.push(assetKeyById.get(thumb)!);
+    if (video && assetKeyById.has(video)) keys.push(assetKeyById.get(video)!);
+    p.assetKeys = keys;
+  }
+
+  return participants.filter(
+    (p) =>
+      p.embedding || p.visualEmb || p.scriptEmb ||
+      p.assetKeys.length || p.metaVideoIds.length || p.metaImageHashes.length,
+  );
 }
 
 Deno.serve(async (req) => {
@@ -114,162 +170,46 @@ Deno.serve(async (req) => {
   if (!accountId) return json({ error: "account_id required" }, 400);
   const threshold: number = Number.isFinite(body.threshold) ? Number(body.threshold) : 0.7;
 
-  // 1-2. The account's newest running ads (at most GROUPING_CAP) and their embeddings: note
-  //      (v1) plus the multi-modal visual + script vectors (US-003) that US-006 blends.
-  //      Read for exactly these ads (audit 7.3); see _shared/grouping-inputs.ts.
-  let inputs;
-  try {
-    inputs = await loadGroupingInputs(
-      db,
-      accountId,
-      "ad_id, ad_name, spend, roas, ctr, cpa, tag_source, ad_type, person, style, product, hook, theme, meta_video_ids, meta_image_hashes, thumb_asset_id, video_asset_id, destination_key",
-    );
-  } catch (e) {
-    return json({ error: (e as Error).message }, 500);
-  }
-  const embById = new Map<string, number[]>();
-  const visualById = new Map<string, number[]>();
-  const scriptById = new Map<string, number[]>();
-  for (const [adId, row] of inputs.embeddings) {
-    const e = parseEmbedding(row.embedding);
-    if (e) embById.set(adId, e);
-    const ve = parseEmbedding(row.visual_embedding);
-    if (ve) visualById.set(adId, ve);
-    const se = parseEmbedding(row.script_embedding);
-    if (se) scriptById.set(adId, se);
-  }
+  // 1-3. Read the account's running ads one batch at a time, newest first, and group each batch
+  //      on its own. Only a small summary of each group is kept, so a batch's embeddings (note,
+  //      visual and script vectors, US-003/US-006) are released before the next batch loads.
+  const columns =
+    "ad_id, ad_name, spend, roas, ctr, cpa, tag_source, ad_type, person, style, product, hook, theme, meta_video_ids, meta_image_hashes, thumb_asset_id, video_asset_id, destination_key";
+  const batchGroups: GroupSummary[] = [];
+  const seenAds = new Set<string>();
+  let participantCount = 0;
+  let batchCount = 0;
+  let hitCeiling = false;
+  for (let offset = 0; ; offset += GROUPING_BATCH) {
+    if (offset >= GROUPING_MAX_ADS) { hitCeiling = true; break; }
+    let inputs;
+    try {
+      inputs = await loadGroupingInputs(db, accountId, columns, GROUPING_BATCH, offset);
+    } catch (e) {
+      return json({ error: (e as Error).message }, 500);
+    }
+    batchCount++;
+    // New ads arriving mid-run shift the pages; an ad seen in an earlier batch is skipped.
+    const fresh = inputs.creatives.filter((c) => !seenAds.has(String(c.ad_id)));
+    for (const c of fresh) seenAds.add(String(c.ad_id));
 
-  const participants: Participant[] = [];
-  const assetIdSet = new Set<string>();
-  const rawByAd = new Map<string, { thumb_asset_id?: string | null; video_asset_id?: string | null }>();
-  {
-      for (const c of inputs.creatives) {
-        const row = c as Record<string, unknown>;
-        const adId = row.ad_id as string;
-        if (row.thumb_asset_id) assetIdSet.add(row.thumb_asset_id as string);
-        if (row.video_asset_id) assetIdSet.add(row.video_asset_id as string);
-        rawByAd.set(adId, {
-          thumb_asset_id: row.thumb_asset_id as string | null,
-          video_asset_id: row.video_asset_id as string | null,
-        });
-        participants.push({
-          ad_id: adId,
-          embedding: embById.get(adId) ?? null,
-          visualEmb: visualById.get(adId) ?? null,
-          scriptEmb: scriptById.get(adId) ?? null,
-          destinationKey: (row.destination_key as string) ?? null,
-          assetKeys: [], // filled after media_assets lookup
-          metaVideoIds: arr(row.meta_video_ids),
-          metaImageHashes: arr(row.meta_image_hashes),
-          ad_name: (row.ad_name as string) ?? undefined,
-          metrics: {
-            ad_id: adId,
-            spend: Number(row.spend) || 0,
-            roas: Number(row.roas) || 0,
-            ctr: Number(row.ctr) || 0,
-            cpa: Number(row.cpa) || 0,
-            tag_source: (row.tag_source as string) ?? null,
-            tags: {
-              ad_type: row.ad_type as string, person: row.person as string,
-              style: row.style as string, product: row.product as string,
-              hook: row.hook as string, theme: row.theme as string,
-            },
-          },
-        });
-      }
-  }
+    let items: Participant[];
+    try {
+      items = await buildParticipants(fresh, inputs.embeddings);
+    } catch (e) {
+      return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+    }
+    participantCount += items.length;
+    batchGroups.push(...clusterBatch(items, threshold));
 
-  // 2b. Resolve asset ids -> asset_key (the primary exact anchor).
-  const assetKeyById = new Map<string, string>();
-  const assetIds = [...assetIdSet];
-  for (let i = 0; i < assetIds.length; i += 500) {
-    const chunk = assetIds.slice(i, i + 500);
-    const { data: assets } = await db.from("media_assets").select("id, asset_key").in("id", chunk);
-    for (const a of assets ?? []) assetKeyById.set((a as { id: string }).id, (a as { asset_key: string }).asset_key);
+    if (inputs.creatives.length < GROUPING_BATCH) break;
   }
-  for (const p of participants) {
-    const raw = rawByAd.get(p.ad_id);
-    const keys: string[] = [];
-    if (raw?.thumb_asset_id && assetKeyById.has(raw.thumb_asset_id)) keys.push(assetKeyById.get(raw.thumb_asset_id)!);
-    if (raw?.video_asset_id && assetKeyById.has(raw.video_asset_id)) keys.push(assetKeyById.get(raw.video_asset_id)!);
-    p.assetKeys = keys;
-  }
-
-  // Only creatives that can cluster: any embedding modality OR at least one anchor.
-  const items = participants.filter(
-    (p) =>
-      p.embedding || p.visualEmb || p.scriptEmb ||
-      p.assetKeys.length || p.metaVideoIds.length || p.metaImageHashes.length,
-  );
-  if (items.length === 0) {
+  if (batchGroups.length === 0) {
     return json({ ok: true, clusters: 0, clustered: 0, effective_entities: 0, note: "no embeddings/anchors for account" });
   }
 
-  // 3. Grouping. Combined union-find + a parallel anchors-ONLY union-find (for the
-  //    'exact' tier: a group whose every member is anchor-connected).
-  const n = items.length;
-  const combined = makeUF(n);
-  const anchorOnly = makeUF(n);
-
-  // 3a. Anchor unions (O(total anchors)): first index seen for an anchor value
-  //     unions with every subsequent index carrying it.
-  const firstForAnchor = new Map<string, number>();
-  const anchorTag = (kind: string, v: string) => `${kind}:${v}`;
-  items.forEach((p, i) => {
-    const tags = [
-      ...p.assetKeys.map((k) => anchorTag("a", k)),
-      ...p.metaVideoIds.map((k) => anchorTag("v", k)),
-      ...p.metaImageHashes.map((k) => anchorTag("h", k)),
-    ];
-    for (const t of tags) {
-      if (firstForAnchor.has(t)) {
-        combined.union(firstForAnchor.get(t)!, i);
-        anchorOnly.union(firstForAnchor.get(t)!, i);
-      } else {
-        firstForAnchor.set(t, i);
-      }
-    }
-  });
-
-  // 3b. Embedding agglomeration — COMPLETE linkage (was single linkage).
-  //
-  //     Two creatives are "linkable" when they are similar on ANY modality — note
-  //     (v1), visual, or script (US-006) — exactly as before. What changed is how
-  //     linkable pairs become groups. This used to be a union-find, i.e. SINGLE
-  //     linkage: A and B ended up in one entity if ANY chain of similar creatives
-  //     connected them. On the v2 rich feature text that chains across a whole
-  //     account. Measured on Bearaby (2,391 ACTIVE ads) at this same 0.7:
-  //
-  //       single   ->    9 entities, largest 2,126 (97% of covered ads, 89% of spend)
-  //       complete ->  131 entities, largest   231, 15.3% singletons
-  //       average  ->   49 entities, largest 1,414  (does NOT fix it)
-  //
-  //     Complete linkage requires EVERY pair inside an entity to be within
-  //     threshold, so transitive chaining cannot happen. Anchors stay on the
-  //     union-find above and are handed in as atomic seed blocks: a shared
-  //     asset_key / video id / image hash is exact identity, and identity IS
-  //     transitive, so anchor components are correctly exempt.
-  //
-  //     See companies/verdanote/projects/creative-diversity/US-001-fingerprint-validation-spike.md
-  const pairDistance = (i: number, j: number): number => {
-    const a = items[i], b = items[j];
-    let best = Infinity;
-    if (a.embedding && b.embedding) best = Math.min(best, 1 - cosineSimilarity(a.embedding, b.embedding));
-    if (a.visualEmb && b.visualEmb) best = Math.min(best, 1 - cosineSimilarity(a.visualEmb, b.visualEmb));
-    if (a.scriptEmb && b.scriptEmb) best = Math.min(best, 1 - cosineSimilarity(a.scriptEmb, b.scriptEmb));
-    return best;
-  };
-
-  // Anchor components become atomic seed blocks for the agglomeration.
-  const anchorBlockMap = new Map<number, number[]>();
-  for (let i = 0; i < n; i++) {
-    const r = combined.find(i);
-    if (!anchorBlockMap.has(r)) anchorBlockMap.set(r, []);
-    anchorBlockMap.get(r)!.push(i);
-  }
-  const seedBlocks = [...anchorBlockMap.values()].filter((b) => b.length > 1);
-
-  const groups = completeLinkageBlocks(n, pairDistance, 1 - threshold, seedBlocks);
+  // Merge the batches: shared anchors are one unit, the rest by complete linkage over centres.
+  const groups = mergeBatchGroups(batchGroups, threshold);
 
   // 4. Existing entities for the account (for match-not-regenerate).
   //    Paged, so accounts with more than 1,000 groups see all of them (7.3 follow-up).
@@ -291,38 +231,18 @@ Deno.serve(async (req) => {
   });
 
   // 5. Build candidate groups (anchors + centroid + stable key) and match.
-  const built = groups.map((memberIdxs) => {
-    const members = memberIdxs.map((i) => items[i]);
-    const key = members.map((m) => m.ad_id).sort()[0];
-    const assetKeys = [...new Set(members.flatMap((m) => m.assetKeys))];
-    const metaVideoIds = [...new Set(members.flatMap((m) => m.metaVideoIds))];
-    const metaImageHashes = [...new Set(members.flatMap((m) => m.metaImageHashes))];
-    // Centroid for identity re-match prefers the note embedding, then visual, then
-    // script — whichever the members carry (so matching is stable across runs).
-    const cen = centroid(members.map((m) => m.embedding).filter((e): e is number[] => !!e)) ??
-      centroid(members.map((m) => m.visualEmb).filter((e): e is number[] => !!e)) ??
-      centroid(members.map((m) => m.scriptEmb).filter((e): e is number[] => !!e));
-    // 'exact' iff >=2 members AND all members share one anchor-only component.
-    const anchorRoots = new Set(memberIdxs.map((i) => anchorOnly.find(i)));
-    const isExact = members.length >= 2 && anchorRoots.size === 1 &&
-      (assetKeys.length > 0 || metaVideoIds.length > 0 || metaImageHashes.length > 0);
-    // US-006 signal agreement: does each modality independently cohere?
-    const visualCoherent = modalityCoherent(
-      members.map((m) => m.visualEmb).filter((e): e is number[] => !!e), threshold);
-    const scriptCoherent = modalityCoherent(
-      members.map((m) => m.scriptEmb).filter((e): e is number[] => !!e), threshold);
-    // Weak tiebreak: all members land on ONE non-null destination.
-    const dests = new Set(members.map((m) => m.destinationKey).filter(Boolean));
-    const sharedDestination = members.length >= 2 && dests.size === 1;
-    return {
-      members, key, assetKeys, metaVideoIds, metaImageHashes, centroid: cen,
-      isExact, visualCoherent, scriptCoherent, sharedDestination,
-    };
-  });
+  const built = groups.map((g) => ({
+    group: g,
+    key: groupKey(g),
+    // Centroid for identity re-match prefers the note embedding, then visual, then script,
+    // whichever the members carry (so matching is stable across runs).
+    centroid: g.noteCentroid ?? g.visualCentroid ?? g.scriptCentroid,
+    sharedDestination: sharedDestination(g),
+  }));
 
   const candidates: CandidateGroup[] = built.map((g) => ({
-    key: g.key, size: g.members.length, centroid: g.centroid,
-    assetKeys: g.assetKeys, metaVideoIds: g.metaVideoIds, metaImageHashes: g.metaImageHashes,
+    key: g.key, size: g.group.memberIds.length, centroid: g.centroid,
+    assetKeys: g.group.assetKeys, metaVideoIds: g.group.metaVideoIds, metaImageHashes: g.group.metaImageHashes,
   }));
   const matched = matchGroupsToEntities(candidates, existing, threshold);
 
@@ -343,19 +263,19 @@ Deno.serve(async (req) => {
 
   for (let gi = 0; gi < built.length; gi++) {
     const g = built[gi];
-    const members = g.members.map((p) => p.metrics);
+    const members = g.group.metrics;
     const stats = clusterStats(members);
     const tier = blendedTier({
-      isExact: g.isExact,
-      visualCoherent: g.visualCoherent,
-      scriptCoherent: g.scriptCoherent,
+      isExact: g.group.isExact,
+      visualCoherent: g.group.visualCoherent,
+      scriptCoherent: g.group.scriptCoherent,
       hasManual: stats.manual_tag_frac > 0,
       nMembers: members.length,
       sharedDestination: g.sharedDestination,
     });
     const totalSpend = members.reduce((s, m) => s + m.spend, 0);
     const repId = representativeAdId(members);
-    const adNameById = new Map(g.members.map((p) => [p.ad_id, p.ad_name]));
+    const adNameById = new Map(g.group.adNames);
     const label = clusterLabel(members, repId ? adNameById.get(repId) : undefined);
 
     const entityId = matched[gi] ?? crypto.randomUUID();
@@ -374,14 +294,14 @@ Deno.serve(async (req) => {
       representative_ad_id: repId,
       threshold, model: MODEL,
       centroid: g.centroid,
-      asset_keys: g.assetKeys,
-      meta_video_ids: g.metaVideoIds,
-      meta_image_hashes: g.metaImageHashes,
+      asset_keys: g.group.assetKeys,
+      meta_video_ids: g.group.metaVideoIds,
+      meta_image_hashes: g.group.metaImageHashes,
       last_seen_at: nowIso,
     }, { onConflict: "id" });
     if (upErr) return json({ error: `entity upsert: ${upErr.message}` }, 500);
 
-    for (const p of g.members) stamps.push({ ad_id: p.ad_id, cluster_id: entityId, confidence: tier });
+    for (const adId of g.group.memberIds) stamps.push({ ad_id: adId, cluster_id: entityId, confidence: tier });
 
     clusterSpends.push(totalSpend);
     clusteredCount += members.length;
@@ -407,7 +327,9 @@ Deno.serve(async (req) => {
   return json({
     ok: true,
     threshold,
-    participants: items.length,
+    participants: participantCount,
+    batches: batchCount,
+    capped: hitCeiling,
     clustered: clusteredCount,
     clusters: assignedIds.length,
     entities_reused: reused,
