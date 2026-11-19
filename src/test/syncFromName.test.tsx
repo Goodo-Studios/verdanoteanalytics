@@ -142,7 +142,10 @@ describe("SyncFromNameDialog", () => {
     const onClose = vi.fn();
     apiFetch.mockResolvedValueOnce(PREVIEW).mockRejectedValueOnce(new Error("boom"));
     render(<SyncFromNameDialog open onClose={onClose} adIds={["ad-1", "ad-2"]} />, { wrapper: wrap(qc) });
-    fireEvent.click(await screen.findByRole("button", { name: "Apply to 2 ads" }));
+    // The Apply button is on screen (disabled) while the preview loads, and a click on a disabled
+    // button does nothing. Wait for the preview summary first, as the first test does.
+    await screen.findByTestId("sync-summary");
+    fireEvent.click(screen.getByRole("button", { name: "Apply to 2 ads" }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Sync failed");
     expect(alert).toHaveTextContent("boom");
